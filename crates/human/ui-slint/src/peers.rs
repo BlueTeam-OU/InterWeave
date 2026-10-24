@@ -14,8 +14,8 @@ use interweave_human_client_api::{AddressOrigin, TrustProblem};
 use interweave_human_ui_model::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, CODE_LINES, HostText,
     LineSelection, ListProblem, Peers, PeersFocus, PeersInput, PeersSnack, Refusal, RowState,
-    RuntimeHost, TYPED_LINES, TrustLine, TrustSettings, UiModel, UiText, fill, placeholder_en,
-    short_peer,
+    RuntimeHost, ScanControl, TYPED_LINES, TrustLine, TrustSettings, UiModel, UiText, fill,
+    placeholder_en, short_peer,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{ModelRc, SharedString, VecModel};
@@ -127,7 +127,39 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     window.on_peers_open_add(on(shared, PeersInput::OpenAdd));
     window.on_peers_add_closed(on(shared, PeersInput::Close));
     window.on_peers_add(on(shared, PeersInput::Add));
-    window.on_peers_scan(on(shared, PeersInput::ScanPressed));
+    // A scan press names its control, which the view keeps to start the
+    // matching reader once the model opens the scan, and which the model
+    // keeps to send focus back to.
+    for (control, set) in [
+        (
+            ScanControl::Camera,
+            AppWindow::on_peers_scan as fn(&AppWindow, _),
+        ),
+        (ScanControl::OpenImage, AppWindow::on_peers_open_image),
+        (ScanControl::PasteImage, AppWindow::on_peers_paste_image),
+    ] {
+        let s = Rc::clone(shared);
+        set(
+            window,
+            Box::new(move || {
+                s.borrow_mut().scan_control = Some(control);
+                enqueue(&s, Input::Peers(PeersInput::ScanPressed(control)));
+            }),
+        );
+    }
+    // A reader's result, handed over on the window's thread.
+    let s = Rc::clone(shared);
+    window.on_peers_image_done(move || {
+        let read = s
+            .borrow()
+            .scan_result
+            .lock()
+            .ok()
+            .and_then(|mut r| r.take());
+        if let Some(input) = read {
+            enqueue(&s, Input::Peers(input));
+        }
+    });
     window.on_peers_done(on(shared, PeersInput::Close));
     let s = Rc::clone(shared);
     window.on_address_edited(move |typed| {
@@ -568,7 +600,48 @@ impl View {
 
     /// The add page: step one's field, notes and result, and step two's
     /// blocks.
+    /// The scan controls this platform offers, and the reader a scan the
+    /// model opened needs, started once: the desktop's image dialog or its
+    /// clipboard. The camera's viewfinder is the Android app's.
+    fn render_scan(&mut self, peers: &Peers) {
+        let mut shared = self.shared.borrow_mut();
+        if !peers.scan_open() {
+            shared.scan_reading = None;
+            return;
+        }
+        if shared.scan_reading.is_some() {
+            return;
+        }
+        let Some(control) = shared.scan_control else {
+            return;
+        };
+        if control == ScanControl::Camera {
+            return;
+        }
+        shared.scan_reading = Some(control);
+        #[cfg(feature = "desktop")]
+        {
+            let slot = std::sync::Arc::clone(&shared.scan_result);
+            drop(shared);
+            let window = slint::ComponentHandle::as_weak(&self.window);
+            let done = move |input: PeersInput| {
+                if let Ok(mut held) = slot.lock() {
+                    *held = Some(input);
+                }
+                let _ = window.upgrade_in_event_loop(|w| w.invoke_peers_image_done());
+            };
+            crate::scan_images::read(control, text(UiText::CodeImageFilter).to_owned(), done);
+        }
+        // No reader in this build: the scan ends as a cancelled one.
+        #[cfg(not(feature = "desktop"))]
+        {
+            drop(shared);
+            enqueue(&self.shared, Input::Peers(PeersInput::ScannerClosed));
+        }
+    }
+
     fn render_add_page(&mut self, peers: &Peers, trust: &TrustSettings) {
+        self.render_scan(peers);
         let window = &self.window;
         let host = self.host;
         window.set_peers_add_open(peers.add_open());
@@ -600,7 +673,10 @@ impl View {
                 (String::new(), n, String::new())
             }
             (Some(AddNote::Refused { .. }), Some(n)) => (n, String::new(), String::new()),
-            (Some(AddNote::ScanAfterField), Some(n)) => (String::new(), n, String::new()),
+            (
+                Some(AddNote::ScanAfterField | AddNote::ImageNoCode | AddNote::NotAddress),
+                Some(n),
+            ) => (String::new(), n, String::new()),
             (Some(_), Some(n)) => (String::new(), String::new(), n),
             _ => (String::new(), String::new(), String::new()),
         };
@@ -754,6 +830,8 @@ fn note_text(host: RuntimeHost, note: &AddNote) -> String {
     match note {
         AddNote::AddressNeeded => text(UiText::AddressNeeded).to_owned(),
         AddNote::ScanAfterField => text(UiText::ScanAfterField).to_owned(),
+        AddNote::ImageNoCode => text(UiText::ImageNoCode).to_owned(),
+        AddNote::NotAddress => text(UiText::ScanNotAddress).to_owned(),
         AddNote::Refused { line, why } if why.names_line() => fill(
             text(UiText::AddRefused),
             &[("line", line), ("reason", &refusal_text(*why))],
@@ -805,6 +883,9 @@ impl View {
             }
             PeersFocus::Note => "add-page-note".to_owned(),
             PeersFocus::AddButton => "add-action".to_owned(),
+            PeersFocus::Scan(ScanControl::Camera) => "scan-code".to_owned(),
+            PeersFocus::Scan(ScanControl::OpenImage) => "open-image".to_owned(),
+            PeersFocus::Scan(ScanControl::PasteImage) => "paste-image".to_owned(),
             PeersFocus::Block(peer) => format!("block:{}", self.peer_lists.block_handles.of(peer)),
             PeersFocus::BlockProblem(peer) => {
                 format!("block-problem:{}", self.peer_lists.block_handles.of(peer))

@@ -2241,3 +2241,62 @@ fn an_add_on_its_way_reads_adding_and_is_said_once() {
         "Add's own label back"
     );
 }
+
+/// The desktop's image controls are drawn once offered and not before;
+/// an image with no code says so under them with focus back on the
+/// control used (§5.5, §8). With no image reader compiled -- this crate
+/// without its `desktop` feature -- a press ends the scan at once as a
+/// cancelled one, focus back on the control; with it, a press would open
+/// the platform's dialog, so the scan is opened through the model.
+#[test]
+fn the_image_controls_scan_and_an_image_without_a_code_is_said_under_them() {
+    use interweave_human_ui_model::{PeersInput, ScanControl};
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        labelled(&view, text(UiText::OpenCodeImage)).is_empty(),
+        "not offered"
+    );
+
+    view.offer_scans(false, true);
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::ScanCode)).is_empty(),
+        "no camera here"
+    );
+    assert_eq!(labelled(&view, text(UiText::PasteCodeImage)).len(), 1);
+    for (control, label, key) in [
+        (ScanControl::OpenImage, UiText::OpenCodeImage, "open-image"),
+        (
+            ScanControl::PasteImage,
+            UiText::PasteCodeImage,
+            "paste-image",
+        ),
+    ] {
+        let _ = model.peers_input(PeersInput::ScanPressed(control));
+        view.render(&model);
+        assert!(model.peers().scan_open());
+        let _ = model.peers_input(PeersInput::ImageNoCode);
+        let _ = intents(&mut view, &mut model);
+        assert_eq!(
+            view.window().get_scan_note().as_str(),
+            text(UiText::ImageNoCode)
+        );
+        slint::platform::update_timers_and_animations();
+        assert_eq!(view.window().get_focus_target().as_str(), key);
+        if !cfg!(feature = "desktop") {
+            press(&view, text(label));
+            // The press, then the reader's at-once ending, each a turn.
+            let _ = intents(&mut view, &mut model);
+            let _ = intents(&mut view, &mut model);
+            assert!(!model.peers().scan_open(), "no reader: ended at once");
+        }
+        // Focus moves on a timer's turn, after the render that asks it.
+        slint::platform::update_timers_and_animations();
+        assert_eq!(view.window().get_focus_target().as_str(), key);
+    }
+}

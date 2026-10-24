@@ -37,10 +37,13 @@ use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 mod body;
 mod clock;
+pub mod code;
 mod gesture;
 mod identity;
 mod peers;
 mod refusal;
+#[cfg(feature = "desktop")]
+mod scan_images;
 mod store_screen;
 mod swipe;
 
@@ -403,6 +406,14 @@ struct Shared {
     /// The window, to take a snackbar off screen when an input that closes
     /// it is queued.
     window: slint::Weak<AppWindow>,
+    /// The scan control last pressed: which reader a scan the model opens
+    /// needs.
+    scan_control: Option<interweave_human_ui_model::ScanControl>,
+    /// The control whose reader runs for the scan open now: one per scan.
+    scan_reading: Option<interweave_human_ui_model::ScanControl>,
+    /// A reader's result, put here by its thread and taken on the
+    /// window's.
+    scan_result: std::sync::Arc<std::sync::Mutex<Option<PeersInput>>>,
 }
 
 /// A snackbar, as the queue judges what closes it.
@@ -1058,6 +1069,18 @@ impl View {
             }
             EventResult::Propagate
         });
+    }
+
+    /// The scan controls this platform offers on the add page
+    /// (`design/2026-10-22-add-a-peer.md` §5.5): the camera on a phone
+    /// that has one, an image file and the clipboard's image on the
+    /// desktop. None by default, and none is drawn: typing or pasting the
+    /// text does all a scan does. The images' reader is compiled only
+    /// with the `desktop` feature; without it an image scan ends at once
+    /// as a cancelled one.
+    pub fn offer_scans(&self, camera: bool, images: bool) {
+        self.window.set_scan_camera(camera);
+        self.window.set_scan_images(images);
     }
 
     /// Called whenever a window callback queues an input, so the root runs

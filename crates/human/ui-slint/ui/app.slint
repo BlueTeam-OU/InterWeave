@@ -2090,6 +2090,8 @@ export component AppWindow inherits Window {
     callback peers-scan();
     callback peers-open-image();
     callback peers-paste-image();
+    // A scan's reader is done: its result waits on the Rust side.
+    callback peers-image-done();
     callback block-trust(int);
     callback block-not-now(int);
     callback peers-done();
