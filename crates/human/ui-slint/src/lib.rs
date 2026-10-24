@@ -1065,20 +1065,30 @@ impl View {
     /// view counts as unfocused, so nothing is read before then.
     #[cfg(feature = "desktop")]
     pub fn on_window_focus(&self, focused: impl Fn(bool) + 'static) {
-        use slint::winit_030::{EventResult, WinitWindowAccessor as _, winit::event::WindowEvent};
+        use slint::winit_030::{
+            EventResult, WinitWindowAccessor as _, winit, winit::event::WindowEvent,
+        };
         let shared = Rc::clone(&self.shared);
-        slint::ComponentHandle::window(&self.window).on_winit_window_event(move |_, event| {
-            match event {
-                WindowEvent::Focused(now) => focused(*now),
-                // Minimised or hidden: the desktop's background, where
-                // Show is never left on screen (add-a-peer §5.4). Losing
-                // focus is not it: the person switches away to paste the
-                // address. A session lock is not reported to the window,
-                // a known limit.
-                WindowEvent::Occluded(true) => {
-                    enqueue(&shared, Input::Peers(PeersInput::CloseShow));
-                }
-                _ => {}
+        slint::ComponentHandle::window(&self.window).on_winit_window_event(move |window, event| {
+            if let WindowEvent::Focused(now) = event {
+                focused(*now);
+            }
+            // Minimised: the desktop's background, where Show is never left
+            // on screen (add-a-peer §5.4). Asked of the window itself at
+            // each change that may come with it -- focus lost, a resize, an
+            // occlusion -- since no event says it on every platform, and
+            // occlusion alone is not it: X11 and macOS report a window only
+            // covered as occluded, and the person switches away to paste
+            // the address (#409 C2). Wayland never says a window is
+            // minimised, and a session lock is not reported to the window:
+            // both are known limits.
+            if matches!(
+                event,
+                WindowEvent::Focused(false) | WindowEvent::Resized(_) | WindowEvent::Occluded(_)
+            ) && window.with_winit_window(winit::window::Window::is_minimized)
+                == Some(Some(true))
+            {
+                enqueue(&shared, Input::Peers(PeersInput::CloseShow));
             }
             EventResult::Propagate
         });
