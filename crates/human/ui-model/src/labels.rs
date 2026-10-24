@@ -799,7 +799,6 @@ ui_texts! {
     /// CARD CONFIRMATION ROW's accessible description while its Accept's
     /// snackbar is open, never shown as text (contact-cards design
     /// 5.4.2, #416): read after `CardAccepted` or `CardUpdated`.
-    // PLACEHOLDER (en)
     CardUndoHint => "You can undo this change. Undo comes after all the messages in this conversation.",
     /// SNACKBAR, with Undo, after an Accept that created a contact.
     ConfirmContactSaved => "Contact saved",
