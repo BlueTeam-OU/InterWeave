@@ -19,7 +19,7 @@ use interweave_human_android_platform::{
 };
 use interweave_human_app_core::Update;
 use interweave_human_client_api::{ClientEvent, SessionState};
-use interweave_profile_config::{ProfilePaths, TrustBoundary};
+use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_transport_embedded::EmbeddedRefused;
 
 const PROFILE: &str = "human";
@@ -494,6 +494,24 @@ fn the_stand_in_profile_is_written_once_and_never_rewritten() {
         std::fs::read_to_string(paths.config_file()).expect("read"),
         changed
     );
+}
+
+/// No identity's endpoint is in the directory: the app has no control
+/// that would take it out (`human-client-ui.md` §13).
+#[test]
+fn the_stand_in_profile_advertises_no_endpoint() {
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    let profile = ProfileConfig::load(&paths).expect("the stand-in loads");
+    assert!(
+        !profile.endpoints.entries.is_empty(),
+        "an endpoint is written"
+    );
+    for endpoint in &profile.endpoints.entries {
+        assert!(!endpoint.advertise, "{:?} is advertised", endpoint.id);
+    }
 }
 
 /// The android-e2e cases' provisioning replaces what is there -- the
