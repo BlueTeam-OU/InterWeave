@@ -20,7 +20,9 @@
 //!   this host's loopback, and [`reach`](AdbDevice::reach) reverses each
 //!   port, so the phone's sockets reach the host over the USB/TCP link
 //!   adb holds, at the same loopback address -- real sockets on the
-//!   phone's runtime, not a radio network, no NAT.
+//!   phone's runtime, not a radio network, no NAT. A case that reverses
+//!   nothing reaches the desktop over the phone's Wi-Fi instead
+//!   ([`crate::wifi`]); adb then carries the instrumentation alone.
 //! - **The identity must outlive the process.** A profile's `PeerId` is
 //!   known before the first start and kept across restarts;
 //!   [`AdbDevice::connect`] refuses a build whose identity changes across
