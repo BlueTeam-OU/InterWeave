@@ -467,6 +467,10 @@ pub enum TrustSetFailure {
     Unconfirmed(TrustProblem),
     /// Made, and the allowlist could not be read back after it.
     MadeNotReadBack(TrustProblem),
+    /// Not made: a later admin connection's change of the same peer
+    /// stands, and the allowlist is that change's -- read it again to
+    /// show it (IPC 2.10, `superseded`; LOCAL-IPC.md).
+    Superseded,
 }
 
 /// The addresses this device holds for reaching peers (ADR-0062): the
@@ -582,6 +586,9 @@ pub enum AddressRefused {
     /// 2.9 (`own_peer`); below it the runtime answers the grammar. The
     /// client refuses such a line itself before sending (add-a-peer §5.3).
     OwnPeer,
+    /// Not made: a later admin connection's change of the same address
+    /// stands (IPC 2.10, `superseded`; LOCAL-IPC.md).
+    Superseded,
 }
 
 /// An address change's answer: what it did, and the list read back

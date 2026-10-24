@@ -30,7 +30,7 @@ use interweave_human_store::{
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminCapability,
     AdminPort, DataCapability, DataSessionBinding, DataSessionPort, LineChange, LocalSessionEvent,
-    SessionEvent, SessionRequest,
+    SessionEvent, SessionRequest, TrustChange, TrustRefusal,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, ConnectivitySummary, DirectDestination, DirectInboundState,
@@ -682,13 +682,21 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         allowed: bool,
     ) -> Result<TrustList, TrustSetFailure> {
         let admin = self.trust_port().await.map_err(TrustSetFailure::NotMade)?;
-        admin.set_trust(peer, allowed).await.map_err(|error| {
+        let change = admin.set_trust(peer, allowed).await.map_err(|error| {
             if may_have_reached(error) {
                 TrustSetFailure::Unconfirmed(classify_trust(error))
             } else {
                 TrustSetFailure::NotMade(classify_trust(error))
             }
         })?;
+        // A refusal wrote nothing: no list is read back as this change's
+        // (`a_trust_failure_says_whether_the_change_was_made`).
+        match change {
+            TrustChange::Set => {}
+            TrustChange::Refused(TrustRefusal::Superseded) => {
+                return Err(TrustSetFailure::Superseded);
+            }
+        }
         let view = admin
             .trust()
             .await
@@ -1469,6 +1477,7 @@ const fn refused(reason: AddressRefusal) -> AddressRefused {
         AddressRefusal::ProviderDisabled => AddressRefused::ListOff,
         AddressRefusal::Authored => AddressRefused::Configured,
         AddressRefusal::OwnPeer => AddressRefused::OwnPeer,
+        AddressRefusal::Superseded => AddressRefused::Superseded,
     }
 }
 

@@ -13,9 +13,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use interweave_ipc_protocol::{
     AddressList, AddressResult, AddressesResult, AdminStatusResult, DirectoryResult,
     ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, OwnAddressList, PeerList, Request,
-    RequestId, ResponseFrame, SendResult, SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList,
+    RequestId, ResponseFrame, SUPERSEDED_SINCE_MINOR, SendResult, SetEnabledResult,
+    TRUST_SOURCE_SINCE_MINOR, TrustList, TrustSetResult,
 };
-use interweave_local_client_api::{AdminPort, DataSessionPort};
+use interweave_local_client_api::{AddressChange, AdminPort, DataSessionPort, TrustChange};
 use interweave_transport_api::{BroadcastMessageV1, DirectDestination, TransportError};
 
 use crate::counters::Counters;
@@ -162,7 +163,17 @@ pub(crate) async fn admin<A: AdminPort>(
             Ok(view) => ResponseFrame::success(id, &TrustList::page(view, p.after.as_ref(), minor)),
             Err(code) => ResponseFrame::failure(id, code),
         },
-        Request::AdminTrustSet(p) => empty(id, port.set_trust(p.peer, p.allowed).await),
+        // From 2.10 the set's own result; below it the 2.1 empty result,
+        // and a superseded set -- still refused -- the error `Internal`,
+        // nothing changed, which every older client reads as not applied.
+        Request::AdminTrustSet(p) => match port.set_trust(p.peer, p.allowed).await {
+            Ok(change) if minor >= SUPERSEDED_SINCE_MINOR => {
+                ResponseFrame::success(id, &TrustSetResult::from(change))
+            }
+            Ok(TrustChange::Set) => ResponseFrame::success(id, &EmptyResult {}),
+            Ok(TrustChange::Refused(_)) => ResponseFrame::failure(id, TransportError::Internal),
+            Err(code) => ResponseFrame::failure(id, code),
+        },
         // The dial gate's rows, paged as the trust list is: the cursor is
         // a position in their order, so nothing is held between pages.
         Request::AdminPeersList(p) => match port.peers().await {
@@ -171,15 +182,11 @@ pub(crate) async fn admin<A: AdminPort>(
         },
         // A refusal is the port's ANSWER, carried as a result naming its
         // rule; only a failure of the port itself is an error (ADR-0062).
-        Request::AdminPeersAddAddress(p) => match port.add_bootstrap_address(p.address).await {
-            Ok(change) => ResponseFrame::success(id, &AddressResult::for_minor(change, minor)),
-            Err(code) => ResponseFrame::failure(id, code),
-        },
+        Request::AdminPeersAddAddress(p) => {
+            address_answer(id, port.add_bootstrap_address(p.address).await, minor)
+        }
         Request::AdminPeersRemoveAddress(p) => {
-            match port.remove_bootstrap_address(p.address).await {
-                Ok(change) => ResponseFrame::success(id, &AddressResult::for_minor(change, minor)),
-                Err(code) => ResponseFrame::failure(id, code),
-            }
+            address_answer(id, port.remove_bootstrap_address(p.address).await, minor)
         }
         Request::AdminPeersListAddresses => match port.bootstrap_addresses().await {
             Ok(rows) => match AddressList::from_views(rows) {
@@ -191,7 +198,7 @@ pub(crate) async fn admin<A: AdminPort>(
         Request::AdminPeersAddAddresses(p) => {
             let lines = p.addresses.len();
             match port.add_bootstrap_addresses(p.addresses).await {
-                Ok(change) => match AddressesResult::from_view(change, lines) {
+                Ok(change) => match AddressesResult::from_view(change, lines, minor) {
                     Ok(result) => ResponseFrame::success(id, &result),
                     Err(code) => ResponseFrame::failure(id, code),
                 },
@@ -214,6 +221,19 @@ pub(crate) async fn admin<A: AdminPort>(
         | Request::EndpointsQuery(_) => {
             ResponseFrame::failure(id, TransportError::CapabilityDenied)
         }
+    }
+}
+
+/// An address write's answer in the shape `minor` carries
+/// ([`AddressResult::for_minor`]).
+fn address_answer(
+    id: RequestId,
+    outcome: Result<AddressChange, TransportError>,
+    minor: u64,
+) -> ResponseFrame {
+    match outcome.and_then(|change| AddressResult::for_minor(change, minor)) {
+        Ok(result) => ResponseFrame::success(id, &result),
+        Err(code) => ResponseFrame::failure(id, code),
     }
 }
 
@@ -561,6 +581,81 @@ mod tests {
             page(serde_json::json!({}), since - 1).await.peers[0].route_held_until,
             None
         );
+    }
+
+    /// A trust set answers `trust-set-result` from 2.10 and the empty
+    /// result below it; a superseded set is named from 2.10 and the error
+    /// `Internal` below it -- still refused, never `ok` -- and so is a
+    /// superseded address write. The applied set is the control on both
+    /// sides of the minor.
+    #[tokio::test]
+    async fn superseded_is_named_from_two_ten_and_internal_below() {
+        use interweave_ipc_protocol::{AddressResult, SUPERSEDED_SINCE_MINOR, TrustSetResult};
+        use interweave_local_client_api::{AddressRefusal, TrustRefusal};
+        let since = SUPERSEDED_SINCE_MINOR;
+        let set = |refused: Option<TrustRefusal>, minor| async move {
+            let fake = Fake::default();
+            fake.script().trust_refused = refused;
+            let port = fake.admin([].into()).await.expect("port");
+            admin(
+                &port,
+                &Counters::default(),
+                Duration::from_secs(1),
+                id(),
+                request(
+                    Method::AdminTrustSet,
+                    &serde_json::json!({"peer": PEER, "allowed": true}),
+                ),
+                minor,
+            )
+            .await
+        };
+        let at = |frame: ResponseFrame| frame.outcome::<TrustSetResult>().map(TrustChange::from);
+        assert_eq!(at(set(None, since).await), Ok(TrustChange::Set));
+        assert_eq!(
+            at(set(Some(TrustRefusal::Superseded), since).await),
+            Ok(TrustChange::Refused(TrustRefusal::Superseded))
+        );
+        assert_eq!(
+            set(None, since - 1).await.outcome::<EmptyResult>(),
+            Ok(EmptyResult {}),
+            "the 2.1 result below 2.10"
+        );
+        assert_eq!(
+            set(Some(TrustRefusal::Superseded), since - 1)
+                .await
+                .outcome::<EmptyResult>(),
+            Err(TransportError::Internal)
+        );
+
+        for (minor, answered) in [
+            (since, Ok(AddressRefusal::Superseded)),
+            (since - 1, Err(TransportError::Internal)),
+        ] {
+            let fake = Fake::default();
+            fake.script().add_refused = Some(AddressRefusal::Superseded);
+            let port = fake.admin([].into()).await.expect("port");
+            let frame = admin(
+                &port,
+                &Counters::default(),
+                Duration::from_secs(1),
+                id(),
+                request(
+                    Method::AdminPeersAddAddress,
+                    &serde_json::json!({"address": "/ip4/10.0.0.1/tcp/1/p2p/x"}),
+                ),
+                minor,
+            )
+            .await;
+            let reason =
+                frame
+                    .outcome::<AddressResult>()
+                    .map(|result| match AddressChange::from(result) {
+                        AddressChange::Refused { reason, .. } => reason,
+                        other => panic!("{other:?}"),
+                    });
+            assert_eq!(reason, answered, "at 2.{minor}");
+        }
     }
 
     /// `own_peer` is served from 2.9 and answered `grammar` below it, the

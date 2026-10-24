@@ -19,7 +19,9 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_local_client_api::{
+    AdminBinding as _, AdminCapability, AdminPort as _, TrustChange,
+};
 use interweave_profile_config::provision::provision_embedded;
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfilePaths, TrustBoundary};
@@ -111,9 +113,11 @@ fn a_trust_change_reaches_a_sink_stricter_than_info() {
     let peer = ProfileIdentity::generate()
         .transport_identity()
         .expect("a peer");
-    host.runtime()
-        .block_on(port.set_trust(peer, true))
-        .expect("trusted");
+    assert_eq!(
+        host.runtime().block_on(port.set_trust(peer, true)),
+        Ok(TrustChange::Set),
+        "trusted"
+    );
 
     let deadline = Instant::now() + Duration::from_secs(10);
     let audit = loop {
