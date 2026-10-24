@@ -58,6 +58,15 @@ SubscriptionRegistry::leave           call  broadcast_state.subs.leave(
 SubscriptionRegistry::may_publish     call  broadcast_state.subs.may_publish(
 SubscriptionRegistry::backend_should_subscribe  call  broadcast_state.subs.backend_should_subscribe(
 SessionQueues::open                   call  .open(session, broadcast_state.queue_bound
+
+# --- IPC 2.11 session.losses: the loss ledger is reached through
+# --- `queues.losses()` / `losses_mut()`, so no caller names its type.
+SessionQueues::losses                 call  broadcast_state.queues.losses().read(
+LossLedger::read                      call  queues.losses().read(&session)
+LossLedger::joined                    call  .joined(&session, &channel)
+LossLedger::left                      call  queues.losses_mut().left(&session, &channel)
+LossLedger::released                  call  queues.losses_mut().released(&session)
+LossLedger::refused                   call  ctx.queues.losses_mut().refused(channel)
 SessionQueues::close                  call  broadcast_state.queues.close(
 SessionQueues::is_open                call  broadcast_state.queues.is_open(
 SessionQueues::drain_up_to            call  broadcast_state.queues.drain_up_to(
