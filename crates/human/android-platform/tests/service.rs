@@ -1038,18 +1038,19 @@ fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
     assert_eq!(service.identity_key_refused(), None);
     let _ = service.stop(GRACE);
 
-    let paths = ProfilePaths::resolve_embedded(
-        PROFILE,
-        TrustBoundary::new(&app.dir).expect("a boundary"),
-    )
-    .expect("paths");
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
     let file = identity_key::key_path(&paths, &first.endpoint);
     let good = std::fs::read(&file).expect("read");
     std::fs::write(&file, "not a record\n").expect("overwrite");
     service
         .start_without_network(&app.dir, PROFILE, &keystore)
         .expect("started with no key");
-    assert!(listed_identity(&service).is_none(), "no key, nothing signed");
+    assert!(
+        listed_identity(&service).is_none(),
+        "no key, nothing signed"
+    );
     assert_eq!(
         service.identity_key_refused(),
         Some(IdentityKeyFileError::Key(IdentityKeyError::NotARecord))
