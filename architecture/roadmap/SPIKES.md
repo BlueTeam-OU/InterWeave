@@ -240,6 +240,35 @@ established: Anthropic's allowlist in `-p`, a bare `--mcp-config`
 server in `-p`, another permission mode, an event arriving during a
 turn, and a session whose stdin has closed.
 
+**Carried measurement, S25 (2026-10-24, Claude Code 2.1.286,
+rust-services-dev, plan §19): an event during a print turn waits for it;
+`--channels` without the allow entry is silent; the `manual` mode denies
+`reply` without `--allowedTools`; `userConfig` reaches a channel
+session's bridge; `plugin configure` writes only with `--values-stdin`.**
+Read off `spikes/spike-001/README.md` §S25 (facts 45–50, runs `s25-a` to
+`s25-i`). Runs a to h were print sessions on S24's setup, with partial
+messages on and `--channels`. An event that reached the bridge 1.6 s
+before the running turn's result did not enter that turn: it started a
+turn of its own once the turn ended, and was answered (a). The same
+held with stdin closed before the event. The process finished the turn,
+answered the event, then exited 0 (b). The after-turn control was
+answered (c). Without managed settings, `--channels` gave no channel,
+and nothing in the debug log, stderr or stdout said so (d). In
+`--permission-mode manual`, which `init` reports as `default`, `reply`
+without `--allowedTools` was denied (`permission_denied`, and
+`permission_denials` in the result), and no request reached the host
+(e). With `--allowedTools` it was answered (f). In registered
+sessions the bridge was started with the plugin's declared defaults
+(g) and with `plugin install --config` values (h). Run i had no
+session. `claude plugin configure interweave@interweave`, the remedy the
+bridge's refusal named, lists the options and writes nothing, on a
+terminal or not, while `--values-stdin` writes them and the next start
+gets them. So the refusal text now names that form
+(`apps/claude-channel/src/refused.rs`). Not established: an event after
+stdin has closed and the last turn has ended, the other permission
+modes, a host answering permission prompts, the in-session `/plugin
+configure`, and what sets `auto` on this login.
+
 ---
 
 ## SPIKE-002 — transport wire/race and GossipSub cache behavior
