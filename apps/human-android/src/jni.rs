@@ -261,13 +261,13 @@ fn log_key_refused(host: &ServiceHost) {
     }
 }
 
-fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
+fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     // The profile first: a first run's identity is provisioned under the
     // unlock policy it configures.
-    if let Err(code) = provision(&app_data_dir) {
+    if let Err(code) = provision(app_data_dir) {
         return code;
     }
-    let identity = match identity(env, &app_data_dir) {
+    let identity = match identity(env, app_data_dir) {
         Ok(identity) => identity,
         Err(code) => return code,
     };
@@ -276,7 +276,7 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
         Err(code) => return code,
     };
     let host = ServiceHost::global();
-    let dir = std::path::PathBuf::from(&app_data_dir);
+    let dir = std::path::PathBuf::from(app_data_dir);
     let started = crate::platform_log::around_start(host, &dir, PROFILE, || {
         host.start(ServiceLaunch {
             app_data_dir: dir.clone(),
@@ -319,7 +319,7 @@ extern "system" fn Java_org_interweave_human_Native_start<'caller>(
 ) -> jint {
     env.with_env(|env| -> Result<jint, jni::errors::Error> {
         let app_data_dir = app_data_dir.try_to_string(env)?;
-        Ok(start(env, app_data_dir))
+        Ok(start(env, &app_data_dir))
     })
     .resolve::<ThrowRuntimeExAndDefault>()
 }
