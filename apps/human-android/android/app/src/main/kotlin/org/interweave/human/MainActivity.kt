@@ -195,6 +195,11 @@ class MainActivity : NativeActivity() {
         // Back from the prompt or the settings page: a grant restarts the
         // Service with its runtime.
         local?.recheck()
+        // CAMERA granted in Settings, through Open settings or outside the
+        // app, clears the refusal mark as a grant here does (#418 round 3).
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            cameraHeld()
+        }
         if (inSettings) {
             inSettings = false
             Native.settingsReturned()
@@ -647,7 +652,8 @@ class MainActivity : NativeActivity() {
 
     /** CAMERA is held: the last answer was no refusal (#418 F7). */
     private fun cameraHeld() {
-        getPreferences(Context.MODE_PRIVATE).edit().remove(CAMERA_REFUSED).apply()
+        val prefs = getPreferences(Context.MODE_PRIVATE)
+        if (prefs.contains(CAMERA_REFUSED)) prefs.edit().remove(CAMERA_REFUSED).apply()
     }
 
     private fun closeCamera() {

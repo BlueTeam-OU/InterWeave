@@ -33,8 +33,9 @@ class CodeCamera(context: Context, private val lost: (CodeCamera) -> Unit) {
     private var session: CameraCaptureSession? = null
     private var reader: ImageReader? = null
     /**
-     * Closed by its owner. A camera that opens after it is closed at once
-     * and its thread ended (#418 round 2).
+     * Closed by its owner. Read with [device] under this object's lock, so
+     * a camera handed over after the close is closed by onOpened, which
+     * ends the thread too (#418 rounds 2 and 3).
      */
     @Volatile private var stopped = false
 
@@ -74,12 +75,15 @@ class CodeCamera(context: Context, private val lost: (CodeCamera) -> Unit) {
         try {
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
-                    if (stopped) {
+                    val closedMeanwhile = synchronized(this@CodeCamera) {
+                        if (!stopped) device = camera
+                        stopped
+                    }
+                    if (closedMeanwhile) {
                         camera.close()
-                        worker.quitSafely()
+                        release(quit = true)
                         return
                     }
-                    device = camera
                     start(camera, frames.surface, handler)
                 }
 
@@ -131,10 +135,11 @@ class CodeCamera(context: Context, private val lost: (CodeCamera) -> Unit) {
     }
 
     /** Stop and release everything; nothing is told. Safe to repeat. */
+    @Synchronized
     fun close() {
         stopped = true
-        // While opening, the thread stays for onOpened, which closes the
-        // device it is handed and ends the thread.
+        // While opening, the thread stays for the open's answer: onOpened,
+        // onError or onDisconnected each release it with the thread.
         release(quit = device != null)
     }
 
@@ -146,8 +151,10 @@ class CodeCamera(context: Context, private val lost: (CodeCamera) -> Unit) {
         session = null
         device = null
         reader = null
-        if (quit) thread?.quitSafely()
-        thread = null
+        if (quit) {
+            thread?.quitSafely()
+            thread = null
+        }
     }
 
     companion object {
