@@ -245,6 +245,33 @@ pub(crate) struct PeerLists {
     /// The lines Show's code was last drawn for: drawn again only when
     /// they change.
     show_drawn: Option<Vec<String>>,
+    /// The platform's secure flag for Show, where it has one.
+    pub(crate) show_guard: Option<ShowGuard>,
+}
+
+/// Show's secure flag, asked of the platform ([`View::guard_show`]).
+pub(crate) struct ShowGuard {
+    ask: Rc<dyn Fn(bool)>,
+    /// Asked on, and not yet asked off.
+    asked: bool,
+    /// The platform said the flag is on.
+    secured: bool,
+}
+
+impl ShowGuard {
+    pub(crate) fn new(ask: Rc<dyn Fn(bool)>) -> Self {
+        Self {
+            ask,
+            asked: false,
+            secured: false,
+        }
+    }
+
+    pub(crate) const fn secured(&mut self) {
+        if self.asked {
+            self.secured = true;
+        }
+    }
 }
 
 impl PeerLists {
@@ -299,6 +326,7 @@ impl PeerLists {
             snack_seen: 0,
             snack_timed: 0,
             show_drawn: None,
+            show_guard: None,
         }
     }
 }
@@ -614,8 +642,28 @@ impl View {
     /// Show my address (§5.4): the code and its lines, why there is none,
     /// or why they could not be read.
     fn render_show(&mut self, peers: &Peers) {
-        let window = &self.window;
         let show = peers.show();
+        // The flag before any address can be drawn; off once a frame
+        // without Show has been, never before.
+        let mut held = false;
+        let mut clear = None;
+        if let Some(guard) = self.peer_lists.show_guard.as_mut() {
+            if show.is_some() {
+                if !guard.asked {
+                    guard.asked = true;
+                    (guard.ask)(true);
+                }
+                held = !guard.secured;
+            } else if guard.asked {
+                guard.asked = false;
+                guard.secured = false;
+                clear = Some(Rc::clone(&guard.ask));
+            }
+        }
+        if let Some(ask) = clear {
+            let _ = self.after_next_frame(move || ask(false));
+        }
+        let window = &self.window;
         window.set_peers_show_open(show.is_some());
         let host = self.host;
         let (none, problem, retry) = match show {
@@ -651,7 +699,7 @@ impl View {
             )
         });
         let drawn = match show {
-            Some(ShowState::Shown { peer, lines }) => Some((peer, lines)),
+            Some(ShowState::Shown { peer, lines }) if !held => Some((peer, lines)),
             _ => None,
         };
         window.set_show_none(none.into());
@@ -661,6 +709,8 @@ impl View {
         window.set_show_problem_retry(retry);
         let Some((peer, lines)) = drawn else {
             window.set_show_code_shown(false);
+            window.set_show_lines(SharedString::new());
+            window.set_show_peer(SharedString::new());
             self.peer_lists.show_drawn = None;
             return;
         };

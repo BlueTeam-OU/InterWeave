@@ -1267,6 +1267,34 @@ impl View {
         self.shared.borrow_mut().haptic = Some(Rc::new(tick));
     }
 
+    /// Make the platform secure the window while Show draws this device's
+    /// addresses (`design/2026-10-22-add-a-peer.md` §5.4: no screenshot,
+    /// no Recents content): `ask(true)` when Show opens, after which its
+    /// addresses wait until [`Self::show_secured`] says the flag is on,
+    /// and `ask(false)` once a frame without Show has been drawn. Where
+    /// the renderer cannot say when it drew (the testing backend), the
+    /// flag is never asked off. Unset, as on the desktop, nothing waits.
+    pub fn guard_show(&mut self, ask: impl Fn(bool) + 'static) {
+        self.peer_lists.show_guard = Some(peers::ShowGuard::new(Rc::new(ask)));
+    }
+
+    /// The platform has secured the window, as [`Self::guard_show`] asked:
+    /// Show may draw its addresses at the next render.
+    pub fn show_secured(&mut self) {
+        if let Some(guard) = self.peer_lists.show_guard.as_mut() {
+            guard.secured();
+        }
+    }
+
+    /// The app left the screen -- the background, or the screen locked:
+    /// Show closes, never left on screen unasked (§5.4).
+    pub fn leave_show(&self) {
+        let _ = self
+            .shared
+            .borrow_mut()
+            .push(Input::Peers(PeersInput::CloseShow));
+    }
+
     /// The app left the foreground: the snackbar closes, its Undo with it
     /// (§5). The action itself has happened already.
     pub fn close_snackbar(&self) {

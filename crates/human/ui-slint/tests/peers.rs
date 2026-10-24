@@ -2304,7 +2304,7 @@ fn the_image_controls_scan_and_an_image_without_a_code_is_said_under_them() {
 /// Show my address on Peers reads this device's addresses only when
 /// pressed; the page puts its warning first, focused, then a code that
 /// decodes to exactly the lines listed under it, Copy all addresses and
-/// the PeerId alone; Back closes it, focus back on its control (§5.4,
+/// the `PeerId` alone; Back closes it, focus back on its control (§5.4,
 /// §6, §8).
 #[test]
 fn show_draws_a_code_that_reads_back_as_its_lines() {
@@ -2434,4 +2434,53 @@ fn show_says_no_address_and_a_failed_read_apart() {
         assert_eq!(w.get_focus_target().as_str(), "show-problem");
         let _ = model.peers_input(PeersInput::CloseShow);
     }
+}
+
+/// Where the platform secures the window, Show asks the flag on as it
+/// opens and draws no address until the platform says it is on; leaving
+/// the screen closes Show (§5.4). The testing backend cannot say when a
+/// frame was drawn, so the flag is never asked off here: kept on rather
+/// than cleared early.
+#[test]
+fn show_draws_no_address_until_the_window_is_secured() {
+    use interweave_human_client_api::ShowAddresses;
+    use interweave_human_ui_model::PeersInput;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let mut view = view();
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let log = Rc::clone(&asked);
+    view.guard_show(move |on| log.borrow_mut().push(on));
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    assert!(asked.borrow().is_empty(), "nothing asked before Show");
+    // A confirmation no ask is waiting on secures nothing to come.
+    view.show_secured();
+    let _ = model.peers_input(PeersInput::OpenShow);
+    model.own_addresses_read(Ok(ShowAddresses {
+        peer: me.clone(),
+        addresses: vec![at(&me)],
+        truncated: false,
+    }));
+    view.render(&model);
+    assert_eq!(*asked.borrow(), vec![true]);
+    let w = view.window();
+    assert!(!w.get_show_code_shown(), "held until secured");
+    assert_eq!(w.get_show_lines().as_str(), "", "no line either");
+    assert_eq!(labelled(&view, text(UiText::ShowWarning)).len(), 1);
+
+    view.show_secured();
+    view.render(&model);
+    assert!(view.window().get_show_code_shown());
+    assert_eq!(*asked.borrow(), vec![true], "asked once");
+
+    view.leave_show();
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(model.peers().show(), None, "leaving the screen closes Show");
+    assert_eq!(
+        *asked.borrow(),
+        vec![true],
+        "never off before a frame is known drawn"
+    );
 }
