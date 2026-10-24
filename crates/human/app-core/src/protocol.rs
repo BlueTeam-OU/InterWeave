@@ -200,16 +200,21 @@ pub enum Update {
     },
     /// The new key was made.
     KeyMade {
-        /// The identity, with its new fingerprint.
-        identity: IdentityView,
+        /// The identity, with its new fingerprint, when it could be read.
+        identity: Option<IdentityView>,
+        /// The new key's fingerprint, whatever could be read.
+        fingerprint: String,
         /// Where its counterparts hold or may hold the old key, most
         /// recently shared first.
         share_again: Vec<ConversationKey>,
     },
     /// No new key was made.
     KeyNotMade {
-        /// The identity, as its key's open now finds it.
-        identity: IdentityView,
+        /// The identity, as its key's open now finds it, when it could be
+        /// read.
+        identity: Option<IdentityView>,
+        /// Why its key cannot be used now.
+        problem: interweave_human_ui_model::KeyProblem,
         /// The old file was removed before the failure.
         gone: bool,
     },

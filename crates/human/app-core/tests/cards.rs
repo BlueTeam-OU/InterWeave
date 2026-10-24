@@ -1458,3 +1458,36 @@ impl identity_key::KeyCipher for NoSeal {
         Ok(())
     }
 }
+
+/// #423 F1 through the loop: a Make the facade refuses before it starts
+/// ends the step as not made, never one the page waits on.
+#[tokio::test]
+async fn a_make_the_facade_refuses_ends_the_step_not_made() {
+    use interweave_human_ui_model::{IdentityView, KeyProblem, KeyStep, OwnKey};
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, None));
+    alice.model.apply(Update::IdentityShown(IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: false,
+        photo: None,
+        key: OwnKey::Unusable(KeyProblem::Damaged),
+        peer: None,
+    }));
+    alice.will(Intent::AskNewKey);
+    alice.pump(1).await;
+    assert_eq!(
+        alice.model().key_step(),
+        Some(&KeyStep::Confirming { pending: false })
+    );
+    alice.will(Intent::MakeNewKey);
+    alice.pump(2).await;
+    assert_eq!(
+        alice.model().key_step(),
+        Some(&KeyStep::Failed { gone: false }),
+        "refused: not made, Make a new key offered again"
+    );
+}
