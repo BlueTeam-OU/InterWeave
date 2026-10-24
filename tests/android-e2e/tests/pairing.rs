@@ -10,8 +10,9 @@
 //!   an address. A's `added_address` case reads A unconnected to B for a
 //!   window (the control: nothing else dials B), adds B's LAN address
 //!   through the binding, and waits for the connection; B's `await_peer`
-//!   holds no address for A, so the connection it sees is A's dial. A is
-//!   killed and started again, and A's case finds the address still
+//!   holds no address for A, so the connection it sees is A's dial, and
+//!   it ends only once A has left, which the host makes happen after A's
+//!   case passes. A is killed and started again, and A's case finds the address still
 //!   listed as added and connects again, with no add; B sees it again.
 //! - **Two fresh profiles connect after both trust, and not before.**
 //!   Each trusts nobody. Step 1: each adds the other's address, in place
@@ -162,6 +163,9 @@ async fn added_address_survives_a_restart<D: Device>(a: &mut Side<D>, b: &mut Si
             )
             .result();
         passed(&near, &format!("A {step}"), &log(a, b));
+        // A has read its row; ending it is what ends B's case, which
+        // waits for A to leave so its runtime outlives that read.
+        a.device.kill();
         let far = far.result();
         passed(&far, &format!("B {step}"), &log(a, b));
         println!(
@@ -173,7 +177,6 @@ async fn added_address_survives_a_restart<D: Device>(a: &mut Side<D>, b: &mut Si
             far[keys::CONNECTED_AFTER]
         );
         if add {
-            a.device.kill();
             a.device.restart();
         }
     }
