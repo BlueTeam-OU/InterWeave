@@ -1504,6 +1504,7 @@ mod tests {
                 key: interweave_human_ui_model::KeyView::New,
                 fingerprint: "0123456789abcdef".to_owned(),
                 changes_nothing: false,
+                values: interweave_human_ui_model::ValueChanges::default(),
             })
         }
 
