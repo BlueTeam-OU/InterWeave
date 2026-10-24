@@ -210,6 +210,18 @@ fn an_unset_runtime_dir_is_served_as_a_refusal() {
     );
 }
 
+/// `HOME` unset with no `XDG_STATE_HOME`: no state directory can be
+/// derived, so no log file, and `status.log` names the refusal's class.
+#[test]
+fn an_unset_home_is_served_as_a_refusal() {
+    assert_refused(
+        &GOOD,
+        &["HOME", "XDG_STATE_HOME"],
+        "home_unset",
+        LogFile::None("home_unset"),
+    );
+}
+
 #[test]
 fn a_profile_name_that_is_not_valid_is_served_as_a_refusal() {
     assert_refused(
