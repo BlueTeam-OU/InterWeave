@@ -1,0 +1,385 @@
+# An identity whose key cannot be used, and a new key — desktop and Android
+
+Status: proposal, 2026-10-24. Its two product rules, what happens to
+the refused file and when a missing file is a loss, are architect-cto's
+DECISION 01a16d8a (§12), which amends ADR-0063 decision 1.
+
+Asked by rust-ui-dev-02 (REQUEST 01a16d84, job j51), for the two
+criteria of `human-client-ui.md` §13 that have no person-facing design:
+
+> a key file whose custody field says `filesystem-only`, opened where a
+> wrapping key exists, is refused at open as a downgrade, named, the
+> client offering to create a new key; a sealed record on a desktop is
+> refused as unreadable here […]
+
+> a device row: with the wrapping key removed (a Keystore
+> invalidation), the client says the identity has no key and offers to
+> create one, and after creation the counterparty sees a key change
+> (ADR-0063 decisions 2 and 5)
+
+Read here as: whenever an identity's key file is refused at open, for
+any of ADR-0063 decision 2's reasons, the person is told which kind of
+refusal it is, what it stops, and what they can do; and making a new
+key is one confirmed action that says, before it is taken, that their
+contacts will see a key change.
+
+Owner of the design: ux-designer. The words are language-culture's:
+§10 names each string, where it shows and what it must say, its text a
+placeholder until language-culture-en writes it. Built by rust-ui-dev
+in `crates/human/` and the apps. It extends
+`design/2026-10-21-contact-cards.md` (called "cards" below): the
+identity's card page (cards §5.2), the list of identities (cards §5.1),
+the share sheet (cards §5.3) and that note's §8 conventions (focus,
+reading order, TalkBack's blocked precondition) apply unchanged unless
+this note says otherwise.
+
+## 1. What the key does today, and so what its loss stops
+
+The identity key signs the identity's card and nothing else (ADR-0063
+decision 5): it encrypts nothing, authenticates no message and grants
+no trust. So an identity without a usable key can still send, receive
+and read every conversation; what it cannot do is **share its card**.
+That is the only thing this state blocks, and the design says so,
+plainly and without alarm: a person who reads "your key cannot be used"
+must not think their messages stopped or became unsafe.
+
+A new key matters to other people. A contact who accepted this
+identity's card holds its old key; the next card they receive carries
+the new one, and their client shows it as a key change — "this might be
+someone else" (`CardKeyChange`). Nothing reaches them before that card:
+a new key changes nothing they see until the person shares the card
+again.
+
+## 2. The person's goal
+
+To share their card again — or to understand why they cannot, and
+whether doing something about it costs anything. They did not cause
+the state and may not know a key exists; most never will, until this.
+
+## 3. The state: a key that cannot be used
+
+The client checks an identity's key when it opens it: at start for the
+identity in front, and for every held identity when the list of
+identities (cards §5.1) is shown or the identity comes in front.
+Opening asks the person nothing (ADR-0063 d. 2: the Android wrapping
+key is `background-compatible`). A refusal puts that identity in this
+state until a key opens or a new key is made. Nothing is shown before a
+refusal: an identity whose key opens has no line about it.
+
+Each refusal is named by its kind, in the person's terms, never by the
+error's name:
+
+| kind | `IdentityKeyError` | platform | reason line | actions |
+|---|---|---|---|---|
+| no longer usable here | `Cipher(KeyInvalidated)`, `Cipher(KeyUnavailable)` | Android | `KeyLostDevice` | Make a new key |
+| protected less than this device requires | `CustodyDowngrade` | Android (any platform with a wrapping key) | `KeyBelowDevice` | Make a new key |
+| sealed by another device | `SealedUnreadableHere` | desktop | `KeyOtherDevice` | Make a new key |
+| saved by a newer version | `UnsupportedVersion`, `UnknownCustody` | both | `KeyNewerVersion` | Make a new key (its confirmation differs, §5.1) |
+| damaged | `NotARecord`, `Truncated`, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)` | both | `KeyDamaged` | Make a new key |
+| could not be opened just now | `Cipher(Platform)` | both | `KeyNotNow` | Try again, then Make a new key |
+| missing | no file, for an identity that has shared its card (§7) | both | `KeyMissing` | Make a new key |
+
+`Random` is not an open refusal: it can only fail the making of a key
+(§5.3).
+
+Every reason line is followed by the same consequence line,
+`KeyCannotShare`: until this identity has a key, its card cannot be
+shared; messages are not affected.
+
+## 4. Where the state is shown
+
+Three places, and no others: not on Chats, not as a notification, not
+in a conversation. The one thing it blocks is reached through these.
+
+### 4.1 The identity's card page (cards §5.2)
+
+Where the page shows the identity's fingerprint (`human-client-ui.md`
+§13: beside the PeerId), it shows instead a block:
+
+- the heading `KeyStateTitle` ("This identity's key cannot be used"),
+  with the warning icon before it, in `error`;
+- the reason line of §3's table, then `KeyCannotShare`;
+- for "could not be opened just now": **Try again** (`TryAgain`, filled
+  tonal), and **Make a new key** (`KeyMakeNew`) as a text button after
+  it;
+- for every other kind: **Make a new key** (`KeyMakeNew`), filled
+  tonal (not filled: Save stays the page's one filled button).
+
+The fields stay editable and **Save works**: the card is signed when it
+is shared, not when it is saved, so editing it needs no key. (The build
+of 2026-10-24 refuses Save with `NoIdentityKey`; that refusal goes.)
+
+### 4.2 The list of identities (cards §5.1)
+
+The identity's row gains a third line, `KeyStateRow` ("Key cannot be
+used"), after the warning icon, in `error`. The icon and the words
+carry it; the colour only repeats them. The row opens §4.1 as before.
+
+With one identity there is no list: the menu's Your card opens §4.1
+directly, so the state is one tap from the menu either way.
+
+### 4.3 The share sheet (cards §5.3)
+
+Opened while the conversation's identity is in this state, the sheet
+keeps its title and its "as {identity}" line, and replaces the preview
+and `ShareCardNote` with the reason line and `KeyCannotShareHere`
+("Your card cannot be shared until this identity has a new key").
+The primary becomes **Open your card** (`KeyOpenCard`), which opens
+§4.1 for this identity; Cancel stays; Edit your card is not offered
+(it is the same page). Share is never shown disabled, as cards §5.3
+keeps for every state.
+
+From §4.1, after a new key is made, Back returns to the sheet, which
+then shows the preview and Share as usual. The offer in an empty
+conversation (cards §5.3) stays: it opens this sheet.
+
+## 5. Make a new key
+
+### 5.1 The confirmation
+
+**Make a new key** opens a dialog (Material's basic dialog; on Android
+`AlertDialog`'s placement):
+
+- title `KeyNewTitle`: "Make a new key for {identity}?";
+- `KeyNewBody`, one paragraph: your contacts who have your card will
+  see that your key changed the next time you share it with them, and
+  their app will tell them it might be someone else, so tell them it
+  was you; nothing changes for them before that;
+- `KeyNewOld`, only when a file is to be deleted (every kind but
+  "missing"): the old key is deleted and cannot be used again; for
+  "saved by a newer version", `KeyNewOldNewer` instead: the old key
+  works only in a newer version of InterWeave, and once it is deleted,
+  updating will not bring it back (architect-cto, Q-file);
+- actions **Cancel** (`Cancel`) and **Make new key** (`KeyNewConfirm`),
+  filled, not in `error`: what is deleted could not be used here, and
+  the cost (contacts told of a change) is said above. For "saved by a
+  newer version", the confirm is filled in `error`, since something the
+  person may still have is lost.
+
+Focus opens on Cancel, so Enter alone never makes a key. Back, Escape
+and a tap on the scrim cancel.
+
+### 5.2 Doing it
+
+Confirm: the dialog closes and the block of §4.1 shows `KeyMaking`
+("Making a new key…") with an indeterminate progress indicator in place
+of its actions, for as long as it takes; it is not cancellable, since a
+half-made key is the one outcome the step must never leave. The rest of
+the page stays usable.
+
+What the step does to files is architect-cto's (Q-file): the new key
+is written first, and only then the old file removed and its alias
+retired, so a failure in between leaves the old file and the state as
+they were. What the person sees of it is this note's: **after any interruption — the app
+killed, the device off — the identity is either in this state with the
+old kind's line, or has its new key. Never a third state, and never
+"no key" after a key was made.** The client never reports success
+before the new key is stored where the next start will open it.
+
+### 5.3 The result
+
+**Made.** The block is replaced by the fingerprint row with the new
+fingerprint, and under it `KeyMade`: "This identity has a new key.
+Your contacts get it when you share your card with them again."
+Then, when any conversation of this identity has `card_shared_at` set
+(the conversations that hold the old key): `KeyShareAgainTitle`
+("Share your card again with") and one row per such conversation, by
+the conversation's title, most recently shared first, each opening that
+conversation with the share sheet open (cards §5.3). The list is the
+answer to "who will see the change": those, and nobody else. It shows
+on this page until the person leaves it; it is not stored.
+
+**Failed** (the key could not be made or stored — `Random`, a cipher or
+storage refusal): the block returns to its state, its kind unchanged,
+with `KeyNewFailed` under the actions in `error` ("A new key could not
+be made. Nothing was changed. Try again.") and **Make a new key** again.
+That line is true by construction: the step removes nothing until the
+new key is stored (§5.2).
+
+## 6. Try again ("could not be opened just now")
+
+Try again opens the key once more. Opened: the block is replaced by the
+fingerprint row, nothing announced beyond §8. Refused again with the
+same kind: `KeyNotNowAgain` ("It still could not be opened.") under the
+actions; with another kind: that kind's block.
+
+## 7. Next to other states
+
+- **The store's key** (cards §7): when the store cannot be opened, its
+  screen comes first and nothing of this note shows until the store is
+  open. A Keystore change that invalidates the store's key may
+  invalidate identity keys too; after the store's recovery, each such
+  identity is in this state, with its own line.
+- **A missing key file** (Q-missing, architect-cto's): a key is made
+  silently only for an identity that has never shared its card —
+  `card_shared_at` absent on every conversation that speaks as it, and
+  no accepted-card route holding its key as the counterparty's record.
+  Any other identity without its file is in this state as "missing",
+  so its contacts are never shown a key change the person was not told
+  of first. The same holds when the whole `identity-keys/` directory is
+  missing outside the recovery flow.
+- **Restore on fresh state** (identity note `IdR1NewKeys`): the person
+  was told before the phrase that every identity gets a new key; after
+  it, the keys are made without this state.
+- **Remove an identity** (cards §5.2) is unchanged and needs no key; its
+  confirmation still names the key as going with it.
+- **The command line** (ADR-0063 d. 6: every action has a command-line
+  form): making a new key there needs a flag named for the key change,
+  as the discard has its confirmation flag. Its shape is rust-ui-dev's
+  and architect-cto's (§11).
+
+## 8. Accessibility
+
+**Reading order**, §4.1's block: the heading (read with "warning"), the
+reason line, `KeyCannotShare`, then the actions; it sits where the
+fingerprint row would, so it is read in the page's order. §4.2's row
+reads its third line with the row: "{name}, {route label}, key cannot
+be used". §4.3's sheet: title, "as {identity}", the reason line,
+`KeyCannotShareHere`, Cancel, Open your card.
+
+**Focus.** Every case, with its check:
+
+| case | focus goes to | check |
+|---|---|---|
+| §4.1 opened | as cards §5.2 (the page's first control) | keyboard |
+| Make a new key pressed | the dialog's Cancel | keyboard; screen reader reads title and body |
+| dialog cancelled (Cancel, Back, Escape, scrim) | Make a new key | keyboard |
+| confirmed, while `KeyMaking` shows | the block's progress line (the button that held focus is gone) | keyboard; screen reader announces `KeyMaking` once |
+| made | the new fingerprint row; `KeyMade` announced once | keyboard; screen reader |
+| failed | `KeyNewFailed`, which is announced by being focused, not again | keyboard; screen reader |
+| Try again, opened | the fingerprint row | keyboard |
+| Try again, refused again | `KeyNotNowAgain` | keyboard; screen reader |
+| a "Share your card again with" row | the conversation's share sheet, as cards §5.3 opens it | keyboard |
+| Open your card from the sheet | as cards §5.2 | keyboard |
+| Back from §4.1 to the sheet, key made | the sheet's Share | keyboard |
+| Back from §4.1 to the sheet, no key | Open your card | keyboard |
+| the page goes to the background during `KeyMaking` | on return, as "made" or "failed" by what the step left; the announcement is made on return, once | keyboard; screen reader |
+
+On Android every screen-reader check is a blocked precondition while
+TalkBack does not reach the app (cards §8); the keyboard checks run.
+
+**Not by colour alone**: the warning icon and the words carry the
+state; `error` repeats them. The icon's colour and the heading in
+`error` hold 4.5:1 on every surface the block can sit on — the page's
+`surface` and, in the sheet, the sheet's container — in light and
+dark.
+
+**Targets**: Try again, Make a new key and each "Share your card again
+with" row are at least 48 dp tall on Android and 24 px on the desktop.
+
+**Motion**: the progress indicator is the platform's; with reduced
+motion it is the platform's reduced form.
+
+## 9. Acceptance
+
+On both clients unless said; Android's screen-reader checks blocked as
+§8 says.
+
+1. Android, a device row (`human-client-ui.md` §13): remove the
+   identity's wrapping key from the Keystore, start the app: the
+   identity's page shows `KeyStateTitle`, `KeyLostDevice` and
+   `KeyCannotShare`, and Make a new key; conversations send and
+   receive as before.
+2. Android: a `filesystem-only` key file in the identity's place shows
+   `KeyBelowDevice`; desktop: a Keystore-sealed file shows
+   `KeyOtherDevice`; on both, a file of another identity shows
+   `KeyDamaged`, and a version byte above this build's shows
+   `KeyNewerVersion`.
+3. With two identities, the list's row of the one in this state shows
+   `KeyStateRow` with the icon, and only that row.
+4. Share in a conversation of that identity shows the sheet with the
+   reason line, `KeyCannotShareHere` and Open your card; no Share
+   control; nothing is sent.
+5. On the page, Save of a changed name works in this state.
+6. Make a new key opens the dialog with focus on Cancel; Enter cancels;
+   Make new key makes the key: the page shows a fingerprint different
+   from any before, `KeyMade`, and, when the identity had shared its
+   card in conversations A and B, those two rows and no other.
+7. After 6, B's Share sends a card that the counterparty's client shows
+   as a key change with the old and new fingerprints (§13's key-change
+   criterion), and A's counterparty sees nothing until A shares.
+8. Killed during `KeyMaking`: the next start shows either the state as
+   before or the new key's fingerprint; never "missing" while the new
+   key file is present, and never a fingerprint that a share then
+   contradicts.
+9. Making the key fails (a test seam that fails the store's write):
+   `KeyNewFailed`, the same state, Make a new key offered.
+10. A key that cannot be opened transiently (a test seam returning a
+    platform cipher error once): `KeyNotNow` and Try again; Try again
+    opens it and shows the fingerprint.
+11. An identity that has shared its card, its key file removed,
+    starts in the "missing" state and makes no key by itself; with the
+    whole `identity-keys/` directory removed, every such identity does;
+    an identity that never shared gets a key with no state shown.
+12. Focus follows §8's table, row by row, by keyboard; on the desktop,
+    the screen reader reads §8's order and each announcement once.
+
+## 10. Strings
+
+Text is a placeholder for language-culture-en; the third column is what
+it must say. `{identity}` is the identity's card name, or its route
+label without one (cards §5.7.6).
+
+| Key | Text (placeholder) | Where; must say |
+|---|---|---|
+| `KeyStateTitle` | This identity's key cannot be used | §4.1 heading |
+| `KeyLostDevice` | This phone no longer lets InterWeave use this identity's key. | Android, invalidated or gone; must not claim a cause the client cannot know |
+| `KeyBelowDevice` | This identity's key was not stored with this phone's protection, so it is not used here. | a downgrade; must say it is refused on purpose, not broken |
+| `KeyOtherDevice` | This identity's key was protected by another device, so this computer cannot use it. | desktop, a sealed record |
+| `KeyNewerVersion` | This identity's key was saved by a newer version of InterWeave. Update InterWeave to use it. | must name the way to keep the key before the new-key offer |
+| `KeyDamaged` | This identity's key file is damaged, so it cannot be used. | every damaged or foreign record |
+| `KeyNotNow` | This identity's key could not be opened just now. | a platform error; must suggest trying again, not a loss |
+| `KeyMissing` | This identity's key is missing from this device. | a lost file (§7); must not suggest the person deleted it |
+| `KeyCannotShare` | Until it has a key, you cannot share this card. Your messages are not affected. | after every reason; must say what is blocked and what is not |
+| `KeyMakeNew` | Make a new key | §4.1 action |
+| `KeyStateRow` | Key cannot be used | §4.2 row line |
+| `KeyCannotShareHere` | Your card cannot be shared until this identity has a new key. | §4.3 sheet |
+| `KeyOpenCard` | Open your card | §4.3 primary |
+| `KeyNewTitle` | Make a new key for {identity}? | §5.1 title |
+| `KeyNewBody` | Contacts who have your card will see that your key changed the next time you share it with them. Their app will tell them it might be someone else, so let them know it was you. Nothing changes for them before then. | §5.1; must name the change, the warning they will see, and that nothing happens before a share |
+| `KeyNewOld` | The old key will be deleted and cannot be used again. | §5.1, every kind but missing |
+| `KeyNewOldNewer` | The old key works only in a newer version of InterWeave. Once it is deleted, updating will not bring it back. | §5.1, newer version; must say the choice is the update or the loss |
+| `KeyNewConfirm` | Make new key | §5.1 confirm |
+| `KeyMaking` | Making a new key… | §5.2 |
+| `KeyMade` | This identity has a new key. Your contacts get it when you share your card with them again. | §5.3 |
+| `KeyShareAgainTitle` | Share your card again with | §5.3 list heading |
+| `KeyNewFailed` | A new key could not be made. Nothing was changed. Try again. | §5.3 failed; must say nothing changed |
+| `KeyNotNowAgain` | It still could not be opened. | §6 |
+
+`TryAgain` and `Cancel` are the existing keys.
+
+## 11. Deliberately left out
+
+- **Why** a Keystore key was invalidated: the client cannot know, so it
+  names no cause (`KeyLostDevice`).
+- **Moving or exporting a key**, and any way to bring an old key back:
+  ADR-0064's.
+- **A notice on Chats or a notification** for this state: it blocks
+  only Share, which leads here.
+- **Telling contacts automatically** after a new key: a share is the
+  person's act (ADR-0059), so the list offers it and sends nothing.
+- **The command-line form's flag and output**: rust-ui-dev's, under
+  ADR-0063 d. 6, with architect-cto.
+- **The fingerprint row's own design and the key-change proposal**:
+  built from `human-client-ui.md` §3 and §13 directly; their
+  interaction design is owed to cards (Stage 21 backlog), and this note
+  only names where it replaces the row.
+
+## 12. Questions
+
+For architect-cto (QUESTION 01a16d88), answered by DECISION 01a16d8a
+the same day, as read here:
+
+- **Q-file**: the refused file goes only on the person's confirmation
+  of a new key, never before and never on its own; the new key is
+  written first, then the old file removed and its alias retired, in
+  one step. For a newer version's record the state says to update
+  first, the new key stays offered, and its confirmation says the saved
+  key is deleted and an update will not bring it back; nothing is kept
+  aside, since a second sealed file with no reader is a secret at rest
+  for nothing. A platform error: Try again first, the new key beside
+  it.
+- **Q-missing**: a missing file is not a first key unless the identity
+  never shared its card (§7); otherwise the "missing" state and a
+  confirmed new key. ADR-0063 decision 1 is amended with that on
+  architect-cto's branch.
