@@ -165,6 +165,9 @@ internal object Native {
      */
     @JvmStatic external fun back()
 
+    /** FLAG_SECURE is on for Show my address: it may draw its addresses. */
+    @JvmStatic external fun showSecured()
+
     /** True when Back found no way back: finish. BLOCKS. */
     @JvmStatic external fun waitLeave(timeoutMs: Long): Boolean
 
@@ -188,6 +191,8 @@ internal object Ask {
     // on the recovery screen, and after a confirmed discard, which
     // recreates the store (ADR-0060 decision 6).
     const val RESTART = 9
+    // Show my address opened: FLAG_SECURE on, then Native.showSecured.
+    const val SHOW_SECURE = 10
 }
 
 /** The keys of the texts the platform shows, as `jni.rs` maps them. */

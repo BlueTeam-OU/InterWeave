@@ -5,7 +5,7 @@ topic: "keep-later-artifacts-in-home"
 description: "an artifact a later run or another session needs (an APK waiting for the phone, a patched crate copy) goes under ~/scratch/<job> with its sha and rebuild step, never /var/tmp; removed when its job closes"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

@@ -91,7 +91,15 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         // Deleting a contact removes what the person accepted about
         // someone; the trust allowlist is not the contacts, and stays.
         | Intent::DeleteContact { .. } => false,
-        Intent::ReadTrust | Intent::SetTrust(_) => true,
+        // The addresses are administration (`admin.peers`, ADR-0062):
+        // what the device dials, never a message's to ask.
+        Intent::ReadTrust
+        | Intent::SetTrust(_)
+        | Intent::ReadAddresses
+        | Intent::AddAddresses(_)
+        | Intent::RemoveAddress(_)
+        // Show's read of this device's own addresses, the same port.
+        | Intent::ReadOwnAddresses => true,
     }
 }
 

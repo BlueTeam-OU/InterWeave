@@ -19,7 +19,7 @@ use interweave_human_android_platform::{
 };
 use interweave_human_app_core::Update;
 use interweave_human_client_api::{ClientEvent, SessionState};
-use interweave_profile_config::{ProfilePaths, TrustBoundary};
+use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_transport_embedded::EmbeddedRefused;
 
 const PROFILE: &str = "human";
@@ -496,6 +496,24 @@ fn the_stand_in_profile_is_written_once_and_never_rewritten() {
     );
 }
 
+/// No identity's endpoint is in the directory: the app has no control
+/// that would take it out (`human-client-ui.md` §13).
+#[test]
+fn the_stand_in_profile_advertises_no_endpoint() {
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    let profile = ProfileConfig::load(&paths).expect("the stand-in loads");
+    assert!(
+        !profile.endpoints.entries.is_empty(),
+        "an endpoint is written"
+    );
+    for endpoint in &profile.endpoints.entries {
+        assert!(!endpoint.advertise, "{:?} is advertised", endpoint.id);
+    }
+}
+
 /// The android-e2e cases' provisioning replaces what is there -- the
 /// host names each start's profile -- where the app's own never does,
 /// and it writes under the same private directory.
@@ -824,6 +842,27 @@ fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
         std::thread::sleep(Duration::from_millis(20));
     };
     assert!(told, "the row's status came with the listing");
+    service.stop(GRACE).expect("it ran");
+}
+
+/// A view attaching to a facade whose session is ready is told this
+/// node's `PeerId` with its listing, as the Ready it missed would have
+/// told it: Peers reads this device's own row by it.
+#[test]
+fn a_view_attaching_late_is_told_this_device() {
+    let app = app();
+    let service = started(&app);
+    let mut first = attach(&service);
+    let mut held = Vec::new();
+    until(&mut first, &mut held, "a ready session", is_ready);
+    let mut late = attach(&service);
+    let mut held = Vec::new();
+    until(
+        &mut late,
+        &mut held,
+        "this device's PeerId",
+        |message| matches!(message, ToView::Update(u) if matches!(**u, Update::ThisDevice(_))),
+    );
     service.stop(GRACE).expect("it ran");
 }
 

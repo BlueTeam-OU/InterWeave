@@ -27,19 +27,24 @@ use std::time::{Duration, Instant};
 use interweave_human_client_api::{Connectivity, OutboundStatus, TrustOrigin};
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
-    HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
-    RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, TrustSettings,
-    UiModel, UiText, announced_change, attention_class, fill, next_age_change, placeholder_en,
-    short_peer, visible_destination, waiting_text,
+    HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, OutcomeFrom, Reply, Retention,
+    RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome,
+    TrustSettings, UiModel, UiText, announced_change, attention_class, fill, next_age_change,
+    placeholder_en, short_peer, visible_destination, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 mod body;
+mod cards;
 mod clock;
+pub mod code;
 mod gesture;
 mod identity;
+mod peers;
 mod refusal;
+#[cfg(feature = "desktop")]
+mod scan_images;
 mod store_screen;
 mod swipe;
 
@@ -69,6 +74,8 @@ mod generated {
 }
 
 pub use generated::AppWindow;
+/// Which card page the pane shows, for a test that reads it.
+pub use generated::CardsPage;
 /// The icons the views draw; a test reads which one a status takes.
 pub use generated::Glyph;
 pub use generated::IdentityPage;
@@ -78,6 +85,7 @@ pub use generated::Palette;
 /// The start-up refusal screen's window, for a test that reads its tree.
 pub use generated::RefusalWindow;
 use generated::{ActionRow, BodyLine, ConversationRow, LineKind, LinkRow, MessageRow, TrustRow};
+use interweave_human_ui_model::PeersInput;
 
 /// The view's window, to run the event loop on: shows it, and returns
 /// once the person closes it or [`quit_event_loop`] is called.
@@ -297,6 +305,19 @@ enum Input {
     /// What the person did in the trust settings: a removal names its
     /// peer by identity, as rendered.
     Trust(TrustInput),
+    /// Peers opened (`true`) or closed.
+    PeersPage(bool),
+    /// What the person did on Peers or its add page: a row or a block
+    /// names its address or its peer, as rendered.
+    Peers(PeersInput),
+    /// The action of Peers' snackbar, by the model's count when it was
+    /// drawn: Undo or Try again, by what it said.
+    PeersSnackAction(u64),
+    /// Peers' snackbar closed without its action.
+    PeersSnackClosed(u64),
+    /// What the person did on a card screen: a proposal's answer names
+    /// the model's intent as drawn, a contact names its id.
+    Cards(cards::CardsInput),
 }
 
 /// What made an item action: its row button, or a touch swipe.
@@ -365,6 +386,13 @@ struct Shared {
     once_notice: Option<UiText>,
     /// The trusted peers as rendered, by handle.
     trusted: HashMap<i32, TransportIdentity>,
+    /// Peers' rows as rendered, by handle: the address and its peer.
+    peer_rows: HashMap<i32, (String, Option<TransportIdentity>)>,
+    /// The add page's step-two blocks as rendered, by handle.
+    blocks: HashMap<i32, TransportIdentity>,
+    /// The card screens as rendered: each proposal's answers, each
+    /// contact row's id, the contact page's, the shareable conversation.
+    cards: cards::Drawn,
     /// The trust change the confirmation shows, as rendered: what a press
     /// of Confirm names.
     pending_shown: Option<TrustChange>,
@@ -387,6 +415,17 @@ struct Shared {
     /// The window, to take a snackbar off screen when an input that closes
     /// it is queued.
     window: slint::Weak<AppWindow>,
+    /// The scan control last pressed: which reader a scan the model opens
+    /// needs.
+    scan_control: Option<interweave_human_ui_model::ScanControl>,
+    /// The control whose reader runs for the scan open now: one per scan.
+    scan_reading: Option<interweave_human_ui_model::ScanControl>,
+    /// A reader's result with its scan's number, put here by its thread
+    /// and taken on the window's.
+    scan_result: std::sync::Arc<std::sync::Mutex<Option<(u64, PeersInput)>>>,
+    /// The scan a reader runs for: bumped as each scan ends, so a result
+    /// that outlives its scan is dropped (#409 C4).
+    scan_number: u64,
 }
 
 /// A snackbar, as the queue judges what closes it.
@@ -412,7 +451,10 @@ impl SnackUp {
     fn closed_by(&self, input: &Input) -> bool {
         match input {
             Input::SnackClosed(id) => *id == self.id,
-            Input::Left | Input::TrustPage(true) => self.conversation.is_some(),
+            Input::Left
+            | Input::TrustPage(true)
+            | Input::PeersPage(true)
+            | Input::Cards(cards::CardsInput::Open(_)) => self.conversation.is_some(),
             Input::Select(key) => self.conversation.as_ref().is_some_and(|c| c != key),
             _ => false,
         }
@@ -491,6 +533,29 @@ impl Shared {
             }
             return self.wake.clone();
         }
+        // The add page's field is state as the trust entry is, by the same
+        // rule: it replaces a queued edit of the field only while no later
+        // Peers input follows it.
+        if let Input::Peers(PeersInput::FieldChanged(typed)) = &input {
+            let last = self
+                .inputs
+                .iter_mut()
+                .rev()
+                .find(|i| matches!(i, Input::Peers(_) | Input::PeersPage(_)));
+            if let Some(Input::Peers(PeersInput::FieldChanged(queued))) = last {
+                queued.clone_from(typed);
+            } else {
+                self.inputs.push_back(input);
+            }
+            return self.wake.clone();
+        }
+        // Peers' snackbar closing is state, as the conversation's is.
+        if let Input::PeersSnackClosed(_) = input {
+            if !self.inputs.contains(&input) {
+                self.inputs.push_back(input);
+            }
+            return self.wake.clone();
+        }
         // A focus change is STATE, not a press: refusing it would leave the
         // view believing it still had focus, and a later selection would
         // read while unfocused (review F2). So it is never refused. It
@@ -536,6 +601,8 @@ impl Shared {
                     Input::Focus(_)
                         | Input::Draft(..)
                         | Input::Trust(TrustInput::EntryChanged(_))
+                        | Input::Peers(PeersInput::FieldChanged(_))
+                        | Input::PeersSnackClosed(_)
                         | Input::SnackClosed(_)
                         | Input::Left
                 )
@@ -646,6 +713,10 @@ enum Page {
     Conversation,
     /// The trust settings, in its place.
     Trust,
+    /// Peers, in its place.
+    Peers,
+    /// A card page -- Contacts, a contact, the own card -- in its place.
+    Cards,
 }
 
 /// The reference view: one window, bound to a [`UiModel`].
@@ -694,6 +765,18 @@ pub struct View {
     focus_wanted: Rc<RefCell<Option<String>>>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
+    /// The page on show when the trust settings' latest outcome came. A
+    /// trust step's outcome is its block's to say wherever it lands, and
+    /// a read's that lands on Peers is its trust line's: neither is
+    /// announced nor left for the Trust page, where a retry's "nothing
+    /// was changed" would be false while the block's earlier Trust is
+    /// unknown (`a_pending_trust_retried_without_a_write_says_no_nothing_changed`,
+    /// `a_trust_outcome_is_said_where_its_change_was_made`).
+    trust_outcome_on: Page,
+    /// Peers' lists and what of its requests the view carried out.
+    peer_lists: peers::PeerLists,
+    /// The card screens' page and what they last drew.
+    cards: cards::CardScreens,
     /// Where the runtime runs, which the texts that name it follow.
     host: RuntimeHost,
     shared: Rc<RefCell<Shared>>,
@@ -739,6 +822,15 @@ pub struct View {
     frame_tasks: Option<FrameTasks>,
 }
 
+/// What showing `key` reads: its unread messages, and the card
+/// proposals drawn at its end (`UiModel::proposals_viewed`: a view calls
+/// it when it renders them, which a shown conversation always does).
+fn viewed_intents(model: &UiModel, key: &ConversationKey, focused: bool) -> Vec<Intent> {
+    let mut intents = model.conversation_viewed(key, focused);
+    intents.extend(model.proposals_viewed(key, focused));
+    intents
+}
+
 /// Chats' one-line state (#304 F7): its short text, and the icon beside
 /// it so it is never told by colour alone; unknown has none.
 const fn state_line(connectivity: Connectivity) -> (UiText, Glyph) {
@@ -778,6 +870,7 @@ impl View {
         let conversations = Rc::new(VecModel::<ConversationRow>::default());
         let messages = Rc::new(VecModel::<MessageRow>::default());
         let trusted = Rc::new(VecModel::<TrustRow>::default());
+        let peer_lists = peers::PeerLists::new(&window, host);
         window.set_conversations(ModelRc::from(Rc::clone(&conversations)));
         window.set_messages(ModelRc::from(Rc::clone(&messages)));
         window.set_trusted(ModelRc::from(Rc::clone(&trusted)));
@@ -884,6 +977,8 @@ impl View {
         let s = Rc::clone(&shared);
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
         wire_trust(&window, &shared);
+        peers::wire(&window, &shared);
+        cards::wire(&window, &shared);
 
         let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
         window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
@@ -959,6 +1054,9 @@ impl View {
             removing: None,
             focus_wanted: Rc::new(RefCell::new(None)),
             trust_announced: 0,
+            trust_outcome_on: Page::Conversation,
+            peer_lists,
+            cards: cards::CardScreens::default(),
             host,
             shared,
             leaving_messages: Vec::new(),
@@ -992,13 +1090,49 @@ impl View {
     /// view counts as unfocused, so nothing is read before then.
     #[cfg(feature = "desktop")]
     pub fn on_window_focus(&self, focused: impl Fn(bool) + 'static) {
-        use slint::winit_030::{EventResult, WinitWindowAccessor as _, winit::event::WindowEvent};
-        slint::ComponentHandle::window(&self.window).on_winit_window_event(move |_, event| {
+        use slint::winit_030::{
+            EventResult, WinitWindowAccessor as _, winit, winit::event::WindowEvent,
+        };
+        let shared = Rc::clone(&self.shared);
+        slint::ComponentHandle::window(&self.window).on_winit_window_event(move |window, event| {
             if let WindowEvent::Focused(now) = event {
                 focused(*now);
             }
+            // Minimised: the desktop's background, where Show is never left
+            // on screen (add-a-peer §5.4). Asked of the window itself at
+            // each change that may come with it -- focus lost, a resize, an
+            // occlusion -- since no event says it on every platform, and
+            // occlusion alone is not it: X11 and macOS report a window only
+            // covered as occluded, and the person switches away to paste
+            // the address (#409 C2). Wayland never says a window is
+            // minimised, and a session lock is not reported to the window:
+            // both are known limits.
+            if matches!(
+                event,
+                WindowEvent::Focused(false) | WindowEvent::Resized(_) | WindowEvent::Occluded(_)
+            ) && window.with_winit_window(winit::window::Window::is_minimized)
+                == Some(Some(true))
+            {
+                enqueue(&shared, Input::Peers(PeersInput::CloseShow));
+            }
             EventResult::Propagate
         });
+    }
+
+    /// The scan controls this platform offers on the add page
+    /// (`design/2026-10-22-add-a-peer.md` §5.5): the camera on a phone
+    /// that has one, an image file and the clipboard's image on the
+    /// desktop. None by default, and none is drawn: typing or pasting the
+    /// text does all a scan does. The images' reader is compiled only
+    /// with the `desktop` feature; without it an image scan ends at once
+    /// as a cancelled one. The clipboard's image is offered apart: the
+    /// clipboard crate decodes it whole before any bound of this client's
+    /// applies, so the desktop withholds it until a bounded read exists
+    /// (#409 F1).
+    pub fn offer_scans(&self, camera: bool, files: bool, clipboard: bool) {
+        self.window.set_scan_camera(camera);
+        self.window.set_scan_images(files);
+        self.window.set_scan_paste(clipboard);
     }
 
     /// Called whenever a window callback queues an input, so the root runs
@@ -1185,6 +1319,34 @@ impl View {
         self.shared.borrow_mut().haptic = Some(Rc::new(tick));
     }
 
+    /// Make the platform secure the window while Show draws this device's
+    /// addresses (`design/2026-10-22-add-a-peer.md` §5.4: no screenshot,
+    /// no Recents content): `ask(true)` when Show opens, after which its
+    /// addresses wait until [`Self::show_secured`] says the flag is on,
+    /// and `ask(false)` once a frame without Show has been drawn. Where
+    /// the renderer cannot say when it drew (the testing backend), the
+    /// flag is never asked off. Unset, as on the desktop, nothing waits.
+    pub fn guard_show(&mut self, ask: impl Fn(bool) + 'static) {
+        self.peer_lists.show_guard = Some(peers::ShowGuard::new(Rc::new(ask)));
+    }
+
+    /// The platform has secured the window, as [`Self::guard_show`] asked:
+    /// Show may draw its addresses at the next render.
+    pub fn show_secured(&mut self) {
+        if let Some(guard) = self.peer_lists.show_guard.as_ref() {
+            guard.secured();
+        }
+    }
+
+    /// The app left the screen -- the background, or the screen locked:
+    /// Show closes, never left on screen unasked (§5.4).
+    pub fn leave_show(&self) {
+        let _ = self
+            .shared
+            .borrow_mut()
+            .push(Input::Peers(PeersInput::CloseShow));
+    }
+
     /// The app left the foreground: the snackbar closes, its Undo with it
     /// (§5). The action itself has happened already.
     pub fn close_snackbar(&self) {
@@ -1256,6 +1418,7 @@ impl View {
                     // dropping a change still waiting, and only then is the
                     // conversation on screen to read.
                     let leaving = self.page == Page::Trust;
+                    let leaving_peers = self.page == Page::Peers;
                     self.page = Page::Conversation;
                     // Leaving a conversation closes its snackbar (§5).
                     if let Some(snack) = model.snackbar()
@@ -1270,8 +1433,7 @@ impl View {
                     // (`a_selection_behind_the_list_by_its_take_reads_nothing`).
                     if let Some(key) = self.on_screen() {
                         out.extend(
-                            model
-                                .conversation_viewed(key, self.focused)
+                            viewed_intents(model, key, self.focused)
                                 .into_iter()
                                 .map(ViewEvent::Intent),
                         );
@@ -1281,13 +1443,16 @@ impl View {
                         out.push(ViewEvent::Trust(TrustInput::Cancel));
                         return out;
                     }
+                    if leaving_peers && let Some(close) = leaving_peers_closes(model) {
+                        out.push(close);
+                        return out;
+                    }
                 }
                 Input::Focus(focused) => {
                     self.focused = focused;
                     if let Some(key) = self.on_screen() {
                         out.extend(
-                            model
-                                .conversation_viewed(key, focused)
+                            viewed_intents(model, key, focused)
                                 .into_iter()
                                 .map(ViewEvent::Intent),
                         );
@@ -1374,6 +1539,11 @@ impl View {
                 // waiting for confirmation: none is made from a page the
                 // person left.
                 Input::TrustPage(open) => {
+                    // Show is never left open behind the trust settings
+                    // (#409 F1); an add page there stays, as it did.
+                    if open && self.page == Page::Peers && model.peers().show().is_some() {
+                        out.push(ViewEvent::Peers(PeersInput::CloseShow));
+                    }
                     self.page = if open {
                         Page::Trust
                     } else {
@@ -1390,6 +1560,65 @@ impl View {
                 Input::Trust(input) => {
                     out.push(ViewEvent::Trust(input));
                     return out;
+                }
+                // The root applies a Peers input before the next take.
+                Input::PeersPage(open) => {
+                    self.page = if open {
+                        Page::Peers
+                    } else {
+                        Page::Conversation
+                    };
+                    self.selection_unrendered = true;
+                    if open {
+                        out.push(ViewEvent::Peers(PeersInput::Opened));
+                        return out;
+                    }
+                    if let Some(close) = leaving_peers_closes(model) {
+                        out.push(close);
+                        return out;
+                    }
+                }
+                Input::Peers(input) => {
+                    out.push(ViewEvent::Peers(input));
+                    return out;
+                }
+                // A card page opened in the trust settings' or Peers'
+                // place leaves them as a pick of a conversation does.
+                Input::Cards(input) => {
+                    if self.take_cards_input(model, input, &mut out) {
+                        return out;
+                    }
+                }
+                // Resolved against the snackbar the model holds now: a
+                // press on one a later answer replaced does nothing.
+                Input::PeersSnackAction(id) => {
+                    let (snack, count) = model.peers().snack();
+                    if count == id {
+                        let input = match snack {
+                            Some(interweave_human_ui_model::PeersSnack::Removed { .. }) => {
+                                Some(PeersInput::Undo)
+                            }
+                            Some(_) => Some(PeersInput::TryAgain),
+                            None => None,
+                        };
+                        if let Some(input) = input {
+                            out.push(ViewEvent::Peers(input));
+                            return out;
+                        }
+                    }
+                }
+                Input::PeersSnackClosed(id) => {
+                    if model.peers().snack().1 == id && model.peers().snack().0.is_some() {
+                        // Its action leaves with it, so ask the two records
+                        // that outlive it: the action's own last focus
+                        // change, and focus-id, which only another control
+                        // taking focus rewrites. Either alone can be stale
+                        // (`a_stale_focus_id_alone_sends_no_focus_to_the_row_menu`).
+                        let from_action = self.window.get_peers_snack_action_focused()
+                            && self.window.get_focus_id().as_str() == "peers-snack-action";
+                        out.push(ViewEvent::Peers(PeersInput::SnackClosed { from_action }));
+                        return out;
+                    }
                 }
             }
         }
@@ -1430,7 +1659,7 @@ impl View {
         }
         let viewed = std::mem::take(&mut self.shared.borrow_mut().viewed) || moved;
         if viewed && let Some(key) = self.on_screen() {
-            for intent in model.conversation_viewed(key, self.focused) {
+            for intent in viewed_intents(model, key, self.focused) {
                 // A focus gained or a selection in this same take may have
                 // read these already: one intent per row.
                 let event = ViewEvent::Intent(intent);
@@ -1469,10 +1698,38 @@ impl View {
         Some(FocusTarget::Item(*key))
     }
 
+    /// Take a card input into `out`: true when the take ends here, as a
+    /// page left for a card page hands the root its own close first.
+    fn take_cards_input(
+        &mut self,
+        model: &UiModel,
+        input: cards::CardsInput,
+        out: &mut Vec<ViewEvent>,
+    ) -> bool {
+        let opens = matches!(input, cards::CardsInput::Open(_));
+        let leaving = self.page == Page::Trust;
+        let leaving_peers = self.page == Page::Peers;
+        out.extend(
+            self.take_cards(model, input)
+                .into_iter()
+                .map(ViewEvent::Intent),
+        );
+        self.selection_unrendered = true;
+        if opens && leaving {
+            out.push(ViewEvent::Trust(TrustInput::Cancel));
+            return true;
+        }
+        if opens && leaving_peers && model.peers().add_open() {
+            out.push(ViewEvent::Peers(PeersInput::Close));
+            return true;
+        }
+        false
+    }
+
     fn on_screen(&self) -> Option<&ConversationKey> {
         match self.page {
             Page::Conversation if self.window.get_pane_shown() => self.shown.as_ref(),
-            Page::Conversation | Page::Trust => None,
+            Page::Conversation | Page::Trust | Page::Peers | Page::Cards => None,
         }
     }
 
@@ -1504,8 +1761,10 @@ impl View {
         // slot, and the first would never be heard (review F5).
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
+        let peers = self.render_peers(model);
+        self.render_cards(model);
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
-        let said = [conversation, trust, outcome]
+        let said = [conversation, trust, peers, outcome]
             .into_iter()
             .flatten()
             .reduce(|first, rest| {
@@ -1522,7 +1781,8 @@ impl View {
                 .conversations()
                 .iter()
                 .any(|s| &s.key == key && s.unread > 0);
-            if unread {
+            // A proposal drawn unread is read as a message is: it is shown.
+            if unread || !model.proposals_viewed(key, true).is_empty() {
                 self.shared.borrow_mut().viewed = true;
             }
         }
@@ -1567,7 +1827,7 @@ impl View {
                 let hide = model.conversation_hide_offered(&summary.key);
                 ConversationRow {
                     handle: self.conversation_handles.of(&summary.key),
-                    title: summary.title.as_str().into(),
+                    title: summary.drawn_title.as_str().into(),
                     description: description.into(),
                     selected: self.shown.as_ref() == Some(&summary.key),
                     hide: swipe::kind(hide.then_some(RowAction::Hide)),
@@ -2084,7 +2344,18 @@ impl View {
         window.set_has_pending(pending.is_some());
         window.set_pending_text(pending.unwrap_or_default().into());
         let (outcome, count) = settings.outcome();
+        if count != self.trust_announced {
+            self.trust_outcome_on = self.page;
+        }
+        // A trust step's outcome is its block's to say, wherever it lands;
+        // a read's that lands on Peers is its trust line's (§5.2, §5.3).
+        let by_peers = match settings.outcome_from() {
+            OutcomeFrom::TrustStep => true,
+            OutcomeFrom::Read => self.trust_outcome_on == Page::Peers,
+            OutcomeFrom::Settings => false,
+        };
         let said = outcome
+            .filter(|_| !by_peers)
             .map(|outcome| outcome_text(self.host, outcome))
             .unwrap_or_default();
         // The entry's problem goes under its field; every other outcome
@@ -2334,6 +2605,40 @@ impl View {
         });
     }
 
+    /// Focus `target`, a control the same render that asks for it may
+    /// make -- Peers' blocks, snackbar action and list controls. Such a
+    /// control's `changed focus-seq` handler sees no change on the first
+    /// value it reads (measured: the first bump after the snackbar was
+    /// made focused nothing, a second one did), so the target is set and
+    /// bumped on the next turn as [`Self::focus_key`] does, and bumped
+    /// once more on the turn after. It shares `focus_key`'s one pending
+    /// request, so the newest wins. Not for the conversation views: a
+    /// late bump there took focus back from a row the person had moved
+    /// to (swipe.rs, measured).
+    fn focus_key_after_draw(&self, target: String) {
+        if self.focus_wanted.borrow_mut().replace(target).is_some() {
+            // Already scheduled: it applies this target instead.
+            return;
+        }
+        let (window, wanted) = (swipe::weak(&self.window), Rc::clone(&self.focus_wanted));
+        defer(move || {
+            let target = wanted.borrow_mut().take();
+            if let (Some(shown), Some(target)) = (window.upgrade(), target) {
+                shown.set_focus_target(target.clone().into());
+                shown.set_focus_seq(shown.get_focus_seq().wrapping_add(1));
+                // Once more a turn later, unless a newer request came.
+                defer(move || {
+                    if let Some(window) = window.upgrade()
+                        && wanted.borrow().is_none()
+                        && window.get_focus_target().as_str() == target
+                    {
+                        window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
+                    }
+                });
+            }
+        });
+    }
+
     /// Wake the root after `delay`, so it renders again: a leaving row
     /// is dropped once its space has closed.
     fn wake_after(&self, delay: Duration) {
@@ -2402,7 +2707,7 @@ impl View {
                 window.set_refused(SharedString::new());
             }
             Some(key) => {
-                let title = model.title(key);
+                let title = model.drawn_title(key);
                 window.set_header_title(title.into());
                 window.set_header_id(full_id(key).into());
                 let (label, copy, route) = match key {
@@ -2777,7 +3082,7 @@ impl Seen {
         let unread = model
             .conversations()
             .into_iter()
-            .map(|s| (s.key, (s.title, s.unread)))
+            .map(|s| (s.key, (s.drawn_title, s.unread)))
             .collect();
         Self {
             primed: true,
@@ -2973,8 +3278,21 @@ fn status_mark(item: &MessageItem) -> StatusMark {
 /// The control text for an intent a view offers as a button, or `None`
 /// for one it never offers that way: `MarkRead` comes from a focused
 /// view alone, `Send` from the composer, `OpenLink` from a link's own
-/// control, labelled with its destination, and the trust intents from the
-/// trust settings' own controls, never an item's.
+/// control, labelled with its destination, and the trust and address
+/// intents from the trust settings' and Peers' own controls, never an
+/// item's.
+/// What leaving Peers closes: its add page, as Back does, or Show, which
+/// is never left open behind another page (add-a-peer §5.4; #409 F1).
+fn leaving_peers_closes(model: &UiModel) -> Option<ViewEvent> {
+    if model.peers().add_open() {
+        Some(ViewEvent::Peers(PeersInput::Close))
+    } else if model.peers().show().is_some() {
+        Some(ViewEvent::Peers(PeersInput::CloseShow))
+    } else {
+        None
+    }
+}
+
 fn action_text(intent: &Intent) -> Option<&'static str> {
     let text = match intent {
         Intent::Retry(_) => UiText::Retry,
@@ -2997,6 +3315,11 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::Restore(_)
         | Intent::ReadTrust
         | Intent::SetTrust(_)
+        // The addresses come from Peers' own controls, never an item's.
+        | Intent::ReadAddresses
+        | Intent::AddAddresses(_)
+        | Intent::RemoveAddress(_)
+        | Intent::ReadOwnAddresses
         // Edits come from the settings and the contact page's own
         // controls, never an item's.
         | Intent::SetOwnCard { .. }
@@ -3087,6 +3410,32 @@ mod tests {
             monospaced.contains(&named.expect("checked")),
             "{code:?} is one of the families the stack resolves for monospace"
         );
+    }
+
+    /// A reader's result is taken only for the scan it was started for:
+    /// one numbered for a scan that has ended is dropped, whatever scan is
+    /// open by then (#409 C4).
+    #[test]
+    fn an_image_result_for_an_ended_scan_is_dropped() {
+        use interweave_human_ui_model::{PeersInput, ScanControl};
+        i_slint_backend_testing::init_no_event_loop();
+        let view =
+            super::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
+        let before = view.queued_inputs();
+        {
+            let mut shared = view.shared.borrow_mut();
+            shared.scan_reading = Some(ScanControl::OpenImage);
+            shared.scan_number = 1;
+        }
+        let put = |number: u64| {
+            let slot = std::sync::Arc::clone(&view.shared.borrow().scan_result);
+            *slot.lock().expect("slot") = Some((number, PeersInput::ImageNoCode));
+            view.window.invoke_peers_image_done();
+        };
+        put(0);
+        assert_eq!(view.queued_inputs(), before, "an ended scan's result");
+        put(1);
+        assert_eq!(view.queued_inputs(), before + 1, "the open scan's result");
     }
 
     /// Rows that count what a keyed update did to them.

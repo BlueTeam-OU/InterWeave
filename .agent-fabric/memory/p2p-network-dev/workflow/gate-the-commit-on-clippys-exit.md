@@ -5,7 +5,7 @@ topic: "gate-the-commit-on-clippys-exit"
 description: "A commit chained after clippy with ';' lands even when clippy fails -- gate it with && on the exit code (PIPESTATUS when grepping)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -3,8 +3,10 @@
 //! The client's link to its daemon: it outlives a daemon restart, taking
 //! the lease again and receiving again; and its two connections keep the
 //! split IPC authority (ADR-0040) -- no `admin.*` method on the data
-//! socket, and on the admin socket only `admin.status`, the facade's
-//! read-only status connection, never a lease or a send.
+//! socket, and on the admin socket only reads: `admin.status`, the
+//! facade's status connection, and the one read of the trust list and the
+//! address list a ready session makes for the no-reach notice (ADR-0062
+//! decision 8) -- never a change, a lease or a send.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -226,17 +228,25 @@ async fn the_client_keeps_data_and_admin_apart_on_their_own_sockets() {
         !admin_named(&on_data.capabilities) && !admin_named(&on_data.methods),
         "no admin authority asked for or used on the data socket: {on_data:?}"
     );
-    let status_only: BTreeSet<String> = ["admin.status".to_owned()].into();
+    // What a client no person touched asks: its status, and the two lists
+    // the no-reach notice keys on, read once a session is ready.
+    let reads =
+        |names: &[&str]| -> BTreeSet<String> { names.iter().map(|n| (*n).to_owned()).collect() };
+    let capabilities = reads(&["admin.status", "admin.trust", "admin.peers"]);
+    let methods = reads(&[
+        "admin.status",
+        "admin.trust.list",
+        "admin.peers.list_addresses",
+    ]);
     assert!(
-        on_admin.capabilities == status_only && on_admin.methods == status_only,
-        "control: the client's status connection was seen asking for and reading status: \
-         {on_admin:?}"
+        on_admin.capabilities == capabilities && on_admin.methods == methods,
+        "control: the client was seen reading its status and the two lists: {on_admin:?}"
     );
     assert!(
         on_admin.endpoint.is_none()
-            && on_admin.capabilities.is_subset(&status_only)
-            && on_admin.methods.is_subset(&status_only),
-        "on the admin socket only the status read, never a lease or a send: {on_admin:?}"
+            && on_admin.capabilities.is_subset(&capabilities)
+            && on_admin.methods.is_subset(&methods),
+        "on the admin socket only those reads, never a change, a lease or a send: {on_admin:?}"
     );
     assert!(
         human_lease(&world.a.binding()).await.is_none(),

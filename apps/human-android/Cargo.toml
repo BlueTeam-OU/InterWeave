@@ -60,6 +60,12 @@ ndk-sys = { workspace = true }
 interweave-android-e2e-cases = { path = "../../tests/android-e2e-cases", optional = true }
 serde_json = { workspace = true, optional = true }
 
+[dev-dependencies]
+# The identity key's record read back by the log and backup tests
+# (src/platform_log.rs, src/identity_keys.rs), to look for its secret.
+base64 = { workspace = true }
+interweave-transport-api = { path = "../../crates/api/transport-api" }
+
 [features]
 # The first-run profile of crates/human/android-platform's stand_in, and
 # a first run's identity created and Keystore-provisioned without asking

@@ -5,7 +5,7 @@ topic: "no-reports-on-others-prs"
 description: Do not report the status, counts or readiness of pull requests I do not own
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

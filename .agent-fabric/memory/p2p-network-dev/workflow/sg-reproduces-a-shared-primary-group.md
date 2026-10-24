@@ -5,7 +5,7 @@ topic: "sg-reproduces-a-shared-primary-group"
 description: "To test file-mode rules under umask 002 with a non-private primary group on this host, run `sg otscache -c 'umask 002; cargo test ...'` — no root needed"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

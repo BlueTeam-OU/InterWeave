@@ -23,6 +23,10 @@ workspace = true
 [dependencies]
 
 [dev-dependencies]
+# human_cli.rs: the picture `card set --photo` is run with, and the
+# identity key's record read back to grep for its secret.
+base64 = { workspace = true }
+image = { workspace = true }
 # human_chat.rs: the human client's own facade, store, envelope codec and
 # presentation model
 # on each side of the two-daemon proof (plan section 17 (7)).

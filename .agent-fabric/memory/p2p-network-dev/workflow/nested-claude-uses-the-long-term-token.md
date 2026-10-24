@@ -5,7 +5,7 @@ topic: "nested-claude-uses-the-long-term-token"
 description: "A nested Claude Code session (host runs, spikes) authenticates with this login's long-term token, never an interactive /login (owner, 2026-10-06)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

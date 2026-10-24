@@ -745,6 +745,23 @@ extern "system" fn Java_org_interweave_human_Native_offline<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
+/// `Native.showSecured()`: `FLAG_SECURE` is on for Show (activity.rs).
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_showSecured<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::show_secured();
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
 /// `Native.back()`: the platform's Back, for the window (activity.rs).
 #[allow(
     unsafe_code,

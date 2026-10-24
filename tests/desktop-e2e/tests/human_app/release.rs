@@ -538,12 +538,52 @@ async fn a_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
         .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
         .expect("a newer header");
     checkpoint(&store);
-    let mut daemon = serving(&home).await;
-    let before = snapshot(&home);
+    refused_as_newer(&home).await;
+}
+
+/// Rollback over the encrypted store (ADR-0060; plan section 29 step 3,
+/// "section 22's upgrade and rollback rows learning the case"): the
+/// previous build's store rewritten encrypted as this build's first open
+/// leaves it, then given a newer header under its key, stops the window
+/// as the plaintext one does, says why, and leaves every file -- the
+/// encrypted store and its key among them -- as it was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_encrypted_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
+    let home = install(&previous_tree());
+    drop(
+        HumanStore::open_profile(&home.paths, &FilesystemCustody, StoreOptions::default())
+            .expect("this build's first open rewrites it encrypted"),
+    );
+    assert!(
+        store_key::key_path(&home.paths).is_file(),
+        "the control: the store is encrypted under a key"
+    );
+    let conn = at_rest::open_writable_for_tests(&home.paths, &FilesystemCustody)
+        .expect("the encrypted store opens under its key");
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+        .expect("a newer header");
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+        .expect("checkpointed");
+    drop(conn);
+    let bytes = std::fs::read(app_store(&home)).expect("the store's file");
+    assert!(
+        !bytes.starts_with(b"SQLite format 3\0"),
+        "the control: the header the client meets is encrypted"
+    );
+    refused_as_newer(&home).await;
+}
+
+/// What a store a newer build wrote meets: the window stops before it
+/// takes the endpoint, names the store on the refusal screen, exits
+/// `EX_DATAERR` on Close, and nothing in the home is written; the
+/// daemon serves the same `PeerId` throughout.
+async fn refused_as_newer(home: &Home) {
+    let mut daemon = serving(home).await;
+    let before = snapshot(home);
 
     let _focus = display::exclusive().await;
     let bus = Bus::connect().await;
-    let mut client = app::start(&home);
+    let mut client = app::start(home);
     // Shown, not only said: the refusal screen names the store.
     let screen = bus.window_of(client.child.id(), || client.log()).await;
     screen
@@ -571,9 +611,9 @@ async fn a_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
         client.log()
     );
     assert!(human_lease(&home.binding()).await.is_none());
-    assert_eq!(package::status_peer(&home).await.as_str(), GOLDEN_PEER);
+    assert_eq!(package::status_peer(home).await.as_str(), GOLDEN_PEER);
     assert!(daemon.terminate().success(), "{}", daemon.log());
-    let after = snapshot(&home);
+    let after = snapshot(home);
     assert_eq!(
         changed(&before, &after),
         Vec::<String>::new(),

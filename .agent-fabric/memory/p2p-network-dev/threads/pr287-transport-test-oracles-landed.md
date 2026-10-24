@@ -5,7 +5,7 @@ topic: "pr287-transport-test-oracles-landed"
 description: "Arming below 8 work on the owner's word: arm the reviewed head, do not push a fresh main merge first; codex review not required by fabric-pr arm now"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

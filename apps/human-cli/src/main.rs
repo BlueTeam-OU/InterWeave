@@ -39,6 +39,10 @@ use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_profile_config::ProfileLock;
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
 
+/// The workspace version with the commit as build metadata (ADR-0065
+/// decision 6; `tools/stamp/commit_stamp.rs`).
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("INTERWEAVE_COMMIT"));
+
 /// Why a verb did not complete, each with its exit code.
 #[derive(Debug)]
 pub(crate) enum Failure {
@@ -273,6 +277,10 @@ fn main() -> ExitCode {
     let Outcome { out, result } = match command {
         cli::Command::Help => {
             println!("{}", cli::USAGE);
+            return ExitCode::SUCCESS;
+        }
+        cli::Command::Version => {
+            println!("interweave-human {VERSION}");
             return ExitCode::SUCCESS;
         }
         cli::Command::Run {
