@@ -836,14 +836,19 @@ mod tests {
     fn a_contacts_name_titles_its_conversation_told_apart_by_the_short_peer_id_when_shared() {
         let mut model = UiModel::new();
         model.contacts_listed(vec![contact("c1", "Ada", P)]);
+        // Plain for a terminal or a script, isolated where a view draws it;
+        // the list's summary carries both. Mutations: `title` isolated (the
+        // CLI's conversations would print U+FFFD around the name);
+        // `drawn_title` plain.
+        assert_eq!(model.title(&direct(P, "human")), "Ada", "the name, plain");
         assert_eq!(
-            model.title(&direct(P, "human")),
+            model.drawn_title(&direct(P, "human")),
             "\u{2068}Ada\u{2069}",
-            "the name, isolated"
+            "the name, isolated where it is drawn"
         );
         model.contacts_listed(vec![contact("c1", "Ada", P), contact("c2", "Ada", Q)]);
-        let p_title = model.title(&direct(P, "human"));
-        let q_title = model.title(&direct(Q, "human"));
+        let p_title = model.drawn_title(&direct(P, "human"));
+        let q_title = model.drawn_title(&direct(Q, "human"));
         assert_ne!(
             p_title, q_title,
             "two contacts of one name are told apart in the title"

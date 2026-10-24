@@ -243,6 +243,11 @@ pub struct ConversationSummary {
     /// shown as a label (agreed item 3c). Never the envelope's
     /// `from_endpoint` or anything in the text.
     pub title: String,
+    /// The title as a view draws it: the same, a contact's name inside a
+    /// first-strong isolate ([`crate::labels::isolated`]), since a drawn
+    /// title sits in other text -- a row, a header, an announcement. A
+    /// terminal or a script gets [`ConversationSummary::title`], plain.
+    pub drawn_title: String,
     /// How many of its messages are unread.
     pub unread: usize,
     /// The latest local time of any of its messages.
@@ -948,7 +953,8 @@ impl UiModel {
                 .entry(&item.conversation)
                 .or_insert_with(|| ConversationSummary {
                     key: item.conversation.clone(),
-                    title: self.contact_title(&item.conversation, &shared),
+                    title: self.contact_title(&item.conversation, &shared, Isolate::No),
+                    drawn_title: self.contact_title(&item.conversation, &shared, Isolate::Yes),
                     unread: 0,
                     last_activity: 0,
                     avatar: Avatar::of(&item.conversation),
@@ -978,19 +984,30 @@ impl UiModel {
     /// is open.
     #[must_use]
     pub fn title(&self, key: &ConversationKey) -> String {
-        self.contact_title(key, &self.peers_with_routes())
+        self.contact_title(key, &self.peers_with_routes(), Isolate::No)
+    }
+
+    /// [`UiModel::title`] as a view draws it: a contact's name isolated
+    /// ([`ConversationSummary::drawn_title`]).
+    #[must_use]
+    pub fn drawn_title(&self, key: &ConversationKey) -> String {
+        self.contact_title(key, &self.peers_with_routes(), Isolate::Yes)
     }
 
     /// The title, its contact's name once the route belongs to one (plan
     /// §29 step 2, `human-client-ui.md` §4), with the short `PeerId` beside
-    /// it when another contact has that name; else as before. The name is
-    /// isolated ([`crate::labels::isolated`]): a title is a name inside
-    /// other text, in the list, the header and Details alike.
+    /// it when another contact has that name; else as before. `isolate`
+    /// wraps the name for a view that draws it in other text.
     fn contact_title(
         &self,
         key: &ConversationKey,
         shared: &BTreeSet<&TransportIdentity>,
+        isolate: Isolate,
     ) -> String {
+        let name = |n: &str| match isolate {
+            Isolate::Yes => crate::labels::isolated(n),
+            Isolate::No => n.to_owned(),
+        };
         if let ConversationKey::Direct {
             peer,
             endpoint: Some(at),
@@ -1004,12 +1021,12 @@ impl UiModel {
                 return fill(
                     placeholder_en::text(UiText::ContactTitle),
                     &[
-                        ("name", &crate::labels::isolated(&contact.name)),
+                        ("name", &name(&contact.name)),
                         ("peer", &short_peer(peer.as_str())),
                     ],
                 );
             }
-            return crate::labels::isolated(&contact.name);
+            return name(&contact.name);
         }
         title(key, shared)
     }
@@ -1625,6 +1642,13 @@ fn conversation_of(destination: &Destination) -> ConversationKey {
 /// (human-client-ui.md §4 at a5ecfc04; #304 F6). One conversation with a
 /// peer has no route in its title; its details show it. The envelope's
 /// own `from_endpoint` and the message text never enter it.
+/// Whether a title wraps a contact's name in a first-strong isolate.
+#[derive(Clone, Copy)]
+enum Isolate {
+    Yes,
+    No,
+}
+
 fn title(key: &ConversationKey, shared: &BTreeSet<&TransportIdentity>) -> String {
     match key {
         ConversationKey::Channel(channel) => format!("#{}", channel.as_str()),
