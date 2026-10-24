@@ -214,24 +214,30 @@ after 2.1.286 is not established.
 
 **Carried measurement, S24 (2026-10-24, Claude Code 2.1.286,
 rust-services-dev, plan §19): a channel reaches a non-interactive
-session, on the organisation path only.** Read off
-`spikes/spike-001/README.md` §S24 (facts 39–44, runs `s24-*`). Each run
-was one `claude -p` session with stream-json in and out and stdin held
-open, on S22's install and managed settings, with two daemons and a far
-peer. With the organisation's allow entry, `--channels
-plugin:interweave@interweave` registered the channel, as did the
-stream-json control request `channel_enable`. The peer's message,
-sent after the first turn had ended, started a turn of its own about
-2 s later with nothing written to the session. The model called
-`reply`, and the peer had `ack` 4 s after its send. The allow entry
-without a flag delivered nothing. The development flag gives a print
-session nothing: with it and no managed settings, nothing was
-delivered, and `channel_enable` was refused on the allowlist exactly
-as without it. That, not the timing, is why fact 4's runs saw nothing.
-A print session that skips a channel logs nothing about it. Not
+session on the organisation path; Anthropic's allowlist was not tried.**
+Read off `spikes/spike-001/README.md` §S24 (facts 39–44, runs `s24-a`
+to `s24-h`). Each run was one `claude -p` session with stream-json in
+and out and stdin held open, on S22's install. Runs a, b, e, g and h
+had S22's allow entry; c, d and f had no managed settings. Runs a, b and
+e to h had two daemons and a far peer; c and d had neither. With the
+allow entry, the channel registered through `--channels
+plugin:interweave@interweave` alone (b), and through the stream-json
+control request `channel_enable` alone (g). The peer's message, sent
+after the first turn had ended, started a turn of its own about 2 s
+later with nothing written to the session. The model called `reply`,
+and the peer had `ack` 4 to 5 s after its send. The allow entry without
+a flag or a request delivered nothing (e). The development flag gave
+these sessions nothing: with it and no managed settings nothing was
+delivered (f), and `channel_enable` was refused on the allowlist
+exactly as without it (d, c). That fits fact 4's runs having seen
+nothing, but they ran 2.1.285 with a bare `--mcp-config` server and a
+plain `-p`, which S24 did not, so their cause is inferred. Every
+session ran in the `auto` permission mode, from a source not
+established; in it, `reply` reached the peer without `--allowedTools`
+(h). A print session that skips a channel logs nothing about it. Not
 established: Anthropic's allowlist in `-p`, a bare `--mcp-config`
-server in `-p`, an event arriving during a turn, and a session whose
-stdin has closed.
+server in `-p`, another permission mode, an event arriving during a
+turn, and a session whose stdin has closed.
 
 ---
 
