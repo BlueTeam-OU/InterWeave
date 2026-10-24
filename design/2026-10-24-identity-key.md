@@ -123,7 +123,8 @@ Where the page shows the identity's fingerprint (`human-client-ui.md`
   under it, on a line of its own, `KeyDirUnsafePath` ("Folder
   location: {path}"), the path isolated (left to right, never translated),
   selectable and copyable as `human-client-ui.md` §11 asks of an exact
-  identifier; the path appears nowhere else. Then **Try again** (`TryAgain`,
+  identifier; the path appears nowhere but under `KeyDirUnsafe`,
+  wherever that line shows (here and in the share sheet, §4.3). Then **Try again** (`TryAgain`,
   filled tonal) alone; a new key cannot be made there until the folder
   is fixed. Try again opens the key once more, as in §6, and whatever
   the folder then holds decides the state: the old file opens, or is
@@ -149,7 +150,9 @@ directly, so the state is one tap from the menu either way.
 
 Opened while the conversation's identity is in this state, the sheet
 keeps its title and its "as {identity}" line, and replaces the preview
-and `ShareCardNote` with the reason line and `KeyCannotShareHere`
+and `ShareCardNote` with the reason line (for "key folder not safe",
+`KeyDirUnsafe` with `KeyDirUnsafePath` under it, as in §4.1, since
+the reason refers to the location shown) and `KeyCannotShareHere`
 ("You cannot share your card until this identity's key can be used").
 The primary becomes **Open your card** (`KeyOpenCard`), which opens
 §4.1 for this identity; Cancel stays; Edit your card is not offered
@@ -316,7 +319,8 @@ reason line (for "key folder not safe", `KeyDirUnsafe`, then
 `KeyDirUnsafePath` read as one item), `KeyCannotShare`, then the actions; it sits where the
 fingerprint row would, so it is read in the page's order. §4.2's row
 reads its third line with the row: "{name}, {route label}, key cannot
-be used". §4.3's sheet: title, "as {identity}", the reason line,
+be used". §4.3's sheet: title, "as {identity}", the reason line (with
+`KeyDirUnsafePath` after it, as one item, for "key folder not safe"),
 `KeyCannotShareHere`, Cancel, Open your card.
 
 **Focus.** Every case, with its check:
@@ -331,7 +335,7 @@ be used". §4.3's sheet: title, "as {identity}", the reason line,
 | made | the new fingerprint row; `KeyMade` announced once | keyboard; screen reader |
 | failed | the failure line (`KeyNewFailed` or `KeyNewFailedGone`), which is announced by being focused, not again | keyboard; screen reader |
 | Try again, opened | the fingerprint row | keyboard |
-| the `KeyDirUnsafePath` line ("key folder not safe") | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
+| the `KeyDirUnsafePath` line ("key folder not safe"), on the page or in the share sheet | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
 | Try again, refused again | `KeyNotNowAgain` | keyboard; screen reader |
 | a row under `KeyShareAgainTitle` | the conversation's share sheet, as cards §5.3 opens it | keyboard |
 | Open your card from the sheet | as cards §5.2 | keyboard |
@@ -431,7 +435,9 @@ On both clients unless said; Android's screen-reader checks blocked as
 17. Desktop: `identity-keys/` owned by root with mode 0700 shows
     `KeyDirUnsafe`, not `KeyDamaged`, and no Make a new key.
 18. Desktop: `identity-keys/` replaced by a regular file shows
-    `KeyDirUnsafe` with `KeyDirUnsafePath`, and no Make a new key.
+    `KeyDirUnsafe` with `KeyDirUnsafePath`, Try again, and no Make a
+    new key; Share in a conversation of that identity shows the same
+    two lines in the sheet.
 
 ## 10. Strings
 
@@ -467,7 +473,7 @@ as the platform shows it, isolated as a path, never translated.
 | `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
 | `KeyNewFailedGone` | The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order) |
 | `KeyDirUnsafe` | This identity's key must be kept in a regular folder that only your user account owns. The location shown is not a folder like that, so InterWeave does not use the key. Make it a regular folder that only your user account owns, then choose Try again. | §3, desktop only; must be true for a symbolic link, a folder owned by another user account, and a file where the folder should be; must say what to make of it, since the client never changes what it does not own |
-| `KeyDirUnsafePath` | Folder location: {path} | §4.1, desktop only, the line under `KeyDirUnsafe`; a label and the path, `{path}` last so no punctuation touches it |
+| `KeyDirUnsafePath` | Folder location: {path} | §4.1 and §4.3, desktop only, the line under `KeyDirUnsafe` wherever it shows; a label and the path, `{path}` last so no punctuation touches it |
 | `KeyNewPending` | In some conversations, your card has not reached the contact yet. If InterWeave has not sent the card yet, making a new key cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make (review round 3, F11) |
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
 
