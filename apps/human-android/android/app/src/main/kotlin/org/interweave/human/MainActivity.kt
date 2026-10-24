@@ -468,6 +468,12 @@ class MainActivity : NativeActivity() {
                 local?.online() ?: connect()
             }
             Ask.RESTART -> local?.restart() ?: connect()
+            // Show my address: the flag before its addresses are drawn,
+            // which the window does once told (add-a-peer section 5.4).
+            Ask.SHOW_SECURE -> {
+                secure(true)
+                Native.showSecured()
+            }
         }
     }
 

@@ -78,6 +78,10 @@ pub(crate) mod ask {
     /// (ADR-0060 decision 6). Unlike [`ONLINE`], not tied to Show my
     /// phrase's hold.
     pub(crate) const RESTART: jint = 9;
+    /// Show my address opened (add-a-peer §5.4): `FLAG_SECURE` on, then
+    /// `Native.showSecured`, after which the window draws its addresses;
+    /// [`SECURE_OFF`] once a frame without it was drawn.
+    pub(crate) const SHOW_SECURE: jint = 10;
 }
 
 /// The asks, in order, for one waiting Kotlin thread.
@@ -94,7 +98,7 @@ impl Asks {
         }
     }
 
-    fn push(&self, ask: jni::sys::jint) {
+    pub(crate) fn push(&self, ask: jni::sys::jint) {
         self.queue
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

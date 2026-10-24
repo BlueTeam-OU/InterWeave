@@ -16,11 +16,13 @@ use std::time::Duration;
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
-    AddressProblem, AddressRefused, ClientConfig, PeerAddress, TransportClient,
+    AddressProblem, AddressRefused, ClientConfig, LineAdded, PeerAddress, ShowAddresses,
+    TransportClient,
 };
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, AdminBinding, AdminCapability, AdminPort,
-    AdminStatus, BootstrapAddress, EndpointAdminView, Generation, LocalAdminPort, TrustAdminView,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminCapability,
+    AdminPort, AdminStatus, BootstrapAddress, EndpointAdminView, Generation, LineChange,
+    LocalAdminPort, OwnAddress, OwnAddressKind, OwnAddresses, TrustAdminView,
 };
 use interweave_local_client_fake::{FakeConfig, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
@@ -46,6 +48,13 @@ struct Script {
     asked: Vec<BTreeSet<AdminCapability>>,
     /// Every address a change was asked for.
     sent: Vec<String>,
+    /// The next add of several's answer; `None` answers each line as
+    /// a one-line add would, all or none.
+    adds: Option<Result<AddressesChange, TransportError>>,
+    /// Every list an add of several was asked for.
+    sent_lists: Vec<Vec<String>>,
+    /// The own-address read's answer; `None` is unsupported.
+    own: Option<Result<OwnAddresses, TransportError>>,
 }
 
 #[derive(Clone, Default)]
@@ -118,6 +127,40 @@ impl BookPort {
     }
 }
 
+impl BookPort {
+    fn add_lines(&self, lines: Vec<String>) -> Result<AddressesChange, TransportError> {
+        let mut script = self.book.0.lock().unwrap();
+        script.sent_lists.push(lines.clone());
+        if let Some(answer) = script.adds.take() {
+            return answer;
+        }
+        let mut rows = Vec::new();
+        for line in lines {
+            if script.rows.iter().any(|row| row.address == line) {
+                rows.push(LineChange::Unchanged);
+            } else {
+                script.rows.push(BootstrapAddress {
+                    address: line,
+                    source: AddressSource::Added,
+                    dialled: true,
+                });
+                rows.push(LineChange::Added);
+            }
+        }
+        Ok(AddressesChange::Added(rows))
+    }
+
+    fn own(&self) -> Result<OwnAddresses, TransportError> {
+        self.book
+            .0
+            .lock()
+            .unwrap()
+            .own
+            .clone()
+            .unwrap_or(Err(TransportError::ProtocolUnsupported))
+    }
+}
+
 impl AdminPort for BookPort {
     fn port(&self) -> &LocalAdminPort {
         &self.port
@@ -157,6 +200,15 @@ impl AdminPort for BookPort {
         address: String,
     ) -> impl Future<Output = Result<AddressChange, TransportError>> + Send {
         std::future::ready(self.change(address, true))
+    }
+    fn add_bootstrap_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> impl Future<Output = Result<AddressesChange, TransportError>> + Send {
+        std::future::ready(self.add_lines(addresses))
+    }
+    fn own_addresses(&self) -> impl Future<Output = Result<OwnAddresses, TransportError>> + Send {
+        std::future::ready(self.own())
     }
     fn remove_bootstrap_address(
         &self,
@@ -412,4 +464,167 @@ async fn a_runtime_without_the_methods_is_incompatible() {
     old.0.lock().unwrap().list_fails = Some(TransportError::ProtocolUnsupported);
     let client = facade(old);
     assert_eq!(client.addresses().await, Err(AddressProblem::Incompatible));
+}
+
+/// One line is the one-address add any runtime with the methods serves;
+/// several are one call carrying them all, never one call per line, and
+/// only the lines the runtime answered added are marked so.
+#[tokio::test]
+async fn an_add_of_several_is_one_call_and_one_line_is_the_one_address_add() {
+    let (old, a, b) = (peer(), peer(), peer());
+    let book = Book::default();
+    book.0.lock().unwrap().rows = vec![BootstrapAddress {
+        address: direct(&old),
+        source: AddressSource::Added,
+        dialled: true,
+    }];
+    let client = facade(book.clone());
+
+    let one = client.add_addresses(vec![direct(&a)]).await.expect("added");
+    assert_eq!(
+        one.outcome,
+        AddressOutcome::Added {
+            peer: Some(a.clone())
+        }
+    );
+    let lines = vec![direct(&b), direct(&old)];
+    let several = client.add_addresses(lines.clone()).await.expect("added");
+    assert_eq!(
+        several.outcome,
+        AddressOutcome::AddedLines(vec![
+            LineAdded {
+                added: true,
+                peer: Some(b.clone())
+            },
+            LineAdded {
+                added: false,
+                peer: Some(old.clone())
+            },
+        ])
+    );
+    let again = client.add_addresses(lines.clone()).await.expect("answered");
+    assert_eq!(again.outcome, AddressOutcome::Unchanged, "every line there");
+    let script = book.0.lock().unwrap();
+    assert_eq!(
+        script.sent,
+        vec![direct(&a)],
+        "one line, the one-address add"
+    );
+    assert_eq!(
+        script.sent_lists,
+        vec![lines.clone(), lines],
+        "several, one call each"
+    );
+    assert_eq!(
+        several.list.expect("read back").addresses.len(),
+        3,
+        "the list is read back"
+    );
+}
+
+/// The add of several's refusal keeps the line it names, and the list
+/// off names none; a runtime below 2.9 sends nothing and the add is not
+/// made, while an answer lost after the request left may have been.
+#[tokio::test]
+async fn an_add_of_several_refused_or_failed_says_which_and_whether_made() {
+    let lines = vec![direct(&peer()), direct(&peer())];
+    let cases = [
+        (
+            Ok(AddressesChange::Refused {
+                reason: AddressRefusal::Bound,
+                line: Some(1),
+                detail: "x".to_owned(),
+            }),
+            Ok(AddressOutcome::RefusedLine {
+                why: AddressRefused::Bound,
+                line: 1,
+            }),
+        ),
+        (
+            Ok(AddressesChange::Refused {
+                reason: AddressRefusal::ProviderDisabled,
+                line: None,
+                detail: "x".to_owned(),
+            }),
+            Ok(AddressOutcome::Refused(AddressRefused::ListOff)),
+        ),
+        (
+            Err(TransportError::ProtocolUnsupported),
+            Err(AddressChangeFailure::NotMade(AddressProblem::Incompatible)),
+        ),
+        (
+            Err(TransportError::Internal),
+            Err(AddressChangeFailure::NotMade(AddressProblem::Internal)),
+        ),
+        (
+            Err(TransportError::Timeout),
+            Err(AddressChangeFailure::Unconfirmed(
+                AddressProblem::Unavailable,
+            )),
+        ),
+    ];
+    for (given, want) in cases {
+        let book = Book::default();
+        book.0.lock().unwrap().adds = Some(given.clone());
+        let client = facade(book);
+        let got = client.add_addresses(lines.clone()).await.map(|a| a.outcome);
+        assert_eq!(got, want, "for {given:?}");
+    }
+}
+
+/// The show screen's read keeps the runtime's order and what it says of
+/// its bound, and says why it failed.
+#[tokio::test]
+async fn own_addresses_are_read_in_the_runtimes_order() {
+    let me = peer();
+    let shown = vec![
+        format!("/ip4/203.0.113.9/tcp/4001/p2p/{}", me.as_str()),
+        direct(&me),
+    ];
+    let book = Book::default();
+    book.0.lock().unwrap().own = Some(Ok(OwnAddresses {
+        peer: me.clone(),
+        addresses: vec![
+            OwnAddress {
+                address: shown[0].clone(),
+                kind: OwnAddressKind::ConfirmedExternal,
+            },
+            OwnAddress {
+                address: shown[1].clone(),
+                kind: OwnAddressKind::Listen,
+            },
+        ],
+        truncated: true,
+    }));
+    let client = facade(book.clone());
+    assert_eq!(
+        client.own_addresses().await,
+        Ok(ShowAddresses {
+            peer: me,
+            addresses: shown,
+            truncated: true
+        })
+    );
+    assert_eq!(
+        book.0.lock().unwrap().asked.last(),
+        Some(&BTreeSet::from([AdminCapability::Peers])),
+        "admin.peers alone"
+    );
+    for (given, want) in [
+        (
+            TransportError::ProtocolUnsupported,
+            AddressProblem::Incompatible,
+        ),
+        (
+            TransportError::CapabilityDenied,
+            AddressProblem::NotPermitted,
+        ),
+        (
+            TransportError::BackendUnavailable,
+            AddressProblem::Unavailable,
+        ),
+    ] {
+        book.0.lock().unwrap().own = Some(Err(given));
+        assert_eq!(client.own_addresses().await, Err(want), "for {given:?}");
+    }
 }

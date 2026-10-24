@@ -1520,26 +1520,51 @@ async fn a_bare_address_intent_reaches_nothing() {
         ViewEvent::Intent(Intent::ReadAddresses),
         ViewEvent::Intent(Intent::AddAddresses(vec![address.clone()])),
         ViewEvent::Intent(Intent::RemoveAddress(address)),
+        ViewEvent::Intent(Intent::ReadOwnAddresses),
     ]);
     root.pump(1).await;
     assert!(
         !root.commands.iter().any(|c| matches!(
             c,
-            Command::ReadAddresses | Command::AddAddresses(_) | Command::RemoveAddress(_)
+            Command::ReadAddresses
+                | Command::AddAddresses(_)
+                | Command::RemoveAddress(_)
+                | Command::ReadOwnAddresses
         )),
         "{:?}",
         root.commands
     );
 }
 
+/// Show my address reaches the facade as one read of this node's own
+/// addresses, and what it answers is what Show draws.
+#[tokio::test]
+async fn show_reads_this_nodes_addresses_through_the_facade() {
+    use interweave_human_ui_model::{PeersInput, ShowState};
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    root.will(vec![ViewEvent::Peers(PeersInput::OpenShow)]);
+    root.pump(1).await;
+    assert_eq!(root.commands, vec![Command::ReadOwnAddresses]);
+    let want = format!("/ip4/192.168.77.10/tcp/4001/p2p/{}", a.peer().as_str());
+    assert_eq!(
+        root.model().peers().show(),
+        Some(&ShowState::Shown {
+            peer: a.peer().clone(),
+            lines: vec![want]
+        })
+    );
+}
+
 /// Peers' add reaches the facade as one add of all its lines: one line
 /// is the runtime's single add, which this fake answers as added;
-/// several typed are refused before anything is sent (`TYPED_LINES`);
-/// several scanned are never split, and until the add of several lines
-/// is bound they are answered as a runtime without it answers.
+/// several, typed or scanned, are one add, never split, which the
+/// runtime's add of several answers; more than `TYPED_LINES` typed are
+/// refused before anything is sent.
 #[tokio::test]
 async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
-    use interweave_human_ui_model::{AddNote, PeersInput, TYPED_LINES};
+    use interweave_human_ui_model::{AddNote, PeersInput, ScanControl, TYPED_LINES};
     let (a, b) = FakeNetwork::pair(node(), node());
     let one = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", b.peer().as_str());
     let two = format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", b.peer().as_str());
@@ -1576,7 +1601,24 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
         ViewEvent::Peers(PeersInput::Add),
     ]);
     root.pump(1).await;
-    assert!(root.commands.is_empty(), "two typed lines send nothing");
+    assert_eq!(
+        root.commands,
+        vec![Command::AddAddresses(vec![one.clone(), two.clone()])],
+        "two typed lines are one add"
+    );
+    let many: Vec<String> = (0..=TYPED_LINES)
+        .map(|i| format!("/ip4/192.168.1.{i}/tcp/4001/p2p/{}", b.peer().as_str()))
+        .collect();
+    let (fifth, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&fifth, memory()));
+    root.settled(0).await;
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::FieldChanged(many.join("\n"))),
+        ViewEvent::Peers(PeersInput::Add),
+    ]);
+    root.pump(1).await;
+    assert!(root.commands.is_empty(), "one line too many sends nothing");
     assert_eq!(
         root.model().peers().add_page_note(),
         Some(&AddNote::TooManyLines {
@@ -1589,13 +1631,20 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
     root.settled(0).await;
     root.will(vec![
         ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::ScanPressed(ScanControl::PasteImage)),
         ViewEvent::Peers(PeersInput::Scanned(format!("{one}\n{two}"))),
     ]);
     root.pump(1).await;
     assert_eq!(root.commands, vec![Command::AddAddresses(vec![one, two])]);
+    // Both lines added; their peer is not this node's to trust yet.
     assert_eq!(
-        root.model().peers().add_page_note(),
-        Some(&AddNote::SeveralIncompatible { lines: 2 })
+        root.model().peers().add_result(),
+        Some(&interweave_human_ui_model::AddResult::Added {
+            lines: 2,
+            peers: vec![b.peer().clone()]
+        }),
+        "{:?}",
+        root.model().peers().add_page_note()
     );
 }
 

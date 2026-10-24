@@ -540,6 +540,29 @@ pub enum AddressOutcome {
     Unchanged,
     /// Refused by name; nothing was written.
     Refused(AddressRefused),
+    /// Several lines added as one, all or none (IPC 2.9's
+    /// `admin.peers.add_addresses`): one row per line sent, in its order,
+    /// at least one of them added. Every line already there is
+    /// [`Self::Unchanged`].
+    AddedLines(Vec<LineAdded>),
+    /// An add of several lines refused for one of them, by name; nothing
+    /// was written.
+    RefusedLine {
+        /// Why.
+        why: AddressRefused,
+        /// The line refused: its 0-based position among the lines sent.
+        line: usize,
+    },
+}
+
+/// One line of an add of several, as the runtime answered it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineAdded {
+    /// Whether the line is new: `false` for one already there, or
+    /// repeated earlier in the same add, which cost nothing.
+    pub added: bool,
+    /// The peer the line reaches, as [`PeerAddress::peer_of`] reads it.
+    pub peer: Option<TransportIdentity>,
 }
 
 /// Why the runtime refused an address change, by its rule.
@@ -598,4 +621,18 @@ pub enum AddressChangeFailure {
     /// May have been made: the request may have reached the runtime
     /// before the failure.
     Unconfirmed(AddressProblem),
+}
+
+/// This device's own addresses, for the show screen (ADR-0062 decision 4,
+/// `admin.peers.own_addresses`): chosen, ordered and floored by the
+/// runtime, so the client draws them in this order and filters nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShowAddresses {
+    /// This device's `PeerId`, the one every address ends in.
+    pub peer: TransportIdentity,
+    /// Each address as another device's add takes it; empty when this
+    /// device has none another device can reach.
+    pub addresses: Vec<String>,
+    /// Whether the runtime dropped addresses past its bound.
+    pub truncated: bool,
 }

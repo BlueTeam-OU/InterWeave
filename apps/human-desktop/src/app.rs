@@ -230,6 +230,7 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         // Likewise: an address names where a peer is, and its outcome is
         // Peers' to say.
         Command::ReadAddresses => "read addresses",
+        Command::ReadOwnAddresses => "read this device's addresses",
         Command::AddAddresses(_) => "add addresses",
         Command::RemoveAddress(_) => "remove address",
         Command::AcceptCard { .. } => "accept card",

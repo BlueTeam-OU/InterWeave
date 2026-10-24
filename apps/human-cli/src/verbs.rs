@@ -192,6 +192,7 @@ const fn command_name(command: &Command) -> &'static str {
         Command::ReadTrust => "reading trust",
         Command::SetTrust(_) => "changing trust",
         Command::ReadAddresses => "reading the addresses",
+        Command::ReadOwnAddresses => "reading this device's addresses",
         Command::AddAddresses(_) => "adding addresses",
         Command::RemoveAddress(_) => "removing an address",
         Command::AcceptCard { .. } => "accepting a card",

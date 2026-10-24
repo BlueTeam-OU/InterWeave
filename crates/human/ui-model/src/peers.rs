@@ -13,14 +13,14 @@
 //! floor, the bound, a list the configuration turns off) is never judged
 //! here: the model sends the lines and renders the refusal by name. The
 //! client's own rules are judged before anything is sent: at most
-//! [`CODE_LINES`] lines in one add (ADR-0062 decision 4), at most
-//! [`TYPED_LINES`] typed, and no DNS name from a scan (decision 1).
+//! [`CODE_LINES`] lines in one add, scanned or typed ([`TYPED_LINES`];
+//! ADR-0062 decision 4), and no DNS name from a scan (decision 1).
 //!
 //! An add is all or none and is never split: one line is one write, and
-//! several need the call that checks them all first (IPC 2.9's
-//! `admin.peers.add_addresses`), which this build does not bind; until
-//! it does, the facade answers an add of several as a runtime without
-//! that call answers. So every failure is
+//! several the call that checks them all first (IPC 2.9's
+//! `admin.peers.add_addresses`), which a runtime below 2.9 does not
+//! serve, so there an add of several is not made and one line is. So
+//! every failure is
 //! one of the note's §5.7 outcomes, and "nothing was changed" is said
 //! only where it is true: not written; unknown, where the answer was lost
 //! after the request left and the list is read back before anything is
@@ -30,7 +30,7 @@ use std::collections::BTreeMap;
 
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
-    AddressProblem, AddressRefused, PeerAddress, TrustProblem,
+    AddressProblem, AddressRefused, PeerAddress, ShowAddresses, TrustProblem,
 };
 use interweave_transport_api::TransportIdentity;
 
@@ -41,13 +41,11 @@ use crate::trust::{Held, TrustOutcome, TrustSettings};
 /// and the add method's.
 pub const CODE_LINES: usize = 16;
 
-/// The most lines a typed add carries while the add of several lines is
-/// not bound: the runtime's add takes one address, an add is never split
-/// into single writes, and the note designs no interim state for typed
-/// lines (`design/2026-10-22-add-a-peer.md` §5.7), so a second line is
-/// refused in the field's own words before anything is sent. It becomes
-/// [`CODE_LINES`] when `admin.peers.add_addresses` (IPC 2.9) is bound.
-pub const TYPED_LINES: usize = 1;
+/// The most lines a typed or pasted add carries: a code's, so one add
+/// stays all or none (`design/2026-10-22-add-a-peer.md` §5.3). Named
+/// apart from [`CODE_LINES`] because more is refused in the field's own
+/// words, with the lines past it selected, before anything is sent.
+pub const TYPED_LINES: usize = CODE_LINES;
 
 /// The most addresses a device holds, configured and added together
 /// (ADR-0062 decision 2): the `{max}` the at-the-bound words fill. The
@@ -80,9 +78,9 @@ pub enum Refusal {
 }
 
 impl Refusal {
-    /// Whether the refusal is of one line, which it names: not a refusal
-    /// of the whole add -- too many lines, the device at its bound, the
-    /// list off -- which names none (add-a-peer §5.3).
+    /// Whether the refusal is of one line, which it names -- the device's
+    /// bound included -- not a refusal of the whole add, too many lines or
+    /// the list off, which names none (add-a-peer §5.3).
     #[must_use]
     pub const fn names_line(self) -> bool {
         // The device's bound names a line -- the first new one past it, as
@@ -103,6 +101,18 @@ pub enum LineSource {
     Scanned,
 }
 
+/// The control a scan started from, which focus goes back to when it
+/// ends with no add (§8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScanControl {
+    /// Scan a code: the camera (Android).
+    Camera,
+    /// Open an image…: an image file (desktop).
+    OpenImage,
+    /// Paste an image: the clipboard's image (desktop).
+    PasteImage,
+}
+
 /// Why the administrative boundary cannot be used at all: no Try again,
 /// since no retry mends either.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -120,6 +130,15 @@ pub enum AddNote {
     AddressNeeded,
     /// A scan control pressed with an address in the field.
     ScanAfterField,
+    /// An image, opened or pasted, holds no code that reads.
+    ImageNoCode,
+    /// An image's code is not an address list.
+    NotAddress,
+    /// The file opened, or the clipboard's image, could not be read as
+    /// an image: never "no code", since it was never looked at.
+    ImageUnreadable,
+    /// Paste an image found no image on the clipboard.
+    ClipboardNoImage,
     /// The add stored nothing: the first refused line, and why.
     Refused {
         /// The line, as sent; named only when the refusal is of one line
@@ -144,16 +163,30 @@ pub enum AddNote {
         /// How many lines the add carried.
         lines: usize,
     },
-    /// An add of several lines, from a scan, not taken: nothing added.
-    /// A runtime with the one-address add only (IPC 2.7 or 2.8) answers
-    /// so, and so does this build's facade for every such add until the
-    /// add of several lines is bound.
+    /// An add of several lines, typed or scanned, not taken: nothing
+    /// added. A runtime with the one-address add only (IPC 2.7 or 2.8)
+    /// answers so, the facade sending nothing to it.
     SeveralIncompatible {
         /// How many lines.
         lines: usize,
     },
     /// The boundary cannot be used.
     Barred(Barred),
+}
+
+impl AddNote {
+    /// Whether the note is a scan's own line, under the scan controls:
+    /// announced once with focus kept on the control, and gone at the
+    /// next scan press, a press of Add (which finds the field empty, a
+    /// scan's line standing only while it is, and says `AddressNeeded`
+    /// in its place), an edit of the field or the page closing (§5.5).
+    #[must_use]
+    pub const fn is_scan_line(&self) -> bool {
+        matches!(
+            self,
+            Self::ImageNoCode | Self::NotAddress | Self::ImageUnreadable | Self::ClipboardNoImage
+        )
+    }
 }
 
 /// What the add page's first step came to.
@@ -177,6 +210,39 @@ pub enum AddResult {
         /// How many.
         lines: usize,
     },
+}
+
+/// Show my address, as the view draws it (§5.4): everything on it comes
+/// from one read of this device's own addresses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShowState {
+    /// The read on its way: the warning only, nothing else drawn.
+    Reading,
+    /// The code and the same lines as text, at most [`CODE_LINES`] of
+    /// them in the runtime's order, and the `PeerId` alone.
+    Shown {
+        /// This device's `PeerId`.
+        peer: TransportIdentity,
+        /// The lines the code carries and the text lists.
+        lines: Vec<String>,
+    },
+    /// No address another device can reach: no code, and what to do.
+    /// No reason is given: the read reports none, and the transport's
+    /// own state is not the device's network (§5.4).
+    NoAddress,
+    /// The read failed: never "no address", which it has not shown.
+    Unread(ShowProblem),
+}
+
+/// Why Show's read failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ShowProblem {
+    /// Anything a retry may mend: Try again.
+    Failed,
+    /// The runtime does not serve the read (below IPC 2.8): no Try again.
+    Incompatible,
+    /// This app may not read them: no Try again.
+    NotPermitted,
 }
 
 /// One step-two block's state, as the view shows it.
@@ -447,6 +513,8 @@ pub enum PeersFocus {
     Note,
     /// The add page's Add.
     AddButton,
+    /// The scan control a scan started from.
+    Scan(ScanControl),
     /// A step-two block's title.
     Block(TransportIdentity),
     /// A step-two block's problem line.
@@ -476,6 +544,12 @@ pub enum PeersFocus {
     SnackAction,
     /// The note under Add an address (at the bound, or list off).
     AddAddressNote,
+    /// Show's warning, first on the page.
+    ShowWarning,
+    /// Show's problem line, in place of the code.
+    ShowProblem,
+    /// The control that opened Show.
+    ShowOpener,
 }
 
 /// What a person did on Peers or its add page, as a view hands it to the
@@ -495,11 +569,19 @@ pub enum PeersInput {
     FieldChanged(String),
     /// Add pressed.
     Add,
-    /// A scan control pressed: the scanner opens only with the field
+    /// A scan control pressed: the scanner -- the viewfinder, the image
+    /// dialog, or the clipboard's image -- opens only with the field
     /// empty ([`Peers::scan_open`]).
-    ScanPressed,
-    /// The scanner closed with no code.
+    ScanPressed(ScanControl),
+    /// The scanner closed with no code: the viewfinder's Close, or the
+    /// image dialog cancelled.
     ScannerClosed,
+    /// The image opened or pasted holds no code that reads.
+    ImageNoCode,
+    /// The file opened, or the clipboard's image, could not be decoded.
+    ImageUnreadable,
+    /// Paste an image found no image on the clipboard.
+    ClipboardNoImage,
     /// A code read, or an image decoded: its text. A view that must know
     /// whether the viewfinder stays open calls
     /// [`crate::UiModel::scanned`] instead.
@@ -524,6 +606,12 @@ pub enum PeersInput {
         /// Focus was on its action as it went.
         from_action: bool,
     },
+    /// Show my address pressed: Show opens and reads.
+    OpenShow,
+    /// Try again on Show's failed read.
+    ShowTryAgain,
+    /// Show closed: Back, or the app leaving the screen (§5.4).
+    CloseShow,
 }
 
 /// What a scan's text came to.
@@ -582,6 +670,8 @@ struct AddPage {
     result: Option<AddResult>,
     blocks: Vec<TrustBlock>,
     scanning: bool,
+    /// The control the last scan started from.
+    scan_from: Option<ScanControl>,
     /// Opened from this row's Trust, not from Add an address.
     from_row: Option<String>,
     /// The lines an add left unknown -- its answer lost and the read back
@@ -676,6 +766,14 @@ pub struct Peers {
     /// This node's `PeerId`, from the session; else the trust list as
     /// last read names it.
     this_device: Option<TransportIdentity>,
+    /// Show, while it is open.
+    show: Option<ShowState>,
+    /// Show's read is on its way, and whether it is a Try again's, which
+    /// sends focus as when Show opens once it succeeds (§8).
+    show_reading: Option<bool>,
+    /// The `PeerId` whose addresses Show drew since this was last taken:
+    /// Connect's `ConnectDoneShown` (§5.1).
+    show_drew: Option<TransportIdentity>,
 }
 
 /// The field's lines as the add sends them: each line ending (LF, CR LF
@@ -824,19 +922,39 @@ impl Peers {
                 Vec::new()
             }
             PeersInput::Add => self.add_typed(trust).into_iter().collect(),
-            PeersInput::ScanPressed => {
-                self.scan_pressed();
+            PeersInput::ScanPressed(control) => {
+                self.scan_pressed(control);
                 Vec::new()
             }
             PeersInput::ScannerClosed => {
-                if let Some(page) = self.page.as_mut() {
-                    page.scanning = false;
-                }
+                self.scan_ended(None);
+                Vec::new()
+            }
+            PeersInput::ImageNoCode => {
+                self.scan_ended(Some(AddNote::ImageNoCode));
+                Vec::new()
+            }
+            PeersInput::ImageUnreadable => {
+                self.scan_ended(Some(AddNote::ImageUnreadable));
+                Vec::new()
+            }
+            PeersInput::ClipboardNoImage => {
+                self.scan_ended(Some(AddNote::ClipboardNoImage));
                 Vec::new()
             }
             PeersInput::Scanned(text) => self.scanned(&text, trust).1.into_iter().collect(),
             PeersInput::Close => {
                 self.close(trust);
+                Vec::new()
+            }
+            PeersInput::OpenShow => self.open_show().into_iter().collect(),
+            PeersInput::ShowTryAgain => self.show_again().into_iter().collect(),
+            // A read on its way stays the one in flight: a page opened
+            // again meanwhile is drawn from its answer.
+            PeersInput::CloseShow => {
+                if self.show.take().is_some() {
+                    self.ask_focus(PeersFocus::ShowOpener);
+                }
                 Vec::new()
             }
             PeersInput::Trust(peer) => self.trust(&peer, trust).into_iter().collect(),
@@ -939,6 +1057,8 @@ impl Peers {
         match page.note {
             Some(AddNote::AddressNeeded) if !empty => page.note = None,
             Some(AddNote::ScanAfterField) if empty => page.note = None,
+            // A scan's own line goes at an edit of the field (§5.5).
+            Some(ref note) if note.is_scan_line() && text != page.field => page.note = None,
             _ => {}
         }
         // An add left unknown speaks for the lines it sent: an edit away
@@ -1012,13 +1132,18 @@ impl Peers {
 
     /// A scan control pressed: the scanner opens with the field empty;
     /// otherwise the note says to add or clear it first.
-    fn scan_pressed(&mut self) {
+    fn scan_pressed(&mut self, control: ScanControl) {
         if !self.step_one() {
             return;
         }
         let Some(page) = self.page.as_mut() else {
             return;
         };
+        page.scan_from = Some(control);
+        // A scan's own line goes at the next scan press (§5.5).
+        if page.note.as_ref().is_some_and(AddNote::is_scan_line) {
+            page.note = None;
+        }
         if lines_of(&page.field).is_empty() {
             page.scanning = true;
         } else {
@@ -1027,12 +1152,114 @@ impl Peers {
         }
     }
 
+    /// A scan that adds nothing ended: closed, or an image with no code
+    /// or none that is an address list. Focus goes back to the control
+    /// it started from, the note -- if any -- under the scan controls
+    /// and read after them (§8).
+    fn scan_ended(&mut self, note: Option<AddNote>) {
+        let Some(page) = self.page.as_mut() else {
+            return;
+        };
+        if !page.scanning {
+            return;
+        }
+        page.scanning = false;
+        let control = page.scan_from.unwrap_or(ScanControl::Camera);
+        if let Some(note) = note {
+            self.page_note(note, PeersFocus::Scan(control));
+        } else {
+            self.ask_focus(PeersFocus::Scan(control));
+        }
+    }
+
+    fn open_show(&mut self) -> Option<Intent> {
+        if self.show.is_some() {
+            return None;
+        }
+        self.show = Some(ShowState::Reading);
+        self.ask_focus(PeersFocus::ShowWarning);
+        self.read_own(false)
+    }
+
+    fn show_again(&mut self) -> Option<Intent> {
+        if self.show != Some(ShowState::Unread(ShowProblem::Failed)) {
+            return None;
+        }
+        self.show = Some(ShowState::Reading);
+        self.read_own(true)
+    }
+
+    fn read_own(&mut self, again: bool) -> Option<Intent> {
+        if self.show_reading.is_some() {
+            return None;
+        }
+        self.show_reading = Some(again);
+        Some(Intent::ReadOwnAddresses)
+    }
+
+    /// The runtime's answer to Show's read. A page closed meanwhile shows
+    /// nothing of it.
+    pub fn own_answer(&mut self, answer: Result<ShowAddresses, AddressProblem>) {
+        let Some(again) = self.show_reading.take() else {
+            return;
+        };
+        if self.show.is_none() {
+            return;
+        }
+        let state = match answer {
+            Ok(own) if own.addresses.is_empty() => ShowState::NoAddress,
+            Ok(own) => {
+                self.show_drew = Some(own.peer.clone());
+                ShowState::Shown {
+                    peer: own.peer,
+                    lines: own.addresses.into_iter().take(CODE_LINES).collect(),
+                }
+            }
+            Err(AddressProblem::Incompatible) => ShowState::Unread(ShowProblem::Incompatible),
+            Err(AddressProblem::NotPermitted) => ShowState::Unread(ShowProblem::NotPermitted),
+            Err(AddressProblem::Unavailable | AddressProblem::Internal) => {
+                ShowState::Unread(ShowProblem::Failed)
+            }
+        };
+        let unread = matches!(state, ShowState::Unread(_));
+        self.show = Some(state);
+        if unread {
+            self.ask_focus(PeersFocus::ShowProblem);
+        } else if again {
+            self.ask_focus(PeersFocus::ShowWarning);
+        }
+    }
+
+    /// Show, while it is open.
+    #[must_use]
+    pub const fn show(&self) -> Option<&ShowState> {
+        self.show.as_ref()
+    }
+
+    /// Whether Show drew this device's addresses since the last take:
+    /// for Connect's line (§5.1).
+    pub fn take_show_drew(&mut self) -> bool {
+        self.show_drew.take().is_some()
+    }
+
     /// A code read, or an image decoded: `text` is all it carries. Taken
     /// whole as one add, never through the field: the client's two rules
     /// first, then the runtime's.
     pub fn scanned(&mut self, text: &str, trust: &TrustSettings) -> (ScanVerdict, Option<Intent>) {
         let lines = lines_of(text);
         if lines.is_empty() || lines.iter().any(|l| !l.starts_with('/')) {
+            // The viewfinder stays open on such a code; an image is
+            // read once, so its scan ends with the reason (§5.5).
+            let from_image = self.page.as_ref().is_some_and(|p| {
+                p.scanning
+                    && matches!(
+                        p.scan_from,
+                        Some(ScanControl::OpenImage | ScanControl::PasteImage)
+                    )
+            });
+            if from_image {
+                self.scan_ended(Some(AddNote::NotAddress));
+            }
             return (ScanVerdict::NotAddress, None);
         }
         let ready = self.step_one();
@@ -1040,6 +1267,12 @@ impl Peers {
         let Some(page) = self.page.as_mut() else {
             return (ScanVerdict::NotAddress, None);
         };
+        // A code is taken only by the scan open now: a reader's result
+        // that outlived its scan -- the page closed, or opened again, while
+        // a file was read -- adds nothing (#409 C4).
+        if !page.scanning {
+            return (ScanVerdict::Taken, None);
+        }
         page.scanning = false;
         if !ready || !lines_of(&page.field).is_empty() {
             return (ScanVerdict::Taken, None);
@@ -1059,10 +1292,10 @@ impl Peers {
             return (ScanVerdict::Taken, None);
         }
         page.note = None;
-        (
-            ScanVerdict::Taken,
-            Some(self.send(lines, LineSource::Scanned)),
-        )
+        let intent = self.send(lines, LineSource::Scanned);
+        // The scanner gone, focus waits on Add, read as waiting (§5.3).
+        self.ask_focus(PeersFocus::AddButton);
+        (ScanVerdict::Taken, Some(intent))
     }
 
     fn send(&mut self, lines: Vec<String>, source: LineSource) -> Intent {
@@ -1505,7 +1738,10 @@ impl Peers {
                     }
                     // A configured row offers no Remove; any other answer
                     // removed nothing.
-                    AddressOutcome::Refused(_) | AddressOutcome::Added { .. } => {
+                    AddressOutcome::Refused(_)
+                    | AddressOutcome::RefusedLine { .. }
+                    | AddressOutcome::Added { .. }
+                    | AddressOutcome::AddedLines(_) => {
                         self.remove_failed(address);
                     }
                 }
@@ -1641,17 +1877,47 @@ impl Peers {
                 };
                 self.accepted(result, &peers, trust);
             }
+            AddressOutcome::AddedLines(rows) => {
+                // Only the lines answered added are counted and named; a
+                // line already there beside them is not (§5.3), while
+                // every peer of the add is offered its trust step.
+                let mut peers = Vec::new();
+                let mut added = 0;
+                for (row, line) in rows.iter().zip(&lines) {
+                    if !row.added {
+                        continue;
+                    }
+                    added += 1;
+                    let peer = row.peer.clone().or_else(|| PeerAddress::peer_of(line));
+                    if let Some(peer) = peer
+                        && !peers.contains(&peer)
+                    {
+                        peers.push(peer);
+                    }
+                }
+                let result = AddResult::Added {
+                    lines: added,
+                    peers,
+                };
+                self.accepted(result, &peers_of(&lines), trust);
+            }
             AddressOutcome::Unchanged => {
                 let result = AddResult::Unchanged { lines: lines.len() };
                 self.accepted(result, &peers_of(&lines), trust);
             }
-            AddressOutcome::Refused(why) => {
+            AddressOutcome::Refused(why) | AddressOutcome::RefusedLine { why, .. } => {
                 // A removal's refusal, never an add's: nothing written.
                 let Some(why) = refusal_of(why) else {
                     self.page_note(AddNote::Failed, PeersFocus::AddButton);
                     return;
                 };
-                let line = lines.first().cloned().unwrap_or_default();
+                // The add of several names the line it refuses; one line
+                // is its own.
+                let index = match answer.outcome {
+                    AddressOutcome::RefusedLine { line, .. } => line,
+                    _ => 0,
+                };
+                let line = lines.get(index).cloned().unwrap_or_default();
                 // A refusal of the whole add names no line: the caret at
                 // the field's end, nothing selected (§5.3).
                 let select = if why.names_line() {
@@ -1728,7 +1994,11 @@ impl Peers {
                 self.settle_pending(&address);
                 self.take_list(answer.list);
                 match answer.outcome {
-                    AddressOutcome::Added { .. } | AddressOutcome::Unchanged => {
+                    // An Undo is one line, so the add of several answers
+                    // it only as it answers that line.
+                    AddressOutcome::Added { .. }
+                    | AddressOutcome::AddedLines(_)
+                    | AddressOutcome::Unchanged => {
                         self.undone(address);
                     }
                     // Refused by name -- the bound, the list off, this
@@ -1736,10 +2006,14 @@ impl Peers {
                     // rule (ADR-0062 decision 1) -- the refusal's own words
                     // and no Try again, which the same refusal would meet
                     // (§5.2; `an_undo_refused_by_name_says_why_and_offers_no_retry`).
-                    AddressOutcome::Refused(why) if let Some(why) = refusal_of(why) => {
+                    AddressOutcome::Refused(why) | AddressOutcome::RefusedLine { why, .. }
+                        if let Some(why) = refusal_of(why) =>
+                    {
                         self.undo_not_made(PeersSnack::UndoRefused(why));
                     }
-                    AddressOutcome::Refused(_) | AddressOutcome::Removed => {
+                    AddressOutcome::Refused(_)
+                    | AddressOutcome::RefusedLine { .. }
+                    | AddressOutcome::Removed => {
                         let snack = PeersSnack::UndoFailed {
                             address: address.clone(),
                         };
@@ -1969,10 +2243,12 @@ impl Peers {
         asked
     }
 
-    /// A list that came with another change's answer: it ends what was
-    /// unknown only where it shows that change not made -- an add's line
-    /// missing, a removed address still listed, an undone one absent --
-    /// and leaves the rest unknown, its answer being another row's.
+    /// A list that came with another change's answer. The change whose
+    /// line is on show -- and an add left unknown on the page -- it ends
+    /// only where it shows it not made: an add's line missing, a removed
+    /// address still listed, an undone one absent; that line is the
+    /// read's to decide aloud. Every other change left unknown it decides
+    /// as a read does, showing the device as it is.
     fn shown_not_made(&mut self) {
         let Some(list) = self.list.as_ref() else {
             return;
@@ -2242,12 +2518,16 @@ impl Peers {
             | PeersFocus::Field { .. }
             | PeersFocus::Note
             | PeersFocus::AddButton
+            | PeersFocus::Scan(_)
             | PeersFocus::Block(_)
             | PeersFocus::BlockProblem(_)
             | PeersFocus::BlockState(_)
             | PeersFocus::Done
             | PeersFocus::AddNote
-            | PeersFocus::SnackAction => false,
+            | PeersFocus::SnackAction
+            | PeersFocus::ShowWarning
+            | PeersFocus::ShowProblem
+            | PeersFocus::ShowOpener => false,
         };
         if list_pane && self.page.is_some() {
             return;

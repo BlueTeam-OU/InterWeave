@@ -12,6 +12,7 @@ use interweave_human_chat_protocol::{HumanChatV2, Rendered, is_allowed_link_sche
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressProblem, ClientEvent, Connectivity,
     Destination, Diagnostics, Origin, OutboundStatus, OutboundUpdate, SendError, SessionState,
+    ShowAddresses,
 };
 use interweave_human_core::RowId;
 use interweave_transport_api::{
@@ -441,6 +442,9 @@ pub enum Intent {
     AddAddresses(Vec<String>),
     /// Remove an address added here.
     RemoveAddress(String),
+    /// Read this device's own addresses for Show (ADR-0062 decision 4):
+    /// only on the person's act, never otherwise.
+    ReadOwnAddresses,
     /// Make a trust change the person confirmed in the trust settings,
     /// which showed its exact `PeerId` and scope (`human-client-ui.md` §8).
     /// Only [`crate::TrustSettings::confirm`] makes one.
@@ -1259,6 +1263,11 @@ impl UiModel {
     /// The runtime's answer to a read of the addresses.
     pub fn addresses_read(&mut self, answer: Result<AddressList, AddressProblem>) {
         self.peers.read_answer(answer, &self.trust);
+    }
+
+    /// The runtime's answer to Show's read of this device's addresses.
+    pub fn own_addresses_read(&mut self, answer: Result<ShowAddresses, AddressProblem>) {
+        self.peers.own_answer(answer);
     }
 
     /// A code read, or an image decoded: whether the viewfinder stays

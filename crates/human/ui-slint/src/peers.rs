@@ -14,8 +14,8 @@ use interweave_human_client_api::{AddressOrigin, TrustProblem};
 use interweave_human_ui_model::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, CODE_LINES, HostText,
     LineSelection, ListProblem, Peers, PeersFocus, PeersInput, PeersSnack, Refusal, RowState,
-    RuntimeHost, TYPED_LINES, TrustLine, TrustSettings, UiModel, UiText, fill, placeholder_en,
-    short_peer,
+    RuntimeHost, ScanControl, ShowProblem, ShowState, TYPED_LINES, TrustLine, TrustSettings,
+    UiModel, UiText, fill, placeholder_en, short_peer,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{ModelRc, SharedString, VecModel};
@@ -127,7 +127,50 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     window.on_peers_open_add(on(shared, PeersInput::OpenAdd));
     window.on_peers_add_closed(on(shared, PeersInput::Close));
     window.on_peers_add(on(shared, PeersInput::Add));
-    window.on_peers_scan(on(shared, PeersInput::ScanPressed));
+    // A scan press names its control, which the view keeps to start the
+    // matching reader once the model opens the scan, and which the model
+    // keeps to send focus back to.
+    for (control, set) in [
+        (
+            ScanControl::Camera,
+            AppWindow::on_peers_scan as fn(&AppWindow, _),
+        ),
+        (ScanControl::OpenImage, AppWindow::on_peers_open_image),
+        (ScanControl::PasteImage, AppWindow::on_peers_paste_image),
+    ] {
+        let s = Rc::clone(shared);
+        set(
+            window,
+            Box::new(move || {
+                s.borrow_mut().scan_control = Some(control);
+                enqueue(&s, Input::Peers(PeersInput::ScanPressed(control)));
+            }),
+        );
+    }
+    window.on_peers_open_show(on(shared, PeersInput::OpenShow));
+    window.on_peers_show_closed(on(shared, PeersInput::CloseShow));
+    window.on_peers_show_again(on(shared, PeersInput::ShowTryAgain));
+    // A reader's result, handed over on the window's thread.
+    let s = Rc::clone(shared);
+    window.on_peers_image_done(move || {
+        let read = s
+            .borrow()
+            .scan_result
+            .lock()
+            .ok()
+            .and_then(|mut r| r.take());
+        let current = {
+            let shared = s.borrow();
+            shared.scan_reading.is_some().then_some(shared.scan_number)
+        };
+        // Only the scan open now takes a result; an earlier one's is
+        // dropped.
+        if let Some((number, input)) = read
+            && Some(number) == current
+        {
+            enqueue(&s, Input::Peers(input));
+        }
+    });
     window.on_peers_done(on(shared, PeersInput::Close));
     let s = Rc::clone(shared);
     window.on_address_edited(move |typed| {
@@ -207,6 +250,87 @@ pub(crate) struct PeerLists {
     /// The snackbar last drawn, by the model's count, and the one timed.
     snack_seen: u64,
     snack_timed: u64,
+    /// The lines Show's code was last drawn for: drawn again only when
+    /// they change.
+    show_drawn: Option<Vec<String>>,
+    /// The platform's secure flag for Show, where it has one.
+    pub(crate) show_guard: Option<ShowGuard>,
+}
+
+/// Show's secure flag, asked of the platform ([`View::guard_show`]).
+///
+/// Every ask on is counted and every confirmation, which the platform
+/// gives in the order asked: the addresses are drawn only once the last
+/// ask on has been confirmed, so a confirmation of an earlier opening
+/// secures nothing later. An ask off waits for a frame without Show and
+/// is dropped if Show opened again meanwhile, so a closed opening's off
+/// never follows a newer opening's on (#409 C3).
+pub(crate) struct ShowGuard {
+    ask: Rc<dyn Fn(bool)>,
+    /// Shared with an off waiting for its frame.
+    state: Rc<std::cell::Cell<GuardState>>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct GuardState {
+    /// Asked on, and not asked off since.
+    open: bool,
+    /// Asks on so far.
+    asked: u64,
+    /// The platform's confirmations so far.
+    confirmed: u64,
+}
+
+impl ShowGuard {
+    pub(crate) fn new(ask: Rc<dyn Fn(bool)>) -> Self {
+        Self {
+            ask,
+            state: Rc::default(),
+        }
+    }
+
+    /// The platform confirmed an ask on; one beyond the asks is none's.
+    pub(crate) fn secured(&self) {
+        let mut state = self.state.get();
+        state.confirmed = (state.confirmed + 1).min(state.asked);
+        self.state.set(state);
+    }
+
+    /// Whether the window may draw Show's addresses: Show asked on, and
+    /// its latest ask confirmed.
+    fn drawable(&self) -> bool {
+        let state = self.state.get();
+        state.open && state.confirmed == state.asked
+    }
+
+    /// Show is open: the flag asked on, once per opening.
+    fn opened(&self) {
+        let mut state = self.state.get();
+        if !state.open {
+            state.open = true;
+            state.asked += 1;
+            self.state.set(state);
+            (self.ask)(true);
+        }
+    }
+
+    /// Show is closed: the off to run once a frame without it has been
+    /// drawn, which does nothing if Show opened again by then; `None`
+    /// when it was not open.
+    fn closed(&self) -> Option<impl FnOnce() + 'static> {
+        let mut state = self.state.get();
+        if !state.open {
+            return None;
+        }
+        state.open = false;
+        self.state.set(state);
+        let (ask, shared) = (Rc::clone(&self.ask), Rc::clone(&self.state));
+        Some(move || {
+            if !shared.get().open {
+                ask(false);
+            }
+        })
+    }
 }
 
 impl PeerLists {
@@ -238,6 +362,9 @@ impl PeerLists {
         window.set_copy_peer_id_label(set(UiText::CopyPeerId));
         window.set_done_label(set(UiText::IdDone));
         window.set_no_reach_text(set(UiText::NoReachNotice));
+        window.set_show_my_address_label(set(UiText::ShowMyAddress));
+        window.set_show_warning(set(UiText::ShowWarning));
+        window.set_copy_addresses_label(set(UiText::CopyAddresses));
         let _ = host;
         Self {
             rows,
@@ -257,6 +384,8 @@ impl PeerLists {
             add_waiting: false,
             snack_seen: 0,
             snack_timed: 0,
+            show_drawn: None,
+            show_guard: None,
         }
     }
 }
@@ -277,6 +406,7 @@ impl View {
         }
         self.render_peer_list(peers, trust, model);
         self.render_add_page(peers, trust);
+        self.render_show(peers);
         let said = self.render_peers_snack(peers, on_page);
         // The add's wait, said once as it begins, claiming no outcome
         // (design 5.3; `an_add_on_its_way_reads_adding_and_is_said_once`).
@@ -305,9 +435,12 @@ impl View {
         let (note, notes) = peers.add_note_said();
         let text = note.map(|n| note_text(self.host, n)).unwrap_or_default();
         let in_field = !self.window.get_field_note().is_empty();
+        // A scan's own line is said once as it is set, focus staying on
+        // the control it came from (§5.5).
+        let scan_line = note.is_some_and(AddNote::is_scan_line);
         let again = notes != self.peer_lists.note_seen
             && !text.is_empty()
-            && (in_field || text == self.peer_lists.note_text);
+            && (in_field || scan_line || text == self.peer_lists.note_text);
         self.peer_lists.note_seen = notes;
         self.peer_lists.note_text.clone_from(&text);
         let mut said = said.or_else(|| (on_page && again).then_some(text));
@@ -568,7 +701,128 @@ impl View {
 
     /// The add page: step one's field, notes and result, and step two's
     /// blocks.
+    /// Show my address (§5.4): the code and its lines, why there is none,
+    /// or why they could not be read.
+    fn render_show(&mut self, peers: &Peers) {
+        let show = peers.show();
+        // The flag before any address can be drawn; off once a frame
+        // without Show has been, never before.
+        let mut held = false;
+        let mut clear = None;
+        if let Some(guard) = self.peer_lists.show_guard.as_ref() {
+            if show.is_some() {
+                guard.opened();
+                held = !guard.drawable();
+            } else {
+                clear = guard.closed();
+            }
+        }
+        if let Some(off) = clear {
+            let _ = self.after_next_frame(off);
+        }
+        let window = &self.window;
+        window.set_peers_show_open(show.is_some());
+        let host = self.host;
+        // No address: what, and what to do; no reason, which the read
+        // does not report (§5.4).
+        let none = matches!(show, Some(ShowState::NoAddress));
+        let (problem, retry) = match show {
+            Some(ShowState::Unread(ShowProblem::Failed)) => (text(UiText::ShowReadFailed), true),
+            Some(ShowState::Unread(ShowProblem::Incompatible)) => (
+                placeholder_en::host_text(host, HostText::ShowIncompatible),
+                false,
+            ),
+            Some(ShowState::Unread(ShowProblem::NotPermitted)) => (
+                placeholder_en::host_text(host, HostText::ShowNotPermitted),
+                false,
+            ),
+            _ => ("", false),
+        };
+        let (none, what) = if none {
+            (text(UiText::ShowNoAddress), text(UiText::ShowNoAddressWhat))
+        } else {
+            ("", "")
+        };
+        let drawn = match show {
+            Some(ShowState::Shown { peer, lines }) if !held => Some((peer, lines)),
+            _ => None,
+        };
+        window.set_show_none(none.into());
+        window.set_show_none_what(what.into());
+        window.set_show_problem(problem.into());
+        window.set_show_problem_retry(retry);
+        let Some((peer, lines)) = drawn else {
+            window.set_show_code_shown(false);
+            window.set_show_lines(SharedString::new());
+            window.set_show_peer(SharedString::new());
+            self.peer_lists.show_drawn = None;
+            return;
+        };
+        if self.peer_lists.show_drawn.as_ref() != Some(lines) {
+            // A code that does not fit is no code: the lines still show.
+            let image = crate::code::drawn(lines).unwrap_or_default();
+            window.set_show_code(image);
+            self.peer_lists.show_drawn = Some(lines.clone());
+        }
+        window.set_show_code_shown(true);
+        let label = if lines.len() == 1 {
+            text(UiText::QrLabelOne).to_owned()
+        } else {
+            fill(
+                text(UiText::QrLabelOther),
+                &[("n", &lines.len().to_string())],
+            )
+        };
+        window.set_show_code_label(label.into());
+        window.set_show_lines(lines.join("\n").into());
+        window.set_show_peer(peer.as_str().into());
+    }
+
+    /// The scan controls this platform offers, and the reader a scan the
+    /// model opened needs, started once: the desktop's image dialog or its
+    /// clipboard. The camera's viewfinder is the Android app's.
+    fn render_scan(&mut self, peers: &Peers) {
+        let mut shared = self.shared.borrow_mut();
+        if !peers.scan_open() {
+            if shared.scan_reading.take().is_some() {
+                shared.scan_number = shared.scan_number.wrapping_add(1);
+            }
+            return;
+        }
+        if shared.scan_reading.is_some() {
+            return;
+        }
+        let Some(control) = shared.scan_control else {
+            return;
+        };
+        if control == ScanControl::Camera {
+            return;
+        }
+        shared.scan_reading = Some(control);
+        #[cfg(feature = "desktop")]
+        {
+            let slot = std::sync::Arc::clone(&shared.scan_result);
+            let number = shared.scan_number;
+            drop(shared);
+            let window = slint::ComponentHandle::as_weak(&self.window);
+            let done = move |input: PeersInput| {
+                if let Ok(mut held) = slot.lock() {
+                    *held = Some((number, input));
+                }
+                let _ = window.upgrade_in_event_loop(|w| w.invoke_peers_image_done());
+            };
+            crate::scan_images::read(control, text(UiText::CodeImageFilter).to_owned(), done);
+        }
+        // No reader in this build: the scan ends as a cancelled one.
+        #[cfg(not(feature = "desktop"))]
+        {
+            drop(shared);
+            enqueue(&self.shared, Input::Peers(PeersInput::ScannerClosed));
+        }
+    }
+
     fn render_add_page(&mut self, peers: &Peers, trust: &TrustSettings) {
+        self.render_scan(peers);
         let window = &self.window;
         let host = self.host;
         window.set_peers_add_open(peers.add_open());
@@ -601,6 +855,7 @@ impl View {
             }
             (Some(AddNote::Refused { .. }), Some(n)) => (n, String::new(), String::new()),
             (Some(AddNote::ScanAfterField), Some(n)) => (String::new(), n, String::new()),
+            (Some(n), Some(t)) if n.is_scan_line() => (String::new(), t, String::new()),
             (Some(_), Some(n)) => (String::new(), String::new(), n),
             _ => (String::new(), String::new(), String::new()),
         };
@@ -754,6 +1009,10 @@ fn note_text(host: RuntimeHost, note: &AddNote) -> String {
     match note {
         AddNote::AddressNeeded => text(UiText::AddressNeeded).to_owned(),
         AddNote::ScanAfterField => text(UiText::ScanAfterField).to_owned(),
+        AddNote::ImageNoCode => text(UiText::ImageNoCode).to_owned(),
+        AddNote::NotAddress => text(UiText::ScanNotAddress).to_owned(),
+        AddNote::ImageUnreadable => text(UiText::ImageUnreadable).to_owned(),
+        AddNote::ClipboardNoImage => text(UiText::ClipboardNoImage).to_owned(),
         AddNote::Refused { line, why } if why.names_line() => fill(
             text(UiText::AddRefused),
             &[("line", line), ("reason", &refusal_text(*why))],
@@ -805,6 +1064,9 @@ impl View {
             }
             PeersFocus::Note => "add-page-note".to_owned(),
             PeersFocus::AddButton => "add-action".to_owned(),
+            PeersFocus::Scan(ScanControl::Camera) => "scan-code".to_owned(),
+            PeersFocus::Scan(ScanControl::OpenImage) => "open-image".to_owned(),
+            PeersFocus::Scan(ScanControl::PasteImage) => "paste-image".to_owned(),
             PeersFocus::Block(peer) => format!("block:{}", self.peer_lists.block_handles.of(peer)),
             PeersFocus::BlockProblem(peer) => {
                 format!("block-problem:{}", self.peer_lists.block_handles.of(peer))
@@ -819,6 +1081,9 @@ impl View {
                 format!("row-menu:{}", self.peer_lists.row_handles.of(address))
             }
             PeersFocus::AddAddressNote => "add-address-note".to_owned(),
+            PeersFocus::ShowWarning => "show-warning".to_owned(),
+            PeersFocus::ShowProblem => "show-problem".to_owned(),
+            PeersFocus::ShowOpener => "show-my-address".to_owned(),
             PeersFocus::ListProblem => "peers-problem".to_owned(),
             PeersFocus::TrustRetry => "trust-retry".to_owned(),
             PeersFocus::TrustLine => "trust-line".to_owned(),
@@ -941,5 +1206,61 @@ mod tests {
             Some((13, i32::try_from(field.len()).unwrap()))
         );
         assert_eq!(selection_offsets(field, &LineSelection::From(3)), None);
+    }
+}
+
+#[cfg(test)]
+mod show_guard_tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use super::ShowGuard;
+
+    fn guard() -> (ShowGuard, Rc<RefCell<Vec<bool>>>) {
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let log = Rc::clone(&asked);
+        (
+            ShowGuard::new(Rc::new(move |on| log.borrow_mut().push(on))),
+            asked,
+        )
+    }
+
+    /// A closed opening's off, run after Show opened again, asks
+    /// nothing: the newer opening's on is never followed by it (#409 C3).
+    #[test]
+    fn a_closed_openings_off_never_follows_a_newer_on() {
+        let (g, asked) = guard();
+        g.opened();
+        g.secured();
+        let off = g.closed().expect("it was open");
+        g.opened();
+        off();
+        assert_eq!(*asked.borrow(), vec![true, true], "no off after the new on");
+        // Closed for good, its off runs.
+        let off = g.closed().expect("open again");
+        off();
+        assert_eq!(*asked.borrow(), vec![true, true, false]);
+    }
+
+    /// Only the latest ask's confirmation lets the addresses be drawn: an
+    /// earlier opening's, arriving late, secures nothing (#409 C3).
+    #[test]
+    fn only_the_latest_asks_confirmation_draws() {
+        let (g, _) = guard();
+        g.opened();
+        let _ = g.closed();
+        g.opened();
+        assert!(!g.drawable());
+        g.secured();
+        assert!(!g.drawable(), "the first opening's confirmation");
+        g.secured();
+        assert!(g.drawable(), "the second's");
+        g.secured();
+        let _ = g.closed();
+        g.opened();
+        assert!(
+            !g.drawable(),
+            "a confirmation beyond the asks counts for none"
+        );
     }
 }

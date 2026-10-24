@@ -9,7 +9,7 @@
 use interweave_human_chat_protocol::HumanChatV2;
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressProblem, ClientEvent, Destination,
-    Diagnostics, Received, SendError, TrustList, TrustProblem, TrustSetFailure,
+    Diagnostics, Received, SendError, ShowAddresses, TrustList, TrustProblem, TrustSetFailure,
 };
 use interweave_human_store::RowId;
 use interweave_human_ui_model::{
@@ -68,6 +68,8 @@ pub enum Command {
     AddAddresses(Vec<String>),
     /// Remove an address added here.
     RemoveAddress(String),
+    /// Read this device's own addresses, for Show.
+    ReadOwnAddresses,
     /// Accept the card an unread row holds: the row is read, the card
     /// verified again, and the contact written as its proposal said.
     AcceptCard {
@@ -241,6 +243,8 @@ pub enum Update {
     },
     /// The runtime's answer to reading the addresses.
     AddressesRead(Result<AddressList, AddressProblem>),
+    /// The runtime's answer to reading this device's own addresses.
+    OwnAddressesRead(Result<ShowAddresses, AddressProblem>),
     /// The runtime's answer to an add of `lines`.
     AddressesAdded {
         /// The lines, as sent.

@@ -9,13 +9,13 @@
 
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
-    AddressProblem, AddressRefused, PeerAddress, TrustList, TrustProblem, TrustRow,
+    AddressProblem, AddressRefused, LineAdded, PeerAddress, TrustList, TrustProblem, TrustRow,
     TrustSetFailure,
 };
 use interweave_human_ui_model::{
     AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES, Intent,
     LineSelection, ListProblem, PeersFocus, PeersInput, PeersSnack, Refusal, RowReadBack, RowState,
-    ScanVerdict, TYPED_LINES, TrustChange, TrustLine, UiModel,
+    ScanControl, ScanVerdict, TYPED_LINES, TrustChange, TrustLine, UiModel,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
@@ -251,7 +251,20 @@ fn an_empty_or_too_long_field_sends_nothing() {
         "goes once the field is not empty"
     );
 
-    // Typed lines past TYPED_LINES, never split into single writes.
+    // As many typed lines as a code holds are one add; one more is
+    // refused whole, never split into several adds.
+    let full: Vec<String> = (0..TYPED_LINES).map(|_| at(&peer())).collect();
+    let mut f = opened(&me, &[], &[]);
+    let _ = input(&mut f, PeersInput::OpenAdd);
+    let _ = input(&mut f, PeersInput::FieldChanged(full.join("\r\n")));
+    assert_eq!(
+        input(&mut f, PeersInput::Add),
+        vec![Intent::AddAddresses(full)]
+    );
+    assert_eq!(
+        TYPED_LINES, CODE_LINES,
+        "a typed add holds what a code does"
+    );
     let many: Vec<String> = (0..=TYPED_LINES).map(|_| at(&peer())).collect();
     let _ = input(&mut m, PeersInput::FieldChanged(many.join("\n")));
     assert!(input(&mut m, PeersInput::Add).is_empty());
@@ -280,14 +293,15 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
     let _ = input(&mut m, PeersInput::OpenAdd);
 
     let _ = input(&mut m, PeersInput::FieldChanged(at(&peer())));
-    let _ = input(&mut m, PeersInput::ScanPressed);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert!(!m.peers().scan_open(), "an address in the field");
     assert_eq!(m.peers().add_page_note(), Some(&AddNote::ScanAfterField));
     let _ = input(&mut m, PeersInput::FieldChanged(String::new()));
     assert_eq!(m.peers().add_page_note(), None);
-    let _ = input(&mut m, PeersInput::ScanPressed);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert!(m.peers().scan_open());
 
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert_eq!(
         m.scanned("https://example.org"),
         (ScanVerdict::NotAddress, None)
@@ -296,6 +310,7 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
 
     let dns = format!("/dns4/peer.example.net/tcp/4001/p2p/{}", peer().as_str());
     let code = format!("{}\n{dns}", at(&peer()));
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert_eq!(m.scanned(&code), (ScanVerdict::Taken, None));
     assert_eq!(
         m.peers().add_page_note(),
@@ -307,6 +322,7 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
     assert_eq!(m.peers().field(), "", "a scan never enters the field");
 
     let long: Vec<String> = (0..=CODE_LINES).map(|_| at(&peer())).collect();
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert_eq!(m.scanned(&long.join("\n")), (ScanVerdict::Taken, None));
     assert!(matches!(
         m.peers().add_page_note(),
@@ -317,6 +333,7 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
     ));
 
     let good = vec![at(&peer()), at(&peer())];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert_eq!(
         m.scanned(&good.join("\r\n")),
         (ScanVerdict::Taken, Some(Intent::AddAddresses(good)))
@@ -421,14 +438,8 @@ fn a_failed_add_says_what_is_true() {
     for (lines, problem, note) in cases {
         let mut m = opened(&me, &[], &[]);
         let _ = input(&mut m, PeersInput::OpenAdd);
-        // Several lines reach the runtime only from a scan: typed, the
-        // field takes TYPED_LINES.
-        let sent = if lines.len() > TYPED_LINES {
-            input(&mut m, PeersInput::Scanned(lines.join("\n")))
-        } else {
-            let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
-            input(&mut m, PeersInput::Add)
-        };
+        let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
+        let sent = input(&mut m, PeersInput::Add);
         assert_eq!(sent, vec![Intent::AddAddresses(lines.clone())]);
         m.addresses_added(lines, Err(AddressChangeFailure::NotMade(problem)));
         assert_eq!(m.peers().add_page_note(), Some(&note), "{problem:?}");
@@ -492,7 +503,8 @@ fn a_lost_add_answer_is_decided_on_the_list_read_back() {
     let two = vec![at(&other), line.clone()];
     let mut partly = opened(&me, &[], &[added(&other)]);
     let _ = input(&mut partly, PeersInput::OpenAdd);
-    // Several lines in one add come from a scan (TYPED_LINES).
+    let _ = input(&mut partly, PeersInput::ScanPressed(ScanControl::Camera));
+    // A scan's lines: one add, never in the field.
     let _ = input(&mut partly, PeersInput::Scanned(two.join("\n")));
     partly.addresses_added(&two, lost());
     let _ = partly.peers_turn();
@@ -839,7 +851,8 @@ fn several_peers_are_several_blocks_each_decided_on_its_own() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let lines = vec![at(&a), at(&b)];
-    // Several lines in one add come from a scan (TYPED_LINES).
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
+    // A scan's lines: one add, never in the field.
     let _ = input(&mut m, PeersInput::Scanned(lines.join("\n")));
     m.addresses_added(
         &lines,
@@ -892,7 +905,8 @@ fn an_add_for_a_trusted_peer_closes_at_once() {
     let mut m = opened(&me, &[t.clone(), u.clone()], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let lines = vec![at(&t), at(&u)];
-    // Several lines in one add come from a scan (TYPED_LINES).
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
+    // A scan's lines: one add, never in the field.
     let _ = input(&mut m, PeersInput::Scanned(lines.join("\n")));
     m.addresses_added(
         &lines,
@@ -917,7 +931,7 @@ fn back_on_an_add_on_its_way_closes_its_page_and_a_refused_scan_focuses_its_note
     let me = peer();
     let sent_scan = |m: &mut UiModel, line: &str| {
         let _ = input(m, PeersInput::OpenAdd);
-        let _ = input(m, PeersInput::ScanPressed);
+        let _ = input(m, PeersInput::ScanPressed(ScanControl::Camera));
         let (_, sent) = m.scanned(line);
         assert_eq!(sent, Some(Intent::AddAddresses(vec![line.to_owned()])));
     };
@@ -1255,6 +1269,7 @@ fn an_unread_trust_list_is_said_and_no_row_guesses_its_trust() {
     let _ = input(&mut m, PeersInput::OpenAdd);
     let (u, v) = (peer(), peer());
     let two = vec![at(&u), at(&v)];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
     m.addresses_added(
         &two,
@@ -1347,6 +1362,7 @@ fn one_blocks_lost_trust_leaves_anothers_known_answer() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let two = vec![at(&a), at(&b)];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
     m.addresses_added(
         &two,
@@ -1780,6 +1796,7 @@ fn step_two_focus_follows_each_blocks_own_answer() {
     let start = || {
         let mut m = opened(&me, &[], &[]);
         let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
         let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
         m.addresses_added(
             &two,
@@ -2811,6 +2828,7 @@ fn this_devices_own_address_is_refused_before_sending() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let code = format!("{}\n{own}", at(&other));
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert_eq!(m.scanned(&code), (ScanVerdict::Taken, None), "none of it");
     assert_eq!(m.peers().add_page_note().cloned(), refused(&own));
     assert_eq!(focus(&m), Some(PeersFocus::Note));
@@ -3497,6 +3515,7 @@ fn a_closed_pages_add_lands_on_no_page_opened_after_it() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let two = vec![at(&a), at(&t)];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
     let _ = input(&mut m, PeersInput::Close);
     m.addresses_added(
@@ -4283,4 +4302,320 @@ fn an_answer_decides_its_own_change_left_unknown_off_show() {
         Some(&PeersSnack::RemoveFailed { address: at(&a) }),
         "decided by its answer"
     );
+}
+
+/// An add of several lines answered line by line (IPC 2.9): only the
+/// lines answered added are counted and their peers named, while every
+/// peer of the add not trusted gets its block (§5.3).
+#[test]
+fn an_add_of_several_counts_the_lines_it_added_and_offers_every_peer() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[added(&b)]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
+    let code = vec![at(&a), at(&b)];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
+    let (_, sent) = m.scanned(&code.join("\n"));
+    assert_eq!(sent, Some(Intent::AddAddresses(code.clone())));
+    m.addresses_added(
+        &code,
+        answer(
+            AddressOutcome::AddedLines(vec![
+                LineAdded {
+                    added: true,
+                    peer: Some(a.clone()),
+                },
+                LineAdded {
+                    added: false,
+                    peer: Some(b.clone()),
+                },
+            ]),
+            &[added(&b), added(&a)],
+        ),
+    );
+    assert_eq!(
+        m.peers().add_result(),
+        Some(&AddResult::Added {
+            lines: 1,
+            peers: vec![a.clone()]
+        }),
+        "the line already there is not counted"
+    );
+    let blocks: Vec<TransportIdentity> = m
+        .peers()
+        .blocks(m.trust_settings())
+        .into_iter()
+        .map(|b| b.peer)
+        .collect();
+    assert_eq!(blocks, vec![a, b], "every untrusted peer of the add");
+}
+
+/// The add of several names the line it refuses by its index, and that
+/// line is the one the refusal shows, the field left as it was (§5.3).
+#[test]
+fn an_add_of_several_refused_names_the_line_at_its_index() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
+    let code = vec![at(&peer()), at(&peer()), at(&peer())];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
+    let _ = m.scanned(&code.join("\n"));
+    m.addresses_added(
+        &code,
+        answer(
+            AddressOutcome::RefusedLine {
+                why: AddressRefused::Bound,
+                line: 2,
+            },
+            &[],
+        ),
+    );
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Refused {
+            line: code[2].clone(),
+            why: Refusal::Limit
+        })
+    );
+    assert_eq!(m.peers().add_result(), None, "nothing was added");
+    assert_eq!(m.peers().field(), "");
+}
+
+/// A desktop scan ends where it started: an image with no code, or with
+/// a code that is no address list, says so under the scan controls with
+/// focus on the control used; a dialog cancelled sends focus back to it
+/// unsaid; the camera's viewfinder stays open on a code that is not an
+/// address (§5.5, §8).
+#[test]
+fn an_image_scan_that_adds_nothing_returns_to_its_control() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::OpenImage));
+    assert!(m.peers().scan_open());
+    assert!(input(&mut m, PeersInput::ImageNoCode).is_empty());
+    assert!(!m.peers().scan_open());
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::ImageNoCode));
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::OpenImage)));
+
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage));
+    assert_eq!(
+        m.scanned("https://example.org"),
+        (ScanVerdict::NotAddress, None)
+    );
+    assert!(!m.peers().scan_open(), "an image is read once");
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::NotAddress));
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::PasteImage)));
+
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::OpenImage));
+    let _ = input(&mut m, PeersInput::ScannerClosed);
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::OpenImage)));
+
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
+    assert_eq!(
+        m.scanned("https://example.org"),
+        (ScanVerdict::NotAddress, None)
+    );
+    assert!(m.peers().scan_open(), "the viewfinder stays open");
+    let _ = input(&mut m, PeersInput::ScannerClosed);
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::Camera)));
+}
+
+/// A scanned add on its way waits with focus on Add, which reads as
+/// waiting (§5.3, §8).
+#[test]
+fn a_scanned_add_on_its_way_waits_on_add() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage));
+    let (_, sent) = m.scanned(&at(&peer()));
+    assert!(sent.is_some());
+    assert!(m.peers().busy());
+    assert_eq!(focus(&m), Some(PeersFocus::AddButton));
+}
+
+/// Show reads this device's addresses only when opened, once, and draws
+/// at most a code's sixteen lines in the runtime's order, focus on its
+/// warning; closing it sends focus back to its opener, and an answer
+/// that lands after it closed shows nothing (§5.4, §8).
+#[test]
+fn show_reads_once_on_opening_and_draws_sixteen_lines_in_order() {
+    use interweave_human_client_api::ShowAddresses;
+    use interweave_human_ui_model::ShowState;
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    assert_eq!(m.peers().show(), None);
+    assert_eq!(
+        input(&mut m, PeersInput::OpenShow),
+        vec![Intent::ReadOwnAddresses]
+    );
+    assert!(input(&mut m, PeersInput::OpenShow).is_empty(), "one read");
+    assert_eq!(m.peers().show(), Some(&ShowState::Reading));
+    assert_eq!(focus(&m), Some(PeersFocus::ShowWarning));
+
+    let lines: Vec<String> = (0..20)
+        .map(|i| format!("/ip4/192.168.1.{i}/tcp/4001/p2p/{}", me.as_str()))
+        .collect();
+    m.own_addresses_read(Ok(ShowAddresses {
+        peer: me.clone(),
+        addresses: lines.clone(),
+        truncated: false,
+    }));
+    assert_eq!(
+        m.peers().show(),
+        Some(&ShowState::Shown {
+            peer: me.clone(),
+            lines: lines[..CODE_LINES].to_vec()
+        })
+    );
+
+    let _ = input(&mut m, PeersInput::CloseShow);
+    assert_eq!(m.peers().show(), None);
+    assert_eq!(focus(&m), Some(PeersFocus::ShowOpener));
+
+    let answer = || {
+        Ok(ShowAddresses {
+            peer: me.clone(),
+            addresses: lines[..1].to_vec(),
+            truncated: false,
+        })
+    };
+    let _ = input(&mut m, PeersInput::OpenShow);
+    let _ = input(&mut m, PeersInput::CloseShow);
+    m.own_addresses_read(answer());
+    assert_eq!(m.peers().show(), None, "a closed page shows nothing");
+
+    // Closed and opened again with the read still on its way: no second
+    // read, and its answer draws the page open now.
+    assert_eq!(
+        input(&mut m, PeersInput::OpenShow),
+        vec![Intent::ReadOwnAddresses]
+    );
+    let _ = input(&mut m, PeersInput::CloseShow);
+    assert!(
+        input(&mut m, PeersInput::OpenShow).is_empty(),
+        "one in flight"
+    );
+    m.own_addresses_read(answer());
+    assert!(matches!(m.peers().show(), Some(ShowState::Shown { .. })));
+}
+
+/// No address is not a failure, and a failure is never "no address":
+/// each read's failure has its line and focus, Try again only where a
+/// retry may mend it, and a Try again that succeeds sends focus to the
+/// warning as on opening (§5.4, §8).
+#[test]
+fn show_says_no_address_and_each_failure_by_what_is_true() {
+    use interweave_human_client_api::ShowAddresses;
+    use interweave_human_ui_model::{ShowProblem, ShowState};
+    let me = peer();
+    let none = || {
+        Ok(ShowAddresses {
+            peer: peer(),
+            addresses: Vec::new(),
+            truncated: false,
+        })
+    };
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenShow);
+    m.own_addresses_read(none());
+    assert_eq!(m.peers().show(), Some(&ShowState::NoAddress));
+    let _ = input(&mut m, PeersInput::CloseShow);
+
+    for (problem, shown, again) in [
+        (AddressProblem::Unavailable, ShowProblem::Failed, true),
+        (AddressProblem::Internal, ShowProblem::Failed, true),
+        (
+            AddressProblem::Incompatible,
+            ShowProblem::Incompatible,
+            false,
+        ),
+        (
+            AddressProblem::NotPermitted,
+            ShowProblem::NotPermitted,
+            false,
+        ),
+    ] {
+        let _ = input(&mut m, PeersInput::OpenShow);
+        m.own_addresses_read(Err(problem));
+        assert_eq!(m.peers().show(), Some(&ShowState::Unread(shown)));
+        assert_eq!(focus(&m), Some(PeersFocus::ShowProblem));
+        let retried = input(&mut m, PeersInput::ShowTryAgain);
+        assert_eq!(retried.is_empty(), !again, "{problem:?}");
+        if again {
+            m.own_addresses_read(none());
+            assert_eq!(focus(&m), Some(PeersFocus::ShowWarning));
+        }
+        let _ = input(&mut m, PeersInput::CloseShow);
+    }
+}
+
+/// Each scan line says what went wrong with the image -- unreadable, no
+/// image on the clipboard -- focus on the control used, and goes at the
+/// next scan press or an edit of the field (§5.5, §8).
+#[test]
+fn a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    for (control, given, note) in [
+        (
+            ScanControl::OpenImage,
+            PeersInput::ImageUnreadable,
+            AddNote::ImageUnreadable,
+        ),
+        (
+            ScanControl::PasteImage,
+            PeersInput::ClipboardNoImage,
+            AddNote::ClipboardNoImage,
+        ),
+    ] {
+        let _ = input(&mut m, PeersInput::ScanPressed(control));
+        let _ = input(&mut m, given);
+        assert_eq!(m.peers().add_page_note(), Some(&note));
+        assert_eq!(focus(&m), Some(PeersFocus::Scan(control)));
+    }
+    // The next press takes it away, whatever that scan then says.
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::OpenImage));
+    assert_eq!(m.peers().add_page_note(), None);
+    let _ = input(&mut m, PeersInput::ImageNoCode);
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::ImageNoCode));
+    // An edit of the field takes it away too.
+    let _ = input(&mut m, PeersInput::FieldChanged("/ip4".to_owned()));
+    assert_eq!(m.peers().add_page_note(), None);
+}
+
+/// A press of Add removes a scan line left on the page: such a line
+/// stands only while the field is empty, so Add says `AddressNeeded`
+/// in its place (§5.3).
+#[test]
+fn a_press_of_add_removes_a_scan_line() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage));
+    let _ = input(&mut m, PeersInput::ClipboardNoImage);
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::ClipboardNoImage));
+    assert!(input(&mut m, PeersInput::Add).is_empty());
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::AddressNeeded));
+}
+
+/// A reader's result that outlived its scan -- the page closed and was
+/// opened again while an image was read -- adds nothing: a code is taken
+/// only by the scan open now (#409 C4).
+#[test]
+fn a_code_with_no_scan_open_adds_nothing() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage));
+    let _ = input(&mut m, PeersInput::Close);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    assert!(!m.peers().scan_open());
+    assert!(input(&mut m, PeersInput::Scanned(at(&peer()))).is_empty());
+    assert!(!m.peers().busy(), "nothing was sent");
+    assert_eq!(m.peers().add_page_note(), None);
 }

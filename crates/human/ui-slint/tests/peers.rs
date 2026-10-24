@@ -15,7 +15,7 @@ use interweave_human_client_api::{
     TrustList, TrustRow,
 };
 use interweave_human_ui_model::{
-    Intent, RuntimeHost, TrustChange, UiModel, UiText, fill, placeholder_en, short_peer,
+    HostText, Intent, RuntimeHost, TrustChange, UiModel, UiText, fill, placeholder_en, short_peer,
 };
 use interweave_human_ui_slint::{View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
@@ -668,6 +668,9 @@ fn step_two_draws_waiting_and_later_blocks_and_focus_lands() {
     open_peers(&mut view, &mut model, &me, &[], &[]);
     let _ = model.peers_input(PeersInput::OpenAdd);
     let two = format!("{}\n{}", at(&a), at(&b));
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::ScanPressed(
+        interweave_human_ui_model::ScanControl::Camera,
+    ));
     let _ = model.peers_input(PeersInput::Scanned(two));
     model.addresses_added(
         &[at(&a), at(&b)],
@@ -1200,6 +1203,9 @@ fn a_refused_line_is_drawn_alone_between_its_words() {
     // Scanned: under the scan controls, the same three lines.
     let _ = model.peers_input(PeersInput::FieldChanged(String::new()));
     let code = format!("{}\n{own}", at(&peer()));
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::ScanPressed(
+        interweave_human_ui_model::ScanControl::Camera,
+    ));
     let _ = model.scanned(&code);
     view.render(&model);
     let w = view.window();
@@ -1268,6 +1274,9 @@ fn a_refusal_of_the_whole_add_names_no_line() {
     // A code of too many lines: the same, under the scan controls.
     let _ = model.peers_input(PeersInput::FieldChanged(String::new()));
     let long: Vec<String> = (0..=CODE_LINES).map(|_| at(&peer())).collect();
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::ScanPressed(
+        interweave_human_ui_model::ScanControl::Camera,
+    ));
     let _ = model.scanned(&long.join("\n"));
     view.render(&model);
     let w = view.window();
@@ -2210,6 +2219,12 @@ fn an_add_on_its_way_reads_adding_and_is_said_once() {
             .is_some(),
         "Add reads {waiting}"
     );
+    let mark = |view: &View| {
+        ElementHandle::find_by_element_id(view.window(), "AppWindow::add-wait-mark")
+            .next()
+            .is_some()
+    };
+    assert!(mark(&view), "the progress mark beside it");
     let said = slots(&view);
     assert!(said.iter().any(|s| s.starts_with(waiting)), "{said:?}");
     settle_view(&mut view, &mut model);
@@ -2230,10 +2245,351 @@ fn an_add_on_its_way_reads_adding_and_is_said_once() {
     );
     view.render(&model);
     assert!(!view.window().get_add_waiting());
+    assert!(!mark(&view), "the mark gone with the wait");
     assert!(
         ElementHandle::find_by_accessible_label(view.window(), text(UiText::AddAction))
             .next()
             .is_some(),
         "Add's own label back"
     );
+}
+
+/// The desktop's image controls are drawn once offered and not before;
+/// an image with no code says so under them with focus back on the
+/// control used (§5.5, §8). With no image reader compiled -- this crate
+/// without its `desktop` feature -- a press ends the scan at once as a
+/// cancelled one, focus back on the control; with it, a press would open
+/// the platform's dialog, so the scan is opened through the model.
+#[test]
+fn the_image_controls_scan_and_an_image_without_a_code_is_said_under_them() {
+    use interweave_human_ui_model::{PeersInput, ScanControl};
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        labelled(&view, text(UiText::OpenCodeImage)).is_empty(),
+        "not offered"
+    );
+
+    view.offer_scans(false, true, true);
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::ScanCode)).is_empty(),
+        "no camera here"
+    );
+    assert_eq!(labelled(&view, text(UiText::PasteCodeImage)).len(), 1);
+    for (control, label, key) in [
+        (ScanControl::OpenImage, UiText::OpenCodeImage, "open-image"),
+        (
+            ScanControl::PasteImage,
+            UiText::PasteCodeImage,
+            "paste-image",
+        ),
+    ] {
+        let _ = model.peers_input(PeersInput::ScanPressed(control));
+        view.render(&model);
+        assert!(model.peers().scan_open());
+        let _ = model.peers_input(PeersInput::ImageNoCode);
+        let _ = intents(&mut view, &mut model);
+        assert_eq!(
+            view.window().get_scan_note().as_str(),
+            text(UiText::ImageNoCode)
+        );
+        slint::platform::update_timers_and_animations();
+        assert_eq!(view.window().get_focus_target().as_str(), key);
+        if !cfg!(feature = "desktop") {
+            press(&view, text(label));
+            // The press, then the reader's at-once ending, each a turn.
+            let _ = intents(&mut view, &mut model);
+            let _ = intents(&mut view, &mut model);
+            assert!(!model.peers().scan_open(), "no reader: ended at once");
+        }
+        // Focus moves on a timer's turn, after the render that asks it.
+        slint::platform::update_timers_and_animations();
+        assert_eq!(view.window().get_focus_target().as_str(), key);
+    }
+}
+
+/// Show my address on Peers reads this device's addresses only when
+/// pressed; the page puts its warning first, focused, then a code that
+/// decodes to exactly the lines listed under it, Copy all addresses and
+/// the `PeerId` alone; Back closes it, focus back on its control (§5.4,
+/// §6, §8).
+#[test]
+fn show_draws_a_code_that_reads_back_as_its_lines() {
+    use interweave_human_client_api::ShowAddresses;
+    use interweave_human_ui_model::PeersInput;
+    use interweave_human_ui_slint::code::{CodeRead, read_rgba};
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    assert!(!view.window().get_peers_show_open());
+    press(&view, text(UiText::ShowMyAddress));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::ReadOwnAddresses]
+    );
+    slint::platform::update_timers_and_animations();
+    assert!(view.window().get_peers_show_open());
+    assert_eq!(view.window().get_focus_target().as_str(), "show-warning");
+    assert_eq!(labelled(&view, text(UiText::ShowWarning)).len(), 1);
+    assert!(
+        !view.window().get_show_code_shown(),
+        "nothing before the read"
+    );
+
+    let lines = vec![
+        format!("/ip4/203.0.113.9/tcp/4001/p2p/{}", me.as_str()),
+        format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", me.as_str()),
+    ];
+    model.own_addresses_read(Ok(ShowAddresses {
+        peer: me.clone(),
+        addresses: lines.clone(),
+        truncated: false,
+    }));
+    view.render(&model);
+    let w = view.window();
+    assert!(w.get_show_code_shown());
+    let label = text(UiText::QrLabelOther).replace("{n}", "2");
+    assert_eq!(
+        labelled(&view, &label).len(),
+        1,
+        "the code is one labelled item"
+    );
+    assert_eq!(w.get_show_lines().as_str(), lines.join("\n"));
+    assert_eq!(w.get_show_peer().as_str(), me.as_str());
+    assert_eq!(labelled(&view, text(UiText::CopyAddresses)).len(), 1);
+    // What is drawn is what is listed: the code, scaled as a screen
+    // shows it, reads back as the lines.
+    let code = w.get_show_code().to_rgba8().expect("pixels");
+    let (cw, ch) = (code.width() as usize, code.height() as usize);
+    let mut big = Vec::with_capacity(cw * ch * 64);
+    for y in 0..ch * 4 {
+        for x in 0..cw * 4 {
+            let p = code.as_slice()[(y / 4) * cw + x / 4];
+            big.extend_from_slice(&[p.r, p.g, p.b, p.a]);
+        }
+    }
+    assert_eq!(
+        read_rgba(cw * 4, ch * 4, &big),
+        CodeRead::Text(lines.join("\n"))
+    );
+
+    let _ = model.peers_input(PeersInput::CloseShow);
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    assert!(!view.window().get_peers_show_open());
+    assert_eq!(view.window().get_focus_target().as_str(), "show-my-address");
+}
+
+/// No address is said with what to do and no reason, never as a failure; a
+/// failed read is never "no address", with Try again only where a retry
+/// may mend it, focus on its line (§5.4, §8).
+#[test]
+fn show_says_no_address_and_a_failed_read_apart() {
+    use interweave_human_client_api::{AddressProblem, ShowAddresses};
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenShow);
+    model.own_addresses_read(Ok(ShowAddresses {
+        peer: me.clone(),
+        addresses: Vec::new(),
+        truncated: false,
+    }));
+    view.render(&model);
+    let w = view.window();
+    assert!(!w.get_show_code_shown());
+    assert_eq!(w.get_show_none().as_str(), text(UiText::ShowNoAddress));
+    for reason in [UiText::ShowNoAddressOffline, UiText::ShowNoAddressLocalOnly] {
+        assert!(
+            labelled(&view, text(reason)).is_empty(),
+            "no reason is claimed"
+        );
+    }
+    assert_eq!(
+        w.get_show_none_what().as_str(),
+        text(UiText::ShowNoAddressWhat)
+    );
+    assert_eq!(w.get_show_problem().as_str(), "");
+    let _ = model.peers_input(PeersInput::CloseShow);
+
+    for (problem, words, retry) in [
+        (
+            AddressProblem::Unavailable,
+            text(UiText::ShowReadFailed),
+            true,
+        ),
+        (
+            AddressProblem::Incompatible,
+            placeholder_en::host_text(RuntimeHost::Daemon, HostText::ShowIncompatible),
+            false,
+        ),
+        (
+            AddressProblem::NotPermitted,
+            placeholder_en::host_text(RuntimeHost::Daemon, HostText::ShowNotPermitted),
+            false,
+        ),
+    ] {
+        let _ = model.peers_input(PeersInput::OpenShow);
+        model.own_addresses_read(Err(problem));
+        view.render(&model);
+        slint::platform::update_timers_and_animations();
+        let w = view.window();
+        assert_eq!(w.get_show_problem().as_str(), words);
+        assert_eq!(w.get_show_none().as_str(), "", "never no address");
+        assert_eq!(w.get_show_problem_retry(), retry, "{problem:?}");
+        assert_eq!(w.get_focus_target().as_str(), "show-problem");
+        let _ = model.peers_input(PeersInput::CloseShow);
+    }
+}
+
+/// Where the platform secures the window, Show asks the flag on as it
+/// opens and draws no address until the platform says it is on; leaving
+/// the screen closes Show (§5.4). The testing backend cannot say when a
+/// frame was drawn, so the flag is never asked off here: kept on rather
+/// than cleared early.
+#[test]
+fn show_draws_no_address_until_the_window_is_secured() {
+    use interweave_human_client_api::ShowAddresses;
+    use interweave_human_ui_model::PeersInput;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let mut view = view();
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let log = Rc::clone(&asked);
+    view.guard_show(move |on| log.borrow_mut().push(on));
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    assert!(asked.borrow().is_empty(), "nothing asked before Show");
+    // A confirmation no ask is waiting on secures nothing to come.
+    view.show_secured();
+    let _ = model.peers_input(PeersInput::OpenShow);
+    model.own_addresses_read(Ok(ShowAddresses {
+        peer: me.clone(),
+        addresses: vec![at(&me)],
+        truncated: false,
+    }));
+    view.render(&model);
+    assert_eq!(*asked.borrow(), vec![true]);
+    let w = view.window();
+    assert!(!w.get_show_code_shown(), "held until secured");
+    assert_eq!(w.get_show_lines().as_str(), "", "no line either");
+    assert_eq!(labelled(&view, text(UiText::ShowWarning)).len(), 1);
+
+    view.show_secured();
+    view.render(&model);
+    assert!(view.window().get_show_code_shown());
+    assert_eq!(*asked.borrow(), vec![true], "asked once");
+
+    view.leave_show();
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(model.peers().show(), None, "leaving the screen closes Show");
+    assert_eq!(
+        *asked.borrow(),
+        vec![true],
+        "never off before a frame is known drawn"
+    );
+}
+
+/// A scan's own line is drawn under the scan controls and said once as
+/// it is set, focus staying on the control it came from (§5.5).
+#[test]
+fn a_scan_line_is_drawn_under_the_controls_and_said_once() {
+    use interweave_human_ui_model::{PeersInput, ScanControl};
+    let slots = |view: &View| {
+        format!(
+            "{}{}",
+            view.window().get_announcement_a(),
+            view.window().get_announcement_b()
+        )
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    view.offer_scans(false, true, true);
+    view.render(&model);
+    for (given, words) in [
+        (PeersInput::ImageUnreadable, text(UiText::ImageUnreadable)),
+        (PeersInput::ClipboardNoImage, text(UiText::ClipboardNoImage)),
+    ] {
+        let _ = model.peers_input(PeersInput::ScanPressed(ScanControl::PasteImage));
+        view.render(&model);
+        let _ = model.peers_input(given);
+        view.render(&model);
+        assert_eq!(view.window().get_scan_note().as_str(), words);
+        assert!(slots(&view).contains(words), "said as it is set");
+        let before = slots(&view);
+        view.render(&model);
+        assert_eq!(slots(&view), before, "said once");
+    }
+}
+
+/// Leaving Peers closes Show, never left open behind another page: to
+/// the trust settings, by a conversation picked, or closing Peers
+/// (§5.4; #409 F1).
+#[test]
+fn leaving_peers_closes_show() {
+    use interweave_human_client_api::ShowAddresses;
+    use interweave_human_ui_model::PeersInput;
+    let me = peer();
+    let open_show = |view: &mut View, model: &mut UiModel| {
+        let _ = model.peers_input(PeersInput::OpenShow);
+        model.own_addresses_read(Ok(ShowAddresses {
+            peer: me.clone(),
+            addresses: vec![at(&me)],
+            truncated: false,
+        }));
+        view.render(model);
+        assert!(model.peers().show().is_some());
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    open_show(&mut view, &mut model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::TrustHeading));
+    let _ = intents(&mut view, &mut model);
+    assert!(model.peers().show().is_none(), "to the trust settings");
+
+    // Back to Peers, Show again, then Peers closed.
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::PeersTitle));
+    let _ = intents(&mut view, &mut model);
+    open_show(&mut view, &mut model);
+    view.window().invoke_close_peers();
+    let _ = intents(&mut view, &mut model);
+    assert!(model.peers().show().is_none(), "Peers closed");
+}
+
+/// Each image source is offered on its own: the desktop offers the file
+/// and withholds the clipboard's image until it can be read within the
+/// file's bounds (#409 F1).
+#[test]
+fn the_clipboard_image_is_offered_apart_from_the_file() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.offer_scans(false, true, false);
+    view.render(&model);
+    assert_eq!(labelled(&view, text(UiText::OpenCodeImage)).len(), 1);
+    assert!(
+        labelled(&view, text(UiText::PasteCodeImage)).is_empty(),
+        "withheld"
+    );
+    view.offer_scans(false, true, true);
+    view.render(&model);
+    assert_eq!(labelled(&view, text(UiText::PasteCodeImage)).len(), 1);
 }

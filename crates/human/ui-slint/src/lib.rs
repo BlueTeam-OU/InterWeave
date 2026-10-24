@@ -38,10 +38,13 @@ use slint::{Model as _, ModelRc, SharedString, VecModel};
 mod body;
 mod cards;
 mod clock;
+pub mod code;
 mod gesture;
 mod identity;
 mod peers;
 mod refusal;
+#[cfg(feature = "desktop")]
+mod scan_images;
 mod store_screen;
 mod swipe;
 
@@ -412,6 +415,17 @@ struct Shared {
     /// The window, to take a snackbar off screen when an input that closes
     /// it is queued.
     window: slint::Weak<AppWindow>,
+    /// The scan control last pressed: which reader a scan the model opens
+    /// needs.
+    scan_control: Option<interweave_human_ui_model::ScanControl>,
+    /// The control whose reader runs for the scan open now: one per scan.
+    scan_reading: Option<interweave_human_ui_model::ScanControl>,
+    /// A reader's result with its scan's number, put here by its thread
+    /// and taken on the window's.
+    scan_result: std::sync::Arc<std::sync::Mutex<Option<(u64, PeersInput)>>>,
+    /// The scan a reader runs for: bumped as each scan ends, so a result
+    /// that outlives its scan is dropped (#409 C4).
+    scan_number: u64,
 }
 
 /// A snackbar, as the queue judges what closes it.
@@ -1076,13 +1090,49 @@ impl View {
     /// view counts as unfocused, so nothing is read before then.
     #[cfg(feature = "desktop")]
     pub fn on_window_focus(&self, focused: impl Fn(bool) + 'static) {
-        use slint::winit_030::{EventResult, WinitWindowAccessor as _, winit::event::WindowEvent};
-        slint::ComponentHandle::window(&self.window).on_winit_window_event(move |_, event| {
+        use slint::winit_030::{
+            EventResult, WinitWindowAccessor as _, winit, winit::event::WindowEvent,
+        };
+        let shared = Rc::clone(&self.shared);
+        slint::ComponentHandle::window(&self.window).on_winit_window_event(move |window, event| {
             if let WindowEvent::Focused(now) = event {
                 focused(*now);
             }
+            // Minimised: the desktop's background, where Show is never left
+            // on screen (add-a-peer §5.4). Asked of the window itself at
+            // each change that may come with it -- focus lost, a resize, an
+            // occlusion -- since no event says it on every platform, and
+            // occlusion alone is not it: X11 and macOS report a window only
+            // covered as occluded, and the person switches away to paste
+            // the address (#409 C2). Wayland never says a window is
+            // minimised, and a session lock is not reported to the window:
+            // both are known limits.
+            if matches!(
+                event,
+                WindowEvent::Focused(false) | WindowEvent::Resized(_) | WindowEvent::Occluded(_)
+            ) && window.with_winit_window(winit::window::Window::is_minimized)
+                == Some(Some(true))
+            {
+                enqueue(&shared, Input::Peers(PeersInput::CloseShow));
+            }
             EventResult::Propagate
         });
+    }
+
+    /// The scan controls this platform offers on the add page
+    /// (`design/2026-10-22-add-a-peer.md` §5.5): the camera on a phone
+    /// that has one, an image file and the clipboard's image on the
+    /// desktop. None by default, and none is drawn: typing or pasting the
+    /// text does all a scan does. The images' reader is compiled only
+    /// with the `desktop` feature; without it an image scan ends at once
+    /// as a cancelled one. The clipboard's image is offered apart: the
+    /// clipboard crate decodes it whole before any bound of this client's
+    /// applies, so the desktop withholds it until a bounded read exists
+    /// (#409 F1).
+    pub fn offer_scans(&self, camera: bool, files: bool, clipboard: bool) {
+        self.window.set_scan_camera(camera);
+        self.window.set_scan_images(files);
+        self.window.set_scan_paste(clipboard);
     }
 
     /// Called whenever a window callback queues an input, so the root runs
@@ -1269,6 +1319,34 @@ impl View {
         self.shared.borrow_mut().haptic = Some(Rc::new(tick));
     }
 
+    /// Make the platform secure the window while Show draws this device's
+    /// addresses (`design/2026-10-22-add-a-peer.md` §5.4: no screenshot,
+    /// no Recents content): `ask(true)` when Show opens, after which its
+    /// addresses wait until [`Self::show_secured`] says the flag is on,
+    /// and `ask(false)` once a frame without Show has been drawn. Where
+    /// the renderer cannot say when it drew (the testing backend), the
+    /// flag is never asked off. Unset, as on the desktop, nothing waits.
+    pub fn guard_show(&mut self, ask: impl Fn(bool) + 'static) {
+        self.peer_lists.show_guard = Some(peers::ShowGuard::new(Rc::new(ask)));
+    }
+
+    /// The platform has secured the window, as [`Self::guard_show`] asked:
+    /// Show may draw its addresses at the next render.
+    pub fn show_secured(&mut self) {
+        if let Some(guard) = self.peer_lists.show_guard.as_ref() {
+            guard.secured();
+        }
+    }
+
+    /// The app left the screen -- the background, or the screen locked:
+    /// Show closes, never left on screen unasked (§5.4).
+    pub fn leave_show(&self) {
+        let _ = self
+            .shared
+            .borrow_mut()
+            .push(Input::Peers(PeersInput::CloseShow));
+    }
+
     /// The app left the foreground: the snackbar closes, its Undo with it
     /// (§5). The action itself has happened already.
     pub fn close_snackbar(&self) {
@@ -1365,9 +1443,8 @@ impl View {
                         out.push(ViewEvent::Trust(TrustInput::Cancel));
                         return out;
                     }
-                    // Leaving Peers is its add page's Close, as Back is.
-                    if leaving_peers && model.peers().add_open() {
-                        out.push(ViewEvent::Peers(PeersInput::Close));
+                    if leaving_peers && let Some(close) = leaving_peers_closes(model) {
+                        out.push(close);
                         return out;
                     }
                 }
@@ -1462,6 +1539,11 @@ impl View {
                 // waiting for confirmation: none is made from a page the
                 // person left.
                 Input::TrustPage(open) => {
+                    // Show is never left open behind the trust settings
+                    // (#409 F1); an add page there stays, as it did.
+                    if open && self.page == Page::Peers && model.peers().show().is_some() {
+                        out.push(ViewEvent::Peers(PeersInput::CloseShow));
+                    }
                     self.page = if open {
                         Page::Trust
                     } else {
@@ -1491,8 +1573,8 @@ impl View {
                         out.push(ViewEvent::Peers(PeersInput::Opened));
                         return out;
                     }
-                    if model.peers().add_open() {
-                        out.push(ViewEvent::Peers(PeersInput::Close));
+                    if let Some(close) = leaving_peers_closes(model) {
+                        out.push(close);
                         return out;
                     }
                 }
@@ -3199,6 +3281,18 @@ fn status_mark(item: &MessageItem) -> StatusMark {
 /// control, labelled with its destination, and the trust and address
 /// intents from the trust settings' and Peers' own controls, never an
 /// item's.
+/// What leaving Peers closes: its add page, as Back does, or Show, which
+/// is never left open behind another page (add-a-peer §5.4; #409 F1).
+fn leaving_peers_closes(model: &UiModel) -> Option<ViewEvent> {
+    if model.peers().add_open() {
+        Some(ViewEvent::Peers(PeersInput::Close))
+    } else if model.peers().show().is_some() {
+        Some(ViewEvent::Peers(PeersInput::CloseShow))
+    } else {
+        None
+    }
+}
+
 fn action_text(intent: &Intent) -> Option<&'static str> {
     let text = match intent {
         Intent::Retry(_) => UiText::Retry,
@@ -3225,6 +3319,7 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::ReadAddresses
         | Intent::AddAddresses(_)
         | Intent::RemoveAddress(_)
+        | Intent::ReadOwnAddresses
         // Edits come from the settings and the contact page's own
         // controls, never an item's.
         | Intent::SetOwnCard { .. }
@@ -3315,6 +3410,32 @@ mod tests {
             monospaced.contains(&named.expect("checked")),
             "{code:?} is one of the families the stack resolves for monospace"
         );
+    }
+
+    /// A reader's result is taken only for the scan it was started for:
+    /// one numbered for a scan that has ended is dropped, whatever scan is
+    /// open by then (#409 C4).
+    #[test]
+    fn an_image_result_for_an_ended_scan_is_dropped() {
+        use interweave_human_ui_model::{PeersInput, ScanControl};
+        i_slint_backend_testing::init_no_event_loop();
+        let view =
+            super::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
+        let before = view.queued_inputs();
+        {
+            let mut shared = view.shared.borrow_mut();
+            shared.scan_reading = Some(ScanControl::OpenImage);
+            shared.scan_number = 1;
+        }
+        let put = |number: u64| {
+            let slot = std::sync::Arc::clone(&view.shared.borrow().scan_result);
+            *slot.lock().expect("slot") = Some((number, PeersInput::ImageNoCode));
+            view.window.invoke_peers_image_done();
+        };
+        put(0);
+        assert_eq!(view.queued_inputs(), before, "an ended scan's result");
+        put(1);
+        assert_eq!(view.queued_inputs(), before + 1, "the open scan's result");
     }
 
     /// Rows that count what a keyed update did to them.

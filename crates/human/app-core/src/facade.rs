@@ -13,8 +13,8 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{
-    AddressChangeFailure, AddressProblem, ClientEvent, Destination, Diagnostics, Inbound,
-    OutboundUpdate, RowError, SendError, SessionState,
+    ClientEvent, Destination, Diagnostics, Inbound, OutboundUpdate, RowError, SendError,
+    SessionState,
 };
 use interweave_human_store::identity_key::IdentityKey;
 use interweave_human_store::{ReadEphemeral, RowId, StoreError};
@@ -315,15 +315,15 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 updates.push(Update::AddressesRead(answer));
                 Ok(())
             }
+            Command::ReadOwnAddresses => {
+                let answer = Box::pin(self.client.own_addresses()).await;
+                updates.push(Update::OwnAddressesRead(answer));
+                Ok(())
+            }
             Command::AddAddresses(lines) => {
-                let answer = match lines.as_slice() {
-                    [line] => Box::pin(self.client.add_address(line.clone())).await,
-                    // Several lines are one add, all or none, and never
-                    // one call per line (ADR-0062 decision 4): the method
-                    // that takes them comes at IPC 2.9, so until then the
-                    // add is not made, as a runtime without it answers.
-                    _ => Err(AddressChangeFailure::NotMade(AddressProblem::Incompatible)),
-                };
+                // One add, all or none, whatever its lines (ADR-0062
+                // decision 4): the facade chooses the method.
+                let answer = Box::pin(self.client.add_addresses(lines.clone())).await;
                 updates.push(Update::AddressesAdded {
                     lines: lines.clone(),
                     answer,
