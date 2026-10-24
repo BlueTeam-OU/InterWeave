@@ -21,7 +21,7 @@ use jni::{Env, EnvUnowned};
 
 use crate::keystore::{KeystoreCipher, StoreKeystore};
 use jni::errors::ThrowRuntimeExAndDefault;
-use jni::objects::{JByteArray, JClass, JString};
+use jni::objects::{JByteArray, JByteBuffer, JClass, JString};
 use jni::sys::{jboolean, jfloat, jint, jlong};
 
 /// The profile the app runs, as the android-e2e harness names it.
@@ -261,13 +261,13 @@ fn log_key_refused(host: &ServiceHost) {
     }
 }
 
-fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
+fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     // The profile first: a first run's identity is provisioned under the
     // unlock policy it configures.
-    if let Err(code) = provision(&app_data_dir) {
+    if let Err(code) = provision(app_data_dir) {
         return code;
     }
-    let identity = match identity(env, &app_data_dir) {
+    let identity = match identity(env, app_data_dir) {
         Ok(identity) => identity,
         Err(code) => return code,
     };
@@ -276,7 +276,7 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
         Err(code) => return code,
     };
     let host = ServiceHost::global();
-    let dir = std::path::PathBuf::from(&app_data_dir);
+    let dir = std::path::PathBuf::from(app_data_dir);
     let started = crate::platform_log::around_start(host, &dir, PROFILE, || {
         host.start(ServiceLaunch {
             app_data_dir: dir.clone(),
@@ -319,7 +319,7 @@ extern "system" fn Java_org_interweave_human_Native_start<'caller>(
 ) -> jint {
     env.with_env(|env| -> Result<jint, jni::errors::Error> {
         let app_data_dir = app_data_dir.try_to_string(env)?;
-        Ok(start(env, app_data_dir))
+        Ok(start(env, &app_data_dir))
     })
     .resolve::<ThrowRuntimeExAndDefault>()
 }
@@ -767,6 +767,115 @@ extern "system" fn Java_org_interweave_human_Native_showSecured<'caller>(
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::activity::show_secured();
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.cameraAvailable(present)`: whether the phone has a camera.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_cameraAvailable<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    present: jboolean,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::camera_available(present);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.cameraFrame(width, height, rowStride, luma)`: one frame's luma
+/// plane, a direct buffer the camera owns only for this call, so it is
+/// copied out before the call returns (activity.rs).
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name; the frame is a direct buffer read in place"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_cameraFrame<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    width: jint,
+    height: jint,
+    stride: jint,
+    luma: JByteBuffer<'caller>,
+) {
+    env.with_env(|env| -> Result<(), jni::errors::Error> {
+        let (Ok(width), Ok(height), Ok(stride)) = (
+            usize::try_from(width),
+            usize::try_from(height),
+            usize::try_from(stride),
+        ) else {
+            return Ok(());
+        };
+        let address = env.get_direct_buffer_address(&luma)?;
+        let capacity = env.get_direct_buffer_capacity(&luma)?;
+        if address.is_null() {
+            return Ok(());
+        }
+        // SAFETY: the address and capacity are the JVM's for this direct
+        // buffer, which the camera keeps valid until the call returns;
+        // the slice is read here and copied, never kept.
+        let plane = unsafe { std::slice::from_raw_parts(address.cast_const(), capacity) };
+        crate::activity::camera_frame(width, height, stride, plane);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.cameraDenied(forGood)`: CAMERA refused at Scan a code.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_cameraDenied<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    for_good: jboolean,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::camera_denied(for_good);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.cameraClosed()`: the camera stopped under the scan.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_cameraClosed<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::camera_closed();
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.settingsReturned()`: back from the app's system settings.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_settingsReturned<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::settings_returned();
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();

@@ -2515,6 +2515,20 @@ export component AppWindow inherits Window {
     // Paste an image, offered apart from the image file: withheld until
     // the clipboard can be read within the file's bounds (#409 F1).
     in property <bool> scan-paste;
+    // The camera's viewfinder (add-a-peer section 5.5), over everything
+    // while a camera scan is open: the frames as they come, the square
+    // guide, the hint, and Close. Before the first frame, CameraWhy says
+    // what the camera is for, as the system's permission dialog asks.
+    in property <bool> viewfinder-open;
+    in property <image> viewfinder-frame;
+    in property <bool> viewfinder-has-frame;
+    in property <string> viewfinder-why;
+    in property <string> viewfinder-hint;
+    in property <string> viewfinder-note;
+    in property <string> close-scanner-label;
+    // The denied-for-good line's Open settings, under the scan controls.
+    in property <bool> open-settings-shown;
+    in property <string> open-settings-label;
     in property <string> scan-code-label;
     in property <string> open-image-label;
     in property <string> paste-image-label;
@@ -2628,6 +2642,8 @@ export component AppWindow inherits Window {
     callback peers-show-closed();
     callback peers-show-again();
     callback peers-paste-image();
+    callback peers-scanner-closed();
+    callback peers-open-settings();
     // A scan's reader is done: its result waits on the Rust side.
     callback peers-image-done();
     callback block-trust(int);
@@ -2824,6 +2840,11 @@ export component AppWindow inherits Window {
     // handler never sees. True when a screen took it; false means there
     // is no way back here, and the platform leaves the app.
     public function handle-back() -> bool {
+        // Back on the viewfinder is its Close (section 5.5).
+        if (root.viewfinder-open) {
+            root.peers-scanner-closed();
+            return true;
+        }
         if (root.identity-active) {
             root.identity-back();
             return true;
@@ -4161,6 +4182,16 @@ export component AppWindow inherits Window {
                         focus-seq: root.focus-seq;
                         focus-wanted: root.focus-target == "add-page-note";
                         focused(k) => { root.focus-id = k; }
+                    }
+                    if root.add-step-one && root.open-settings-shown: HorizontalLayout {
+                        alignment: start;
+                        ActionButton {
+                            text: root.open-settings-label;
+                            target: 48px;
+                            focus-key: "open-settings";
+                            pressed => { root.peers-open-settings(); }
+                            focused(k) => { root.focus-id = k; }
+                        }
                     }
                     if root.add-step-one: HorizontalLayout {
                         alignment: start;
@@ -6195,6 +6226,85 @@ export component AppWindow inherits Window {
         read-only: true;
         text: root.proposal-copy-text;
         accessible-role: none;
+    }
+
+    if root.viewfinder-open: FocusScope {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.peers-scanner-closed();
+                return accept;
+            }
+            // A modal surface keeps focus: Close is its one stop, so Tab
+            // never reaches the add page under it (#418 F5).
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                close-scanner.focus();
+                return accept;
+            }
+            reject
+        }
+        Rectangle {
+            // Behind the frames, not themed: a camera's preview reads
+            // against black on either scheme.
+            background: #000000;
+            TouchArea { }
+        }
+        if root.viewfinder-has-frame: Image {
+            width: parent.width;
+            height: parent.height;
+            source: root.viewfinder-frame;
+            image-fit: contain;
+            accessible-role: none;
+        }
+        // The square guide, centred: where the code goes.
+        Rectangle {
+            width: min(parent.width, parent.height) * 0.7;
+            height: self.width;
+            border-width: 3px;
+            border-color: #ffffff;
+            border-radius: 12px;
+        }
+        VerticalLayout {
+            padding-top: root.safe-area-insets.top + 16px;
+            padding-bottom: root.safe-area-insets.bottom + 16px;
+            padding-left: root.safe-area-insets.left + 16px;
+            padding-right: root.safe-area-insets.right + 16px;
+            spacing: 12px;
+            HorizontalLayout {
+                alignment: end;
+                close-scanner := IconButton {
+                    glyph: Glyph.cancel;
+                    label: root.close-scanner-label;
+                    ink: #ffffff;
+                    rtl: root.rtl;
+                    focus-key: "close-scanner";
+                    // Focus comes as the viewfinder opens, asked by the view
+                    // once the frame that draws it is done.
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "close-scanner";
+                    pressed => { root.peers-scanner-closed(); }
+                    focused(k) => { root.focus-id = k; }
+                }
+            }
+            Rectangle { vertical-stretch: 1; }
+            // What the camera is for, until the first frame; then the
+            // hint, and a code that is no address list says so here.
+            for line in [root.viewfinder-has-frame ? root.viewfinder-hint : root.viewfinder-why, root.viewfinder-note]: Text {
+                text: line;
+                visible: line != "";
+                height: line == "" ? 0px : self.preferred-height;
+                color: #ffffff;
+                font-size: Type.body-large;
+                wrap: word-wrap;
+                horizontal-alignment: center;
+                accessible-role: text;
+                accessible-label: line;
+                accessible-live-region: AccessibleLiveness.polite;
+            }
+        }
     }
 
     if root.identity-active: IdentityScreen {

@@ -61,6 +61,16 @@ class MainActivity : NativeActivity() {
     // 01a155b3). Kept across a recreation in this process (onCreate); a
     // cold launch, in a new process, prompts again.
     private var unlockDeclined = false
+    /** Scan a code's camera, opened for the viewfinder and closed with it (add-a-peer 5.5). */
+    private var camera: CodeCamera? = null
+    /**
+     * A scan wants the camera: set at CAMERA_START while the Activity is
+     * shown, cleared at CAMERA_STOP and at the Activity's stop. A grant
+     * opens the camera when it is set (#418 F1).
+     */
+    private var cameraWanted = false
+    /** Open settings was pressed: the return is told to the window. */
+    private var inSettings = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // A recreation the system made in this process (a language change,
@@ -72,6 +82,9 @@ class MainActivity : NativeActivity() {
             it.getBoolean(UNLOCK_DECLINED) && it.getString(UNLOCK_DECLINED_IN) == PROCESS_TOKEN
         } ?: false
         super.onCreate(savedInstanceState)
+        // Scan a code is offered only on a phone with a camera; the app
+        // installs without one (add-a-peer 5.5, the camera not required).
+        Native.cameraAvailable(packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY))
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -182,6 +195,15 @@ class MainActivity : NativeActivity() {
         // Back from the prompt or the settings page: a grant restarts the
         // Service with its runtime.
         local?.recheck()
+        // CAMERA granted in Settings, through Open settings or outside the
+        // app, clears the refusal mark as a grant here does (#418 round 3).
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            cameraHeld()
+        }
+        if (inSettings) {
+            inSettings = false
+            Native.settingsReturned()
+        }
     }
 
     override fun onDestroy() {
@@ -196,6 +218,11 @@ class MainActivity : NativeActivity() {
 
     override fun onStop() {
         shown = false
+        // The camera is closed at the Activity's stop, and a grant answered
+        // after it opens nothing; the window closes the viewfinder at the
+        // same stop (activity.rs).
+        cameraWanted = false
+        closeCamera()
         if (front === this) front = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
@@ -235,6 +262,29 @@ class MainActivity : NativeActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CAMERA_REQUEST) {
+            val result = grantResults.firstOrNull()
+            when {
+                // Cancelled with no answer (the request torn down): the scan
+                // ends as a closed one, nothing refused.
+                result == null -> if (cameraWanted) Native.cameraClosed()
+                result == PackageManager.PERMISSION_GRANTED -> {
+                    cameraHeld()
+                    if (cameraWanted) openCamera()
+                }
+                else -> {
+                    // Reported for good when the last answer was a refusal
+                    // too and the system says it will not ask again; a
+                    // first refusal reports a plain one (#418 F2, F7).
+                    val prefs = getPreferences(Context.MODE_PRIVATE)
+                    val refusedBefore = prefs.getBoolean(CAMERA_REFUSED, false)
+                    val asksAgain = shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)
+                    prefs.edit().putBoolean(CAMERA_REFUSED, true).apply()
+                    if (cameraWanted) Native.cameraDenied(refusedBefore && !asksAgain)
+                }
+            }
+            return
+        }
         if (requestCode != NETWORK_REQUEST) return
         // Granted or not, the Service starts: in the posture when denied,
         // so the person's messages are never withheld for want of a
@@ -468,6 +518,32 @@ class MainActivity : NativeActivity() {
                 local?.online() ?: connect()
             }
             Ask.RESTART -> local?.restart() ?: connect()
+            // Scan a code (add-a-peer 5.5): the camera permission is asked
+            // here, on a Scan press, when the app does not hold it.
+            Ask.CAMERA_START -> {
+                // An ask relayed after the stop that closed the viewfinder
+                // opens nothing behind the app (#418 round 2).
+                if (!shown) {
+                    Native.cameraClosed()
+                } else if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    cameraWanted = true
+                    cameraHeld()
+                    openCamera()
+                } else {
+                    cameraWanted = true
+                    requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_REQUEST)
+                }
+            }
+            Ask.CAMERA_STOP -> {
+                cameraWanted = false
+                closeCamera()
+            }
+            Ask.OPEN_SETTINGS -> {
+                inSettings = true
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
+                )
+            }
             // Show my address: the flag before its addresses are drawn,
             // which the window does once told (add-a-peer section 5.4).
             Ask.SHOW_SECURE -> {
@@ -555,10 +631,43 @@ class MainActivity : NativeActivity() {
         )
     }
 
+    private fun openCamera() {
+        val c = camera ?: CodeCamera(this, ::cameraLost).also { camera = it }
+        c.open()
+    }
+
+    /**
+     * A camera went away under the scan. Told to the window from the main
+     * thread, and only for the camera this Activity holds now: one closed
+     * since, whose failure arrives late, ends no newer scan.
+     */
+    private fun cameraLost(lost: CodeCamera) {
+        runOnUiThread {
+            if (camera === lost) {
+                camera = null
+                Native.cameraClosed()
+            }
+        }
+    }
+
+    /** CAMERA is held: the last answer was no refusal (#418 F7). */
+    private fun cameraHeld() {
+        val prefs = getPreferences(Context.MODE_PRIVATE)
+        if (prefs.contains(CAMERA_REFUSED)) prefs.edit().remove(CAMERA_REFUSED).apply()
+    }
+
+    private fun closeCamera() {
+        camera?.close()
+        camera = null
+    }
+
     companion object {
         /** The first API level where INTERNET is a runtime permission (j59, measured on API 37). */
         private const val RUNTIME_INTERNET_SDK = 37
         private const val NETWORK_REQUEST = 2
+        private const val CAMERA_REQUEST = 3
+        /** The last CAMERA answer was a refusal: the next refusal the system will not ask again is "for good". */
+        private const val CAMERA_REFUSED = "camera-refused"
         private const val NOTIFICATIONS_REQUEST = 1
         private const val UNLOCK_DECLINED = "unlock-declined"
         private const val UNLOCK_DECLINED_IN = "unlock-declined-in"

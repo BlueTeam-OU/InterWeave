@@ -2593,3 +2593,193 @@ fn the_clipboard_image_is_offered_apart_from_the_file() {
     view.render(&model);
     assert_eq!(labelled(&view, text(UiText::PasteCodeImage)).len(), 1);
 }
+
+/// Scan a code opens the viewfinder and asks the platform's camera:
+/// what the camera is for until the first frame, then the frames and
+/// the hint; a code that is no address list says so and stays; an
+/// address list is the scan's add, the viewfinder closing and the camera
+/// stopping; Close stops it too, focus back on Scan a code (§5.5, §8).
+#[test]
+fn the_viewfinder_reads_a_code_and_stops_the_camera() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let mut view = view();
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let log = Rc::clone(&asked);
+    view.camera_hook(move |on| log.borrow_mut().push(on));
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.offer_scans(true, false, false);
+    view.render(&model);
+    // Closed with its ✕: the camera stops, focus on Scan a code.
+    press(&view, text(UiText::ScanCode));
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(*asked.borrow(), vec![true]);
+    assert!(view.window().get_viewfinder_open());
+    assert_eq!(labelled(&view, text(UiText::CloseScanner)).len(), 1);
+    press(&view, text(UiText::CloseScanner));
+    let _ = intents(&mut view, &mut model);
+    slint::platform::update_timers_and_animations();
+    assert!(!view.window().get_viewfinder_open());
+    assert_eq!(*asked.borrow(), vec![true, false]);
+    assert_eq!(view.window().get_focus_target().as_str(), "scan-code");
+
+    press(&view, text(UiText::ScanCode));
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(*asked.borrow(), vec![true, false, true]);
+    let w = view.window();
+    assert!(w.get_viewfinder_open());
+    assert!(!w.get_viewfinder_has_frame());
+    assert_eq!(
+        labelled(&view, text(UiText::CameraWhy)).len(),
+        1,
+        "before a frame"
+    );
+
+    view.camera_frame(4, 4, &[128; 16]);
+    view.render(&model);
+    assert!(view.window().get_viewfinder_has_frame());
+    assert_eq!(labelled(&view, text(UiText::ScanHint)).len(), 1);
+
+    view.camera_read("https://example.org");
+    view.render(&model);
+    assert!(view.window().get_viewfinder_open(), "stays open");
+    assert_eq!(
+        view.window().get_viewfinder_note().as_str(),
+        text(UiText::ScanNotAddress)
+    );
+
+    let code = at(&peer());
+    view.camera_read(&code);
+    let sent = intents(&mut view, &mut model);
+    assert_eq!(sent, vec![Intent::AddAddresses(vec![code])]);
+    assert!(!view.window().get_viewfinder_open());
+    assert_eq!(
+        *asked.borrow(),
+        vec![true, false, true, false],
+        "the camera stopped"
+    );
+}
+
+/// The camera refused for good: its line under the scan controls with
+/// Open settings, which opens the platform's settings; back from them,
+/// focus on Scan a code. Refused once: its line, no Open settings
+/// (§5.5, §8).
+#[test]
+fn a_camera_refused_for_good_offers_open_settings() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let mut view = view();
+    view.camera_hook(|_| {});
+    let opened = Rc::new(Cell::new(0));
+    let count = Rc::clone(&opened);
+    view.on_open_settings(move || count.set(count.get() + 1));
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.offer_scans(true, false, false);
+    view.render(&model);
+    for (for_good, words) in [
+        (false, text(UiText::CameraDenied)),
+        (true, text(UiText::CameraDeniedSettings)),
+    ] {
+        press(&view, text(UiText::ScanCode));
+        let _ = intents(&mut view, &mut model);
+        view.camera_denied(for_good);
+        let _ = intents(&mut view, &mut model);
+        assert!(!view.window().get_viewfinder_open());
+        assert_eq!(view.window().get_scan_note().as_str(), words);
+        assert_eq!(
+            labelled(&view, text(UiText::OpenAppSettings)).len(),
+            usize::from(for_good)
+        );
+    }
+    press(&view, text(UiText::OpenAppSettings));
+    assert_eq!(opened.get(), 1);
+    view.settings_returned();
+    let _ = intents(&mut view, &mut model);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_focus_target().as_str(), "scan-code");
+}
+
+/// The camera stopping under an open scan -- it failed, the system took
+/// it, or the app left the screen -- closes the viewfinder as its ✕ does;
+/// with no scan open it does nothing (§5.5).
+#[test]
+fn the_camera_stopping_closes_the_viewfinder() {
+    let mut view = view();
+    view.camera_hook(|_| {});
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.offer_scans(true, false, false);
+    view.render(&model);
+    view.camera_closed();
+    assert_eq!(view.queued_inputs(), 0, "no scan open: nothing queued");
+    press(&view, text(UiText::ScanCode));
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_viewfinder_open());
+    view.camera_closed();
+    let _ = intents(&mut view, &mut model);
+    assert!(!view.window().get_viewfinder_open());
+    assert!(!model.peers().scan_open());
+}
+
+/// The viewfinder is modal: Tab and Backtab keep focus on its Close,
+/// never the add page under it; and when it closes, its last frame goes
+/// with it, no picture kept (#418 F3, F5).
+#[test]
+fn the_viewfinder_keeps_focus_and_keeps_no_frame() {
+    use slint::platform::{Key, WindowEvent};
+    let key = |view: &View, k: Key| {
+        let text: slint::SharedString = k.into();
+        let window = view.window().window();
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text });
+        slint::platform::update_timers_and_animations();
+    };
+    let mut view = view();
+    view.camera_hook(|_| {});
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.offer_scans(true, false, false);
+    view.render(&model);
+    press(&view, text(UiText::ScanCode));
+    let _ = intents(&mut view, &mut model);
+    // The window's draw makes the viewfinder's controls before focus
+    // moves; headless, a walk of the tree stands for it. Focus moves a
+    // turn after the render, and once more the turn after.
+    assert_eq!(labelled(&view, text(UiText::CloseScanner)).len(), 1);
+    slint::platform::update_timers_and_animations();
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_focus_target().as_str(), "close-scanner");
+    assert_eq!(view.window().get_focus_id().as_str(), "close-scanner");
+    for k in [Key::Tab, Key::Backtab, Key::Tab] {
+        key(&view, k);
+        assert_eq!(
+            view.window().get_focus_id().as_str(),
+            "close-scanner",
+            "{k:?}"
+        );
+    }
+    view.camera_frame(4, 4, &[128; 16]);
+    view.render(&model);
+    assert!(view.window().get_viewfinder_frame().size().width > 0);
+    press(&view, text(UiText::CloseScanner));
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_viewfinder_frame().size().width,
+        0,
+        "the last frame went with the viewfinder"
+    );
+}

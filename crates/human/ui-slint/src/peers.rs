@@ -148,6 +148,14 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
         );
     }
     window.on_peers_open_show(on(shared, PeersInput::OpenShow));
+    window.on_peers_scanner_closed(on(shared, PeersInput::ScannerClosed));
+    let s = Rc::clone(shared);
+    window.on_peers_open_settings(move || {
+        let open = s.borrow().open_settings.clone();
+        if let Some(open) = open {
+            open();
+        }
+    });
     window.on_peers_show_closed(on(shared, PeersInput::CloseShow));
     window.on_peers_show_again(on(shared, PeersInput::ShowTryAgain));
     // A reader's result, handed over on the window's thread.
@@ -255,6 +263,11 @@ pub(crate) struct PeerLists {
     show_drawn: Option<Vec<String>>,
     /// The platform's secure flag for Show, where it has one.
     pub(crate) show_guard: Option<ShowGuard>,
+    /// The platform's camera, asked to start (`true`) or stop, where it
+    /// has one.
+    pub(crate) camera: Option<Rc<dyn Fn(bool)>>,
+    /// The last code the camera read is no address list (§5.5).
+    pub(crate) viewfinder_not_address: bool,
 }
 
 /// Show's secure flag, asked of the platform ([`View::guard_show`]).
@@ -365,6 +378,10 @@ impl PeerLists {
         window.set_show_my_address_label(set(UiText::ShowMyAddress));
         window.set_show_warning(set(UiText::ShowWarning));
         window.set_copy_addresses_label(set(UiText::CopyAddresses));
+        window.set_viewfinder_why(set(UiText::CameraWhy));
+        window.set_viewfinder_hint(set(UiText::ScanHint));
+        window.set_close_scanner_label(set(UiText::CloseScanner));
+        window.set_open_settings_label(set(UiText::OpenAppSettings));
         let _ = host;
         Self {
             rows,
@@ -386,6 +403,8 @@ impl PeerLists {
             snack_timed: 0,
             show_drawn: None,
             show_guard: None,
+            camera: None,
+            viewfinder_not_address: false,
         }
     }
 }
@@ -783,9 +802,39 @@ impl View {
     /// clipboard. The camera's viewfinder is the Android app's.
     fn render_scan(&mut self, peers: &Peers) {
         let mut shared = self.shared.borrow_mut();
+        let camera = peers.scan_open() && shared.scan_control == Some(ScanControl::Camera);
+        let opening = camera && !self.window.get_viewfinder_open();
+        self.window.set_viewfinder_open(camera);
+        // Focus to the viewfinder's Close as it opens: its one stop.
+        if opening {
+            self.focus_key_after_draw("close-scanner".to_owned());
+        }
+        if !camera {
+            self.peer_lists.viewfinder_not_address = false;
+            // The last frame goes with the viewfinder: no picture is kept
+            // (CameraWhy; #418 F3).
+            self.window.set_viewfinder_has_frame(false);
+            self.window.set_viewfinder_frame(slint::Image::default());
+        }
+        self.window.set_viewfinder_note(
+            if self.peer_lists.viewfinder_not_address {
+                text(UiText::ScanNotAddress)
+            } else {
+                ""
+            }
+            .into(),
+        );
         if !peers.scan_open() {
-            if shared.scan_reading.take().is_some() {
+            let ended = shared.scan_reading.take();
+            if ended.is_some() {
                 shared.scan_number = shared.scan_number.wrapping_add(1);
+            }
+            drop(shared);
+            // The camera stops with its scan, however the scan ended.
+            if ended == Some(ScanControl::Camera)
+                && let Some(ask) = self.peer_lists.camera.as_ref()
+            {
+                ask(false);
             }
             return;
         }
@@ -795,10 +844,19 @@ impl View {
         let Some(control) = shared.scan_control else {
             return;
         };
+        shared.scan_reading = Some(control);
         if control == ScanControl::Camera {
+            drop(shared);
+            // The platform's camera, asked to start: its frames and the
+            // codes read from them come back through the View
+            // (`View::camera_frame`, `View::camera_read`). With none, the
+            // scan ends as a cancelled one.
+            match self.peer_lists.camera.as_ref() {
+                Some(ask) => ask(true),
+                None => enqueue(&self.shared, Input::Peers(PeersInput::ScannerClosed)),
+            }
             return;
         }
-        shared.scan_reading = Some(control);
         #[cfg(feature = "desktop")]
         {
             let slot = std::sync::Arc::clone(&shared.scan_result);
@@ -861,6 +919,10 @@ impl View {
         };
         window.set_field_note(field.into());
         window.set_scan_note(scan.into());
+        window.set_open_settings_shown(matches!(
+            peers.add_page_note(),
+            Some(AddNote::CameraDeniedSettings)
+        ));
         window.set_add_note(under_add.into());
         // A barred add sends focus to its line, which then says it: live
         // as well, it would be heard twice.
@@ -1013,6 +1075,8 @@ fn note_text(host: RuntimeHost, note: &AddNote) -> String {
         AddNote::NotAddress => text(UiText::ScanNotAddress).to_owned(),
         AddNote::ImageUnreadable => text(UiText::ImageUnreadable).to_owned(),
         AddNote::ClipboardNoImage => text(UiText::ClipboardNoImage).to_owned(),
+        AddNote::CameraDenied => text(UiText::CameraDenied).to_owned(),
+        AddNote::CameraDeniedSettings => text(UiText::CameraDeniedSettings).to_owned(),
         AddNote::Refused { line, why } if why.names_line() => fill(
             text(UiText::AddRefused),
             &[("line", line), ("reason", &refusal_text(*why))],

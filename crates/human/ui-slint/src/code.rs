@@ -166,6 +166,24 @@ pub fn read_image(bytes: &[u8]) -> Result<CodeRead, ImageUnread> {
     Ok(read_rgba(width, height, rgba.as_raw()))
 }
 
+/// `luma`, `width` by `height` row by row, turned a quarter clockwise:
+/// `height` by `width`. How a camera frame from a sensor mounted a
+/// quarter turn from the screen is drawn upright; reading needs no turn.
+/// A buffer shorter than its sides comes back empty.
+#[must_use]
+pub fn turned_clockwise(luma: &[u8], width: usize, height: usize) -> Vec<u8> {
+    if width.checked_mul(height).is_none_or(|n| n > luma.len()) {
+        return Vec::new();
+    }
+    let mut out = vec![0; width * height];
+    for y in 0..height {
+        for x in 0..width {
+            out[x * height + (height - 1 - y)] = luma[y * width + x];
+        }
+    }
+    out
+}
+
 /// Rec. 601 luma of a pixel laid over white.
 fn luma_over_white(red: u8, green: u8, blue: u8, alpha: u8) -> u8 {
     let (red, green, blue) = (u32::from(red), u32::from(green), u32::from(blue));
@@ -230,6 +248,16 @@ mod tests {
             let (w, h, big) = scaled(w, h, &luma, 4);
             assert_eq!(read_luma(w, h, &big), CodeRead::Text(lines.join("\n")));
         }
+    }
+
+    /// A quarter turn clockwise: the top row becomes the right column,
+    /// read top to bottom.
+    #[test]
+    fn a_frame_turned_clockwise_puts_its_top_row_on_the_right() {
+        // 3 wide, 2 high:  a b c / d e f  ->  2 wide, 3 high: d a / e b / f c
+        let frame = [1, 2, 3, 4, 5, 6];
+        assert_eq!(turned_clockwise(&frame, 3, 2), vec![4, 1, 5, 2, 6, 3]);
+        assert!(turned_clockwise(&frame, 4, 2).is_empty(), "short buffer");
     }
 
     /// An image with no code, and a buffer shorter than its sides, read
