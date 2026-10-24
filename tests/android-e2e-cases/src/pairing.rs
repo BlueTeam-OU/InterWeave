@@ -9,6 +9,11 @@
 //!   dialled again, with no static-bootstrap entry authored for the peer.
 //!   [`crate::cases::AWAIT_PEER`] is the far end's half: it holds no
 //!   address for the dialler, so the connection it sees is the dial.
+//!   With `remove_after`, `listed` and `apart`, the same case serves the
+//!   rows with the peer cache on: which of the overlay and the cache a
+//!   dial after a restart came from, by taking each away in turn.
+//!   [`crate::cases::PEER_CACHE`] reads, and can remove, the cache's file
+//!   between the two starts, with no runtime serving.
 //! - [`crate::cases::PAIR`]: one step of two fresh profiles pairing --
 //!   each holding the other's address and trusting nobody, then one
 //!   trusting the other, then both -- and whether a message crosses.
@@ -26,6 +31,7 @@ use interweave_local_client_api::{
     AddressChange, AddressSource, AdminBinding, AdminCapability, AdminPort, DataSessionBinding,
     DataSessionPort as _, PeerGateView,
 };
+use interweave_profile_config::{ProfilePaths, TrustBoundary};
 use interweave_transport_api::{DirectDestination, MessageId, TransportIdentity};
 use serde_json::{Map, Value};
 
@@ -87,11 +93,21 @@ pub struct AddedAddressArgs {
     /// How long the connection must then stay up, so the far end's case,
     /// which reads its row now and then, sees it before this side ends.
     pub hold: Duration,
+    /// After the hold, take the address out of the overlay again: a later
+    /// start then holds the peer from no source but the peer cache.
+    pub remove_after: bool,
+    /// On a later start, whether the address must still be listed as
+    /// added (`true`) or must be absent (`false`, after `remove_after`).
+    pub listed: bool,
+    /// On a later start, stay unconnected for this window instead of
+    /// connecting: the control that no source is left.
+    pub apart: Option<Duration>,
 }
 
 impl AddedAddressArgs {
-    /// The JSON a host passes: `peer`, `address`, `add`, `before_ms`,
-    /// `deadline_ms` and `hold_ms` (all three optional).
+    /// The JSON a host passes: `peer`, `address`, `add`, and the optional
+    /// `before_ms`, `deadline_ms`, `hold_ms`, `remove_after`, `listed`
+    /// and `apart_ms`.
     #[must_use]
     pub fn to_json(&self) -> Value {
         let mut out = Map::new();
@@ -101,14 +117,19 @@ impl AddedAddressArgs {
         out.insert("before_ms".to_owned(), ms(self.before).into());
         out.insert("deadline_ms".to_owned(), ms(self.deadline).into());
         out.insert("hold_ms".to_owned(), ms(self.hold).into());
+        out.insert("remove_after".to_owned(), self.remove_after.into());
+        out.insert("listed".to_owned(), self.listed.into());
+        if let Some(apart) = self.apart {
+            out.insert("apart_ms".to_owned(), ms(apart).into());
+        }
         Value::Object(out)
     }
 
     /// Parse what [`to_json`](Self::to_json) wrote.
     ///
     /// # Errors
-    /// A missing or malformed field, by name, or an address that does not
-    /// reach `peer`.
+    /// A missing or malformed field, by name, an address that does not
+    /// reach `peer`, or `listed: false` or `apart_ms` on an add.
     pub fn from_json(args: &Value) -> Result<Self, String> {
         let peer = peer_arg(args, "peer")?;
         let address = args
@@ -122,13 +143,33 @@ impl AddedAddressArgs {
                 peer.as_str()
             ));
         }
+        let add = bool_arg(args, "add")?;
+        let listed = match args.get("listed") {
+            None => true,
+            Some(_) => bool_arg(args, "listed")?,
+        };
+        let apart = match args.get("apart_ms") {
+            None => None,
+            Some(_) => Some(duration_arg(args, "apart_ms", None)?),
+        };
+        if add && (!listed || apart.is_some()) {
+            return Err(
+                "\"listed\": false and \"apart_ms\" are a later start's, not an add's".to_owned(),
+            );
+        }
         Ok(Self {
             peer,
             address,
-            add: bool_arg(args, "add")?,
+            add,
             before: duration_arg(args, "before_ms", Some(Duration::ZERO))?,
             deadline: duration_arg(args, "deadline_ms", Some(DEFAULT_DEADLINE))?,
             hold: duration_arg(args, "hold_ms", Some(Duration::ZERO))?,
+            remove_after: match args.get("remove_after") {
+                None => false,
+                Some(_) => bool_arg(args, "remove_after")?,
+            },
+            listed,
+            apart,
         })
     }
 }
@@ -231,7 +272,7 @@ pub(crate) async fn added_address(
         if added != AddressChange::Added {
             return Err(format!("the add of {}: {added:?}", args.address));
         }
-    } else {
+    } else if args.listed {
         match held {
             Some(a) if a.dialled => {}
             Some(a) => return Err(format!("listed and not dialled: {a:?}")),
@@ -242,6 +283,30 @@ pub(crate) async fn added_address(
                 ));
             }
         }
+    } else if let Some(a) = listed
+        .iter()
+        .find(|a| a.source == AddressSource::Added && reaches(&a.address, peer))
+    {
+        return Err(format!(
+            "{} is still listed as added: the overlay is a source of the dial: {listed:?}",
+            a.address
+        ));
+    }
+    if let Some(apart) = args.apart {
+        // The control: with neither the overlay nor the cache holding the
+        // peer, and the far end holding no address for this side, nothing
+        // dials it.
+        let apart_until = tokio::time::Instant::now() + apart;
+        while tokio::time::Instant::now() < apart_until {
+            let row = row_of(&port, peer).await?;
+            if row.as_ref().is_some_and(|r| r.connected) {
+                return Err(format!(
+                    "connected with no source left for the address: {row:?}"
+                ));
+            }
+            tokio::time::sleep(POLL).await;
+        }
+        return Ok(out);
     }
     let started = tokio::time::Instant::now();
     let until = started + args.deadline;
@@ -280,6 +345,99 @@ pub(crate) async fn added_address(
     out.insert(
         keys::CONNECTED_AFTER.to_owned(),
         ms(connected_after).to_string().into(),
+    );
+    if args.remove_after {
+        let removed = port
+            .remove_bootstrap_address(args.address.clone())
+            .await
+            .map_err(|e| format!("the removal after the hold was refused: {e:?}"))?;
+        if removed != AddressChange::Removed {
+            return Err(format!(
+                "the removal of {} after the hold: {removed:?}",
+                args.address
+            ));
+        }
+        out.insert(keys::REMOVED_AFTER.to_owned(), "true".into());
+    }
+    Ok(out)
+}
+
+/// The arguments of [`crate::cases::PEER_CACHE`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerCacheArgs {
+    /// The profile whose cache is read, as the runner names it.
+    pub profile: String,
+    /// The peer looked for in the file.
+    pub peer: TransportIdentity,
+    /// Remove the file after reading it.
+    pub forget: bool,
+}
+
+impl PeerCacheArgs {
+    /// The JSON a host passes: `profile`, `peer` and `forget`.
+    #[must_use]
+    pub fn to_json(&self) -> Value {
+        let mut out = Map::new();
+        out.insert("profile".to_owned(), self.profile.clone().into());
+        out.insert("peer".to_owned(), self.peer.as_str().into());
+        out.insert("forget".to_owned(), self.forget.into());
+        Value::Object(out)
+    }
+
+    /// Parse what [`to_json`](Self::to_json) wrote.
+    ///
+    /// # Errors
+    /// A missing or malformed field, by name.
+    pub fn from_json(args: &Value) -> Result<Self, String> {
+        Ok(Self {
+            profile: args
+                .get("profile")
+                .and_then(Value::as_str)
+                .ok_or("argument \"profile\" is missing")?
+                .to_owned(),
+            peer: peer_arg(args, "peer")?,
+            forget: bool_arg(args, "forget")?,
+        })
+    }
+}
+
+/// [`crate::cases::PEER_CACHE`]'s body, with no runtime serving.
+pub(crate) fn peer_cache(
+    app_data_dir: &std::path::Path,
+    args: &PeerCacheArgs,
+) -> Result<Map<String, Value>, String> {
+    let canonical = std::fs::canonicalize(app_data_dir)
+        .map_err(|e| format!("the app data directory {}: {e}", app_data_dir.display()))?;
+    let boundary = TrustBoundary::new(&canonical)
+        .map_err(|e| format!("the app data directory as a boundary: {e}"))?;
+    let file = ProfilePaths::resolve_embedded(&args.profile, boundary)
+        .map_err(|e| format!("the profile's paths: {e}"))?
+        .peer_cache_file();
+    // The PeerId's text, whatever the record around it: the file's shape
+    // is the cache crate's, and the question is only whether the peer
+    // survived the process on disk.
+    let (present, cached) = match std::fs::read(&file) {
+        Ok(bytes) => (
+            true,
+            bytes
+                .windows(args.peer.as_str().len())
+                .any(|w| w == args.peer.as_str().as_bytes()),
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (false, false),
+        Err(e) => return Err(format!("reading {}: {e}", file.display())),
+    };
+    if args.forget && present {
+        std::fs::remove_file(&file).map_err(|e| format!("removing {}: {e}", file.display()))?;
+    }
+    let mut out = Map::new();
+    out.insert(
+        keys::CACHE_FILE.to_owned(),
+        if present { "present" } else { "absent" }.into(),
+    );
+    out.insert(keys::CACHED.to_owned(), cached.to_string().into());
+    out.insert(
+        keys::FORGOTTEN.to_owned(),
+        (args.forget && present).to_string().into(),
     );
     Ok(out)
 }
@@ -708,8 +866,51 @@ mod tests {
             before: Duration::from_secs(3),
             deadline: Duration::from_secs(9),
             hold: Duration::from_secs(5),
+            remove_after: true,
+            listed: true,
+            apart: None,
         };
-        assert_eq!(AddedAddressArgs::from_json(&added.to_json()), Ok(added));
+        assert_eq!(
+            AddedAddressArgs::from_json(&added.to_json()),
+            Ok(added.clone())
+        );
+        let later = AddedAddressArgs {
+            add: false,
+            remove_after: false,
+            listed: false,
+            apart: Some(Duration::from_secs(4)),
+            ..added.clone()
+        };
+        assert_eq!(AddedAddressArgs::from_json(&later.to_json()), Ok(later));
+        // A later start's expectations on an add are refused by name, and
+        // the fields a host leaves out keep row 1's meaning.
+        for (key, value) in [("listed", Value::from(false)), ("apart_ms", 1_u64.into())] {
+            let mut on_add = added.to_json();
+            on_add[key] = value;
+            assert!(
+                AddedAddressArgs::from_json(&on_add)
+                    .expect_err("an add's")
+                    .contains("not an add's"),
+                "{key}"
+            );
+        }
+        let mut bare = added.to_json();
+        for key in ["remove_after", "listed"] {
+            bare.as_object_mut().expect("an object").remove(key);
+        }
+        assert_eq!(
+            AddedAddressArgs::from_json(&bare),
+            Ok(AddedAddressArgs {
+                remove_after: false,
+                ..added
+            })
+        );
+        let cache = PeerCacheArgs {
+            profile: "human-android".to_owned(),
+            peer: p.clone(),
+            forget: true,
+        };
+        assert_eq!(PeerCacheArgs::from_json(&cache.to_json()), Ok(cache));
         let waited = AwaitPeerArgs {
             peer: p.clone(),
             deadline: Duration::from_secs(9),
@@ -741,6 +942,9 @@ mod tests {
             before: Duration::ZERO,
             deadline: Duration::ZERO,
             hold: Duration::ZERO,
+            remove_after: false,
+            listed: true,
+            apart: None,
         }
         .to_json();
         assert!(
@@ -780,6 +984,46 @@ mod tests {
                 .expect_err("a serial on the close's bit")
                 .contains("serial")
         );
+    }
+
+    #[test]
+    fn the_cache_case_reads_the_profiles_file_and_forgets_it_only_when_asked() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let dir = scratch.path();
+        let read = |forget| {
+            peer_cache(
+                dir,
+                &PeerCacheArgs {
+                    profile: "human-android".to_owned(),
+                    peer: peer(),
+                    forget,
+                },
+            )
+            .expect("reads")
+        };
+        let answer = |out: &Map<String, Value>| {
+            [keys::CACHE_FILE, keys::CACHED, keys::FORGOTTEN].map(|k| out[k].clone())
+        };
+        assert_eq!(answer(&read(true)), ["absent", "false", "false"]);
+        let file = ProfilePaths::resolve_embedded(
+            "human-android",
+            TrustBoundary::new(&std::fs::canonicalize(dir).expect("canonical")).expect("boundary"),
+        )
+        .expect("paths")
+        .peer_cache_file();
+        std::fs::create_dir_all(file.parent().expect("a cache dir")).expect("the cache dir");
+        // Another peer only: the file is there, and the peer is not in it.
+        std::fs::write(
+            &file,
+            format!("{{\"peer_id\":\"{}\"}}", other_peer().as_str()),
+        )
+        .expect("written");
+        assert_eq!(answer(&read(false)), ["present", "false", "false"]);
+        std::fs::write(&file, format!("{{\"peer_id\":\"{}\"}}", peer().as_str())).expect("written");
+        assert_eq!(answer(&read(false)), ["present", "true", "false"]);
+        assert!(file.exists(), "kept without forget");
+        assert_eq!(answer(&read(true)), ["present", "true", "true"]);
+        assert!(!file.exists(), "removed with forget");
     }
 
     #[test]

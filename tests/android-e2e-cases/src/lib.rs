@@ -48,7 +48,7 @@ pub use human_chat::{
     desktop_message_id, parse_payloads,
 };
 pub use pairing::{
-    AddedAddressArgs, AwaitPeerArgs, PairArgs, PairExpect, pair_close, pair_message,
+    AddedAddressArgs, AwaitPeerArgs, PairArgs, PairExpect, PeerCacheArgs, pair_close, pair_message,
 };
 
 /// The result JSON's keys. The instrumentation copies each to the status
@@ -113,6 +113,15 @@ pub mod keys {
     /// [`super::cases::PAIR`]: the peer row's last outcome at the step's
     /// end, `none` with no row or no dial yet.
     pub const LAST_OUTCOME: &str = "last_outcome";
+    /// [`super::cases::ADDED_ADDRESS`] with `remove_after`: whether the
+    /// address was taken out of the overlay after the hold.
+    pub const REMOVED_AFTER: &str = "removed_after";
+    /// [`super::cases::PEER_CACHE`]: whether the peer cache's file exists.
+    pub const CACHE_FILE: &str = "cache_file";
+    /// [`super::cases::PEER_CACHE`]: whether that file names the peer.
+    pub const CACHED: &str = "cached";
+    /// [`super::cases::PEER_CACHE`]: whether the case removed the file.
+    pub const FORGOTTEN: &str = "forgotten";
     /// [`RESULT`] of a case that held.
     pub const PASS: &str = "pass";
     /// [`RESULT`] of a case that did not, or could not run.
@@ -165,9 +174,13 @@ pub mod cases {
     /// peer through the binding is dialled, and survives a restart as an
     /// added entry that is dialled again, with no entry authored for the
     /// peer; each time the connection is held up for a while before the
-    /// case ends. Arguments: [`super::AddedAddressArgs`]; answers
-    /// [`super::keys::REMOVED_FIRST`] on an add and
-    /// [`super::keys::CONNECTED_AFTER`].
+    /// case ends. For the peer cache's rows, the address can be taken out
+    /// of the overlay after the hold, and a later start can require it
+    /// absent, and then either connect (from the cache alone) or stay
+    /// unconnected for a window (no source left). Arguments:
+    /// [`super::AddedAddressArgs`]; answers [`super::keys::REMOVED_FIRST`]
+    /// on an add, [`super::keys::CONNECTED_AFTER`] when it connects and
+    /// [`super::keys::REMOVED_AFTER`] with `remove_after`.
     pub const ADDED_ADDRESS: &str = "added_address";
 
     /// The far end of [`ADDED_ADDRESS`]: hold no bootstrap address for the
@@ -185,6 +198,15 @@ pub mod cases {
     /// apart, [`super::keys::CLOSE`] on a crossing's first side,
     /// [`super::keys::TRUSTED`] and [`super::keys::LAST_OUTCOME`].
     pub const PAIR: &str = "pair";
+
+    /// The peer cache on disk between two starts, with no runtime serving
+    /// (it fails if one is, since a runtime rewrites the file): whether
+    /// the profile's cache file exists and names a peer, and with
+    /// `forget` the file removed, so the next start begins with an empty
+    /// cache. Arguments: [`super::PeerCacheArgs`]; answers
+    /// [`super::keys::CACHE_FILE`], [`super::keys::CACHED`] and
+    /// [`super::keys::FORGOTTEN`].
+    pub const PEER_CACHE: &str = "peer_cache";
 
     /// The cases a runner must have the runtime ALONE serving for: the
     /// app's runtime with the app's launch, identity and paths, and no
@@ -374,6 +396,13 @@ fn dispatch<B: DataSessionBinding + AdminBinding>(
                 .binding
                 .ok_or_else(|| "no runtime is serving: start the app's service first".to_owned())?;
             out.extend(block_on(pairing::pair(&binding, &args))??);
+        }
+        cases::PEER_CACHE => {
+            let args = PeerCacheArgs::from_json(&args)?;
+            if ctx.binding.is_some() {
+                return Err("a runtime is serving: it rewrites the cache file".to_owned());
+            }
+            out.extend(pairing::peer_cache(&ctx.app_data_dir, &args)?);
         }
         cases::HUMAN_CHAT => {
             let args = HumanChatArgs::from_json(&args)?;
