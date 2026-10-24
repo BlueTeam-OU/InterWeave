@@ -156,7 +156,6 @@ impl PeerTrustPolicy {
     }
 
     /// The allowlisted remote peers, in order.
-    #[must_use]
     pub fn allowed_peers(&self) -> impl ExactSizeIterator<Item = &TransportIdentity> {
         self.allowed_peers.iter()
     }
