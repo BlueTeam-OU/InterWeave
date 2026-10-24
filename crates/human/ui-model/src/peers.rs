@@ -139,6 +139,10 @@ pub enum AddNote {
     ImageUnreadable,
     /// Paste an image found no image on the clipboard.
     ClipboardNoImage,
+    /// The camera permission refused: type or paste instead.
+    CameraDenied,
+    /// The camera permission refused for good: Open settings to allow it.
+    CameraDeniedSettings,
     /// The add stored nothing: the first refused line, and why.
     Refused {
         /// The line, as sent; named only when the refusal is of one line
@@ -184,7 +188,12 @@ impl AddNote {
     pub const fn is_scan_line(&self) -> bool {
         matches!(
             self,
-            Self::ImageNoCode | Self::NotAddress | Self::ImageUnreadable | Self::ClipboardNoImage
+            Self::ImageNoCode
+                | Self::NotAddress
+                | Self::ImageUnreadable
+                | Self::ClipboardNoImage
+                | Self::CameraDenied
+                | Self::CameraDeniedSettings
         )
     }
 }
@@ -582,6 +591,15 @@ pub enum PeersInput {
     ImageUnreadable,
     /// Paste an image found no image on the clipboard.
     ClipboardNoImage,
+    /// The camera permission was refused at Scan a code; `for_good` when
+    /// the platform will not ask again, so only Settings can allow it.
+    CameraDenied {
+        /// Refused for good.
+        for_good: bool,
+    },
+    /// Back from the app's system settings, which the denied-for-good
+    /// line's Open settings opened.
+    SettingsReturned,
     /// A code read, or an image decoded: its text. A view that must know
     /// whether the viewfinder stays open calls
     /// [`crate::UiModel::scanned`] instead.
@@ -942,6 +960,18 @@ impl Peers {
                 self.scan_ended(Some(AddNote::ClipboardNoImage));
                 Vec::new()
             }
+            PeersInput::CameraDenied { for_good } => {
+                self.camera_denied(for_good);
+                Vec::new()
+            }
+            PeersInput::SettingsReturned => {
+                // Focus back on Scan a code, its line kept until the next
+                // press says what changed (§8).
+                if self.page.is_some() {
+                    self.ask_focus(PeersFocus::Scan(ScanControl::Camera));
+                }
+                Vec::new()
+            }
             PeersInput::Scanned(text) => self.scanned(&text, trust).1.into_iter().collect(),
             PeersInput::Close => {
                 self.close(trust);
@@ -1150,6 +1180,25 @@ impl Peers {
             page.note = Some(AddNote::ScanAfterField);
             self.ask_focus(PeersFocus::Note);
         }
+    }
+
+    /// The camera permission refused: back to the add page, its line under
+    /// the scan controls, focus on the field so typing is the next step
+    /// (§5.5, §8).
+    fn camera_denied(&mut self, for_good: bool) {
+        let Some(page) = self.page.as_mut() else {
+            return;
+        };
+        if !page.scanning {
+            return;
+        }
+        page.scanning = false;
+        let note = if for_good {
+            AddNote::CameraDeniedSettings
+        } else {
+            AddNote::CameraDenied
+        };
+        self.page_note(note, PeersFocus::Field { select: None });
     }
 
     /// A scan that adds nothing ended: closed, or an image with no code

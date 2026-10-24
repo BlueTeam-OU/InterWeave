@@ -4619,3 +4619,32 @@ fn a_code_with_no_scan_open_adds_nothing() {
     assert!(!m.peers().busy(), "nothing was sent");
     assert_eq!(m.peers().add_page_note(), None);
 }
+
+/// The camera refused: back to the add page with the line saying why --
+/// type or paste instead, or Open settings when refused for good -- focus
+/// on the field; back from Settings, focus on Scan a code; a refusal
+/// with no scan open changes nothing (§5.5, §8).
+#[test]
+fn a_refused_camera_returns_to_the_field_with_its_line() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    for (for_good, note) in [
+        (false, AddNote::CameraDenied),
+        (true, AddNote::CameraDeniedSettings),
+    ] {
+        let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
+        assert!(m.peers().scan_open());
+        let _ = input(&mut m, PeersInput::CameraDenied { for_good });
+        assert!(!m.peers().scan_open(), "the viewfinder closed");
+        assert_eq!(m.peers().add_page_note(), Some(&note));
+        assert_eq!(focus(&m), Some(PeersFocus::Field { select: None }));
+    }
+    let _ = input(&mut m, PeersInput::SettingsReturned);
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::Camera)));
+    // No scan open: nothing to end.
+    let _ = input(&mut m, PeersInput::FieldChanged(String::new()));
+    let before = m.peers().add_page_note().cloned();
+    let _ = input(&mut m, PeersInput::CameraDenied { for_good: false });
+    assert_eq!(m.peers().add_page_note().cloned(), before);
+}
