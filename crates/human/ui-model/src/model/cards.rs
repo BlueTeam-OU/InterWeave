@@ -994,6 +994,29 @@ impl UiModel {
         })
     }
 
+    /// Delete one route of a contact the model holds, by the person's act
+    /// alone: offered only while the contact holds the route and another,
+    /// since the last route goes only with its contact
+    /// (`a_route_is_deleted_only_while_its_contact_holds_another`).
+    #[must_use]
+    pub fn delete_route(
+        &self,
+        contact_id: &str,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+    ) -> Option<Intent> {
+        let contact = self.contact(contact_id)?;
+        let held = contact
+            .routes
+            .iter()
+            .any(|r| &r.peer == peer && &r.endpoint == endpoint);
+        (held && contact.routes.len() > 1).then(|| Intent::DeleteRoute {
+            contact_id: contact.contact_id.clone(),
+            peer: peer.clone(),
+            endpoint: endpoint.clone(),
+        })
+    }
+
     /// The contact a direct conversation's route belongs to, if any.
     #[must_use]
     pub fn contact_on(&self, key: &ConversationKey) -> Option<&ContactView> {
@@ -1312,6 +1335,52 @@ mod tests {
                     ("peer", &crate::labels::short_peer(P))
                 ]
             )
+        );
+    }
+
+    #[test]
+    fn a_route_is_deleted_only_while_its_contact_holds_another() {
+        let route = |p: &str| RouteView {
+            peer: peer(p),
+            endpoint: endpoint("human"),
+            fingerprint: None,
+        };
+        let contact = |routes: Vec<RouteView>| ContactView {
+            contact_id: "c1".to_owned(),
+            name: "Ada".to_owned(),
+            name_from_card: true,
+            name_at: None,
+            photo_from_card: None,
+            photo_at: None,
+            photo: None,
+            routes,
+        };
+        let mut model = UiModel::new();
+        let human = endpoint("human");
+        assert_eq!(model.delete_route("c1", &peer(P), &human), None);
+        model.contacts_listed(vec![contact(vec![route(P), route(Q)])]);
+        let delete = model.delete_route("c1", &peer(Q), &human).expect("offered");
+        assert_eq!(
+            delete,
+            Intent::DeleteRoute {
+                contact_id: "c1".to_owned(),
+                peer: peer(Q),
+                endpoint: human.clone(),
+            }
+        );
+        assert!(model.offers(&delete));
+        assert_eq!(
+            model.delete_route("c1", &peer(Q), &endpoint("other")),
+            None,
+            "a route the contact does not hold"
+        );
+        assert_eq!(model.delete_route("c2", &peer(Q), &human), None);
+        model.contacts_listed(vec![contact(vec![route(P)])]);
+        assert!(!model.offers(&delete), "a route gone is not deleted twice");
+        assert_eq!(
+            model.delete_route("c1", &peer(P), &human),
+            None,
+            "the last route goes only with its contact"
         );
     }
 

@@ -447,6 +447,19 @@ pub enum Intent {
         /// The contact.
         contact_id: String,
     },
+    /// Delete one route of a contact and the key it recorded, the contact
+    /// staying with its others (ADR-0059 decision 9). Only
+    /// [`UiModel::delete_route`] makes one, for a route the model holds
+    /// under a contact with another: the last route goes only with its
+    /// contact.
+    DeleteRoute {
+        /// The contact.
+        contact_id: String,
+        /// The route's `PeerId`.
+        peer: TransportIdentity,
+        /// The route's `EndpointId`.
+        endpoint: EndpointId,
+    },
     /// Read the addresses this device holds for reaching peers (ADR-0062):
     /// Peers opened, the app started, or a change's list was not read
     /// back.
@@ -1156,6 +1169,11 @@ impl UiModel {
             // so a delete of a contact already gone is not issued. Two in
             // one take are one command by the root's in-flight set.
             Intent::DeleteContact { contact_id } => return self.contact(contact_id).is_some(),
+            Intent::DeleteRoute {
+                contact_id,
+                peer,
+                endpoint,
+            } => return self.delete_route(contact_id, peer, endpoint).is_some(),
             _ => return true,
         };
         key.is_some_and(|key| match intent {
