@@ -13,8 +13,8 @@ use interweave_human_client_api::{
 };
 use interweave_human_store::RowId;
 use interweave_human_ui_model::{
-    ContactView, ConversationKey, IdentityView, ItemKey, ListedInbound, ListedOutbound, PhotoEdit,
-    Proposal, ProposalContext, Table, TrustChange,
+    CardOutcome, ContactView, ConversationKey, IdentityView, ItemKey, ListedInbound,
+    ListedOutbound, PhotoEdit, Proposal, ProposalContext, Table, TrustChange,
 };
 use interweave_transport_api::TransportIdentity;
 
@@ -80,6 +80,14 @@ pub enum Command {
     },
     /// Decline it: the row is read, and nothing more is written.
     DeclineCard(RowId),
+    /// Take back the last Accept or Decline, of this row: an accepted
+    /// card's contact goes back to what it was, and the proposal returns,
+    /// read, for the person to decide again (contact-cards design
+    /// sections 5.4.2 and 5.4.3). Only while the facade side holds it.
+    UndoCard(RowId),
+    /// Let go of what the Undo of this row's Accept or Decline would have
+    /// needed: its snackbar closed.
+    ForgetCard(RowId),
     /// Send this identity's own card on a direct conversation's route.
     ShareCard(ConversationKey),
     /// Write the identity's own card as the person edited it.
@@ -158,7 +166,15 @@ pub enum Update {
     /// it replaces a proposal the model holds and brings back none.
     ProposalJudged(Box<Proposal>),
     /// A proposal was accepted or declined: it is gone.
-    CardResolved(RowId),
+    CardResolved {
+        /// Its row.
+        row: RowId,
+        /// What became of it.
+        outcome: CardOutcome,
+    },
+    /// An Undo brought a resolved proposal back, read, judged as the
+    /// store stands now.
+    ProposalRestored(Box<Proposal>),
     /// The contacts, after a change to them.
     ContactsListed(Vec<ContactView>),
     /// The identity in front, after its own card changed.

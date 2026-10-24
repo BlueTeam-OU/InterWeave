@@ -186,7 +186,9 @@ const fn command_name(command: &Command) -> &'static str {
         Command::Retry(_) => "retry",
         Command::Cancel(_) => "cancel",
         Command::Restore(_) => "restore",
-        Command::ForgetCancelled(_) | Command::ForgetCopy(_) => "releasing a held copy",
+        Command::ForgetCancelled(_) | Command::ForgetCopy(_) | Command::ForgetCard(_) => {
+            "releasing a held copy"
+        }
         Command::Reopen => "reopen",
         Command::RecheckStorage => "re-checking storage",
         Command::ReadTrust => "reading trust",
@@ -196,6 +198,7 @@ const fn command_name(command: &Command) -> &'static str {
         Command::RemoveAddress(_) => "removing an address",
         Command::AcceptCard { .. } => "accepting a card",
         Command::DeclineCard(_) => "declining a card",
+        Command::UndoCard(_) => "undoing a card's answer",
         Command::ShareCard(_) => "sharing the card",
         Command::SetOwnCard { .. } => "editing the own card",
         Command::RenameContact { .. } => "renaming a contact",

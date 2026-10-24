@@ -17,13 +17,14 @@ use interweave_human_client_api::{
     OutboundUpdate, RowError, SendError, SessionState,
 };
 use interweave_human_store::identity_key::IdentityKey;
-use interweave_human_store::{ReadEphemeral, RowId, StoreError};
+use interweave_human_store::{AcceptUndo, ReadEphemeral, RowId, StoreError};
 use interweave_human_transport_client::{CancelledSend, TransportClient};
 use interweave_human_ui_model::{ConversationKey, PhotoEdit, Proposal, ProposalContext, Table};
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 
 use crate::protocol::{Command, Failure, Listing, Update};
 use crate::{cards, listing};
+use interweave_human_ui_model::CardOutcome;
 
 /// How many read-and-unkept copies the facade side holds for a later
 /// Keep, at most. Each is a message's content, up to the 48 KiB payload
@@ -70,6 +71,20 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// creates it at start (`identity_key`), and without it nothing is
     /// shared.
     identity: Option<IdentityKey>,
+    /// The last Accept or Decline, held for its Undo until its snackbar
+    /// closes ([`Command::ForgetCard`]) or the next one replaces it: one
+    /// snackbar is up at a time, so one is held (message-swipe design
+    /// section 6).
+    card_undo: Option<Box<CardUndo>>,
+}
+
+/// What the Undo of an Accept or a Decline needs: the card's read copy,
+/// which the proposal returns with, and for an Accept what the store
+/// writes back.
+struct CardUndo {
+    row: RowId,
+    held: ReadEphemeral,
+    accept: Option<AcceptUndo>,
 }
 
 impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
@@ -88,6 +103,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             reported: None,
             outbound: BTreeMap::new(),
             identity: None,
+            card_undo: None,
         }
     }
 
@@ -340,6 +356,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             }
             Command::AcceptCard { row, shown } => self.accept_card(*row, shown, &mut updates),
             Command::DeclineCard(row) => self.decline_card(*row, &mut updates),
+            Command::UndoCard(row) => self.undo_card(*row, &mut updates),
+            Command::ForgetCard(row) => {
+                if self.card_undo.as_ref().is_some_and(|u| u.row == *row) {
+                    self.card_undo = None;
+                }
+                Ok(())
+            }
             Command::ShareCard(key) => Box::pin(self.share_card(key, now, &mut updates)).await,
             Command::SetOwnCard {
                 name,
@@ -403,17 +426,33 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Ok(_) => {
                 let mut accepted = cards::accepted(&peer, &endpoint, &card);
                 accepted.photo = cards::kept_photo(&card);
+                let photo_dropped = card.photo.is_some() && accepted.photo.is_none();
                 store
                     .accept_card(&accepted, at)
-                    .map(|_| ())
+                    .map(|a| (a, photo_dropped))
                     .map_err(|e| store_failure(&e))
             }
         };
-        if let Err(why) = written {
-            self.copies.insert((Table::Unread, row), held);
-            return Err(why);
-        }
-        updates.push(Update::CardResolved(row));
+        let (accepted, photo_dropped) = match written {
+            Ok(written) => written,
+            Err(why) => {
+                self.copies.insert((Table::Unread, row), held);
+                return Err(why);
+            }
+        };
+        updates.push(Update::CardResolved {
+            row,
+            outcome: CardOutcome::Accepted {
+                contact_id: accepted.contact_id,
+                created: accepted.created,
+                photo_dropped,
+            },
+        });
+        self.card_undo = Some(Box::new(CardUndo {
+            row,
+            held,
+            accept: Some(accepted.undo),
+        }));
         updates.push(Update::ContactsListed(
             cards::contact_views(self.client.store_mut()).map_err(|e| store_failure(&e))?,
         ));
@@ -425,8 +464,65 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// and writes nothing to the contacts.
     fn decline_card(&mut self, row: RowId, updates: &mut Vec<Update>) -> Result<(), Failure> {
         let at = (self.wall)();
-        self.held_card(row, at)?;
-        updates.push(Update::CardResolved(row));
+        let (held, _) = self.held_card(row, at)?;
+        self.card_undo = Some(Box::new(CardUndo {
+            row,
+            held,
+            accept: None,
+        }));
+        updates.push(Update::CardResolved {
+            row,
+            outcome: CardOutcome::Declined,
+        });
+        Ok(())
+    }
+
+    /// Undo the last Accept or Decline, of `row`: the store writes back
+    /// what the Accept changed, and the proposal returns, read, judged as
+    /// the store stands now -- a contact deleted since leaves a first card
+    /// again, never a contact made again. A refusal keeps what the Undo
+    /// needs, so the Accept stands as the snackbar said and nothing the
+    /// person decided is lost.
+    fn undo_card(&mut self, row: RowId, updates: &mut Vec<Update>) -> Result<(), Failure> {
+        let Some(undo) = self.card_undo.take_if(|u| u.row == row) else {
+            return Err(Failure::NoSuchRow);
+        };
+        let Some((peer, endpoint, card)) = cards::card_of(&undo.held) else {
+            return Err(Failure::NotACard);
+        };
+        if let Some(accept) = &undo.accept
+            && let Err(e) = self.client.store_mut().undo_accept(accept)
+        {
+            let why = store_failure(&e);
+            self.card_undo = Some(undo);
+            return Err(why);
+        }
+        let context = match cards::context(self.client.store_mut(), &peer, &endpoint, &card) {
+            Ok(context) => context,
+            Err(e) => {
+                // The store wrote the Undo back; only its reading failed.
+                // The copy stays held, so a later listing can show it.
+                updates.push(Update::UnreadNotListed(store_failure(&e)));
+                self.copies.insert((Table::Unread, row), undo.held);
+                return Ok(());
+            }
+        };
+        let received_at = undo.held.received_at();
+        self.copies.insert((Table::Unread, row), undo.held);
+        updates.push(Update::ProposalRestored(Box::new(Proposal {
+            row,
+            peer,
+            endpoint,
+            card,
+            received_at,
+            context,
+        })));
+        if undo.accept.is_some() {
+            updates.push(Update::ContactsListed(
+                cards::contact_views(self.client.store_mut()).map_err(|e| store_failure(&e))?,
+            ));
+            self.proposals_again(updates);
+        }
         Ok(())
     }
 

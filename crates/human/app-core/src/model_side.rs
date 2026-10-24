@@ -206,7 +206,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::Received(received) => self.model.received(received),
             Update::ReceivedCard(proposal) => self.model.card_received(*proposal),
             Update::ProposalJudged(proposal) => self.model.card_judged(*proposal),
-            Update::CardResolved(row) => self.model.card_resolved(row),
+            Update::CardResolved { row, outcome } => self.model.card_resolved(row, outcome),
+            Update::ProposalRestored(proposal) => self.model.card_restored(*proposal),
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
             Update::CardShared { key, at, .. } => self.model.card_shared(key, at),
@@ -288,7 +289,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 ) = (&command, why)
                 {
                     // The card's copy is gone: so is its proposal.
-                    self.model.card_resolved(*row);
+                    self.model.card_gone(*row);
                 }
                 // A refused Undo closes nothing more, but focus goes where
                 // the action itself sent it; a refused Cancel's row, slid
@@ -301,6 +302,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     Command::Unkeep(row) => Some(Intent::Unkeep(*row)),
                     Command::Restore(row) => Some(Intent::Restore(*row)),
                     Command::Cancel(row) => Some(Intent::Cancel(*row)),
+                    Command::UndoCard(row) => Some(Intent::UndoCard(*row)),
                     _ => None,
                 };
                 if let Some(intent) = undone {
@@ -336,6 +338,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         let released = self.model.take_released();
         commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
         commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
+        commands.extend(released.cards.into_iter().map(Command::ForgetCard));
         // A trust input changes what the settings show -- a proposal to
         // confirm, why a typed value was not proposed -- and may ask the
         // facade nothing, so no update would bring another turn: the
@@ -353,6 +356,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 let released = self.model.take_released();
                 commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
                 commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
+                commands.extend(released.cards.into_iter().map(Command::ForgetCard));
                 // A change's answer may have left the list to read again.
                 if let Some(intent) = self.model.trust_settings_mut().take_reread()
                     && let Some(command) = self.command_for(intent)
@@ -540,6 +544,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 shown: Box::new(self.model.proposal_context(row)?.clone()),
             },
             Intent::DeclineCard(row) => Command::DeclineCard(row),
+            Intent::UndoCard(row) => Command::UndoCard(row),
             Intent::ShareCard(key) => Command::ShareCard(key),
             Intent::SetOwnCard {
                 name,
