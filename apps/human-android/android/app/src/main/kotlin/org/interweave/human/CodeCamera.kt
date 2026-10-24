@@ -17,21 +17,25 @@ import android.view.Surface
 
 /**
  * The camera behind Scan a code (add-a-peer section 5.5): the platform's
- * own Camera2, no library, open only while the viewfinder is. Each frame's
+ * own Camera2, no library, opened as the viewfinder opens and closed with
+ * it by its owner (MainActivity). Each frame's
  * luma plane goes to the window's side (`Native.cameraFrame`), which draws
  * it and reads codes from it; no picture is kept here or there.
  *
  * The caller holds the CAMERA permission before [open]; a camera that
- * fails to open, or is taken away, ends the scan as closed
- * (`Native.cameraClosed`), never silently.
+ * fails to open, or is taken away, is reported to its owner ([lost]), who
+ * ends the scan as closed when this is still its camera.
  */
-class CodeCamera(context: Context) {
+class CodeCamera(context: Context, private val lost: (CodeCamera) -> Unit) {
     private val manager = context.getSystemService(CameraManager::class.java)
     private var thread: HandlerThread? = null
     private var device: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var reader: ImageReader? = null
-    /** Closed by its owner: a late failure callback tells no one (#418 review risk). */
+    /**
+     * Closed by its owner. A camera that opens after it is closed at once
+     * and its thread ended (#418 round 2).
+     */
     @Volatile private var stopped = false
 
     /** The back camera if there is one, else the first; null with none. */
@@ -49,7 +53,7 @@ class CodeCamera(context: Context) {
         stopped = false
         val id = cameraId()
         if (id == null) {
-            Native.cameraClosed()
+            lost(this)
             return
         }
         val worker = HandlerThread("interweave-camera").also { it.start() }
@@ -70,6 +74,11 @@ class CodeCamera(context: Context) {
         try {
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
+                    if (stopped) {
+                        camera.close()
+                        worker.quitSafely()
+                        return
+                    }
                     device = camera
                     start(camera, frames.surface, handler)
                 }
@@ -115,27 +124,29 @@ class CodeCamera(context: Context) {
         }
     }
 
-    /** The camera went away under the scan: stopped, and the window told -- unless its owner closed it first. */
+    /** The camera went away under the scan: released, and the owner told. */
     private fun closed() {
-        val told = !stopped
-        release()
-        if (told) Native.cameraClosed()
+        release(quit = true)
+        lost(this)
     }
 
     /** Stop and release everything; nothing is told. Safe to repeat. */
     fun close() {
         stopped = true
-        release()
+        // While opening, the thread stays for onOpened, which closes the
+        // device it is handed and ends the thread.
+        release(quit = device != null)
     }
 
-    private fun release() {
+    @Synchronized
+    private fun release(quit: Boolean) {
         try { session?.close() } catch (e: Exception) {}
         try { device?.close() } catch (e: Exception) {}
         try { reader?.close() } catch (e: Exception) {}
         session = null
         device = null
         reader = null
-        thread?.quitSafely()
+        if (quit) thread?.quitSafely()
         thread = null
     }
 
