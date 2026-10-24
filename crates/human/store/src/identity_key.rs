@@ -371,6 +371,57 @@ pub fn remove(
     Ok(removed)
 }
 
+/// Replace `endpoint`'s key with a new one, on the person's confirmation
+/// (design/2026-10-24-identity-key.md section 5.2, architect-cto's order):
+/// an `identity-keys/` directory this account owns with a loose mode is
+/// made owner-only first, the old file is removed and its platform key
+/// retired, then the new key is created. On a platform with one alias per
+/// identity a new seal destroys the old wrapping key anyway, so the new
+/// key cannot be written first.
+///
+/// # Errors
+/// [`NewKeyFailed::Kept`] when it stopped before the old file was removed
+/// -- a key folder this account does not own among them, which it never
+/// changes -- and [`NewKeyFailed::Gone`] after: the saved key is gone and
+/// the new one was not made, which the next open finds missing.
+pub fn replace(
+    paths: &ProfilePaths,
+    endpoint: &EndpointId,
+    cipher: &dyn KeyCipher,
+) -> Result<IdentityKey, NewKeyFailed> {
+    use std::os::unix::fs::PermissionsExt as _;
+    keys_dir_is_safe(paths).map_err(NewKeyFailed::Kept)?;
+    let dir = paths.state_dir().join(IDENTITY_KEYS_DIR);
+    if let Ok(meta) = std::fs::symlink_metadata(&dir)
+        && meta.permissions().mode() & 0o077 != 0
+    {
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| NewKeyFailed::Kept(IdentityKeyFileError::Persist(e.to_string())))?;
+    }
+    if let Err(e) = remove(paths, endpoint, cipher) {
+        // The file goes before the platform key is retired, so a failure
+        // may come after the removal: what is on disk decides.
+        return Err(
+            if file_present(&key_path(paths, endpoint)).unwrap_or(true) {
+                NewKeyFailed::Kept(e)
+            } else {
+                NewKeyFailed::Gone(e)
+            },
+        );
+    }
+    create(paths, endpoint, cipher).map_err(NewKeyFailed::Gone)
+}
+
+/// Why [`replace`] made no new key, and whether the old file is still
+/// there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NewKeyFailed {
+    /// Stopped before the old file was removed: the identity is as it was.
+    Kept(IdentityKeyFileError),
+    /// Stopped after: the saved key is gone, and no new one was made.
+    Gone(IdentityKeyFileError),
+}
+
 /// Whether a file, a link or anything else stands at `path`.
 fn file_present(path: &std::path::Path) -> Result<bool, IdentityKeyFileError> {
     match std::fs::symlink_metadata(path) {

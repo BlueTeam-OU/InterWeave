@@ -604,6 +604,107 @@ fn every_open_refusal_has_its_kind() {
     );
 }
 
+/// A cipher that seals nothing: a new key cannot be stored under it.
+struct NoSeal<'a>(&'a keystore::SoftKeystore);
+
+impl KeyCipher for NoSeal<'_> {
+    fn custody(&self) -> Custody {
+        self.0.custody()
+    }
+
+    fn seal(&self, _: &str, _: &[u8], _: &[u8; 32]) -> Result<Vec<u8>, CipherFailure> {
+        Err(CipherFailure::Platform("no seal".to_owned()))
+    }
+
+    fn open(
+        &self,
+        alias: &str,
+        aad: &[u8],
+        sealed: &[u8],
+    ) -> Result<Zeroizing<[u8; 32]>, CipherFailure> {
+        self.0.open(alias, aad, sealed)
+    }
+
+    fn retire(&self, alias: &str) -> Result<(), CipherFailure> {
+        self.0.retire(alias)
+    }
+}
+
+/// design/2026-10-24-identity-key.md section 5.2 and acceptance items 6,
+/// 9, 15 and 16, the store's half: a new key replaces a refused file, a
+/// loose key folder this account owns is made owner-only first, a folder
+/// it does not own is left as it is and nothing is removed, and a new key
+/// that cannot be stored after the old file went says the old one is
+/// gone.
+#[test]
+fn a_new_key_replaces_the_old_file_in_architect_ctos_order() {
+    use identity_key::{KeyFileRead, NewKeyFailed};
+    let human = endpoint("human");
+
+    // A damaged file: replaced, and the new key opens.
+    let (_d, paths) = desktop_paths();
+    let old = identity_key::create(&paths, &human, &FilesystemCustody).expect("created");
+    let file = identity_key::key_path(&paths, &human);
+    std::fs::write(&file, "not a record\n").expect("damage");
+    let new = identity_key::replace(&paths, &human, &FilesystemCustody).expect("replaced");
+    assert_ne!(new.public_key(), old.public_key(), "a new key");
+    let opened = identity_key::open(&paths, &human, &FilesystemCustody)
+        .expect("opens")
+        .expect("a key");
+    assert_eq!(opened.public_key(), new.public_key());
+
+    // A key folder at 0755: made owner-only, then the key.
+    let (_d, paths) = desktop_paths();
+    identity_key::create(&paths, &human, &FilesystemCustody).expect("created");
+    let keys = identity_key::key_path(&paths, &human)
+        .parent()
+        .expect("the folder")
+        .to_owned();
+    std::fs::set_permissions(&keys, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    identity_key::replace(&paths, &human, &FilesystemCustody).expect("replaced");
+    assert_eq!(mode(&keys), 0o700, "owner-only");
+    assert!(identity_key::open(&paths, &human, &FilesystemCustody).is_ok());
+
+    // A key folder that is a link: nothing removed, nothing followed.
+    let (_d, paths) = desktop_paths();
+    identity_key::create(&paths, &human, &FilesystemCustody).expect("created");
+    let elsewhere = keys_of(&paths, &human).with_file_name("elsewhere");
+    std::fs::rename(keys_of(&paths, &human), &elsewhere).expect("move");
+    std::os::unix::fs::symlink(&elsewhere, keys_of(&paths, &human)).expect("link");
+    assert_eq!(
+        identity_key::replace(&paths, &human, &FilesystemCustody).map(|k| k.public_key()),
+        Err(NewKeyFailed::Kept(IdentityKeyFileError::Read(
+            KeyFileRead::DirUnsafe
+        )))
+    );
+    assert!(
+        elsewhere.join("human.key").is_file(),
+        "the old file is where it was"
+    );
+
+    // The new key cannot be stored: the old file went first, and it says so.
+    let (_d, paths) = desktop_paths();
+    let soft = keystore::SoftKeystore::default();
+    identity_key::create(&paths, &human, &soft).expect("sealed");
+    assert!(matches!(
+        identity_key::replace(&paths, &human, &NoSeal(&soft)),
+        Err(NewKeyFailed::Gone(_))
+    ));
+    assert!(
+        identity_key::open(&paths, &human, &soft)
+            .expect("no file")
+            .is_none(),
+        "the saved key is gone; the next open finds none"
+    );
+}
+
+fn keys_of(paths: &ProfilePaths, endpoint: &EndpointId) -> std::path::PathBuf {
+    identity_key::key_path(paths, endpoint)
+        .parent()
+        .expect("the folder")
+        .to_owned()
+}
+
 #[path = "common/keystore.rs"]
 mod keystore;
 
