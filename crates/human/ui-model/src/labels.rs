@@ -843,6 +843,10 @@ ui_texts! {
     /// A contact's page: delete the contact and its routes.
     // PLACEHOLDER (en)
     DeleteContact => "Delete contact",
+    /// A contact's page: Delete's confirmation, Cancel first; `{name}`
+    /// the contact. Its conversations and the peer's trust stay.
+    // PLACEHOLDER (en)
+    ContactDeleteConfirm => "Delete {name}? Your conversations with them stay, and so does whether you trust their PeerId.",
     /// A contact's page and the own card: remove the photo.
     // PLACEHOLDER (en)
     RemovePhoto => "Remove photo",

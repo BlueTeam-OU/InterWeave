@@ -3720,6 +3720,7 @@ dependencies = [
  "interweave-human-chat-protocol",
  "interweave-human-client-api",
  "interweave-human-core",
+ "interweave-human-store",
  "interweave-human-ui-model",
  "interweave-profile-identity",
  "interweave-transport-api",

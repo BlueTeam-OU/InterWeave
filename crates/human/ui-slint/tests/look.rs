@@ -183,6 +183,34 @@ fn pairs(p: &Palette<'_>) -> Vec<(&'static str, Color, Color, f64)> {
             4.5,
         ),
         ("error on surface", p.get_error(), p.get_surface(), 4.5),
+        // The card proposal (design 2026-10-21 section 8): its text on
+        // surface-container, the same-name warning and a key change in
+        // error, the PeerId in the code font, and the neutral avatar's
+        // figure on surface-variant.
+        (
+            "on-surface on surface-container",
+            p.get_on_surface(),
+            p.get_surface_container(),
+            4.5,
+        ),
+        (
+            "error on surface-container",
+            p.get_error(),
+            p.get_surface_container(),
+            4.5,
+        ),
+        (
+            "on-surface-variant on surface-variant",
+            p.get_on_surface_variant(),
+            p.get_surface_variant(),
+            3.0,
+        ),
+        (
+            "error outline on surface",
+            p.get_error(),
+            p.get_surface(),
+            3.0,
+        ),
         ("outline on surface", p.get_outline(), p.get_surface(), 3.0),
         (
             "swipe-neutral on surface",
