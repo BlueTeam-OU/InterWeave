@@ -9,7 +9,7 @@
 
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
-    AddressProblem, AddressRefused, PeerAddress, TrustList, TrustProblem, TrustRow,
+    AddressProblem, AddressRefused, LineAdded, PeerAddress, TrustList, TrustProblem, TrustRow,
     TrustSetFailure,
 };
 use interweave_human_ui_model::{
@@ -4280,4 +4280,80 @@ fn an_answer_decides_its_own_change_left_unknown_off_show() {
         Some(&PeersSnack::RemoveFailed { address: at(&a) }),
         "decided by its answer"
     );
+}
+
+/// An add of several lines answered line by line (IPC 2.9): only the
+/// lines answered added are counted and their peers named, while every
+/// peer of the add not trusted gets its block (§5.3).
+#[test]
+fn an_add_of_several_counts_the_lines_it_added_and_offers_every_peer() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[added(&b)]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed);
+    let code = vec![at(&a), at(&b)];
+    let (_, sent) = m.scanned(&code.join("\n"));
+    assert_eq!(sent, Some(Intent::AddAddresses(code.clone())));
+    m.addresses_added(
+        &code,
+        answer(
+            AddressOutcome::AddedLines(vec![
+                LineAdded {
+                    added: true,
+                    peer: Some(a.clone()),
+                },
+                LineAdded {
+                    added: false,
+                    peer: Some(b.clone()),
+                },
+            ]),
+            &[added(&b), added(&a)],
+        ),
+    );
+    assert_eq!(
+        m.peers().add_result(),
+        Some(&AddResult::Added {
+            lines: 1,
+            peers: vec![a.clone()]
+        }),
+        "the line already there is not counted"
+    );
+    let blocks: Vec<TransportIdentity> = m
+        .peers()
+        .blocks(m.trust_settings())
+        .into_iter()
+        .map(|b| b.peer)
+        .collect();
+    assert_eq!(blocks, vec![a, b], "every untrusted peer of the add");
+}
+
+/// The add of several names the line it refuses by its index, and that
+/// line is the one the refusal shows, the field left as it was (§5.3).
+#[test]
+fn an_add_of_several_refused_names_the_line_at_its_index() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed);
+    let code = vec![at(&peer()), at(&peer()), at(&peer())];
+    let _ = m.scanned(&code.join("\n"));
+    m.addresses_added(
+        &code,
+        answer(
+            AddressOutcome::RefusedLine {
+                why: AddressRefused::Bound,
+                line: 2,
+            },
+            &[],
+        ),
+    );
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Refused {
+            line: code[2].clone(),
+            why: Refusal::Limit
+        })
+    );
+    assert_eq!(m.peers().add_result(), None, "nothing was added");
+    assert_eq!(m.peers().field(), "");
 }

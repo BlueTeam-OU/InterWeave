@@ -1505,7 +1505,10 @@ impl Peers {
                     }
                     // A configured row offers no Remove; any other answer
                     // removed nothing.
-                    AddressOutcome::Refused(_) | AddressOutcome::Added { .. } => {
+                    AddressOutcome::Refused(_)
+                    | AddressOutcome::RefusedLine { .. }
+                    | AddressOutcome::Added { .. }
+                    | AddressOutcome::AddedLines(_) => {
                         self.remove_failed(address);
                     }
                 }
@@ -1641,17 +1644,47 @@ impl Peers {
                 };
                 self.accepted(result, &peers, trust);
             }
+            AddressOutcome::AddedLines(rows) => {
+                // Only the lines answered added are counted and named; a
+                // line already there beside them is not (§5.3), while
+                // every peer of the add is offered its trust step.
+                let mut peers = Vec::new();
+                let mut added = 0;
+                for (row, line) in rows.iter().zip(&lines) {
+                    if !row.added {
+                        continue;
+                    }
+                    added += 1;
+                    let peer = row.peer.clone().or_else(|| PeerAddress::peer_of(line));
+                    if let Some(peer) = peer
+                        && !peers.contains(&peer)
+                    {
+                        peers.push(peer);
+                    }
+                }
+                let result = AddResult::Added {
+                    lines: added,
+                    peers,
+                };
+                self.accepted(result, &peers_of(&lines), trust);
+            }
             AddressOutcome::Unchanged => {
                 let result = AddResult::Unchanged { lines: lines.len() };
                 self.accepted(result, &peers_of(&lines), trust);
             }
-            AddressOutcome::Refused(why) => {
+            AddressOutcome::Refused(why) | AddressOutcome::RefusedLine { why, .. } => {
                 // A removal's refusal, never an add's: nothing written.
                 let Some(why) = refusal_of(why) else {
                     self.page_note(AddNote::Failed, PeersFocus::AddButton);
                     return;
                 };
-                let line = lines.first().cloned().unwrap_or_default();
+                // The add of several names the line it refuses; one line
+                // is its own.
+                let index = match answer.outcome {
+                    AddressOutcome::RefusedLine { line, .. } => line,
+                    _ => 0,
+                };
+                let line = lines.get(index).cloned().unwrap_or_default();
                 // A refusal of the whole add names no line: the caret at
                 // the field's end, nothing selected (§5.3).
                 let select = if why.names_line() {
@@ -1728,7 +1761,11 @@ impl Peers {
                 self.settle_pending(&address);
                 self.take_list(answer.list);
                 match answer.outcome {
-                    AddressOutcome::Added { .. } | AddressOutcome::Unchanged => {
+                    // An Undo is one line, so the add of several answers
+                    // it only as it answers that line.
+                    AddressOutcome::Added { .. }
+                    | AddressOutcome::AddedLines(_)
+                    | AddressOutcome::Unchanged => {
                         self.undone(address);
                     }
                     // Refused by name -- the bound, the list off, this
@@ -1736,10 +1773,14 @@ impl Peers {
                     // rule (ADR-0062 decision 1) -- the refusal's own words
                     // and no Try again, which the same refusal would meet
                     // (§5.2; `an_undo_refused_by_name_says_why_and_offers_no_retry`).
-                    AddressOutcome::Refused(why) if let Some(why) = refusal_of(why) => {
+                    AddressOutcome::Refused(why) | AddressOutcome::RefusedLine { why, .. }
+                        if let Some(why) = refusal_of(why) =>
+                    {
                         self.undo_not_made(PeersSnack::UndoRefused(why));
                     }
-                    AddressOutcome::Refused(_) | AddressOutcome::Removed => {
+                    AddressOutcome::Refused(_)
+                    | AddressOutcome::RefusedLine { .. }
+                    | AddressOutcome::Removed => {
                         let snack = PeersSnack::UndoFailed {
                             address: address.clone(),
                         };
