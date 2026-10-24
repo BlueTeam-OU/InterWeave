@@ -3357,7 +3357,9 @@ name = "interweave-desktop-e2e-tests"
 version = "0.1.0"
 dependencies = [
  "atspi",
+ "base64 0.23.1",
  "futures-util",
+ "image",
  "interweave-human-chat-protocol",
  "interweave-human-store",
  "interweave-human-transport-client",

@@ -82,7 +82,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 - `src/store.rs`: `store health` and `store discard` over a real profile directory and the desktop's key custody: a discard refused without its scope removes nothing, a confirmed one recreates an empty store under a new key, a store that opens is never discarded.
 - `tests/process.rs`: the binary's `--help`, a usage error and a refused profile.
 - `tests/version.rs`: `--version` against the root manifest's version and `git rev-parse HEAD`, and `--version` beside another argument as exit 2.
-- `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1, 2 and 3 run as the binary against two real daemons; `card set --photo <file>` and `contacts photo <file>` are not run with an image anywhere in this crate: the file read and its bound are tested here (`a_photo_file_past_the_bound_is_refused_unread`), and what the facade does with the bytes is app-core's.
+- `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1, 2 and 3 run as the binary against two real daemons. `card set --photo <file>` is run once with a real image (`a_photo_set_from_a_file_reaches_the_contact_and_the_key_stays_in_its_file`): the photo is prepared, shared, proposed with a photo and accepted as the card's, and across that run the identity key's secret is in no IPC frame or payload the client sent, in no log of either daemon and in nothing the client printed. `contacts photo <file>` is not run with an image anywhere: its file read and bound are tested here (`a_photo_file_past_the_bound_is_refused_unread`), and what the facade does with the bytes is app-core's.
 
 ## Release
 
