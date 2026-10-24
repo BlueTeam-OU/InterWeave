@@ -23,7 +23,8 @@ use interweave_human_store::{
 };
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
-    AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, Table, UiModel, ViewEvent,
+    AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, ProposalItem, Table, UiModel, UiText,
+    ViewEvent,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_config::TrustBoundary;
@@ -933,4 +934,127 @@ async fn a_photo_reaches_the_screens_decoded_only_once_it_is_accepted_with_its_t
     assert_eq!(contact.photo_from_card, Some(true));
     assert_eq!(contact.photo_at, Some(WALL), "when it came");
     assert_eq!(contact.name_at, Some(WALL), "when the name came");
+}
+
+/// Alice sets her card to `name` and `surname` with `photo` and shares it
+/// with Bob again, from `t`; the proposal Bob is shown.
+async fn shared_again(
+    alice: &mut Root,
+    bob: &mut Root,
+    (a, b): (&FakeNode, &FakeNode),
+    card: (&str, Option<&str>, PhotoEdit),
+    t: u64,
+) -> ProposalItem {
+    alice.will(Intent::SetOwnCard {
+        name: card.0.to_owned(),
+        surname: card.1.map(str::to_owned),
+        photo: card.2,
+    });
+    alice.pump(t).await;
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(t + 1).await;
+    alice.pump(t + 2).await;
+    bob.pump(t + 3).await;
+    let shown = bob.model().proposals(&direct(a.peer()));
+    assert_eq!(shown.len(), 1, "one proposal at a time here");
+    shown[0].clone()
+}
+
+// Case S (design/2026-10-21-contact-cards.md section 5.4.1): a card is
+// Close alone when Accept would write nothing -- the key recorded and each
+// value the person's or already the card's -- and Update whenever a value
+// that is not the person's would change. Mutations: `changes_nothing`
+// ignoring the person's name (the "Countess" case is Update); ignoring the
+// photo (the photo case is Close). Ignoring the key is caught by
+// `a_changed_key_on_a_known_route_is_a_key_change_and_a_local_edit_stands`,
+// whose card matches the person's name and holds no photo.
+#[tokio::test]
+async fn a_card_that_changes_nothing_offers_close_alone_and_one_that_changes_a_card_value_updates()
+{
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let first = bob.model().proposals(&direct(a.peer()))[0].clone();
+    assert_eq!(first.accept, AcceptLine::Creates);
+    bob.will(Intent::AcceptCard(first.row));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+
+    // The same card again: nothing to write, so Close (Decline) alone.
+    let same = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", Some("Lovelace"), PhotoEdit::Keep),
+        10,
+    )
+    .await;
+    assert_eq!(same.accept, AcceptLine::Matches("Ada Lovelace".to_owned()));
+    assert_eq!(same.accept_text(), UiText::Close);
+    assert_eq!(
+        bob.model().card_actions(same.row),
+        vec![Intent::DeclineCard(same.row)]
+    );
+    bob.will(Intent::DeclineCard(same.row));
+    bob.pump(15).await;
+    assert!(
+        bob.model().proposals(&direct(a.peer())).is_empty(),
+        "closed"
+    );
+
+    // A changed name the card gave: Update.
+    let renamed = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Keep),
+        20,
+    )
+    .await;
+    assert_eq!(
+        renamed.accept,
+        AcceptLine::Updates("Ada Lovelace".to_owned())
+    );
+    assert_eq!(
+        bob.model().card_actions(renamed.row),
+        vec![
+            Intent::AcceptCard(renamed.row),
+            Intent::DeclineCard(renamed.row)
+        ]
+    );
+    bob.will(Intent::DeclineCard(renamed.row));
+    bob.pump(25).await;
+
+    // The person names the contact: a card's other name changes nothing.
+    bob.will(Intent::RenameContact {
+        contact_id,
+        name: "Countess".to_owned(),
+    });
+    bob.pump(30).await;
+    let kept = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", Some("Byron"), PhotoEdit::Keep),
+        40,
+    )
+    .await;
+    assert_eq!(kept.accept, AcceptLine::Matches("Countess".to_owned()));
+    bob.will(Intent::DeclineCard(kept.row));
+    bob.pump(45).await;
+
+    // A photo the contact does not hold, and no person's photo: Update.
+    let photo = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", Some("Byron"), PhotoEdit::Chosen(png(64, 64))),
+        50,
+    )
+    .await;
+    assert_eq!(photo.accept, AcceptLine::Updates("Countess".to_owned()));
 }

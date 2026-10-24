@@ -69,7 +69,8 @@ pub(crate) fn context(
     endpoint: &EndpointId,
     card: &Card,
 ) -> Result<ProposalContext, StoreError> {
-    let standing = store.card_standing(&accepted(peer, endpoint, card))?;
+    let card_as_accepted = accepted(peer, endpoint, card);
+    let standing = store.card_standing(&card_as_accepted)?;
     let CardStanding {
         updates,
         shares_node,
@@ -77,6 +78,17 @@ pub(crate) fn context(
         key,
         key_matches,
     } = standing;
+    // What Accept would leave as it is, judged as `HumanStore::accept_card`
+    // writes: a person's value stays, any other becomes the card's, the
+    // photo being the one `kept_photo` lets through, and an unrecorded
+    // key is recorded.
+    let changes_nothing = matches!(key, KeyStanding::Same)
+        && updates.as_ref().is_some_and(|c| {
+            (c.name_source == ValueSource::Person
+                || c.display_name == card_as_accepted.display_name())
+                && (c.photo_source == Some(ValueSource::Person)
+                    || c.photo.as_deref() == kept_photo(card))
+        });
     let context = ProposalContext {
         updates: updates.as_ref().map(|c| ContactRef {
             contact_id: c.contact_id.clone(),
@@ -93,6 +105,7 @@ pub(crate) fn context(
             },
         },
         fingerprint: fingerprint(&card.identity_key),
+        changes_nothing,
     };
     Ok(context)
 }
