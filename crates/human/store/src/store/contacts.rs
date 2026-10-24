@@ -718,6 +718,35 @@ impl HumanStore {
         )?)
     }
 
+    /// Every direct conversation that recorded a share of the identity's
+    /// card, most recently shared first: whose counterparts may hold its
+    /// key (design/2026-10-24-identity-key.md section 5.3).
+    ///
+    /// # Errors
+    /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
+    pub fn cards_shared(&self) -> Result<Vec<(TransportIdentity, EndpointId, u64)>, StoreError> {
+        let rows: Vec<(String, String, i64)> = self
+            .conn
+            .prepare(
+                "SELECT peer_id, endpoint_id, card_shared_at FROM conversation_index
+                  WHERE card_shared_at IS NOT NULL
+                  ORDER BY card_shared_at DESC, conversation_id",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<_, _>>()?;
+        rows.into_iter()
+            .map(|(peer, endpoint, at)| {
+                Ok((
+                    TransportIdentity::parse(&peer)
+                        .map_err(|_| StoreError::Corrupt("a shared card's peer".to_owned()))?,
+                    EndpointId::parse(&endpoint)
+                        .map_err(|_| StoreError::Corrupt("a shared card's endpoint".to_owned()))?,
+                    stored_ms("card_shared_at", at)?,
+                ))
+            })
+            .collect()
+    }
+
     /// When the conversation on this route last shared its card.
     ///
     /// # Errors

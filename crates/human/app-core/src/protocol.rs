@@ -117,6 +117,12 @@ pub enum Command {
     },
     /// Delete a contact, its routes and their recorded keys.
     DeleteContact(String),
+    /// Say whether a new key would cancel own cards on their way.
+    AskNewKey,
+    /// Make a new key for the identity in front, as the person confirmed.
+    MakeNewKey,
+    /// Open the identity in front's key once more.
+    RetryKey,
 }
 
 /// The store's rows at start, decoded for the model.
@@ -187,6 +193,33 @@ pub enum Update {
     ContactsListed(Vec<ContactView>),
     /// The identity in front, after its own card changed.
     IdentityShown(IdentityView),
+    /// Whether a new key would cancel own cards still on their way.
+    NewKeyAsked {
+        /// Own card rows not yet accepted by the remote transport.
+        pending: bool,
+    },
+    /// The new key was made.
+    KeyMade {
+        /// The identity, with its new fingerprint, when it could be read.
+        identity: Option<IdentityView>,
+        /// The new key's fingerprint, whatever could be read.
+        fingerprint: String,
+        /// Where its counterparts hold or may hold the old key, most
+        /// recently shared first.
+        share_again: Vec<ConversationKey>,
+    },
+    /// No new key was made.
+    KeyNotMade {
+        /// The identity, as its key's open now finds it, when it could be
+        /// read.
+        identity: Option<IdentityView>,
+        /// Why its key cannot be used now.
+        problem: interweave_human_ui_model::KeyProblem,
+        /// The old file was removed before the failure.
+        gone: bool,
+    },
+    /// The key was opened once more.
+    KeyRetried(IdentityView),
     /// This identity's card was shared on `key` as pending `row`.
     CardShared {
         /// The conversation.

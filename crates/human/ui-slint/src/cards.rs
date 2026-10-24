@@ -19,9 +19,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use interweave_human_ui_model::{
-    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, Intent, KeyView,
-    Photo, PhotoEdit, ProposalItem, ProposalNote, RowId, UiModel, UiText, fill, isolated,
-    name_problem, placeholder_en, short_peer,
+    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, Intent, KeyProblem,
+    KeyStep, KeyView, Photo, PhotoEdit, ProposalItem, ProposalNote, RowId, UiModel, UiText, fill,
+    isolated, name_problem, placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
@@ -31,6 +31,7 @@ use slint::{
 
 use crate::generated::{
     AppWindow, CardsPage, ContactListRow, ContactRouteRow, ProposalNoteRow, ProposalRow,
+    ShareAgainRow,
 };
 use crate::{Input, Shared, View, enqueue};
 
@@ -62,6 +63,18 @@ pub(crate) enum CardsInput {
     RemoveOwnPhoto,
     /// The share sheet's Share, for the conversation it was opened on.
     Share(ConversationKey),
+    /// The identity's key block: Try again.
+    KeyTryAgain,
+    /// The identity's key block: Make a new key.
+    KeyMakeNew,
+    /// The new key's confirmation: Make a new key.
+    KeyConfirm,
+    /// The new key's confirmation closed: Cancel, Escape, Back, the scrim.
+    KeyCancel,
+    /// A conversation to share the card in again, by its row's handle.
+    ShareAgain(i32),
+    /// The share sheet's Open your card, while the key cannot be used.
+    OpenCardFromShare,
 }
 
 /// Which card page the app's options opened.
@@ -152,6 +165,15 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
             enqueue(&s, Input::Cards(input));
         }
     });
+    window.on_own_key_try_again(on(shared, CardsInput::KeyTryAgain));
+    window.on_own_key_make_new(on(shared, CardsInput::KeyMakeNew));
+    window.on_new_key_confirm(on(shared, CardsInput::KeyConfirm));
+    window.on_new_key_cancel(on(shared, CardsInput::KeyCancel));
+    window.on_share_open_card(on(shared, CardsInput::OpenCardFromShare));
+    let s = Rc::clone(shared);
+    window.on_own_key_share_again_chosen(move |handle| {
+        enqueue(&s, Input::Cards(CardsInput::ShareAgain(handle)));
+    });
     let s = Rc::clone(shared);
     window.on_share_confirmed(move || {
         let key = s.borrow().cards.shareable.clone();
@@ -159,6 +181,22 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
             enqueue(&s, Input::Cards(CardsInput::Share(key)));
         }
     });
+}
+
+/// A key problem's reason line (design/2026-10-24-identity-key.md section
+/// 3's table).
+fn key_reason(problem: &KeyProblem) -> &'static str {
+    text(match problem {
+        KeyProblem::LostOnDevice => UiText::KeyLostDevice,
+        KeyProblem::BelowDevice => UiText::KeyBelowDevice,
+        KeyProblem::OtherDevice => UiText::KeyOtherDevice,
+        KeyProblem::NewerVersion => UiText::KeyNewerVersion,
+        KeyProblem::Damaged => UiText::KeyDamaged,
+        KeyProblem::Exposed => UiText::KeyExposed,
+        KeyProblem::DirUnsafe { .. } => UiText::KeyDirUnsafe,
+        KeyProblem::NotNow => UiText::KeyNotNow,
+        KeyProblem::Missing => UiText::KeyMissing,
+    })
 }
 
 /// A name's initials, as the look spec draws an avatar without a photo:
@@ -343,6 +381,19 @@ pub(crate) struct CardScreens {
     own_drawn: Option<(String, Option<String>, Option<Photo>)>,
     contact_error: String,
     own_errors: (String, String),
+    /// The key step as last drawn: what a change of it moves focus to.
+    key_step_drawn: Option<KeyStep>,
+    /// Try again pressed for this problem, until its answer is drawn.
+    retrying: Option<KeyProblem>,
+    /// The share-again rows as drawn, by handle.
+    share_again: Vec<ConversationKey>,
+    /// The conversation whose share sheet opened the card page: Back
+    /// returns to its sheet (design/2026-10-24-identity-key.md section
+    /// 4.3).
+    return_to_share: Option<ConversationKey>,
+    /// A share-again row chosen: its conversation's sheet opens once it is
+    /// on screen.
+    share_on_open: Option<ConversationKey>,
 }
 
 impl View {
@@ -365,6 +416,29 @@ impl View {
                 };
                 return offered.then_some(intent).into_iter().collect();
             }
+            CardsInput::KeyTryAgain => {
+                self.cards.retrying = model.key_problem().cloned();
+                return model.retry_key().into_iter().collect();
+            }
+            CardsInput::KeyMakeNew => return vec![Intent::AskNewKey],
+            CardsInput::KeyConfirm => return vec![Intent::MakeNewKey],
+            CardsInput::KeyCancel => return vec![Intent::CloseKeyStep],
+            CardsInput::ShareAgain(handle) => {
+                let key = usize::try_from(handle)
+                    .ok()
+                    .and_then(|i| self.cards.share_again.get(i))
+                    .cloned();
+                if let Some(key) = key {
+                    self.close_cards(&window);
+                    self.cards.share_on_open = Some(key.clone());
+                    enqueue(&self.shared, Input::Select(key));
+                    return vec![Intent::CloseKeyStep];
+                }
+            }
+            CardsInput::OpenCardFromShare => {
+                self.cards.return_to_share = self.shown.clone();
+                return self.take_cards(model, CardsInput::Open(Opened::OwnCard));
+            }
             CardsInput::Open(opened) => {
                 let page = match opened {
                     Opened::Contacts => CardsPage::Contacts,
@@ -380,7 +454,17 @@ impl View {
                 self.focus_key_after_draw("close-cards".to_owned());
             }
             CardsInput::Close => {
+                let own = self.cards.page == Some(CardsPage::OwnCard);
                 self.close_cards(&window);
+                // Back from the card page to the share sheet that opened it.
+                if let Some(key) = self.cards.return_to_share.take()
+                    && self.shown.as_ref() == Some(&key)
+                {
+                    window.set_share_open(true);
+                }
+                if own {
+                    return vec![Intent::CloseKeyStep];
+                }
             }
             CardsInput::Contact(id) => {
                 if model.contact(&id).is_some() {
@@ -484,7 +568,7 @@ impl View {
     }
 
     /// Draw the card screens from `model`.
-    pub(crate) fn render_cards(&mut self, model: &UiModel) {
+    pub(crate) fn render_cards(&mut self, model: &UiModel) -> Option<String> {
         let window = self.window.clone_strong();
         // Another page took the pane -- the trust settings, Peers, a
         // conversation picked from the list -- so no card page is open.
@@ -510,7 +594,161 @@ impl View {
         self.render_contacts(model, &window);
         self.render_contact(model, &window);
         self.render_own(model, &window);
+        let said = self.render_key(model, &window);
         self.render_share(model, &window);
+        if let Some(key) = self.cards.share_on_open.take() {
+            if self.shown.as_ref() == Some(&key) && self.page == crate::Page::Conversation {
+                window.set_share_open(true);
+            } else {
+                self.cards.share_on_open = Some(key);
+            }
+        }
+        said
+    }
+
+    /// The identity's key on its card page (design/2026-10-24-identity-
+    /// key.md sections 4.1, 5 and 6): the block in the fingerprint's place
+    /// while it cannot be used, the confirmation, the step under way, and
+    /// what it came to; focus moves as section 8's table says, and the
+    /// step and its result are announced once.
+    fn render_key(&mut self, model: &UiModel, window: &AppWindow) -> Option<String> {
+        let problem = model.key_problem().cloned();
+        let step = model.key_step().cloned();
+        window.set_own_key_problem(problem.is_some());
+        window.set_own_key_title(text(UiText::KeyStateTitle).into());
+        window.set_own_key_cannot_share(text(UiText::KeyCannotShare).into());
+        window.set_own_key_try_label(text(UiText::TryAgain).into());
+        window.set_own_key_new_label(text(UiText::KeyMakeNew).into());
+        window.set_own_key_making_label(text(UiText::KeyMaking).into());
+        let (label, _) = text(UiText::KeyDirUnsafePath)
+            .split_once("{path}")
+            .unwrap_or((text(UiText::KeyDirUnsafePath), ""));
+        window.set_own_key_path_label(label.trim_end().into());
+        window.set_own_key_reason(problem.as_ref().map_or("", key_reason).into());
+        window.set_own_key_path(
+            match &problem {
+                Some(KeyProblem::DirUnsafe { folder }) => folder.as_str(),
+                _ => "",
+            }
+            .into(),
+        );
+        let making = matches!(step, Some(KeyStep::Making | KeyStep::Asking));
+        window.set_own_key_making(matches!(step, Some(KeyStep::Making)));
+        window.set_own_key_try_shown(
+            !making && problem.as_ref().is_some_and(KeyProblem::offers_try_again),
+        );
+        window.set_own_key_new_shown(
+            !making && problem.as_ref().is_some_and(KeyProblem::offers_new_key),
+        );
+        window.set_own_key_failure(
+            match &step {
+                Some(KeyStep::Failed { gone: true }) => text(UiText::KeyNewFailedGone),
+                Some(KeyStep::Failed { gone: false }) => text(UiText::KeyNewFailed),
+                Some(KeyStep::StillNotNow) => text(UiText::KeyNotNowAgain),
+                _ => "",
+            }
+            .into(),
+        );
+        // Made: the line, and where to share the card again.
+        let again = match &step {
+            Some(KeyStep::Made { share_again }) => share_again.clone(),
+            _ => Vec::new(),
+        };
+        window.set_own_key_made(
+            if matches!(step, Some(KeyStep::Made { .. })) {
+                text(UiText::KeyMade)
+            } else {
+                ""
+            }
+            .into(),
+        );
+        window.set_own_key_share_again_title(text(UiText::KeyShareAgainTitle).into());
+        if again != self.cards.share_again {
+            let rows: Vec<ShareAgainRow> = again
+                .iter()
+                .enumerate()
+                .map(|(i, k)| ShareAgainRow {
+                    handle: i32::try_from(i).unwrap_or(i32::MAX),
+                    title: isolated(&model.drawn_title(k)).into(),
+                })
+                .collect();
+            window.set_own_key_share_again(ModelRc::new(VecModel::from(rows)));
+            self.cards.share_again = again;
+        }
+        // The confirmation.
+        let identity = model.identity().map_or_else(String::new, |own| {
+            if own.name.is_empty() {
+                own.endpoint.as_str().to_owned()
+            } else {
+                own.name.clone()
+            }
+        });
+        let pending = match &step {
+            Some(KeyStep::Confirming { pending }) => Some(*pending),
+            _ => None,
+        };
+        window.set_new_key_open(pending.is_some());
+        window.set_new_key_title(
+            fill(
+                text(UiText::KeyNewTitle),
+                &[("identity", &isolated(&identity))],
+            )
+            .into(),
+        );
+        window.set_new_key_body(text(UiText::KeyNewBody).into());
+        let newer = matches!(problem, Some(KeyProblem::NewerVersion));
+        window.set_new_key_old(
+            match &problem {
+                Some(KeyProblem::NewerVersion) => text(UiText::KeyNewOldNewer),
+                Some(p) if p.deletes_old_file() => text(UiText::KeyNewOld),
+                _ => "",
+            }
+            .into(),
+        );
+        window.set_new_key_pending(
+            if pending == Some(true) {
+                text(UiText::KeyNewPending)
+            } else {
+                ""
+            }
+            .into(),
+        );
+        window.set_new_key_confirm_label(text(UiText::KeyNewConfirm).into());
+        window.set_new_key_danger(newer);
+        // Focus and announcements, once per change of step (section 8).
+        let before = std::mem::replace(&mut self.cards.key_step_drawn, step.clone());
+        let mut said = None;
+        if before != step {
+            match (&before, &step) {
+                (Some(KeyStep::Confirming { .. }), None) => {
+                    self.focus_key_after_draw("own-key-new".to_owned());
+                }
+                (_, Some(KeyStep::Making)) => {
+                    self.focus_key_after_draw("own-key-making".to_owned());
+                    said = Some(text(UiText::KeyMaking).to_owned());
+                }
+                (_, Some(KeyStep::Made { .. })) => {
+                    self.focus_key_after_draw("own-key-fingerprint".to_owned());
+                    said = Some(text(UiText::KeyMade).to_owned());
+                }
+                (_, Some(KeyStep::Failed { .. } | KeyStep::StillNotNow)) => {
+                    self.focus_key_after_draw("own-key-failure".to_owned());
+                }
+                _ => {}
+            }
+        }
+        // Try again's answer: opened, focus on the fingerprint row.
+        if let Some(tried) = self.cards.retrying.clone()
+            && problem.as_ref() != Some(&tried)
+        {
+            self.cards.retrying = None;
+            if problem.is_none() {
+                self.focus_key_after_draw("own-key-fingerprint".to_owned());
+            }
+        } else if matches!(step, Some(KeyStep::StillNotNow)) {
+            self.cards.retrying = None;
+        }
+        said
     }
 
     /// When a card came, as its row says it: the date and the time.
@@ -739,6 +977,8 @@ impl View {
         let Some(own) = model.identity() else {
             return;
         };
+        // The key changes without the card: a new key, or one opened again.
+        window.set_own_fingerprint(own.key.fingerprint().unwrap_or_default().into());
         let drawn = (own.given.clone(), own.surname.clone(), own.photo.clone());
         if self.cards.own_drawn.as_ref() == Some(&drawn) {
             return;
@@ -757,7 +997,6 @@ impl View {
         }));
         window.set_own_has_photo(own.photo.is_some());
         window.set_own_photo(own.photo.as_ref().map(image).unwrap_or_default());
-        window.set_own_fingerprint(own.fingerprint.as_str().into());
         window.set_own_peer(
             own.peer
                 .as_ref()
@@ -790,6 +1029,19 @@ impl View {
         );
         window.set_share_note(text(UiText::ShareCardNote).into());
         window.set_share_action(text(UiText::ShareCardAction).into());
+        // The key cannot be used: the sheet says why and leads to the card
+        // page, over "no name yet" (design/2026-10-24-identity-key.md 4.3).
+        let problem = model.key_problem();
+        window.set_share_key_reason(problem.map_or("", key_reason).into());
+        window.set_share_key_path(
+            match problem {
+                Some(KeyProblem::DirUnsafe { folder }) => folder.as_str(),
+                _ => "",
+            }
+            .into(),
+        );
+        window.set_share_key_blocked(text(UiText::KeyCannotShareHere).into());
+        window.set_share_open_card_label(text(UiText::KeyOpenCard).into());
         match model.identity() {
             Some(own) => {
                 window.set_share_no_name(SharedString::new());

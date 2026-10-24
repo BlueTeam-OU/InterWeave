@@ -37,9 +37,9 @@ pub use labels::{
 };
 pub use look::{Avatar, AvatarHue, Day, LocalTime, Weekday, local_time};
 pub use model::cards::{
-    AcceptLine, CardAnswer, CardOutcome, ContactRef, ContactView, IdentityView, KeyView,
-    NameProblem, Photo, PhotoEdit, Proposal, ProposalContext, ProposalItem, ProposalNote,
-    READ_PROPOSAL_CAP, RouteView, name_problem,
+    AcceptLine, CardAnswer, CardOutcome, ContactRef, ContactView, IdentityView, KeyProblem,
+    KeyStep, KeyView, NameProblem, OwnKey, Photo, PhotoEdit, Proposal, ProposalContext,
+    ProposalItem, ProposalNote, READ_PROPOSAL_CAP, RouteView, name_problem,
 };
 pub use model::{
     Announce, Composer, Confirmation, ConversationKey, ConversationSummary, DEDUP_CAP, Direction,
