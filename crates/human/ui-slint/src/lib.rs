@@ -1800,9 +1800,9 @@ impl View {
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
         let peers = self.render_peers(model);
-        self.render_cards(model);
+        let cards = self.render_cards(model);
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
-        let said = [conversation, trust, peers, outcome]
+        let said = [conversation, trust, peers, cards, outcome]
             .into_iter()
             .flatten()
             .reduce(|first, rest| {
@@ -3463,6 +3463,11 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::OpenLink(_)
         | Intent::Restore(_)
         | Intent::UndoCard(_)
+        // The key's actions are the card page's own controls.
+        | Intent::AskNewKey
+        | Intent::MakeNewKey
+        | Intent::RetryKey
+        | Intent::CloseKeyStep
         | Intent::ReadTrust
         | Intent::SetTrust(_)
         // The addresses come from Peers' own controls, never an item's.

@@ -625,7 +625,9 @@ fn the_fingerprint_shows_beside_the_peer_id_and_a_typed_route_shows_none() {
         surname: None,
         has_photo: false,
         photo: None,
-        fingerprint: fingerprint.clone(),
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: fingerprint.clone(),
+        },
         peer: Some(peer(P)),
     });
     let mut carded = contact("c1", "Ada", Q);
@@ -685,7 +687,9 @@ fn share_shows_what_goes_first_and_sends_only_on_share_in_a_direct_conversation(
         surname: Some("Lovelace".to_owned()),
         has_photo: false,
         photo: None,
-        fingerprint: "0123456789abcdef".to_owned(),
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
         peer: Some(peer(Q)),
     });
     let _ = shown(&mut view, &mut model, P);
@@ -750,7 +754,9 @@ fn the_own_card_refuses_an_empty_name_in_place_and_saves_a_valid_one() {
         surname: None,
         has_photo: true,
         photo: Some(photo()),
-        fingerprint: "0123456789abcdef".to_owned(),
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
         peer: Some(peer(Q)),
     });
     view.render(&model);
@@ -1036,4 +1042,171 @@ fn an_accept_snackbar_waits_while_focus_is_in_its_span() {
     step(&clock, std::time::Duration::from_secs(121));
     let _ = intents(&mut view, &mut model);
     assert!(model.snackbar().is_none(), "closed by two minutes");
+}
+
+fn keyless(problem: interweave_human_ui_model::KeyProblem) -> IdentityView {
+    IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: false,
+        photo: None,
+        key: interweave_human_ui_model::OwnKey::Unusable(problem),
+        peer: Some(peer(Q)),
+    }
+}
+
+/// Press the last control labelled `label`: a dialog's, over a page's
+/// control of the same name.
+fn press_last(view: &View, label: &str) {
+    let found = labelled(view, label);
+    found
+        .last()
+        .expect("a control")
+        .invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+}
+
+/// design/2026-10-24-identity-key.md sections 4.1, 5 and 8, acceptance
+/// items 1, 6 and 12 (keyboard), drawn: the key block in the fingerprint's
+/// place says what happened and what it stops; Make a new key opens the
+/// confirmation with focus on Cancel, Cancel returns focus to Make a new
+/// key, a confirmed one shows the step and then the new fingerprint with
+/// where to share the card again, focus following each.
+#[test]
+fn a_key_that_cannot_be_used_is_said_and_a_new_key_is_confirmed_then_made() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    let mut view = view();
+    // Tall enough for the whole page: the search finds what is on screen.
+    view.window()
+        .window()
+        .set_size(slint::PhysicalSize::new(900, 1400));
+    let mut model = UiModel::new();
+    model.identity_shown(keyless(KeyProblem::Damaged));
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    for line in [
+        UiText::KeyStateTitle,
+        UiText::KeyDamaged,
+        UiText::KeyCannotShare,
+        UiText::KeyMakeNew,
+    ] {
+        assert!(shows(&view, text(line)), "{line:?}");
+    }
+    assert!(
+        !shows(&view, text(UiText::Fingerprint)),
+        "no fingerprint row"
+    );
+    assert!(
+        !shows(&view, text(UiText::TryAgain)),
+        "damage: no Try again"
+    );
+
+    press(&view, text(UiText::KeyMakeNew));
+    assert_eq!(intents(&mut view, &mut model), vec![Intent::AskNewKey]);
+    assert_eq!(
+        model.ask_new_key(),
+        Some(Intent::AskNewKey),
+        "as the root does"
+    );
+    model.new_key_asked(true);
+    view.render(&model);
+    settle();
+    assert!(shows(
+        &view,
+        &fill(text(UiText::KeyNewTitle), &[("identity", &isolated("Ada"))])
+    ));
+    for line in [UiText::KeyNewBody, UiText::KeyNewOld, UiText::KeyNewPending] {
+        assert!(shows(&view, text(line)), "{line:?}");
+    }
+    assert_eq!(
+        view.window().get_focus_id(),
+        "new-key-cancel",
+        "Cancel first"
+    );
+
+    press_last(&view, text(UiText::Cancel));
+    assert_eq!(intents(&mut view, &mut model), vec![Intent::CloseKeyStep]);
+    model.key_step_closed();
+    view.render(&model);
+    settle();
+    assert!(!view.window().get_new_key_open());
+    assert_eq!(view.window().get_focus_target(), "own-key-new");
+
+    press(&view, text(UiText::KeyMakeNew));
+    let _ = intents(&mut view, &mut model);
+    let _ = model.ask_new_key();
+    model.new_key_asked(false);
+    view.render(&model);
+    settle();
+    assert!(
+        !shows(&view, text(UiText::KeyNewPending)),
+        "no card on its way"
+    );
+    press_last(&view, text(UiText::KeyNewConfirm));
+    assert_eq!(intents(&mut view, &mut model), vec![Intent::MakeNewKey]);
+    assert_eq!(model.confirm_new_key(), Some(Intent::MakeNewKey));
+    view.render(&model);
+    settle();
+    assert!(shows(&view, text(UiText::KeyMaking)));
+    assert_eq!(view.window().get_focus_target(), "own-key-making");
+
+    model.key_made(
+        IdentityView {
+            key: OwnKey::Ready {
+                fingerprint: "fedcba9876543210".to_owned(),
+            },
+            ..keyless(KeyProblem::Damaged)
+        },
+        vec![direct(P)],
+    );
+    view.render(&model);
+    settle();
+    assert!(shows(&view, "fedcba9876543210"), "the new fingerprint");
+    assert!(shows(&view, text(UiText::KeyMade)));
+    assert!(shows(&view, text(UiText::KeyShareAgainTitle)));
+    assert_eq!(view.window().get_focus_target(), "own-key-fingerprint");
+    assert!(!shows(&view, text(UiText::KeyStateTitle)), "the block went");
+}
+
+/// Sections 4.3 and 8, acceptance items 4 and 18, drawn: the share sheet
+/// while the key folder is not safe says why with the folder's location,
+/// that the card cannot be shared, and offers Open your card -- focused --
+/// in Share's place.
+#[test]
+fn the_share_sheet_says_the_key_cannot_be_used_and_opens_the_card_page() {
+    use interweave_human_ui_model::KeyProblem;
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::PhysicalSize::new(900, 1400));
+    let mut model = UiModel::new();
+    model.identity_shown(keyless(KeyProblem::DirUnsafe {
+        folder: "/home/ada/.local/state/interweave/default/identity-keys".to_owned(),
+    }));
+    let _ = shown(&mut view, &mut model, P);
+    press(&view, text(UiText::MoreOptions));
+    press(&view, text(UiText::ShareCard));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    for line in [
+        UiText::KeyDirUnsafe,
+        UiText::KeyCannotShareHere,
+        UiText::KeyOpenCard,
+    ] {
+        assert!(shows(&view, text(line)), "{line:?}");
+    }
+    assert!(
+        !shows(&view, text(UiText::ShareCardAction)),
+        "no Share, never shown disabled"
+    );
+    assert_eq!(view.window().get_focus_target(), "share-open-card");
+    press(&view, text(UiText::KeyOpenCard));
+    let _ = intents(&mut view, &mut model);
+    assert!(shows(&view, text(UiText::KeyStateTitle)), "the card page");
+    assert!(!shows(&view, text(UiText::KeyMakeNew)), "no new key there");
+    assert!(shows(&view, text(UiText::TryAgain)));
 }
