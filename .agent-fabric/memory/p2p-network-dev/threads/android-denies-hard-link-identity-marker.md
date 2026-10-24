@@ -5,7 +5,7 @@ topic: "android-denies-hard-link-identity-marker"
 description: "Android SELinux denies link(2) on app_data_file; profile-identity's rotation/restore marker (acquire_marker, hard_link) will EACCES on a phone when wired"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

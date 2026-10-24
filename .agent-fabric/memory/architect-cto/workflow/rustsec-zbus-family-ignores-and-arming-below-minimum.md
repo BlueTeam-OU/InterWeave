@@ -5,7 +5,7 @@ topic: "rustsec-zbus-family-ignores-and-arming-below-minimum"
 description: "The 2026-10-18 CI outage on InterWeave (zbus-family RustSec unmaintained advisories) and what landing #297 taught about folding a supply, the deny.toml boundary, and the architect-cto AUTHORIZES send"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

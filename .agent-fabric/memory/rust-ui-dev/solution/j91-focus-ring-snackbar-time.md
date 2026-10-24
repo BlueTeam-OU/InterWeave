@@ -5,7 +5,7 @@ topic: "j91-focus-ring-snackbar-time"
 description: "j91 (2026-10-17): focus ring on every focusable (N2), snackbar time re-read on settings change (N3), notice button ink; Slint placed-child sizing trick"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

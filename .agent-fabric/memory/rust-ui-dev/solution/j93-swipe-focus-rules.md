@@ -5,7 +5,7 @@ topic: "j93-swipe-focus-rules"
 description: "j93 (2026-10-17): #286's later swipe rules built on the j93 branch stacked on j91/#292 — Keep/Unkeep focus, focus when the snackbar closes under its Undo (UndoClosed), late Cancel after leaving"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -25,5 +25,7 @@ j93 builds the swipe spec's rules #286 added after a030a44a (spec at #286 head 0
 Related: [[j91-focus-ring-snackbar-time]] [[j90-swipe-device-fixes]] [[mutate-from-a-scratch-copy]]
 
 *References: j90-swipe-device-fixes, j91-focus-ring-snackbar-time, mutate-from-a-scratch-copy*
+
+*Anchors: `crates/human/ui-model/src/model/swipe.rs::UndoClosed`, `crates/human/ui-slint/src/lib.rs::render_swipe`*
 
 *Observed 2026-10-17 (rust-ui-dev)*

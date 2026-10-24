@@ -3,7 +3,7 @@ role: "devex-tooling"
 class: index
 description: "What devex-tooling knows and where it lives."
 tier: 1
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 ---
 
 # devex-tooling — knowledge index
@@ -53,6 +53,7 @@ control plane checked out beside it.
 - [`../agent-fabric/memory/domains/devex-tooling/domain/popen-closed-stdin-communicate-py313.md`](../agent-fabric/memory/domains/devex-tooling/domain/popen-closed-stdin-communicate-py313.md) — a test that writes Popen stdin, closes it by hand, then calls communicate() raises ValueError on Python 3.13 (CI) though it passes on 3.14 locally
 - [`../agent-fabric/memory/domains/devex-tooling/domain/postgres-image-layout.md`](../agent-fabric/memory/domains/devex-tooling/domain/postgres-image-layout.md) — Postgres 18+ images moved the data directory under a version subdirectory
 - [`../agent-fabric/memory/domains/devex-tooling/domain/pretooluse-guard-cannot-enumerate-deny.md`](../agent-fabric/memory/domains/devex-tooling/domain/pretooluse-guard-cannot-enumerate-deny.md) — A custom PreToolUse hook that DENIES known-bad text shapes and stays silent otherwise fails open, not closed — it needs the opposite polarity
+- [`../agent-fabric/memory/domains/devex-tooling/domain/queued-pr-auto-merge-reads-null.md`](../agent-fabric/memory/domains/devex-tooling/domain/queued-pr-auto-merge-reads-null.md) — a PR queued by auto-merge reads autoMergeRequest null; the arming's time survives only as the timeline's AutoMergeEnabledEvent
 - [`../agent-fabric/memory/domains/devex-tooling/domain/setup-python-replaces-the-jobs-python3.md`](../agent-fabric/memory/domains/devex-tooling/domain/setup-python-replaces-the-jobs-python3.md) — actions/setup-python puts its python3 first for every later step; suites needing the runner's modules (PyYAML) break — use update-environment false and a per-suite PATH
 - [`../agent-fabric/memory/domains/devex-tooling/domain/splitlines-rejoin-rewrites-breaks.md`](../agent-fabric/memory/domains/devex-tooling/domain/splitlines-rejoin-rewrites-breaks.md) — Python str.splitlines breaks at U+2028/U+2029/U+0085/\x0b/\x0c/\x1c-\x1e too; filter lines with keepends=True and join "", never rejoin with "\n"
 - [`../agent-fabric/memory/domains/devex-tooling/domain/subagent-transcript-shape.md`](../agent-fabric/memory/domains/devex-tooling/domain/subagent-transcript-shape.md) — what a Claude Code subagent transcript shows about how the run ended, cost and effort (read 2026-10-14 over 348 transcripts on develop-qzapp)
@@ -61,15 +62,34 @@ control plane checked out beside it.
 
 ## solution
 
+- [`.agent-fabric/memory/devex-tooling/solution/adr-digest-no-citation-convention.md`](.agent-fabric/memory/devex-tooling/solution/adr-digest-no-citation-convention.md) — why validate_adr_index checks "entry edited" not "amendment cited" — the digest has no citation convention
+- [`.agent-fabric/memory/devex-tooling/solution/android-check-ranlib-and-target.md`](.agent-fabric/memory/devex-tooling/solution/android-check-ranlib-and-target.md) — android check fails in make (openssl-src) or with E0463 can't find core? RANLIB_<target>, and the aarch64 target on this account
 - [`.agent-fabric/memory/devex-tooling/solution/codeql-local-measurement.md`](.agent-fabric/memory/devex-tooling/solution/codeql-local-measurement.md) — Reproducing an InterWeave CodeQL (Rust) alert locally, or testing a model pack — host has no rust-src, and the full tree times out
+- [`.agent-fabric/memory/devex-tooling/solution/host-rust-floats-rustup-via-fabric-tools.md`](.agent-fabric/memory/devex-tooling/solution/host-rust-floats-rustup-via-fabric-tools.md) — develop-qzapp's system rust floats with dnf (1.99.0 on 2026-10-19, pin 1.98.1); fabric-tools --install rustup gives an account the pin, but links only cargo/rustc/rustup
+- [`.agent-fabric/memory/devex-tooling/solution/hosted-runner-has-user-manager.md`](.agent-fabric/memory/devex-tooling/solution/hosted-runner-has-user-manager.md) — CI needs systemctl --user or journalctl --user on a GitHub-hosted ubuntu runner? it lingers at boot; only the session vars are missing
+- [`.agent-fabric/memory/devex-tooling/solution/hosted-runner-sudo-nobody.md`](.agent-fabric/memory/devex-tooling/solution/hosted-runner-sudo-nobody.md) — need a second uid in an InterWeave CI job? sudo -n -u nobody works on ubuntu-latest, python3 included, TMPDIR=/tmp traversable
+- [`.agent-fabric/memory/devex-tooling/solution/ignored-row-ci-nextest-exact.md`](.agent-fabric/memory/devex-tooling/solution/ignored-row-ci-nextest-exact.md) — wiring one #[ignore]d test into CI? use nextest -E 'test(=name)' --no-tests=fail, never cargo test -- --exact
+- [`.agent-fabric/memory/devex-tooling/solution/new-guard-needs-ci-and-xtask.md`](.agent-fabric/memory/devex-tooling/solution/new-guard-needs-ci-and-xtask.md) — wiring a new tools/checks guard? it needs a ci.yml step AND a Task in xtask tree_checks(), or the rust context goes red
+- [`.agent-fabric/memory/devex-tooling/solution/play-guard-followups.md`](.agent-fabric/memory/devex-tooling/solution/play-guard-followups.md) — check_android_no_play_services.sh after #311: fixtures exempt, STRICT required, lock mode an allow-list; what a lockMode edit must keep
+- [`.agent-fabric/memory/devex-tooling/solution/release-body-limit.md`](.agent-fabric/memory/devex-tooling/solution/release-body-limit.md) — GitHub release body limit for release.yml's page — 125000 chars, unverified source, counted with CRLF as two
 - [`.agent-fabric/memory/devex-tooling/solution/rust-job-cache-and-nextest-measured.md`](.agent-fabric/memory/devex-tooling/solution/rust-job-cache-and-nextest-measured.md) — InterWeave rust CI job — cargo target cache sizes, nextest gains, and how a warm cache was measured before merge (PR #288, 2026-10-16)
+- [`.agent-fabric/memory/devex-tooling/solution/sdkmanager-failed-attempt-leftovers.md`](.agent-fabric/memory/devex-tooling/solution/sdkmanager-failed-attempt-leftovers.md) — retrying or cleaning up an sdkmanager install in CI? a failed attempt leaves only staging and <pkg>/.installer; never rm -rf a pinned package dir
 - [`.agent-fabric/memory/devex-tooling/solution/solution-carried-2026-10-05.md`](.agent-fabric/memory/devex-tooling/solution/solution-carried-2026-10-05.md) — How to measure a CI display/AT-SPI wrapper for real on develop-qzapp, which has no Xvfb or dbus-run-session
 - [`.agent-fabric/memory/devex-tooling/solution/wait-merged-pending-checks.md`](.agent-fabric/memory/devex-tooling/solution/wait-merged-pending-checks.md) — fabric-pr wait-merged and pending checks — gh pr checks exits 8 with JSON on stdout; the tool reads it, test pins it (checked 2026-10-18)
 
 ## workflow
 
+- [`.agent-fabric/memory/devex-tooling/workflow/agent-fabric-contributor-github-tests.md`](.agent-fabric/memory/devex-tooling/workflow/agent-fabric-contributor-github-tests.md) — changing agent-fabric's tools/fabric/github modules or their tests? push a for/ branch, not a patch — they are in devex-tooling's contributor entry
 - [`.agent-fabric/memory/devex-tooling/workflow/ci-command-line-is-read-by-guards.md`](.agent-fabric/memory/devex-tooling/workflow/ci-command-line-is-read-by-guards.md) — Before changing a ci.yml run: line in InterWeave, run the full cargo xtask checks — other guards grep the workflow's command lines
+- [`.agent-fabric/memory/devex-tooling/workflow/gzapp-below-min-arming-authority.md`](.agent-fabric/memory/devex-tooling/workflow/gzapp-below-min-arming-authority.md) — arming a gzapp PR under 8 work commits? the word comes from architect-cto (AUTHORIZES header), not the owner
+- [`.agent-fabric/memory/devex-tooling/workflow/mutation-runner-verify-backup.md`](.agent-fabric/memory/devex-tooling/workflow/mutation-runner-verify-backup.md) — a mutation script that backs up a guard with cp and restores it can empty the guard when /home fills; verify the backup first
+- [`.agent-fabric/memory/devex-tooling/workflow/osv-scanner-install-and-run.md`](.agent-fabric/memory/devex-tooling/workflow/osv-scanner-install-and-run.md) — installing osv-scanner for a login and running InterWeave's Gradle OSV check (plan §20 gate h)
+- [`.agent-fabric/memory/devex-tooling/workflow/release-logic-lives-in-tools-ci.md`](.agent-fabric/memory/devex-tooling/workflow/release-logic-lives-in-tools-ci.md) — editing release.yml (or any workflow step with a case/flag mapping)? the logic goes in a tools/ci script with a mocked-gh self-test, or review files a P2
+- [`.agent-fabric/memory/devex-tooling/workflow/review-brief-card-base.md`](.agent-fabric/memory/devex-tooling/workflow/review-brief-card-base.md) — fabric-review brief refuses a range whose base is not on origin/main (a second change on an open PR); add card_base
 - [`.agent-fabric/memory/devex-tooling/workflow/review-class-cannot-write-scratch.md`](.agent-fabric/memory/devex-tooling/workflow/review-class-cannot-write-scratch.md) — A code-review dispatch cannot write any file, scratchpad included — it cannot build fixture trees or run a guard's self-test on a mutated copy
+- [`.agent-fabric/memory/devex-tooling/workflow/review-guard-reads-session-cwd.md`](.agent-fabric/memory/devex-tooling/workflow/review-guard-reads-session-cwd.md) — a code-review dispatch is denied as "from the supplier branch" when the session's starting clone sits on an old for/ branch, even though the PR lives in a job worktree
+- [`.agent-fabric/memory/devex-tooling/workflow/shell-reader-allow-list-not-parser.md`](.agent-fabric/memory/devex-tooling/workflow/shell-reader-allow-list-not-parser.md) — a guard reading what a shell script runs or what a workflow YAML calls — read a declared subset and refuse the rest, never chase forms with regexes
+- [`.agent-fabric/memory/devex-tooling/workflow/switch-names-the-branch.md`](.agent-fabric/memory/devex-tooling/workflow/switch-names-the-branch.md) — before acknowledging a REQUEST with a branch name, let fabric-jobs switch create the branch; it names it from the job title, not from what you chose
 
 ## recall
 

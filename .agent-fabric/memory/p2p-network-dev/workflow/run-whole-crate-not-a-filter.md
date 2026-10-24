@@ -5,7 +5,7 @@ topic: "run-whole-crate-not-a-filter"
 description: "before pushing a change to a crate, run its whole lib suite and clippy -D warnings, never a test-name filter — source-pin and guard tests live elsewhere in the crate"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

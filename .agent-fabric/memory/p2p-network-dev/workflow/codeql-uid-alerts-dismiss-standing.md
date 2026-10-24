@@ -5,7 +5,7 @@ topic: "codeql-uid-alerts-dismiss-standing"
 description: "CodeQL rust/cleartext-logging on effective_uid in profile-config refusals or their tests — dismiss as false positive without asking (devex-tooling, 2026-10-08)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

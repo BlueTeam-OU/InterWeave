@@ -5,7 +5,7 @@ topic: "j55-availability-overlay"
 description: "Stay reachable overlay (j55, rust-ui-dev REQUEST 96211, architect DECISION 01a124ed to them): API promised at seq 96227, built on feat/android-runtime-side beside j53"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

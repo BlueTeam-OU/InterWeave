@@ -5,7 +5,7 @@ topic: "free-port-cross-process-is-dev-02s"
 description: "The cross-process free_port fix (tests/support/src/net.rs) belongs to p2p-network-dev-02, not me; don't re-take it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

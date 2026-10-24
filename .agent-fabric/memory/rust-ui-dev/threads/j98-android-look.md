@@ -5,7 +5,7 @@ topic: "j98-android-look"
 description: "j98 (2026-10-17): build design/2026-10-16-android-look.md (ux-designer-01 REQUEST 01a14813); what I promised and where it must land"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

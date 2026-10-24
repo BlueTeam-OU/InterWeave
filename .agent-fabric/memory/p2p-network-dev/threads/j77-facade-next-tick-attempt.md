@@ -5,7 +5,7 @@ topic: "j77-facade-next-tick-attempt"
 description: "transport-client's first send/retry/restore attempt moves to the next tick(); agreed with rust-ui-dev, nothing transport-side relies on inline"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
