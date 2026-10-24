@@ -1534,9 +1534,9 @@ async fn a_bare_address_intent_reaches_nothing() {
 
 /// Peers' add reaches the facade as one add of all its lines: one line
 /// is the runtime's single add, which this fake answers as added;
-/// several typed are refused before anything is sent (`TYPED_LINES`);
-/// several scanned are one add, never split, and the runtime's add of
-/// several answers them.
+/// several, typed or scanned, are one add, never split, which the
+/// runtime's add of several answers; more than `TYPED_LINES` typed are
+/// refused before anything is sent.
 #[tokio::test]
 async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
     use interweave_human_ui_model::{AddNote, PeersInput, TYPED_LINES};
@@ -1576,7 +1576,24 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
         ViewEvent::Peers(PeersInput::Add),
     ]);
     root.pump(1).await;
-    assert!(root.commands.is_empty(), "two typed lines send nothing");
+    assert_eq!(
+        root.commands,
+        vec![Command::AddAddresses(vec![one.clone(), two.clone()])],
+        "two typed lines are one add"
+    );
+    let many: Vec<String> = (0..=TYPED_LINES)
+        .map(|i| format!("/ip4/192.168.1.{i}/tcp/4001/p2p/{}", b.peer().as_str()))
+        .collect();
+    let (e, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&e, memory()));
+    root.settled(0).await;
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::FieldChanged(many.join("\n"))),
+        ViewEvent::Peers(PeersInput::Add),
+    ]);
+    root.pump(1).await;
+    assert!(root.commands.is_empty(), "one line too many sends nothing");
     assert_eq!(
         root.model().peers().add_page_note(),
         Some(&AddNote::TooManyLines {
