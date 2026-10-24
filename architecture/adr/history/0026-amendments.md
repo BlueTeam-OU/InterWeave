@@ -90,8 +90,9 @@ in the reserved lane it would displace the states that lane exists for.
 An exact figure was rejected because it cannot be measured: the GossipSub
 backend drops before the runtime sees a message (validation, the mesh,
 its own queue), so an exact count would claim what nothing observed and a
-reader would act on a zero; the counts are therefore lower bounds, and
-every text that carries them says so. A per-peer or per-channel
+reader would act on a zero; so neither count claims to be the whole
+loss — zero is never read as none lost — and every text that carries
+them says which guarantee each gives (the paragraph below). A per-peer or per-channel
 breakdown was rejected because the data socket is a non-admin surface:
 naming the publisher whose broadcasts were refused is an oracle on who
 publishes and when, and a per-channel table grows with the channels a
