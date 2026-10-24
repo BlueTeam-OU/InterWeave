@@ -96,6 +96,13 @@ pub enum SwarmCommand {
         /// Answered with the events, oldest first.
         reply: oneshot::Sender<Vec<interweave_transport_runtime::session_queue::BroadcastEvent>>,
     },
+    /// Read one session's broadcast losses (IPC 2.11 `session.losses`).
+    SessionLosses {
+        /// The session reading its own counts.
+        session: String,
+        /// Answered with its two counts, zero for a session with none.
+        reply: oneshot::Sender<interweave_transport_runtime::SessionLosses>,
+    },
     /// Stop a listener, naming it by an address `listen` returned.
     ///
     /// Answers `true` when a listener was serving that address and has
