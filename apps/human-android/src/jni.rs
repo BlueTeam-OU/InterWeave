@@ -241,7 +241,7 @@ fn start_without_network(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     let host = ServiceHost::global();
     let dir = std::path::Path::new(app_data_dir);
     let started = crate::platform_log::around_start(host, dir, PROFILE, || {
-        host.start_without_network(dir, PROFILE, &cipher)
+        host.start_without_network(dir, PROFILE, std::sync::Arc::new(cipher))
     });
     match started {
         Ok(()) => {
@@ -257,7 +257,7 @@ fn start_without_network(env: &mut Env<'_>, app_data_dir: &str) -> jint {
 /// desktop prints it: the person-facing state is the card page's.
 fn log_key_refused(host: &ServiceHost) {
     if let Some(why) = host.identity_key_refused() {
-        log(&format!("the identity's key is not usable: {why}"));
+        log(&format!("the identity's key is not usable: {why:?}"));
     }
 }
 
