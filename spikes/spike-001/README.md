@@ -62,7 +62,7 @@ Each fact names the run that shows it.
 3. Not measured. The Claude Code MCP documentation (code.claude.com/docs/en/mcp, "Push messages with channels", read 2026-10-03) says that on the v2 MCP client runtime, a channel server that negotiates revision 2026-07-28 is not registered as a channel. S23 measured it on 2.1.286 (fact 35).
 
 ### Enabling
-4. In `-p` sessions no channel event reached the model at the three timings tried: at once, at 2 s, and at 0.5 s with a second turn at 8 s. The stub's tools were listed. (`r1-default`, `r2-delay-2s`, `r3-two-turns`)
+4. In `-p` sessions no channel event reached the model at the three timings tried: at once, at 2 s, and at 0.5 s with a second turn at 8 s. The stub's tools were listed. (`r1-default`, `r2-delay-2s`, `r3-two-turns`) S24 found why: those runs had only the development flag, which a print session does not honour. With an approved plugin, an event does reach a print session (facts 39 to 41).
 5. An interactive session with `--dangerously-load-development-channels` first shows the folder-trust screen. It then shows "WARNING: Loading development channels", which names the channels. The options are "1. I am using this for local development" and "2. Exit". Accepting logs `Channel notifications registered`. (`t4-delivery`, `t7-plugin-inline`)
 6. Without the flag, the debug log says `Channel notifications skipped: server spike001 not in --channels list for this session`, and no event reaches the model. The stub's tools are listed. (`t5-no-dev-flag`)
 7. A bare `--mcp-config` server is named `spike001`, and the flag value `server:spike001` loads it. A `--plugin-dir` plugin loads as an inline plugin, its server is named `plugin:interweave-spike:spike001`, and the flag value `plugin:interweave-spike@inline` loads it as a channel. (`t4-delivery`, `t7-plugin-inline`)
@@ -172,6 +172,26 @@ Run on 2026-10-24 against **Claude Code 2.1.286**, the build this host runs (the
 
 What this changes in the bridge: nothing. The bridge answers `server/discover` with `-32601`, and answers `initialize` with `2025-11-25` whatever revision it is asked for (`apps/claude-channel/src/mcp.rs`, test `discover_is_method_not_found_and_initialize_is_2025_11_25`). That is b's shape, the one that registers. If the bridge served the revision on this build, its channel would be lost.
 
+## S24: non-interactive (`-p`) delivery (plan §19)
+
+Run on 2026-10-24 against **Claude Code 2.1.286**, on this login's account, a claude.ai login, by `s24_print.py` as committed at `8a177a3d`. The plugin, the marketplace, the install and the private `/etc` are S22's. Each session is one `claude -p --input-format stream-json --output-format stream-json --verbose` under bubblewrap, with stdin held open and the bridge's `reply` and `status` allowed. Runs a, b, e and f are S16's two daemons, with the far peer a second bridge on daemon B. The session's first user turn asks for `READY` now and, when a `<channel>` tag arrives later, one call of `reply` with its token. The peer sends once that turn's `result` is out, and nothing more is written to the session for 120 s. Runs c and d answer only the control request `channel_enable` (`{"type": "control_request", "request": {"subtype": "channel_enable", "serverName": "plugin:interweave:interweave"}}`), sent 5 s after the start. Each session was stopped by closing its stdin, then as S22 stops one.
+
+| Run | Managed settings | Flag | `channel_enable` | Debug log for `plugin:interweave:interweave` | Peer's message answered |
+|---|---|---|---|---|---|
+| `s24-a-enable` | S22's allow entry | `--channels plugin:interweave@interweave` | sent: `success` | `Channel notifications registered` | yes: turn 2.3 s, `ack` 4.0 s after the send |
+| `s24-b-flag-only` | S22's allow entry | `--channels plugin:interweave@interweave` | not sent | `Channel notifications re-registered after reconnect` | yes: turn 1.8 s, `ack` 4.0 s after the send |
+| `s24-c-enable-no-org` | none | none | sent: error, "plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)" | none | no traffic |
+| `s24-d-enable-dev-flag` | none | `--dangerously-load-development-channels plugin:interweave@interweave` | sent: the same error as c | none | no traffic |
+| `s24-e-no-flag` | S22's allow entry | none | not sent | none | no (control) |
+| `s24-f-dev-flag-only` | none | `--dangerously-load-development-channels plugin:interweave@interweave` | not sent | none | no (control) |
+
+39. A channel event reaches the model in a non-interactive session (a, b). The peer's message entered the session as a `<channel>` tag while it idled after its first turn's `result`. It started a turn of its own with nothing written to stdin: the model loaded `reply` through `ToolSearch`, called it with the tag's token, and the far peer received `ack`. This answers fact 4's question for a fourth timing, an event after a finished turn with stdin open. The three timings of fact 4 did not deliver for another reason (fact 41).
+40. In `-p`, `--channels` naming the installed plugin, with the organisation's allow entry, registers the channel with no control request (b). The debug log names it `Channel notifications re-registered after reconnect`, 1.7 s after the server connected and 3.8 s after the session's first log line. That was before the first user turn, which was written at 5 s. The control request `channel_enable` registers it too (a), answered `success`, and the log then says `Channel notifications registered`. Read from the 2.1.286 binary, not measured: a print session hands each connected server to the same gate as an interactive session (fact 23), and `channel_enable` adds the plugin to the session's channel list before asking it. So S23's era refusal and S22's allowlist hold in `-p` too. `channel_enable` refuses a server that is not marketplace-installed ("is not plugin-sourced"); a bare `--mcp-config` server was not run in `-p`.
+41. The development flag gives a print session nothing. With it and no managed settings, the session delivers nothing (f). `channel_enable` under it is refused as it is without it, on the allowlist (d, c). So the flag adds no development entry to a print session's channel list, and an approved plugin is the only way in. Fact 4's runs had only the development flag, which is why nothing reached the model there, whatever the timing.
+42. A print session that does not register a channel logs nothing about it (e, f, and c, d before their control request). There is no `Channel notifications skipped` line, as an interactive session writes (fact 6). Absence of a `registered` line is the only sign.
+43. Without a flag or a control request, the allow entry alone registers nothing (e). As in an interactive session (fact 6), the session's channel list decides which servers are asked.
+44. Not tried: an event arriving during a turn; a session whose stdin closes before the event (plain `-p "<prompt>"`, which ends after its one turn, gives an event nowhere to go); a turn started by an event when the first turn said nothing about events.
+
 ## Where the architecture disagrees
 
 The documents are listed by document and sentence. Amending them is architect-cto's (`architecture/plugin/`) and the contract owner's (`contracts/CHANNEL-EVENT.md`, under ADR-0049).
@@ -191,5 +211,5 @@ The documents are listed by document and sentence. Amending them is architect-ct
 - Permission relay, which the design does not declare.
 - Size limits on `content` and `meta`, and behaviour under load.
 - A server negotiating the 2026-07-28 revision on a build after 2.1.286. On 2.1.286 it is not registered (S23, fact 35).
-- Whether any non-interactive surface delivers channels.
-- Any other `-p` timing than the three tried (fact 4).
+- Non-interactive delivery through Anthropic's allowlist, and of a bare `--mcp-config` server. Through the organisation's allow entry it delivers (S24, facts 39 and 40).
+- An event arriving during a `-p` turn, and the cases fact 44 lists. An event after a finished turn, with stdin open, is delivered (fact 39).
