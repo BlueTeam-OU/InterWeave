@@ -575,3 +575,22 @@ fn undo_of_an_accept_that_updated_writes_back_the_values_and_the_key_it_had() {
         "nothing made again"
     );
 }
+
+/// The share-again list's source: every conversation that recorded a
+/// share of the card, most recently shared first, and none other.
+#[test]
+fn the_conversations_a_card_was_shared_in_come_most_recent_first() {
+    let (_dir, mut store) = store();
+    let human = endpoint("human");
+    assert!(store.cards_shared().expect("read").is_empty());
+    store
+        .mark_card_shared(&peer(P), &human, 10)
+        .expect("shared");
+    store
+        .mark_card_shared(&peer(Q), &human, 20)
+        .expect("shared");
+    assert_eq!(
+        store.cards_shared().expect("read"),
+        vec![(peer(Q), human.clone(), 20), (peer(P), human, 10)]
+    );
+}

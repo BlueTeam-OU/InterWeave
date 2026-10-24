@@ -9,13 +9,14 @@ use interweave_human_chat_protocol::{
     Card, CardRoute, Classified, classify, decode_envelope_bytes, is_card, parse_media_type,
 };
 use interweave_human_client_api::ReceivedCard;
-use interweave_human_store::identity_key::{Fingerprint, IdentityKey};
+use interweave_human_store::identity_key::Fingerprint;
 use interweave_human_store::{
-    AcceptedCard, CardStanding, Contact, HumanStore, InboundOrigin, KeyStanding, ReadEphemeral,
-    StoreError, ValueSource,
+    AcceptedCard, CardStanding, Contact, HumanStore, InboundOrigin, KeyStanding,
+    OutboundDestination, ReadEphemeral, RowId, StoreError, ValueSource,
 };
 use interweave_human_ui_model::{
-    ContactRef, ContactView, IdentityView, KeyView, Photo, Proposal, ProposalContext, RouteView,
+    ContactRef, ContactView, IdentityView, KeyView, OwnKey, Photo, Proposal, ProposalContext,
+    RouteView,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -160,13 +161,14 @@ pub(crate) fn contact_views(store: &HumanStore) -> Result<Vec<ContactView>, Stor
 /// The identity in front, as the model shows it.
 pub(crate) fn identity_view(
     store: &mut HumanStore,
-    key: &IdentityKey,
+    endpoint: &EndpointId,
+    key: OwnKey,
     peer: Option<&TransportIdentity>,
     at: u64,
 ) -> Result<IdentityView, StoreError> {
-    let card = store.ensure_own_card(key.endpoint(), at)?;
+    let card = store.ensure_own_card(endpoint, at)?;
     Ok(IdentityView {
-        endpoint: key.endpoint().clone(),
+        endpoint: endpoint.clone(),
         name: card
             .surname
             .as_ref()
@@ -175,9 +177,34 @@ pub(crate) fn identity_view(
         surname: card.surname.clone(),
         has_photo: card.photo.is_some(),
         photo: card.photo.as_deref().and_then(shown),
-        fingerprint: key.fingerprint().to_string(),
+        key,
         peer: peer.cloned(),
     })
+}
+
+/// The identity's own card rows still pending, by row, with the route
+/// each goes to: a card is told from a message by its payload, since it
+/// is no `HumanChatV2` envelope.
+///
+/// # Errors
+/// The store's, when a page cannot be read.
+pub(crate) fn own_cards_pending(
+    store: &HumanStore,
+) -> Result<Vec<(RowId, TransportIdentity, EndpointId)>, StoreError> {
+    let rows =
+        crate::listing::walk(|after| store.pending_outbound_page(after, crate::listing::limits()))?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let OutboundDestination::Direct(direct) = &row.destination else {
+                return None;
+            };
+            let endpoint = direct.endpoint.clone()?;
+            let info = parse_media_type(row.media_type.as_ref()?.as_str()).ok()?;
+            let text = decode_envelope_bytes(&row.payload, info.encoding).ok()?;
+            is_card(&text).then(|| (row.row_id, direct.peer.clone(), endpoint))
+        })
+        .collect())
 }
 
 /// Whether a read row holds a contact card by its kind, verified or not:

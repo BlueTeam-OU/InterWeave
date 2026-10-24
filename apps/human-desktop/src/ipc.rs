@@ -6,9 +6,9 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use interweave_human_app_core::{FacadeSide, identity_key};
+use interweave_human_app_core::{FacadeSide, KeySource};
 use interweave_human_store::HumanStore;
-use interweave_human_store::identity_key::IdentityKey;
+use interweave_human_store::identity_key::FilesystemCustody;
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
@@ -39,7 +39,13 @@ pub fn facade_over_ipc(
         },
         CLIENT_KIND,
     );
-    let identity = identity(profile, &store);
+    let source = profile.endpoints.first().map(|endpoint| {
+        KeySource::new(
+            profile.paths.clone(),
+            endpoint.clone(),
+            Box::new(FilesystemCustody),
+        )
+    });
     let config = ClientConfig {
         client_kind: CLIENT_KIND.to_owned(),
         endpoints: profile.endpoints.clone(),
@@ -56,23 +62,15 @@ pub fn facade_over_ipc(
             0,
         )?;
         let mut facade = FacadeSide::new(client, wall_ms);
-        if let Some(key) = identity {
-            facade.set_identity_key(key);
+        // The identity in front's own key, by app-core's rule: a file this
+        // build refuses is named on stderr by its kind, never its content,
+        // and the identity's page says so and offers what it can.
+        if let Some(source) = source {
+            facade.set_key_source(source);
+            if let Some(problem) = facade.key_problem() {
+                eprintln!("human-desktop: the identity's key is not usable: {problem:?}");
+            }
         }
         Ok(facade)
-    }
-}
-
-/// The identity in front's own key, by app-core's rule
-/// (`interweave_human_app_core::identity_key`, whose tests hold it). A file
-/// this build refuses is named on stderr by class, never its content, and
-/// the client runs with no key: Share says so, and nothing is signed.
-fn identity(profile: &Profile, store: &HumanStore) -> Option<IdentityKey> {
-    match identity_key(&profile.paths, &profile.endpoints, store) {
-        Ok(key) => key,
-        Err(e) => {
-            eprintln!("human-desktop: the identity's key is not usable: {e}");
-            None
-        }
     }
 }

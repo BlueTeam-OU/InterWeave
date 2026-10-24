@@ -52,6 +52,13 @@ export struct ActionRow {
 // which card page the right-hand pane shows in the conversation's place.
 export enum CardsPage { none, contacts, contact, own-card }
 
+// A conversation to share the card in again after a new key
+// (design/2026-10-24-identity-key.md section 5.3), by its title.
+export struct ShareAgainRow {
+    handle: int,
+    title: string,
+}
+
 // A note a proposal shows before Accept; a warning is drawn in `error`
 // and says so in its words, never by colour alone.
 export struct ProposalNoteRow {
@@ -1967,6 +1974,67 @@ component NeutralAvatar inherits Rectangle {
     }
 }
 
+// A folder's or file's location, whole and selectable to copy, after its
+// label (human-client-ui.md section 11: an exact identifier). Sized by a
+// transparent wrapping Text under the field, since a read-only field's
+// height does not follow its wrapped lines; the field is what is read,
+// selected and copied, the label and the path one item.
+component PathField {
+    in property <string> label;
+    in property <string> path;
+    in property <string> code-font;
+    in property <string> focus-key;
+    callback focused(string);
+    VerticalLayout {
+        spacing: 2px;
+        Text {
+            text: root.label;
+            font-size: Type.body-small;
+            font-weight: 700;
+            color: Palette.on-surface-variant;
+            accessible-role: none;
+        }
+        box := Rectangle {
+            vertical-stretch: 0;
+            VerticalLayout {
+                Text {
+                    text: root.path;
+                    wrap: char-wrap;
+                    font-family: root.code-font;
+                    font-size: Type.body-medium;
+                    color: transparent;
+                    accessible-role: none;
+                }
+            }
+            input := TextInput {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                text: root.path;
+                read-only: true;
+                single-line: false;
+                wrap: char-wrap;
+                font-family: root.code-font;
+                font-size: Type.body-medium;
+                color: Palette.on-surface;
+                accessible-label: root.label;
+                accessible-value: self.text;
+                changed has-focus => {
+                    if (self.has-focus) { root.focused(root.focus-key); }
+                }
+            }
+            FocusRing {
+                x: -5px;
+                y: -5px;
+                width: box.width + 10px;
+                height: box.height + 10px;
+                shown: input.has-focus;
+            }
+        }
+    }
+}
+
 // A line of text focus can be moved to: what an action left in a row's
 // place, so focus is never lost when the row it was in is replaced.
 // Wraps, where a heading would elide.
@@ -1979,6 +2047,9 @@ component FocusLine inherits FocusScope {
     in property <string> description;
     in property <string> focus-key;
     in property <bool> rtl;
+    in property <color> ink: Palette.on-surface;
+    in property <string> font-family;
+    in property <length> font-size: Type.body-large;
     in property <int> focus-seq;
     in property <bool> focus-wanted;
     changed focus-seq => {
@@ -1994,9 +2065,10 @@ component FocusLine inherits FocusScope {
     VerticalLayout {
         Text {
             text: root.text;
-            font-size: Type.body-large;
+            font-family: root.font-family;
+            font-size: root.font-size;
             wrap: word-wrap;
-            color: Palette.on-surface;
+            color: root.ink;
             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
             accessible-role: none;
         }
@@ -2520,6 +2592,20 @@ export component AppWindow inherits Window {
     // Paste an image, offered apart from the image file: withheld until
     // the clipboard can be read within the file's bounds (#409 F1).
     in property <bool> scan-paste;
+    // The camera's viewfinder (add-a-peer section 5.5), over everything
+    // while a camera scan is open: the frames as they come, the square
+    // guide, the hint, and Close. Before the first frame, CameraWhy says
+    // what the camera is for, as the system's permission dialog asks.
+    in property <bool> viewfinder-open;
+    in property <image> viewfinder-frame;
+    in property <bool> viewfinder-has-frame;
+    in property <string> viewfinder-why;
+    in property <string> viewfinder-hint;
+    in property <string> viewfinder-note;
+    in property <string> close-scanner-label;
+    // The denied-for-good line's Open settings, under the scan controls.
+    in property <bool> open-settings-shown;
+    in property <string> open-settings-label;
     in property <string> scan-code-label;
     in property <string> open-image-label;
     in property <string> paste-image-label;
@@ -2635,6 +2721,8 @@ export component AppWindow inherits Window {
     callback peers-show-closed();
     callback peers-show-again();
     callback peers-paste-image();
+    callback peers-scanner-closed();
+    callback peers-open-settings();
     // A scan's reader is done: its result waits on the Rust side.
     callback peers-image-done();
     callback block-trust(int);
@@ -2777,6 +2865,40 @@ export component AppWindow inherits Window {
     in property <string> own-photo-note;
     in property <string> own-shared-note;
     in property <string> own-fingerprint;
+    // The identity's key that cannot be used, in the fingerprint's place
+    // (design/2026-10-24-identity-key.md section 4.1): every string from
+    // Rust; the path only for a key folder that is not safe.
+    in property <bool> own-key-problem;
+    in property <string> own-key-title;
+    in property <string> own-key-reason;
+    in property <string> own-key-path-label;
+    in property <string> own-key-path;
+    in property <string> own-key-cannot-share;
+    in property <bool> own-key-try-shown;
+    in property <bool> own-key-new-shown;
+    in property <string> own-key-try-label;
+    in property <string> own-key-new-label;
+    in property <bool> own-key-making;
+    in property <string> own-key-making-label;
+    in property <string> own-key-failure;
+    // After a new key: the line saying so, and where to share again.
+    in property <string> own-key-made;
+    in property <string> own-key-share-again-title;
+    in property <[ShareAgainRow]> own-key-share-again;
+    callback own-key-try-again();
+    callback own-key-make-new();
+    callback own-key-share-again-chosen(int);
+    // The new key's confirmation (section 5.1), over a scrim; focus opens
+    // on Cancel, so Enter alone never makes a key.
+    in property <bool> new-key-open;
+    in property <string> new-key-title;
+    in property <string> new-key-body;
+    in property <string> new-key-old;
+    in property <string> new-key-pending;
+    in property <string> new-key-confirm-label;
+    in property <bool> new-key-danger;
+    callback new-key-confirm();
+    callback new-key-cancel();
     in property <string> own-peer;
     callback own-card-save();
     callback own-card-remove-photo();
@@ -2794,6 +2916,14 @@ export component AppWindow inherits Window {
     // The card has no name yet: said in the preview's place, and Share is
     // not offered.
     in property <string> share-no-name;
+    // The share sheet while the identity's key cannot be used (section
+    // 4.3): the reason, the folder for an unsafe one, that the card cannot
+    // be shared, and Open your card in Share's place.
+    in property <string> share-key-reason;
+    in property <string> share-key-path;
+    in property <string> share-key-blocked;
+    in property <string> share-open-card-label;
+    callback share-open-card();
     callback share-confirmed();
     // Details: whether this identity's card was shared here, and when.
     in property <string> details-card;
@@ -2831,6 +2961,11 @@ export component AppWindow inherits Window {
     // handler never sees. True when a screen took it; false means there
     // is no way back here, and the platform leaves the app.
     public function handle-back() -> bool {
+        // Back on the viewfinder is its Close (section 5.5).
+        if (root.viewfinder-open) {
+            root.peers-scanner-closed();
+            return true;
+        }
         if (root.identity-active) {
             root.identity-back();
             return true;
@@ -4169,6 +4304,16 @@ export component AppWindow inherits Window {
                         focus-wanted: root.focus-target == "add-page-note";
                         focused(k) => { root.focus-id = k; }
                     }
+                    if root.add-step-one && root.open-settings-shown: HorizontalLayout {
+                        alignment: start;
+                        ActionButton {
+                            text: root.open-settings-label;
+                            target: 48px;
+                            focus-key: "open-settings";
+                            pressed => { root.peers-open-settings(); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
                     if root.add-step-one: HorizontalLayout {
                         alignment: start;
                         spacing: 8px;
@@ -4708,8 +4853,9 @@ export component AppWindow inherits Window {
                             }
                         }
                         // The identity: its key's fingerprint beside the
-                        // PeerId (ADR-0063 decision 1).
-                        VerticalLayout {
+                        // PeerId (ADR-0063 decision 1), focusable so a new
+                        // key or Try again can put focus on it.
+                        if !root.own-key-problem: VerticalLayout {
                             spacing: 2px;
                             Text {
                                 text: root.fingerprint-label;
@@ -4719,13 +4865,143 @@ export component AppWindow inherits Window {
                                 accessible-role: text;
                                 accessible-label: self.text;
                             }
-                            Text {
+                            FocusLine {
                                 text: root.own-fingerprint;
                                 font-family: root.code-font;
                                 font-size: Type.body-medium;
+                                rtl: root.rtl;
+                                focus-key: "own-key-fingerprint";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "own-key-fingerprint";
+                                focused(k) => { root.focus-id = k; }
+                            }
+                            if root.own-key-made != "": Text {
+                                text: root.own-key-made;
+                                font-size: Type.body-medium;
+                                wrap: word-wrap;
                                 color: Palette.on-surface;
                                 accessible-role: text;
                                 accessible-label: self.text;
+                            }
+                            if root.own-key-share-again.length > 0: VerticalLayout {
+                                spacing: 4px;
+                                padding-top: 8px;
+                                Text {
+                                    text: root.own-key-share-again-title;
+                                    font-size: Type.title-small;
+                                    font-weight: 700;
+                                    wrap: word-wrap;
+                                    color: Palette.on-surface;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
+                                }
+                                for row in root.own-key-share-again: OpenRow {
+                                    text: row.title;
+                                    rtl: root.rtl;
+                                    focus-key: "share-again:" + row.handle;
+                                    pressed => { root.own-key-share-again-chosen(row.handle); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                        }
+                        // The key cannot be used (design/2026-10-24-identity-key.md
+                        // section 4.1): the warning, the reason, what it
+                        // stops, and what can be done -- the icon and the
+                        // words carry it, the colour only repeats them.
+                        if root.own-key-problem: VerticalLayout {
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                VerticalLayout {
+                                    alignment: start;
+                                    GlyphIcon {
+                                        glyph: Glyph.error;
+                                        ink: Palette.error;
+                                        accessible-role: none;
+                                    }
+                                }
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: root.own-key-title;
+                                    font-size: Type.title-small;
+                                    font-weight: 700;
+                                    wrap: word-wrap;
+                                    color: Palette.error;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
+                                }
+                            }
+                            Text {
+                                text: root.own-key-reason;
+                                font-size: Type.body-medium;
+                                wrap: word-wrap;
+                                color: Palette.on-surface;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            if root.own-key-path != "": PathField {
+                                label: root.own-key-path-label;
+                                path: root.own-key-path;
+                                code-font: root.code-font;
+                                focus-key: "own-key-path";
+                                focused(k) => { root.focus-id = k; }
+                            }
+                            Text {
+                                text: root.own-key-cannot-share;
+                                font-size: Type.body-medium;
+                                wrap: word-wrap;
+                                color: Palette.on-surface;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            if root.own-key-making: HorizontalLayout {
+                                spacing: 8px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    WaitMark { still: root.reduced-motion; }
+                                }
+                                FocusLine {
+                                    text: root.own-key-making-label;
+                                    rtl: root.rtl;
+                                    focus-key: "own-key-making";
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "own-key-making";
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                            if !root.own-key-making: HorizontalLayout {
+                                alignment: start;
+                                spacing: 8px;
+                                if root.own-key-try-shown: ActionButton {
+                                    text: root.own-key-try-label;
+                                    tonal: true;
+                                    target: 48px;
+                                    focus-key: "own-key-try";
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "own-key-try";
+                                    pressed => { root.own-key-try-again(); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                                if root.own-key-new-shown: ActionButton {
+                                    text: root.own-key-new-label;
+                                    tonal: !root.own-key-try-shown;
+                                    text-button: root.own-key-try-shown;
+                                    target: 48px;
+                                    focus-key: "own-key-new";
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "own-key-new";
+                                    pressed => { root.own-key-make-new(); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                            if root.own-key-failure != "": FocusLine {
+                                text: root.own-key-failure;
+                                ink: Palette.error;
+                                rtl: root.rtl;
+                                focus-key: "own-key-failure";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "own-key-failure";
+                                focused(k) => { root.focus-id = k; }
                             }
                         }
                         if root.own-peer != "": VerticalLayout {
@@ -6068,6 +6344,121 @@ export component AppWindow inherits Window {
         }
     }
 
+    // The new key's confirmation (design/2026-10-24-identity-key.md
+    // section 5.1), a basic dialog over a scrim: what changes for the
+    // person's contacts, what is deleted, the cards it cancels; focus opens
+    // on Cancel, and Escape, Back and the scrim are Cancel. Tab stays on
+    // its two buttons.
+    if root.new-key-open: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => {
+            FocusMode.keyboard = false;
+            root.new-key-cancel();
+        }
+        Rectangle { background: #00000052; }
+    }
+    if root.new-key-open: new-key := FocusScope {
+        focus-gained(reason) => {
+            if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+            if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        }
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: min(root.width - 48px, 560px);
+        height: new-key-box.preferred-height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.new-key-cancel();
+                return accept;
+            }
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                FocusMode.keyboard = true;
+                if (new-key-cancel.has-focus) {
+                    new-key-confirm.focus();
+                } else {
+                    new-key-cancel.focus();
+                }
+                return accept;
+            }
+            reject
+        }
+        property <bool> taken;
+        Timer {
+            interval: 1ms;
+            running: !new-key.taken;
+            triggered => {
+                new-key.taken = true;
+                new-key-cancel.focus();
+            }
+        }
+        new-key-box := Rectangle {
+            background: Palette.surface-container-high;
+            border-radius: 28px;
+            TouchArea {}
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                Text {
+                    text: root.new-key-title;
+                    font-size: Type.title-large;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                Text {
+                    text: root.new-key-body;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.new-key-old != "": Text {
+                    text: root.new-key-old;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.new-key-pending != "": Text {
+                    text: root.new-key-pending;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    new-key-cancel := ActionButton {
+                        text: root.cards-cancel-label;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "new-key-cancel";
+                        pressed => { root.new-key-cancel(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    new-key-confirm := ActionButton {
+                        text: root.new-key-confirm-label;
+                        detail: root.new-key-title;
+                        filled: true;
+                        danger: root.new-key-danger;
+                        target: 48px;
+                        focus-key: "new-key-confirm";
+                        pressed => { root.new-key-confirm(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+        }
+    }
+
     // The share sheet (design section 5.3): a dialog over a scrim, which
     // shows what goes before anything is sent. Focus opens on Cancel: a
     // disclosure has no undo.
@@ -6093,7 +6484,14 @@ export component AppWindow inherits Window {
             running: !share.taken;
             triggered => {
                 share.taken = true;
-                share-cancel.focus();
+                // Open your card, when the key cannot be used (section 8);
+                // else Cancel, since a disclosure has no undo.
+                if (root.share-key-reason != "") {
+                    root.focus-target = "share-open-card";
+                    root.focus-seq += 1;
+                } else {
+                    share-cancel.focus();
+                }
             }
         }
         share-box := Rectangle {
@@ -6111,14 +6509,40 @@ export component AppWindow inherits Window {
                     accessible-role: text;
                     accessible-label: self.text;
                 }
-                if root.share-no-name != "": Text {
+                // The key cannot be used (section 4.3): its reason, the
+                // folder for an unsafe one, and that the card cannot be
+                // shared -- in the preview's place, and over "no name yet".
+                if root.share-key-reason != "": Text {
+                    text: root.share-key-reason;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.share-key-path != "": PathField {
+                    label: root.own-key-path-label;
+                    path: root.share-key-path;
+                    code-font: root.code-font;
+                    focus-key: "share-key-path";
+                    focused(k) => { root.focus-id = k; }
+                }
+                if root.share-key-reason != "": Text {
+                    text: root.share-key-blocked;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.share-key-reason == "" && root.share-no-name != "": Text {
                     text: root.share-no-name;
                     wrap: word-wrap;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
                 }
-                if root.share-no-name == "": VerticalLayout {
+                if root.share-key-reason == "" && root.share-no-name == "": VerticalLayout {
                     spacing: 4px;
                     Text {
                         text: root.share-preview-heading;
@@ -6157,7 +6581,7 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                Text {
+                if root.share-key-reason == "": Text {
                     text: root.share-note;
                     wrap: word-wrap;
                     font-size: Type.body-medium;
@@ -6176,7 +6600,20 @@ export component AppWindow inherits Window {
                         pressed => { root.close-share(); }
                         focused(k) => { root.focus-id = k; }
                     }
-                    if root.share-no-name == "": ActionButton {
+                    if root.share-key-reason != "": share-open-card := ActionButton {
+                        text: root.share-open-card-label;
+                        filled: true;
+                        target: 48px;
+                        focus-key: "share-open-card";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "share-open-card";
+                        pressed => {
+                            root.close-share();
+                            root.share-open-card();
+                        }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    if root.share-key-reason == "" && root.share-no-name == "": ActionButton {
                         text: root.share-action;
                         filled: true;
                         target: 48px;
@@ -6203,6 +6640,85 @@ export component AppWindow inherits Window {
         read-only: true;
         text: root.proposal-copy-text;
         accessible-role: none;
+    }
+
+    if root.viewfinder-open: FocusScope {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.peers-scanner-closed();
+                return accept;
+            }
+            // A modal surface keeps focus: Close is its one stop, so Tab
+            // never reaches the add page under it (#418 F5).
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                close-scanner.focus();
+                return accept;
+            }
+            reject
+        }
+        Rectangle {
+            // Behind the frames, not themed: a camera's preview reads
+            // against black on either scheme.
+            background: #000000;
+            TouchArea { }
+        }
+        if root.viewfinder-has-frame: Image {
+            width: parent.width;
+            height: parent.height;
+            source: root.viewfinder-frame;
+            image-fit: contain;
+            accessible-role: none;
+        }
+        // The square guide, centred: where the code goes.
+        Rectangle {
+            width: min(parent.width, parent.height) * 0.7;
+            height: self.width;
+            border-width: 3px;
+            border-color: #ffffff;
+            border-radius: 12px;
+        }
+        VerticalLayout {
+            padding-top: root.safe-area-insets.top + 16px;
+            padding-bottom: root.safe-area-insets.bottom + 16px;
+            padding-left: root.safe-area-insets.left + 16px;
+            padding-right: root.safe-area-insets.right + 16px;
+            spacing: 12px;
+            HorizontalLayout {
+                alignment: end;
+                close-scanner := IconButton {
+                    glyph: Glyph.cancel;
+                    label: root.close-scanner-label;
+                    ink: #ffffff;
+                    rtl: root.rtl;
+                    focus-key: "close-scanner";
+                    // Focus comes as the viewfinder opens, asked by the view
+                    // once the frame that draws it is done.
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "close-scanner";
+                    pressed => { root.peers-scanner-closed(); }
+                    focused(k) => { root.focus-id = k; }
+                }
+            }
+            Rectangle { vertical-stretch: 1; }
+            // What the camera is for, until the first frame; then the
+            // hint, and a code that is no address list says so here.
+            for line in [root.viewfinder-has-frame ? root.viewfinder-hint : root.viewfinder-why, root.viewfinder-note]: Text {
+                text: line;
+                visible: line != "";
+                height: line == "" ? 0px : self.preferred-height;
+                color: #ffffff;
+                font-size: Type.body-large;
+                wrap: word-wrap;
+                horizontal-alignment: center;
+                accessible-role: text;
+                accessible-label: line;
+                accessible-live-region: AccessibleLiveness.polite;
+            }
+        }
     }
 
     if root.identity-active: IdentityScreen {

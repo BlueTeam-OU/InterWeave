@@ -37,9 +37,9 @@ pub use labels::{
 };
 pub use look::{Avatar, AvatarHue, Day, LocalTime, Weekday, local_time};
 pub use model::cards::{
-    AcceptLine, CardAnswer, CardOutcome, ContactRef, ContactView, IdentityView, KeyView,
-    NameProblem, Photo, PhotoEdit, Proposal, ProposalContext, ProposalItem, ProposalNote,
-    READ_PROPOSAL_CAP, RouteView, name_problem,
+    AcceptLine, CardAnswer, CardOutcome, ContactRef, ContactView, IdentityView, KeyProblem,
+    KeyStep, KeyView, NameProblem, OwnKey, Photo, PhotoEdit, Proposal, ProposalContext,
+    ProposalItem, ProposalNote, READ_PROPOSAL_CAP, RouteView, name_problem,
 };
 pub use model::{
     Announce, Composer, Confirmation, ConversationKey, ConversationSummary, DEDUP_CAP, Direction,
@@ -52,7 +52,7 @@ pub use peers::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES,
     LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus, PeersInput, PeersSnack,
     Refusal, RowReadBack, RowState, ScanControl, ScanVerdict, ShowProblem, ShowState, TYPED_LINES,
-    TrustLine, lines_of,
+    TrustLine, is_address_list, lines_of,
 };
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};

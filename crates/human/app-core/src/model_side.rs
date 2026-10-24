@@ -215,6 +215,18 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::CardsNotRead(why) => self.problem(Problem::CardsNotRead(why)),
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
+            Update::NewKeyAsked { pending } => self.model.new_key_asked(pending),
+            Update::KeyMade {
+                identity,
+                fingerprint,
+                share_again,
+            } => self.model.key_made(identity, fingerprint, share_again),
+            Update::KeyNotMade {
+                identity,
+                problem,
+                gone,
+            } => self.model.key_not_made(identity, problem, gone),
+            Update::KeyRetried(identity) => self.model.key_retried(identity),
             Update::CardShared { key, at, .. } => self.model.card_shared(key, at),
             Update::Client(event) => {
                 // Every session that becomes ready reads both lists: the
@@ -292,6 +304,11 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 if let (Command::Keep { item, .. }, Failure::CopyGone) = (&command, why) {
                     // The content is gone: stop offering what cannot work.
                     self.model.copy_gone(*item);
+                }
+                // A key step the facade refused ends here: never one the
+                // page waits on for good (#423 F1).
+                if matches!(command, Command::AskNewKey | Command::MakeNewKey) {
+                    self.model.key_command_refused();
                 }
                 if let (
                     Command::AcceptCard { row, .. } | Command::DeclineCard(row),
@@ -557,6 +574,24 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             },
             Intent::DeclineCard(row) => Command::DeclineCard(row),
             Intent::UndoCard(row) => Command::UndoCard(row),
+            // Each is the model's step before it is the facade's: a press
+            // the model does not offer now asks nothing.
+            Intent::AskNewKey => {
+                self.model.ask_new_key()?;
+                Command::AskNewKey
+            }
+            Intent::MakeNewKey => {
+                self.model.confirm_new_key()?;
+                Command::MakeNewKey
+            }
+            Intent::RetryKey => {
+                self.model.retry_key()?;
+                Command::RetryKey
+            }
+            Intent::CloseKeyStep => {
+                self.model.key_step_closed();
+                return None;
+            }
             Intent::ShareCard(key) => Command::ShareCard(key),
             Intent::SetOwnCard {
                 name,
