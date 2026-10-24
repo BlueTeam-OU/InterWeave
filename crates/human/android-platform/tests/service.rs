@@ -1018,3 +1018,53 @@ fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
         "the record is held at the Keystore's custody"
     );
 }
+
+/// #414 F3: a start that refuses the identity's key file runs with no
+/// key and keeps the refusal's class for the platform log; the file is
+/// left as it is, and a start that opens a key clears the refusal.
+#[test]
+fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
+    use interweave_human_store::identity_key::{self, IdentityKeyError, IdentityKeyFileError};
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let keystore = StoreKeystore {
+        invalidated: std::sync::atomic::AtomicBool::new(false),
+    };
+    let service = ServiceHost::new();
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("started");
+    let first = listed_identity(&service).expect("a key");
+    assert_eq!(service.identity_key_refused(), None);
+    let _ = service.stop(GRACE);
+
+    let paths = ProfilePaths::resolve_embedded(
+        PROFILE,
+        TrustBoundary::new(&app.dir).expect("a boundary"),
+    )
+    .expect("paths");
+    let file = identity_key::key_path(&paths, &first.endpoint);
+    let good = std::fs::read(&file).expect("read");
+    std::fs::write(&file, "not a record\n").expect("overwrite");
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("started with no key");
+    assert!(listed_identity(&service).is_none(), "no key, nothing signed");
+    assert_eq!(
+        service.identity_key_refused(),
+        Some(IdentityKeyFileError::Key(IdentityKeyError::NotARecord))
+    );
+    let _ = service.stop(GRACE);
+    assert_eq!(
+        std::fs::read(&file).expect("read"),
+        b"not a record\n",
+        "left as it is"
+    );
+
+    std::fs::write(&file, &good).expect("restore");
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("started");
+    assert_eq!(service.identity_key_refused(), None, "cleared");
+    let _ = service.stop(GRACE);
+}
