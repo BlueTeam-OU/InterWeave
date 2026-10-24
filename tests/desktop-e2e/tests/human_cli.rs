@@ -585,6 +585,224 @@ async fn a_peer_added_by_address_is_listed_refused_by_class_and_removed() {
     b_daemon.terminate().await;
 }
 
+/// Share A's card to `to_b` until B's daemon accepts it, B listening so
+/// its store takes the card: the proposal B hears.
+fn share_heard(a: &Home, b: &Home, to_b: &str) -> Value {
+    let listener = Listener::start(b);
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        let out = human(a, &["--wait", "3000", "card", "share", to_b, "--json"], "");
+        if code(&out) == Some(0) {
+            break;
+        }
+        assert_eq!(code(&out), Some(6), "{}", said(&out));
+        let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+        assert_eq!(code(&human(a, &["cancel", &id], "")), Some(0));
+        assert!(Instant::now() < deadline, "never accepted: {}", said(&out));
+    }
+    let heard = listener.until("the proposal", |l| l["event"] == "proposal");
+    listener.stop();
+    heard
+}
+
+/// ADR-0063 decisions 4 and 6, and ADR-0059 decision 9's route deletion,
+/// as a shell runs them across two daemons: A's identity shows its
+/// fingerprint, B accepts A's card, A's key is damaged and A makes a new
+/// one only on its confirmation flag, and B accepts the changed key only
+/// with the flag named for it. B's contact has one route, A's, so its
+/// deletion is refused as a contact delete and nothing changes: no flow
+/// makes a second route yet (moving one is Stage 22's).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_key_change_is_made_and_accepted_only_on_its_flags_across_two_daemons() {
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let to_b = format!("{}/human", b_peer.as_str());
+    let to_a = format!("{}/human", a_peer.as_str());
+
+    let out = human(&a, &["card", "set", "Ada"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&a, &["identity", "show", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let shown = &lines(&out)[0];
+    assert_eq!(shown["endpoint"], "human");
+    let old = shown["fingerprint"]
+        .as_str()
+        .expect("fingerprint")
+        .to_owned();
+    let out = human(&a, &["card", "show", "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["fingerprint"],
+        old.as_str(),
+        "one key, one fingerprint"
+    );
+    let out = human(&a, &["identity", "show", "claude"], "");
+    assert_eq!(code(&out), Some(1), "not a human endpoint: {}", said(&out));
+    let out = human(&a, &["identity", "new-key", "--confirm", "key-change"], "");
+    assert_eq!(code(&out), Some(1), "a usable key stays: {}", said(&out));
+
+    let heard = share_heard(&a, &b, &to_b);
+    assert_eq!(heard["key"]["state"], "new");
+    let id = heard["id"].as_str().expect("id").to_owned();
+    let out = human(
+        &b,
+        &["proposals", "read", &to_a, "--accept-key-change", &id],
+        "",
+    );
+    assert_eq!(
+        code(&out),
+        Some(1),
+        "a first card is no key change: {}",
+        said(&out)
+    );
+    let out = human(&b, &["proposals", "read", &to_a, "--accept", &id], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&b, &["contacts", "--json"], "");
+    let contact = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+
+    // The contact's only route: refused as a contact delete, unchanged.
+    let out = human(&b, &["contacts", "route", "delete", &contact, &to_a], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains(&format!("contacts delete {contact}")),
+        "{}",
+        said(&out)
+    );
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    let routes = &lines(&out)[0]["routes"];
+    assert_eq!(routes.as_array().map(Vec::len), Some(1), "{}", said(&out));
+    assert_eq!(routes[0]["fingerprint"], old.as_str());
+
+    // A's key file damaged: shown as such, and a new key made only once
+    // confirmed.
+    let file = a.paths.state_dir().join("identity-keys").join("human.key");
+    std::fs::write(&file, "not a record\n").expect("damaged");
+    let damaged = std::fs::read(&file).expect("read");
+    let out = human(&a, &["identity", "show", "--json"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["key_problem"], "damaged", "{}", said(&out));
+    let out = human(&a, &["identity", "new-key", "--json"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["deletes_old_key"], true, "{}", said(&out));
+    assert_eq!(
+        std::fs::read(&file).expect("read"),
+        damaged,
+        "nothing removed"
+    );
+    let out = human(
+        &a,
+        &["identity", "new-key", "--confirm", "key-change", "--json"],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let made = &lines(&out)[0];
+    let new = made["fingerprint"]
+        .as_str()
+        .expect("fingerprint")
+        .to_owned();
+    assert_ne!(new, old);
+    assert_eq!(made["share_again"][0], to_b.as_str(), "{}", said(&out));
+
+    // B is told the key changed, and accepts it only with the flag.
+    let heard = share_heard(&a, &b, &to_b);
+    assert_eq!(heard["key"]["state"], "changed");
+    assert_eq!(heard["key"]["recorded"], old.as_str());
+    assert_eq!(heard["fingerprint"], new.as_str());
+    let id = heard["id"].as_str().expect("id").to_owned();
+    let out = human(&b, &["proposals", "read", &to_a, "--accept", &id], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("--accept-key-change"),
+        "{}",
+        said(&out)
+    );
+    let out = human(&b, &["proposals", "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["status"],
+        "unread",
+        "refused before the read"
+    );
+    let out = human(
+        &b,
+        &[
+            "proposals",
+            "read",
+            &to_a,
+            "--accept-key-change",
+            &id,
+            "--json",
+        ],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["status"], "accepted", "{}", said(&out));
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["routes"][0]["fingerprint"],
+        new.as_str(),
+        "{}",
+        said(&out)
+    );
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
+/// A list of addresses as a script pipes one in (ADR-0062, IPC 2.9's
+/// `add_addresses`): added whole, again unchanged, and a list with one
+/// refused line adds none of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_list_of_addresses_is_added_whole_or_refused_by_its_line() {
+    let (a, mut a_daemon, _a_peer, _b, mut b_daemon, b_peer) = two_daemons().await;
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let at = |port: u16| format!("/ip4/{ip}/tcp/{port}/p2p/{}", b_peer.as_str());
+    let list = format!("{}\n\n  {}\n", at(4997), at(4998));
+
+    let out = human(&a, &["peers", "add", "-"], &list);
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        format!("added {}\nadded {}\n", at(4997), at(4998))
+    );
+    let file = a.paths.state_dir().join("list.txt");
+    std::fs::write(&file, &list).expect("written");
+    let path = file.to_str().expect("a UTF-8 path");
+    let out = human(&a, &["peers", "add", "--file", path], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        format!("unchanged {}\nunchanged {}\n", at(4997), at(4998))
+    );
+
+    let loopback = format!("/ip4/127.0.0.1/tcp/4999/p2p/{}", b_peer.as_str());
+    let refused = format!("{}\n{loopback}\n", at(4996));
+    let out = human(&a, &["peers", "add", "-"], &refused);
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("address 2 of 2") && err.contains("special_use"),
+        "{err}"
+    );
+    let out = human(&a, &["peers", "--json"], "");
+    let listed = lines(&out);
+    assert!(
+        listed.iter().any(|row| row["address"] == at(4997).as_str()),
+        "{}",
+        said(&out)
+    );
+    assert!(
+        !listed.iter().any(|row| row["address"] == at(4996).as_str()),
+        "all or none: {}",
+        said(&out)
+    );
+    let out = human(&a, &["peers", "add", "-"], "\n \n");
+    assert_eq!(code(&out), Some(1), "an empty list: {}", said(&out));
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
 /// ADR-0060 decision 6 as a shell runs it: a store whose key is gone is
 /// reported needing recovery, its discard is refused without the scope it
 /// lists, and the confirmed discard recreates it empty. The daemon is A's
