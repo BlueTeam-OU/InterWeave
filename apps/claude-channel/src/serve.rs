@@ -55,6 +55,7 @@ use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt as _};
 use tokio::time::Instant;
 
 use crate::host_input::{HostLine, HostLines, MAX_HOST_LINE_BYTES};
+use crate::log::{Line, Log};
 use crate::mcp::{
     INVALID_PARAMS, Incoming, error_line, notification_line, parse_line, protocol_answer,
     tool_result_line,
@@ -263,6 +264,8 @@ pub struct Env {
     pub now_ms: Box<dyn Fn() -> u64 + Send>,
     /// 16 bytes from a CSPRNG: a reply token, or a message id.
     pub entropy: Box<dyn FnMut() -> [u8; 16] + Send>,
+    /// Where the bridge's own lines go (`crate::log`).
+    pub log: Log,
 }
 
 /// The delay before reconnect attempt `attempt` (0 for the first).
@@ -365,7 +368,10 @@ where
         tokio::select! {
             line = lines.next_line() => {
                 match line? {
-                    None => return Ok(()),
+                    None => {
+                        bridge.env.log.write(&Line::Ended("the host closed stdin"));
+                        return Ok(());
+                    }
                     Some(HostLine::Text(line)) => {
                         if let Some(answer) = bridge.host_line(&line, &mut output).await? {
                             write_line(&mut output, &answer).await?;
@@ -376,9 +382,9 @@ where
                     Some(HostLine::NotUtf8) => {}
                     // No id is read from it either: one written after
                     // its params sits in the bytes refused unread.
-                    Some(HostLine::TooLong) => eprintln!(
-                        "claude-channel: a host line over {MAX_HOST_LINE_BYTES} bytes was dropped"
-                    ),
+                    Some(HostLine::TooLong) => {
+                        bridge.env.log.write(&Line::HostLineTooLong(MAX_HOST_LINE_BYTES));
+                    }
                 }
             }
             // Paused (pull mode, the queue full): the session is not
@@ -452,6 +458,7 @@ impl<W: AsyncWrite + Unpin> Emit<'_, W> {
                     && let Some((_, epoch)) = held
                 {
                     self.gaps.lost(&epoch, (self.env.now_ms)());
+                    self.env.log.write(&Line::LeaseRevoked);
                 }
                 if let LocalSessionEvent::ServerState {
                     health,
@@ -472,9 +479,7 @@ impl<W: AsyncWrite + Unpin> Emit<'_, W> {
                 // Never refused: no more is taken than the queue has room
                 // for (`Emit::room`).
                 if !pull.push(pulled, (self.env.now_ms)()) {
-                    eprintln!(
-                        "claude-channel: the pull queue refused an event taken past its room"
-                    );
+                    self.env.log.write(&Line::PullQueueRefused);
                 }
                 continue;
             }
@@ -483,62 +488,55 @@ impl<W: AsyncWrite + Unpin> Emit<'_, W> {
                 Ok(Some(n)) => match notification_line(&n) {
                     Ok(line) => write_line(self.out, &line).await?,
                     // Its category, as `dropped` says why.
-                    Err(e) => eprintln!(
-                        "claude-channel: a notification did not serialize: {:?}",
-                        e.classify()
-                    ),
+                    Err(e) => self.env.log.write(&Line::Unserializable(e.classify())),
                 },
                 Ok(None) => {}
                 // Bridge-local: dropped and said, never forwarded in part
                 // (CHANNEL-EVENT.md §Content).
-                Err(e) => eprintln!("{}", dropped(&e)),
+                Err(e) => self.env.log.write(&Line::Dropped(dropped(&e))),
             }
         }
         Ok(())
     }
 }
 
-/// The stderr line for an inbound message dropped: its class, and NOT
+/// The log line for an inbound message dropped: its class, and NOT
 /// the error's `Display`, which for a repeated token names the token. A
 /// line here is written for an operator and carries nothing a message
 /// brought or the bridge minted for it (TM-32,
 /// `a_dropped_messages_line_names_its_class_and_nothing_it_carried`).
 fn dropped(error: &ConvertError) -> &'static str {
     match error {
-        ConvertError::Content(_) => {
-            "claude-channel: an inbound message was dropped: its payload did not decode"
-        }
+        ConvertError::Content(_) => "an inbound message was dropped: its payload did not decode",
         // The reason alone, never the parser's account: a card's own
         // fields are peer text (CHANNEL-EVENT.md §Content).
         ConvertError::Card(reason) => card_dropped(*reason),
-        ConvertError::Meta(_) => {
-            "claude-channel: an inbound message was dropped: a meta value was refused"
-        }
+        ConvertError::Meta(_) => "an inbound message was dropped: a meta value was refused",
         ConvertError::ReceivedAt { .. } => {
-            "claude-channel: an inbound message was dropped: its receipt time is not RFC3339"
+            "an inbound message was dropped: its receipt time is not RFC3339"
         }
         ConvertError::Token(_) => {
-            "claude-channel: an inbound message was dropped: the entropy repeated a live reply token"
+            "an inbound message was dropped: the entropy repeated a live reply token"
         }
     }
 }
 
-/// The stderr line for a contact card dropped, by its reason: fixed text,
+/// The log line for a contact card dropped, by its reason: fixed text,
 /// one line per reason of the closed set.
 const fn card_dropped(reason: CardDrop) -> &'static str {
     match reason {
-        CardDrop::PhotoSize => "claude-channel: a contact card was dropped: photo_size",
-        CardDrop::PhotoEncoding => "claude-channel: a contact card was dropped: photo_encoding",
-        CardDrop::PhotoMediaType => "claude-channel: a contact card was dropped: photo_media_type",
-        CardDrop::Name => "claude-channel: a contact card was dropped: name",
-        CardDrop::MissingField => "claude-channel: a contact card was dropped: missing_field",
-        CardDrop::StrayMember => "claude-channel: a contact card was dropped: stray_member",
-        CardDrop::DuplicateMember => "claude-channel: a contact card was dropped: duplicate_member",
-        CardDrop::Unreadable => "claude-channel: a contact card was dropped: unreadable",
-        CardDrop::IdentityKey => "claude-channel: a contact card was dropped: identity_key",
-        CardDrop::Signature => "claude-channel: a contact card was dropped: signature",
-        CardDrop::Envelope => "claude-channel: a contact card was dropped: envelope",
-        CardDrop::Broadcast => "claude-channel: a contact card was dropped: broadcast",
+        CardDrop::PhotoSize => "a contact card was dropped: photo_size",
+        CardDrop::PhotoEncoding => "a contact card was dropped: photo_encoding",
+        CardDrop::PhotoMediaType => "a contact card was dropped: photo_media_type",
+        CardDrop::Name => "a contact card was dropped: name",
+        CardDrop::MissingField => "a contact card was dropped: missing_field",
+        CardDrop::StrayMember => "a contact card was dropped: stray_member",
+        CardDrop::DuplicateMember => "a contact card was dropped: duplicate_member",
+        CardDrop::Unreadable => "a contact card was dropped: unreadable",
+        CardDrop::IdentityKey => "a contact card was dropped: identity_key",
+        CardDrop::Signature => "a contact card was dropped: signature",
+        CardDrop::Envelope => "a contact card was dropped: envelope",
+        CardDrop::Broadcast => "a contact card was dropped: broadcast",
     }
 }
 
@@ -623,6 +621,11 @@ impl<B: DataSessionBinding> Bridge<B> {
         let session = match opened {
             Ok(session) => session,
             Err(e) => {
+                // Once per change of cause: a daemon away for an hour is
+                // one line, its retries the debug level's.
+                if self.last_open_error != Some(e) {
+                    self.env.log.write(&Line::OpenFailed(e));
+                }
                 self.last_open_error = Some(e);
                 self.schedule_reconnect();
                 return Ok(());
@@ -691,6 +694,7 @@ impl<B: DataSessionBinding> Bridge<B> {
                 }
                 Some(Err(e)) => {
                     emit.state.left(&channel);
+                    emit.env.log.write(&Line::RejoinRefused(e));
                     rejoin_refused.insert(channel, e);
                 }
                 // Cancelled as the queue filled: not joined until the
@@ -702,6 +706,7 @@ impl<B: DataSessionBinding> Bridge<B> {
             }
         }
         if died {
+            self.env.log.write(&Line::SessionLost);
             self.lease_lost();
             self.health = None;
             self.last_open_error = Some(TransportError::BackendUnavailable);
@@ -711,6 +716,8 @@ impl<B: DataSessionBinding> Bridge<B> {
         self.session = Some(session);
         self.last_open_error = None;
         self.opened_at = Instant::now();
+        let leased = self.state.lease_held().is_some();
+        self.env.log.write(&Line::Opened { leased });
         if let Some((_, epoch)) = self.state.lease_held() {
             let pull = self.config.delivery == Delivery::Pull;
             self.gaps.regained(&epoch, (self.env.now_ms)(), pull);
@@ -728,6 +735,7 @@ impl<B: DataSessionBinding> Bridge<B> {
 
     /// The session ended: its lease with it, and a fresh one is sought.
     fn lost(&mut self) {
+        self.env.log.write(&Line::SessionLost);
         self.session = None;
         self.lease_lost();
         self.health = None;
@@ -736,7 +744,11 @@ impl<B: DataSessionBinding> Bridge<B> {
     }
 
     fn schedule_reconnect(&mut self) {
-        self.reconnect_at = Instant::now() + reconnect_delay(self.attempt);
+        let delay = reconnect_delay(self.attempt);
+        self.env.log.write(&Line::Reconnect {
+            delay_ms: u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
+        });
+        self.reconnect_at = Instant::now() + delay;
         self.attempt = self.attempt.saturating_add(1);
     }
 
@@ -1094,7 +1106,7 @@ impl<B: DataSessionBinding> Bridge<B> {
                 Ok(None) => {}
                 // Bridge-local, as on the push path: dropped and said,
                 // never forwarded in part (CHANNEL-EVENT.md §Content).
-                Err(e) => eprintln!("{}", dropped(&e)),
+                Err(e) => self.env.log.write(&Line::Dropped(dropped(&e))),
             }
         }
         let received = Received {
@@ -1174,6 +1186,7 @@ impl<B: DataSessionBinding> Bridge<B> {
                 .dropped_cards()
                 .map(|(reason, count)| (reason.as_str().to_owned(), Value::from(count)))
                 .collect::<serde_json::Map<String, Value>>(),
+            "log": self.env.log.status(),
         });
         // Absent while the lease has never been lost and regained.
         if let Some(gap) = &self.gaps.gap {
@@ -1296,7 +1309,7 @@ mod tests {
         );
         for case in &cases {
             let line = dropped(case);
-            assert!(line.starts_with("claude-channel: an inbound message was dropped: "));
+            assert!(line.starts_with("an inbound message was dropped: "));
             for carried in [TOKEN, "content_type", "4097", "987654321", "brotli at all"] {
                 assert!(!line.contains(carried), "{line:?} carries {carried:?}");
             }
@@ -1312,10 +1325,7 @@ mod tests {
             let line = dropped(&ConvertError::Card(reason));
             assert_eq!(
                 line,
-                format!(
-                    "claude-channel: a contact card was dropped: {}",
-                    reason.as_str()
-                )
+                format!("a contact card was dropped: {}", reason.as_str())
             );
             assert!(seen.insert(line), "{reason:?} has a line of its own");
         }

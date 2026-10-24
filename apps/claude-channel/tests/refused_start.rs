@@ -5,7 +5,9 @@
 //! held open. Each bad start answers `initialize` with no
 //! `claude/channel` capability, reports its class from `status`, is still
 //! running after its answers, and ends on the first SIGINT. The control:
-//! a start that can work declares the capability.
+//! a start that can work declares the capability. Each reports its log in
+//! `status.log`: a start that named a valid profile and an endpoint
+//! writes its refusal to the log file, `XDG_RUNTIME_DIR` unset included.
 
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used)]
@@ -114,7 +116,16 @@ fn scratch_env(dir: &std::path::Path) -> Vec<(&'static str, std::path::PathBuf)>
     ]
 }
 
-fn assert_refused(args: &[&str], unset: &[&str], class: &str) {
+/// What a refused start's `status.log` says.
+#[derive(Clone, Copy)]
+enum LogFile {
+    /// The file under the profile's state, holding the refusal's line.
+    Written,
+    /// No file, for this class.
+    None(&'static str),
+}
+
+fn assert_refused(args: &[&str], unset: &[&str], class: &str, log: LogFile) {
     let scratch = tempfile::tempdir().expect("tempdir");
     let env = scratch_env(scratch.path());
     let env: Vec<(&str, &std::path::Path)> = env.iter().map(|(k, v)| (*k, v.as_path())).collect();
@@ -138,6 +149,32 @@ fn assert_refused(args: &[&str], unset: &[&str], class: &str) {
         "{class}: {status}"
     );
     assert_eq!(status["refused"]["class"], class, "{status}");
+    match log {
+        LogFile::Written => {
+            let file = scratch
+                .path()
+                .join("state/interweave/profiles/refused/claude-channel/claude.log");
+            assert_eq!(
+                status["log"]["file"],
+                file.to_str().expect("utf8"),
+                "{status}"
+            );
+            let written = std::fs::read_to_string(&file).expect("the log file");
+            assert!(
+                written.contains(" error claude-channel: ")
+                    && written.contains("; serving the refusal"),
+                "{class}: the refusal is in the file: {written}"
+            );
+        }
+        LogFile::None(why) => {
+            assert_eq!(status["log"]["file"], Value::Null, "{status}");
+            assert_eq!(status["log"]["file_error"], why, "{status}");
+            assert!(
+                !scratch.path().join("state").exists(),
+                "{class}: no state directory is made"
+            );
+        }
+    }
     let send = bridge.ask(
         3,
         "tools/call",
@@ -165,7 +202,24 @@ const GOOD: [&str; 6] = [
 
 #[test]
 fn an_unset_runtime_dir_is_served_as_a_refusal() {
-    assert_refused(&GOOD, &["XDG_RUNTIME_DIR"], "runtime_dir_unset");
+    assert_refused(
+        &GOOD,
+        &["XDG_RUNTIME_DIR"],
+        "runtime_dir_unset",
+        LogFile::Written,
+    );
+}
+
+/// `HOME` unset with no `XDG_STATE_HOME`: no state directory can be
+/// derived, so no log file, and `status.log` names the refusal's class.
+#[test]
+fn an_unset_home_is_served_as_a_refusal() {
+    assert_refused(
+        &GOOD,
+        &["HOME", "XDG_STATE_HOME"],
+        "home_unset",
+        LogFile::None("home_unset"),
+    );
 }
 
 #[test]
@@ -181,6 +235,7 @@ fn a_profile_name_that_is_not_valid_is_served_as_a_refusal() {
         ],
         &[],
         "profile_name",
+        LogFile::None("profile_name"),
     );
 }
 
@@ -190,6 +245,7 @@ fn a_usage_error_is_served_as_a_refusal() {
         &["--profile", "refused", "--endpoint", "claude"],
         &[],
         "usage",
+        LogFile::None("no_profile"),
     );
 }
 
@@ -208,4 +264,58 @@ fn the_control_a_start_that_can_work_declares_the_channel() {
     );
     assert_ne!(bridge.status()["endpoint_lease_state"], "bridge refused");
     assert!(bridge.ends_on_sigint());
+}
+
+/// A host gone with its stderr closed is not a panic: the bridge's lines
+/// to the closed pipe are dropped, the file still gets each one, and the
+/// end of stdin ends the process cleanly with its line in the file.
+#[test]
+fn a_closed_stderr_neither_ends_the_bridge_nor_costs_the_file_its_lines() {
+    let scratch = tempfile::tempdir().expect("tempdir");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_claude-channel"));
+    command.args(GOOD).args(["--log-level", "debug"]);
+    for (key, value) in scratch_env(scratch.path()) {
+        command.env(key, value);
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawns");
+    // The read end closed: every stderr write from here is EPIPE.
+    drop(child.stderr.take());
+    let file = scratch
+        .path()
+        .join("state/interweave/profiles/refused/claude-channel/claude.log");
+    // The daemon is away: the bridge writes a failed open and its
+    // reconnects, each to the closed stderr, while it runs.
+    let deadline = Instant::now() + PROMPT;
+    while Instant::now() < deadline
+        && !std::fs::read_to_string(&file)
+            .is_ok_and(|log| log.matches("the next open in").count() >= 2)
+    {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        child.try_wait().expect("waitable").is_none(),
+        "still serving with its stderr closed"
+    );
+    drop(child.stdin.take());
+    let deadline = Instant::now() + PROMPT;
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("waitable") {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "the end of stdin ends it");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(status.success(), "{status}");
+    let log = std::fs::read_to_string(&file).expect("the log file");
+    assert!(log.contains("a session did not open: "), "{log}");
+    assert!(
+        log.trim_end()
+            .ends_with("claude-channel: ended: the host closed stdin"),
+        "{log}"
+    );
 }
