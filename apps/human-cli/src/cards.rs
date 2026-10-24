@@ -16,8 +16,8 @@ use interweave_human_app_core::Update;
 use interweave_human_client_api::{ClientEvent, OutboundStatus};
 use interweave_human_store::RowId;
 use interweave_human_ui_model::{
-    AcceptLine, ContactView, ConversationKey, IdentityView, Intent, ItemStatus, KeyView, PhotoEdit,
-    ProposalItem, ProposalNote, ViewEvent,
+    AcceptLine, ContactView, ConversationKey, IdentityView, Intent, ItemStatus, KeyProblem,
+    KeyView, OwnKey, PhotoEdit, ProposalItem, ProposalNote, ViewEvent,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use serde_json::{Value, json};
@@ -197,12 +197,17 @@ fn contact(c: &ContactView, routes: bool, json: bool) -> String {
 }
 
 fn identity(i: &IdentityView, json: bool) -> String {
+    let (fingerprint, problem) = match &i.key {
+        OwnKey::Ready { fingerprint } => (Some(fingerprint.as_str()), None),
+        OwnKey::Unusable(problem) => (None, Some(key_problem_name(problem))),
+    };
     if json {
         return json_line(&json!({
             "endpoint": i.endpoint.as_str(),
             "name": i.name,
             "has_photo": i.has_photo,
-            "fingerprint": i.fingerprint,
+            "fingerprint": fingerprint,
+            "key_problem": problem,
             "peer": i.peer.as_ref().map(interweave_transport_api::TransportIdentity::as_str),
         }));
     }
@@ -211,11 +216,33 @@ fn identity(i: &IdentityView, json: bool) -> String {
         i.endpoint.as_str(),
         one_line(&i.name),
         if i.has_photo { "yes" } else { "none" },
-        i.fingerprint,
+        fingerprint.map_or_else(
+            || format!(
+                "none: the key cannot be used ({})",
+                problem.unwrap_or("unknown")
+            ),
+            str::to_owned
+        ),
         i.peer
             .as_ref()
             .map_or("not known until the session opens", |p| p.as_str()),
     )
+}
+
+/// A key problem's stable name, for a script and a log line
+/// (design/2026-10-24-identity-key.md section 3's kinds).
+pub(crate) const fn key_problem_name(problem: &KeyProblem) -> &'static str {
+    match problem {
+        KeyProblem::LostOnDevice => "lost-on-device",
+        KeyProblem::BelowDevice => "below-device-protection",
+        KeyProblem::OtherDevice => "other-device",
+        KeyProblem::NewerVersion => "newer-version",
+        KeyProblem::Damaged => "damaged",
+        KeyProblem::Exposed => "exposed",
+        KeyProblem::DirUnsafe { .. } => "key-folder-unsafe",
+        KeyProblem::NotNow => "not-now",
+        KeyProblem::Missing => "missing",
+    }
 }
 
 /// A proposal as `listen` prints it: an event, unread.
