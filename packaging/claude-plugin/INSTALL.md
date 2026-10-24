@@ -5,12 +5,12 @@ This takes a Linux account that has nothing of InterWeave on it to a Claude Code
 
 **Run every step but step 7 as the account that will run Claude Code.** The bridge reads the profile's configuration and connects to the daemon's socket. Both live under that account's own home and runtime directory. Step 7 is the one setting that is host-wide: an administrator writes it as root, once per host. Nothing else is installed system-wide.
 
-What the plugin's steps rest on is measured in SPIKE-001's S19, S20, S21 and S22 ([`spikes/spike-001/README.md`](../../spikes/spike-001/README.md)); the daemon's are `packaging/linux/README.md`'s. What a production host still lacks is in [What this does not give you](#what-this-does-not-give-you).
+What the plugin's steps rest on is measured in SPIKE-001's S19, S20, S21, S22 and S24 ([`spikes/spike-001/README.md`](../../spikes/spike-001/README.md)); the daemon's are `packaging/linux/README.md`'s. What a production host still lacks is in [What this does not give you](#what-this-does-not-give-you).
 
 ## 0. Before you start
 
 - **Linux x86_64, with a systemd user manager for the account.** Log in to the account, or turn on lingering (`loginctl enable-linger <account>`, which an administrator runs). The daemon and the bridge both need `XDG_RUNTIME_DIR`, the directory the user manager provides; `echo "$XDG_RUNTIME_DIR"` must print a path. With it unset, the bridge cannot reach the daemon, and Claude Code does not start it again (SPIKE-001 fact 19): it serves the session without a channel, and its `status` tool reports `bridge refused` with the class `runtime_dir_unset`. There is no fallback directory, on purpose.
-- **Claude Code**, installed for this account and signed in with this account's own credential. The session that loads the channel is an interactive one.
+- **Claude Code**, installed for this account and signed in with this account's own credential. The session that loads the channel is an interactive one, or, once step 7 is in place, a non-interactive one (step 8).
 - **The release archive** `interweave-<version>-x86_64-unknown-linux-gnu.tar.gz` and its `.sha256` file, from the project's release page. It holds the three programs, the two user units, the install scripts, and `claude-plugin/`, the plugin marketplace with the bridge inside it.
 - **One profile name and one TCP port per profile.** Below, the profile is `claude`, the port is `4001`, and the bridge's endpoint is `claude`. The plugin starts the bridge with `--profile default --endpoint claude` unless you change that (step 6).
 
@@ -155,6 +155,16 @@ claude --dangerously-load-development-channels plugin:interweave@interweave
 
 Claude Code then shows "WARNING: Loading development channels", naming `plugin:interweave@interweave`. Choose "1. I am using this for local development" (SPIKE-001 S19).
 
+### Without a terminal
+
+A program that drives Claude Code non-interactively gets the channel too, with step 7 in place:
+
+```sh
+claude -p --input-format stream-json --output-format stream-json --verbose --channels plugin:interweave@interweave
+```
+
+The program writes user turns to its stdin as stream-json and keeps stdin open. A message that arrives while the session is idle, after a turn has ended, starts a turn of its own: the model sees it as a `<channel>` tag and can call `reply` (SPIKE-001 S24, facts 39 and 40). The development flag does nothing here: without step 7 a non-interactive session has no channel, with or without it (fact 41). Such a session logs nothing when it skips a channel, so the only sign is the missing `Channel notifications re-registered after reconnect` line in its debug log (fact 42).
+
 ## Removing it
 
 ```sh
@@ -169,7 +179,7 @@ systemctl --user disable --now interweave-daemon@claude
 ## What this does not give you
 
 - **A channel without the development flag and without the organisation's setting.** The plugin is not on Anthropic's remotely served allowlist, and that has not been asked for. Without step 7, `--channels` is refused (SPIKE-001 S22, fact 33). Step 7 is measured with the file presented to one session at its path, not with a file in a host's own `/etc`, and its `channelsEnabled` refusal is not measured (facts 29 and 32).
-- **A headless session.** Channel events reach the model only in an interactive session (SPIKE-001 fact 4). With step 7 no warning screen is shown, but the session is still an interactive one; with the development flag instead, a person answers its warning.
+- **A headless session without step 7, or one whose input has ended.** A non-interactive session gets the channel only through step 7; the development flag gives it nothing (SPIKE-001 S24, fact 41). It answers a message only while its stdin is open. That is measured for a message arriving after a finished turn (fact 39), not for one arriving during a turn. A plain `claude -p "<prompt>"` ends after its one turn, leaving a later message nowhere to go (fact 44).
 - **A channel after a bad start.** Claude Code starts the bridge once per session (SPIKE-001 fact 19). Once it runs, daemon trouble is a state: a daemon that is away, restarting, or holding the endpoint for another session is retried with a backoff up to 30 s. A wrong start is not retried: `XDG_RUNTIME_DIR` unset, a profile name that is not valid, or a `profile` or `endpoint` setting that is not valid (step 6) gives a session with no channel, whose `status` says `bridge refused` and why. Fix the cause and start a new session. A session started outside a login, from `cron` or `su` for example, has no `XDG_RUNTIME_DIR` unless the caller sets it.
 - **More than one session per endpoint.** The endpoint takes one lease. A second session on the same account and profile gets "endpoint refused" from its bridge's `status` and keeps retrying. It never takes another endpoint. Run one profile, or one endpoint, per session.
 - **Logs of the bridge's own.** The bridge writes its few lines to stderr. It has no log file and no log level. Claude Code keeps those lines as `Server stderr:` entries in `~/.cache/claude-cli-nodejs/<working directory>/mcp-logs-plugin-interweave-interweave/<timestamp>.jsonl`, one file per server start, which is where to look when the channel is not there (SPIKE-001 S21). Its lines carry no message content and no peer or endpoint identifier. The daemon logs to the account's journal (`journalctl --user -u interweave-daemon@<profile>`), at the profile's `observability.log_level`, and never logs a payload.
