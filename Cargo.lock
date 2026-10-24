@@ -3550,6 +3550,7 @@ dependencies = [
  "rusqlite",
  "tempfile",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
