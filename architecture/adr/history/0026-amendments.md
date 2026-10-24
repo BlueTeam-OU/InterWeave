@@ -80,7 +80,7 @@ human client that shows a broadcast log is owed it as much. The record
 now says a session reads what it lost: `session.losses` on the data
 socket under `commands`, IPC 2.11, and `DataSessionPort::losses` at every
 binding — two counts, the copies its own queue dropped or could not
-take, and the broadcasts the ingress gate refused on a channel it held
+take, and the copies the ingress gate refused on a channel it held
 at the time.
 
 Four shapes were rejected, and the reasons are what a later reader
