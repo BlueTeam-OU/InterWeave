@@ -335,7 +335,8 @@ be used". §4.3's sheet: title, "as {identity}", the reason line (with
 | made | the new fingerprint row; `KeyMade` announced once | keyboard; screen reader |
 | failed | the failure line (`KeyNewFailed` or `KeyNewFailedGone`), which is announced by being focused, not again | keyboard; screen reader |
 | Try again, opened | the fingerprint row | keyboard |
-| the `KeyDirUnsafePath` line ("key folder not safe"), on the page or in the share sheet | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
+| the `KeyDirUnsafePath` line ("key folder not safe"), on the page | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
+| the `KeyDirUnsafePath` line, in the share sheet | reached by keyboard in reading order before `KeyCannotShareHere` and the actions, so backwards from Open your card, where the sheet's focus opens; selectable and copyable, it opens nothing | keyboard; screen reader reads it once, with the reason line |
 | Try again, refused again | `KeyNotNowAgain` | keyboard; screen reader |
 | a row under `KeyShareAgainTitle` | the conversation's share sheet, as cards §5.3 opens it | keyboard |
 | Open your card from the sheet | as cards §5.2 | keyboard |
