@@ -55,6 +55,11 @@ fn help_names_every_verb_and_every_exit_code() {
         "contacts delete",
         "peers add|remove",
         "peers show",
+        "identity show",
+        "identity new-key",
+        "--accept-key-change",
+        "contacts route delete",
+        "peers add -|--file",
     ] {
         assert!(help.contains(verb), "{verb} in --help");
     }
@@ -73,6 +78,36 @@ fn a_usage_error_is_exit_2_and_prints_the_usage() {
     assert_eq!(out.status.code(), Some(2));
     assert!(out.stdout.is_empty());
     assert!(String::from_utf8_lossy(&out.stderr).contains("usage:"));
+}
+
+#[test]
+fn batch_fours_flags_out_of_place_are_exit_2() {
+    let xdg = tempfile::tempdir().expect("tempdir");
+    for args in [
+        &[
+            "--profile",
+            "p",
+            "identity",
+            "new-key",
+            "--confirm",
+            "everything",
+        ][..],
+        &[
+            "--profile",
+            "p",
+            "store",
+            "discard",
+            "--confirm",
+            "key-change",
+        ][..],
+        &["--profile", "p", "read", "#c", "--accept-key-change", "u1"][..],
+        &["--profile", "p", "peers", "remove", "--file", "f"][..],
+        &["--profile", "p", "contacts", "route", "delete", "c1", "#c"][..],
+    ] {
+        let out = human(args, xdg.path());
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {out:?}");
+        assert!(out.stdout.is_empty(), "{args:?}");
+    }
 }
 
 #[test]
