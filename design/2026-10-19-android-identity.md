@@ -623,8 +623,9 @@ landscape:
    it into Trust's field.
 4. C3 asks two positions. A wrong word shows `IdCheckWrong` and clears
    the entry. Two right words reach C4. Continue starts the service and
-   opens Connect on a fresh install (no address, no trusted peer), or
-   Chats when either list has an entry.
+   opens Connect when both reads succeed with no address and no trusted
+   peer, Chats when either list has an entry, and Chats with no Connect
+   when either read fails (a test hook).
 5. Back from C2 and returning shows the same words. Process death
    before C4 leaves no identity: the next launch shows W with
    `IdVoidPaper`. So does Back from C1 to W after C2 was shown. A
