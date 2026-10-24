@@ -561,26 +561,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             return Err(Failure::NoIdentityKey);
         }
         let start = new_key_start(
-            cards::own_cards_pending(self.client.store_mut()).map_err(|e| store_failure(&e)),
-            self.client
-                .store_mut()
-                .cards_shared()
-                .map_err(|e| store_failure(&e)),
+            cards::own_cards_pending(self.client.store_mut()),
+            self.client.store_mut().cards_shared(),
+            updates,
         );
-        let (pending, shared) = match start {
-            NewKeyStart::Refused(why) => {
-                updates.push(Update::CardsNotRead(why));
-                self.key_not_made(false, updates);
-                return Ok(());
-            }
-            NewKeyStart::Go {
-                pending,
-                share_again,
-                unread,
-            } => {
-                updates.extend(unread.map(Update::CardsNotRead));
-                (pending, share_again)
-            }
+        let Some((pending, shared)) = start else {
+            self.key_not_made(false, updates);
+            return Ok(());
         };
         for (row, _, _) in &pending {
             // Not sent: the client holds it, so it is withdrawn. Sending
@@ -1105,40 +1092,34 @@ impl<V> ReadCopies<V> {
     }
 }
 
-/// How Make a new key starts, from its two reads (design/2026-10-24-
-/// identity-key.md sections 5.2 and 7).
-#[derive(Debug, PartialEq, Eq)]
-enum NewKeyStart {
-    /// The own cards on their way cannot be read, so none can be
-    /// withdrawn: no key is made.
-    Refused(Failure),
-    /// The key is made: the own cards on their way, where to share the
-    /// card again, and what could not be read.
-    Go {
-        pending: Vec<(RowId, TransportIdentity, EndpointId)>,
-        share_again: Vec<ConversationKey>,
-        unread: Option<Failure>,
-    },
-}
+/// An own card row on its way, with the route it goes to.
+type PendingCard = (RowId, TransportIdentity, EndpointId);
 
-/// The start of Make a new key from its two reads (#423 F4, F5). The
-/// share-again list is every conversation that recorded a share, newest
-/// first, then the conversations of own cards on their way -- or, when the
-/// shares cannot be read, no list at all, never a part of one passed off
-/// as whole: section 5.3's list is "those, and nobody else".
+/// The start of Make a new key from its two reads, as the store gave them
+/// (#423 F4, F5): `None` when the own cards on their way cannot be read --
+/// none can be withdrawn, so no key is made -- else those cards and where
+/// to share the card again. The list is every conversation that recorded a
+/// share, newest first, then the conversations of own cards on their way;
+/// when the shares cannot be read there is no list at all, never a part of
+/// one passed off as whole (section 5.3's "those, and nobody else"). A read
+/// that fails is said in `updates` as [`Update::CardsNotRead`].
 fn new_key_start(
-    pending: Result<Vec<(RowId, TransportIdentity, EndpointId)>, Failure>,
-    shared: Result<Vec<(TransportIdentity, EndpointId, u64)>, Failure>,
-) -> NewKeyStart {
+    pending: Result<Vec<PendingCard>, StoreError>,
+    shared: Result<Vec<(TransportIdentity, EndpointId, u64)>, StoreError>,
+    updates: &mut Vec<Update>,
+) -> Option<(Vec<PendingCard>, Vec<ConversationKey>)> {
     let pending = match pending {
         Ok(pending) => pending,
-        Err(why) => return NewKeyStart::Refused(why),
+        Err(e) => {
+            updates.push(Update::CardsNotRead(store_failure(&e)));
+            return None;
+        }
     };
     let direct = |peer: &TransportIdentity, endpoint: &EndpointId| ConversationKey::Direct {
         peer: peer.clone(),
         endpoint: Some(endpoint.clone()),
     };
-    let (share_again, unread) = match shared {
+    let share_again = match shared {
         Ok(rows) => {
             let mut list: Vec<ConversationKey> = rows
                 .iter()
@@ -1150,15 +1131,14 @@ fn new_key_start(
                     list.push(key);
                 }
             }
-            (list, None)
+            list
         }
-        Err(why) => (Vec::new(), Some(why)),
+        Err(e) => {
+            updates.push(Update::CardsNotRead(store_failure(&e)));
+            Vec::new()
+        }
     };
-    NewKeyStart::Go {
-        pending,
-        share_again,
-        unread,
-    }
+    Some((pending, share_again))
 }
 
 /// What an Undo of a card's answer reads and writes in the store: the
@@ -1597,13 +1577,13 @@ mod tests {
         );
     }
 
-    /// #423 F4, F5: Make a new key starts from its two reads -- refused
-    /// when the own cards on their way cannot be read, made with no list
-    /// when the shares cannot be, and otherwise listing every share newest
+    /// #423 F4, F5: Make a new key starts from its two reads -- no key
+    /// when the own cards on their way cannot be read, no list when the
+    /// shares cannot be, each failure said; otherwise every share newest
     /// first and then the conversations of cards on their way, once each.
     #[test]
     fn a_new_key_starts_from_its_two_reads() {
-        use super::{NewKeyStart, new_key_start};
+        use super::new_key_start;
         let peer = |s: &str| TransportIdentity::parse(s).expect("a PeerId");
         let (p, q) = (
             peer("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"),
@@ -1614,34 +1594,41 @@ mod tests {
             peer: p.clone(),
             endpoint: Some(human.clone()),
         };
+        let corrupt = || StoreError::Corrupt("told to".to_owned());
         let pending = vec![
             (RowId::from_stored(1), q.clone(), human.clone()),
             (RowId::from_stored(2), p.clone(), human.clone()),
         ];
+
+        let mut said = Vec::new();
         assert_eq!(
-            new_key_start(Err(Failure::Corrupt), Ok(Vec::new())),
-            NewKeyStart::Refused(Failure::Corrupt)
+            new_key_start(Err(corrupt()), Ok(Vec::new()), &mut said),
+            None
         );
+        assert_eq!(said, vec![Update::CardsNotRead(Failure::Corrupt)]);
+
+        let mut said = Vec::new();
         assert_eq!(
-            new_key_start(Ok(pending.clone()), Err(Failure::Corrupt)),
-            NewKeyStart::Go {
-                pending: pending.clone(),
-                share_again: Vec::new(),
-                unread: Some(Failure::Corrupt),
-            },
+            new_key_start(Ok(pending.clone()), Err(corrupt()), &mut said),
+            Some((pending.clone(), Vec::new())),
             "no list, never the pending part of one"
         );
         assert_eq!(
+            said,
+            vec![Update::CardsNotRead(Failure::Corrupt)],
+            "and said"
+        );
+
+        let mut said = Vec::new();
+        assert_eq!(
             new_key_start(
                 Ok(pending.clone()),
-                Ok(vec![(p.clone(), human.clone(), 20)])
+                Ok(vec![(p.clone(), human.clone(), 20)]),
+                &mut said
             ),
-            NewKeyStart::Go {
-                pending,
-                share_again: vec![key(&p), key(&q)],
-                unread: None,
-            },
+            Some((pending, vec![key(&p), key(&q)])),
             "every share, then the cards on their way, once each"
         );
+        assert!(said.is_empty());
     }
 }
