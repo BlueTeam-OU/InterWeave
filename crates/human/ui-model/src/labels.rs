@@ -807,6 +807,62 @@ ui_texts! {
     /// SNACKBAR, with Undo, after a Decline: the proposal is gone from
     /// the session unless the person takes it back.
     ConfirmCardDeclined => "Card declined",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 heading
+    KeyStateTitle => "This identity's key cannot be used",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): Android, invalidated or gone; must not claim a cause the client cannot know
+    KeyLostDevice => "This phone no longer allows InterWeave to use this identity's key.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): a downgrade; must say it is refused on purpose, not broken
+    KeyBelowDevice => "This identity's key has weaker protection than this phone requires, so InterWeave does not use it.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): desktop, a sealed record
+    KeyOtherDevice => "This identity's key was saved on another device and works only there, not on this computer.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): must name the way to keep the key before the new-key offer, and say only that a newer version *may* read it (§3: the client cannot know)
+    KeyNewerVersion => "This version of InterWeave cannot use this identity's key, because the key file has a format this version does not know. A newer version may be able to use it. To try to keep the key, update InterWeave first. If you make a new key, you lose this key.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): every damaged or foreign record
+    KeyDamaged => "This identity's key file is not valid, so the key cannot be used.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): a platform error; must suggest trying again, not a loss
+    KeyNotNow => "InterWeave could not use this identity's key. The problem may be temporary. Try again.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): a lost file (§7); must not suggest the person deleted it
+    KeyMissing => "This identity's key is missing from this device.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): after every reason; must say what is blocked and what is not
+    KeyCannotShare => "You can still send and receive messages. You cannot share this card until the key can be used.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 action
+    KeyMakeNew => "Make a new key",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.2 row line
+    KeyStateRow => "Key cannot be used",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.3 sheet
+    KeyCannotShareHere => "You cannot share your card until this identity's key can be used.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.3 primary
+    KeyOpenCard => "Open your card",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1 title
+    KeyNewTitle => "Make a new key for {identity}?",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1; must name the change, the warning they will see, and that nothing happens before a share
+    KeyNewBody => "The next time you share your card with a contact who has it, their app will show a warning that the card might be from someone else. Tell them it was you. Until then, nothing changes for them.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1, every kind but missing
+    KeyNewOld => "The old key will be deleted and cannot be used again.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1, newer version; must say the choice is the update or the loss, and claim no more than *may*
+    KeyNewOldNewer => "A newer version of InterWeave may be able to use the old key. To try to keep it, update InterWeave first. If you make a new key, you lose the old key. Updating later will not bring it back.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1 confirm
+    KeyNewConfirm => "Make a new key",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.2
+    KeyMaking => "Making a new key…",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.3
+    KeyMade => "This identity has a new key. Your contacts have the new key only after you share your card with them again.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.3 list heading
+    KeyShareAgainTitle => "Share your card again in these conversations",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.3, failed before the old file was removed; says nothing about what changed
+    KeyNewFailed => "InterWeave could not make a new key. Choose Make a new key to try again.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3 "not protected"; must say why it is refused, and not suggest fixing the file
+    KeyExposed => "Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order)
+    KeyNewFailedGone => "The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3, desktop only; must be true for a symbolic link, a folder owned by another user account, and a file where the folder should be; must say what to make of it, since the client never changes what it does not own
+    KeyDirUnsafe => "This identity's key must be kept in a regular folder that only your user account owns. The location shown is not a folder like that, so InterWeave does not use the key. Make it a regular folder that only your user account owns, then choose Try again.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 and §4.3, desktop only, the line under 'KeyDirUnsafe' wherever it shows; a label and the path, '{path}' last so no punctuation touches it
+    KeyDirUnsafePath => "Folder location: {path}",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1, only when this identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make (review round 3, F11)
+    KeyNewPending => "In some conversations, your card has not reached the contact yet. If InterWeave has not sent the card yet, making a new key cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it with the old key.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §6
+    KeyNotNowAgain => "InterWeave still could not use the key.",
     /// A conversation's action: send this identity's own card to the
     /// counterparty. Offered in a direct conversation only, never sent
     /// on its own.
@@ -1901,6 +1957,11 @@ mod tests {
             ("max", "64"),
             ("count", "2"),
             ("line", "/ip4/192.168.1.20/tcp/4001/p2p/x"),
+            ("identity", "Ada"),
+            (
+                "path",
+                "/home/ada/.local/state/interweave/default/identity-keys",
+            ),
         ];
         for text in UiText::ALL {
             let filled = fill(placeholder_en::text(*text), &values);
@@ -2000,6 +2061,9 @@ mod tests {
     const ONE_ENGLISH_WORD: &[(UiText, UiText)] = &[
         // The trust settings' heading, a noun; step two's button, a verb.
         (UiText::TrustHeading, UiText::TrustThisPeer),
+        // The card page's action and the confirmation's act: one name for
+        // one act, as the identity-key design's strings give it.
+        (UiText::KeyMakeNew, UiText::KeyNewConfirm),
     ];
 
     #[test]
