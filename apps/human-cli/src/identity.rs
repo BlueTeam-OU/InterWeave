@@ -141,9 +141,20 @@ pub(crate) async fn new_key<B: DataSessionBinding, A: AdminBinding>(
                 endpoint.as_str()
             )));
         }
+        // The one kind the model offers no new key for: the folder is the
+        // person's to fix, and running again opens the key once it is
+        // (design/2026-10-24-identity-key.md section 3;
+        // `a_key_folder_not_safe_is_refused_naming_the_folder`).
+        OwnKey::Unusable(KeyProblem::DirUnsafe { folder }) => {
+            return Err(Failure::Refused(format!(
+                "{}'s key folder {folder} is not a folder only this account owns (key-folder-unsafe): \
+                 make it one, then run the command again; no new key is made",
+                endpoint.as_str()
+            )));
+        }
         OwnKey::Unusable(problem) if !problem.offers_new_key() => {
             return Err(Failure::Refused(format!(
-                "{}'s key cannot be used now ({}): run the command again later",
+                "{} is offered no new key ({})",
                 endpoint.as_str(),
                 key_problem_name(problem)
             )));

@@ -206,6 +206,18 @@ pub(crate) async fn peers(
     json: bool,
     out: &mut String,
 ) -> Result<(), Failure> {
+    // A list is read, and judged by this client's own rules, before any
+    // socket: a list refused by them is exit 1 whether or not a daemon
+    // runs, and no admin connection waits on a slow pipe.
+    let list = match verb {
+        Verb::PeerAddList(ListSource::Stdin) => Some(address_list(std::io::stdin().lock())?),
+        Verb::PeerAddList(ListSource::File(path)) => {
+            Some(address_list(std::fs::File::open(path).map_err(|e| {
+                Failure::Refused(format!("the list file: {e}"))
+            })?)?)
+        }
+        _ => None,
+    };
     let binding = IpcBinding::new(
         SocketPaths {
             data: profile.data_socket.clone(),
@@ -231,14 +243,8 @@ pub(crate) async fn peers(
                 .map_err(refused)?;
             out.push_str(&change_line(&change)?);
         }
-        Verb::PeerAddList(source) => {
-            let lines = match source {
-                ListSource::Stdin => address_list(std::io::stdin().lock())?,
-                ListSource::File(path) => address_list(
-                    std::fs::File::open(path)
-                        .map_err(|e| Failure::Refused(format!("the list file: {e}")))?,
-                )?,
-            };
+        Verb::PeerAddList(_) => {
+            let lines = list.unwrap_or_default();
             out.push_str(&add_list(lines, |l| port.add_bootstrap_addresses(l)).await?);
         }
         Verb::PeerRemove(address) => {

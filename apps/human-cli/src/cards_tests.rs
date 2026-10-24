@@ -849,3 +849,38 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
         "nothing written: {out}"
     );
 }
+
+#[tokio::test]
+async fn a_key_folder_not_safe_is_refused_naming_the_folder() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let alice = Side::new(a);
+    let fingerprint = alice.key().fingerprint().to_string();
+    // identity-keys/ made a link to the real folder: not one this account
+    // alone owns as a folder, which the client never follows or changes.
+    let keys = alice.paths().state_dir().join("identity-keys");
+    let real = alice.paths().state_dir().join("identity-keys.real");
+    std::fs::rename(&keys, &real).expect("moved");
+    std::os::unix::fs::symlink(&real, &keys).expect("linked");
+    let file = real.join("human.key");
+    let before = std::fs::read(&file).expect("read");
+
+    let mut s = alice.session_from_file();
+    let (out, shown) = run(&mut s, Verb::IdentityShow(None), true).await;
+    assert!(matches!(shown, Err(Failure::Refused(_))), "{shown:?}");
+    assert_eq!(lines(&out)[0]["key_problem"], "key-folder-unsafe", "{out}");
+    let (out, refused) = run(&mut s, Verb::IdentityNewKey { confirm: true }, false).await;
+    match &refused {
+        Err(Failure::Refused(why)) => {
+            assert!(why.contains("key-folder-unsafe"), "{why}");
+            assert!(why.contains("identity-keys"), "the folder named: {why}");
+            assert!(!why.contains("later"), "{why}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(out.is_empty(), "{out}");
+    s.close().await;
+    assert_eq!(std::fs::read(&file).expect("read"), before, "the key stays");
+    std::fs::remove_file(&keys).expect("unlinked");
+    std::fs::rename(&real, &keys).expect("moved back");
+    assert_eq!(alice.key().fingerprint().to_string(), fingerprint);
+}
