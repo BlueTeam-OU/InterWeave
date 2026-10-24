@@ -189,13 +189,22 @@ async fn added_address_survives_a_restart<D: Device>(a: &mut Side<D>, b: &mut Si
 
 /// One step of the second row, both sides at once.
 fn pair_step<D: Device>(
-    a: &Side<D>,
-    b: &Side<D>,
+    a: &mut Side<D>,
+    b: &mut Side<D>,
     a_args: &PairArgs,
     b_args: &PairArgs,
 ) -> [serde_json::Map<String, serde_json::Value>; 2] {
     let on_a = a.device.run_case(cases::PAIR, &a_args.to_json());
     let on_b = b.device.run_case(cases::PAIR, &b_args.to_json());
+    // In a crossing, A sends the close and ends once B has left, and B
+    // ends on reading it: so B's result first, then B ended -- which a
+    // device's process does with its case, and a stand-in's runtime does
+    // not -- then A's.
+    if matches!(a_args.expect, PairExpect::Crosses { first: true, .. }) {
+        let on_b = on_b.result();
+        b.device.kill();
+        return [on_a.result(), on_b];
+    }
     [on_a.result(), on_b.result()]
 }
 
@@ -227,11 +236,12 @@ fn fresh_pair_connects_after_trust<D: Device>(a: &mut Side<D>, b: &mut Side<D>, 
         b_peer.as_str(),
         b.address()
     );
+    let (a_at, b_at) = (a.address(), b.address());
     let [on_a, on_b] = pair_step(
-        a,
-        b,
-        &step(&b_peer, Some(b.address()), false, PairExpect::Apart(window)),
-        &step(&a_peer, Some(a.address()), false, PairExpect::Apart(window)),
+        &mut *a,
+        &mut *b,
+        &step(&b_peer, Some(b_at), false, PairExpect::Apart(window)),
+        &step(&a_peer, Some(a_at), false, PairExpect::Apart(window)),
     );
     passed(&on_a, "A, neither trusting", &log(a, b));
     passed(&on_b, "B, neither trusting", &log(a, b));
@@ -244,8 +254,8 @@ fn fresh_pair_connects_after_trust<D: Device>(a: &mut Side<D>, b: &mut Side<D>, 
     );
 
     let [on_a, on_b] = pair_step(
-        a,
-        b,
+        &mut *a,
+        &mut *b,
         &step(&b_peer, None, true, PairExpect::Apart(window)),
         &step(&a_peer, None, false, PairExpect::Apart(window)),
     );
@@ -270,8 +280,8 @@ fn fresh_pair_connects_after_trust<D: Device>(a: &mut Side<D>, b: &mut Side<D>, 
         first,
     };
     let [on_a, on_b] = pair_step(
-        a,
-        b,
+        &mut *a,
+        &mut *b,
         &step(&b_peer, None, false, crosses(true)),
         &step(&a_peer, None, true, crosses(false)),
     );
@@ -283,7 +293,8 @@ fn fresh_pair_connects_after_trust<D: Device>(a: &mut Side<D>, b: &mut Side<D>, 
         "both trust"
     );
     println!(
-        "both trusting: a message crossed each way; A's row {}, B's {}",
+        "both trusting: a message crossed each way; A's close {}; A's row {}, B's {}",
+        on_a[keys::CLOSE],
         on_a[keys::LAST_OUTCOME],
         on_b[keys::LAST_OUTCOME]
     );
