@@ -185,18 +185,18 @@ of its actions, for as long as it takes; it is not cancellable, since a
 half-made key is the one outcome the step must never leave. The rest of
 the page stays usable.
 
-What the step does to files and the Keystore is architect-cto's
-(Q-file, Q-order in §12): with one alias per identity, sealing a new
-key on Android replaces the old wrapping key, so the old key may be
-gone before the new one is stored. What the person sees of it is this
-note's, and it holds whatever the order: **after any interruption or
-failure — the app killed, the device off, a write refused — the
-identity either has its new key or is in this state, with the line of
-whatever kind the next open finds (which may differ from before, since
-the old key may be gone). Never "made" without the key the next start
-opens, and never a key that opens while the page says it cannot.** The
-client never reports success before the new key is stored where the
-next start will open it.
+The step, in architect-cto's order (Q-order, §12), on both platforms:
+the person confirms; the old file is removed (on Android the new seal
+would destroy the old wrapping key anyway, one alias per identity); the
+new key is created. **Every point the step can stop at resolves to a
+state the person already knows**: stopped before the removal, the
+identity is in this state as before; after the removal and before the
+new key is stored, the next open finds no file, and since the share
+record is still there it is the "missing" state, never a silent new
+key (§7), where the person confirms again; after, it has its new key.
+The client never shows "made" without a key it can open, and never
+shows a key it holds but cannot open. It never reports success before
+the new key is stored where the next start will open it.
 
 Its own pending cards go with the old key: every own-card row of this
 identity that has not reached Accepted by remote transport (cards §5.3:
@@ -221,11 +221,17 @@ on this page until the person leaves it; it is not stored.
 
 **Failed** (the key could not be made or stored — `Random`, a cipher or
 storage refusal): the client opens the key file again and the block
-shows the kind that open finds (§5.2), with `KeyNewFailed` under the
-actions in `error` ("InterWeave could not make a new key. Try again.") and
-**Make a new key** again. It never says nothing changed: on Android the
-old key may already be gone. Pending cards cancelled by the step stay
-cancelled; they could only have delivered the old key.
+shows the kind that open finds, with the failure line under the
+actions in `error` and **Make a new key** again:
+
+- the old file was already removed: the kind is "missing", and the
+  line is `KeyNewFailedGone` — the saved key is gone and a new one was
+  not made — so the person is not told less than happened;
+- the old file is still there (the step stopped before removing it):
+  the kind as before, and the line is `KeyNewFailed`.
+
+Pending cards cancelled by the step stay cancelled; they could only
+have delivered the old key.
 
 ## 6. Try again ("temporarily unusable")
 
@@ -243,8 +249,8 @@ actions; with another kind: that kind's block.
   identity is in this state, with its own line.
 - **A missing key file** (Q-missing, architect-cto's): a key is made
   silently only for an identity that has never shared its card —
-  `card_shared_at` absent on every conversation that speaks as it, and
-  no accepted-card route holding its key as the counterparty's record.
+  `card_shared_at` absent on every conversation that speaks as it (the
+  share record alone, architect-cto's Q-route).
   Any other identity without its file is in this state as "missing",
   so its contacts are never shown a key change the person was not told
   of first. The same holds when the whole `identity-keys/` directory is
@@ -286,7 +292,7 @@ be used". §4.3's sheet: title, "as {identity}", the reason line,
 | dialog cancelled (Cancel, Back, Escape, scrim) | Make a new key | keyboard |
 | confirmed, while `KeyMaking` shows | the block's progress line (the button that held focus is gone) | keyboard; screen reader announces `KeyMaking` once |
 | made | the new fingerprint row; `KeyMade` announced once | keyboard; screen reader |
-| failed | `KeyNewFailed`, which is announced by being focused, not again | keyboard; screen reader |
+| failed | the failure line (`KeyNewFailed` or `KeyNewFailedGone`), which is announced by being focused, not again | keyboard; screen reader |
 | Try again, opened | the fingerprint row | keyboard |
 | Try again, refused again | `KeyNotNowAgain` | keyboard; screen reader |
 | a row under `KeyShareAgainTitle` | the conversation's share sheet, as cards §5.3 opens it | keyboard |
@@ -341,15 +347,16 @@ On both clients unless said; Android's screen-reader checks blocked as
 7. After 6, B's Share sends a card that the counterparty's client shows
    as a key change with the old and new fingerprints (§13's key-change
    criterion), and A's counterparty sees nothing until A shares.
-8. Killed during `KeyMaking`, at each point the step can be cut
-   (before the seal, between the seal and the write, after the write):
-   the next start shows either the new key's fingerprint or this state
-   with the line of what the open then finds; never a fingerprint
-   that a share then contradicts, and never this state while the new
-   key opens.
-9. Making the key fails (a test seam that fails the store's write):
-   `KeyNewFailed`, the block with the kind the next open finds, Make a
-   new key offered; the text does not say nothing changed.
+8. Killed during `KeyMaking`, at each point the step can be cut:
+   before the removal, the next start shows this state as before;
+   after the removal and before the new key is stored, the "missing"
+   state (the identity had shared its card), with no key made by
+   itself; after, the new key's fingerprint. Never a fingerprint that
+   a share then contradicts, and never this state while a key opens.
+9. Making the key fails after the removal (a test seam that fails the
+   new key's write): "missing" with `KeyNewFailedGone` and Make a new
+   key; failing before the removal (a seam that fails it):
+   the previous kind with `KeyNewFailed`.
 10. A key that cannot be opened transiently (a test seam returning a
     platform cipher error once): `KeyNotNow` and Try again; Try again
     opens it and shows the fingerprint.
@@ -394,8 +401,9 @@ label without one (cards §5.7.6).
 | `KeyMaking` | Making a new key… | §5.2 |
 | `KeyMade` | This identity has a new key. Your contacts have the new key only after you share your card with them again. | §5.3 |
 | `KeyShareAgainTitle` | Share your card again in these conversations | §5.3 list heading |
-| `KeyNewFailed` | InterWeave could not make a new key. Try again. | §5.3 failed; must not say nothing changed (on Android the old key may be gone; the reason line above says what is true now) |
+| `KeyNewFailed` | InterWeave could not make a new key. Try again. | §5.3, failed before the old file was removed; says nothing about what changed |
 | `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
+| `KeyNewFailedGone` | placeholder: Your old key was deleted, but InterWeave could not make a new key. Try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order); awaiting language-culture-en |
 | `KeyNewPending` | In some conversations, your card has not been sent yet. Making a new key cancels it there, because that card is signed with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport |
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
 
@@ -437,24 +445,17 @@ the same day, as read here:
   confirmed new key. ADR-0063 decision 1 is amended with that on
   architect-cto's branch.
 
-Asked after review round 1 (QUESTION to architect-cto, 2026-10-24),
-the note built on the reading given:
+Asked after review round 1 (QUESTION 01a16d92), answered by
+architect-cto (REPLY 01a16d93) the same day:
 
-- **Q-order**: Q-file's "the new key written first, then the old file
-  removed and its alias retired" cannot hold as written with one alias
-  per identity: on Android, sealing the new key deletes the old
-  wrapping key at that alias first (`KeystoreCipher.seal`), and
-  retiring the alias after the write would delete the new key's. Read
-  here: the person-facing guarantee of §5.2 (the new key, or this state
-  with what the next open finds; never "made" without it), and no claim
-  that nothing changed on failure; the order of seal, write and remove
-  is architect-cto's and rust-ui-dev's.
-- **Q-exposed**: a key file the read refuses as not private ("not
-  protected", §3). Read here: refused, a new key offered, and no offer
-  to tighten the file, since the key may already have been read.
-- **Q-route**: Q-missing's "no accepted-card route holding its key as
-  the counterparty's record" names a record this client may not hold
-  (its `contact_routes.identity_key` holds counterparties' keys). Read
-  here: `card_shared_at` on any of the identity's conversations, or an
-  own-card row ever sent, is the test; asked which store record the
-  second clause means.
+- **Q-order**: "new key first" withdrawn, since one alias per identity
+  makes it impossible on Android. The order on both platforms: confirm,
+  remove the old file, create the new key; a stop after the removal is
+  the "missing" state at the next open, confirmed again, never a silent
+  key; the failure line then says the saved key is gone and the new one
+  was not made (§5.2, §5.3).
+- **Q-exposed**: confirmed as read: refused, a new key offered, no
+  offer to tighten the file; the reason is one sentence (§3).
+- **Q-route**: the share record alone, `card_shared_at` on any
+  conversation that speaks as the identity; the accepted-card clause is
+  gone from the ADR amendment (§7).
