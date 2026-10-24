@@ -794,6 +794,15 @@ pub struct Peers {
     show_drew: Option<TransportIdentity>,
 }
 
+/// Whether a code's text is an address list at all -- every line, once
+/// trimmed, a multiaddr -- before any rule judges the lines: a code that
+/// is not leaves the viewfinder open with `ScanNotAddress` (§5.5).
+#[must_use]
+pub fn is_address_list(text: &str) -> bool {
+    let lines = lines_of(text);
+    !lines.is_empty() && lines.iter().all(|l| l.starts_with('/'))
+}
+
 /// The field's lines as the add sends them: each line ending (LF, CR LF
 /// or CR) ends a line, each line trimmed of spaces and tabs, empty lines
 /// dropped.
@@ -1296,7 +1305,7 @@ impl Peers {
     /// first, then the runtime's.
     pub fn scanned(&mut self, text: &str, trust: &TrustSettings) -> (ScanVerdict, Option<Intent>) {
         let lines = lines_of(text);
-        if lines.is_empty() || lines.iter().any(|l| !l.starts_with('/')) {
+        if !is_address_list(text) {
             // The viewfinder stays open on such a code; an image is
             // read once, so its scan ends with the reason (§5.5).
             let from_image = self.page.as_ref().is_some_and(|p| {
