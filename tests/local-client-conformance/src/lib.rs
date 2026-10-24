@@ -1012,8 +1012,9 @@ async fn losses_until<S: DataSessionPort>(
 /// phase publishes `queue_bound + 3` within the ingress burst (32 at the
 /// runtime's per-peer default), so it overflows without being refused;
 /// the flood then publishes 64 at once, past what the bucket holds.
-/// Both counts are lower bounds, so each phase asserts a rise, never an
-/// exact number: the mesh may lose a copy before admission, uncounted.
+/// Each phase asserts a rise, never an exact number: the mesh may lose a
+/// copy before admission, uncounted. What a republish does to each count
+/// is the runtime's `a_republished_*` tests in `broadcast_inbound`.
 pub async fn session_losses_rise_and_never_fall<B: DataSessionBinding>(
     publisher: &B,
     receiver: &B,

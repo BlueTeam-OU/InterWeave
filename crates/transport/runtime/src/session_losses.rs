@@ -2,16 +2,23 @@
 // Copyright 2026 Andrea Benetton
 //! The broadcasts a data session lost, counted (IPC 2.11 `session.losses`).
 //!
-//! Two classes, each a monotonic lower bound for one session:
+//! Two classes, each monotonic for one session, promising different
+//! things (ADR-0026 A 2026-10-24):
 //!
 //! - `queue_overflow`: copies the session's own queue lost, its oldest
 //!   dropped to take a newer one or a copy refused for want of a queue.
 //!   Counted by [`crate::session_queue::SessionQueues::push`], the one
 //!   place every inbound and local copy is queued, so no delivery path
-//!   can lose a copy without counting it.
-//! - `ingress_refused`: broadcasts the ingress gate refused (over the
+//!   can lose a copy without counting it. The broadcast was admitted and
+//!   its dedup entry recorded, so within the dedup window a republish is
+//!   a duplicate: a lower bound on broadcasts lost.
+//! - `ingress_refused`: copies the ingress gate refused (over the
 //!   publisher's rate, or while draining) on a channel the session held
-//!   when the refusal happened.
+//!   when the refusal happened. A refusal records no dedup entry, so a
+//!   republish may still be delivered and each refused copy counts: a
+//!   signal, never a count of distinct losses.
+//!
+//! `broadcast_inbound`'s `a_republished_*` tests pin both.
 //!
 //! # A refusal costs one increment, whoever had joined
 //!
@@ -37,8 +44,7 @@
 //!
 //! What GossipSub drops before a message reaches admission (validation,
 //! mesh, the backend's own queue), a conflicting body, and a duplicate.
-//! Both counts are lower bounds: zero means none counted, never none
-//! lost.
+//! So zero means none counted, never none lost.
 
 use std::collections::BTreeMap;
 

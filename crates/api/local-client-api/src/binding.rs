@@ -194,8 +194,9 @@ pub struct SessionLosses {
     /// Copies this session's own queue dropped (its oldest, to take a
     /// newer one) or could not queue.
     pub queue_overflow: u64,
-    /// Broadcasts the ingress gate refused -- over the publisher's rate,
-    /// or while draining -- on a channel this session held at the time.
+    /// Copies the ingress gate refused -- over the publisher's rate, or
+    /// while draining -- on a channel this session held at the time; a
+    /// republish of a refused id may still be delivered.
     pub ingress_refused: u64,
 }
 
@@ -297,7 +298,8 @@ pub trait DataSessionPort {
     ) -> impl Future<Output = Result<EndpointDirectoryV1, TransportError>> + Send;
 
     /// The broadcasts this session has lost since it opened: two
-    /// monotonic lower bounds, never falling while the session lives
+    /// monotonic counts, never falling while the session lives, the
+    /// overflow a lower bound on losses and the refusals a signal
     /// ([`SessionLosses`]; `session.losses`, IPC 2.11).
     ///
     /// The default answers `ProtocolUnsupported`, never zeros: a binding

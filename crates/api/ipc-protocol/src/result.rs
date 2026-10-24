@@ -821,14 +821,15 @@ impl TryFrom<LeaseRecord> for LeaseRow {
 }
 
 /// `ipc/session-losses-result` (2.11): the broadcasts this
-/// connection's session has lost since it opened, two monotonic lower
-/// bounds (the neutral API's [`interweave_local_client_api::SessionLosses`]).
+/// connection's session has lost since it opened, two monotonic counts:
+/// the overflow a lower bound on losses, the refusals a signal (the
+/// neutral API's [`interweave_local_client_api::SessionLosses`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionLossesResult {
     /// Copies the session's queue dropped or could not queue.
     pub queue_overflow: u64,
-    /// Broadcasts the ingress gate refused on a channel the session held.
+    /// Copies the ingress gate refused on a channel the session held.
     pub ingress_refused: u64,
 }
 

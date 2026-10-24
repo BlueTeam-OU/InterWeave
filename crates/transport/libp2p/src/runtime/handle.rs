@@ -966,7 +966,7 @@ impl SwarmCommander {
     }
 
     /// Read one session's broadcast losses since its first join: the two
-    /// monotonic lower bounds IPC 2.11's `session.losses` answers.
+    /// monotonic counts IPC 2.11's `session.losses` answers.
     ///
     /// # Errors
     /// [`SubstrateError::Stopped`] if the task is gone.
