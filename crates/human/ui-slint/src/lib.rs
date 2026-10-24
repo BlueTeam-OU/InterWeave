@@ -409,6 +409,8 @@ struct Shared {
     haptic: Option<Rc<dyn Fn()>>,
     /// The model's snackbar as last rendered, drawn or not.
     snack: Option<SnackUp>,
+    /// An Accept's snackbar whose timeout waits on focus (#416).
+    accept_snack: Option<AcceptSnack>,
     /// The window, to take a snackbar off screen when an input that closes
     /// it is queued.
     window: slint::Weak<AppWindow>,
@@ -416,6 +418,22 @@ struct Shared {
 
 /// A snackbar, as the queue judges what closes it.
 #[derive(Clone)]
+/// An Accept's snackbar's clock (contact-cards design section 5.4.2):
+/// its full timeout runs only while focus is outside the span from its
+/// confirmation row to its Undo, starting again in full each time focus
+/// leaves the span, and it closes by `cap` whatever focus does.
+struct AcceptSnack {
+    id: u64,
+    /// The confirmation row's handle as last drawn.
+    handle: Option<i32>,
+    /// The time up, from the platform's setting.
+    ms: u64,
+    /// When its timeout ends, while focus is outside the span.
+    deadline: Option<Instant>,
+    /// Two minutes after the Accept (message-swipe section 6's cap).
+    cap: Instant,
+}
+
 struct SnackUp {
     id: u64,
     /// The conversation it is shown in; `None` on the list.
@@ -777,6 +795,8 @@ pub struct View {
     outcome_seen: Option<u64>,
     /// The snackbar whose timeout is running.
     snack_timed: Option<u64>,
+    /// Polls an Accept's snackbar's clock while it is up.
+    accept_timer: slint::Timer,
     /// Rows whose Keep or Unkeep was raised by the row's own button and
     /// not answered yet: its outcome moves focus to the row wherever
     /// focus is (§7). Only rows still drawn are kept.
@@ -1050,6 +1070,7 @@ impl View {
             rendered_shown: None,
             outcome_seen: None,
             snack_timed: None,
+            accept_timer: slint::Timer::default(),
             pressed: HashSet::new(),
             undo_closed_seen: None,
         })
@@ -2346,9 +2367,38 @@ impl View {
             self.snack_timed = Some(s.id);
             let (shared, id) = (Rc::clone(&self.shared), s.id);
             let ms = self.shared.borrow().touch.snackbar_ms;
-            slint::Timer::single_shot(Duration::from_millis(ms), move || {
-                enqueue(&shared, Input::SnackClosed(id));
-            });
+            if swipe::is_accept(s.confirms) && s.card.is_some() {
+                self.start_accept_clock(id, ms);
+            } else {
+                slint::Timer::single_shot(Duration::from_millis(ms), move || {
+                    enqueue(&shared, Input::SnackClosed(id));
+                });
+            }
+        }
+        // The Accept clock follows its snackbar: the row's handle as drawn
+        // now, and nothing once another snackbar or none is up.
+        let row_handle = snack
+            .as_ref()
+            .and_then(|s| s.card)
+            .and_then(|row| self.cards.drawn_rows.get(&row))
+            .map(|(handle, _)| *handle);
+        let current = snack.as_ref().map(|s| s.id);
+        let stale = {
+            let mut shared = self.shared.borrow_mut();
+            match shared.accept_snack.as_mut() {
+                Some(a) if Some(a.id) == current => {
+                    a.handle = row_handle;
+                    false
+                }
+                Some(_) => {
+                    shared.accept_snack = None;
+                    true
+                }
+                None => false,
+            }
+        };
+        if stale {
+            self.accept_timer.stop();
         }
         window.set_hide_conversation_shown(
             self.on_screen()
@@ -2435,6 +2485,58 @@ impl View {
             self.window.set_focus_id(SharedString::new());
         }
         said.flatten()
+    }
+
+    /// Run Accept snackbar `id`'s clock (contact-cards design section
+    /// 5.4.2, #416): a poll that closes it once focus has spent its full
+    /// time up `ms` outside the span from the confirmation row to the
+    /// Undo, or two minutes after the Accept whatever focus does
+    /// (`an_accept_snackbar_waits_while_focus_is_in_its_span`).
+    fn start_accept_clock(&self, id: u64, ms: u64) {
+        let now = (self.monotonic)();
+        self.shared.borrow_mut().accept_snack = Some(AcceptSnack {
+            id,
+            handle: None,
+            ms,
+            deadline: None,
+            cap: now + Duration::from_millis(gesture::SNACKBAR_MAX_MS),
+        });
+        let (shared, window, monotonic) = (
+            Rc::clone(&self.shared),
+            swipe::weak(&self.window),
+            Rc::clone(&self.monotonic),
+        );
+        self.accept_timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(100),
+            move || {
+                let Some(window) = window.upgrade() else {
+                    return;
+                };
+                let focus = window.get_focus_id();
+                let now = monotonic();
+                let closes = {
+                    let mut s = shared.borrow_mut();
+                    let Some(a) = s.accept_snack.as_mut() else {
+                        return;
+                    };
+                    if swipe::in_accept_span(focus.as_str(), a.handle) {
+                        a.deadline = None;
+                    } else if a.deadline.is_none() {
+                        a.deadline = Some(now + Duration::from_millis(a.ms));
+                    }
+                    let due = now >= a.cap || a.deadline.is_some_and(|d| now >= d);
+                    let id = a.id;
+                    if due {
+                        s.accept_snack = None;
+                    }
+                    due.then_some(id)
+                };
+                if let Some(id) = closes {
+                    enqueue(&shared, Input::SnackClosed(id));
+                }
+            },
+        );
     }
 
     /// Move focus to `focus` once the rows it names are drawn: whether it

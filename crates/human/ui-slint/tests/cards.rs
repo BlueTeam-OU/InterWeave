@@ -953,3 +953,82 @@ fn a_cards_answer_shows_its_snackbar_and_undo_draws_the_proposal_again() {
     assert!(shows(&view, text(UiText::CardPhotoNotUsed)));
     assert_eq!(view.window().get_focus_target().as_str(), "answer:0");
 }
+
+/// Step the view's monotonic clock and its timers by `by`.
+fn step(clock: &std::rc::Rc<std::cell::Cell<std::time::Instant>>, by: std::time::Duration) {
+    clock.set(clock.get() + by);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(150));
+    slint::platform::update_timers_and_animations();
+}
+
+/// Contact-cards design 5.4.2 and section 8 as #416 settles them: after
+/// Accept the confirmation row carries `CardUndoHint` while the snackbar
+/// is open, and the snackbar's timeout waits while focus is between the
+/// row and its Undo; once focus leaves that span the full time runs, and
+/// two minutes after the Accept it closes whatever focus does.
+/// Mutation: the single-shot timeout kept for Accept, or the hint dropped.
+#[test]
+fn an_accept_snackbar_waits_while_focus_is_in_its_span() {
+    let clock = std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now()));
+    let mut view = view();
+    let c = std::rc::Rc::clone(&clock);
+    view.set_monotonic(move || c.get());
+    let mut model = UiModel::new();
+    let accept = |view: &mut View, model: &mut UiModel, n: i64| {
+        model.card_received(proposal(n, P, card("Ada", false), context()));
+        let _ = shown(view, model, P);
+        press(view, text(UiText::CardAccept));
+        let _ = intents(view, model);
+        model.card_resolved(
+            row(n),
+            CardOutcome::Accepted {
+                contact_id: "c1".to_owned(),
+                created: true,
+                photo_dropped: false,
+            },
+        );
+        model.contacts_listed(vec![contact("c1", "Ada", P)]);
+        view.render(model);
+        settle();
+    };
+    accept(&mut view, &mut model, 1);
+    let saved = fill(text(UiText::CardAccepted), &[("name", &isolated("Ada"))]);
+    let row_line = labelled(&view, &saved);
+    assert_eq!(
+        row_line[0].accessible_description().as_deref(),
+        Some(text(UiText::CardUndoHint)),
+        "the hint says where Undo is"
+    );
+    view.window().set_focus_id("answer:0".into());
+    step(&clock, std::time::Duration::from_secs(10));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        model.snackbar().is_some(),
+        "waits while focus is on the row"
+    );
+    view.window().set_focus_id("composer".into());
+    step(&clock, std::time::Duration::from_secs(10));
+    let _ = intents(&mut view, &mut model);
+    assert!(model.snackbar().is_some(), "and on the composer");
+
+    view.window().set_focus_id("heading".into());
+    step(&clock, std::time::Duration::from_millis(100));
+    step(&clock, std::time::Duration::from_secs(7));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        model.snackbar().is_none(),
+        "the full time ran outside the span"
+    );
+    assert!(
+        labelled(&view, &saved)[0]
+            .accessible_description()
+            .is_none_or(|d| d.is_empty()),
+        "the hint goes with the snackbar"
+    );
+
+    accept(&mut view, &mut model, 2);
+    view.window().set_focus_id("undo".into());
+    step(&clock, std::time::Duration::from_secs(121));
+    let _ = intents(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "closed by two minutes");
+}

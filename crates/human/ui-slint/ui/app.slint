@@ -94,6 +94,9 @@ export struct ProposalRow {
     answered: bool,
     answer: string,
     photo-note: string,
+    // While the Accept's snackbar is open: where its Undo is, read as the
+    // confirmation line's description (design section 5.4.2), or empty.
+    hint: string,
 }
 
 // A contact in the Contacts list.
@@ -1962,6 +1965,7 @@ component FocusLine inherits FocusScope {
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
     }
     in property <string> text;
+    in property <string> description;
     in property <string> focus-key;
     in property <bool> rtl;
     in property <int> focus-seq;
@@ -1972,6 +1976,7 @@ component FocusLine inherits FocusScope {
     callback focused(string);
     accessible-role: AccessibleRole.text;
     accessible-label: root.text;
+    accessible-description: root.description;
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
@@ -2021,6 +2026,7 @@ component ProposalCard inherits Rectangle {
         spacing: 8px;
         FocusLine {
             text: root.card.answer;
+            description: root.card.hint;
             rtl: root.rtl;
             focus-key: "answer:" + root.card.handle;
             focus-seq: root.focus-seq;

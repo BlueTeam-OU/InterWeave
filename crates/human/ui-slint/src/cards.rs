@@ -270,12 +270,13 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
         answered: false,
         answer: SharedString::new(),
         photo_note: SharedString::new(),
+        hint: SharedString::new(),
     }
 }
 
 /// The confirmation row an Accept left in its proposal's place (design
 /// section 5.4.2): `name` is the contact's name as it stands.
-fn answer_row(handle: i32, a: &CardAnswer, name: &str) -> ProposalRow {
+fn answer_row(handle: i32, a: &CardAnswer, name: &str, hinted: bool) -> ProposalRow {
     let template = if a.created {
         UiText::CardAccepted
     } else {
@@ -290,6 +291,11 @@ fn answer_row(handle: i32, a: &CardAnswer, name: &str) -> ProposalRow {
         } else {
             SharedString::new()
         },
+        hint: if hinted {
+            text(UiText::CardUndoHint).into()
+        } else {
+            SharedString::new()
+        },
         ..ProposalRow::default()
     }
 }
@@ -300,14 +306,16 @@ fn answer_row(handle: i32, a: &CardAnswer, name: &str) -> ProposalRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Entry {
     Proposal(ProposalItem),
-    Answer(CardAnswer, String),
+    /// The answer, its contact's name, and whether its Accept's snackbar
+    /// is open (its Undo hint read with it).
+    Answer(CardAnswer, String, bool),
 }
 
 impl Entry {
     fn place(&self) -> (u64, RowId) {
         match self {
             Self::Proposal(p) => (p.received_at, p.row),
-            Self::Answer(a, _) => (a.received_at, a.row),
+            Self::Answer(a, _, _) => (a.received_at, a.row),
         }
     }
 }
@@ -517,6 +525,11 @@ impl View {
     }
 
     fn render_proposals(&mut self, model: &UiModel, window: &AppWindow) {
+        // The card whose Accept's snackbar is open, with its Undo.
+        let undo_open_for = model
+            .snackbar()
+            .filter(|s| s.undo && crate::swipe::is_accept(s.confirms))
+            .and_then(|s| s.card);
         let mut shown: Vec<Entry> = match (&self.page, &self.shown) {
             (crate::Page::Conversation, Some(key)) => model
                 .proposals(key)
@@ -527,7 +540,8 @@ impl View {
                         .contact(&a.contact_id)
                         .map(|c| c.name.clone())
                         .unwrap_or_default();
-                    Entry::Answer(a, name)
+                    let hinted = undo_open_for == Some(a.row);
+                    Entry::Answer(a, name, hinted)
                 }))
                 .collect(),
             _ => Vec::new(),
@@ -547,9 +561,9 @@ impl View {
                 .map(|(i, entry)| {
                     let handle = i32::try_from(i).unwrap_or(i32::MAX);
                     let p = match entry {
-                        Entry::Answer(a, name) => {
+                        Entry::Answer(a, name, hinted) => {
                             handles.insert(a.row, (handle, true));
-                            return answer_row(handle, a, name);
+                            return answer_row(handle, a, name, *hinted);
                         }
                         Entry::Proposal(p) => p,
                     };
