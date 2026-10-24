@@ -1502,11 +1502,10 @@ impl View {
                 // waiting for confirmation: none is made from a page the
                 // person left.
                 Input::TrustPage(open) => {
-                    if open
-                        && self.page == Page::Peers
-                        && let Some(close) = leaving_peers_closes(model)
-                    {
-                        out.push(close);
+                    // Show is never left open behind the trust settings
+                    // (#409 F1); an add page there stays, as it did.
+                    if open && self.page == Page::Peers && model.peers().show().is_some() {
+                        out.push(ViewEvent::Peers(PeersInput::CloseShow));
                     }
                     self.page = if open {
                         Page::Trust
