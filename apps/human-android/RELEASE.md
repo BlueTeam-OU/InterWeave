@@ -13,8 +13,8 @@ and under which licences, is `STORE-CHECK.md`.
 | | |
 |---|---|
 | application id | `org.interweave.human`, for the app's whole life: a person's update installs over the same id and key, and a new id is a new app beside the old one, its data not carried |
-| version name | the release tag's version, `MAJOR.MINOR.PATCH` (today `0.0.0`, unreleased) |
-| version code | strictly increasing per release, never reused: Android refuses an update whose code is not higher than the installed one |
+| version name | the release version, `MAJOR.MINOR.PATCH[-pre-release]` with no build metadata (ADR-0065): produced by `android/app/build.gradle.kts` from the root `Cargo.toml`'s `[workspace.package] version` (today `0.1.0`, unreleased), never typed by hand; the build refuses a workspace version outside that grammar, and its `verify<Variant>VersionName` fails an APK whose merged manifest says otherwise. The tag is `v` and that version, and `release_android_apk.sh` refuses an APK whose `versionName` is not the tag's |
+| version code | not a version (ADR-0065 decision 5): a counter committed in `android/app/build.gradle.kts`, raised by one for every APK published, pre-releases included, never reused and never derived from the version name: Android refuses an update whose code is not higher than the installed one |
 | ABI | `arm64-v8a` only, as `android/app/build.gradle.kts` builds |
 | file | `interweave-<version>-arm64-v8a.apk` |
 

@@ -15,6 +15,7 @@ use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
 /// The usage text, every verb and the exit codes.
 pub(crate) const USAGE: &str = "\
 usage:
+  interweave-human --version
   interweave-human --profile <name> status [--json]
   interweave-human --profile <name> conversations [--json]
   interweave-human --profile <name> messages <conversation> [--json]
@@ -72,6 +73,8 @@ Exit codes:
 pub(crate) enum Command {
     /// Print the usage and exit 0.
     Help,
+    /// Print the version and exit 0.
+    Version,
     /// A verb against one profile.
     Run {
         /// The profile.
@@ -249,11 +252,30 @@ pub(crate) fn conversation_text(key: &ConversationKey) -> String {
     }
 }
 
+/// `--version` alone, or a usage error; `None` when the line asks no
+/// version. Judged over every flag before a `--`, ahead of anything else,
+/// so neither `--help` beside it nor a flag taking it as a value decides
+/// (transport-daemon's rule, #386 review). After `--` it is a word, as a
+/// message's text may be.
+fn version_request(args: &[String]) -> Option<Result<Command, String>> {
+    args.iter()
+        .take_while(|a| *a != "--")
+        .any(|a| a == "--version")
+        .then(|| match args {
+            [_] => Ok(Command::Version),
+            _ => Err("--version takes no other argument".to_owned()),
+        })
+}
+
 /// Parse the arguments after the program name.
 ///
 /// # Errors
 /// A message naming what is wrong: exit code 2.
 pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String> {
+    let args: Vec<String> = args.into_iter().collect();
+    if let Some(version) = version_request(&args) {
+        return version;
+    }
     let mut flags = Flags::default();
     let mut words = Vec::new();
     let mut args = args.into_iter();
@@ -720,6 +742,29 @@ mod tests {
             let error = run(&args).expect_err("refused");
             assert!(!error.contains("horse"), "{args:?}: {error}");
         }
+    }
+
+    #[test]
+    fn version_is_alone_or_a_usage_error() {
+        assert_eq!(run(&["--version"]), Ok(Command::Version));
+        for args in [
+            &["--version", "--profile", "p", "status"][..],
+            &["--profile", "p", "status", "--version"][..],
+            &["--help", "--version"][..],
+            &["--version", "--help"][..],
+            &["--profile", "--version", "status"][..],
+            &["--version", "--version"][..],
+        ] {
+            assert!(run(args).is_err(), "{args:?}");
+        }
+        // After `--`, a word: here a message's text.
+        assert!(matches!(
+            run(&["--profile", "p", "send", "#c", "--", "--version"]),
+            Ok(Command::Run {
+                verb: Verb::Send { .. },
+                ..
+            })
+        ));
     }
 
     #[test]
