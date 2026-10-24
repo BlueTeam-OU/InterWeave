@@ -6355,7 +6355,14 @@ decodes to this node's addresses and PeerId and nothing else, none of a
 refused class; a removed address is dialled no more without a restart,
 and an authored one cannot be removed; `transportctl` lists what the
 app added; two phones on one LAN, each fresh, connect after each has
-scanned the other and trusted the shown PeerId, and not before.
+scanned the other and trusted the shown PeerId, and not before —
+"connect" being a connection the data plane admits on which a
+message crosses: a TCP and Noise handshake the untrusted side closes
+at establishment is the refusal itself, since a peer is classed only
+once Noise has authenticated it (A 2026-10-24, measured in
+`tests/android-e2e/runs/2026-10-24-pixel-9a-a40-wifi-fresh-pair.md`,
+#417: with one side trusting, nothing crossed and the dialler's row
+read connected once before the close).
 
 ### Record
 
