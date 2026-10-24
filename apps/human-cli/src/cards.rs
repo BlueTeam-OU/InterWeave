@@ -20,6 +20,7 @@ use interweave_human_ui_model::{
     KeyView, OwnKey, PhotoEdit, ProposalItem, ProposalNote, ViewEvent,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_transport_api::{EndpointId, TransportIdentity};
 use serde_json::{Value, json};
 
 use crate::Failure;
@@ -662,6 +663,46 @@ pub(crate) async fn contact_delete<B: DataSessionBinding, A: AdminBinding>(
     s.step().await;
     problems(s)?;
     let _ = writeln!(out, "{id} deleted");
+    Ok(())
+}
+
+/// `contacts route delete`: one route of a contact, as the model offers
+/// it, and never the last, which goes only with the contact
+/// (`a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete`).
+pub(crate) async fn route_delete<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    id: &str,
+    peer: &TransportIdentity,
+    endpoint: &EndpointId,
+    out: &mut String,
+) -> Result<(), Failure> {
+    let c = s
+        .model()
+        .contact(id)
+        .ok_or_else(|| Failure::Refused("no contact has that id".to_owned()))?;
+    if !c
+        .routes
+        .iter()
+        .any(|r| &r.peer == peer && &r.endpoint == endpoint)
+    {
+        return Err(Failure::Refused(
+            "the contact holds no such route (see contacts show)".to_owned(),
+        ));
+    }
+    let intent = s.model().delete_route(id, peer, endpoint).ok_or_else(|| {
+        Failure::Refused(format!(
+            "that is the contact's only route: contacts delete {id} removes the contact"
+        ))
+    })?;
+    s.will(move |_| vec![ViewEvent::Intent(intent)]);
+    s.step().await;
+    problems(s)?;
+    let _ = writeln!(
+        out,
+        "{}/{} deleted from {id}",
+        peer.as_str(),
+        endpoint.as_str()
+    );
     Ok(())
 }
 

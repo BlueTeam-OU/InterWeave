@@ -786,3 +786,66 @@ fn another_identitys_key_is_read_and_never_made() {
         key.fingerprint().to_string().as_str()
     );
 }
+
+#[tokio::test]
+async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
+    let (alice, bob, mut b_run) = Box::pin(shared()).await;
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    run(&mut b_run, read_with(alice.route(), &[&id], &[]), false)
+        .await
+        .1
+        .expect("accepted");
+    let (out, _) = run(&mut b_run, Verb::Contacts, true).await;
+    let contact = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    b_run.close().await;
+    // No flow makes a second route yet (moving one is Stage 22's): it is
+    // seeded as the store's writer inserts one.
+    let other = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer id");
+    let conn = rusqlite::Connection::open(bob.dir.path().join("human.sqlite3")).expect("open");
+    conn.execute(
+        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
+         VALUES (?1, ?2, 'human', ?3)",
+        rusqlite::params![contact, other.as_str(), [7_u8; 32].as_slice()],
+    )
+    .expect("seeded");
+    drop(conn);
+
+    let mut s = bob.session();
+    let delete = |peer: &TransportIdentity, endpoint: &str| Verb::RouteDelete {
+        contact: contact.clone(),
+        peer: peer.clone(),
+        endpoint: EndpointId::parse(endpoint).expect("valid"),
+    };
+    let (_, unknown) = run(&mut s, delete(&other, "other"), false).await;
+    assert!(matches!(unknown, Err(Failure::Refused(_))), "{unknown:?}");
+    let (out, deleted) = run(&mut s, delete(&other, "human"), false).await;
+    deleted.expect("deleted");
+    assert_eq!(
+        out,
+        format!("{}/human deleted from {contact}\n", other.as_str())
+    );
+    let (out, _) = run(&mut s, Verb::ContactShow(contact.clone()), true).await;
+    let routes = lines(&out)[0]["routes"].clone();
+    assert_eq!(routes.as_array().expect("routes").len(), 1, "{out}");
+    assert_eq!(routes[0]["peer"], alice.node.peer().as_str());
+
+    let (out, last) = run(&mut s, delete(alice.node.peer(), "human"), false).await;
+    match &last {
+        Err(Failure::Refused(why)) => {
+            assert!(why.contains(&format!("contacts delete {contact}")), "{why}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(out.is_empty(), "{out}");
+    s.close().await;
+    let mut next = bob.session();
+    let (out, _) = run(&mut next, Verb::ContactShow(contact), true).await;
+    assert_eq!(
+        lines(&out)[0]["routes"].as_array().expect("routes").len(),
+        1,
+        "nothing written: {out}"
+    );
+}

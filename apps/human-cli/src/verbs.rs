@@ -100,6 +100,11 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
             crate::cards::contact_edit(s, id, Some(name), None, out).await
         }
         Verb::ContactDelete(id) => crate::cards::contact_delete(s, id, out).await,
+        Verb::RouteDelete {
+            contact,
+            peer,
+            endpoint,
+        } => crate::cards::route_delete(s, contact, peer, endpoint, out).await,
         Verb::ContactPhoto(id, photo) => {
             crate::cards::contact_edit(s, id, None, Some(photo), out).await
         }
@@ -220,6 +225,7 @@ const fn command_name(command: &Command) -> &'static str {
         Command::SetOwnCard { .. } => "editing the own card",
         Command::RenameContact { .. } => "renaming a contact",
         Command::DeleteContact(_) => "deleting a contact",
+        Command::DeleteRoute { .. } => "deleting a route",
         Command::SetContactPhoto { .. } => "setting a contact's photo",
     }
 }

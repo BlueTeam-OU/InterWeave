@@ -45,6 +45,7 @@ usage:
   interweave-human --profile <name> contacts rename <contact> <name>
   interweave-human --profile <name> contacts photo <contact> <file>|--none
   interweave-human --profile <name> contacts delete <contact>
+  interweave-human --profile <name> contacts route delete <contact> <peer>/<endpoint>
   interweave-human --profile <name> peers [--json]
   interweave-human --profile <name> peers add|remove <address>
   interweave-human --profile <name> peers add -|--file <file>
@@ -193,6 +194,15 @@ pub(crate) enum Verb {
     ContactPhoto(String, PhotoArg),
     /// Delete a contact, its routes and their keys.
     ContactDelete(String),
+    /// Delete one route of a contact and its key; never the last.
+    RouteDelete {
+        /// The contact.
+        contact: String,
+        /// The route's `PeerId`.
+        peer: TransportIdentity,
+        /// The route's `EndpointId`.
+        endpoint: EndpointId,
+    },
     /// The bootstrap addresses: authored and added (ADR-0062).
     PeersList,
     /// This node's own addresses, as another node's `peers add` takes
@@ -477,6 +487,23 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         ["peers", "add", address] => (Verb::PeerAdd((*address).to_owned()), false),
         ["peers", "remove", address] => (Verb::PeerRemove((*address).to_owned()), false),
         ["contacts", "delete", id] => (Verb::ContactDelete((*id).to_owned()), false),
+        ["contacts", "route", "delete", id, route] => {
+            let ConversationKey::Direct {
+                peer,
+                endpoint: Some(endpoint),
+            } = conversation(route)?
+            else {
+                return Err("a route is <peer>/<endpoint>, as contacts show prints it".to_owned());
+            };
+            (
+                Verb::RouteDelete {
+                    contact: (*id).to_owned(),
+                    peer,
+                    endpoint,
+                },
+                false,
+            )
+        }
         ["contacts", "photo", id, file] => (
             Verb::ContactPhoto((*id).to_owned(), PhotoArg::File((*file).into())),
             false,
@@ -653,6 +680,7 @@ mod tests {
             &["--profile", "p", "contacts", "photo", "c1", "a.jpg"],
             &["--profile", "p", "contacts", "photo", "c1", "--none"],
             &["--profile", "p", "contacts", "delete", "c1"],
+            &["--profile", "p", "contacts", "route", "delete", "c1", &c],
             &["--profile", "p", "peers", "--json"],
             &[
                 "--profile",
@@ -703,6 +731,7 @@ mod tests {
             "contacts rename",
             "contacts photo",
             "contacts delete",
+            "contacts route delete",
             "peers add|remove",
             "peers add -|--file",
         ] {
@@ -772,6 +801,26 @@ mod tests {
             vec!["--profile", "p", "status", "--photo", "x"],
             vec!["--profile", "p", "messages", &c, "--keep", "u1"],
             vec!["--profile", "p", "status", "--none"],
+            vec!["--profile", "p", "contacts", "route", "delete", "c1", PEER],
+            vec![
+                "--profile",
+                "p",
+                "contacts",
+                "route",
+                "delete",
+                "c1",
+                "#general",
+            ],
+            vec![
+                "--profile",
+                "p",
+                "contacts",
+                "route",
+                "delete",
+                "c1",
+                &c,
+                "--json",
+            ],
             vec![
                 "--profile",
                 "p",
