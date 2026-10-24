@@ -19,7 +19,9 @@ Configuration, by environment:
   legacy one) the channel event is sent; default 3000.
 
 It declares ``experimental["claude/channel"]`` and ``tools`` in both
-eras, so the only difference a client sees is the era. Written in
+eras. With ``SPIKE_ERA=modern`` its results also carry the modern
+fields (below) whichever era the client negotiates, so a client pinned
+to legacy against it (S23's c) sees them too. Written in
 Python rather than added to stub/ because stub/ is SPIKE-001's own
 driver; this one is S23's.
 """
@@ -81,9 +83,10 @@ def main():
             continue
         record("in", msg)
         method, id_ = msg.get("method", ""), msg.get("id")
-        # Results in the modern era carry what its schemas require: a
-        # resultType on every result, the cache fields on a listing; a
-        # legacy client is sent neither.
+        # A modern stub's results carry what the 2026-07-28 schemas require:
+        # a resultType on every result, the cache fields on a listing. Keyed
+        # on SPIKE_ERA, not on the era negotiated, so a legacy client of a
+        # modern stub is sent them too (S23's c); a legacy stub sends neither.
         complete = {"resultType": "complete"} if ERA == "modern" else {}
         cache = {**complete, "ttlMs": 0, "cacheScope": "private"} if ERA == "modern" else {}
         if method == "server/discover" and id_ is not None:
