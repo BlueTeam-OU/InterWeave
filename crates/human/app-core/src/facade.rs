@@ -388,7 +388,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Err(e) => Err(store_failure(&e)),
             Ok(now) if now != *shown => {
                 let received_at = held.received_at();
-                updates.push(Update::ReceivedCard(Box::new(Proposal {
+                // Judged again, not received: a row the model has let go
+                // is not brought back.
+                updates.push(Update::ProposalJudged(Box::new(Proposal {
                     row,
                     peer: peer.clone(),
                     endpoint: endpoint.clone(),

@@ -442,6 +442,24 @@ async fn two_cards_on_one_route_before_any_accept_never_take_the_second_key_unse
         },
         "given again as the key change it now is"
     );
+    // Given again as judged, never as a card received anew, so a row the
+    // model has let go is not brought back. Mutation: the refusal handing
+    // it over as ReceivedCard.
+    assert!(
+        bob.updates
+            .iter()
+            .any(|u| matches!(u, Update::ProposalJudged(p) if p.row == two)),
+        "{:?}",
+        bob.updates
+    );
+    assert_eq!(
+        bob.updates
+            .iter()
+            .filter(|u| matches!(u, Update::ReceivedCard(p) if p.row == two))
+            .count(),
+        1,
+        "received once, when it arrived"
+    );
     // Accepted as shown now, it writes: the copy was put back.
     bob.will(Intent::AcceptCard(two));
     bob.pump(8).await;

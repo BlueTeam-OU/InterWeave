@@ -303,6 +303,6 @@ pub enum Failure {
     /// What Accept would do changed since the proposal was shown -- another
     /// card accepted on its route, a key recorded, a contact renamed.
     /// Nothing was written, and the proposal is given again as it stands
-    /// ([`Update::ReceivedCard`]) for the person to decide.
+    /// ([`Update::ProposalJudged`]) for the person to decide.
     ProposalChanged,
 }
