@@ -79,7 +79,8 @@ mapped here, and nothing else refuses at open:
 | sealed by another device | `SealedUnreadableHere` | desktop | `KeyOtherDevice` | Make a new key |
 | possibly a newer version's | `UnsupportedVersion(v)` with `v` above this build's version; `UnknownCustody` | both | `KeyNewerVersion` | Make a new key (its confirmation differs, §5.1) |
 | damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal (a file its owner cannot read) | both | `KeyDamaged` | Make a new key |
-| not protected | the read's `NotPrivate`: readable or writable by another user, a link, another user's file, or an `identity-keys/` directory that is not private | both (in practice the desktop) | `KeyExposed` | Make a new key (which first makes the directory private, §5.2) |
+| not protected | the read's `NotPrivate` for the file (readable or writable by another user, a link, another user's file), or for an `identity-keys/` directory this user owns with a loose mode | both (in practice the desktop) | `KeyExposed` | Make a new key (which first makes such a directory owner-only, §5.2) |
+| key folder not safe | the read's `NotPrivate` for an `identity-keys/` that is a link, or a directory another user owns | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder; no new key |
 | temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but the two below | both | `KeyNotNow` | Try again, then Make a new key |
 | missing | no file, for an identity that has shared its card (§7) | both | `KeyMissing` | Make a new key |
 
@@ -118,6 +119,9 @@ Where the page shows the identity's fingerprint (`human-client-ui.md`
 - for "temporarily unusable": **Try again** (`TryAgain`, filled
   tonal), and **Make a new key** (`KeyMakeNew`) as a text button after
   it;
+- for "key folder not safe": **Try again** (`TryAgain`, filled tonal)
+  alone; a new key cannot be made there until the folder is fixed, and
+  Try again opens the key once more, as in §6;
 - for every other kind: **Make a new key** (`KeyMakeNew`), filled
   tonal (not filled: Save stays the page's one filled button).
 
@@ -192,10 +196,10 @@ half-made key is the one outcome the step must never leave. The rest of
 the page stays usable.
 
 The step, in architect-cto's order (Q-order, §12), on both platforms:
-the person confirms; when the read refused the `identity-keys/`
-directory as not private, the directory is made private first (owner
-only, a real directory and not a link; Q-dir, §12), since nothing can
-be removed or created in it otherwise; the old file is removed (on Android the new seal
+the person confirms; when `identity-keys/` is a real directory this
+user owns with a loose mode, the client makes it owner-only first
+(Q-dir, §12), since nothing can be removed or created in it otherwise;
+the old file is removed (on Android the new seal
 would destroy the old wrapping key anyway, one alias per identity); the
 new key is created. **Every point the step can stop at resolves to a
 state the person already knows**: stopped before the removal, the
@@ -400,12 +404,18 @@ On both clients unless said; Android's screen-reader checks blocked as
 15. Desktop: `identity-keys/` at mode 0755 shows `KeyExposed`; Make a
     new key makes the directory owner-only and the key, and the next
     start opens it.
+16. Desktop: `identity-keys/` replaced by a link to a private directory
+    shows `KeyDirUnsafe` with the path and Try again, and no Make a new
+    key; the link is not followed, changed or replaced; after the
+    person puts a private directory there, Try again shows the state
+    the open then finds.
 
 ## 10. Strings
 
 The Text column is language-culture-en's final English (2026-10-24);
 the third column is what it must say. `{identity}` is the identity's card name, or its route
-label without one (cards §5.7.6).
+label without one (cards §5.7.6); `{path}` is the folder's full path
+as the platform shows it, isolated as a path, never translated.
 
 | Key | Text | Where; must say |
 |---|---|---|
@@ -433,6 +443,7 @@ label without one (cards §5.7.6).
 | `KeyNewFailed` | InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed before the old file was removed; says nothing about what changed |
 | `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
 | `KeyNewFailedGone` | The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order) |
+| `KeyDirUnsafe` | placeholder: The folder that holds this identity's key, {path}, is a link or belongs to another user, so InterWeave does not use it. Replace it with a folder that only you own, then choose Try again. | §3, desktop only; must name the folder by its path and what to make of it, since the client never changes what it does not own; awaiting language-culture-en |
 | `KeyNewPending` | In some conversations, your card has not been sent yet. Making a new key cancels it there, because that card is signed with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport |
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
 
@@ -491,10 +502,12 @@ architect-cto (REPLY 01a16d93) the same day:
 
 Asked after review round 2, the note built on the reading given:
 
-- **Q-dir**: a non-private `identity-keys/` directory makes every
-  removal and creation in it refuse, so Make a new key could never
-  succeed from "not protected". Read here: the step first makes the
-  directory private (owner only, a real directory; a link replaced by a
-  new private directory), then proceeds; if that is refused,
-  `KeyNewFailed`. Whether the client may change the directory, or the
-  state must instead tell a desktop person to, is architect-cto's.
+- **Q-dir**: a non-private `identity-keys/` makes every removal and
+  creation in it refuse. Answered by architect-cto (REPLY 01a16d9b):
+  a real directory this user owns with a loose mode is made owner-only
+  by the client as the step's first part, asking nothing; a link, or a
+  directory another user owns, is refused with no new key and a line of
+  its own (`KeyDirUnsafe`, desktop only) naming what to make private
+  and where, with Try again; the client never follows or replaces a
+  link there and never changes what it does not own. `KeyNewFailed`
+  stays for a tightening or a create the platform refuses.
