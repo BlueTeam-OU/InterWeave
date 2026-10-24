@@ -5,7 +5,7 @@ topic: "agent-prompt-is-literal"
 description: An Agent dispatch prompt is literal text; $(cat file) is not expanded, so paste the rendered review brief itself
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

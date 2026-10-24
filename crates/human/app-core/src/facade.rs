@@ -11,18 +11,24 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
+use interweave_human_chat_protocol::Card;
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{
     ClientEvent, Destination, Diagnostics, Inbound, OutboundUpdate, RowError, SendError,
+    SessionState,
 };
 use interweave_human_store::identity_key::IdentityKey;
-use interweave_human_store::{ReadEphemeral, RowId, StoreError};
+use interweave_human_store::{AcceptUndo, HumanStore, ReadEphemeral, RowId, StoreError};
 use interweave_human_transport_client::{CancelledSend, TransportClient};
-use interweave_human_ui_model::{ConversationKey, PhotoEdit, Proposal, ProposalContext, Table};
+use interweave_human_ui_model::{
+    ContactView, ConversationKey, PhotoEdit, Proposal, ProposalContext, Table,
+};
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_transport_api::{EndpointId, TransportIdentity};
 
 use crate::protocol::{Command, Failure, Listing, Update};
 use crate::{cards, listing};
+use interweave_human_ui_model::CardOutcome;
 
 /// How many read-and-unkept copies the facade side holds for a later
 /// Keep, at most. Each is a message's content, up to the 48 KiB payload
@@ -69,6 +75,20 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// creates it at start (`identity_key`), and without it nothing is
     /// shared.
     identity: Option<IdentityKey>,
+    /// The last Accept or Decline, held for its Undo until its snackbar
+    /// closes ([`Command::ForgetCard`]) or the next one replaces it: one
+    /// snackbar is up at a time, so one is held (message-swipe design
+    /// section 6).
+    card_undo: Option<Box<CardUndo>>,
+}
+
+/// What the Undo of an Accept or a Decline needs: the card's read copy,
+/// which the proposal returns with, and for an Accept what the store
+/// writes back.
+struct CardUndo {
+    row: RowId,
+    held: ReadEphemeral,
+    accept: Option<AcceptUndo>,
 }
 
 impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
@@ -87,6 +107,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             reported: None,
             outbound: BTreeMap::new(),
             identity: None,
+            card_undo: None,
         }
     }
 
@@ -167,6 +188,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             } else {
                 self.outbound.insert(update.row, update.clone());
             }
+        }
+        if matches!(event, ClientEvent::Session(SessionState::Ready { .. }))
+            && let Some(peer) = self.client.local_peer()
+        {
+            updates.push(Update::ThisDevice(peer.clone()));
         }
         updates.push(Update::Client(event));
         if relist {
@@ -304,8 +330,43 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 });
                 Ok(())
             }
+            Command::ReadAddresses => {
+                let answer = Box::pin(self.client.addresses()).await;
+                updates.push(Update::AddressesRead(answer));
+                Ok(())
+            }
+            Command::ReadOwnAddresses => {
+                let answer = Box::pin(self.client.own_addresses()).await;
+                updates.push(Update::OwnAddressesRead(answer));
+                Ok(())
+            }
+            Command::AddAddresses(lines) => {
+                // One add, all or none, whatever its lines (ADR-0062
+                // decision 4): the facade chooses the method.
+                let answer = Box::pin(self.client.add_addresses(lines.clone())).await;
+                updates.push(Update::AddressesAdded {
+                    lines: lines.clone(),
+                    answer,
+                });
+                Ok(())
+            }
+            Command::RemoveAddress(address) => {
+                let answer = Box::pin(self.client.remove_address(address.clone())).await;
+                updates.push(Update::AddressRemoved {
+                    address: address.clone(),
+                    answer,
+                });
+                Ok(())
+            }
             Command::AcceptCard { row, shown } => self.accept_card(*row, shown, &mut updates),
             Command::DeclineCard(row) => self.decline_card(*row, &mut updates),
+            Command::UndoCard(row) => self.undo_card(*row, &mut updates),
+            Command::ForgetCard(row) => {
+                if self.card_undo.as_ref().is_some_and(|u| u.row == *row) {
+                    self.card_undo = None;
+                }
+                Ok(())
+            }
             Command::ShareCard(key) => Box::pin(self.share_card(key, now, &mut updates)).await,
             Command::SetOwnCard {
                 name,
@@ -354,7 +415,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Err(e) => Err(store_failure(&e)),
             Ok(now) if now != *shown => {
                 let received_at = held.received_at();
-                updates.push(Update::ReceivedCard(Box::new(Proposal {
+                // Judged again, not received: a row the model has let go
+                // is not brought back.
+                updates.push(Update::ProposalJudged(Box::new(Proposal {
                     row,
                     peer: peer.clone(),
                     endpoint: endpoint.clone(),
@@ -367,20 +430,37 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Ok(_) => {
                 let mut accepted = cards::accepted(&peer, &endpoint, &card);
                 accepted.photo = cards::kept_photo(&card);
+                let photo_dropped = card.photo.is_some() && accepted.photo.is_none();
                 store
                     .accept_card(&accepted, at)
-                    .map(|_| ())
+                    .map(|a| (a, photo_dropped))
                     .map_err(|e| store_failure(&e))
             }
         };
-        if let Err(why) = written {
-            self.copies.insert((Table::Unread, row), held);
-            return Err(why);
-        }
-        updates.push(Update::CardResolved(row));
-        updates.push(Update::ContactsListed(
-            cards::contact_views(self.client.store_mut()).map_err(|e| store_failure(&e))?,
-        ));
+        let (accepted, photo_dropped) = match written {
+            Ok(written) => written,
+            Err(why) => {
+                self.copies.insert((Table::Unread, row), held);
+                return Err(why);
+            }
+        };
+        updates.push(Update::CardResolved {
+            row,
+            outcome: CardOutcome::Accepted {
+                contact_id: accepted.contact_id,
+                created: accepted.created,
+                photo_dropped,
+            },
+        });
+        self.card_undo = Some(Box::new(CardUndo {
+            row,
+            held,
+            accept: Some(accepted.undo),
+        }));
+        // The Accept is written: a contacts list that cannot be read now is
+        // a problem of its own, never a refusal of what was done (#414 F8).
+        updates.push(contacts_update(self.client.store_mut()));
+        self.proposals_again(updates);
         Ok(())
     }
 
@@ -388,9 +468,58 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// and writes nothing to the contacts.
     fn decline_card(&mut self, row: RowId, updates: &mut Vec<Update>) -> Result<(), Failure> {
         let at = (self.wall)();
-        self.held_card(row, at)?;
-        updates.push(Update::CardResolved(row));
+        let (held, _) = self.held_card(row, at)?;
+        self.card_undo = Some(Box::new(CardUndo {
+            row,
+            held,
+            accept: None,
+        }));
+        updates.push(Update::CardResolved {
+            row,
+            outcome: CardOutcome::Declined,
+        });
         Ok(())
+    }
+
+    /// Undo the last Accept or Decline, of `row`, by [`undo_answer`]'s
+    /// rule: refused only while the store wrote nothing, which keeps what
+    /// the Undo needs; done once the store wrote it, whatever reading
+    /// afterwards does.
+    fn undo_card(&mut self, row: RowId, updates: &mut Vec<Update>) -> Result<(), Failure> {
+        let Some(undo) = self.card_undo.take_if(|u| u.row == row) else {
+            return Err(Failure::NoSuchRow);
+        };
+        let Some((peer, endpoint, card)) = cards::card_of(&undo.held) else {
+            self.card_undo = Some(undo);
+            return Err(Failure::NotACard);
+        };
+        let answer = UndoneAnswer {
+            row,
+            peer,
+            endpoint,
+            card,
+            received_at: undo.held.received_at(),
+        };
+        match undo_answer(
+            self.client.store_mut(),
+            answer,
+            undo.accept.as_ref(),
+            updates,
+        ) {
+            Err(why) => {
+                self.card_undo = Some(undo);
+                Err(why)
+            }
+            Ok(restored) => {
+                if restored {
+                    self.copies.insert((Table::Unread, row), undo.held);
+                }
+                if undo.accept.is_some() {
+                    self.proposals_again(updates);
+                }
+                Ok(())
+            }
+        }
     }
 
     /// The content of a card's row, its durable copy gone, and whether
@@ -538,6 +667,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates.push(Update::ContactsListed(
             cards::contact_views(store).map_err(|e| store_failure(&e))?,
         ));
+        self.proposals_again(updates);
         Ok(())
     }
 
@@ -565,6 +695,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates.push(Update::ContactsListed(
             cards::contact_views(store).map_err(|e| store_failure(&e))?,
         ));
+        self.proposals_again(updates);
         Ok(())
     }
 
@@ -595,7 +726,55 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates.push(Update::ContactsListed(
             cards::contact_views(store).map_err(|e| store_failure(&e))?,
         ));
+        self.proposals_again(updates);
         Ok(())
+    }
+
+    /// Every card proposal still held, judged again against the store
+    /// after the person changed a contact -- an Accept, a rename, a photo,
+    /// a delete: a proposal shows what Accept would do as the store stood
+    /// when it was judged, and a card that matched its contact (case S,
+    /// Close alone) must offer Accept again once the contact is gone or
+    /// another card on its route changed it. Those not yet shown
+    /// are in the store; those shown and undecided are this session's
+    /// copies. The model replaces each it still holds, by its row
+    /// ([`Update::ProposalJudged`]).
+    fn proposals_again(&mut self, updates: &mut Vec<Update>) {
+        match listing::list_unread(self.client.store_mut()) {
+            Ok((_, unshown, _)) => {
+                for card in unshown {
+                    updates.push(match cards::proposal(self.client.store_mut(), card) {
+                        Ok(proposal) => Update::ProposalJudged(Box::new(proposal)),
+                        Err(e) => Update::UnreadNotListed(store_failure(&e)),
+                    });
+                }
+            }
+            Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
+        }
+        let shown: Vec<_> = self
+            .copies
+            .by_row
+            .iter()
+            .filter(|((table, _), _)| *table == Table::Unread)
+            .filter_map(|((_, row), held)| {
+                cards::card_of(held).map(|card| (*row, held.received_at(), card))
+            })
+            .collect();
+        for (row, received_at, (peer, endpoint, card)) in shown {
+            updates.push(
+                match cards::context(self.client.store_mut(), &peer, &endpoint, &card) {
+                    Ok(context) => Update::ProposalJudged(Box::new(Proposal {
+                        row,
+                        peer,
+                        endpoint,
+                        card,
+                        received_at,
+                        context,
+                    })),
+                    Err(e) => Update::UnreadNotListed(store_failure(&e)),
+                },
+            );
+        }
     }
 
     /// Close the session: the endpoint lease is released. The daemon is
@@ -713,6 +892,109 @@ impl<V> ReadCopies<V> {
     #[cfg(test)]
     fn len(&self) -> usize {
         self.by_row.len()
+    }
+}
+
+/// What an Undo of a card's answer reads and writes in the store: the
+/// human store, or a test's that fails at the step it is told to.
+pub(crate) trait CardStore {
+    /// What an Accept handed back for its Undo.
+    type Undo;
+    /// Write back what the Accept changed.
+    fn undo_accept(&mut self, undo: &Self::Undo) -> Result<bool, StoreError>;
+    /// Judge the card again, as the store stands.
+    fn judge(
+        &mut self,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+        card: &Card,
+    ) -> Result<ProposalContext, StoreError>;
+    /// The contacts, for the model.
+    fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError>;
+}
+
+impl CardStore for HumanStore {
+    type Undo = AcceptUndo;
+
+    fn undo_accept(&mut self, undo: &AcceptUndo) -> Result<bool, StoreError> {
+        Self::undo_accept(self, undo)
+    }
+
+    fn judge(
+        &mut self,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+        card: &Card,
+    ) -> Result<ProposalContext, StoreError> {
+        cards::context(self, peer, endpoint, card)
+    }
+
+    fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError> {
+        cards::contact_views(self)
+    }
+}
+
+/// The answered card an Undo brings back.
+struct UndoneAnswer {
+    row: RowId,
+    peer: TransportIdentity,
+    endpoint: EndpointId,
+    card: Card,
+    received_at: u64,
+}
+
+/// Undo an answer (#414 F2, F7, F8): `accept` is what an Accept handed
+/// back, `None` for a Decline.
+///
+/// - Refused, `Err`, only while the store wrote nothing: an Accept's
+///   write-back the store refused, or a Decline's card that cannot be
+///   judged again -- the answer stands as the snackbar said.
+/// - Done, `Ok`, once an Accept's write-back is in the store: the
+///   proposal returns judged as the store stands (`Ok(true)`), or, when it
+///   cannot be judged, [`Update::CardsNotRead`] and
+///   [`Update::ProposalNotRestored`] say so (`Ok(false)`); a contacts list
+///   that cannot be read is [`Update::CardsNotRead`] too, never a refusal.
+fn undo_answer<S: CardStore>(
+    store: &mut S,
+    answer: UndoneAnswer,
+    accept: Option<&S::Undo>,
+    updates: &mut Vec<Update>,
+) -> Result<bool, Failure> {
+    if let Some(accept) = accept {
+        store.undo_accept(accept).map_err(|e| store_failure(&e))?;
+    }
+    let restored = match store.judge(&answer.peer, &answer.endpoint, &answer.card) {
+        Ok(context) => {
+            updates.push(Update::ProposalRestored(Box::new(Proposal {
+                row: answer.row,
+                peer: answer.peer,
+                endpoint: answer.endpoint,
+                card: answer.card,
+                received_at: answer.received_at,
+                context,
+            })));
+            true
+        }
+        Err(e) if accept.is_none() => return Err(store_failure(&e)),
+        Err(e) => {
+            updates.push(Update::CardsNotRead(store_failure(&e)));
+            updates.push(Update::ProposalNotRestored(answer.row));
+            false
+        }
+    };
+    if accept.is_some() {
+        updates.push(contacts_update(store));
+    }
+    Ok(restored)
+}
+
+/// The contacts after a write to them that is done: listed, or, when they
+/// cannot be read, [`Update::CardsNotRead`] -- never a refusal of the
+/// write (#414 F8).
+fn contacts_update(store: &mut impl CardStore) -> Update {
+    match store.contacts() {
+        Ok(contacts) => Update::ContactsListed(contacts),
+        Err(e) => Update::CardsNotRead(store_failure(&e)),
     }
 }
 
@@ -915,6 +1197,137 @@ mod tests {
             copies.order.len(),
             READ_COPY_CAP - 1,
             "removal clears the order too"
+        );
+    }
+
+    /// The store step a test store fails at.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Step {
+        Write,
+        Judge,
+        Contacts,
+    }
+
+    /// A store that fails at the step it is told to, recording a write.
+    #[derive(Default)]
+    struct Failing {
+        at: Option<Step>,
+        written: bool,
+    }
+
+    impl Failing {
+        fn at(step: Step) -> Self {
+            Self {
+                at: Some(step),
+                written: false,
+            }
+        }
+
+        fn fails(&self, step: Step) -> Result<(), StoreError> {
+            if self.at == Some(step) {
+                return Err(StoreError::Corrupt("told to".to_owned()));
+            }
+            Ok(())
+        }
+    }
+
+    impl super::CardStore for Failing {
+        type Undo = ();
+
+        fn undo_accept(&mut self, (): &()) -> Result<bool, StoreError> {
+            self.fails(Step::Write)?;
+            self.written = true;
+            Ok(true)
+        }
+
+        fn judge(
+            &mut self,
+            _: &TransportIdentity,
+            _: &EndpointId,
+            _: &Card,
+        ) -> Result<ProposalContext, StoreError> {
+            self.fails(Step::Judge)?;
+            Ok(ProposalContext {
+                updates: None,
+                shares_node: Vec::new(),
+                same_name: Vec::new(),
+                key_matches: Vec::new(),
+                key: interweave_human_ui_model::KeyView::New,
+                fingerprint: "0123456789abcdef".to_owned(),
+                changes_nothing: false,
+            })
+        }
+
+        fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError> {
+            self.fails(Step::Contacts)?;
+            Ok(Vec::new())
+        }
+    }
+
+    fn answer() -> super::UndoneAnswer {
+        super::UndoneAnswer {
+            row: RowId::from_stored(7),
+            peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+                .expect("a PeerId"),
+            endpoint: EndpointId::parse("human").expect("an endpoint"),
+            card: Card {
+                app_message_id: "0".repeat(32),
+                name: "Ada".to_owned(),
+                surname: None,
+                photo: None,
+                identity_key: [1; 32],
+                sent_at_ms: None,
+                from_endpoint: None,
+            },
+            received_at: 1,
+        }
+    }
+
+    fn kinds(updates: &[Update]) -> Vec<&'static str> {
+        updates
+            .iter()
+            .map(|u| match u {
+                Update::ProposalRestored(_) => "restored",
+                Update::ProposalNotRestored(_) => "not restored",
+                Update::ContactsListed(_) => "contacts",
+                Update::CardsNotRead(_) => "not read",
+                _ => "other",
+            })
+            .collect()
+    }
+
+    /// #414 F2, F7, F8: an Undo is refused only while the store wrote
+    /// nothing; once an Accept's write-back is in, it is done, and what
+    /// could not be read afterwards is said as a problem of its own.
+    #[test]
+    fn an_undo_is_refused_only_while_the_store_wrote_nothing() {
+        let run = |store: &mut Failing, accept: bool| {
+            let mut updates = Vec::new();
+            let end = super::undo_answer(store, answer(), accept.then_some(&()), &mut updates);
+            (end, kinds(&updates))
+        };
+        // An Accept's write-back refused: nothing written, refused.
+        let mut s = Failing::at(Step::Write);
+        assert_eq!(run(&mut s, true), (Err(Failure::Corrupt), vec![]));
+        // A Decline whose card cannot be judged: it wrote nothing, refused.
+        let mut s = Failing::at(Step::Judge);
+        assert_eq!(run(&mut s, false), (Err(Failure::Corrupt), vec![]));
+        // An Accept written, its card not judged: done, not back, said.
+        let mut s = Failing::at(Step::Judge);
+        assert_eq!(
+            run(&mut s, true),
+            (Ok(false), vec!["not read", "not restored", "contacts"])
+        );
+        assert!(s.written);
+        // An Accept written and judged, its contacts unread: done, back.
+        let mut s = Failing::at(Step::Contacts);
+        assert_eq!(run(&mut s, true), (Ok(true), vec!["restored", "not read"]));
+        // Everything read: back, with the contacts.
+        let mut s = Failing::default();
+        assert_eq!(run(&mut s, true), (Ok(true), vec!["restored", "contacts"]));
+        assert_eq!(
+            run(&mut Failing::default(), false),
+            (Ok(true), vec!["restored"])
         );
     }
 }

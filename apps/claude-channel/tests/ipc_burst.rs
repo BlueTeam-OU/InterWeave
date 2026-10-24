@@ -88,6 +88,10 @@ async fn a_call_answered_behind_a_burst_of_events_completes() {
                 [n; 16]
             }
         }),
+        log: interweave_claude_channel::log::Log::stderr_only(
+            interweave_claude_channel::log::Level::Debug,
+            "test",
+        ),
     };
     let config = Config {
         endpoint: EndpointId::parse("claude").expect("endpoint"),

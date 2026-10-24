@@ -28,8 +28,9 @@ use interweave_human_store::{
     PageLimits, PendingOutbound, RowId, StorageHealth, StoreError, TerminalCause,
 };
 use interweave_local_client_api::{
-    AdminBinding, AdminCapability, AdminPort, DataCapability, DataSessionBinding, DataSessionPort,
-    LocalSessionEvent, SessionEvent, SessionRequest,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminCapability,
+    AdminPort, DataCapability, DataSessionBinding, DataSessionPort, LineChange, LocalSessionEvent,
+    SessionEvent, SessionRequest,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, ConnectivitySummary, DirectDestination, DirectInboundState,
@@ -39,14 +40,16 @@ use interweave_transport_api::{
 
 use crate::backoff::{RECHECK, REOPEN, SEND};
 use crate::problem::{
-    AttemptFailure, OpenFailure, classify_open, classify_send, classify_trust, ends_session,
-    may_have_reached,
+    AttemptFailure, OpenFailure, classify_address, classify_open, classify_send, classify_trust,
+    ends_session, may_have_reached,
 };
 use crate::queue::{Capped, EventQueue};
 use interweave_human_client_api::{
-    ClientEvent, Connectivity, Destination, Diagnostics, Inbound, Origin, OutboundStatus,
-    OutboundUpdate, Received, ReceivedCard, RowError, SendError, SendProblem, SessionProblem,
-    SessionState, TrustList, TrustOrigin, TrustProblem, TrustRow, TrustSetFailure,
+    AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
+    AddressProblem, AddressRefused, ClientEvent, Connectivity, Destination, Diagnostics, Inbound,
+    LineAdded, Origin, OutboundStatus, OutboundUpdate, PeerAddress, Received, ReceivedCard,
+    RowError, SendError, SendProblem, SessionProblem, SessionState, ShowAddresses, TrustList,
+    TrustOrigin, TrustProblem, TrustRow, TrustSetFailure,
 };
 
 /// How many committed messages wait for hand-over at most: one session
@@ -703,6 +706,151 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             .map_err(classify_trust)
     }
 
+    /// The addresses this device holds for reaching peers (ADR-0062,
+    /// `admin.peers.list_addresses`), over an administrative connection of
+    /// its own holding `admin.peers` alone and closing with the call, as
+    /// trust's does.
+    ///
+    /// # Errors
+    /// The failure's class.
+    pub async fn addresses(&self) -> Result<AddressList, AddressProblem> {
+        let admin = self.peers_port().await?;
+        read_addresses(&admin).await
+    }
+
+    /// Add `address` as typed, then read the list back. The runtime
+    /// judges it: the grammar, the special-use floor and the bound are
+    /// the method's, and a refusal is an answer. Adding grants no trust.
+    ///
+    /// # Errors
+    /// Whether the change was made, as [`Self::set_trust`] says it.
+    pub async fn add_address(
+        &self,
+        address: String,
+    ) -> Result<AddressAnswer, AddressChangeFailure> {
+        let peer = PeerAddress::peer_of(&address);
+        self.change_address(address, true).await.map(|mut answer| {
+            if answer.outcome == (AddressOutcome::Added { peer: None }) {
+                answer.outcome = AddressOutcome::Added { peer };
+            }
+            answer
+        })
+    }
+
+    /// Add `lines` as one add, all or none (ADR-0062 decision 4), then
+    /// read the list back: one line as [`Self::add_address`] adds it,
+    /// which any runtime with the methods serves; several through IPC
+    /// 2.9's `admin.peers.add_addresses`, which checks every line before
+    /// it writes any. Several lines are never one call per line, since a
+    /// split add can stop half done: below 2.9 the port sends nothing and
+    /// the add is not made, its problem `Incompatible`.
+    ///
+    /// # Errors
+    /// As [`Self::add_address`].
+    pub async fn add_addresses(
+        &self,
+        lines: Vec<String>,
+    ) -> Result<AddressAnswer, AddressChangeFailure> {
+        let mut lines = lines;
+        if lines.len() == 1 {
+            let line = lines.pop().unwrap_or_default();
+            return self.add_address(line).await;
+        }
+        let admin = self
+            .peers_port()
+            .await
+            .map_err(AddressChangeFailure::NotMade)?;
+        let change = admin
+            .add_bootstrap_addresses(lines.clone())
+            .await
+            .map_err(change_failure)?;
+        let outcome = match change {
+            AddressesChange::Added(rows) if rows.iter().all(|r| *r == LineChange::Unchanged) => {
+                AddressOutcome::Unchanged
+            }
+            AddressesChange::Added(rows) => AddressOutcome::AddedLines(
+                rows.into_iter()
+                    .zip(&lines)
+                    .map(|(row, line)| LineAdded {
+                        added: row == LineChange::Added,
+                        peer: PeerAddress::peer_of(line),
+                    })
+                    .collect(),
+            ),
+            AddressesChange::Refused {
+                reason,
+                line: Some(line),
+                ..
+            } => AddressOutcome::RefusedLine {
+                why: refused(reason),
+                line,
+            },
+            AddressesChange::Refused { reason, .. } => AddressOutcome::Refused(refused(reason)),
+        };
+        let list = read_addresses(&admin).await;
+        Ok(AddressAnswer { outcome, list })
+    }
+
+    /// This device's own addresses for the show screen (ADR-0062 decision
+    /// 4, `admin.peers.own_addresses`, IPC 2.8), as the runtime chose,
+    /// ordered and floored them; reading them causes nothing.
+    ///
+    /// # Errors
+    /// The failure's class: `Incompatible` below 2.8, nothing sent.
+    pub async fn own_addresses(&self) -> Result<ShowAddresses, AddressProblem> {
+        let admin = self.peers_port().await?;
+        let own = admin.own_addresses().await.map_err(classify_address)?;
+        Ok(ShowAddresses {
+            peer: own.peer,
+            addresses: own.addresses.into_iter().map(|a| a.address).collect(),
+            truncated: own.truncated,
+        })
+    }
+
+    /// Remove `address`, then read the list back. A configuration entry
+    /// is refused by name.
+    ///
+    /// # Errors
+    /// As [`Self::add_address`].
+    pub async fn remove_address(
+        &self,
+        address: String,
+    ) -> Result<AddressAnswer, AddressChangeFailure> {
+        self.change_address(address, false).await
+    }
+
+    async fn change_address(
+        &self,
+        address: String,
+        add: bool,
+    ) -> Result<AddressAnswer, AddressChangeFailure> {
+        let admin = self
+            .peers_port()
+            .await
+            .map_err(AddressChangeFailure::NotMade)?;
+        let change = if add {
+            admin.add_bootstrap_address(address).await
+        } else {
+            admin.remove_bootstrap_address(address).await
+        };
+        let change = change.map_err(change_failure)?;
+        let outcome = match change {
+            AddressChange::Added => AddressOutcome::Added { peer: None },
+            AddressChange::Removed => AddressOutcome::Removed,
+            AddressChange::Unchanged => AddressOutcome::Unchanged,
+            AddressChange::Refused { reason, .. } => AddressOutcome::Refused(refused(reason)),
+        };
+        let list = read_addresses(&admin).await;
+        Ok(AddressAnswer { outcome, list })
+    }
+
+    async fn peers_port(&self) -> Result<A::Admin, AddressProblem> {
+        self.admin_binding
+            .admin(BTreeSet::from([AdminCapability::Peers]))
+            .await
+            .map_err(classify_address)
+    }
+
     /// End the session; the facade does nothing more until dropped.
     pub async fn close(&mut self) {
         if let Some(session) = self.session.take() {
@@ -1299,6 +1447,52 @@ fn connectivity_of(health: Health, summary: Option<&ConnectivitySummary>) -> Opt
         }
         (Health::Healthy | Health::Degraded, None) => None,
     }
+}
+
+/// Whether a failed address change was made. The methods' `Internal` is
+/// their failed write of the list, which changed nothing
+/// (`AdminPort::add_bootstrap_address`); only an answer lost after the
+/// request left is unknown.
+fn change_failure(error: TransportError) -> AddressChangeFailure {
+    if may_have_reached(error) && error != TransportError::Internal {
+        AddressChangeFailure::Unconfirmed(classify_address(error))
+    } else {
+        AddressChangeFailure::NotMade(classify_address(error))
+    }
+}
+
+const fn refused(reason: AddressRefusal) -> AddressRefused {
+    match reason {
+        AddressRefusal::Grammar => AddressRefused::Grammar,
+        AddressRefusal::SpecialUse => AddressRefused::SpecialUse,
+        AddressRefusal::Bound => AddressRefused::Bound,
+        AddressRefusal::ProviderDisabled => AddressRefused::ListOff,
+        AddressRefusal::Authored => AddressRefused::Configured,
+        AddressRefusal::OwnPeer => AddressRefused::OwnPeer,
+    }
+}
+
+/// The list in the daemon's order; an address authored in the
+/// configuration is `Configured`, one added at runtime `AddedHere`.
+async fn read_addresses<P: AdminPort>(admin: &P) -> Result<AddressList, AddressProblem> {
+    let rows = admin
+        .bootstrap_addresses()
+        .await
+        .map_err(classify_address)?;
+    Ok(AddressList {
+        addresses: rows
+            .into_iter()
+            .map(|row| PeerAddress {
+                peer: PeerAddress::peer_of(&row.address),
+                origin: match row.source {
+                    AddressSource::Authored => AddressOrigin::Configured,
+                    AddressSource::Added => AddressOrigin::AddedHere,
+                },
+                dialled: row.dialled,
+                address: row.address,
+            })
+            .collect(),
+    })
 }
 
 /// The neutral row in the client's words: a peer both configured and

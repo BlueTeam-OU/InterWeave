@@ -77,6 +77,8 @@ pub struct Contact {
     pub name_at: Option<u64>,
     /// Where the photo came from, if there is one.
     pub photo_source: Option<ValueSource>,
+    /// When the photo was last set or removed, if known.
+    pub photo_at: Option<u64>,
     /// The photo's encoded bytes as accepted or set. The store never
     /// decodes them: Accept passes a card's photo only when it decodes
     /// within 256 × 256, and the view decodes it again to show it.
@@ -161,6 +163,52 @@ pub struct Accepted {
     pub photo_kept: bool,
     /// How the key stood before.
     pub key: KeyStanding,
+    /// What [`HumanStore::undo_accept`] writes back.
+    pub undo: AcceptUndo,
+}
+
+/// What an Accept changed, kept by the caller for the person's Undo
+/// (contact-cards design section 5.4.2): a created contact is deleted
+/// with its route, an updated one gets back the values it had and its
+/// route the key it had. Held in memory only: a process that ends inside
+/// the window leaves the Accept as it was.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcceptUndo(UndoOf);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum UndoOf {
+    Created {
+        contact_id: String,
+    },
+    Updated {
+        contact_id: String,
+        peer: String,
+        endpoint: String,
+        before: Box<ContactValues>,
+        key: Option<Vec<u8>>,
+    },
+}
+
+/// A contact's values an Accept may overwrite, as stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ContactValues {
+    display_name: String,
+    name_source: Option<String>,
+    name_at: Option<i64>,
+    photo: Option<Vec<u8>>,
+    photo_source: Option<String>,
+    photo_at: Option<i64>,
+    updated_at: i64,
+}
+
+impl AcceptUndo {
+    /// The contact the Accept created or updated.
+    #[must_use]
+    pub fn contact_id(&self) -> &str {
+        match &self.0 {
+            UndoOf::Created { contact_id } | UndoOf::Updated { contact_id, .. } => contact_id,
+        }
+    }
 }
 
 /// An identity's own card.
@@ -221,7 +269,7 @@ impl HumanStore {
         let row = self
             .conn
             .query_row(
-                "SELECT display_name, name_source, name_at, photo_source, photo
+                "SELECT display_name, name_source, name_at, photo_source, photo, photo_at
                    FROM contacts WHERE contact_id = ?1",
                 params![contact_id],
                 |r| {
@@ -231,11 +279,12 @@ impl HumanStore {
                         r.get::<_, Option<i64>>(2)?,
                         r.get::<_, Option<String>>(3)?,
                         r.get::<_, Option<Vec<u8>>>(4)?,
+                        r.get::<_, Option<i64>>(5)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((display_name, name_source, name_at, photo_source, photo)) = row else {
+        let Some((display_name, name_source, name_at, photo_source, photo, photo_at)) = row else {
             return Ok(None);
         };
         let routes = self
@@ -273,6 +322,7 @@ impl HumanStore {
             photo_source: photo_source
                 .as_deref()
                 .map(|s| ValueSource::from_sql(Some(s))),
+            photo_at: photo_at.map(|t| stored_ms("photo_at", t)).transpose()?,
             photo,
             routes,
         }))
@@ -380,6 +430,29 @@ impl HumanStore {
                 )
                 .optional()?;
             let accepted = if let Some((contact_id, recorded)) = held {
+                let before: ContactValues = tx.query_row(
+                    "SELECT display_name, name_source, name_at, photo, photo_source, photo_at, updated_at
+                       FROM contacts WHERE contact_id = ?1",
+                    params![contact_id],
+                    |r| {
+                        Ok(ContactValues {
+                            display_name: r.get(0)?,
+                            name_source: r.get(1)?,
+                            name_at: r.get(2)?,
+                            photo: r.get(3)?,
+                            photo_source: r.get(4)?,
+                            photo_at: r.get(5)?,
+                            updated_at: r.get(6)?,
+                        })
+                    },
+                )?;
+                let undo = AcceptUndo(UndoOf::Updated {
+                    contact_id: contact_id.clone(),
+                    peer: card.peer.as_str().to_owned(),
+                    endpoint: card.endpoint.as_str().to_owned(),
+                    before: Box::new(before),
+                    key: recorded.clone(),
+                });
                 let key = match key_of(recorded)? {
                     None => KeyStanding::Unrecorded,
                     Some(k) if k == card.identity_key => KeyStanding::Same,
@@ -427,6 +500,7 @@ impl HumanStore {
                     name_kept,
                     photo_kept,
                     key,
+                    undo,
                 }
             } else {
                 let contact_id = new_contact_id();
@@ -455,6 +529,9 @@ impl HumanStore {
                     ],
                 )?;
                 Accepted {
+                    undo: AcceptUndo(UndoOf::Created {
+                        contact_id: contact_id.clone(),
+                    }),
                     contact_id,
                     created: true,
                     name_kept: false,
@@ -466,6 +543,58 @@ impl HumanStore {
             Ok(accepted)
         })();
         result.map_err(|e| self.note_store_failure(e))
+    }
+
+    /// Undo an Accept: delete the contact it created, with its route, or
+    /// write back the values the contact it updated had and the key its
+    /// route had. Whether there was a contact to undo on: a contact
+    /// deleted since is not made again.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn undo_accept(&mut self, undo: &AcceptUndo) -> Result<bool, StoreError> {
+        let UndoOf::Updated {
+            contact_id,
+            peer,
+            endpoint,
+            before,
+            key,
+        } = &undo.0
+        else {
+            return self.delete_contact(undo.contact_id());
+        };
+        let result = (|| -> Result<bool, StoreError> {
+            let tx = self.conn.transaction()?;
+            let restored = tx.execute(
+                "UPDATE contacts SET display_name = ?2, name_source = ?3, name_at = ?4,
+                        photo = ?5, photo_source = ?6, photo_at = ?7, updated_at = ?8
+                  WHERE contact_id = ?1",
+                params![
+                    contact_id,
+                    before.display_name,
+                    before.name_source,
+                    before.name_at,
+                    before.photo,
+                    before.photo_source,
+                    before.photo_at,
+                    before.updated_at
+                ],
+            )?;
+            tx.execute(
+                "UPDATE contact_routes SET identity_key = ?4
+                  WHERE contact_id = ?1 AND peer_id = ?2 AND endpoint_id = ?3",
+                params![contact_id, peer, endpoint, key],
+            )?;
+            tx.commit()?;
+            Ok(restored == 1)
+        })();
+        let restored = result.map_err(|e| self.note_store_failure(e))?;
+        if restored {
+            // The card's photo, overwritten, leaves the log as a deleted
+            // contact's does.
+            self.release_done();
+        }
+        Ok(restored)
     }
 
     /// The person's own edit of a contact's name: it is theirs from now
@@ -572,6 +701,21 @@ impl HumanStore {
             .map_err(StoreError::from)
             .map_err(|e| self.note_store_failure(e))?;
         Ok(())
+    }
+
+    /// Whether any conversation ever recorded a share of the identity's
+    /// card: what tells a first start from a key file lost after
+    /// counterparties got its key. `card_shared_at` is cleared by nothing
+    /// short of a discard of the whole store.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn card_ever_shared(&self) -> Result<bool, StoreError> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM conversation_index WHERE card_shared_at IS NOT NULL)",
+            [],
+            |r| r.get(0),
+        )?)
     }
 
     /// When the conversation on this route last shared its card.

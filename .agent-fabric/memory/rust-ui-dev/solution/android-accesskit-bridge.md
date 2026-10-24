@@ -5,7 +5,7 @@ topic: "android-accesskit-bridge"
 description: "Slint 1.18.1 Android has no AccessKit; what an app-side bridge can and cannot do, and the matching accesskit_android version"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

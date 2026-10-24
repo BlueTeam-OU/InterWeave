@@ -194,6 +194,9 @@ impl<S: Surface, O: Opener> App<S, O> {
                 Problem::UnreadNotListed(why) => {
                     eprintln!("human-desktop: unread messages could not be listed: {why:?}");
                 }
+                Problem::CardsNotRead(why) => {
+                    eprintln!("human-desktop: cards or contacts could not be read back: {why:?}");
+                }
             }
         }
     }
@@ -218,6 +221,7 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::Restore(_) => "restore",
         Command::ForgetCancelled(_) => "forget cancelled",
         Command::ForgetCopy(_) => "forget copy",
+        Command::ForgetCard(_) => "forget card",
         Command::Reopen => "reopen",
         Command::RecheckStorage => "recheck storage",
         // Named only because the match is whole: the failure line is the
@@ -227,8 +231,15 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         // trust change, the peer least of all.
         Command::ReadTrust => "read trust",
         Command::SetTrust(_) => "set trust",
+        // Likewise: an address names where a peer is, and its outcome is
+        // Peers' to say.
+        Command::ReadAddresses => "read addresses",
+        Command::ReadOwnAddresses => "read this device's addresses",
+        Command::AddAddresses(_) => "add addresses",
+        Command::RemoveAddress(_) => "remove address",
         Command::AcceptCard { .. } => "accept card",
         Command::DeclineCard(_) => "decline card",
+        Command::UndoCard(_) => "undo card",
         Command::ShareCard(_) => "share card",
         Command::SetOwnCard { .. } => "set own card",
         Command::RenameContact { .. } => "rename contact",

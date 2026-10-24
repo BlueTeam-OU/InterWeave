@@ -22,7 +22,7 @@ From `android/app/build.gradle.kts` and `android/app/src/main/AndroidManifest.xm
 |---|---|
 | applicationId | `org.interweave.human` |
 | minSdk / targetSdk / compileSdk | 30 / 36 / 36 |
-| versionCode / versionName | 1 / `0.0.0`: release versioning is the tagged release run's (plan §22, Stage 19) |
+| versionCode / versionName | 1 / the workspace version (ADR-0065 decision 5: the root `Cargo.toml`'s `[workspace.package] version`, today `0.1.0`); versionCode is a committed counter raised for every published APK (`RELEASE.md`) |
 | permissions | `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_REMOTE_MESSAGING`, `POST_NOTIFICATIONS`, `USE_BIOMETRIC` |
 | foreground service | `.NetworkService`, `foregroundServiceType="remoteMessaging"`, not exported |
 

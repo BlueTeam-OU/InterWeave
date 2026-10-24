@@ -1,10 +1,11 @@
 ---
 role: "architect-cto"
 class: threads
+topic: "threads-carried-2026-10-18"
 description: "Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j90-swipe-device-fixes"
 description: "j90 (2026-10-17) on #292's branch: causes and fixes of the j88 device findings 17, 5, 16, 13; item 8 waits on p2p-network-dev-01's answer"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

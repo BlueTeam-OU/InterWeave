@@ -6,7 +6,7 @@
 //! to the transport fails to compile here rather than reaching a view
 //! unclassified.
 
-use interweave_human_client_api::{SendProblem, SessionProblem, TrustProblem};
+use interweave_human_client_api::{AddressProblem, SendProblem, SessionProblem, TrustProblem};
 use interweave_transport_api::TransportError;
 
 /// What one send attempt's failure means for its row.
@@ -173,6 +173,19 @@ pub(crate) const fn classify_trust(error: TransportError) -> TrustProblem {
         | TransportError::PeerUnreachable
         | TransportError::RemoteEndpointUnavailable
         | TransportError::Internal => TrustProblem::Internal,
+    }
+}
+
+/// An address read or change's failure, for the peers view (ADR-0062).
+/// The classes are trust's, with no `Refused`: the method's refusals are
+/// answers, never errors. `Internal` is the method's failed write of the
+/// list, which the method says changed nothing, and anything else.
+pub(crate) const fn classify_address(error: TransportError) -> AddressProblem {
+    match classify_trust(error) {
+        TrustProblem::Unavailable => AddressProblem::Unavailable,
+        TrustProblem::NotPermitted => AddressProblem::NotPermitted,
+        TrustProblem::Incompatible => AddressProblem::Incompatible,
+        TrustProblem::Refused | TrustProblem::Internal => AddressProblem::Internal,
     }
 }
 

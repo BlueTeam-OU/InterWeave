@@ -102,6 +102,25 @@ pub(crate) fn back() {
     });
 }
 
+/// `Native.showSecured`: the Activity set `FLAG_SECURE` as Show asked, so
+/// the window may draw its addresses.
+pub(crate) fn show_secured() {
+    invoke_on_window(|| {
+        let applied = VIEW.with(|view| {
+            view.borrow().as_ref().and_then(|view| {
+                view.try_borrow_mut()
+                    .ok()
+                    .map(|mut view| view.show_secured())
+            })
+        });
+        match applied {
+            Some(()) => defer(turn),
+            // The view is busy: try again once it is free.
+            None => defer(show_secured),
+        }
+    });
+}
+
 /// The platform's touch values as the Activity last read them
 /// (`Native.touch`): kept for a window that starts after they were read.
 static TOUCH: Mutex<Option<TouchSettings>> = Mutex::new(None);
@@ -139,7 +158,11 @@ fn stopped() {
             return false;
         };
         if let Some(root) = root.as_ref() {
-            root.view.borrow().close_snackbar();
+            let view = root.view.borrow();
+            view.close_snackbar();
+            // Never left on screen unasked: the background, or the
+            // screen locked (add-a-peer §5.4).
+            view.leave_show();
         }
         true
     });
@@ -227,6 +250,11 @@ impl Root {
                 Problem::UnreadNotListed(why) => {
                     log(&format!("unread messages could not be listed: {why:?}"));
                 }
+                Problem::CardsNotRead(why) => {
+                    log(&format!(
+                        "cards or contacts could not be read back: {why:?}"
+                    ));
+                }
             }
         }
     }
@@ -305,6 +333,16 @@ fn android_main(app: AndroidApp) {
     let handle = view.handle();
     view.set_wake(|| defer(turn));
     view.on_haptic(|| HAPTIC.raise());
+    // Show my address draws this device's addresses only in a secured
+    // window, as the phrase pages do (add-a-peer §5.4).
+    view.guard_show(|on| {
+        use crate::onboard::{ASKS, ask};
+        ASKS.push(if on {
+            ask::SHOW_SECURE
+        } else {
+            ask::SECURE_OFF
+        });
+    });
     let view = Rc::new(RefCell::new(view));
     VIEW.with(|slot| *slot.borrow_mut() = Some(Rc::clone(&view)));
     // No identity yet, or one the phone lost: the identity screens first,

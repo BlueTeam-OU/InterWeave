@@ -136,9 +136,14 @@ build() {
 }
 
 echo "release_linux_archive.sh:"
-NAME=interweave-0.3.0-x86_64-unknown-linux-gnu
+# The version is the workspace's: the plugin's build.sh refuses any other
+# (ADR-0065), and the test builds the repository's own plugin.
+V="$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["workspace"]["package"]["version"])' \
+    "$SCRIPT_DIR/../../Cargo.toml")"
+[[ -n "$V" ]] || { echo "test_release_linux_archive: no workspace version" >&2; exit 1; }
+NAME="interweave-$V-x86_64-unknown-linux-gnu"
 A="$OUT/$NAME.tar.gz"
-if build 0.3.0 "$OUT"; then
+if build "$V" "$OUT"; then
     listing="$(tar -tzvf "$A" | awk '{print $1, $2, $6}' | sort -k3)"
     want="$(sort -k3 <<EOF
 drwxr-xr-x 0/0 $NAME/
@@ -177,7 +182,7 @@ EOF
     else
         fail "the .sha256 file does not check"
     fi
-    want_json="{\"linux_archive\": \"$NAME.tar.gz\", \"linux_sha256\": \"$(sha256sum "$A" | cut -d' ' -f1)\", \"check:linux_version\": \"0.3.0\"}"
+    want_json="{\"linux_archive\": \"$NAME.tar.gz\", \"linux_sha256\": \"$(sha256sum "$A" | cut -d' ' -f1)\", \"check:linux_version\": \"$V\"}"
     [[ "$(cat "$OUT/linux-values.json")" == "$want_json" ]] \
         && pass "linux-values.json names the archive and its hash" \
         || fail "linux-values.json is not the expected one" "$(cat "$OUT/linux-values.json")"
@@ -188,7 +193,7 @@ EOF
     first="$(sha256sum "$A" | cut -d' ' -f1)"
     touch "$BIN/transportctl" "$BIN/claude-channel"
     # The second build under another umask: the builder's is not an input.
-    (umask 077 && build 0.3.0 "$OUT")
+    (umask 077 && build "$V" "$OUT")
     [[ "$(sha256sum "$A" | cut -d' ' -f1)" == "$first" ]] \
         && pass "two builds from the same inputs, under umasks 022 and 077, are the same bytes" \
         || fail "a second build of the same inputs, under umask 077, differs" "$(tar -tzvf "$A" | head -4)"
@@ -220,6 +225,11 @@ EOF
     [[ "$(cat "$X/$NAME/claude-plugin/interweave/bin/claude-channel")" == "$(cat "$BIN/claude-channel")" ]] \
         && pass "the plugin carries the bridge the run was given" \
         || fail "the plugin's claude-channel is not the given one"
+    pv="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' \
+        "$X/$NAME/claude-plugin/interweave/.claude-plugin/plugin.json")"
+    [[ "$pv" == "$V" ]] \
+        && pass "the plugin's version is the release version" \
+        || fail "the plugin's version is $pv, not $V"
     [[ -n "${lacking-}" ]] || pass "the notices list every crate reached by a normal dependency, a proc macro included"
     if grep -qE 'buildonly|devonly|unified|interweave-' "$N"; then
         fail "the notices list a build-only, dev-only, uncompiled or workspace crate" "$(grep -E 'buildonly|devonly|unified|interweave-' "$N")"
@@ -257,7 +267,7 @@ EOF
 chmod +x "$STUB/mv"
 rm -rf "$OUT"
 if PATH="$STUB:$PATH" SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
-    bash "$UNDER_TEST" --bin-dir "$BIN" 0.3.0 "$OUT" >/dev/null 2>"$SANDBOX/err"; then
+    bash "$UNDER_TEST" --bin-dir "$BIN" "$V" "$OUT" >/dev/null 2>"$SANDBOX/err"; then
     fail "a run whose values file cannot be moved succeeded"
 elif ! grep -q 'refused by the test' "$SANDBOX/err"; then
     fail "the stub was not reached at the last move" "$(cat "$SANDBOX/err")"
@@ -271,7 +281,7 @@ mkdir -p "$OUT"
 printf 'a previous run\n' > "$A"
 mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
 SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
-    bash "$UNDER_TEST" --bin-dir "$BIN" 0.3.0 "$OUT" >/dev/null 2>&1
+    bash "$UNDER_TEST" --bin-dir "$BIN" "$V" "$OUT" >/dev/null 2>&1
 mv "$BIN/human-desktop.gone" "$BIN/human-desktop"
 [[ ! -e "$A" ]] && pass "a refused run leaves no previous run's archive of the same name" \
     || fail "a refused run left a previous run's archive"
@@ -288,7 +298,7 @@ mkdir -p "$OUT"
 for f in "$A" "$A.sha256" "$OUT/linux-values.json"; do printf 'a previous run\n' > "$f"; done
 [[ -e "$A" && -e "$A.sha256" && -e "$OUT/linux-values.json" ]] || fail "the control: a previous run's outputs"
 if PATH="$FAILTMP:$PATH" SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
-    bash "$UNDER_TEST" --bin-dir "$BIN" 0.3.0 "$OUT" >/dev/null 2>"$SANDBOX/err"; then
+    bash "$UNDER_TEST" --bin-dir "$BIN" "$V" "$OUT" >/dev/null 2>"$SANDBOX/err"; then
     fail "a run with no scratch directory succeeded"
 elif ! grep -q 'refused by the test' "$SANDBOX/err"; then
     fail "the stub was not reached at mktemp" "$(cat "$SANDBOX/err")"
@@ -331,7 +341,7 @@ done
 rm -rf "$OUT"
 if ! (cd "$CALLER" && PATH="$CARGO_STUB:$PATH" CARGO_TARGET_DIR=target SOURCE_DATE_EPOCH=1760000000 \
     RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
-    bash "$UNDER_TEST" 0.3.0 "$OUT" >/dev/null 2>"$SANDBOX/err"); then
+    bash "$UNDER_TEST" "$V" "$OUT" >/dev/null 2>"$SANDBOX/err"); then
     fail "a build run from another directory failed" "$(cat "$SANDBOX/err")"
 else
     Y="$SANDBOX/y"
@@ -347,11 +357,14 @@ else
 fi
 
 refused "a version that is not MAJOR.MINOR.PATCH" "not MAJOR.MINOR.PATCH" 0.3 "$OUT"
+OTHER=99.0.0
+[[ "$OTHER" != "$V" ]] || OTHER=98.0.0
+refused "a version that is not the workspace's" "the release version $OTHER is not the workspace version $V" "$OTHER" "$OUT"
 mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
-refused "a missing program" "no executable $BIN/human-desktop" 0.3.0 "$OUT"
+refused "a missing program" "no executable $BIN/human-desktop" "$V" "$OUT"
 mv "$BIN/human-desktop.gone" "$BIN/human-desktop"
 mv "$BIN/claude-channel" "$BIN/claude-channel.gone"
-refused "a missing bridge" "no executable $BIN/claude-channel" 0.3.0 "$OUT"
+refused "a missing bridge" "no executable $BIN/claude-channel" "$V" "$OUT"
 mv "$BIN/claude-channel.gone" "$BIN/claude-channel"
 # build.sh refuses: an `install` on PATH that fails on the bridge's own
 # destination, which is build.sh's last step whatever its version. The
@@ -365,7 +378,7 @@ case "\$last" in */interweave/bin/claude-channel) echo "install: refused by the 
 exec $(command -v install) "\$@"
 INST
 chmod +x "$INSTSTUB/install"
-PATH="$INSTSTUB:$PATH" refused "a plugin build.sh refuses" "build.sh refused the plugin" 0.3.0 "$OUT"
+PATH="$INSTSTUB:$PATH" refused "a plugin build.sh refuses" "build.sh refused the plugin" "$V" "$OUT"
 grep -qF 'install: refused by the test' "$SANDBOX/err" \
     && pass "the plugin's refusal is build.sh's own" \
     || fail "the refusal did not come from build.sh" "$(cat "$SANDBOX/err")"
@@ -378,7 +391,7 @@ bar["license"] = None
 import os; os.remove(bar["manifest_path"].replace("Cargo.toml", "LICENSE-MIT"))
 json.dump(m, open(sys.argv[1], "w"))
 PY
-refused "a crate with no licence expression and no licence file" "libbar 1.0.0 has no licence" 0.3.0 "$OUT"
+refused "a crate with no licence expression and no licence file" "libbar 1.0.0 has no licence" "$V" "$OUT"
 
 echo "release_notices.py:"
 cp "$C" "$SANDBOX/c2.txt"

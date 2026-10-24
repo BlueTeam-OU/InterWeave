@@ -14,7 +14,10 @@
 # move of HEAD must print the new commit: a commit with reflogs on; a
 # commit on a packed branch with reflogs off and no loose ref yet (the
 # case #386's review found, where only HEAD and packed-refs were
-# watched and neither changes); a reset back. Built from no checkout,
+# watched and neither changes); a reset back; a commit in a reftable
+# repository; in its linked worktree, the worktree's branch moved from the
+# main checkout (only the common directory's tables change) and a checkout
+# that moves only the worktree's HEAD (only its own change). Built from no checkout,
 # the stamp is `unknown`.
 #
 # Exit codes:
@@ -89,6 +92,39 @@ git -C "$P" commit -q --allow-empty -m two
 [[ "$(stamp "$P")" == "$(head12 "$P")" ]] \
     && pass "a commit on a packed branch with reflogs off restamps an incremental build" \
     || fail "with reflogs off and refs packed, the stamp stayed $first after a commit"
+
+# A reftable repository keeps refs and reflogs in reftable/, the shared
+# refs in the common directory's and a linked worktree's HEAD in its own:
+# no logs/HEAD, no loose ref, no packed-refs, and HEAD a stub that never
+# changes. A commit, and a worktree's checkout that moves only its HEAD.
+T="$SANDBOX/reftable"
+package "$T"
+git -C "$T" init -q -b main --ref-format=reftable
+git -C "$T" config user.email test@example.invalid
+git -C "$T" config user.name test
+git -C "$T" config commit.gpgsign false
+git -C "$T" add -A && git -C "$T" commit -q -m one
+if [[ "$(git -C "$T" rev-parse --show-ref-format)" != reftable || -e "$T/.git/logs/HEAD" ]]; then
+    fail "the control: the repository is not reftable, or a files reflog exists" "$(ls "$T/.git" 2>&1)"
+fi
+first="$(stamp "$T")"
+git -C "$T" commit -q --allow-empty -m two
+[[ "$(stamp "$T")" == "$(head12 "$T")" ]] \
+    && pass "a commit in a reftable repository restamps an incremental build" \
+    || fail "in a reftable repository, the stamp stayed $first after a commit"
+git -C "$T" branch -q side HEAD~1
+W="$SANDBOX/reftable-worktree"
+git -C "$T" worktree add -q "$W" side
+first="$(stamp "$W")"
+git -C "$T" update-ref refs/heads/side main
+[[ "$first" != "$(head12 "$W")" && "$(stamp "$W")" == "$(head12 "$W")" ]] \
+    && pass "a reftable worktree's branch moved from the main checkout, in the shared tables only, restamps it" \
+    || fail "in a reftable worktree, the stamp stayed $first after its branch moved"
+first="$(stamp "$W")"
+git -C "$W" checkout -q --detach HEAD~1
+[[ "$first" != "$(head12 "$W")" && "$(stamp "$W")" == "$(head12 "$W")" ]] \
+    && pass "a checkout in a reftable worktree, which moves only its HEAD, restamps it" \
+    || fail "in a reftable worktree, the stamp stayed $first after a checkout"
 
 N="$SANDBOX/no-checkout"
 package "$N"

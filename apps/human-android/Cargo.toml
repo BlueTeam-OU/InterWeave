@@ -31,13 +31,16 @@ interweave-human-ui-model = { path = "../../crates/human/ui-model" }
 # comes through android-platform, the app's one way to the runtime.
 interweave-human-android-platform = { path = "../../crates/human/android-platform" }
 interweave-profile-config = { path = "../../crates/config/profile-config" }
+# The store key's custody (src/keystore.rs) and the store's screens
+# (src/store.rs): the store's KeyCipher seam and its at-rest actions. On
+# every target for the identity keys' directory K1 reads
+# (src/identity_keys.rs), which the host tests; android-platform brings
+# the crate to the host already.
+interweave-human-store = { path = "../../crates/human/store" }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
-# The store key's custody (src/keystore.rs) and the store's screens
-# (src/store.rs): the store's KeyCipher seam and its at-rest actions.
-interweave-human-store = { path = "../../crates/human/store" }
 zeroize = { version = "1", default-features = false, features = ["alloc"] }
 # The Service's hold on the runtime, store and facade, and the hub the
 # Activity's view attaches to: android-platform, in [dependencies].
@@ -56,6 +59,12 @@ ndk-sys = { workspace = true }
 # their results travel as.
 interweave-android-e2e-cases = { path = "../../tests/android-e2e-cases", optional = true }
 serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The identity key's record read back by the log and backup tests
+# (src/platform_log.rs, src/identity_keys.rs), to look for its secret.
+base64 = { workspace = true }
+interweave-transport-api = { path = "../../crates/api/transport-api" }
 
 [features]
 # The first-run profile of crates/human/android-platform's stand_in, and

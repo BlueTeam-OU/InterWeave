@@ -246,9 +246,18 @@ fn start_without_network(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     match started {
         Ok(()) => {
             log("no network access: the store is open and no runtime runs");
+            log_key_refused(host);
             NETWORK_DENIED
         }
         Err(why) => refusal(&why),
+    }
+}
+
+/// A start that ran with no identity key says why, by class, as the
+/// desktop prints it: the person-facing state is the card page's.
+fn log_key_refused(host: &ServiceHost) {
+    if let Some(why) = host.identity_key_refused() {
+        log(&format!("the identity's key is not usable: {why}"));
     }
 }
 
@@ -287,6 +296,7 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
                 )),
                 None => log("the runtime started before any network was reported"),
             }
+            log_key_refused(host);
             match host.availability() {
                 Some(AvailabilityMode::StayReachable) => 1,
                 _ => 0,
@@ -740,6 +750,23 @@ extern "system" fn Java_org_interweave_human_Native_offline<'caller>(
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::onboard::offline(stopped);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.showSecured()`: `FLAG_SECURE` is on for Show (activity.rs).
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_showSecured<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::show_secured();
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();

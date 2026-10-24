@@ -24,6 +24,12 @@
       "title": "Bridge endpoint",
       "description": "The endpoint of that profile the bridge claims; the profile's config.yaml declares it.",
       "default": "claude"
+    },
+    "log_level": {
+      "type": "string",
+      "title": "Bridge log level",
+      "description": "How much the bridge writes to its own log, under the profile's state directory: error, warn, info or debug.",
+      "default": "info"
     }
   }
 }

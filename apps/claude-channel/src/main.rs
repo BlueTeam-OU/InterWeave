@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! `claude-channel --profile <name> --endpoint <id> --delivery push|pull`:
-//! started by an MCP host over stdio (`plugin/LIFECYCLE.md` §Startup) --
-//! Claude Code with `push`, any other host with `pull`.
+//! `claude-channel --profile <name> --endpoint <id> --delivery push|pull
+//! [--log-level error|warn|info|debug]`: started by an MCP host over
+//! stdio (`plugin/LIFECYCLE.md` §Startup) -- Claude Code with `push`, any
+//! other host with `pull`. `claude-channel --version` alone prints the
+//! version and exits.
 //!
 //! The profile name, the endpoint and the delivery mode are the host's
 //! non-secret configuration (the plugin's `.mcp.json` arguments). From the name it derives the
@@ -15,13 +17,29 @@
 //! finish: its lease and joins end with its IPC connection, which is the
 //! daemon's act.
 
-#[cfg(unix)]
+/// `claude-channel --version`: the workspace version, which the plugin's
+/// manifest carries too, with the commit as build metadata
+/// (`tools/stamp/commit_stamp.rs`).
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("INTERWEAVE_COMMIT"));
+
 fn main() -> std::process::ExitCode {
+    let mut args = std::env::args().skip(1);
+    if let (Some(flag), None) = (args.next(), args.next())
+        && flag == "--version"
+    {
+        println!("claude-channel {VERSION}");
+        return std::process::ExitCode::SUCCESS;
+    }
+    serve()
+}
+
+#[cfg(unix)]
+fn serve() -> std::process::ExitCode {
     unix::main()
 }
 
 #[cfg(not(unix))]
-fn main() -> std::process::ExitCode {
+fn serve() -> std::process::ExitCode {
     eprintln!(
         "claude-channel: the transport daemon's sockets are Unix sockets; this platform has none"
     );
@@ -32,6 +50,7 @@ fn main() -> std::process::ExitCode {
 mod unix {
     use std::process::ExitCode;
 
+    use interweave_claude_channel::log::{Level, Line, Log};
     use interweave_claude_channel::refused::{Refusal, serve_refused};
     use interweave_claude_channel::serve::{CLIENT_KIND, Config, Env, serve};
     use interweave_claude_channel_core::Delivery;
@@ -43,14 +62,19 @@ mod unix {
     use interweave_transport_api::EndpointId;
     use tokio::io::BufReader;
 
-    const USAGE: &str =
-        "usage: claude-channel --profile <name> --endpoint <id> --delivery push|pull";
+    const USAGE: &str = "usage: claude-channel --profile <name> --endpoint <id> \
+         --delivery push|pull [--log-level error|warn|info|debug]";
+
+    /// `status.log.file_error` when the arguments did not parse, so no
+    /// profile and endpoint named a file.
+    const NO_PROFILE: &str = "no_profile";
 
     pub(crate) fn main() -> ExitCode {
-        match run() {
+        let (mut log, prepared) = prepare();
+        match run(&mut log, prepared) {
             Ok(()) => ExitCode::SUCCESS,
-            Err(refusal) => {
-                eprintln!("claude-channel: {refusal}");
+            Err(failure) => {
+                log.write(&Line::Failed(failure));
                 ExitCode::FAILURE
             }
         }
@@ -62,7 +86,7 @@ mod unix {
         config: Config,
     }
 
-    fn run() -> Result<(), String> {
+    fn run(log: &mut Log, prepared: Result<Prepared, Refusal>) -> Result<(), String> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .enable_time()
@@ -70,31 +94,41 @@ mod unix {
             .map_err(|e| format!("the runtime: {e}"))?;
         // A start that cannot work is served, not exited: Claude Code does
         // not start the bridge again (`refused`).
-        let prepared = prepare().map_err(|refusal| {
-            eprintln!("claude-channel: {}; serving the refusal", refusal.reason);
+        let prepared = prepared.map_err(|refusal| {
+            log.write(&Line::Refused(refusal.reason.clone()));
             (refusal, delivery_named(std::env::args().skip(1)))
         });
+        // The serve loop's copy: the one here writes the signal's line,
+        // after the loop is dropped.
+        let mut serving = log.clone();
         let ended = runtime.block_on(async {
             let input = BufReader::new(tokio::io::stdin());
             let output = tokio::io::stdout();
             let served = async {
                 match prepared {
                     Ok(Prepared { sockets, config }) => {
+                        serving.write(&Line::Started {
+                            delivery: config.delivery,
+                        });
                         let env = Env {
                             now_ms: Box::new(wall_ms),
                             entropy: Box::new(rand::random),
+                            log: serving,
                         };
                         let binding = IpcBinding::new(sockets, CLIENT_KIND);
                         serve(binding, config, env, input, output).await
                     }
                     Err((refusal, delivery)) => {
-                        serve_refused(&refusal, delivery, input, output).await
+                        serve_refused(&refusal, delivery, &mut serving, input, output).await
                     }
                 }
             };
             tokio::select! {
                 served = served => served.map_err(|e| format!("stdio: {e}")),
-                () = first_signal() => Ok(()),
+                () = first_signal() => {
+                    log.write(&Line::Ended("a signal"));
+                    Ok(())
+                }
             }
         });
         // NOT a drop: dropping the runtime waits for its blocking pool,
@@ -105,15 +139,44 @@ mod unix {
         ended
     }
 
-    /// The arguments and the profile's paths, or why they cannot be had.
-    fn prepare() -> Result<Prepared, Refusal> {
-        let (profile, endpoint, delivery) =
-            arguments(std::env::args().skip(1)).map_err(|reason| Refusal {
-                class: "usage",
-                reason,
-            })?;
-        let roots = XdgRoots::from_env().map_err(|e| refusal("the XDG directories", &e))?;
-        let paths = ProfilePaths::resolve(&profile, &roots)
+    /// The log, and the arguments and the profile's paths or why they
+    /// cannot be had. The log's file needs a profile and an endpoint and
+    /// nothing else -- not `XDG_RUNTIME_DIR`, so a start refused for its
+    /// absence still leaves its line in the file.
+    fn prepare() -> (Log, Result<Prepared, Refusal>) {
+        let (profile, endpoint, delivery, level) = match arguments(std::env::args().skip(1)) {
+            Ok(arguments) => arguments,
+            Err(reason) => {
+                let refusal = Refusal {
+                    class: "usage",
+                    reason,
+                };
+                return (Log::stderr_only(Level::default(), NO_PROFILE), Err(refusal));
+            }
+        };
+        let roots = match XdgRoots::from_env() {
+            Ok(roots) => roots,
+            Err(e) => {
+                let refused = refusal("the XDG directories", &e);
+                return (Log::stderr_only(level, refused.class), Err(refused));
+            }
+        };
+        let log = match ProfilePaths::resolve_offline(&profile, &roots) {
+            Ok(paths) => Log::open(level, paths.state_dir(), &endpoint),
+            // The refusal's class: `profile_name`, which `resolve` below
+            // refuses the start with too.
+            Err(e) => Log::stderr_only(level, refusal("the profile's paths", &e).class),
+        };
+        (log, prepare_paths(&profile, endpoint, delivery, &roots))
+    }
+
+    fn prepare_paths(
+        profile: &str,
+        endpoint: EndpointId,
+        delivery: Delivery,
+        roots: &XdgRoots,
+    ) -> Result<Prepared, Refusal> {
+        let paths = ProfilePaths::resolve(profile, roots)
             .map_err(|e| refusal("the profile's paths", &e))?;
         let sockets = SocketPaths {
             data: paths
@@ -162,14 +225,16 @@ mod unix {
     }
 
     /// `--profile <name> --endpoint <id> --delivery push|pull`, in any
-    /// order, nothing else. `--delivery` is REQUIRED, with no default: a
-    /// host does not declare whether it takes Claude Code's channel push,
-    /// so a missing flag never puts the one harness that does into pull
-    /// (architect-cto's ruling, relay seq 18691).
+    /// order, and `--log-level` optionally, nothing else. `--delivery` is
+    /// REQUIRED, with no default: a host does not declare whether it
+    /// takes Claude Code's channel push, so a missing flag never puts the
+    /// one harness that does into pull (architect-cto's ruling, relay seq
+    /// 18691). A level that does not parse is a usage refusal, as any
+    /// other setting that does not: a fallback would hide the mistake.
     fn arguments(
         mut args: impl Iterator<Item = String>,
-    ) -> Result<(String, EndpointId, Delivery), String> {
-        let (mut profile, mut endpoint, mut delivery) = (None, None, None);
+    ) -> Result<(String, EndpointId, Delivery, Level), String> {
+        let (mut profile, mut endpoint, mut delivery, mut level) = (None, None, None, None);
         while let Some(flag) = args.next() {
             let value = args.next().ok_or_else(|| USAGE.to_owned())?;
             match flag.as_str() {
@@ -184,11 +249,18 @@ mod unix {
                             .ok_or_else(|| format!("--delivery is push or pull, not {value:?}"))?,
                     );
                 }
+                "--log-level" if level.is_none() => {
+                    level = Some(Level::parse(&value).ok_or_else(|| {
+                        format!("--log-level is error, warn, info or debug, not {value:?}")
+                    })?);
+                }
                 _ => return Err(USAGE.to_owned()),
             }
         }
         match (profile, endpoint, delivery) {
-            (Some(profile), Some(endpoint), Some(delivery)) => Ok((profile, endpoint, delivery)),
+            (Some(profile), Some(endpoint), Some(delivery)) => {
+                Ok((profile, endpoint, delivery, level.unwrap_or_default()))
+            }
             _ => Err(USAGE.to_owned()),
         }
     }
@@ -242,6 +314,25 @@ mod unix {
 
         fn args(list: &[&str]) -> Result<(String, EndpointId, Delivery), String> {
             arguments(list.iter().map(|s| (*s).to_owned()))
+                .map(|(profile, endpoint, delivery, _)| (profile, endpoint, delivery))
+        }
+
+        /// `--log-level` is optional, `info` when absent, one of the four
+        /// names when present, and given once.
+        #[test]
+        fn the_log_level_is_optional_and_one_of_four() {
+            let base = ["--profile", "w", "--endpoint", "c", "--delivery", "push"];
+            let level = |extra: &[&str]| {
+                let list: Vec<String> = base.iter().chain(extra).map(|s| (*s).to_owned()).collect();
+                arguments(list.into_iter()).map(|(.., level)| level)
+            };
+            assert_eq!(level(&[]), Ok(Level::Info));
+            assert_eq!(level(&["--log-level", "debug"]), Ok(Level::Debug));
+            assert_eq!(level(&["--log-level", "error"]), Ok(Level::Error));
+            let refused = level(&["--log-level", "loud"]).expect_err("refused");
+            assert!(refused.contains("--log-level"), "{refused}");
+            assert!(level(&["--log-level", "warn", "--log-level", "info"]).is_err());
+            assert!(level(&["--log-level"]).is_err());
         }
 
         /// A profile a newer build wrote is its own class in `status`; a

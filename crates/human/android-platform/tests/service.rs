@@ -19,7 +19,7 @@ use interweave_human_android_platform::{
 };
 use interweave_human_app_core::Update;
 use interweave_human_client_api::{ClientEvent, SessionState};
-use interweave_profile_config::{ProfilePaths, TrustBoundary};
+use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_transport_embedded::EmbeddedRefused;
 
 const PROFILE: &str = "human";
@@ -496,6 +496,24 @@ fn the_stand_in_profile_is_written_once_and_never_rewritten() {
     );
 }
 
+/// No identity's endpoint is in the directory: the app has no control
+/// that would take it out (`human-client-ui.md` §13).
+#[test]
+fn the_stand_in_profile_advertises_no_endpoint() {
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    let profile = ProfileConfig::load(&paths).expect("the stand-in loads");
+    assert!(
+        !profile.endpoints.entries.is_empty(),
+        "an endpoint is written"
+    );
+    for endpoint in &profile.endpoints.entries {
+        assert!(!endpoint.advertise, "{:?} is advertised", endpoint.id);
+    }
+}
+
 /// The android-e2e cases' provisioning replaces what is there -- the
 /// host names each start's profile -- where the app's own never does,
 /// and it writes under the same private directory.
@@ -827,6 +845,27 @@ fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
     service.stop(GRACE).expect("it ran");
 }
 
+/// A view attaching to a facade whose session is ready is told this
+/// node's `PeerId` with its listing, as the Ready it missed would have
+/// told it: Peers reads this device's own row by it.
+#[test]
+fn a_view_attaching_late_is_told_this_device() {
+    let app = app();
+    let service = started(&app);
+    let mut first = attach(&service);
+    let mut held = Vec::new();
+    until(&mut first, &mut held, "a ready session", is_ready);
+    let mut late = attach(&service);
+    let mut held = Vec::new();
+    until(
+        &mut late,
+        &mut held,
+        "this device's PeerId",
+        |message| matches!(message, ToView::Update(u) if matches!(**u, Update::ThisDevice(_))),
+    );
+    service.stop(GRACE).expect("it ran");
+}
+
 /// A stand-in for the Keystore's store key, sealing nothing (the secret
 /// is the body) so it can be told to refuse as invalidated: what the
 /// Service does with that refusal, not the Keystore, is what is tested
@@ -939,5 +978,112 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
             .any(|m| matches!(m, ToView::StoreRefused(None))),
         "the screen goes once a start opened the store"
     );
+    let _ = service.stop(GRACE);
+}
+
+/// The identity in front as the first listing after a start reports it.
+fn listed_identity(service: &ServiceHost) -> Option<interweave_human_ui_model::IdentityView> {
+    let mut link = attach(service);
+    let mut held = Vec::new();
+    let mut identity = None;
+    until(&mut link, &mut held, "the listing", |m| match m {
+        ToView::Update(u) => match &**u {
+            Update::Listed(l) => {
+                identity = Some(l.identity.clone());
+                true
+            }
+            _ => false,
+        },
+        _ => false,
+    });
+    identity.expect("listed")
+}
+
+/// ADR-0063 decision 2 on Android: the first start makes the identity's
+/// key sealed under the platform's custody, beside the store and outside
+/// it, and every later start opens that key, never a new one; the record
+/// is the Keystore's, which the desktop's filesystem floor cannot read.
+#[test]
+fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
+    use interweave_human_store::identity_key::{
+        self, FilesystemCustody, IdentityKeyError, IdentityKeyFileError,
+    };
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let keystore = StoreKeystore {
+        invalidated: std::sync::atomic::AtomicBool::new(false),
+    };
+    let service = ServiceHost::new();
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("started");
+    let first = listed_identity(&service).expect("the identity has its key");
+    let _ = service.stop(GRACE);
+
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("started again");
+    let again = listed_identity(&service).expect("the key opened");
+    assert_eq!(again.fingerprint, first.fingerprint, "the same key");
+    let _ = service.stop(GRACE);
+
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    assert_eq!(
+        identity_key::open(&paths, &first.endpoint, &FilesystemCustody).expect_err("sealed"),
+        IdentityKeyFileError::Key(IdentityKeyError::SealedUnreadableHere),
+        "the record is held at the Keystore's custody"
+    );
+}
+
+/// #414 F3: a start that refuses the identity's key file runs with no
+/// key and keeps the refusal's class for the platform log; the file is
+/// left as it is, and a start that opens a key clears the refusal.
+#[test]
+fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
+    use interweave_human_store::identity_key::{self, IdentityKeyError, IdentityKeyFileError};
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let keystore = StoreKeystore {
+        invalidated: std::sync::atomic::AtomicBool::new(false),
+    };
+    let service = ServiceHost::new();
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("started");
+    let first = listed_identity(&service).expect("a key");
+    assert_eq!(service.identity_key_refused(), None);
+    let _ = service.stop(GRACE);
+
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    let file = identity_key::key_path(&paths, &first.endpoint);
+    let good = std::fs::read(&file).expect("read");
+    std::fs::write(&file, "not a record\n").expect("overwrite");
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("started with no key");
+    assert!(
+        listed_identity(&service).is_none(),
+        "no key, nothing signed"
+    );
+    assert_eq!(
+        service.identity_key_refused(),
+        Some(IdentityKeyFileError::Key(IdentityKeyError::NotARecord))
+    );
+    let _ = service.stop(GRACE);
+    assert_eq!(
+        std::fs::read(&file).expect("read"),
+        b"not a record\n",
+        "left as it is"
+    );
+
+    std::fs::write(&file, &good).expect("restore");
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("started");
+    assert_eq!(service.identity_key_refused(), None, "cleared");
     let _ = service.stop(GRACE);
 }

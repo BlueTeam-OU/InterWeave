@@ -80,7 +80,21 @@ pub async fn until_listening(at: SocketAddrV4, run: &CaseRun, log: impl Fn() -> 
 /// If adb fails.
 #[must_use]
 pub fn reversed() -> String {
+    reversed_with(&[])
+}
+
+/// [`reversed`] on the device with `serial`, as `adb -s` names it.
+///
+/// # Panics
+/// If adb fails.
+#[must_use]
+pub fn reversed_on(serial: &str) -> String {
+    reversed_with(&["-s", serial])
+}
+
+fn reversed_with(select: &[&str]) -> String {
     let out = Command::new("adb")
+        .args(select)
         .args(["reverse", "--list"])
         .output()
         .expect("adb");

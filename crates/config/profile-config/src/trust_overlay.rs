@@ -157,13 +157,11 @@ impl TrustOverlay {
     }
 
     /// The peers allowed beyond the configuration.
-    #[must_use]
     pub fn added(&self) -> impl ExactSizeIterator<Item = &TransportIdentity> {
         self.added.iter()
     }
 
     /// The configured peers revoked.
-    #[must_use]
     pub fn revoked(&self) -> impl ExactSizeIterator<Item = &TransportIdentity> {
         self.revoked.iter()
     }

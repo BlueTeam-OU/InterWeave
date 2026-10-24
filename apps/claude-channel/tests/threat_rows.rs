@@ -11,10 +11,11 @@
 //!   What the model then does with text inside the tag is the host's
 //!   (threat-model.md: "model/user can choose action").
 //! - **TM-32, log leakage, the bridge's half.** The real binary's stderr
-//!   over a run with a refused host line, a malformed envelope and a
-//!   message replied to carries nothing a message brought, nothing the
-//!   bridge minted for one and no peer's string. The daemon's half --
-//!   the recovery phrase's scan, S11 -- is not the bridge's.
+//!   and its log file, at the `debug` level that writes every line, over
+//!   a run with a refused host line, a malformed envelope and a message
+//!   replied to, carry nothing a message brought, nothing the bridge
+//!   minted for one and no peer's string. The daemon's half -- the
+//!   recovery phrase's scan, S11 -- is not the bridge's.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -159,6 +160,10 @@ async fn tm_30_peer_text_that_instructs_the_host_reaches_it_as_content_only() {
     let env = Env {
         now_ms: Box::new(|| 1_791_227_222_497),
         entropy: Box::new(|| [7; 16]),
+        log: interweave_claude_channel::log::Log::stderr_only(
+            interweave_claude_channel::log::Level::Debug,
+            "test",
+        ),
     };
     let config = Config {
         endpoint: EndpointId::parse("claude").expect("endpoint"),
@@ -276,7 +281,7 @@ fn windows(secret: &str, len: usize) -> Vec<(usize, &str)> {
 }
 
 #[tokio::test]
-async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
+async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr_or_its_log() {
     use std::process::Stdio;
 
     let scratch = tempfile::tempdir().expect("tempdir");
@@ -298,6 +303,8 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
             "claude",
             "--delivery",
             "push",
+            "--log-level",
+            "debug",
         ])
         .env("XDG_RUNTIME_DIR", &run)
         .env("XDG_STATE_HOME", scratch.path().join("state"))
@@ -404,19 +411,26 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
     )
     .expect("the bridge writes UTF-8");
 
-    // The control: the stream was live, and said what was refused.
-    assert!(
-        stderr.contains(&format!(
-            "a host line over {MAX_HOST_LINE_BYTES} bytes was dropped"
-        )),
-        "the refused host line is not on stderr ({} bytes)",
-        stderr.len()
-    );
-    assert!(
-        stderr.contains("an inbound message was dropped: its payload did not decode"),
-        "the dropped envelope is not on stderr ({} bytes)",
-        stderr.len()
-    );
+    let log_file = scratch
+        .path()
+        .join("state/interweave/profiles/leak/claude-channel/claude.log");
+    let log = std::fs::read_to_string(&log_file).expect("the bridge's log file");
+
+    // The control: both streams were live, and said what was refused.
+    for (stream, text) in [("stderr", &stderr), ("the log", &log)] {
+        for line in [
+            format!("a host line over {MAX_HOST_LINE_BYTES} bytes was dropped"),
+            "an inbound message was dropped: its payload did not decode".to_owned(),
+            "a session opened, the lease held".to_owned(),
+            "ended: the host closed stdin".to_owned(),
+        ] {
+            assert!(
+                text.contains(&line),
+                "{stream} lacks {line:?} ({} bytes)",
+                text.len()
+            );
+        }
+    }
     let over_long_marker = format!("qx7h-{}", "h".repeat(16));
     // A hit is reported by the secret's name and where it sits.
     for (name, secret) in [
@@ -432,11 +446,13 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
         ("the source endpoint", SOURCE_ENDPOINT),
     ] {
         for (offset, window) in windows(secret, 8) {
-            let at = stderr.find(window);
-            assert!(
-                at.is_none(),
-                "stderr carries {name}'s bytes from {offset} at byte {at:?} of stderr"
-            );
+            for (stream, text) in [("stderr", &stderr), ("the log", &log)] {
+                let at = text.find(window);
+                assert!(
+                    at.is_none(),
+                    "{stream} carries {name}'s bytes from {offset} at byte {at:?}"
+                );
+            }
         }
     }
 }

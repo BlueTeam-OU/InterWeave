@@ -5,7 +5,7 @@ topic: "j97-accesskit-prototype"
 description: "j97 (2026-10-17): app-side AccessKit adapter prototype for Android built, two APKs (unpatched / hover-patched) waiting for the Pixel; what is measured and what is not"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -51,7 +51,7 @@ Related: [[android-accesskit-bridge]] [[device-review-run-method]] [[release-pho
   - no TalkBack box follows the focus.
 - The wireless link drops mid-run: reconnect before every adb call (`adb get-state || adb connect`).
 - The hover-patched build is installed now. Next: the owner's checklist or main 400b42b6 for ux-designer-01, as architect-cto-01 says.
-- Order (architect-cto-01 REPLY 01a14dba): the owner finger-tests the hover-patched build first, then the unpatched one, then main 400b42b6 for ux-designer-01. Install NOTHING until architect-cto-01 says. The gaps are noted on the scratch branch in 48cf3672 (local). Main's APK is being rebuilt into a scratch path
+- Order (architect-cto-01 REPLY 01a14dba): the owner finger-tests the hover-patched build first, then the unpatched one, then main 400b42b6 for ux-designer-01. Install NOTHING until architect-cto-01 says. The gaps are noted on the scratch branch in 48cf3672 (local). Main's APK is being rebuilt into a scratch path.
 
 *References: android-accesskit-bridge, device-review-run-method, j94-install-292-apk, release-phone-after-testing*
 

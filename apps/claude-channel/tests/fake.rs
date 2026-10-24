@@ -320,6 +320,10 @@ impl World {
                 bytes[0] = n;
                 bytes
             }),
+            log: interweave_claude_channel::log::Log::stderr_only(
+                interweave_claude_channel::log::Level::Debug,
+                "test",
+            ),
         };
         let config = Config {
             endpoint: endpoint("claude"),
@@ -630,6 +634,11 @@ async fn broadcast_join_publish_reply_and_leave() {
         status["profile_desired_channels"],
         json!({"as_configured": ["general"]}),
         "desired is reported apart from joined"
+    );
+    assert_eq!(
+        status["log"],
+        json!({"level": "debug", "file": null, "file_error": "test"}),
+        "the bridge's log is reported"
     );
     w.tool("leave", json!({"channel": "general"})).await;
     let (text, error) = w
@@ -948,6 +957,10 @@ async fn an_endpoint_conflict_is_reported_as_itself() {
     let env = Env {
         now_ms: Box::new(|| 0),
         entropy: Box::new(|| [1; 16]),
+        log: interweave_claude_channel::log::Log::stderr_only(
+            interweave_claude_channel::log::Level::Debug,
+            "test",
+        ),
     };
     let config = Config {
         endpoint: endpoint("claude"),

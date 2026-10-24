@@ -247,7 +247,43 @@ pub(crate) fn confirmation_text(confirms: Confirmation) -> &'static str {
         Confirmation::IdentifierCopied { channel: true } => {
             placeholder_en::text(UiText::ChannelIdCopied)
         }
+        Confirmation::ContactSaved => placeholder_en::text(UiText::ConfirmContactSaved),
+        Confirmation::ContactUpdated => placeholder_en::text(UiText::ConfirmContactUpdated),
+        Confirmation::CardDeclined => placeholder_en::text(UiText::ConfirmCardDeclined),
     }
+}
+
+/// Whether a snackbar confirms a card's Accept: the one whose timeout
+/// waits while focus is between its confirmation row and the snackbar
+/// (contact-cards design section 5.4.2, #416).
+pub(crate) const fn is_accept(confirms: Confirmation) -> bool {
+    matches!(
+        confirms,
+        Confirmation::ContactSaved | Confirmation::ContactUpdated
+    )
+}
+
+/// Whether focus id `focus` is in an Accept snackbar's waiting span: the
+/// confirmation row at `row_handle`, a card row after it, the composer,
+/// or the snackbar's Undo -- the reading order from the row to the Undo,
+/// card rows being drawn after the messages.
+pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>) -> bool {
+    if focus == "composer" || focus == "undo" {
+        return true;
+    }
+    let Some(row) = row_handle else {
+        return false;
+    };
+    [
+        "answer:",
+        "proposal-copy:",
+        "proposal-decline:",
+        "proposal-accept:",
+    ]
+    .into_iter()
+    .find_map(|prefix| focus.strip_prefix(prefix))
+    .and_then(|rest| rest.parse::<i32>().ok())
+    .is_some_and(|handle| handle >= row)
 }
 
 /// Keep `window` reachable from a callback without keeping it alive.

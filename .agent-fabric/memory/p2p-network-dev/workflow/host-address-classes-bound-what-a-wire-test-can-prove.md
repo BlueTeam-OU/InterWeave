@@ -5,7 +5,7 @@ topic: "host-address-classes-bound-what-a-wire-test-can-prove"
 description: "Before calling a wire test \"owed, needs a bigger harness\", check the host's address classes — develop-qzapp has only lo (no MULTICAST) and one RFC 1918 /32, so AutoNAT verdicts and mDNS exchanges cannot happen on it at any harness size…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j87-swipe-spec-fixes"
 description: "j87 delivered 2026-10-16 on #292 (32081440..c542801e): fling window, waiting-Cancel snackbar order, focus-only-from-inside-the-row, focusable headings; what it rests on"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

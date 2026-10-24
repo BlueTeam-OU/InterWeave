@@ -5,7 +5,7 @@ topic: "ui-slint-body-cache-tests"
 description: A views.rs test that loops over sources with one View must give each a distinct row — the view caches drawn bodies by ItemKey
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

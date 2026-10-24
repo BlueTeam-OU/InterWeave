@@ -5,7 +5,7 @@ topic: "review-loop-p3-tail"
 description: "#289 took nine review rounds; rounds 5-9 were P3 doc/test gaps. Fix the class in round 1 (the rule, every call site, its doc and its test) to avoid the tail"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

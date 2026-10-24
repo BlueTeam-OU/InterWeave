@@ -124,7 +124,7 @@ edition = "2024"
 # Kept in lockstep with rust-toolchain.toml. Stating a minimum the pinned
 # compiler does not match is worse than stating none: it reads as a tested
 # floor while nothing ever builds against it.
-rust-version = "1.98.1"
+rust-version = "1.99.1"
 repository = "https://github.com/BlueTeam-OU/InterWeave"
 
 # Lints are declared once and inherited with `[lints] workspace = true`, so a
@@ -149,6 +149,11 @@ repository = "https://github.com/BlueTeam-OU/InterWeave"
 #     `#[expect(clippy::<lint>, reason = "…")]` on the item — `expect`, so the
 #     exemption fails the build once the code stops needing it. Priority -1,
 #     like `all`, so a named lint below still sets its own level.
+#   assert_is_empty — the one pedantic lint allowed whole, on the owner's word
+#     at the 1.99.1 bump (2026-10-24). New in clippy 1.99, it fired at 163
+#     sites across ~30 packages, nearly all `assert!(x.is_empty())` in tests,
+#     and its rewrite, `assert_eq!(x, [] as [T; 0])`, needs PartialEq and
+#     Debug on T and reads worse: no site where it fires would be improved.
 #
 # The bounded-resource invariant (CLAUDE.md §6) is enforced at runtime by
 # `overflow-checks` in [profile.release] below rather than by a lint:
@@ -169,6 +174,7 @@ panic = "warn"
 todo = "warn"
 unimplemented = "warn"
 dbg_macro = "warn"
+assert_is_empty = "allow"
 
 # Shared dependency versions. A crate writes `serde = { workspace = true }` and
 # gets the reviewed version; two crates cannot end up on two versions of the
@@ -234,6 +240,20 @@ brotli = { version = "8", default-features = false, features = ["std"] }
 # getopts -- and only behind chat-protocol's off-by-default `markdown`
 # feature, so the Claude bridge's default graph names no parser.
 pulldown-cmark = { version = "0.13", default-features = false }
+# The address code (ADR-0062 decision 4; add-a-peer §5.4, §5.5): encoded
+# for Show without its image feature (the views draw the modules), and
+# decoded from a camera frame or an image's pixels. Pure Rust; qrcode is
+# MIT OR Apache-2.0, rqrr (MIT OR Apache-2.0) AND ISC, both terms on the
+# allow-list.
+qrcode = { version = "0.14.1", default-features = false }
+rqrr = { version = "0.11.0", default-features = false }
+# The desktop's Paste an image: the clipboard crate the toolkit's winit
+# backend already uses, with the image read it leaves off; on Linux that
+# decodes PNG with the `image` crate already in the graph.
+arboard = { version = "3.6.1", default-features = false, features = ["image-data"] }
+# The desktop's Open an image…: the platform's file dialog, through the
+# XDG desktop portal on Linux (no GTK), MIT.
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 # The reference views (plan §17 (8)), admitted under the Slint Royalty-free
 # licence by the owner's decision of 2026-10-01 (deny.toml carries the
 # per-crate exceptions). The toolkit only: no windowing backend and no

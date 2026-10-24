@@ -5,7 +5,7 @@ topic: "model-only-take-rerender"
 description: "app-core ModelSide::turn renders once then takes: an action the model does alone (Hide, Undo, snackbar close, trust input) needs a render after the take or nothing redraws"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

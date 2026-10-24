@@ -347,7 +347,6 @@ pub struct TrustAdminView {
 
 impl TrustAdminView {
     /// The allowlisted peers' identities, in the rows' order.
-    #[must_use]
     pub fn peers(&self) -> impl ExactSizeIterator<Item = &TransportIdentity> {
         self.allowed.iter().map(|row| &row.peer)
     }
