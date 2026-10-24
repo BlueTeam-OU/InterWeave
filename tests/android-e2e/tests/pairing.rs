@@ -14,6 +14,18 @@
 //!   it ends only once A has left, which the host makes happen after A's
 //!   case passes. A is killed and started again, and A's case finds the address still
 //!   listed as added and connects again, with no add; B sees it again.
+//! - **The same with the peer cache on**, and Kademlia still off, which
+//!   the cache seeds: four variants that tell the two sources apart by
+//!   taking each away. Both kept; the overlay's entry removed after the
+//!   first connection (the cache alone); the cache's file removed between
+//!   the starts (the overlay alone); and both taken away, under which A
+//!   stays unconnected for a window -- the control that nothing else
+//!   dials B. Between the starts A's cache file is read, with no runtime
+//!   up, and the run says whether it named B.
+//! - **The same with A rebooted** in place of the force-stop (phones
+//!   only): A's process dies with the device, the platform starts none of
+//!   the app's processes after the boot (the app declares no boot
+//!   receiver), and the dial recurs when the next case starts the app.
 //! - **Two fresh profiles exchange messages after both trust, and not
 //!   before** (the gate's "connect", read as a connection that carries a
 //!   message).
@@ -41,7 +53,8 @@
 //! says so. No port is reversed on either phone, before or after.
 //!
 //! What this does NOT prove, by name: the Scan screen (the add is the
-//! binding's function in its place); the one-sided step in the other
+//! binding's function in its place); a dial at boot, which the product
+//! does not make; the cache rows with Kademlia on, the shipped set; the one-sided step in the other
 //! direction (B trusting first); a LAN that isolates its clients; and,
 //! on the stand-ins, a radio, a process death (a dropped host runs its
 //! destructors) or two machines (one host's private address both ways).
@@ -53,11 +66,13 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::time::Duration;
 
 use interweave_android_e2e_cases::{
-    AddedAddressArgs, AwaitPeerArgs, PairArgs, PairExpect, cases, keys,
+    AddedAddressArgs, AwaitPeerArgs, PairArgs, PairExpect, PeerCacheArgs, cases, keys,
 };
-use interweave_android_e2e_tests::adb::AdbDevice;
+use interweave_android_e2e_tests::adb::{AdbDevice, reboot_and_await};
 use interweave_android_e2e_tests::wifi::{listening_at, reversed_on, until_listening};
-use interweave_android_e2e_tests::{Device, HostStandIn, PATIENCE, free_port, log_capture};
+use interweave_android_e2e_tests::{
+    Device, HostStandIn, PATIENCE, PROFILE, free_port, log_capture,
+};
 use interweave_test_support::e2e::example;
 use interweave_test_support::net::require_private_interface_v4;
 use interweave_transport_api::TransportIdentity;
@@ -104,17 +119,62 @@ fn profile(other: &TransportIdentity, port: u16, trusting: bool) -> String {
     config.replace(&trusted, "allowed_peers: []")
 }
 
-/// `config` with the peer cache off, and Kademlia, which it seeds, so the
-/// overlay is the only producer of an address after a restart: the cache
-/// keeps a reached peer across one.
-fn overlay_only(config: &str) -> String {
+/// `config` with each of `providers` switched off.
+fn without(config: &str, providers: &[&str]) -> String {
     let mut out = config.to_owned();
-    for provider in ["peer-cache", "kademlia"] {
+    for provider in providers {
         let on = format!("{{ type: {provider}, enabled: true,");
         assert_eq!(out.matches(&on).count(), 1, "{provider} is on once");
         out = out.replace(&on, &format!("{{ type: {provider}, enabled: false,"));
     }
     out
+}
+
+/// `config` with the peer cache off, and Kademlia, which it seeds, so the
+/// overlay is the only producer of an address after a restart: the cache
+/// keeps a reached peer across one.
+fn overlay_only(config: &str) -> String {
+    without(config, &["peer-cache", "kademlia"])
+}
+
+/// Which sources still hold B's address when A starts again. With the
+/// cache on, Kademlia is off in every variant: it is seeded from the
+/// cache and would be a third producer the row cannot tell apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sources {
+    /// The cache off: the overlay alone (row 1).
+    OverlayOnly,
+    /// The cache on, and both kept.
+    Both,
+    /// The cache on, and the overlay's entry removed after the first hold.
+    CacheAlone,
+    /// The cache on, and its file removed between the two starts.
+    OverlayAlone,
+    /// The cache on, and both taken away: the control, under which A
+    /// stays unconnected.
+    Neither,
+}
+
+impl Sources {
+    fn cache_on(self) -> bool {
+        self != Self::OverlayOnly
+    }
+
+    fn overlay_kept(self) -> bool {
+        !matches!(self, Self::CacheAlone | Self::Neither)
+    }
+
+    fn cache_kept(self) -> bool {
+        !matches!(self, Self::OverlayAlone | Self::Neither)
+    }
+
+    fn profile(self, config: &str) -> String {
+        if self.cache_on() {
+            without(config, &["kademlia"])
+        } else {
+            overlay_only(config)
+        }
+    }
 }
 
 fn passed(out: &serde_json::Map<String, serde_json::Value>, what: &str, log: &str) {
@@ -125,14 +185,20 @@ fn passed(out: &serde_json::Map<String, serde_json::Value>, what: &str, log: &st
     );
 }
 
-/// The first row: A adds B's address, connects, restarts, and connects
-/// again from the overlay alone.
-async fn added_address_survives_a_restart<D: Device>(a: &mut Side<D>, b: &mut Side<D>) {
+/// The first row and the peer cache's: A adds B's address, connects, is
+/// ended by `between` (which returns once A can run a case again), starts
+/// again, and connects
+/// again from what `sources` leaves -- or, with nothing left, stays
+/// unconnected. On a cache row the cache's file is read between the two
+/// starts, and removed when `sources` takes the cache away.
+async fn added_address_across<D: Device>(
+    a: &mut Side<D>,
+    b: &mut Side<D>,
+    sources: Sources,
+    between: impl FnOnce(&mut Side<D>),
+) {
+    let mut between = Some(between);
     let (a_peer, b_peer) = (a.device.peer(), b.device.peer());
-    b.device
-        .start(&overlay_only(&profile(&a_peer, b.at.port(), true)));
-    a.device
-        .start(&overlay_only(&profile(&b_peer, a.at.port(), true)));
     let log = |a: &Side<D>, b: &Side<D>| {
         format!(
             "--- A ---\n{}\n--- B ---\n{}",
@@ -140,17 +206,53 @@ async fn added_address_survives_a_restart<D: Device>(a: &mut Side<D>, b: &mut Si
             b.device.log()
         )
     };
+    let cache = |a: &Side<D>, forget| {
+        let out = a
+            .device
+            .run_case(
+                cases::PEER_CACHE,
+                &PeerCacheArgs {
+                    profile: PROFILE.to_owned(),
+                    peer: b_peer.clone(),
+                    forget,
+                }
+                .to_json(),
+            )
+            .result();
+        passed(&out, "A's peer cache", "");
+        out
+    };
+    b.device
+        .start(&overlay_only(&profile(&a_peer, b.at.port(), true)));
+    if sources.cache_on() {
+        // An earlier run's cache would hold B at another port: the
+        // window before the add is then this run's alone.
+        let out = cache(a, true);
+        println!(
+            "{sources:?}: A's cache before the first start: file {}, forgotten {}",
+            out[keys::CACHE_FILE],
+            out[keys::FORGOTTEN]
+        );
+    }
+    a.device
+        .start(&sources.profile(&profile(&b_peer, a.at.port(), true)));
 
     for (step, add) in [("before the restart", true), ("after the restart", false)] {
-        let far = b.device.run_case(
-            cases::AWAIT_PEER,
-            &AwaitPeerArgs {
-                peer: a_peer.clone(),
-                deadline: PATIENCE * 2,
-            }
-            .to_json(),
-        );
-        until_listening(b.at, &far, || log(a, b)).await;
+        let apart = (!add && sources == Sources::Neither).then_some(Duration::from_secs(15));
+        // The far end waits for a dial only where one is due.
+        let far = apart.is_none().then(|| {
+            b.device.run_case(
+                cases::AWAIT_PEER,
+                &AwaitPeerArgs {
+                    peer: a_peer.clone(),
+                    deadline: PATIENCE * 2,
+                }
+                .to_json(),
+            )
+        });
+        if let Some(far) = &far {
+            until_listening(b.at, far, || log(a, b)).await;
+        }
         let near = a
             .device
             .run_case(
@@ -162,32 +264,75 @@ async fn added_address_survives_a_restart<D: Device>(a: &mut Side<D>, b: &mut Si
                     before: Duration::from_secs(3),
                     deadline: PATIENCE,
                     hold: Duration::from_secs(5),
+                    remove_after: add && !sources.overlay_kept(),
+                    listed: add || sources.overlay_kept(),
+                    apart,
                 }
                 .to_json(),
             )
             .result();
         passed(&near, &format!("A {step}"), &log(a, b));
+        let Some(far) = far else {
+            println!(
+                "{step}: A {} stayed unconnected to {} for {apart:?} with neither source left",
+                a_peer.as_str(),
+                b.address()
+            );
+            break;
+        };
         // A has read its row; ending it is what ends B's case, which
         // waits for A to leave so its runtime outlives that read.
-        a.device.kill();
+        match between.take() {
+            Some(between) if add => between(a),
+            _ => a.device.kill(),
+        }
         let far = far.result();
         passed(&far, &format!("B {step}"), &log(a, b));
         println!(
-            "{step}: A {} connected to {} {} ms after holding it (removed first: {}); \
-             B saw it after {} ms",
+            "{step}: A {} connected to {} {} ms after holding it (removed first: {}, \
+             removed after: {}); B saw it after {} ms",
             a_peer.as_str(),
             b.address(),
             near[keys::CONNECTED_AFTER],
             near.get(keys::REMOVED_FIRST)
                 .map_or("-", |v| v.as_str().unwrap_or("?")),
+            near.get(keys::REMOVED_AFTER)
+                .map_or("-", |v| v.as_str().unwrap_or("?")),
             far[keys::CONNECTED_AFTER]
         );
         if add {
+            if sources.cache_on() {
+                let out = cache(a, !sources.cache_kept());
+                println!(
+                    "{sources:?}: A's cache between the starts: file {}, names B {}, forgotten {}",
+                    out[keys::CACHE_FILE],
+                    out[keys::CACHED],
+                    out[keys::FORGOTTEN]
+                );
+                if sources == Sources::CacheAlone {
+                    assert_eq!(
+                        out[keys::CACHED],
+                        "true",
+                        "the cache's file does not name B after A ended: the cache alone \
+                         cannot dial it ({out:?})"
+                    );
+                }
+            }
             a.device.restart();
         }
     }
     a.device.stop();
     b.device.stop();
+}
+
+/// Row 1's ending and return: the platform's force-stop, then the next
+/// case's process.
+async fn added_address_survives_a_restart<D: Device>(
+    a: &mut Side<D>,
+    b: &mut Side<D>,
+    sources: Sources,
+) {
+    added_address_across(a, b, sources, |a| a.device.kill()).await;
 }
 
 /// One step of the second row, both sides at once.
@@ -311,7 +456,35 @@ async fn on_stand_ins_an_added_address_is_dialled_and_survives_a_restart() {
     let ip = require_private_interface_v4();
     let mut a = Side::new(HostStandIn::new(), ip);
     let mut b = Side::new(HostStandIn::new(), ip);
-    added_address_survives_a_restart(&mut a, &mut b).await;
+    added_address_survives_a_restart(&mut a, &mut b, Sources::OverlayOnly).await;
+}
+
+async fn on_stand_ins(sources: Sources) {
+    log_capture::install();
+    let ip = require_private_interface_v4();
+    let mut a = Side::new(HostStandIn::new(), ip);
+    let mut b = Side::new(HostStandIn::new(), ip);
+    added_address_survives_a_restart(&mut a, &mut b, sources).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_stand_ins_with_the_cache_on_both_sources_kept_reconnect() {
+    on_stand_ins(Sources::Both).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_stand_ins_with_the_cache_on_the_cache_alone_reconnects() {
+    on_stand_ins(Sources::CacheAlone).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_stand_ins_with_the_cache_on_the_overlay_alone_reconnects() {
+    on_stand_ins(Sources::OverlayAlone).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_stand_ins_with_the_cache_on_and_neither_source_kept_nothing_dials() {
+    on_stand_ins(Sources::Neither).await;
 }
 
 #[test]
@@ -359,8 +532,75 @@ fn none_reversed() {
 #[ignore = "needs two devices on one LAN, adb, and the app's androidTest build on both"]
 async fn on_two_phones_an_added_address_is_dialled_and_survives_a_restart() {
     let (mut a, mut b) = phones();
-    added_address_survives_a_restart(&mut a, &mut b).await;
+    added_address_survives_a_restart(&mut a, &mut b, Sources::OverlayOnly).await;
     none_reversed();
+}
+
+async fn on_two_phones(sources: Sources) {
+    let (mut a, mut b) = phones();
+    added_address_survives_a_restart(&mut a, &mut b, sources).await;
+    none_reversed();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs two devices on one LAN, adb, and the app's androidTest build on both"]
+async fn on_two_phones_with_the_cache_on_both_sources_kept_reconnect() {
+    on_two_phones(Sources::Both).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs two devices on one LAN, adb, and the app's androidTest build on both"]
+async fn on_two_phones_with_the_cache_on_the_cache_alone_reconnects() {
+    on_two_phones(Sources::CacheAlone).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs two devices on one LAN, adb, and the app's androidTest build on both"]
+async fn on_two_phones_with_the_cache_on_the_overlay_alone_reconnects() {
+    on_two_phones(Sources::OverlayAlone).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs two devices on one LAN, adb, and the app's androidTest build on both"]
+async fn on_two_phones_with_the_cache_on_and_neither_source_kept_nothing_dials() {
+    on_two_phones(Sources::Neither).await;
+}
+
+/// How long the reboot row waits for A to come back, in seconds: someone
+/// may have to `adb connect` its new wireless-debugging port.
+const REBOOT_PATIENCE: &str = "INTERWEAVE_ANDROID_REBOOT_PATIENCE_S";
+
+/// Row 1 with A rebooted in place of the force-stop: the address added
+/// before the reboot is still listed and dialled when the app next runs.
+/// The app declares no boot receiver, so nothing of it runs until a case
+/// starts it, and the row asserts that the platform started none of its
+/// processes; what it shows is the dial at the app's next start, not at
+/// boot.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs two devices on one LAN, adb, the app's androidTest build on both, and A rebooted"]
+async fn on_two_phones_an_added_address_survives_a_reboot() {
+    let (mut a, mut b) = phones();
+    let patience = Duration::from_secs(
+        std::env::var(REBOOT_PATIENCE)
+            .map_or(Ok(1200), |s| s.parse())
+            .unwrap_or_else(|e| panic!("{REBOOT_PATIENCE}: {e}")),
+    );
+    let serial_b = env(SERIAL_B);
+    added_address_across(&mut a, &mut b, Sources::OverlayOnly, |a| {
+        let peer = a.device.peer();
+        let rebooted = reboot_and_await(&env(SERIAL_A), patience);
+        println!("A rebooted: {rebooted:?}");
+        assert_ne!(rebooted.boot_id.0, rebooted.boot_id.1, "a new boot");
+        assert_eq!(
+            rebooted.app_pids, "",
+            "the platform started the app after the boot, which declares no boot receiver"
+        );
+        assert_eq!(reversed_on(&rebooted.serial), "", "a port reversed on A");
+        a.device = AdbDevice::connect_to(&rebooted.serial);
+        assert_eq!(a.device.peer(), peer, "the same profile after the reboot");
+    })
+    .await;
+    assert_eq!(reversed_on(&serial_b), "", "a port reversed on B");
 }
 
 #[test]
