@@ -158,6 +158,7 @@ async fn added_address_survives_a_restart<D: Device>(a: &mut Side<D>, b: &mut Si
                     add,
                     before: Duration::from_secs(3),
                     deadline: PATIENCE,
+                    hold: Duration::from_secs(5),
                 }
                 .to_json(),
             )
