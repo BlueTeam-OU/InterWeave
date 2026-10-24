@@ -523,6 +523,31 @@ fn every_received_name_is_drawn_isolated() {
     assert_eq!(view.window().get_header_title(), isolated(rtl), "the title");
     open_contact(&mut view, &mut model, rtl);
     assert_eq!(view.window().get_contact_title(), isolated(rtl));
+    // A message from the contact puts its conversation in the list, whose
+    // row draws the title isolated too. Mutation: the row drawing `title`.
+    model.received(interweave_human_client_api::Received {
+        row: row(2),
+        origin: interweave_human_client_api::Origin::Direct {
+            peer: peer(P),
+            endpoint: human(),
+        },
+        envelope: interweave_human_chat_protocol::HumanChatV2 {
+            v: 2,
+            kind: interweave_human_chat_protocol::MessageKind::Text,
+            app_message_id: "1".repeat(32),
+            text: "hello".to_owned(),
+            reply_to: None,
+            sent_at_ms: None,
+            from_endpoint: None,
+        },
+        received_at: NOW,
+    });
+    let _ = intents(&mut view, &mut model);
+    let rows = view.window().get_conversations();
+    assert!(
+        (0..rows.row_count()).any(|i| rows.row_data(i).is_some_and(|r| r.title == isolated(rtl))),
+        "the list row's title"
+    );
 }
 
 /// The fixture's test-only key, as the card parser reads it from the
