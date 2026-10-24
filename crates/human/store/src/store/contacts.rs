@@ -77,6 +77,8 @@ pub struct Contact {
     pub name_at: Option<u64>,
     /// Where the photo came from, if there is one.
     pub photo_source: Option<ValueSource>,
+    /// When the photo was last set or removed, if known.
+    pub photo_at: Option<u64>,
     /// The photo's encoded bytes as accepted or set. The store never
     /// decodes them: Accept passes a card's photo only when it decodes
     /// within 256 × 256, and the view decodes it again to show it.
@@ -221,7 +223,7 @@ impl HumanStore {
         let row = self
             .conn
             .query_row(
-                "SELECT display_name, name_source, name_at, photo_source, photo
+                "SELECT display_name, name_source, name_at, photo_source, photo, photo_at
                    FROM contacts WHERE contact_id = ?1",
                 params![contact_id],
                 |r| {
@@ -231,11 +233,12 @@ impl HumanStore {
                         r.get::<_, Option<i64>>(2)?,
                         r.get::<_, Option<String>>(3)?,
                         r.get::<_, Option<Vec<u8>>>(4)?,
+                        r.get::<_, Option<i64>>(5)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((display_name, name_source, name_at, photo_source, photo)) = row else {
+        let Some((display_name, name_source, name_at, photo_source, photo, photo_at)) = row else {
             return Ok(None);
         };
         let routes = self
@@ -273,6 +276,7 @@ impl HumanStore {
             photo_source: photo_source
                 .as_deref()
                 .map(|s| ValueSource::from_sql(Some(s))),
+            photo_at: photo_at.map(|t| stored_ms("photo_at", t)).transpose()?,
             photo,
             routes,
         }))
