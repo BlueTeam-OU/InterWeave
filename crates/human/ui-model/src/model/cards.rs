@@ -539,6 +539,7 @@ impl UiModel {
                     conversation,
                     row,
                     Some(FocusTarget::Proposal(row)),
+                    false,
                 );
             }
             CardOutcome::Declined
@@ -548,7 +549,13 @@ impl UiModel {
                 self.card_outcome(None, leaving);
             }
             CardOutcome::Declined => {
-                self.open_card_snackbar(Confirmation::CardDeclined, conversation, row, leaving);
+                self.open_card_snackbar(
+                    Confirmation::CardDeclined,
+                    conversation,
+                    row,
+                    leaving,
+                    true,
+                );
             }
         }
     }
@@ -1300,6 +1307,11 @@ mod tests {
             model.outcome().and_then(|o| o.focus.clone()),
             Some(FocusTarget::Proposal(row(1)))
         );
+        assert_eq!(
+            model.outcome().and_then(|o| o.announce),
+            None,
+            "the focused confirmation row says it; the snackbar is not announced"
+        );
 
         assert_eq!(model.undo(snack.id), Some(Intent::UndoCard(row(1))));
         assert!(model.snackbar().is_none());
@@ -1334,6 +1346,11 @@ mod tests {
         model.card_resolved(row(1), CardOutcome::Declined);
         let snack = model.snackbar().expect("a snackbar");
         assert_eq!(snack.confirms, Confirmation::CardDeclined);
+        assert_eq!(
+            model.outcome().and_then(|o| o.announce),
+            Some(crate::Announce::Confirmed(Confirmation::CardDeclined)),
+            "no row stays to say a Decline: the snackbar is announced"
+        );
         assert_eq!(
             model.outcome().and_then(|o| o.focus.clone()),
             Some(FocusTarget::Proposal(row(2))),

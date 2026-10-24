@@ -812,13 +812,17 @@ impl UiModel {
 
     // --- cards ---------------------------------------------------------------
 
-    /// Open the snackbar of a card's answer, its Undo the card's.
+    /// Open the snackbar of a card's answer, its Undo the card's. An
+    /// unannounced one says nothing through the live region: Accept's,
+    /// whose confirmation row, focused, already says it (contact-cards
+    /// design section 8, ux-designer's #416).
     pub(super) fn open_card_snackbar(
         &mut self,
         confirms: Confirmation,
         conversation: ConversationKey,
         row: RowId,
         focus: Option<FocusTarget>,
+        announced: bool,
     ) {
         self.open(
             confirms,
@@ -827,6 +831,9 @@ impl UiModel {
             focus,
             Some(FocusTarget::Proposal(row)),
         );
+        if !announced && let Some(outcome) = self.swipe.outcome.as_mut() {
+            outcome.announce = None;
+        }
     }
 
     /// Let go of what the facade side holds for the Undo of `row`'s answer.
