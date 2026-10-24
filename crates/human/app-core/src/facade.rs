@@ -940,10 +940,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         match listing::list_unread(self.client.store_mut()) {
             Ok((_, unshown, _)) => {
                 for card in unshown {
-                    updates.push(match cards::proposal(self.client.store_mut(), card) {
-                        Ok(proposal) => Update::ProposalJudged(Box::new(proposal)),
-                        Err(e) => Update::UnreadNotListed(store_failure(&e)),
-                    });
+                    updates.push(judged(cards::proposal(self.client.store_mut(), card)));
                 }
             }
             Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
@@ -958,19 +955,15 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             })
             .collect();
         for (row, received_at, (peer, endpoint, card)) in shown {
-            updates.push(
-                match cards::context(self.client.store_mut(), &peer, &endpoint, &card) {
-                    Ok(context) => Update::ProposalJudged(Box::new(Proposal {
-                        row,
-                        peer,
-                        endpoint,
-                        card,
-                        received_at,
-                        context,
-                    })),
-                    Err(e) => Update::UnreadNotListed(store_failure(&e)),
-                },
-            );
+            let context = cards::context(self.client.store_mut(), &peer, &endpoint, &card);
+            updates.push(judged(context.map(|context| Proposal {
+                row,
+                peer,
+                endpoint,
+                card,
+                received_at,
+                context,
+            })));
         }
     }
 
@@ -1089,6 +1082,16 @@ impl<V> ReadCopies<V> {
     #[cfg(test)]
     fn len(&self) -> usize {
         self.by_row.len()
+    }
+}
+
+/// A held proposal judged again: given again as judged, or, when the
+/// store cannot judge it, a failure to read the cards back -- never an
+/// unread listing, which no judging is (#414 round 4, carried).
+fn judged(proposal: Result<Proposal, StoreError>) -> Update {
+    match proposal {
+        Ok(proposal) => Update::ProposalJudged(Box::new(proposal)),
+        Err(e) => Update::CardsNotRead(store_failure(&e)),
     }
 }
 
@@ -1630,5 +1633,15 @@ mod tests {
             "every share, then the cards on their way, once each"
         );
         assert!(said.is_empty());
+    }
+
+    /// A proposal the store cannot judge again is a failure to read the
+    /// cards back, not an unread listing that never ran.
+    #[test]
+    fn a_proposal_not_judged_again_is_a_card_read_failure() {
+        assert_eq!(
+            super::judged(Err(StoreError::Corrupt("told to".to_owned()))),
+            Update::CardsNotRead(Failure::Corrupt)
+        );
     }
 }
