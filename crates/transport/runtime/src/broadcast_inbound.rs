@@ -672,6 +672,36 @@ mod tests {
         assert_eq!(w.queues.losses().read("slow").queue_overflow, 2);
     }
 
+    /// The same for a copy no queue could take: a joined session whose
+    /// queue is not open loses the copy, and the broadcast's dedup entry
+    /// is recorded even though no session received it, so a republish
+    /// within the window is a duplicate and counts nothing more.
+    #[test]
+    fn a_republished_broadcast_no_session_could_queue_is_a_duplicate_and_counts_once() {
+        let mut w = World::new(&["closed"]);
+        w.queues.close("closed");
+        let first = w.admit(&frame(7, b"body"), P1, 0);
+        assert!(
+            matches!(&first, BroadcastAdmission::Delivered { sessions, .. } if sessions.is_empty()),
+            "no queue took it: {first:?}"
+        );
+        assert_eq!(w.queues.losses().read("closed").queue_overflow, 1);
+
+        assert_eq!(
+            w.admit(&frame(7, b"body"), P1, 1),
+            BroadcastAdmission::Duplicate,
+            "recorded though every joined session dropped it"
+        );
+        assert_eq!(w.queues.losses().read("closed").queue_overflow, 1);
+
+        // The control: a fresh id is still lost, and counted.
+        assert!(matches!(
+            w.admit(&frame(9, b"body"), P1, 2),
+            BroadcastAdmission::Delivered { .. }
+        ));
+        assert_eq!(w.queues.losses().read("closed").queue_overflow, 2);
+    }
+
     /// `ingress_refused` is a signal, not a count of distinct losses
     /// (ADR-0026 A 2026-10-24): a refused broadcast has no dedup entry, so
     /// each refused copy of one id counts, and a republish once the
