@@ -15,12 +15,12 @@
 //!   case passes. A is killed and started again, and A's case finds the address still
 //!   listed as added and connects again, with no add; B sees it again.
 //! - **The same with the peer cache on**, and Kademlia still off, which
-//!   the cache seeds: four variants that tell the two sources apart by
-//!   taking each away. Both kept; the overlay's entry removed after the
-//!   first connection (the cache alone); the cache's file removed between
-//!   the starts (the overlay alone); and both taken away, under which A
-//!   stays unconnected for a window -- the control that nothing else
-//!   dials B. Between the starts A's cache file is read, with no runtime
+//!   the cache seeds: both kept, the baseline, and three variants that
+//!   tell the two sources apart by taking each away. The overlay's entry
+//!   removed after the first connection (the cache alone); the cache's
+//!   file removed between the starts (the overlay alone); and both taken
+//!   away, under which A stays unconnected for a window while B is up and
+//!   listening -- the control that nothing else dials B. Between the starts A's cache file is read, with no runtime
 //!   up, and the run says whether it named B.
 //! - **The same with A rebooted** in place of the force-stop (phones
 //!   only): A's process dies with the device, the platform starts none of
@@ -144,7 +144,9 @@ fn overlay_only(config: &str) -> String {
 enum Sources {
     /// The cache off: the overlay alone (row 1).
     OverlayOnly,
-    /// The cache on, and both kept.
+    /// The cache on, and both kept: the baseline. Discovery merges the
+    /// two into one candidate address, so this variant does not tell
+    /// which source dialled; the three below do, by taking them away.
     Both,
     /// The cache on, and the overlay's entry removed after the first hold.
     CacheAlone,

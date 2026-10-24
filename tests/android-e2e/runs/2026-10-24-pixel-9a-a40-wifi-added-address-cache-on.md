@@ -3,9 +3,10 @@
 The owner's first limit on row 1
 (`2026-10-24-pixel-9a-a40-wifi-added-address.md`): "It shows nothing
 about a restart with the address cache on". The row is run again with
-the peer cache on, in four variants of `tests/pairing.rs`. Each variant
-tells the two sources of B's address on A apart by taking one or both
-away before A starts again:
+the peer cache on, in four variants of `tests/pairing.rs`. Three of
+them tell the two sources of B's address on A apart by taking one or
+both away before A starts again; "both kept" is the baseline with
+neither taken away, and does not tell them apart (below):
 
 | Variant | Test | Before A's second start |
 |---|---|---|
@@ -44,15 +45,15 @@ committed, because it carries other apps' lines.
 | 1 | 15:54:08Z | both kept | pass, 43.03 s | 255 ms |
 | 2 | 15:54:55Z | the cache alone | pass, 41.09 s | 265 ms |
 | 3 | 15:55:43Z | the overlay alone | pass, 41.33 s | 257 ms |
-| 4 | 15:56:29Z | neither | pass, 50.09 s | stayed unconnected for 15 s |
+| 4 | 15:56:29Z | neither | pass, 50.09 s | stayed unconnected for 15 s, B not listening |
 | 5 | 15:57:51Z | both kept | pass, 41.06 s | 509 ms |
 | 6 | 15:58:35Z | the cache alone | pass, 41.52 s | 262 ms |
 | 7 | 15:59:21Z | the overlay alone | pass, 42.06 s | 254 ms |
-| 8 | 16:00:08Z | neither | pass, 50.02 s | stayed unconnected for 15 s |
+| 8 | 16:00:08Z | neither | pass, 50.02 s | stayed unconnected for 15 s, B not listening |
 | 9 | 16:01:04Z | both kept | pass, 43.41 s | 509 ms |
 | 10 | 16:01:58Z | the cache alone | pass, 44.10 s | 763 ms |
 | 11 | 16:02:46Z | the overlay alone | pass, 42.69 s | 258 ms |
-| 12 | 16:03:37Z | neither | pass, 49.54 s | stayed unconnected for 15 s |
+| 12 | 16:03:37Z | neither | pass, 49.54 s | stayed unconnected for 15 s, B not listening |
 
 Each run showed the following. The cases assert all of it except the
 cache file's contents, which the `peer_cache` case reports and the host
@@ -79,9 +80,17 @@ prints, and the host asserts only in the cache-alone variant:
   connected to B again from the cache alone, in 262–763 ms. With the
   cache file removed, A connected again from the overlay alone, in
   254–258 ms.
-- **Nothing else dials B.** With both removed, A stayed unconnected to
-  B for 15 s after it started. This is the control: under the cache
-  alone, the reconnect can only have come from the cache.
+- **The neither variant measured nothing.** With both removed, A
+  stayed unconnected to B for 15 s after it started, but B was not
+  listening in that window. On a phone B's runtime lives only while a
+  B case runs, and at `837663a2` the driver ran no B case during the
+  control, so the window could not have failed whatever A still held
+  (the blind review of #421, F1). These three runs are not a control.
+  What does stand in for one here is narrower: before each add, A read
+  B unconnected for 3 s with B listening (above). The driver now runs
+  B's `await_peer` with an `apart` window through the control and
+  fails if B's case ends first. The four variants are owed a re-run on
+  the phones at that commit.
 - **Both kept.** A connected again in 255–509 ms. Which source "was"
   the dial has no answer here, because the two do not dial separately.
   Discovery merges providers by address, so both sources support one
@@ -91,6 +100,13 @@ prints, and the host asserts only in the cache-alone variant:
   read the candidate's `sources` at run time.
 
 ## What this run does not prove
+
+- **That nothing but the two sources dials B after the restart.** The
+  neither control did not measure it (above). Without it, the cache
+  alone's and the overlay alone's reconnects rest on the sources this
+  run removed, read back by the cases (the overlay entry not listed,
+  the cache file `forgotten`), not on a control that would have failed
+  if a third source were left.
 
 - **The shipped discovery set.** A has Kademlia off. With it on, as
   shipped, a third source is seeded from the cache, and no variant
