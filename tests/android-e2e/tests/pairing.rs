@@ -22,7 +22,8 @@
 //!   and none arrives. Step 2: A trusts B and B does not, and still
 //!   nothing crosses either way. A's row may end reading `connected`
 //!   as its last outcome (the stand-ins and one phone run, 2026-10-24),
-//!   since B classes A only after Noise: the step asserts that no
+//!   since B classes A after Noise authenticates it (`SECURITY.md`,
+//!   Connectivity infrastructure admission): the step asserts that no
 //!   message is accepted, not that no connection was made. Step 3: B trusts A,
 //!   and a message crosses each way: the positive control. The step had
 //!   the addresses step 1 added. This row's profile keeps the shipped
