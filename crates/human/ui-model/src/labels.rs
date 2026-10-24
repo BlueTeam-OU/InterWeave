@@ -968,6 +968,55 @@ ui_texts! {
     ImageNoCode => "No code was found in this image.",
     /// A code that carries no address.
     ScanNotAddress => "This code does not contain an InterWeave address.",
+    /// Desktop: the image dialog's filter, which offers PNG and JPEG
+    /// files only (§5.5).
+    // PLACEHOLDER (en)
+    CodeImageFilter => "Images (PNG or JPEG)",
+    /// Show, first, before the code: what showing discloses.
+    ShowWarning => "Anyone who sees this screen can learn this device's addresses and its PeerId.",
+    /// The code's accessible label, one address.
+    QrLabelOne => "Code with 1 address. The same address is listed below as text.",
+    /// The code's accessible label, `{n}` addresses.
+    QrLabelOther => "Code with {n} addresses. The same addresses are listed below as text.",
+    /// Show: copies every address listed.
+    CopyAddresses => "Copy all addresses",
+    /// Show, in place of the code: no address another device can reach.
+    ShowNoAddress => "This device does not have an address that another device can reach yet.",
+    /// Show's no-address reason: offline.
+    ShowNoAddressOffline => "This device is offline.",
+    /// Show's no-address reason: only special-use addresses are bound.
+    ShowNoAddressLocalOnly => "This device's addresses work only on this device.",
+    /// Show's no-address line: what to do.
+    ShowNoAddressWhat => "Connect this device to a network, or add the other person's address instead. This device can still connect to the other person.",
+    /// Show, in place of the code: the read failed, with Try again; never
+    /// "no address".
+    ShowReadFailed => "This device's addresses could not be read.",
+    /// Android: before the system's camera permission dialog.
+    CameraWhy => "InterWeave uses the camera only to read an address code. It does not keep any pictures.",
+    /// Android: the viewfinder's line.
+    ScanHint => "Point the camera at the other person's code.",
+    /// Android: the viewfinder's Close, its accessible name.
+    CloseScanner => "Close the camera",
+    /// Android: the camera permission refused.
+    CameraDenied => "The camera is needed only to scan a code. You can type or paste the address instead.",
+    /// Android: the camera permission refused for good, with Open
+    /// settings.
+    CameraDeniedSettings => "To scan a code, allow InterWeave to use the camera in Settings.",
+    /// Android: opens the app's system settings.
+    OpenAppSettings => "Open settings",
+    /// Onboarding's third step, its heading.
+    ConnectTitle => "Connect to someone",
+    /// Connect's body: both conditions, and both people act.
+    ConnectBody => "InterWeave can reach a person only when this device knows their address and you trust them. Each of you shows your address, and the other person adds it.",
+    /// Connect after an address was added and its peer is trusted.
+    ConnectDoneTrusted => "You added an address, and you trust this peer.",
+    /// Connect after an address was added and its peer is not trusted.
+    ConnectDoneNeedsTrust => "You added an address. You do not trust this peer yet.",
+    /// Connect after an address was added and its peer's trust could not
+    /// be read: claims no trust state.
+    ConnectDoneTrustUnknown => "You added an address. InterWeave could not check whether you trust this peer.",
+    /// Connect after Show drew this device's addresses.
+    ConnectDoneShown => "The other person can now add your address. You still need to add their address.",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
@@ -1035,6 +1084,18 @@ host_texts! {
     PeersTrustNotPermitted => {
         daemon: "This app is not allowed to read the list of trusted peers on this transport daemon, so this page does not show whether each peer is trusted.",
         embedded: "This app is not allowed to read the list of trusted peers, so this page does not show whether each peer is trusted.",
+    },
+    /// Show, in place of the code: the runtime does not serve the read;
+    /// no Try again.
+    ShowIncompatible => {
+        daemon: "The transport daemon is a different version from this app, so this device's addresses cannot be shown here. To show them, update InterWeave and the transport daemon to the same version.",
+        embedded: "This version of the app cannot show this device's addresses.",
+    },
+    /// Show, in place of the code: this app may not read them; no Try
+    /// again.
+    ShowNotPermitted => {
+        daemon: "This app is not allowed to read this device's addresses from this transport daemon.",
+        embedded: "This app is not allowed to read this device's addresses.",
     },
     /// Peers and the add page: the runtime predates the methods.
     PeersIncompatible => {
