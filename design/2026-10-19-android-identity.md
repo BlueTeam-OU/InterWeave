@@ -194,10 +194,9 @@ cost about ten taps, and the picker already exists.
 the network is about to start. Primary: continue. This commits the
 identity, starts the service, and opens onboarding's third step,
 Connect, when the overlay and the trust set are both empty, and the
-Chats screen otherwise (`design/2026-10-22-add-a-peer.md` §5.1 and
-§5.6; a refused service start still ends on Chats with its locked
-notice first, and Connect shows on the next start that reaches Chats
-with the condition still holding). There is no
+Chats screen otherwise, by `design/2026-10-22-add-a-peer.md` §5.1's
+rule, which also says what a refused service start or a failed read
+does and when Connect then shows (§5.6). There is no
 Back: the identity now exists. It is sealed here, after the person's
 confirmation and before anything starts (§11 Q3). After this, the words
 reach the screen only through §3.5.
