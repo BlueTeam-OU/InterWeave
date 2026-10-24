@@ -575,6 +575,23 @@ impl UiModel {
         self.card_undone(row);
     }
 
+    /// An Undo of `row`'s answer was carried out but its card could not be
+    /// judged again (#414 F2): the proposal does not return, its
+    /// confirmation row goes -- the store no longer holds what it says --
+    /// and the Undo is announced as done, focus on the conversation's
+    /// header for an Accept's row, else where the Decline sent it.
+    pub fn card_not_restored(&mut self, row: RowId) {
+        let answered = self
+            .cards
+            .answers
+            .remove(&row)
+            .map(|a| ConversationKey::Direct {
+                peer: a.peer,
+                endpoint: Some(a.endpoint),
+            });
+        self.card_undone_without_row(row, answered.map(FocusTarget::Header));
+    }
+
     /// Where focus goes when the proposal at `row` leaves its conversation:
     /// the next proposal, else the previous one, else the conversation's
     /// header title.
@@ -1460,5 +1477,27 @@ mod tests {
         assert_eq!(model.card_answers(&key).len(), 1);
         model.contacts_listed(Vec::new());
         assert!(model.card_answers(&key).is_empty(), "gone with its contact");
+    }
+
+    /// #414 F2: an Undo carried out whose card could not be judged again
+    /// drops the confirmation row the store no longer backs, and is
+    /// announced as done, focus on the header, never refused.
+    #[test]
+    fn an_undo_whose_card_is_not_back_drops_the_row_and_says_it_was_done() {
+        use crate::{Announce, FocusTarget};
+        let mut model = UiModel::new();
+        let key = direct(P, "human");
+        model.card_received(proposal(1, P, "Ada", context()));
+        model.card_resolved(row(1), saved("c1"));
+        model.contacts_listed(vec![contact("c1", "Ada", P)]);
+        let id = model.snackbar().expect("up").id;
+        assert_eq!(model.undo(id), Some(Intent::UndoCard(row(1))));
+        // The Undo updated the contact back; it is still held.
+        model.card_not_restored(row(1));
+        assert!(model.card_answers(&key).is_empty(), "the row goes");
+        assert!(model.proposals(&key).is_empty(), "nothing returns");
+        let outcome = model.outcome().expect("an outcome");
+        assert_eq!(outcome.announce, Some(Announce::Restored));
+        assert_eq!(outcome.focus, Some(FocusTarget::Header(key)));
     }
 }

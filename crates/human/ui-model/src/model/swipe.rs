@@ -873,6 +873,18 @@ impl UiModel {
         self.set_outcome(announce, focus, None);
     }
 
+    /// The Undo of `row`'s answer was carried out and its proposal could
+    /// not return: announced as done, focus on `focus`, or where the
+    /// answer sent it.
+    pub(super) fn card_undone_without_row(&mut self, row: RowId, focus: Option<FocusTarget>) {
+        if self.swipe.awaiting != Some(Awaiting::Card(row)) {
+            return;
+        }
+        self.swipe.awaiting = None;
+        let sent = self.swipe.card_focus.take();
+        self.set_outcome(Some(Announce::Restored), focus.or(sent), None);
+    }
+
     /// The Undo of `row`'s answer was carried out: announced as restored,
     /// focus on the proposal. A restore the model did not ask for -- none
     /// awaited -- is shown and says nothing.
