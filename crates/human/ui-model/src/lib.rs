@@ -28,6 +28,8 @@ mod waiting;
 pub use identity_flow::{
     Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, Words,
 };
+/// The store row an intent names, as the model hands it to a view.
+pub use interweave_human_core::RowId;
 pub use labels::{
     ErrorClass, HostText, LabelKey, RuntimeHost, UiText, attention_class, fill, isolated,
     outbound_label, placeholder_en, send_error_class, send_problem_class, session_problem_class,
