@@ -134,6 +134,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         self.open_key();
     }
 
+    /// Why the identity's key cannot be used, while it cannot: what a
+    /// root that logs says.
+    #[must_use]
+    pub const fn key_problem(&self) -> Option<&interweave_human_ui_model::KeyProblem> {
+        self.key_problem.as_ref()
+    }
+
     /// Open the key from its source: held, or its refusal kept.
     fn open_key(&mut self) {
         let Some(source) = &self.key_source else {
