@@ -77,7 +77,7 @@ impl Side {
             TrustBoundary::new(self.dir.path()).expect("a boundary"),
         )
         .expect("paths");
-        interweave_human_app_core::identity_key(&paths, &[endpoint()])
+        interweave_human_app_core::identity_key(&paths, &[endpoint()], &store(self.dir.path()))
             .expect("opened or made")
             .expect("a key")
     }

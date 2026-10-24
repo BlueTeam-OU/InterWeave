@@ -20,13 +20,16 @@
 //!   this host's loopback, and [`reach`](AdbDevice::reach) reverses each
 //!   port, so the phone's sockets reach the host over the USB/TCP link
 //!   adb holds, at the same loopback address -- real sockets on the
-//!   phone's runtime, not a radio network, no NAT.
+//!   phone's runtime, not a radio network, no NAT. A case that reverses
+//!   nothing reaches the desktop over the phone's Wi-Fi instead
+//!   ([`crate::wifi`]); adb then carries the instrumentation alone.
 //! - **The identity must outlive the process.** A profile's `PeerId` is
 //!   known before the first start and kept across restarts;
 //!   [`AdbDevice::connect`] refuses a build whose identity changes across
 //!   a force-stop rather than letting a case read that as a network fault.
 //!
-//! `ANDROID_SERIAL` selects the device as for `adb` itself;
+//! `ANDROID_SERIAL` selects the device as for `adb` itself, and
+//! [`AdbDevice::connect_to`] one of several by its serial;
 //! `INTERWEAVE_ANDROID_INSTRUMENTATION` names the instrumentation
 //! component (`<test package>/<runner>`), which the app's androidTest
 //! build defines.
@@ -51,6 +54,8 @@ pub const STATUS_PREFIX: &str = "interweave.";
 
 /// The Android side on a device.
 pub struct AdbDevice {
+    // `adb -s`'s serial; `None` leaves the choice to `adb`.
+    serial: Option<String>,
     instrumentation: String,
     peer: TransportIdentity,
     reversed: Vec<u16>,
@@ -65,11 +70,27 @@ impl AdbDevice {
     /// case, or an identity that changed across the force-stop.
     #[must_use]
     pub fn connect() -> Self {
+        Self::select(None)
+    }
+
+    /// [`connect`](Self::connect) for the device with `serial`, as
+    /// `adb -s` names it: one of the several a run on two devices holds.
+    ///
+    /// # Panics
+    /// As [`connect`](Self::connect).
+    #[must_use]
+    pub fn connect_to(serial: &str) -> Self {
+        Self::select(Some(serial.to_owned()))
+    }
+
+    fn select(serial: Option<String>) -> Self {
+        let s = serial.as_deref();
         let instrumentation = std::env::var(INSTRUMENTATION_ENV).unwrap_or_else(|_| {
             panic!("{INSTRUMENTATION_ENV} names no instrumentation: a device run needs the app's androidTest build installed")
         });
         let identity = |instrumentation: &str| {
             let out = parse(&instrument(
+                s,
                 instrumentation,
                 cases::IDENTITY,
                 &Value::Object(Map::new()),
@@ -78,7 +99,7 @@ impl AdbDevice {
                 out.get(keys::RESULT).and_then(Value::as_str),
                 Some(keys::PASS),
                 "the identity case: {out:?}\n{}",
-                logcat()
+                logcat(s)
             );
             out.get(keys::PEER)
                 .and_then(Value::as_str)
@@ -86,13 +107,14 @@ impl AdbDevice {
                 .unwrap_or_else(|| panic!("the identity case answered no PeerId: {out:?}"))
         };
         let peer = identity(&instrumentation);
-        force_stop();
+        force_stop(s);
         assert_eq!(
             identity(&instrumentation),
             peer,
             "the app's PeerId changed across a force-stop: this build has no persistent identity, and no case can name it in advance"
         );
         Self {
+            serial,
             instrumentation,
             peer,
             reversed: Vec::new(),
@@ -118,8 +140,11 @@ const PLATFORM_LINES: usize = 50;
 /// (`tests/android-e2e/runs/2026-10-20-pixel-9a-api37.md`, finding 1),
 /// and logcat documents the option as of use to the root, log and system
 /// users, which adb's shell is not.
-fn logcat() -> String {
-    let manager = text(&["logcat", "-d", "-b", "system", "-s", "ActivityManager"]);
+fn logcat(serial: Option<&str>) -> String {
+    let manager = text(
+        serial,
+        &["logcat", "-d", "-b", "system", "-s", "ActivityManager"],
+    );
     let app = match &manager {
         Err(why) => why.clone(),
         Ok(manager) => {
@@ -127,7 +152,7 @@ fn logcat() -> String {
             if pids.is_empty() {
                 format!("(no process of {PACKAGE} started since the log was cleared)")
             } else {
-                text(&["logcat", "-d", "-v", "threadtime"])
+                text(serial, &["logcat", "-d", "-v", "threadtime"])
                     .map_or_else(|why| why, |log| lines_of(&pids, &log))
             }
         }
@@ -179,8 +204,8 @@ pub const CUT_LINES: &str = "earlier lines of the app's log cut";
 
 /// `adb args`'s stdout, or why there is none: a failure report that
 /// cannot read the log says why, never an empty section or a guess.
-fn text(args: &[&str]) -> Result<String, String> {
-    read_text(args, adb(args))
+fn text(serial: Option<&str>, args: &[&str]) -> Result<String, String> {
+    read_text(args, adb(serial, args))
 }
 
 /// [`text`] over an `adb` run's result: adb exits nonzero for an
@@ -205,6 +230,12 @@ fn about_the_app(log: &str) -> String {
     lines[lines.len().saturating_sub(PLATFORM_LINES)..].join("\n")
 }
 
+impl AdbDevice {
+    fn serial(&self) -> Option<&str> {
+        self.serial.as_deref()
+    }
+}
+
 impl Device for AdbDevice {
     fn peer(&self) -> TransportIdentity {
         self.peer.clone()
@@ -212,15 +243,16 @@ impl Device for AdbDevice {
 
     fn reach(&mut self, port: u16) {
         let spec = format!("tcp:{port}");
-        run_ok(&["reverse", &spec, &spec]);
+        run_ok(self.serial(), &["reverse", &spec, &spec]);
         self.reversed.push(port);
     }
 
     /// Provisions `config`, after clearing the device's log: what a case
     /// reads from logcat is then this run's, never an earlier one's.
     fn start(&mut self, config: &str) {
-        run_ok(&["logcat", "-c"]);
+        run_ok(self.serial(), &["logcat", "-c"]);
         let out = parse(&instrument(
+            self.serial(),
             &self.instrumentation,
             cases::PROVISION,
             &serde_json::json!({ "config": config }),
@@ -229,34 +261,34 @@ impl Device for AdbDevice {
             out.get(keys::RESULT).and_then(Value::as_str),
             Some(keys::PASS),
             "provisioning the app: {out:?}\n{}",
-            logcat()
+            logcat(self.serial())
         );
     }
 
     fn stop(&mut self) {
-        force_stop();
+        force_stop(self.serial());
     }
 
     fn fresh_log(&mut self) {
-        run_ok(&["logcat", "-c"]);
+        run_ok(self.serial(), &["logcat", "-c"]);
     }
 
     fn kill(&mut self) {
-        force_stop();
+        force_stop(self.serial());
     }
 
     /// Nothing to do: the next case's instrumentation starts the process.
     fn restart(&mut self) {}
 
     fn log(&self) -> String {
-        logcat()
+        logcat(self.serial())
     }
 
     /// Read through `run-as`, as the app: what a case wrote is under the
     /// app's private data directory, which `run-as` opens to the shell
     /// for a debuggable build -- the androidTest build's app is one.
     fn pull(&self, path: &str) -> Vec<u8> {
-        let out = adb(&["exec-out", "run-as", PACKAGE, "cat", path]).expect("adb");
+        let out = adb(self.serial(), &["exec-out", "run-as", PACKAGE, "cat", path]).expect("adb");
         assert!(
             out.status.success() && out.stderr.is_empty(),
             "reading {path} as the app: {}",
@@ -266,10 +298,20 @@ impl Device for AdbDevice {
     }
 
     fn run_case(&self, case: &str, args: &Value) -> CaseRun {
-        let (instrumentation, name, args) =
-            (self.instrumentation.clone(), case.to_owned(), args.clone());
+        let (serial, instrumentation, name, args) = (
+            self.serial.clone(),
+            self.instrumentation.clone(),
+            case.to_owned(),
+            args.clone(),
+        );
         CaseRun::on_thread(case, move || {
-            Value::Object(parse(&instrument(&instrumentation, &name, &args))).to_string()
+            Value::Object(parse(&instrument(
+                serial.as_deref(),
+                &instrumentation,
+                &name,
+                &args,
+            )))
+            .to_string()
         })
     }
 }
@@ -279,18 +321,25 @@ impl Drop for AdbDevice {
         // A test leaves nothing behind it did not find: the reversals go,
         // and the app does not keep running a case's profile.
         for port in &self.reversed {
-            let _ = adb(&["reverse", "--remove", &format!("tcp:{port}")]);
+            let _ = adb(
+                self.serial(),
+                &["reverse", "--remove", &format!("tcp:{port}")],
+            );
         }
-        force_stop();
+        force_stop(self.serial());
     }
 }
 
-fn adb(args: &[&str]) -> std::io::Result<Output> {
-    Command::new("adb").args(args).output()
+fn adb(serial: Option<&str>, args: &[&str]) -> std::io::Result<Output> {
+    let mut command = Command::new("adb");
+    if let Some(serial) = serial {
+        command.args(["-s", serial]);
+    }
+    command.args(args).output()
 }
 
-fn run_ok(args: &[&str]) {
-    let out = adb(args).expect("adb");
+fn run_ok(serial: Option<&str>, args: &[&str]) {
+    let out = adb(serial, args).expect("adb");
     assert!(
         out.status.success(),
         "adb {}: {}",
@@ -299,15 +348,15 @@ fn run_ok(args: &[&str]) {
     );
 }
 
-fn force_stop() {
-    let _ = adb(&["shell", "am", "force-stop", PACKAGE]);
+fn force_stop(serial: Option<&str>) {
+    let _ = adb(serial, &["shell", "am", "force-stop", PACKAGE]);
 }
 
 /// `am instrument`'s output for `case` with `args`.
-fn instrument(instrumentation: &str, case: &str, args: &Value) -> String {
+fn instrument(serial: Option<&str>, instrumentation: &str, case: &str, args: &Value) -> String {
     let command = instrument_argv(instrumentation, case, args);
     let command: Vec<&str> = command.iter().map(String::as_str).collect();
-    match adb(&command) {
+    match adb(serial, &command) {
         Ok(out) => outcome(&out),
         Err(e) => format!("INSTRUMENTATION_FAILED: adb: {e}"),
     }
