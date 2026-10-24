@@ -406,7 +406,7 @@ impl ServiceHost {
             Ok(store) => store,
             Err(e) => return refuse(host, classify(&e)),
         };
-        let key = own_key(host.paths(), &endpoint, &*launch.store_cipher);
+        let key = own_key(host.paths(), &endpoint, &*launch.store_cipher, &store);
         let (data, admin) = (data(&host), host.binding());
         let client_config = client_config(&config, endpoint);
         let make = move || {
@@ -475,7 +475,7 @@ impl ServiceHost {
             .enable_time()
             .build()
             .map_err(|e| StartRefused::Thread(e.to_string()))?;
-        let key = own_key(&paths, &endpoint, store_cipher);
+        let key = own_key(&paths, &endpoint, store_cipher, &store);
         let client_config = client_config(&config, endpoint);
         let make = move || {
             let client = TransportClient::new(
@@ -689,17 +689,19 @@ fn human_endpoint(config: &ProfileConfig) -> Option<interweave_transport_api::En
 
 /// The identity's own key under the Keystore, at the identity's own alias
 /// (ADR-0063 decision 2, `identity_key::alias`): opened from its file, or
-/// made the first time the service runs, by app-core's rule
-/// (`identity_key_under`, whose tests hold it). The store's cipher is the
-/// same bridge, each secret under its own alias namespace. A file this
-/// build refuses is left as it is and the client runs with no key: Share
-/// says so, and nothing is signed.
+/// made the first time the service runs before any share of its card, by
+/// app-core's rule (`identity_key_under`, whose tests hold it). The
+/// store's cipher is the same bridge, each secret under its own alias
+/// namespace. A file this build refuses, or one gone after a share, is
+/// left as it is and the client runs with no key: Share says so, and
+/// nothing is signed.
 fn own_key(
     paths: &ProfilePaths,
     endpoint: &interweave_transport_api::EndpointId,
     cipher: &dyn KeyCipher,
+    store: &HumanStore,
 ) -> Option<IdentityKey> {
-    identity_key_under(paths, std::slice::from_ref(endpoint), cipher)
+    identity_key_under(paths, std::slice::from_ref(endpoint), cipher, store)
         .ok()
         .flatten()
 }

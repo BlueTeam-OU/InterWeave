@@ -11,6 +11,7 @@ use interweave_human_store::identity_key::{
     self, FilesystemCustody, IdentityKey, IdentityKeyFileError, KeyCipher,
 };
 
+use interweave_human_store::HumanStore;
 use interweave_profile_config::{ProfileConfig, ProfilePaths};
 use interweave_transport_api::EndpointId;
 
@@ -47,35 +48,45 @@ pub fn leasable_endpoints(config: &ProfileConfig) -> Vec<EndpointId> {
 pub fn identity_key(
     paths: &ProfilePaths,
     endpoints: &[EndpointId],
+    store: &HumanStore,
 ) -> Result<Option<IdentityKey>, IdentityKeyFileError> {
-    identity_key_under(paths, endpoints, &FilesystemCustody)
+    identity_key_under(paths, endpoints, &FilesystemCustody, store)
 }
 
 /// The own key of the identity in front under `cipher`'s custody: the
-/// first of `endpoints`', opened from its file or made the first time.
-/// The desktop's custody is [`identity_key`]'s; Android's service passes
-/// the Keystore, whose alias is the identity's own (ADR-0063 decision 2).
-/// `Ok(None)` when `endpoints` is empty.
+/// first of `endpoints`', opened from its file, or made when it has none
+/// and `store` records no share of its card. The desktop's custody is
+/// [`identity_key`]'s; Android's service passes the Keystore, whose alias
+/// is the identity's own (ADR-0063 decision 2). `Ok(None)` when
+/// `endpoints` is empty.
 ///
 /// # Errors
 /// A file this build refuses -- another identity's, a seed record, one
 /// below or above `cipher`'s custody, one whose wrapping key is gone --
-/// or one that cannot be made. The file is left as it is: a new key is
-/// the person's act, never this function's
+/// or one that cannot be made; [`IdentityKeyFileError::Missing`] when the
+/// file is gone after a share, or the store cannot say there was none
+/// (architect-cto's ruling of 2026-10-24: counterparties hold that key,
+/// so a new one is the person's confirmed act). The file is left as it
+/// is: a new key is the person's act, never this function's
 /// (`a_key_file_this_build_refuses_is_left_as_it_is`,
-/// `a_record_below_the_platforms_custody_is_refused_and_left`).
+/// `a_record_below_the_platforms_custody_is_refused_and_left`,
+/// `a_key_file_gone_after_a_share_is_missing_and_none_is_made`).
 pub fn identity_key_under(
     paths: &ProfilePaths,
     endpoints: &[EndpointId],
     cipher: &dyn KeyCipher,
+    store: &HumanStore,
 ) -> Result<Option<IdentityKey>, IdentityKeyFileError> {
     let Some(endpoint) = endpoints.first() else {
         return Ok(None);
     };
-    match identity_key::open(paths, endpoint, cipher)? {
-        Some(key) => Ok(Some(key)),
-        None => identity_key::create(paths, endpoint, cipher).map(Some),
+    if let Some(key) = identity_key::open(paths, endpoint, cipher)? {
+        return Ok(Some(key));
     }
+    if store.card_ever_shared().unwrap_or(true) {
+        return Err(IdentityKeyFileError::Missing);
+    }
+    identity_key::create(paths, endpoint, cipher).map(Some)
 }
 
 #[cfg(test)]
@@ -141,6 +152,17 @@ mod identity_tests {
         dir
     }
 
+    fn store(dir: &std::path::Path) -> HumanStore {
+        let state = dir.join("store");
+        std::fs::create_dir_all(&state).expect("mkdir");
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+        HumanStore::open(
+            &state.join("human.sqlite3"),
+            interweave_human_store::StoreOptions::default(),
+        )
+        .expect("opens")
+    }
+
     fn human() -> Vec<EndpointId> {
         vec![EndpointId::parse("human").expect("an endpoint")]
     }
@@ -149,12 +171,13 @@ mod identity_tests {
     fn the_first_start_makes_the_identitys_key_and_every_later_one_opens_it() {
         let dir = private_dir();
         let paths = paths(dir.path());
-        let first = identity_key(&paths, &human())
+        let store = store(dir.path());
+        let first = identity_key(&paths, &human(), &store)
             .expect("made")
             .expect("a key");
         let file = identity_key::key_path(&paths, &human()[0]);
         assert!(file.is_file(), "under the state root, beside the store");
-        let again = identity_key(&paths, &human())
+        let again = identity_key(&paths, &human(), &store)
             .expect("opened")
             .expect("a key");
         assert_eq!(
@@ -168,12 +191,13 @@ mod identity_tests {
     fn a_key_file_this_build_refuses_is_left_as_it_is() {
         let dir = private_dir();
         let paths = paths(dir.path());
-        identity_key(&paths, &human()).expect("made");
+        let store = store(dir.path());
+        identity_key(&paths, &human(), &store).expect("made");
         let file = identity_key::key_path(&paths, &human()[0]);
         std::fs::write(&file, "not a record\n").expect("overwrite");
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).expect("chmod");
         assert!(
-            identity_key(&paths, &human()).is_err(),
+            identity_key(&paths, &human(), &store).is_err(),
             "refused, so nothing is signed"
         );
         assert_eq!(
@@ -221,15 +245,16 @@ mod identity_tests {
     fn under_a_wrapping_key_the_first_start_makes_a_sealed_key_and_later_ones_open_it() {
         let dir = private_dir();
         let paths = paths(dir.path());
-        let first = identity_key_under(&paths, &human(), &PadKeystore)
+        let store = store(dir.path());
+        let first = identity_key_under(&paths, &human(), &PadKeystore, &store)
             .expect("made")
             .expect("a key");
-        let again = identity_key_under(&paths, &human(), &PadKeystore)
+        let again = identity_key_under(&paths, &human(), &PadKeystore, &store)
             .expect("opened")
             .expect("a key");
         assert_eq!(again.public_key(), first.public_key());
         assert!(
-            identity_key(&paths, &human()).is_err(),
+            identity_key(&paths, &human(), &store).is_err(),
             "the record is sealed: the filesystem floor cannot read it"
         );
     }
@@ -238,11 +263,12 @@ mod identity_tests {
     fn a_record_below_the_platforms_custody_is_refused_and_left() {
         let dir = private_dir();
         let paths = paths(dir.path());
-        identity_key(&paths, &human()).expect("a filesystem-only record");
+        let store = store(dir.path());
+        identity_key(&paths, &human(), &store).expect("a filesystem-only record");
         let file = identity_key::key_path(&paths, &human()[0]);
         let before = std::fs::read(&file).expect("read");
         assert_eq!(
-            identity_key_under(&paths, &human(), &PadKeystore).expect_err("a downgrade"),
+            identity_key_under(&paths, &human(), &PadKeystore, &store).expect_err("a downgrade"),
             IdentityKeyFileError::Key(IdentityKeyError::CustodyDowngrade),
         );
         assert_eq!(
@@ -252,10 +278,45 @@ mod identity_tests {
         );
     }
 
+    /// architect-cto's ruling of 2026-10-24: once any conversation
+    /// recorded a share of the card, a missing file is the key-missing
+    /// state and no key is made; before any share it is a first key.
+    #[test]
+    fn a_key_file_gone_after_a_share_is_missing_and_none_is_made() {
+        let dir = private_dir();
+        let paths = paths(dir.path());
+        let mut store = store(dir.path());
+        identity_key(&paths, &human(), &store).expect("a first key");
+        let file = identity_key::key_path(&paths, &human()[0]);
+        std::fs::remove_file(&file).expect("lost");
+        identity_key(&paths, &human(), &store).expect("never shared: a first key again");
+        store
+            .mark_card_shared(
+                &interweave_transport_api::TransportIdentity::parse(
+                    "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+                )
+                .expect("a PeerId"),
+                &human()[0],
+                10,
+            )
+            .expect("shared");
+        std::fs::remove_file(&file).expect("lost again");
+        assert_eq!(
+            identity_key(&paths, &human(), &store).expect_err("missing"),
+            IdentityKeyFileError::Missing
+        );
+        assert!(!file.exists(), "no key made in its place");
+    }
+
     #[test]
     fn a_profile_offering_no_endpoint_has_no_key_and_makes_none() {
         let dir = private_dir();
         let paths = paths(dir.path());
-        assert!(identity_key(&paths, &[]).expect("nothing to do").is_none());
+        let store = store(dir.path());
+        assert!(
+            identity_key(&paths, &[], &store)
+                .expect("nothing to do")
+                .is_none()
+        );
     }
 }
