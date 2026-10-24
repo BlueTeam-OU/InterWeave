@@ -674,18 +674,19 @@ which is what the snackbar said.
 
 Accept is not announced through the live region (§8 Announcements):
 focus moves to the confirmation row, whose text is the result. So that
-a person who hears the row can still find the Undo, two things hold
+a person who hears the row can still find the Undo, these hold
 while the Accept's snackbar is open:
 
 - the confirmation row's accessible description is `CardUndoHint`,
   read after the row's text; it goes when the snackbar closes;
 - the snackbar's timeout does not run while focus is anywhere from
   the confirmation row to the snackbar in the reading order (the row,
-  any message or control after it, the composer, the snackbar), so a
-  person walking from the row to the Undo the hint names is not timed
-  out on the way; it starts, in full (message-swipe §6's 6 s, or the
-  platform's longer recommendation), when focus leaves that span: to
-  something before the row, or out of the conversation's content;
+  any message or control after it, the composer, the snackbar), so the
+  snackbar does not close while the person moves focus from the row to
+  the Undo that the hint names; it starts, in full (message-swipe §6's
+  6 s, or the platform's longer recommendation), when focus leaves that
+  span: to something before the row, or out of the conversation's
+  content; and it stops again if focus comes back into the span;
 - whatever focus does, the snackbar is never shown for more than
   message-swipe §6's 2 minutes, counted from Accept, and then closes
   as by its timeout; so a person who accepts with a pointer or a touch
