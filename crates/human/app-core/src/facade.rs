@@ -643,13 +643,14 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// Close alone) must offer Accept again once the contact is gone or
     /// another card on its route changed it. Those not yet shown
     /// are in the store; those shown and undecided are this session's
-    /// copies. The model replaces each by its row.
+    /// copies. The model replaces each it still holds, by its row
+    /// ([`Update::ProposalJudged`]).
     fn proposals_again(&mut self, updates: &mut Vec<Update>) {
         match listing::list_unread(self.client.store_mut()) {
             Ok((_, unshown, _)) => {
                 for card in unshown {
                     updates.push(match cards::proposal(self.client.store_mut(), card) {
-                        Ok(proposal) => Update::ReceivedCard(Box::new(proposal)),
+                        Ok(proposal) => Update::ProposalJudged(Box::new(proposal)),
                         Err(e) => Update::UnreadNotListed(store_failure(&e)),
                     });
                 }
@@ -668,7 +669,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         for (row, received_at, (peer, endpoint, card)) in shown {
             updates.push(
                 match cards::context(self.client.store_mut(), &peer, &endpoint, &card) {
-                    Ok(context) => Update::ReceivedCard(Box::new(Proposal {
+                    Ok(context) => Update::ProposalJudged(Box::new(Proposal {
                         row,
                         peer,
                         endpoint,

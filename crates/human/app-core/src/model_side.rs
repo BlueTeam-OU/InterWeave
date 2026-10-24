@@ -205,6 +205,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::UnreadNotListed(why) => self.problem(Problem::UnreadNotListed(why)),
             Update::Received(received) => self.model.received(received),
             Update::ReceivedCard(proposal) => self.model.card_received(*proposal),
+            Update::ProposalJudged(proposal) => self.model.card_judged(*proposal),
             Update::CardResolved(row) => self.model.card_resolved(row),
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
