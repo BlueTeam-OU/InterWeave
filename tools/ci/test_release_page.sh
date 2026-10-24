@@ -105,10 +105,11 @@ run "$T" "$SANDBOX/out.md" "$SANDBOX/v.json" && grep -qF '# InterWeave 1.2.3-rc.
 # One grammar with release_tag.sh, which the tag job applies first: over a
 # table of versions, the page refuses exactly those release_tag.sh refuses
 # as a shape (its other refusal, not the workspace's, is not the page's).
-disagree=""
+disagree="" rows=0
 for v in 1.2.3 0.0.0 10.20.30 1.2.3-rc.1 1.0.0-alpha.beta 1.0.0-0.3.7 1.0.0-x-y 1.0.0-x.7.z.92 \
     1.0.0--- 1.0.0-0a 1.2 1.2.3.4 01.2.3 1.02.3 1.2.03 1.2.3- 1.2.3-01 1.2.3-rc..1 1.2.3-rc.1. \
     1.2.3+b 1.2.3-rc+b v1.2.3 ' 1.2.3' 1.2.3-r_c 1.2.3-é; do
+    rows=$((rows + 1))
     tag_shape=ok
     bash "$SCRIPT_DIR/release_tag.sh" "v$v" --manifest >"$SANDBOX/tag-err" 2>&1 \
         || ! grep -qF 'is not v<MAJOR>' "$SANDBOX/tag-err" || tag_shape=refused
@@ -120,7 +121,7 @@ print("ok" if m.VERSION.fullmatch(sys.argv[2]) else "refused")
 PY
     [[ "$(cat "$SANDBOX/page-shape")" == "$tag_shape" ]] || disagree+=" '$v'(tag:$tag_shape)"
 done
-[[ -z "$disagree" ]] && pass "the page's version grammar is release_tag.sh's over 26 versions" \
+[[ -z "$disagree" ]] && pass "the page's version grammar is release_tag.sh's over $rows versions" \
     || fail "the page and release_tag.sh disagree on" "$disagree"
 
 printf '[]' > "$SANDBOX/v.json"
