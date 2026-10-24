@@ -4419,3 +4419,122 @@ fn a_scanned_add_on_its_way_waits_on_add() {
     assert!(m.peers().busy());
     assert_eq!(focus(&m), Some(PeersFocus::AddButton));
 }
+
+/// Show reads this device's addresses only when opened, once, and draws
+/// at most a code's sixteen lines in the runtime's order, focus on its
+/// warning; closing it sends focus back to its opener, and an answer
+/// that lands after it closed shows nothing (§5.4, §8).
+#[test]
+fn show_reads_once_on_opening_and_draws_sixteen_lines_in_order() {
+    use interweave_human_client_api::ShowAddresses;
+    use interweave_human_ui_model::ShowState;
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    assert_eq!(m.peers().show(), None);
+    assert_eq!(
+        input(&mut m, PeersInput::OpenShow),
+        vec![Intent::ReadOwnAddresses]
+    );
+    assert!(input(&mut m, PeersInput::OpenShow).is_empty(), "one read");
+    assert_eq!(m.peers().show(), Some(&ShowState::Reading));
+    assert_eq!(focus(&m), Some(PeersFocus::ShowWarning));
+
+    let lines: Vec<String> = (0..20)
+        .map(|i| format!("/ip4/192.168.1.{i}/tcp/4001/p2p/{}", me.as_str()))
+        .collect();
+    m.own_addresses_read(Ok(ShowAddresses {
+        peer: me.clone(),
+        addresses: lines.clone(),
+        truncated: false,
+    }));
+    assert_eq!(
+        m.peers().show(),
+        Some(&ShowState::Shown {
+            peer: me.clone(),
+            lines: lines[..CODE_LINES].to_vec()
+        })
+    );
+
+    let _ = input(&mut m, PeersInput::CloseShow);
+    assert_eq!(m.peers().show(), None);
+    assert_eq!(focus(&m), Some(PeersFocus::ShowOpener));
+
+    let answer = || {
+        Ok(ShowAddresses {
+            peer: me.clone(),
+            addresses: lines[..1].to_vec(),
+            truncated: false,
+        })
+    };
+    let _ = input(&mut m, PeersInput::OpenShow);
+    let _ = input(&mut m, PeersInput::CloseShow);
+    m.own_addresses_read(answer());
+    assert_eq!(m.peers().show(), None, "a closed page shows nothing");
+
+    // Closed and opened again with the read still on its way: no second
+    // read, and its answer draws the page open now.
+    assert_eq!(
+        input(&mut m, PeersInput::OpenShow),
+        vec![Intent::ReadOwnAddresses]
+    );
+    let _ = input(&mut m, PeersInput::CloseShow);
+    assert!(
+        input(&mut m, PeersInput::OpenShow).is_empty(),
+        "one in flight"
+    );
+    m.own_addresses_read(answer());
+    assert!(matches!(m.peers().show(), Some(ShowState::Shown { .. })));
+}
+
+/// No address is not a failure, and a failure is never "no address":
+/// each read's failure has its line and focus, Try again only where a
+/// retry may mend it, and a Try again that succeeds sends focus to the
+/// warning as on opening (§5.4, §8).
+#[test]
+fn show_says_no_address_and_each_failure_by_what_is_true() {
+    use interweave_human_client_api::ShowAddresses;
+    use interweave_human_ui_model::{ShowProblem, ShowState};
+    let me = peer();
+    let none = || {
+        Ok(ShowAddresses {
+            peer: peer(),
+            addresses: Vec::new(),
+            truncated: false,
+        })
+    };
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenShow);
+    m.own_addresses_read(none());
+    assert_eq!(
+        m.peers().show(),
+        Some(&ShowState::NoAddress { offline: false })
+    );
+    let _ = input(&mut m, PeersInput::CloseShow);
+
+    for (problem, shown, again) in [
+        (AddressProblem::Unavailable, ShowProblem::Failed, true),
+        (AddressProblem::Internal, ShowProblem::Failed, true),
+        (
+            AddressProblem::Incompatible,
+            ShowProblem::Incompatible,
+            false,
+        ),
+        (
+            AddressProblem::NotPermitted,
+            ShowProblem::NotPermitted,
+            false,
+        ),
+    ] {
+        let _ = input(&mut m, PeersInput::OpenShow);
+        m.own_addresses_read(Err(problem));
+        assert_eq!(m.peers().show(), Some(&ShowState::Unread(shown)));
+        assert_eq!(focus(&m), Some(PeersFocus::ShowProblem));
+        let retried = input(&mut m, PeersInput::ShowTryAgain);
+        assert_eq!(retried.is_empty(), !again, "{problem:?}");
+        if again {
+            m.own_addresses_read(none());
+            assert_eq!(focus(&m), Some(PeersFocus::ShowWarning));
+        }
+        let _ = input(&mut m, PeersInput::CloseShow);
+    }
+}

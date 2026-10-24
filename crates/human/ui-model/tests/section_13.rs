@@ -97,7 +97,9 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::SetTrust(_)
         | Intent::ReadAddresses
         | Intent::AddAddresses(_)
-        | Intent::RemoveAddress(_) => true,
+        | Intent::RemoveAddress(_)
+        // Show's read of this device's own addresses, the same port.
+        | Intent::ReadOwnAddresses => true,
     }
 }
 

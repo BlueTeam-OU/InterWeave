@@ -30,7 +30,7 @@ use std::collections::BTreeMap;
 
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
-    AddressProblem, AddressRefused, PeerAddress, TrustProblem,
+    AddressProblem, AddressRefused, PeerAddress, ShowAddresses, TrustProblem,
 };
 use interweave_transport_api::TransportIdentity;
 
@@ -190,6 +190,41 @@ pub enum AddResult {
         /// How many.
         lines: usize,
     },
+}
+
+/// Show my address, as the view draws it (§5.4): everything on it comes
+/// from one read of this device's own addresses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShowState {
+    /// The read on its way: the warning only, nothing else drawn.
+    Reading,
+    /// The code and the same lines as text, at most [`CODE_LINES`] of
+    /// them in the runtime's order, and the `PeerId` alone.
+    Shown {
+        /// This device's `PeerId`.
+        peer: TransportIdentity,
+        /// The lines the code carries and the text lists.
+        lines: Vec<String>,
+    },
+    /// No address another device can reach: no code, why, what to do.
+    NoAddress {
+        /// The runtime reports itself unavailable; else only addresses
+        /// that work on this device alone are bound.
+        offline: bool,
+    },
+    /// The read failed: never "no address", which it has not shown.
+    Unread(ShowProblem),
+}
+
+/// Why Show's read failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ShowProblem {
+    /// Anything a retry may mend: Try again.
+    Failed,
+    /// The runtime does not serve the read (below IPC 2.8): no Try again.
+    Incompatible,
+    /// This app may not read them: no Try again.
+    NotPermitted,
 }
 
 /// One step-two block's state, as the view shows it.
@@ -491,6 +526,12 @@ pub enum PeersFocus {
     SnackAction,
     /// The note under Add an address (at the bound, or list off).
     AddAddressNote,
+    /// Show's warning, first on the page.
+    ShowWarning,
+    /// Show's problem line, in place of the code.
+    ShowProblem,
+    /// The control that opened Show.
+    ShowOpener,
 }
 
 /// What a person did on Peers or its add page, as a view hands it to the
@@ -543,6 +584,12 @@ pub enum PeersInput {
         /// Focus was on its action as it went.
         from_action: bool,
     },
+    /// Show my address pressed: Show opens and reads.
+    OpenShow,
+    /// Try again on Show's failed read.
+    ShowTryAgain,
+    /// Show closed: Back, or the app leaving the screen (§5.4).
+    CloseShow,
 }
 
 /// What a scan's text came to.
@@ -697,6 +744,14 @@ pub struct Peers {
     /// This node's `PeerId`, from the session; else the trust list as
     /// last read names it.
     this_device: Option<TransportIdentity>,
+    /// Show, while it is open.
+    show: Option<ShowState>,
+    /// Show's read is on its way, and whether it is a Try again's, which
+    /// sends focus as when Show opens once it succeeds (§8).
+    show_reading: Option<bool>,
+    /// The `PeerId` whose addresses Show drew since this was last taken:
+    /// Connect's `ConnectDoneShown` (§5.1).
+    show_drew: Option<TransportIdentity>,
 }
 
 /// The field's lines as the add sends them: each line ending (LF, CR LF
@@ -860,6 +915,16 @@ impl Peers {
             PeersInput::Scanned(text) => self.scanned(&text, trust).1.into_iter().collect(),
             PeersInput::Close => {
                 self.close(trust);
+                Vec::new()
+            }
+            PeersInput::OpenShow => self.open_show().into_iter().collect(),
+            PeersInput::ShowTryAgain => self.show_again().into_iter().collect(),
+            // A read on its way stays the one in flight: a page opened
+            // again meanwhile is drawn from its answer.
+            PeersInput::CloseShow => {
+                if self.show.take().is_some() {
+                    self.ask_focus(PeersFocus::ShowOpener);
+                }
                 Vec::new()
             }
             PeersInput::Trust(peer) => self.trust(&peer, trust).into_iter().collect(),
@@ -1069,6 +1134,77 @@ impl Peers {
         } else {
             self.ask_focus(PeersFocus::Scan(control));
         }
+    }
+
+    fn open_show(&mut self) -> Option<Intent> {
+        if self.show.is_some() {
+            return None;
+        }
+        self.show = Some(ShowState::Reading);
+        self.ask_focus(PeersFocus::ShowWarning);
+        self.read_own(false)
+    }
+
+    fn show_again(&mut self) -> Option<Intent> {
+        if self.show != Some(ShowState::Unread(ShowProblem::Failed)) {
+            return None;
+        }
+        self.show = Some(ShowState::Reading);
+        self.read_own(true)
+    }
+
+    fn read_own(&mut self, again: bool) -> Option<Intent> {
+        if self.show_reading.is_some() {
+            return None;
+        }
+        self.show_reading = Some(again);
+        Some(Intent::ReadOwnAddresses)
+    }
+
+    /// The runtime's answer to Show's read; `offline` whether it reports
+    /// itself unavailable, which says why there is no address. A page
+    /// closed meanwhile shows nothing of it.
+    pub fn own_answer(&mut self, answer: Result<ShowAddresses, AddressProblem>, offline: bool) {
+        let Some(again) = self.show_reading.take() else {
+            return;
+        };
+        if self.show.is_none() {
+            return;
+        }
+        let state = match answer {
+            Ok(own) if own.addresses.is_empty() => ShowState::NoAddress { offline },
+            Ok(own) => {
+                self.show_drew = Some(own.peer.clone());
+                ShowState::Shown {
+                    peer: own.peer,
+                    lines: own.addresses.into_iter().take(CODE_LINES).collect(),
+                }
+            }
+            Err(AddressProblem::Incompatible) => ShowState::Unread(ShowProblem::Incompatible),
+            Err(AddressProblem::NotPermitted) => ShowState::Unread(ShowProblem::NotPermitted),
+            Err(AddressProblem::Unavailable | AddressProblem::Internal) => {
+                ShowState::Unread(ShowProblem::Failed)
+            }
+        };
+        let unread = matches!(state, ShowState::Unread(_));
+        self.show = Some(state);
+        if unread {
+            self.ask_focus(PeersFocus::ShowProblem);
+        } else if again {
+            self.ask_focus(PeersFocus::ShowWarning);
+        }
+    }
+
+    /// Show, while it is open.
+    #[must_use]
+    pub const fn show(&self) -> Option<&ShowState> {
+        self.show.as_ref()
+    }
+
+    /// Whether Show drew this device's addresses since the last take:
+    /// for Connect's line (§5.1).
+    pub fn take_show_drew(&mut self) -> bool {
+        self.show_drew.take().is_some()
     }
 
     /// A code read, or an image decoded: `text` is all it carries. Taken
@@ -2347,7 +2483,10 @@ impl Peers {
             | PeersFocus::BlockState(_)
             | PeersFocus::Done
             | PeersFocus::AddNote
-            | PeersFocus::SnackAction => false,
+            | PeersFocus::SnackAction
+            | PeersFocus::ShowWarning
+            | PeersFocus::ShowProblem
+            | PeersFocus::ShowOpener => false,
         };
         if list_pane && self.page.is_some() {
             return;
