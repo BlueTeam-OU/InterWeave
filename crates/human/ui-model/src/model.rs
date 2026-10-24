@@ -1248,8 +1248,7 @@ impl UiModel {
 
     /// The runtime's answer to Show's read of this device's addresses.
     pub fn own_addresses_read(&mut self, answer: Result<ShowAddresses, AddressProblem>) {
-        let offline = self.connectivity() == Connectivity::Offline;
-        self.peers.own_answer(answer, offline);
+        self.peers.own_answer(answer);
     }
 
     /// A code read, or an image decoded: whether the viewfinder stays

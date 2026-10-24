@@ -134,6 +134,11 @@ pub enum AddNote {
     ImageNoCode,
     /// An image's code is not an address list.
     NotAddress,
+    /// The file opened, or the clipboard's image, could not be read as
+    /// an image: never "no code", since it was never looked at.
+    ImageUnreadable,
+    /// Paste an image found no image on the clipboard.
+    ClipboardNoImage,
     /// The add stored nothing: the first refused line, and why.
     Refused {
         /// The line, as sent; named only when the refusal is of one line
@@ -167,6 +172,19 @@ pub enum AddNote {
     },
     /// The boundary cannot be used.
     Barred(Barred),
+}
+
+impl AddNote {
+    /// Whether the note is a scan's own line, under the scan controls:
+    /// announced once with focus kept on the control, and gone at the
+    /// next scan press, an edit of the field or the page closing (§5.5).
+    #[must_use]
+    pub const fn is_scan_line(&self) -> bool {
+        matches!(
+            self,
+            Self::ImageNoCode | Self::NotAddress | Self::ImageUnreadable | Self::ClipboardNoImage
+        )
+    }
 }
 
 /// What the add page's first step came to.
@@ -206,12 +224,10 @@ pub enum ShowState {
         /// The lines the code carries and the text lists.
         lines: Vec<String>,
     },
-    /// No address another device can reach: no code, why, what to do.
-    NoAddress {
-        /// The runtime reports itself unavailable; else only addresses
-        /// that work on this device alone are bound.
-        offline: bool,
-    },
+    /// No address another device can reach: no code, and what to do.
+    /// No reason is given: the read reports none, and the transport's
+    /// own state is not the device's network (§5.4).
+    NoAddress,
     /// The read failed: never "no address", which it has not shown.
     Unread(ShowProblem),
 }
@@ -560,6 +576,10 @@ pub enum PeersInput {
     ScannerClosed,
     /// The image opened or pasted holds no code that reads.
     ImageNoCode,
+    /// The file opened, or the clipboard's image, could not be decoded.
+    ImageUnreadable,
+    /// Paste an image found no image on the clipboard.
+    ClipboardNoImage,
     /// A code read, or an image decoded: its text. A view that must know
     /// whether the viewfinder stays open calls
     /// [`crate::UiModel::scanned`] instead.
@@ -912,6 +932,14 @@ impl Peers {
                 self.scan_ended(Some(AddNote::ImageNoCode));
                 Vec::new()
             }
+            PeersInput::ImageUnreadable => {
+                self.scan_ended(Some(AddNote::ImageUnreadable));
+                Vec::new()
+            }
+            PeersInput::ClipboardNoImage => {
+                self.scan_ended(Some(AddNote::ClipboardNoImage));
+                Vec::new()
+            }
             PeersInput::Scanned(text) => self.scanned(&text, trust).1.into_iter().collect(),
             PeersInput::Close => {
                 self.close(trust);
@@ -1027,6 +1055,8 @@ impl Peers {
         match page.note {
             Some(AddNote::AddressNeeded) if !empty => page.note = None,
             Some(AddNote::ScanAfterField) if empty => page.note = None,
+            // A scan's own line goes at an edit of the field (§5.5).
+            Some(ref note) if note.is_scan_line() && text != page.field => page.note = None,
             _ => {}
         }
         // An add left unknown speaks for the lines it sent: an edit away
@@ -1108,6 +1138,10 @@ impl Peers {
             return;
         };
         page.scan_from = Some(control);
+        // A scan's own line goes at the next scan press (§5.5).
+        if page.note.as_ref().is_some_and(AddNote::is_scan_line) {
+            page.note = None;
+        }
         if lines_of(&page.field).is_empty() {
             page.scanning = true;
         } else {
@@ -1161,10 +1195,9 @@ impl Peers {
         Some(Intent::ReadOwnAddresses)
     }
 
-    /// The runtime's answer to Show's read; `offline` whether it reports
-    /// itself unavailable, which says why there is no address. A page
-    /// closed meanwhile shows nothing of it.
-    pub fn own_answer(&mut self, answer: Result<ShowAddresses, AddressProblem>, offline: bool) {
+    /// The runtime's answer to Show's read. A page closed meanwhile shows
+    /// nothing of it.
+    pub fn own_answer(&mut self, answer: Result<ShowAddresses, AddressProblem>) {
         let Some(again) = self.show_reading.take() else {
             return;
         };
@@ -1172,7 +1205,7 @@ impl Peers {
             return;
         }
         let state = match answer {
-            Ok(own) if own.addresses.is_empty() => ShowState::NoAddress { offline },
+            Ok(own) if own.addresses.is_empty() => ShowState::NoAddress,
             Ok(own) => {
                 self.show_drew = Some(own.peer.clone());
                 ShowState::Shown {

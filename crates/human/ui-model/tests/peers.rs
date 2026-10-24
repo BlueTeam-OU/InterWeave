@@ -4505,10 +4505,7 @@ fn show_says_no_address_and_each_failure_by_what_is_true() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenShow);
     m.own_addresses_read(none());
-    assert_eq!(
-        m.peers().show(),
-        Some(&ShowState::NoAddress { offline: false })
-    );
+    assert_eq!(m.peers().show(), Some(&ShowState::NoAddress));
     let _ = input(&mut m, PeersInput::CloseShow);
 
     for (problem, shown, again) in [
@@ -4537,4 +4534,39 @@ fn show_says_no_address_and_each_failure_by_what_is_true() {
         }
         let _ = input(&mut m, PeersInput::CloseShow);
     }
+}
+
+/// Each scan line says what went wrong with the image -- unreadable, no
+/// image on the clipboard -- focus on the control used, and goes at the
+/// next scan press or an edit of the field (§5.5, §8).
+#[test]
+fn a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    for (control, given, note) in [
+        (
+            ScanControl::OpenImage,
+            PeersInput::ImageUnreadable,
+            AddNote::ImageUnreadable,
+        ),
+        (
+            ScanControl::PasteImage,
+            PeersInput::ClipboardNoImage,
+            AddNote::ClipboardNoImage,
+        ),
+    ] {
+        let _ = input(&mut m, PeersInput::ScanPressed(control));
+        let _ = input(&mut m, given);
+        assert_eq!(m.peers().add_page_note(), Some(&note));
+        assert_eq!(focus(&m), Some(PeersFocus::Scan(control)));
+    }
+    // The next press takes it away, whatever that scan then says.
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::OpenImage));
+    assert_eq!(m.peers().add_page_note(), None);
+    let _ = input(&mut m, PeersInput::ImageNoCode);
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::ImageNoCode));
+    // An edit of the field takes it away too.
+    let _ = input(&mut m, PeersInput::FieldChanged("/ip4".to_owned()));
+    assert_eq!(m.peers().add_page_note(), None);
 }
