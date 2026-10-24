@@ -1535,8 +1535,8 @@ async fn a_bare_address_intent_reaches_nothing() {
 /// Peers' add reaches the facade as one add of all its lines: one line
 /// is the runtime's single add, which this fake answers as added;
 /// several typed are refused before anything is sent (`TYPED_LINES`);
-/// several scanned are never split, and until the add of several lines
-/// is bound they are answered as a runtime without it answers.
+/// several scanned are one add, never split, and the runtime's add of
+/// several answers them.
 #[tokio::test]
 async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
     use interweave_human_ui_model::{AddNote, PeersInput, TYPED_LINES};
@@ -1593,9 +1593,15 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
     ]);
     root.pump(1).await;
     assert_eq!(root.commands, vec![Command::AddAddresses(vec![one, two])]);
+    // Both lines added; their peer is not this node's to trust yet.
     assert_eq!(
-        root.model().peers().add_page_note(),
-        Some(&AddNote::SeveralIncompatible { lines: 2 })
+        root.model().peers().add_result(),
+        Some(&interweave_human_ui_model::AddResult::Added {
+            lines: 2,
+            peers: vec![b.peer().clone()]
+        }),
+        "{:?}",
+        root.model().peers().add_page_note()
     );
 }
 
