@@ -808,18 +808,51 @@ impl UiModel {
         })
     }
 
-    /// The new key was made: the identity with its fingerprint, and where
-    /// to share the card again.
-    pub fn key_made(&mut self, identity: IdentityView, share_again: Vec<ConversationKey>) {
-        self.cards.identity = Some(identity);
+    /// The new key was made: the identity with its fingerprint -- or, when
+    /// it could not be read, the fingerprint on the identity held -- and
+    /// where to share the card again.
+    pub fn key_made(
+        &mut self,
+        identity: Option<IdentityView>,
+        fingerprint: String,
+        share_again: Vec<ConversationKey>,
+    ) {
+        self.set_own_key(identity, OwnKey::Ready { fingerprint });
         self.cards.key_step = Some(KeyStep::Made { share_again });
     }
 
-    /// No new key was made: the identity as the open now finds it, and
-    /// whether the old file went first.
-    pub fn key_not_made(&mut self, identity: IdentityView, gone: bool) {
-        self.cards.identity = Some(identity);
+    /// No new key was made: the identity as the open now finds it -- or its
+    /// problem on the identity held -- and whether the old file went first.
+    pub fn key_not_made(
+        &mut self,
+        identity: Option<IdentityView>,
+        problem: KeyProblem,
+        gone: bool,
+    ) {
+        self.set_own_key(identity, OwnKey::Unusable(problem));
         self.cards.key_step = Some(KeyStep::Failed { gone });
+    }
+
+    /// The facade refused an Ask or a Make before it started: the step
+    /// ends -- an Ask as if never pressed, a Make as not made, the old key
+    /// as it was -- so the page never waits on it.
+    pub fn key_command_refused(&mut self) {
+        self.cards.key_step = match self.cards.key_step {
+            Some(KeyStep::Making) => Some(KeyStep::Failed { gone: false }),
+            Some(KeyStep::Asking) => None,
+            ref other => other.clone(),
+        };
+    }
+
+    fn set_own_key(&mut self, identity: Option<IdentityView>, key: OwnKey) {
+        match identity {
+            Some(identity) => self.cards.identity = Some(identity),
+            None => {
+                if let Some(held) = self.cards.identity.as_mut() {
+                    held.key = key;
+                }
+            }
+        }
     }
 
     /// Try again, when its problem offers it and nothing is under way.
@@ -1736,9 +1769,10 @@ mod tests {
         assert_eq!(model.key_step(), Some(&KeyStep::Making));
         let back = vec![direct(P, "human")];
         model.key_made(
-            own(OwnKey::Ready {
+            Some(own(OwnKey::Ready {
                 fingerprint: "fedcba9876543210".to_owned(),
-            }),
+            })),
+            "fedcba9876543210".to_owned(),
             back.clone(),
         );
         assert_eq!(model.key_step(), Some(&KeyStep::Made { share_again: back }));
@@ -1759,5 +1793,32 @@ mod tests {
             fingerprint: "0123456789abcdef".to_owned(),
         }));
         assert_eq!(model.key_step(), None, "opened");
+    }
+
+    /// #423 F1: a key step the facade refused, or one whose identity could
+    /// not be read, still ends -- an Ask as never pressed, a Make as not
+    /// made -- and a key made but not read back shows its fingerprint on
+    /// the identity held.
+    #[test]
+    fn a_key_step_always_ends_made_or_not_made() {
+        let mut model = UiModel::new();
+        model.identity_shown(own(OwnKey::Unusable(KeyProblem::Damaged)));
+        assert_eq!(model.ask_new_key(), Some(Intent::AskNewKey));
+        model.key_command_refused();
+        assert_eq!(model.key_step(), None);
+        assert_eq!(
+            model.ask_new_key(),
+            Some(Intent::AskNewKey),
+            "offered again"
+        );
+        model.new_key_asked(false);
+        let _ = model.confirm_new_key();
+        model.key_command_refused();
+        assert_eq!(model.key_step(), Some(&KeyStep::Failed { gone: false }));
+
+        model.key_made(None, "fedcba9876543210".to_owned(), Vec::new());
+        let held = model.identity().expect("held");
+        assert_eq!(held.name, "Ada", "the card as it was");
+        assert_eq!(held.key.fingerprint(), Some("fedcba9876543210"));
     }
 }
