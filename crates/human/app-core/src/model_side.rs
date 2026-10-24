@@ -208,6 +208,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::ProposalJudged(proposal) => self.model.card_judged(*proposal),
             Update::CardResolved { row, outcome } => self.model.card_resolved(row, outcome),
             Update::ProposalRestored(proposal) => self.model.card_restored(*proposal),
+            Update::ProposalNotRestored(row) => self.model.card_not_restored(row),
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
             Update::CardShared { key, at, .. } => self.model.card_shared(key, at),

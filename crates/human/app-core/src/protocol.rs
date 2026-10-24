@@ -175,6 +175,9 @@ pub enum Update {
     /// An Undo brought a resolved proposal back, read, judged as the
     /// store stands now.
     ProposalRestored(Box<Proposal>),
+    /// An Undo of this row's answer was carried out, but its card could not
+    /// be judged again, so its proposal does not return.
+    ProposalNotRestored(RowId),
     /// The contacts, after a change to them.
     ContactsListed(Vec<ContactView>),
     /// The identity in front, after its own card changed.

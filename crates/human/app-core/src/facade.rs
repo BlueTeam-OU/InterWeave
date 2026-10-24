@@ -480,9 +480,12 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// Undo the last Accept or Decline, of `row`: the store writes back
     /// what the Accept changed, and the proposal returns, read, judged as
     /// the store stands now -- a contact deleted since leaves a first card
-    /// again, never a contact made again. A refusal keeps what the Undo
-    /// needs, so the Accept stands as the snackbar said and nothing the
-    /// person decided is lost.
+    /// again, never a contact made again. A refusal comes only before the
+    /// store wrote anything, and keeps what the Undo needs, so the Accept
+    /// stands as the snackbar said and nothing the person decided is lost.
+    /// Once the store wrote it, the Undo is done whatever follows: a card
+    /// that cannot be judged again does not return, and says so
+    /// ([`not_restored`]).
     fn undo_card(&mut self, row: RowId, updates: &mut Vec<Update>) -> Result<(), Failure> {
         let Some(undo) = self.card_undo.take_if(|u| u.row == row) else {
             return Err(Failure::NoSuchRow);
@@ -500,18 +503,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let context = match cards::context(self.client.store_mut(), &peer, &endpoint, &card) {
             Ok(context) => context,
             Err(e) => {
-                // The store wrote the Undo back and cannot say what the
-                // card would now do, so the proposal cannot return: its
-                // copy goes, the Undo is reported failed, and the contacts
-                // are sent as far as they can be read, so the model shows
-                // the store's state rather than the Accept the Undo
-                // reversed (#414 F2).
-                if undo.accept.is_some()
-                    && let Ok(contacts) = cards::contact_views(self.client.store_mut())
-                {
-                    updates.push(Update::ContactsListed(contacts));
-                }
-                return Err(store_failure(&e));
+                let contacts = undo
+                    .accept
+                    .is_some()
+                    .then(|| cards::contact_views(self.client.store_mut()).ok())
+                    .flatten();
+                updates.extend(not_restored(row, store_failure(&e), contacts));
+                return Ok(());
             }
         };
         let received_at = undo.held.received_at();
@@ -906,6 +904,23 @@ impl<V> ReadCopies<V> {
     }
 }
 
+/// An Undo of a card's answer the store carried out, whose card could not
+/// be judged again afterwards (#414 F2): the read's failure is reported,
+/// the contacts are sent as the store now holds them when they can be
+/// read, and the proposal does not return -- the model drops the
+/// confirmation row and announces the Undo, never a refusal, since the
+/// store changed.
+fn not_restored(
+    row: RowId,
+    read: Failure,
+    contacts: Option<Vec<interweave_human_ui_model::ContactView>>,
+) -> Vec<Update> {
+    let mut updates = vec![Update::UnreadNotListed(read)];
+    updates.extend(contacts.map(Update::ContactsListed));
+    updates.push(Update::ProposalNotRestored(row));
+    updates
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1105,6 +1120,35 @@ mod tests {
             copies.order.len(),
             READ_COPY_CAP - 1,
             "removal clears the order too"
+        );
+    }
+
+    /// #414 F2: an Undo written but not judged again is reported as done,
+    /// never as a refusal -- the read failure said, the contacts as they
+    /// stand, and the proposal named as not returning.
+    #[test]
+    fn an_undo_written_but_not_judged_again_is_done_and_says_the_card_is_not_back() {
+        let row = RowId::from_stored(7);
+        let updates = super::not_restored(row, Failure::Corrupt, Some(Vec::new()));
+        assert_eq!(
+            updates,
+            vec![
+                Update::UnreadNotListed(Failure::Corrupt),
+                Update::ContactsListed(Vec::new()),
+                Update::ProposalNotRestored(row),
+            ]
+        );
+        assert!(
+            !updates.iter().any(|u| matches!(u, Update::Failed { .. })),
+            "the store changed: no refusal"
+        );
+        assert_eq!(
+            super::not_restored(row, Failure::Corrupt, None),
+            vec![
+                Update::UnreadNotListed(Failure::Corrupt),
+                Update::ProposalNotRestored(row),
+            ],
+            "contacts that cannot be read are not sent"
         );
     }
 }
