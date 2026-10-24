@@ -401,9 +401,9 @@ label without one (cards §5.7.6).
 | `KeyMaking` | Making a new key… | §5.2 |
 | `KeyMade` | This identity has a new key. Your contacts have the new key only after you share your card with them again. | §5.3 |
 | `KeyShareAgainTitle` | Share your card again in these conversations | §5.3 list heading |
-| `KeyNewFailed` | InterWeave could not make a new key. Try again. | §5.3, failed before the old file was removed; says nothing about what changed |
+| `KeyNewFailed` | InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed before the old file was removed; says nothing about what changed |
 | `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
-| `KeyNewFailedGone` | placeholder: Your old key was deleted, but InterWeave could not make a new key. Try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order); awaiting language-culture-en |
+| `KeyNewFailedGone` | The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order) |
 | `KeyNewPending` | In some conversations, your card has not been sent yet. Making a new key cancels it there, because that card is signed with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport |
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
 
