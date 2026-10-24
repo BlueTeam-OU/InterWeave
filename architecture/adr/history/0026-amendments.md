@@ -68,7 +68,7 @@ same, and ADR-0061's cap cites the bound that exists. The advertised
 endpoints' 16 / 32 is a real key (`directory.max_advertised`) and
 stands.
 
-### Amendment 2026-10-24 — A session reads its own broadcast losses as lower bounds
+### Amendment 2026-10-24 — A session reads its own broadcast losses
 
 This record bounded what a slow consumer costs the node — the oldest
 copy dropped, the over-rate broadcast refused before fan-out — and
@@ -98,10 +98,28 @@ publishes and when, and a per-channel table grows with the channels a
 client joins; two counters per session are bounded by construction. And
 a reset on leave was rejected because a leave and a rejoin are the
 ordinary life of a channel for a bridge that reconnects, and a count that
-fell would read as recovery. Permanence is stated because ADR-0019's
-dedup keeps the id of a broadcast every joined session lost, so a
-republish is swallowed: a consumer reports a loss, never a delay, and
-does not retry.
+fell would read as recovery.
+
+The two counts promise different things, and the first draft of this
+note said "permanent" of both; the branch's review (2026-10-24) showed
+it false for one. An overflowed broadcast was admitted: the runtime
+records its dedup entry after the fan-out whatever was dropped, so
+within ADR-0019's window (10,000 entries, 5 min, oldest evicted) a
+republish of the same id is a duplicate, and the overflow count is a
+lower bound on broadcasts lost rather than delayed. A refused broadcast
+was never admitted: the ingress gate returns before any dedup entry
+exists, so a republish of the same id reaches the runtime as fresh and
+is delivered, and while the publisher stays over its rate every
+republish is refused and counted again. The refusal count therefore
+counts refused copies, a signal that broadcasts on the session's
+channels were refused, never a count of distinct broadcasts lost. Two
+ways to make it one were rejected: recording the refused id in the
+dedup map, which spends at the gate the per-message work the bucket
+exists to bound and lets a flooder evict other publishers' entries; and
+a separate bounded set of refused ids, which would drop the republish
+that repairs the loss in order to keep the number honest. The smallest
+true statement was chosen, and every text that carries the counts says
+which guarantee each gives.
 
 One limit is accepted and named beside the method rather than removed: a
 session that declines route notices over IPC asks for the minor below

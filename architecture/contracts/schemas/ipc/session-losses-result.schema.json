@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:ipc:session-losses-result",
   "title": "IPC session.losses result",
-  "description": "The broadcasts this data connection's session has lost since it opened (IPC 2.11, ADR-0026 A 2026-10-24): two monotonic counts that never fall while the connection lives. queue_overflow counts copies the session's own queue dropped -- its oldest, to take a newer one -- or could not queue; ingress_refused counts broadcasts the ingress gate refused (over the publisher's rate, or while draining) on a channel the session held at the time, since that join. Both are LOWER BOUNDS: what GossipSub dropped before admission (validation, mesh, the backend's queue) and a conflicting body are not counted, so zero means none counted, not none lost. A broadcast every joined session lost keeps its dedup entry, so a republish of the same id is a duplicate and the loss is permanent. No peer and no channel is named. Params: the empty object.",
+  "description": "The broadcasts this data connection's session has lost since it opened (IPC 2.11, ADR-0026 A 2026-10-24): two monotonic counts that never fall while the connection lives. queue_overflow counts copies the session's own queue dropped -- its oldest, to take a newer one -- or could not queue; ingress_refused counts broadcasts the ingress gate refused (over the publisher's rate, or while draining) on a channel the session held at the time, since that join. Neither counts what GossipSub dropped before admission (validation, mesh, the backend's queue) or a conflicting body, so zero means none counted, not none lost. The two differ: an overflowed broadcast was admitted and its dedup entry recorded, so within the dedup window a republish of the same id is a duplicate and queue_overflow is a lower bound on broadcasts lost; a refused broadcast was never admitted and has no dedup entry, so a republish may still arrive and each refused copy counts -- ingress_refused is a signal that broadcasts on the session's channels were refused, never a count of distinct broadcasts lost. No peer and no channel is named. Params: the empty object.",
   "type": "object",
   "required": [
     "queue_overflow",
@@ -18,7 +18,7 @@
     "ingress_refused": {
       "type": "integer",
       "minimum": 0,
-      "description": "Broadcasts the ingress gate refused on a channel this session held, since each join."
+      "description": "Copies the ingress gate refused on a channel this session held, since each join; a republish of a refused id may still arrive, and each refused copy counts."
     }
   },
   "x-contract": {

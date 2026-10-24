@@ -179,13 +179,16 @@ pub trait DataSessionBinding {
 /// The broadcasts one data session lost, since it opened
 /// (`session.losses`, IPC 2.11).
 ///
-/// Both counts are monotonic LOWER BOUNDS for the session's life: what
-/// the mesh dropped before admission (GossipSub validation, mesh, the
-/// backend's queue) and a conflicting body are not counted, so zero
-/// means none counted, never none lost. A broadcast every joined session
-/// lost keeps its dedup entry, so a republish of the same id is a
-/// duplicate: a counted loss is permanent, not a delay. No peer and no
-/// channel is named.
+/// Both counts are monotonic for the session's life, and neither counts
+/// what the mesh dropped before admission (GossipSub validation, mesh,
+/// the backend's queue) or a conflicting body, so zero means none
+/// counted, never none lost. They promise different things: an
+/// overflowed broadcast was admitted and its dedup entry recorded, so
+/// within the dedup window a republish of the same id is a duplicate and
+/// `queue_overflow` is a lower bound on broadcasts lost; a refused
+/// broadcast has no dedup entry, so a republish may still arrive and
+/// each refused copy counts -- `ingress_refused` is a signal, not a
+/// count of distinct losses. No peer and no channel is named.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SessionLosses {
     /// Copies this session's own queue dropped (its oldest, to take a
