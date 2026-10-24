@@ -101,6 +101,18 @@ pub enum LineSource {
     Scanned,
 }
 
+/// The control a scan started from, which focus goes back to when it
+/// ends with no add (§8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScanControl {
+    /// Scan a code: the camera (Android).
+    Camera,
+    /// Open an image…: an image file (desktop).
+    OpenImage,
+    /// Paste an image: the clipboard's image (desktop).
+    PasteImage,
+}
+
 /// Why the administrative boundary cannot be used at all: no Try again,
 /// since no retry mends either.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -118,6 +130,10 @@ pub enum AddNote {
     AddressNeeded,
     /// A scan control pressed with an address in the field.
     ScanAfterField,
+    /// An image, opened or pasted, holds no code that reads.
+    ImageNoCode,
+    /// An image's code is not an address list.
+    NotAddress,
     /// The add stored nothing: the first refused line, and why.
     Refused {
         /// The line, as sent; named only when the refusal is of one line
@@ -444,6 +460,8 @@ pub enum PeersFocus {
     Note,
     /// The add page's Add.
     AddButton,
+    /// The scan control a scan started from.
+    Scan(ScanControl),
     /// A step-two block's title.
     Block(TransportIdentity),
     /// A step-two block's problem line.
@@ -492,11 +510,15 @@ pub enum PeersInput {
     FieldChanged(String),
     /// Add pressed.
     Add,
-    /// A scan control pressed: the scanner opens only with the field
+    /// A scan control pressed: the scanner -- the viewfinder, the image
+    /// dialog, or the clipboard's image -- opens only with the field
     /// empty ([`Peers::scan_open`]).
-    ScanPressed,
-    /// The scanner closed with no code.
+    ScanPressed(ScanControl),
+    /// The scanner closed with no code: the viewfinder's Close, or the
+    /// image dialog cancelled.
     ScannerClosed,
+    /// The image opened or pasted holds no code that reads.
+    ImageNoCode,
     /// A code read, or an image decoded: its text. A view that must know
     /// whether the viewfinder stays open calls
     /// [`crate::UiModel::scanned`] instead.
@@ -579,6 +601,8 @@ struct AddPage {
     result: Option<AddResult>,
     blocks: Vec<TrustBlock>,
     scanning: bool,
+    /// The control the last scan started from.
+    scan_from: Option<ScanControl>,
     /// Opened from this row's Trust, not from Add an address.
     from_row: Option<String>,
     /// The lines an add left unknown -- its answer lost and the read back
@@ -821,14 +845,16 @@ impl Peers {
                 Vec::new()
             }
             PeersInput::Add => self.add_typed(trust).into_iter().collect(),
-            PeersInput::ScanPressed => {
-                self.scan_pressed();
+            PeersInput::ScanPressed(control) => {
+                self.scan_pressed(control);
                 Vec::new()
             }
             PeersInput::ScannerClosed => {
-                if let Some(page) = self.page.as_mut() {
-                    page.scanning = false;
-                }
+                self.scan_ended(None);
+                Vec::new()
+            }
+            PeersInput::ImageNoCode => {
+                self.scan_ended(Some(AddNote::ImageNoCode));
                 Vec::new()
             }
             PeersInput::Scanned(text) => self.scanned(&text, trust).1.into_iter().collect(),
@@ -1009,18 +1035,39 @@ impl Peers {
 
     /// A scan control pressed: the scanner opens with the field empty;
     /// otherwise the note says to add or clear it first.
-    fn scan_pressed(&mut self) {
+    fn scan_pressed(&mut self, control: ScanControl) {
         if !self.step_one() {
             return;
         }
         let Some(page) = self.page.as_mut() else {
             return;
         };
+        page.scan_from = Some(control);
         if lines_of(&page.field).is_empty() {
             page.scanning = true;
         } else {
             page.note = Some(AddNote::ScanAfterField);
             self.ask_focus(PeersFocus::Note);
+        }
+    }
+
+    /// A scan that adds nothing ended: closed, or an image with no code
+    /// or none that is an address list. Focus goes back to the control
+    /// it started from, the note -- if any -- under the scan controls
+    /// and read after them (§8).
+    fn scan_ended(&mut self, note: Option<AddNote>) {
+        let Some(page) = self.page.as_mut() else {
+            return;
+        };
+        if !page.scanning {
+            return;
+        }
+        page.scanning = false;
+        let control = page.scan_from.unwrap_or(ScanControl::Camera);
+        if let Some(note) = note {
+            self.page_note(note, PeersFocus::Scan(control));
+        } else {
+            self.ask_focus(PeersFocus::Scan(control));
         }
     }
 
@@ -1030,6 +1077,18 @@ impl Peers {
     pub fn scanned(&mut self, text: &str, trust: &TrustSettings) -> (ScanVerdict, Option<Intent>) {
         let lines = lines_of(text);
         if lines.is_empty() || lines.iter().any(|l| !l.starts_with('/')) {
+            // The viewfinder stays open on such a code; an image is
+            // read once, so its scan ends with the reason (§5.5).
+            let from_image = self.page.as_ref().is_some_and(|p| {
+                p.scanning
+                    && matches!(
+                        p.scan_from,
+                        Some(ScanControl::OpenImage | ScanControl::PasteImage)
+                    )
+            });
+            if from_image {
+                self.scan_ended(Some(AddNote::NotAddress));
+            }
             return (ScanVerdict::NotAddress, None);
         }
         let ready = self.step_one();
@@ -1056,10 +1115,10 @@ impl Peers {
             return (ScanVerdict::Taken, None);
         }
         page.note = None;
-        (
-            ScanVerdict::Taken,
-            Some(self.send(lines, LineSource::Scanned)),
-        )
+        let intent = self.send(lines, LineSource::Scanned);
+        // The scanner gone, focus waits on Add, read as waiting (§5.3).
+        self.ask_focus(PeersFocus::AddButton);
+        (ScanVerdict::Taken, Some(intent))
     }
 
     fn send(&mut self, lines: Vec<String>, source: LineSource) -> Intent {
@@ -2282,6 +2341,7 @@ impl Peers {
             | PeersFocus::Field { .. }
             | PeersFocus::Note
             | PeersFocus::AddButton
+            | PeersFocus::Scan(_)
             | PeersFocus::Block(_)
             | PeersFocus::BlockProblem(_)
             | PeersFocus::BlockState(_)

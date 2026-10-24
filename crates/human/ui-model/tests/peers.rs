@@ -15,7 +15,7 @@ use interweave_human_client_api::{
 use interweave_human_ui_model::{
     AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES, Intent,
     LineSelection, ListProblem, PeersFocus, PeersInput, PeersSnack, Refusal, RowReadBack, RowState,
-    ScanVerdict, TYPED_LINES, TrustChange, TrustLine, UiModel,
+    ScanControl, ScanVerdict, TYPED_LINES, TrustChange, TrustLine, UiModel,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
@@ -293,12 +293,12 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
     let _ = input(&mut m, PeersInput::OpenAdd);
 
     let _ = input(&mut m, PeersInput::FieldChanged(at(&peer())));
-    let _ = input(&mut m, PeersInput::ScanPressed);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert!(!m.peers().scan_open(), "an address in the field");
     assert_eq!(m.peers().add_page_note(), Some(&AddNote::ScanAfterField));
     let _ = input(&mut m, PeersInput::FieldChanged(String::new()));
     assert_eq!(m.peers().add_page_note(), None);
-    let _ = input(&mut m, PeersInput::ScanPressed);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert!(m.peers().scan_open());
 
     assert_eq!(
@@ -924,7 +924,7 @@ fn back_on_an_add_on_its_way_closes_its_page_and_a_refused_scan_focuses_its_note
     let me = peer();
     let sent_scan = |m: &mut UiModel, line: &str| {
         let _ = input(m, PeersInput::OpenAdd);
-        let _ = input(m, PeersInput::ScanPressed);
+        let _ = input(m, PeersInput::ScanPressed(ScanControl::Camera));
         let (_, sent) = m.scanned(line);
         assert_eq!(sent, Some(Intent::AddAddresses(vec![line.to_owned()])));
     };
@@ -4297,7 +4297,7 @@ fn an_add_of_several_counts_the_lines_it_added_and_offers_every_peer() {
     let (me, a, b) = (peer(), peer(), peer());
     let mut m = opened(&me, &[], &[added(&b)]);
     let _ = input(&mut m, PeersInput::OpenAdd);
-    let _ = input(&mut m, PeersInput::ScanPressed);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let code = vec![at(&a), at(&b)];
     let (_, sent) = m.scanned(&code.join("\n"));
     assert_eq!(sent, Some(Intent::AddAddresses(code.clone())));
@@ -4341,7 +4341,7 @@ fn an_add_of_several_refused_names_the_line_at_its_index() {
     let me = peer();
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
-    let _ = input(&mut m, PeersInput::ScanPressed);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let code = vec![at(&peer()), at(&peer()), at(&peer())];
     let _ = m.scanned(&code.join("\n"));
     m.addresses_added(
@@ -4363,4 +4363,59 @@ fn an_add_of_several_refused_names_the_line_at_its_index() {
     );
     assert_eq!(m.peers().add_result(), None, "nothing was added");
     assert_eq!(m.peers().field(), "");
+}
+
+/// A desktop scan ends where it started: an image with no code, or with
+/// a code that is no address list, says so under the scan controls with
+/// focus on the control used; a dialog cancelled sends focus back to it
+/// unsaid; the camera's viewfinder stays open on a code that is not an
+/// address (§5.5, §8).
+#[test]
+fn an_image_scan_that_adds_nothing_returns_to_its_control() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::OpenImage));
+    assert!(m.peers().scan_open());
+    assert!(input(&mut m, PeersInput::ImageNoCode).is_empty());
+    assert!(!m.peers().scan_open());
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::ImageNoCode));
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::OpenImage)));
+
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage));
+    assert_eq!(
+        m.scanned("https://example.org"),
+        (ScanVerdict::NotAddress, None)
+    );
+    assert!(!m.peers().scan_open(), "an image is read once");
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::NotAddress));
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::PasteImage)));
+
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::OpenImage));
+    let _ = input(&mut m, PeersInput::ScannerClosed);
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::OpenImage)));
+
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
+    assert_eq!(
+        m.scanned("https://example.org"),
+        (ScanVerdict::NotAddress, None)
+    );
+    assert!(m.peers().scan_open(), "the viewfinder stays open");
+    let _ = input(&mut m, PeersInput::ScannerClosed);
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::Camera)));
+}
+
+/// A scanned add on its way waits with focus on Add, which reads as
+/// waiting (§5.3, §8).
+#[test]
+fn a_scanned_add_on_its_way_waits_on_add() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage));
+    let (_, sent) = m.scanned(&at(&peer()));
+    assert!(sent.is_some());
+    assert!(m.peers().busy());
+    assert_eq!(focus(&m), Some(PeersFocus::AddButton));
 }
