@@ -739,3 +739,43 @@ fn contacts_with_none_say_how_one_is_made_and_each_row_opens_its_contact() {
     let _ = intents(&mut view, &mut model);
     assert_eq!(view.window().get_contact_title(), isolated("Bob"));
 }
+
+/// Section 13 bullet 5: a contact's page shows each conversation's
+/// `PeerId` and names this identity's other contacts on the same device,
+/// with the note that they may be one person and are never combined; a
+/// contact on another device is not named. Mutation: the same-device
+/// lines left undrawn.
+#[test]
+fn a_contact_page_names_the_other_contacts_on_its_device_and_no_other() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let mut work = contact("c2", "Ada at work", P);
+    work.routes[0].endpoint = EndpointId::parse("work").expect("an endpoint");
+    model.contacts_listed(vec![contact("c1", "Ada", P), work, contact("c3", "Bob", Q)]);
+    view.render(&model);
+    open_contact(&mut view, &mut model, "Ada");
+    assert!(shows(&view, P), "the conversation's PeerId");
+    assert!(shows(
+        &view,
+        &fill(
+            text(UiText::ContactSharesDevice),
+            &[("name", &isolated("Ada at work"))]
+        )
+    ));
+    assert!(shows(&view, text(UiText::ContactSharesDeviceNote)));
+    assert!(!shows(
+        &view,
+        &fill(
+            text(UiText::ContactSharesDevice),
+            &[("name", &isolated("Bob"))]
+        )
+    ));
+
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    open_contact(&mut view, &mut model, "Bob");
+    assert!(
+        !shows(&view, text(UiText::ContactSharesDeviceNote)),
+        "alone on its device: no note"
+    );
+}
