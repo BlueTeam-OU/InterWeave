@@ -83,11 +83,14 @@ pub struct AddedAddressArgs {
     pub before: Duration,
     /// How long the connection may take once the address is held.
     pub deadline: Duration,
+    /// How long the connection must then stay up, so the far end's case,
+    /// which reads its row now and then, sees it before this side ends.
+    pub hold: Duration,
 }
 
 impl AddedAddressArgs {
-    /// The JSON a host passes: `peer`, `address`, `add`, `before_ms` and
-    /// `deadline_ms` (both optional).
+    /// The JSON a host passes: `peer`, `address`, `add`, `before_ms`,
+    /// `deadline_ms` and `hold_ms` (all three optional).
     #[must_use]
     pub fn to_json(&self) -> Value {
         let mut out = Map::new();
@@ -96,6 +99,7 @@ impl AddedAddressArgs {
         out.insert("add".to_owned(), self.add.into());
         out.insert("before_ms".to_owned(), ms(self.before).into());
         out.insert("deadline_ms".to_owned(), ms(self.deadline).into());
+        out.insert("hold_ms".to_owned(), ms(self.hold).into());
         Value::Object(out)
     }
 
@@ -123,6 +127,7 @@ impl AddedAddressArgs {
             add: bool_arg(args, "add")?,
             before: duration_arg(args, "before_ms", Some(Duration::ZERO))?,
             deadline: duration_arg(args, "deadline_ms", Some(DEFAULT_DEADLINE))?,
+            hold: duration_arg(args, "hold_ms", Some(Duration::ZERO))?,
         })
     }
 }
@@ -179,17 +184,25 @@ pub(crate) async fn added_address(
         .find(|a| a.address == args.address && a.source == AddressSource::Added);
     let mut out = Map::new();
     if args.add {
-        // A phone used before holds the address from an earlier run; it is
-        // taken out first, and said, rather than its data cleared.
-        let removed_first = held.is_some();
-        if removed_first {
+        // A phone used before holds the peer's addresses from earlier runs,
+        // each on the port that run chose; every one is taken out first,
+        // and said, rather than the app's data cleared. The runtime may
+        // have dialled them at its start: a run's port is new, so such a
+        // dial reaches nothing, and the window below shows it connected
+        // nothing.
+        let mut removed_first = false;
+        for earlier in listed
+            .iter()
+            .filter(|a| a.source == AddressSource::Added && reaches(&a.address, peer))
+        {
             let removed = port
-                .remove_bootstrap_address(args.address.clone())
+                .remove_bootstrap_address(earlier.address.clone())
                 .await
                 .map_err(|e| format!("the removal was refused: {e:?}"))?;
             if removed != AddressChange::Removed {
-                return Err(format!("the earlier address's removal: {removed:?}"));
+                return Err(format!("the removal of {}: {removed:?}", earlier.address));
             }
+            removed_first = true;
         }
         out.insert(
             keys::REMOVED_FIRST.to_owned(),
@@ -245,9 +258,27 @@ pub(crate) async fn added_address(
         }
         tokio::time::sleep(POLL).await;
     }
+    let connected_after = started.elapsed();
+    // HELD, not merely seen: on a device the case's process is the
+    // runtime, and a case that returned on seeing the connection closed it
+    // 51 ms later, before the far end's case read its own row (the second
+    // two-phone run, 2026-10-24). The far end reads every 250 ms; the
+    // hold also asks the connection to stay up, not to flap.
+    let hold_until = tokio::time::Instant::now() + args.hold;
+    while tokio::time::Instant::now() < hold_until {
+        tokio::time::sleep(POLL).await;
+        let row = row_of(&port, peer).await?;
+        if !row.as_ref().is_some_and(|r| r.connected) {
+            return Err(format!(
+                "connected to {} and dropped inside the {:?} hold: {row:?}",
+                peer.as_str(),
+                args.hold
+            ));
+        }
+    }
     out.insert(
         keys::CONNECTED_AFTER.to_owned(),
-        ms(started.elapsed()).to_string().into(),
+        ms(connected_after).to_string().into(),
     );
     Ok(out)
 }
@@ -647,6 +678,7 @@ mod tests {
             add: true,
             before: Duration::from_secs(3),
             deadline: Duration::from_secs(9),
+            hold: Duration::from_secs(5),
         };
         assert_eq!(AddedAddressArgs::from_json(&added.to_json()), Ok(added));
         let waited = AwaitPeerArgs {
@@ -679,6 +711,7 @@ mod tests {
             add: false,
             before: Duration::ZERO,
             deadline: Duration::ZERO,
+            hold: Duration::ZERO,
         }
         .to_json();
         assert!(

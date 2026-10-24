@@ -161,7 +161,8 @@ pub mod cases {
     /// Plan §29 (e), the first device row: an address added for a trusted
     /// peer through the binding is dialled, and survives a restart as an
     /// added entry that is dialled again, with no entry authored for the
-    /// peer. Arguments: [`super::AddedAddressArgs`]; answers
+    /// peer; each time the connection is held up for a while before the
+    /// case ends. Arguments: [`super::AddedAddressArgs`]; answers
     /// [`super::keys::REMOVED_FIRST`] on an add and
     /// [`super::keys::CONNECTED_AFTER`].
     pub const ADDED_ADDRESS: &str = "added_address";
