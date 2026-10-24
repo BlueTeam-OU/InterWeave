@@ -248,18 +248,43 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     let name = isolated(&p.name);
     let context = match &p.accept {
         AcceptLine::Creates => text(UiText::CardWillCreate).to_owned(),
-        AcceptLine::Updates(contact) => fill(
-            text(UiText::CardWillUpdate),
-            &[("contact", &isolated(contact))],
-        ),
+        AcceptLine::Updates(contact) => {
+            fill(text(UiText::CardUpdates), &[("name", &isolated(contact))])
+        }
         AcceptLine::Matches(contact) => {
             fill(text(UiText::CardSame), &[("contact", &isolated(contact))])
         }
     };
-    let notes: Vec<ProposalNoteRow> = p
-        .notes
-        .iter()
-        .map(|n| {
+    // What Accept changes and which of the person's edits it keeps, right
+    // after the context line (design section 5.4.1, cases U and E).
+    let contact = match &p.accept {
+        AcceptLine::Updates(c) | AcceptLine::Matches(c) => c.as_str(),
+        AcceptLine::Creates => "",
+    };
+    let values = &p.values;
+    let value_lines = [
+        values
+            .new_name
+            .as_ref()
+            .map(|name| fill(text(UiText::CardUpdatesName), &[("name", &isolated(name))])),
+        values
+            .new_photo
+            .then(|| text(UiText::CardUpdatesPhoto).to_owned()),
+        values
+            .kept_name
+            .then(|| fill(text(UiText::CardKeepsEdit), &[("name", &isolated(contact))])),
+        values
+            .kept_photo
+            .then(|| text(UiText::CardKeepsPhoto).to_owned()),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|line| ProposalNoteRow {
+        text: line.into(),
+        warning: false,
+    });
+    let notes: Vec<ProposalNoteRow> = value_lines
+        .chain(p.notes.iter().map(|n| {
             let (template, contact, warning) = match n {
                 ProposalNote::SameName(c) => (UiText::CardSameName, c, true),
                 ProposalNote::SharesNode(c) => (UiText::CardSharesNode, c, false),
@@ -269,7 +294,7 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
                 text: fill(text(template), &[("contact", &isolated(contact))]).into(),
                 warning,
             }
-        })
+        }))
         .collect();
     let key_change = match &p.key {
         KeyView::Changed { recorded } => fill(

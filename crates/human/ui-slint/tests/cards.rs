@@ -139,6 +139,7 @@ fn context() -> ProposalContext {
         key: KeyView::New,
         fingerprint: "0123456789abcdef".to_owned(),
         changes_nothing: false,
+        values: interweave_human_ui_model::ValueChanges::default(),
     }
 }
 
@@ -288,8 +289,8 @@ fn accepts_label_and_context_say_what_it_will_do_and_decline_answers_its_row() {
     assert!(shows(
         &view,
         &fill(
-            text(UiText::CardWillUpdate),
-            &[("contact", &isolated("Countess"))]
+            text(UiText::CardUpdates),
+            &[("name", &isolated("Countess"))]
         )
     ));
     assert!(shows(
@@ -336,6 +337,7 @@ fn a_card_that_changes_nothing_offers_close_alone_and_says_when_it_came() {
             }),
             key: KeyView::Same,
             changes_nothing: true,
+            values: interweave_human_ui_model::ValueChanges::default(),
             ..context()
         },
     ));
