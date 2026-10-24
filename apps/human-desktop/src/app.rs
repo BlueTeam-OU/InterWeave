@@ -194,6 +194,9 @@ impl<S: Surface, O: Opener> App<S, O> {
                 Problem::UnreadNotListed(why) => {
                     eprintln!("human-desktop: unread messages could not be listed: {why:?}");
                 }
+                Problem::CardsNotRead(why) => {
+                    eprintln!("human-desktop: cards or contacts could not be read back: {why:?}");
+                }
             }
         }
     }
