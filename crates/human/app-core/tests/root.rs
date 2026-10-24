@@ -1564,7 +1564,7 @@ async fn show_reads_this_nodes_addresses_through_the_facade() {
 /// refused before anything is sent.
 #[tokio::test]
 async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
-    use interweave_human_ui_model::{AddNote, PeersInput, TYPED_LINES};
+    use interweave_human_ui_model::{AddNote, PeersInput, ScanControl, TYPED_LINES};
     let (a, b) = FakeNetwork::pair(node(), node());
     let one = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", b.peer().as_str());
     let two = format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", b.peer().as_str());
@@ -1631,6 +1631,7 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
     root.settled(0).await;
     root.will(vec![
         ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::ScanPressed(ScanControl::PasteImage)),
         ViewEvent::Peers(PeersInput::Scanned(format!("{one}\n{two}"))),
     ]);
     root.pump(1).await;
