@@ -176,6 +176,26 @@ pub trait DataSessionBinding {
     ) -> impl Future<Output = Result<Self::Session, TransportError>> + Send;
 }
 
+/// The broadcasts one data session lost, since it opened
+/// (`session.losses`, IPC 2.11).
+///
+/// Both counts are monotonic LOWER BOUNDS for the session's life: what
+/// the mesh dropped before admission (GossipSub validation, mesh, the
+/// backend's queue) and a conflicting body are not counted, so zero
+/// means none counted, never none lost. A broadcast every joined session
+/// lost keeps its dedup entry, so a republish of the same id is a
+/// duplicate: a counted loss is permanent, not a delay. No peer and no
+/// channel is named.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SessionLosses {
+    /// Copies this session's own queue dropped (its oldest, to take a
+    /// newer one) or could not queue.
+    pub queue_overflow: u64,
+    /// Broadcasts the ingress gate refused -- over the publisher's rate,
+    /// or while draining -- on a channel this session held at the time.
+    pub ingress_refused: u64,
+}
+
 /// One open data-plane session.
 ///
 /// There is no method that yields administrative authority, and no
@@ -272,6 +292,22 @@ pub trait DataSessionPort {
         &self,
         peer: TransportIdentity,
     ) -> impl Future<Output = Result<EndpointDirectoryV1, TransportError>> + Send;
+
+    /// The broadcasts this session has lost since it opened: two
+    /// monotonic lower bounds, never falling while the session lives
+    /// ([`SessionLosses`]; `session.losses`, IPC 2.11).
+    ///
+    /// The default answers `ProtocolUnsupported`, never zeros: a binding
+    /// that does not count must not report a count it did not make, and
+    /// it is what an IPC connection below 2.11 answers. Every platform
+    /// binding overrides it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `commands`, `ProtocolUnsupported` where
+    /// the binding does not count, or `BackendUnavailable`.
+    fn losses(&self) -> impl Future<Output = Result<SessionLosses, TransportError>> + Send {
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
 
     /// End the session: its lease is released at once and its joins
     /// dropped (§3: "session closure/revocation releases the lease
