@@ -411,9 +411,12 @@ struct Shared {
     scan_control: Option<interweave_human_ui_model::ScanControl>,
     /// The control whose reader runs for the scan open now: one per scan.
     scan_reading: Option<interweave_human_ui_model::ScanControl>,
-    /// A reader's result, put here by its thread and taken on the
-    /// window's.
-    scan_result: std::sync::Arc<std::sync::Mutex<Option<PeersInput>>>,
+    /// A reader's result with its scan's number, put here by its thread
+    /// and taken on the window's.
+    scan_result: std::sync::Arc<std::sync::Mutex<Option<(u64, PeersInput)>>>,
+    /// The scan a reader runs for: bumped as each scan ends, so a result
+    /// that outlives its scan is dropped (#409 C4).
+    scan_number: u64,
 }
 
 /// A snackbar, as the queue judges what closes it.
@@ -3317,6 +3320,32 @@ mod tests {
             monospaced.contains(&named.expect("checked")),
             "{code:?} is one of the families the stack resolves for monospace"
         );
+    }
+
+    /// A reader's result is taken only for the scan it was started for:
+    /// one numbered for a scan that has ended is dropped, whatever scan is
+    /// open by then (#409 C4).
+    #[test]
+    fn an_image_result_for_an_ended_scan_is_dropped() {
+        use interweave_human_ui_model::{PeersInput, ScanControl};
+        i_slint_backend_testing::init_no_event_loop();
+        let view =
+            super::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
+        let before = view.queued_inputs();
+        {
+            let mut shared = view.shared.borrow_mut();
+            shared.scan_reading = Some(ScanControl::OpenImage);
+            shared.scan_number = 1;
+        }
+        let put = |number: u64| {
+            let slot = std::sync::Arc::clone(&view.shared.borrow().scan_result);
+            *slot.lock().expect("slot") = Some((number, PeersInput::ImageNoCode));
+            view.window.invoke_peers_image_done();
+        };
+        put(0);
+        assert_eq!(view.queued_inputs(), before, "an ended scan's result");
+        put(1);
+        assert_eq!(view.queued_inputs(), before + 1, "the open scan's result");
     }
 
     /// Rows that count what a keyed update did to them.

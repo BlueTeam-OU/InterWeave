@@ -159,7 +159,15 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
             .lock()
             .ok()
             .and_then(|mut r| r.take());
-        if let Some(input) = read {
+        let current = {
+            let shared = s.borrow();
+            shared.scan_reading.is_some().then_some(shared.scan_number)
+        };
+        // Only the scan open now takes a result; an earlier one's is
+        // dropped.
+        if let Some((number, input)) = read
+            && Some(number) == current
+        {
             enqueue(&s, Input::Peers(input));
         }
     });
@@ -730,7 +738,9 @@ impl View {
     fn render_scan(&mut self, peers: &Peers) {
         let mut shared = self.shared.borrow_mut();
         if !peers.scan_open() {
-            shared.scan_reading = None;
+            if shared.scan_reading.take().is_some() {
+                shared.scan_number = shared.scan_number.wrapping_add(1);
+            }
             return;
         }
         if shared.scan_reading.is_some() {
@@ -746,11 +756,12 @@ impl View {
         #[cfg(feature = "desktop")]
         {
             let slot = std::sync::Arc::clone(&shared.scan_result);
+            let number = shared.scan_number;
             drop(shared);
             let window = slint::ComponentHandle::as_weak(&self.window);
             let done = move |input: PeersInput| {
                 if let Ok(mut held) = slot.lock() {
-                    *held = Some(input);
+                    *held = Some((number, input));
                 }
                 let _ = window.upgrade_in_event_loop(|w| w.invoke_peers_image_done());
             };

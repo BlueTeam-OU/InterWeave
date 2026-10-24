@@ -668,6 +668,9 @@ fn step_two_draws_waiting_and_later_blocks_and_focus_lands() {
     open_peers(&mut view, &mut model, &me, &[], &[]);
     let _ = model.peers_input(PeersInput::OpenAdd);
     let two = format!("{}\n{}", at(&a), at(&b));
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::ScanPressed(
+        interweave_human_ui_model::ScanControl::Camera,
+    ));
     let _ = model.peers_input(PeersInput::Scanned(two));
     model.addresses_added(
         &[at(&a), at(&b)],
@@ -1197,6 +1200,9 @@ fn a_refused_line_is_drawn_alone_between_its_words() {
     // Scanned: under the scan controls, the same three lines.
     let _ = model.peers_input(PeersInput::FieldChanged(String::new()));
     let code = format!("{}\n{own}", at(&peer()));
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::ScanPressed(
+        interweave_human_ui_model::ScanControl::Camera,
+    ));
     let _ = model.scanned(&code);
     view.render(&model);
     let w = view.window();
@@ -1265,6 +1271,9 @@ fn a_refusal_of_the_whole_add_names_no_line() {
     // A code of too many lines: the same, under the scan controls.
     let _ = model.peers_input(PeersInput::FieldChanged(String::new()));
     let long: Vec<String> = (0..=CODE_LINES).map(|_| at(&peer())).collect();
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::ScanPressed(
+        interweave_human_ui_model::ScanControl::Camera,
+    ));
     let _ = model.scanned(&long.join("\n"));
     view.render(&model);
     let w = view.window();
