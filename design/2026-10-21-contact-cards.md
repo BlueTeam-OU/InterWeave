@@ -1270,9 +1270,14 @@ accessibility tree) are checked now.
 
 **Announcements** (the app's two alternating live strings): a card
 arriving in the shown conversation is announced as `AnnounceCard` ("New
-contact card"), never with the name; Accept, Decline, photo removed,
+contact card"), never with the name; Decline, photo removed,
 contact deleted, a Move, Make default and a switch announce their
-snackbar text; the transition of §5.7.5 announces `SwitchingTo`; the
+snackbar text; Accept announces nothing of its own, because focus moves
+to the confirmation row (§9 item 1's focus table), which is read with its
+`CardAccepted` or `CardUpdated` and any `CardPhotoNotUsed`: a screen
+reader hears the result once, not again as "Contact saved", and the
+snackbar with its Undo is shown unannounced and reachable last in order
+(language-culture-en's observation 01a16df9, 2026-10-24); the transition of §5.7.5 announces `SwitchingTo`; the
 sheet's Share announces nothing extra (focus moves, and the row
 appears with "Sending"). Nothing that arrives for an identity not in
 front is announced in the app: its notification is the platform's.
@@ -1358,7 +1363,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | the share sheet opens | Share, else Add your name | keyboard |
    | the sheet closes after Share | the control that opened it; the header title when that was the empty conversation's offer | keyboard |
    | the sheet cancelled | what opened it (overflow button or the offer's button) | keyboard |
-   | Accept (button or swipe) | the confirmation row | keyboard; swipe with TalkBack cannot occur |
+   | Accept (button or swipe) | the confirmation row, read once: no live announcement of `ConfirmContactSaved` or `ConfirmContactUpdated` follows (§8 Announcements) | keyboard; TalkBack: the row is read and "Contact saved" is not heard after it; swipe with TalkBack cannot occur |
    | Decline, by button or by keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
    | Decline by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set elsewhere first, then a swipe |
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
@@ -1622,7 +1627,7 @@ and are for them to write.
 | `CardSame` | This card matches your contact {name}. | case S |
 | `CardAccepted` | You saved {name} as a contact. | confirmation row, cases N, D and P |
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
-| `CardPhotoNotUsed` | The photo could not be shown and was not saved. | confirmation row addition |
+| `CardPhotoNotUsed` | The card's photo could not be used, so the contact was saved without it. | confirmation row addition, in both cases of §5.4.2 (the photo fails to decode, or decodes larger than 256 × 256); must not say the photo was shown, since it is decoded only at Accept (language-culture-en's final English, 2026-10-24) |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo |
 | `ConfirmCardDeclined` | Card declined | snackbar, with Undo |
 | `CardPreviewReceived` / `CardPreviewSent` | Contact card / You shared a card | list previews |
