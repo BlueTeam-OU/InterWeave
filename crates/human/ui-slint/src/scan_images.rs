@@ -59,23 +59,28 @@ fn from_file(filter: &str) -> PeersInput {
     else {
         return PeersInput::ScannerClosed;
     };
+    // A file that cannot be read, or decoded within bounds, was never
+    // looked at for a code: unreadable, not "no code" (§5.5).
     let Ok(file) = std::fs::File::open(path) else {
-        return PeersInput::ImageNoCode;
+        return PeersInput::ImageUnreadable;
     };
     // One byte past the bound tells a file too large from one at it.
     let mut bytes = Vec::new();
     let bound = u64::try_from(MAX_IMAGE_BYTES).unwrap_or(u64::MAX) + 1;
     if file.take(bound).read_to_end(&mut bytes).is_err() {
-        return PeersInput::ImageNoCode;
+        return PeersInput::ImageUnreadable;
     }
-    found(code::read_image(&bytes).unwrap_or(CodeRead::NoCode))
+    code::read_image(&bytes).map_or(PeersInput::ImageUnreadable, found)
 }
 
 fn from_clipboard() -> PeersInput {
     let image = arboard::Clipboard::new().and_then(|mut c| c.get_image());
     match image {
         Ok(image) => found(code::read_rgba(image.width, image.height, &image.bytes)),
-        Err(_) => PeersInput::ImageNoCode,
+        // An image there that could not be converted, else none at all
+        // (text, nothing, or a clipboard that cannot be reached).
+        Err(arboard::Error::ConversionFailure) => PeersInput::ImageUnreadable,
+        Err(_) => PeersInput::ClipboardNoImage,
     }
 }
 

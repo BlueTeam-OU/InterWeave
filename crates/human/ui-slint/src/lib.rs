@@ -1063,9 +1063,19 @@ impl View {
     #[cfg(feature = "desktop")]
     pub fn on_window_focus(&self, focused: impl Fn(bool) + 'static) {
         use slint::winit_030::{EventResult, WinitWindowAccessor as _, winit::event::WindowEvent};
+        let shared = Rc::clone(&self.shared);
         slint::ComponentHandle::window(&self.window).on_winit_window_event(move |_, event| {
-            if let WindowEvent::Focused(now) = event {
-                focused(*now);
+            match event {
+                WindowEvent::Focused(now) => focused(*now),
+                // Minimised or hidden: the desktop's background, where
+                // Show is never left on screen (add-a-peer §5.4). Losing
+                // focus is not it: the person switches away to paste the
+                // address. A session lock is not reported to the window,
+                // a known limit.
+                WindowEvent::Occluded(true) => {
+                    enqueue(&shared, Input::Peers(PeersInput::CloseShow));
+                }
+                _ => {}
             }
             EventResult::Propagate
         });

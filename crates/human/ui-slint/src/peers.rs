@@ -376,9 +376,12 @@ impl View {
         let (note, notes) = peers.add_note_said();
         let text = note.map(|n| note_text(self.host, n)).unwrap_or_default();
         let in_field = !self.window.get_field_note().is_empty();
+        // A scan's own line is said once as it is set, focus staying on
+        // the control it came from (§5.5).
+        let scan_line = note.is_some_and(AddNote::is_scan_line);
         let again = notes != self.peer_lists.note_seen
             && !text.is_empty()
-            && (in_field || text == self.peer_lists.note_text);
+            && (in_field || scan_line || text == self.peer_lists.note_text);
         self.peer_lists.note_seen = notes;
         self.peer_lists.note_text.clone_from(&text);
         let mut said = said.or_else(|| (on_page && again).then_some(text));
@@ -666,44 +669,31 @@ impl View {
         let window = &self.window;
         window.set_peers_show_open(show.is_some());
         let host = self.host;
-        let (none, problem, retry) = match show {
-            Some(ShowState::NoAddress { offline }) => (
-                Some(if *offline {
-                    UiText::ShowNoAddressOffline
-                } else {
-                    UiText::ShowNoAddressLocalOnly
-                }),
-                "",
-                false,
-            ),
-            Some(ShowState::Unread(ShowProblem::Failed)) => {
-                (None, text(UiText::ShowReadFailed), true)
-            }
+        // No address: what, and what to do; no reason, which the read
+        // does not report (§5.4).
+        let none = matches!(show, Some(ShowState::NoAddress));
+        let (problem, retry) = match show {
+            Some(ShowState::Unread(ShowProblem::Failed)) => (text(UiText::ShowReadFailed), true),
             Some(ShowState::Unread(ShowProblem::Incompatible)) => (
-                None,
                 placeholder_en::host_text(host, HostText::ShowIncompatible),
                 false,
             ),
             Some(ShowState::Unread(ShowProblem::NotPermitted)) => (
-                None,
                 placeholder_en::host_text(host, HostText::ShowNotPermitted),
                 false,
             ),
-            Some(ShowState::Shown { .. } | ShowState::Reading) | None => (None, "", false),
+            _ => ("", false),
         };
-        let (none, why, what) = none.map_or(("", "", ""), |why| {
-            (
-                text(UiText::ShowNoAddress),
-                text(why),
-                text(UiText::ShowNoAddressWhat),
-            )
-        });
+        let (none, what) = if none {
+            (text(UiText::ShowNoAddress), text(UiText::ShowNoAddressWhat))
+        } else {
+            ("", "")
+        };
         let drawn = match show {
             Some(ShowState::Shown { peer, lines }) if !held => Some((peer, lines)),
             _ => None,
         };
         window.set_show_none(none.into());
-        window.set_show_none_why(why.into());
         window.set_show_none_what(what.into());
         window.set_show_problem(problem.into());
         window.set_show_problem_retry(retry);
@@ -807,10 +797,8 @@ impl View {
                 (String::new(), n, String::new())
             }
             (Some(AddNote::Refused { .. }), Some(n)) => (n, String::new(), String::new()),
-            (
-                Some(AddNote::ScanAfterField | AddNote::ImageNoCode | AddNote::NotAddress),
-                Some(n),
-            ) => (String::new(), n, String::new()),
+            (Some(AddNote::ScanAfterField), Some(n)) => (String::new(), n, String::new()),
+            (Some(n), Some(t)) if n.is_scan_line() => (String::new(), t, String::new()),
             (Some(_), Some(n)) => (String::new(), String::new(), n),
             _ => (String::new(), String::new(), String::new()),
         };
@@ -966,6 +954,8 @@ fn note_text(host: RuntimeHost, note: &AddNote) -> String {
         AddNote::ScanAfterField => text(UiText::ScanAfterField).to_owned(),
         AddNote::ImageNoCode => text(UiText::ImageNoCode).to_owned(),
         AddNote::NotAddress => text(UiText::ScanNotAddress).to_owned(),
+        AddNote::ImageUnreadable => text(UiText::ImageUnreadable).to_owned(),
+        AddNote::ClipboardNoImage => text(UiText::ClipboardNoImage).to_owned(),
         AddNote::Refused { line, why } if why.names_line() => fill(
             text(UiText::AddRefused),
             &[("line", line), ("reason", &refusal_text(*why))],

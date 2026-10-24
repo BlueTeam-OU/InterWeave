@@ -2374,7 +2374,7 @@ fn show_draws_a_code_that_reads_back_as_its_lines() {
     assert_eq!(view.window().get_focus_target().as_str(), "show-my-address");
 }
 
-/// No address is said with why and what to do, never as a failure; a
+/// No address is said with what to do and no reason, never as a failure; a
 /// failed read is never "no address", with Try again only where a retry
 /// may mend it, focus on its line (§5.4, §8).
 #[test]
@@ -2395,10 +2395,12 @@ fn show_says_no_address_and_a_failed_read_apart() {
     let w = view.window();
     assert!(!w.get_show_code_shown());
     assert_eq!(w.get_show_none().as_str(), text(UiText::ShowNoAddress));
-    assert_eq!(
-        w.get_show_none_why().as_str(),
-        text(UiText::ShowNoAddressLocalOnly)
-    );
+    for reason in [UiText::ShowNoAddressOffline, UiText::ShowNoAddressLocalOnly] {
+        assert!(
+            labelled(&view, text(reason)).is_empty(),
+            "no reason is claimed"
+        );
+    }
     assert_eq!(
         w.get_show_none_what().as_str(),
         text(UiText::ShowNoAddressWhat)
@@ -2483,4 +2485,39 @@ fn show_draws_no_address_until_the_window_is_secured() {
         vec![true],
         "never off before a frame is known drawn"
     );
+}
+
+/// A scan's own line is drawn under the scan controls and said once as
+/// it is set, focus staying on the control it came from (§5.5).
+#[test]
+fn a_scan_line_is_drawn_under_the_controls_and_said_once() {
+    use interweave_human_ui_model::{PeersInput, ScanControl};
+    let slots = |view: &View| {
+        format!(
+            "{}{}",
+            view.window().get_announcement_a(),
+            view.window().get_announcement_b()
+        )
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    view.offer_scans(false, true);
+    view.render(&model);
+    for (given, words) in [
+        (PeersInput::ImageUnreadable, text(UiText::ImageUnreadable)),
+        (PeersInput::ClipboardNoImage, text(UiText::ClipboardNoImage)),
+    ] {
+        let _ = model.peers_input(PeersInput::ScanPressed(ScanControl::PasteImage));
+        view.render(&model);
+        let _ = model.peers_input(given);
+        view.render(&model);
+        assert_eq!(view.window().get_scan_note().as_str(), words);
+        assert!(slots(&view).contains(words), "said as it is set");
+        let before = slots(&view);
+        view.render(&model);
+        assert_eq!(slots(&view), before, "said once");
+    }
 }

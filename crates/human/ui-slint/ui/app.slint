@@ -1985,9 +1985,8 @@ export component AppWindow inherits Window {
     in property <string> show-lines;
     in property <string> show-peer;
     in property <string> copy-addresses-label;
-    // No address: what, why and what to do; empty otherwise.
+    // No address: what, and what to do; empty otherwise.
     in property <string> show-none;
-    in property <string> show-none-why;
     in property <string> show-none-what;
     // The read failed: its line, and whether Try again is offered.
     in property <string> show-problem;
@@ -3150,11 +3149,11 @@ export component AppWindow inherits Window {
                             focused(k) => { root.focus-id = k; }
                         }
                     }
-                    // No address another device can reach: what, why, and
-                    // what to do instead.
+                    // No address another device can reach: what, and what
+                    // to do instead.
                     if root.peers-show-open && root.show-none != "": VerticalLayout {
                         spacing: 4px;
-                        for line in [root.show-none, root.show-none-why, root.show-none-what]: Text {
+                        for line in [root.show-none, root.show-none-what]: Text {
                             text: line;
                             wrap: word-wrap;
                             min-width: 0;
