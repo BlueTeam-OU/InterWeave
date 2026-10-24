@@ -1658,7 +1658,7 @@ and are for them to write.
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
 | `CardPhotoNotUsed` | The card's photo could not be used, so the contact was saved without it. | confirmation row addition, in both cases of §5.4.2 (the photo fails to decode, or decodes larger than 256 × 256); must not say the photo was shown, since it is decoded only at Accept (language-culture-en's final English, 2026-10-24) |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo; not announced (§8 Announcements) |
-| `CardUndoHint` | Undo is in the message at the bottom of the screen. | accessible description of the confirmation row while the Accept's snackbar is open (§5.4.2), never shown as text; placeholder, language-culture to word; must say that the save can be undone and where the Undo is, in a phrase read after `CardAccepted` or `CardUpdated` |
+| `CardUndoHint` | You can undo this change. Undo is just above the box where you type. | accessible description of the confirmation row while the Accept's snackbar is open (§5.4.2), never shown as text; must say that the save can be undone and where the Undo is, in a phrase read after `CardAccepted` or `CardUpdated` |
 | `ConfirmCardDeclined` | Card declined | snackbar, with Undo |
 | `CardPreviewReceived` / `CardPreviewSent` | Contact card / You shared a card | list previews |
 | `CardNotification` | You received a contact card. | notification body; never the name |
