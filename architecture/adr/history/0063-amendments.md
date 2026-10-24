@@ -37,3 +37,32 @@ the rest.
 The reason is the copy: a key file moved to a weaker platform must not
 quietly become as weak as that platform. Propagation: decision 2; this
 note; the log row; the digest entry.
+
+### Amendment 2026-10-24 — A missing key file outside recovery is a loss, and a refused file goes with the confirmed new key
+
+Building the Android identity key (rust-ui-dev-02's j53b) and the
+person's side of §13 bullets 31 and 33 (ux-designer-01's QUESTION
+01a16d88), two gaps: decision 1 gave a new key silently on fresh
+state through the recovery flow, where the person is warned, and said
+nothing of a key file missing on a root that is otherwise there,
+where the build minted a key silently for an identity whose contacts
+would see a key change unannounced; decision 2 said the person
+"creates a new key" after a refusal and not what becomes of the
+refused file. Ruled: a missing file is a silent first key only for an
+identity that never shared its card — the share record alone decides,
+since the identity's own public key is held nowhere once its file is
+gone (rust-ui-dev-02's question; a first draft also named the
+accepted-card routes, which record other identities' keys) — else a
+key-missing state with a confirmed new key; a refused or exposed file is removed only on that
+confirmation and the new key created after the removal (a first
+draft had the new key written first, which one Keystore alias per
+identity forbids: #411's review), a gap resolving to the key-missing
+state, a loose directory of the client's own tightened first and a
+link or another owner's directory refused with the fix named (#411's
+round 2), with the update offered first for a newer build's record and
+a retry first for a cipher refusal, and nothing kept aside. The
+alternative of keeping a refused file beside the live one was refused
+as a second secret at rest with no reader. Propagation: decision 1;
+this note; the log row; the digest entry; `human-client-ui.md` §13's
+bullets 31 and 33 read with it; the design note ux-designer-01 writes.
+
