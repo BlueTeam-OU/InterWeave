@@ -1295,6 +1295,31 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
     );
 }
 
+/// A request with no `params` at all: the schema takes it for exactly
+/// the methods the decoder takes it for -- a method taking none -- and
+/// refuses it for every method that takes some (the control).
+#[test]
+fn a_request_without_params_is_valid_exactly_where_the_decoder_takes_it() {
+    let request = validator("architecture/contracts/schemas/ipc/request.schema.json");
+    let mut without = 0;
+    for method in Method::ALL {
+        let decoded = Request::decode(method, None).is_ok();
+        let frame = serde_json::json!({"method": method.as_str()});
+        assert_eq!(
+            request.is_valid(&frame),
+            decoded,
+            "{}: the schema and the decoder disagree on an absent params",
+            method.as_str()
+        );
+        without += usize::from(decoded);
+    }
+    assert!(
+        without > 0 && without < Method::ALL.len(),
+        "both sides are exercised: {without} of {} take no params",
+        Method::ALL.len()
+    );
+}
+
 #[test]
 fn every_event_validates_against_its_catalogue_entry_and_body_schema() {
     for event in every_event() {
