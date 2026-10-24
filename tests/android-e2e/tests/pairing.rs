@@ -170,8 +170,10 @@ async fn added_address_survives_a_restart<D: Device>(a: &mut Side<D>, b: &mut Si
         let far = far.result();
         passed(&far, &format!("B {step}"), &log(a, b));
         println!(
-            "{step}: A connected {} ms after holding B's address (removed first: {}); \
+            "{step}: A {} connected to {} {} ms after holding it (removed first: {}); \
              B saw it after {} ms",
+            a_peer.as_str(),
+            b.address(),
             near[keys::CONNECTED_AFTER],
             near.get(keys::REMOVED_FIRST)
                 .map_or("-", |v| v.as_str().unwrap_or("?")),
@@ -218,6 +220,13 @@ fn fresh_pair_connects_after_trust<D: Device>(a: &mut Side<D>, b: &mut Side<D>, 
         serial: 1,
     };
 
+    println!(
+        "fresh pair: A {} at {}, B {} at {}",
+        a_peer.as_str(),
+        a.address(),
+        b_peer.as_str(),
+        b.address()
+    );
     let [on_a, on_b] = pair_step(
         a,
         b,
@@ -272,6 +281,11 @@ fn fresh_pair_connects_after_trust<D: Device>(a: &mut Side<D>, b: &mut Side<D>, 
         (&on_a[keys::TRUSTED], &on_b[keys::TRUSTED]),
         (&"true".into(), &"true".into()),
         "both trust"
+    );
+    println!(
+        "both trusting: a message crossed each way; A's row {}, B's {}",
+        on_a[keys::LAST_OUTCOME],
+        on_b[keys::LAST_OUTCOME]
     );
     a.device.stop();
     b.device.stop();
