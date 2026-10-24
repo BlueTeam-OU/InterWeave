@@ -162,6 +162,23 @@ pub struct ProposalContext {
     /// of its values is the person's or already the card's. The proposal
     /// then offers Close alone.
     pub changes_nothing: bool,
+    /// Which of the contact's values Accept would change and which of the
+    /// person's own it keeps (cases U and E); empty with no contact.
+    pub values: ValueChanges,
+}
+
+/// What Accept would do to the contact holding the card's route, value by
+/// value (contact-cards design section 5.4.1, cases U and E).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct ValueChanges {
+    /// The name it would take, when it changes.
+    pub new_name: Option<String>,
+    /// The card's photo would replace the contact's.
+    pub new_photo: bool,
+    /// The card's name differs from one the person chose, which stays.
+    pub kept_name: bool,
+    /// The card carries a photo, and the person's chosen one stays.
+    pub kept_photo: bool,
 }
 
 /// What became of a proposal the person answered: what the confirmation
@@ -244,6 +261,8 @@ pub struct ProposalItem {
     pub accept: AcceptLine,
     /// The notes to show before Accept.
     pub notes: Vec<ProposalNote>,
+    /// Which values Accept changes and which edits it keeps.
+    pub values: ValueChanges,
     /// When it arrived.
     pub received_at: u64,
 }
@@ -933,6 +952,7 @@ impl UiModel {
                         Some(u) => AcceptLine::Updates(u.name.clone()),
                     },
                     notes,
+                    values: c.values.clone(),
                     received_at: p.received_at,
                 }
             })
@@ -1103,6 +1123,7 @@ mod tests {
             key: KeyView::New,
             fingerprint: "0123456789abcdef".to_owned(),
             changes_nothing: false,
+            values: ValueChanges::default(),
         }
     }
 
@@ -1411,6 +1432,7 @@ mod tests {
         model.read(row(1));
         let changed = ProposalContext {
             changes_nothing: true,
+            values: ValueChanges::default(),
             updates: Some(ContactRef {
                 contact_id: "c1".to_owned(),
                 name: "Ada".to_owned(),
@@ -1487,6 +1509,7 @@ mod tests {
             ProposalContext {
                 updates: Some(near("u")),
                 changes_nothing: true,
+                values: ValueChanges::default(),
                 ..context()
             },
         ));
