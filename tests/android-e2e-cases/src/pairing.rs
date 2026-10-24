@@ -257,7 +257,8 @@ pub(crate) async fn added_address(
 pub struct AwaitPeerArgs {
     /// The trusted peer whose dial is awaited.
     pub peer: TransportIdentity,
-    /// How long it may take.
+    /// How long the dial may take, and then how long the peer may stay
+    /// before it leaves.
     pub deadline: Duration,
 }
 
@@ -286,7 +287,7 @@ impl AwaitPeerArgs {
 /// [`crate::cases::AWAIT_PEER`]'s body: this side holds no bootstrap
 /// address for the peer -- an added one from an earlier run is removed
 /// first, an authored one fails the case -- so a connection that comes up
-/// is the peer's dial.
+/// is the peer's dial. It ends once the peer has left again.
 pub(crate) async fn await_peer(
     binding: &impl AdminBinding,
     args: &AwaitPeerArgs,
@@ -343,6 +344,27 @@ pub(crate) async fn await_peer(
         }
         tokio::time::sleep(POLL).await;
     }
+    let connected_after = started.elapsed();
+    // THIS SIDE ENDS ON THE DIALLER'S LEAVING, not on seeing it: on a
+    // device the case's process is the runtime, and ending here closed
+    // the connection 49 ms after it came up, before the dialler's case
+    // read its row (the first two-phone run, 2026-10-24). The host ends
+    // the dialler once its case has passed.
+    let gone_by = tokio::time::Instant::now() + args.deadline;
+    loop {
+        let row = row_of(&port, peer).await?;
+        if !row.as_ref().is_some_and(|r| r.connected) {
+            break;
+        }
+        if tokio::time::Instant::now() >= gone_by {
+            return Err(format!(
+                "{} stayed connected {:?} after its dial: the host ends the dialler once it passes",
+                peer.as_str(),
+                args.deadline
+            ));
+        }
+        tokio::time::sleep(POLL).await;
+    }
     let mut out = Map::new();
     out.insert(
         keys::REMOVED_FIRST.to_owned(),
@@ -350,7 +372,7 @@ pub(crate) async fn await_peer(
     );
     out.insert(
         keys::CONNECTED_AFTER.to_owned(),
-        ms(started.elapsed()).to_string().into(),
+        ms(connected_after).to_string().into(),
     );
     Ok(out)
 }
