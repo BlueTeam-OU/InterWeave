@@ -77,6 +77,9 @@ pub(crate) fn run(
     notice: Option<interweave_human_ui_model::UiText>,
 ) -> Result<(), String> {
     let view = View::new(RuntimeHost::Daemon).map_err(|e| e.to_string())?;
+    // An image file or a pasted image, never a webcam (add-a-peer §5.5,
+    // the owner's word of 2026-10-22).
+    view.offer_scans(false, true);
     // What a discard of the store came to, shown once in Chats.
     if let Some(notice) = notice {
         view.show_once(notice);
