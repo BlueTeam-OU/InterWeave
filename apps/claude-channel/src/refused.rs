@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt as _};
 
 use crate::host_input::{HostLine, HostLines, MAX_HOST_LINE_BYTES};
+use crate::log::{Line, Log};
 use crate::mcp::{
     Incoming, METHOD_NOT_FOUND, PROTOCOL_VERSION, error_line, parse_line, result_line, tool_list,
     tool_result_line,
@@ -48,13 +49,14 @@ pub fn refusal_text(reason: &str) -> String {
 /// Serve `input` with the refusal until it ends. `delivery` is the mode
 /// the arguments named, when they named one: its tools are listed, so the
 /// session sees the surface it expected, each answering the refusal. With
-/// none, push's.
+/// none, push's. `log` is the bridge's own, which `status` reports.
 ///
 /// # Errors
 /// Only an I/O error on `input` or `output`.
 pub async fn serve_refused<R, W>(
     refusal: &Refusal,
     delivery: Option<Delivery>,
+    log: &mut Log,
     input: R,
     mut output: W,
 ) -> std::io::Result<()>
@@ -68,16 +70,14 @@ where
     while let Some(line) = lines.next_line().await? {
         let HostLine::Text(line) = line else {
             if matches!(line, HostLine::TooLong) {
-                eprintln!(
-                    "claude-channel: a host line over {MAX_HOST_LINE_BYTES} bytes was dropped"
-                );
+                log.write(&Line::HostLineTooLong(MAX_HOST_LINE_BYTES));
             }
             continue;
         };
         let Incoming::Request { id, method, params } = parse_line(&line) else {
             continue;
         };
-        let answer = answer(&id, &method, params.as_ref(), delivery, refusal, &text);
+        let answer = answer(&id, &method, params.as_ref(), delivery, refusal, &text, log);
         output.write_all(answer.as_bytes()).await?;
         output.write_all(b"\n").await?;
         output.flush().await?;
@@ -92,6 +92,7 @@ fn answer(
     delivery: Delivery,
     refusal: &Refusal,
     text: &str,
+    log: &Log,
 ) -> String {
     match method {
         "initialize" => result_line(
@@ -113,6 +114,7 @@ fn answer(
             let status = json!({
                 "endpoint_lease_state": "bridge refused",
                 "refused": {"class": refusal.class, "reason": refusal.reason},
+                "log": log.status(),
             });
             tool_result_line(id, &status.to_string(), false)
         }
@@ -135,9 +137,11 @@ mod tests {
             class: "runtime_dir_unset",
             reason: "XDG_RUNTIME_DIR is unset".to_owned(),
         };
+        let mut log = Log::stderr_only(crate::log::Level::Info, "no_profile");
         rt.block_on(serve_refused(
             &refusal,
             delivery,
+            &mut log,
             input.as_bytes(),
             &mut out,
         ))
@@ -215,5 +219,9 @@ mod tests {
         .expect("json");
         assert_eq!(status["endpoint_lease_state"], "bridge refused");
         assert_eq!(status["refused"]["class"], "runtime_dir_unset");
+        assert_eq!(
+            status["log"]["file_error"], "no_profile",
+            "the log is reported"
+        );
     }
 }
