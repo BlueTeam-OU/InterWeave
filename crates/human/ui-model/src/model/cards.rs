@@ -23,6 +23,7 @@ use interweave_human_chat_protocol::Card;
 use interweave_human_core::RowId;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
+use super::swipe::{Confirmation, FocusTarget};
 use super::{ConversationKey, Intent, RouteLabel, UiModel};
 use crate::labels::UiText;
 use unicode_normalization::UnicodeNormalization as _;
@@ -161,6 +162,25 @@ pub struct ProposalContext {
     /// of its values is the person's or already the card's. The proposal
     /// then offers Close alone.
     pub changes_nothing: bool,
+}
+
+/// What became of a proposal the person answered: what the confirmation
+/// row and the snackbar say (contact-cards design sections 5.4.2, 5.4.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CardOutcome {
+    /// Accepted: a contact was created or updated.
+    Accepted {
+        /// The contact.
+        contact_id: String,
+        /// Whether Accept created it (cases N, D and P) rather than
+        /// updating one (U and E).
+        created: bool,
+        /// The card carried a photo that did not decode within its
+        /// bound, so the contact was saved without it.
+        photo_dropped: bool,
+    },
+    /// Declined: nothing was written.
+    Declined,
 }
 
 /// A card committed unread, with its context: what [`UiModel::card_received`]
@@ -328,6 +348,32 @@ pub(super) struct Cards {
     /// When each conversation last shared its identity's card, this
     /// session: what the conversation's details show.
     shared: BTreeMap<ConversationKey, u64>,
+    /// The confirmation rows Accepts left this session, in place of their
+    /// proposals (contact-cards design 5.4.2), up to [`READ_PROPOSAL_CAP`],
+    /// the oldest going first.
+    answers: BTreeMap<RowId, CardAnswer>,
+}
+
+/// The confirmation row an Accept leaves in its proposal's place: "You
+/// saved {name} as a contact." or "You updated your contact {name}.",
+/// the name as the contact holds it now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CardAnswer {
+    /// The card's row: where it stands, and what an Undo takes back.
+    pub row: RowId,
+    /// The route the card came on.
+    pub peer: TransportIdentity,
+    /// The route's endpoint.
+    pub endpoint: EndpointId,
+    /// The contact saved or updated.
+    pub contact_id: String,
+    /// Whether it was created (cases N, D and P) rather than updated.
+    pub created: bool,
+    /// The card's photo did not decode and was not saved
+    /// (`CardPhotoNotUsed`).
+    pub photo_dropped: bool,
+    /// When the card arrived: its place in the conversation.
+    pub received_at: u64,
 }
 
 impl Cards {
@@ -355,10 +401,23 @@ impl Cards {
         }
     }
 
-    fn resolved(&mut self, row: RowId) {
-        self.proposals.remove(&row);
+    fn resolved(&mut self, row: RowId) -> Option<Proposal> {
+        let proposal = self.proposals.remove(&row);
         if self.read.remove(&row) {
             self.read_order.retain(|r| *r != row);
+        }
+        proposal
+    }
+
+    /// Whether a proposal or its confirmation row stands at `row`.
+    pub(super) fn shows(&self, row: RowId) -> bool {
+        self.proposals.contains_key(&row) || self.answers.contains_key(&row)
+    }
+
+    fn answered(&mut self, answer: CardAnswer) {
+        self.answers.insert(answer.row, answer);
+        while self.answers.len() > READ_PROPOSAL_CAP {
+            self.answers.pop_first();
         }
     }
 
@@ -431,10 +490,118 @@ impl UiModel {
             .collect()
     }
 
-    /// A proposal the person accepted or declined, or whose copy is gone: it is gone from the
-    /// conversation, whatever the store did.
-    pub fn card_resolved(&mut self, row: RowId) {
+    /// A proposal whose copy is gone: it leaves the conversation, with
+    /// nothing to confirm or undo.
+    pub fn card_gone(&mut self, row: RowId) {
         self.cards.resolved(row);
+    }
+
+    /// The person's answer to a proposal was carried out: an Accept leaves
+    /// a confirmation row in its place and a Decline takes it away, each
+    /// with the snackbar and its Undo; case S's Close takes it away with
+    /// none (contact-cards design 5.4.1 to 5.4.3). A row the model no
+    /// longer holds is confirmed by nothing, and what its Undo would have
+    /// needed is let go.
+    pub fn card_resolved(&mut self, row: RowId, outcome: CardOutcome) {
+        let leaving = self.focus_after_proposal(row);
+        let Some(proposal) = self.cards.resolved(row) else {
+            self.swipe_release_card(row);
+            return;
+        };
+        let conversation = ConversationKey::Direct {
+            peer: proposal.peer.clone(),
+            endpoint: Some(proposal.endpoint.clone()),
+        };
+        match outcome {
+            CardOutcome::Accepted {
+                contact_id,
+                created,
+                photo_dropped,
+            } => {
+                self.cards.answered(CardAnswer {
+                    row,
+                    peer: proposal.peer,
+                    endpoint: proposal.endpoint,
+                    contact_id,
+                    created,
+                    photo_dropped,
+                    received_at: proposal.received_at,
+                });
+                let confirms = if created {
+                    Confirmation::ContactSaved
+                } else {
+                    Confirmation::ContactUpdated
+                };
+                // The row is replaced in place, so a pressed button is
+                // gone: focus goes to the confirmation row.
+                self.open_card_snackbar(
+                    confirms,
+                    conversation,
+                    row,
+                    Some(FocusTarget::Proposal(row)),
+                );
+            }
+            CardOutcome::Declined
+                if proposal.context.changes_nothing && proposal.context.updates.is_some() =>
+            {
+                self.swipe_release_card(row);
+                self.card_outcome(None, leaving);
+            }
+            CardOutcome::Declined => {
+                self.open_card_snackbar(Confirmation::CardDeclined, conversation, row, leaving);
+            }
+        }
+    }
+
+    /// An Undo brought a resolved proposal back, read, judged as the store
+    /// stands now: its confirmation row goes, and the Undo is announced as
+    /// done with focus on the proposal.
+    pub fn card_restored(&mut self, proposal: Proposal) {
+        let row = proposal.row;
+        self.cards.answers.remove(&row);
+        self.cards.proposals.insert(row, proposal);
+        self.cards.read(row);
+        self.card_undone(row);
+    }
+
+    /// Where focus goes when the proposal at `row` leaves its conversation:
+    /// the next proposal, else the previous one, else the conversation's
+    /// header title.
+    fn focus_after_proposal(&self, row: RowId) -> Option<FocusTarget> {
+        let proposal = self.cards.proposals.get(&row)?;
+        let key = ConversationKey::Direct {
+            peer: proposal.peer.clone(),
+            endpoint: Some(proposal.endpoint.clone()),
+        };
+        let rows: Vec<RowId> = self.proposals(&key).iter().map(|p| p.row).collect();
+        let at = rows.iter().position(|r| *r == row)?;
+        Some(
+            rows.get(at + 1)
+                .or_else(|| at.checked_sub(1).and_then(|p| rows.get(p)))
+                .map_or(FocusTarget::Header(key), |r| FocusTarget::Proposal(*r)),
+        )
+    }
+
+    /// The confirmation rows Accepts left in a conversation this session,
+    /// oldest first.
+    #[must_use]
+    pub fn card_answers(&self, key: &ConversationKey) -> Vec<CardAnswer> {
+        let ConversationKey::Direct {
+            peer,
+            endpoint: Some(at),
+        } = key
+        else {
+            return Vec::new();
+        };
+        let mut list: Vec<CardAnswer> = self
+            .cards
+            .answers
+            .values()
+            .filter(|a| &a.peer == peer && &a.endpoint == at)
+            .cloned()
+            .collect();
+        list.sort_by_key(|a| (a.received_at, a.row));
+        list
     }
 
     /// This identity's card was shared on `key` at `at`.
@@ -721,7 +888,7 @@ mod tests {
         model.read(row(10_001));
         assert!(model.proposal_context(row(10_000)).is_some());
         // A resolved one leaves the order, so it does not count twice.
-        model.card_resolved(row(10_001));
+        model.card_gone(row(10_001));
         assert_eq!(
             model.proposals(&direct(P, "human")).len(),
             READ_PROPOSAL_CAP
@@ -838,7 +1005,7 @@ mod tests {
     fn a_resolved_proposal_is_gone() {
         let mut model = UiModel::new();
         model.card_received(proposal(1, P, "Ada", context()));
-        model.card_resolved(row(1));
+        model.card_gone(row(1));
         assert!(model.proposals(&direct(P, "human")).is_empty());
         assert!(model.card_actions(row(1)).is_empty());
     }
@@ -1030,7 +1197,7 @@ mod tests {
             },
         ));
         assert_eq!(shown(&model, Q), UiText::AcceptAsNew, "case D");
-        model.card_resolved(row(2));
+        model.card_gone(row(2));
         model.card_received(proposal(
             3,
             Q,
@@ -1041,7 +1208,7 @@ mod tests {
             },
         ));
         assert_eq!(shown(&model, Q), UiText::AcceptAsNew, "case P");
-        model.card_resolved(row(3));
+        model.card_gone(row(3));
         model.card_received(proposal(
             4,
             Q,
@@ -1057,7 +1224,7 @@ mod tests {
             UiText::UpdateContact,
             "case U, whatever else"
         );
-        model.card_resolved(row(4));
+        model.card_gone(row(4));
         model.card_received(proposal(
             5,
             Q,
@@ -1099,5 +1266,132 @@ mod tests {
             Some("c2")
         );
         assert!(model.contact_on(&direct(Q, "work")).is_none());
+    }
+
+    fn saved(contact_id: &str) -> CardOutcome {
+        CardOutcome::Accepted {
+            contact_id: contact_id.to_owned(),
+            created: true,
+            photo_dropped: false,
+        }
+    }
+
+    /// Contact-cards design 5.4.2: an Accept leaves a confirmation row in
+    /// the proposal's place, focused, with the snackbar "Contact saved"
+    /// and its Undo; the Undo asks the facade for the card back, and the
+    /// proposal returns read, its confirmation row gone, announced and
+    /// focused.
+    #[test]
+    fn an_accept_leaves_a_confirmation_row_and_its_undo_brings_the_proposal_back_read() {
+        use crate::{Announce, Confirmation, FocusTarget};
+        let mut model = UiModel::new();
+        let key = direct(P, "human");
+        model.card_received(proposal(1, P, "Ada", context()));
+        model.card_resolved(row(1), saved("c1"));
+        assert!(model.proposals(&key).is_empty());
+        let answers = model.card_answers(&key);
+        assert_eq!(answers.len(), 1);
+        assert!(answers[0].created);
+        assert_eq!(answers[0].contact_id, "c1");
+        let snack = model.snackbar().expect("a snackbar");
+        assert_eq!(snack.confirms, Confirmation::ContactSaved);
+        assert!(snack.undo);
+        assert_eq!(
+            model.outcome().and_then(|o| o.focus.clone()),
+            Some(FocusTarget::Proposal(row(1)))
+        );
+
+        assert_eq!(model.undo(snack.id), Some(Intent::UndoCard(row(1))));
+        assert!(model.snackbar().is_none());
+        model.card_restored(proposal(1, P, "Ada", context()));
+        assert!(
+            model.card_answers(&key).is_empty(),
+            "the confirmation row goes"
+        );
+        assert_eq!(model.proposals(&key).len(), 1, "the proposal is back");
+        assert!(
+            model.proposals_viewed(&key, true).is_empty(),
+            "read: showing it again reads nothing"
+        );
+        let outcome = model.outcome().expect("an outcome");
+        assert_eq!(outcome.announce, Some(Announce::Restored));
+        assert_eq!(outcome.focus, Some(FocusTarget::Proposal(row(1))));
+        assert!(
+            model.take_released().cards.is_empty(),
+            "an Undo taken releases nothing: the facade gave it back"
+        );
+    }
+
+    /// 5.4.3: a Decline takes the proposal away, focus to the next one,
+    /// with "Card declined" and its Undo; closing the snackbar lets go of
+    /// what the facade side held for the Undo.
+    #[test]
+    fn a_decline_takes_the_row_away_and_its_closed_snackbar_releases_the_card() {
+        use crate::{Confirmation, FocusTarget};
+        let mut model = UiModel::new();
+        model.card_received(proposal(1, P, "Ada", context()));
+        model.card_received(proposal(2, P, "Ada", context()));
+        model.card_resolved(row(1), CardOutcome::Declined);
+        let snack = model.snackbar().expect("a snackbar");
+        assert_eq!(snack.confirms, Confirmation::CardDeclined);
+        assert_eq!(
+            model.outcome().and_then(|o| o.focus.clone()),
+            Some(FocusTarget::Proposal(row(2))),
+            "the next proposal"
+        );
+        assert!(
+            model.card_answers(&direct(P, "human")).is_empty(),
+            "no confirmation row"
+        );
+        model.snackbar_closed(snack.id);
+        assert_eq!(model.take_released().cards, vec![row(1)]);
+
+        // The last one leaves for the conversation's header title.
+        model.card_resolved(row(2), CardOutcome::Declined);
+        assert_eq!(
+            model.outcome().and_then(|o| o.focus.clone()),
+            Some(FocusTarget::Header(direct(P, "human")))
+        );
+        // A newer answer replaces the snackbar, and the older Undo's card
+        // is let go with it.
+        model.card_received(proposal(3, P, "Grace", context()));
+        model.card_resolved(row(3), saved("c3"));
+        assert_eq!(model.take_released().cards, vec![row(2)]);
+    }
+
+    /// Case S's Close removes the row as Decline does, without a snackbar,
+    /// and nothing is held for an Undo.
+    #[test]
+    fn case_s_close_takes_the_row_away_with_no_snackbar() {
+        let mut model = UiModel::new();
+        let mut same = context();
+        same.updates = Some(crate::ContactRef {
+            contact_id: "c1".to_owned(),
+            name: "Ada".to_owned(),
+        });
+        same.changes_nothing = true;
+        model.card_received(proposal(1, P, "Ada", same));
+        model.card_resolved(row(1), CardOutcome::Declined);
+        assert!(model.snackbar().is_none());
+        assert_eq!(model.take_released().cards, vec![row(1)]);
+    }
+
+    /// A refused Undo leaves the answer as the snackbar said: focus where
+    /// the answer sent it, and the card let go.
+    #[test]
+    fn a_refused_undo_leaves_the_answer_and_lets_the_card_go() {
+        use crate::FocusTarget;
+        let mut model = UiModel::new();
+        model.card_received(proposal(1, P, "Ada", context()));
+        model.card_resolved(row(1), saved("c1"));
+        let id = model.snackbar().expect("up").id;
+        let undo = model.undo(id).expect("an Undo");
+        model.intent_refused(&undo);
+        assert_eq!(model.card_answers(&direct(P, "human")).len(), 1);
+        assert_eq!(
+            model.outcome().and_then(|o| o.focus.clone()),
+            Some(FocusTarget::Proposal(row(1)))
+        );
+        assert_eq!(model.take_released().cards, vec![row(1)]);
     }
 }

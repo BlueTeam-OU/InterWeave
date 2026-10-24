@@ -70,6 +70,13 @@ pub enum Confirmation {
         /// A channel's id rather than a `PeerId`.
         channel: bool,
     },
+    /// A card's Accept created a contact (contact-cards design 5.4.2,
+    /// cases N, D and P).
+    ContactSaved,
+    /// A card's Accept updated a contact (cases U and E).
+    ContactUpdated,
+    /// A card was declined (5.4.3).
+    CardDeclined,
 }
 
 /// The one snackbar, while it is up.
@@ -102,6 +109,9 @@ pub enum FocusTarget {
     Header(ConversationKey),
     /// The conversation list's heading, once no conversation is left on it.
     ConversationsHeading,
+    /// A card's proposal, or the confirmation row its Accept left in its
+    /// place, by the card's row.
+    Proposal(RowId),
 }
 
 /// What the view says once, through its polite live region.
@@ -164,13 +174,15 @@ pub struct Released {
     /// cancels ended: one per snackbar closed or replaced, however many
     /// that was since the last take.
     pub cancelled: Vec<RowId>,
+    /// The cards held for the Undo of their Accept or Decline, by row.
+    pub cards: Vec<RowId>,
 }
 
 impl Released {
     /// Whether there is nothing to let go of.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.copies.is_empty() && self.cancelled.is_empty()
+        self.copies.is_empty() && self.cancelled.is_empty() && self.cards.is_empty()
     }
 }
 
@@ -193,6 +205,9 @@ enum Undo {
         items: Vec<ItemKey>,
         conversation: Option<ConversationKey>,
     },
+    /// Undo of a card's Accept or Decline: the facade side holds the
+    /// card and what the Accept changed.
+    Card { row: RowId },
     /// Nothing to take back: a copy changes nothing here.
     None,
 }
@@ -205,7 +220,7 @@ impl Undo {
                 vec![*item]
             }
             Self::Unhide { items, .. } => items.clone(),
-            Self::None => Vec::new(),
+            Self::Card { .. } | Self::None => Vec::new(),
         }
     }
 }
@@ -228,6 +243,8 @@ enum Awaiting {
     Unkept(ItemKey),
     Kept(ItemKey),
     Restored(ItemKey),
+    /// The Undo of a card's answer.
+    Card(RowId),
 }
 
 /// The swipe state the model holds.
@@ -248,6 +265,9 @@ pub(super) struct SwipeState {
     outcome: Option<Outcome>,
     undo_closed: Option<UndoClosed>,
     released: Released,
+    /// Where the answer a card Undo takes back sent focus: where a
+    /// refused Undo sends it again.
+    card_focus: Option<FocusTarget>,
 }
 
 impl SwipeState {
@@ -632,6 +652,7 @@ impl UiModel {
                 .get(&key)
                 .is_some_and(|i| i.rows.contains(&(Table::Kept, *row))),
             (Awaiting::Restored(_), Intent::Restore(_)) => true,
+            (Awaiting::Card(awaited), Intent::UndoCard(row)) => awaited == *row,
             _ => false,
         };
         if !matches {
@@ -653,6 +674,13 @@ impl UiModel {
                 if let Intent::Restore(row) = intent {
                     self.swipe.released.cancelled.push(*row);
                 }
+                self.set_outcome(None, focus, None);
+            }
+            Awaiting::Card(row) => {
+                // The answer stands, as the snackbar said; what its Undo
+                // needed is let go.
+                self.swipe.released.cards.push(row);
+                let focus = self.swipe.card_focus.take();
                 self.set_outcome(None, focus, None);
             }
         }
@@ -683,6 +711,9 @@ impl UiModel {
                 item, restorable, ..
             } => *restorable && self.items.contains_key(item),
             Undo::Unhide { items, .. } => items.iter().any(|k| self.items.contains_key(k)),
+            // The facade side holds it until this snackbar closes; one it
+            // no longer holds answers the Undo with a refusal.
+            Undo::Card { .. } => true,
             Undo::None => false,
         }
     }
@@ -725,6 +756,11 @@ impl UiModel {
                 };
                 self.set_outcome(Some(Announce::Restored), focus, None);
                 None
+            }
+            Undo::Card { row } => {
+                self.swipe.awaiting = Some(Awaiting::Card(row));
+                self.swipe.card_focus = open.sent_focus;
+                Some(Intent::UndoCard(row))
             }
             Undo::None => None,
         }
@@ -772,6 +808,51 @@ impl UiModel {
     /// What closed snackbars no longer need, for the root to let go of.
     pub fn take_released(&mut self) -> Released {
         std::mem::take(&mut self.swipe.released)
+    }
+
+    // --- cards ---------------------------------------------------------------
+
+    /// Open the snackbar of a card's answer, its Undo the card's.
+    pub(super) fn open_card_snackbar(
+        &mut self,
+        confirms: Confirmation,
+        conversation: ConversationKey,
+        row: RowId,
+        focus: Option<FocusTarget>,
+    ) {
+        self.open(
+            confirms,
+            Some(conversation),
+            Undo::Card { row },
+            focus,
+            Some(FocusTarget::Proposal(row)),
+        );
+    }
+
+    /// Let go of what the facade side holds for the Undo of `row`'s answer.
+    pub(super) fn swipe_release_card(&mut self, row: RowId) {
+        self.swipe.released.cards.push(row);
+    }
+
+    /// An outcome of a card's answer that opens no snackbar.
+    pub(super) fn card_outcome(&mut self, announce: Option<Announce>, focus: Option<FocusTarget>) {
+        self.set_outcome(announce, focus, None);
+    }
+
+    /// The Undo of `row`'s answer was carried out: announced as restored,
+    /// focus on the proposal. A restore the model did not ask for -- none
+    /// awaited -- is shown and says nothing.
+    pub(super) fn card_undone(&mut self, row: RowId) {
+        if self.swipe.awaiting != Some(Awaiting::Card(row)) {
+            return;
+        }
+        self.swipe.awaiting = None;
+        self.swipe.card_focus = None;
+        self.set_outcome(
+            Some(Announce::Restored),
+            Some(FocusTarget::Proposal(row)),
+            None,
+        );
     }
 
     // --- internals ----------------------------------------------------------
@@ -844,6 +925,7 @@ impl UiModel {
                 self.swipe.released.cancelled.push(row);
             }
             Undo::Unkeep { .. } | Undo::Keep { .. } => self.evict(),
+            Undo::Card { row } => self.swipe.released.cards.push(row),
             Undo::None => {}
         }
     }
@@ -881,6 +963,15 @@ impl UiModel {
                 }
             }
             Undo::Unhide { items, .. } => items.first().and_then(|k| about(*k)),
+            // The confirmation row an Accept left, else where the answer
+            // sent focus.
+            Undo::Card { row } => {
+                if self.cards.shows(*row) {
+                    Some(FocusTarget::Proposal(*row))
+                } else {
+                    open.sent_focus.clone()
+                }
+            }
             Undo::None => None,
         };
         // No row left to name: the conversation's header title, or the
