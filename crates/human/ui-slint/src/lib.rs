@@ -1745,7 +1745,7 @@ impl View {
                 let hide = model.conversation_hide_offered(&summary.key);
                 ConversationRow {
                     handle: self.conversation_handles.of(&summary.key),
-                    title: summary.title.as_str().into(),
+                    title: summary.drawn_title.as_str().into(),
                     description: description.into(),
                     selected: self.shown.as_ref() == Some(&summary.key),
                     hide: swipe::kind(hide.then_some(RowAction::Hide)),
@@ -2625,7 +2625,7 @@ impl View {
                 window.set_refused(SharedString::new());
             }
             Some(key) => {
-                let title = model.title(key);
+                let title = model.drawn_title(key);
                 window.set_header_title(title.into());
                 window.set_header_id(full_id(key).into());
                 let (label, copy, route) = match key {
@@ -3000,7 +3000,7 @@ impl Seen {
         let unread = model
             .conversations()
             .into_iter()
-            .map(|s| (s.key, (s.title, s.unread)))
+            .map(|s| (s.key, (s.drawn_title, s.unread)))
             .collect();
         Self {
             primed: true,

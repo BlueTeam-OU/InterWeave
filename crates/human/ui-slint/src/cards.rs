@@ -674,7 +674,7 @@ impl View {
             window.set_share_open(false);
         }
         self.shared.borrow_mut().cards.shareable = key.clone().filter(|_| offered);
-        let title = key.as_ref().map(|k| model.title(k)).unwrap_or_default();
+        let title = key.as_ref().map(|k| model.drawn_title(k)).unwrap_or_default();
         window.set_share_title(fill(text(UiText::ShareCardTitle), &[("title", &title)]).into());
         window.set_share_preview_heading(
             fill(text(UiText::ShareCardPreview), &[("title", &title)]).into(),
