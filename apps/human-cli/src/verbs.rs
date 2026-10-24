@@ -107,6 +107,7 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         | Verb::Listen
         | Verb::PeersList
         | Verb::PeerAdd(_)
+        | Verb::PeerAddList(_)
         | Verb::PeerRemove(_)
         | Verb::IdentitiesList
         | Verb::SetEnabled(..)

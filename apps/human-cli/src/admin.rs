@@ -9,17 +9,20 @@
 //! is `transportctl`'s to administer, and refused here.
 
 use std::fmt::Write as _;
+use std::future::Future;
+use std::io::Read as _;
 
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_local_client_api::{
-    AddressChange, AddressSource, AdminBinding as _, AdminCapability, AdminPort as _, OwnAddresses,
+    AddressChange, AddressSource, AddressesChange, AdminBinding as _, AdminCapability,
+    AdminPort as _, MAX_ADDRESSES_PER_ADD, OwnAddresses,
 };
 use interweave_profile_config::ProfileLock;
 use interweave_transport_api::{EndpointId, TransportError};
 use serde_json::json;
 
 use crate::Failure;
-use crate::cli::Verb;
+use crate::cli::{ListSource, Verb};
 use crate::output;
 use crate::startup::{CLIENT_KIND, Profile};
 
@@ -106,6 +109,89 @@ fn own_lines(own: &OwnAddresses, json: bool) -> String {
     out
 }
 
+/// The most bytes a list of addresses is read to: sixteen lines past any
+/// address the runtime takes, so a list it could take is never cut, and
+/// what is read stays bounded (`a_list_past_its_bounds_is_refused_unsent`).
+pub(crate) const MAX_LIST_BYTES: u64 = 64 * 1024;
+
+/// The lines a list add sends, read from `reader`: as the window's add
+/// page takes typed lines (`lines_of`: each line trimmed, empty ones
+/// dropped).
+///
+/// # Errors
+/// [`Failure::Refused`] when it cannot be read, is not UTF-8 text, is
+/// past [`MAX_LIST_BYTES`], holds no address, or more than one add takes.
+pub(crate) fn address_list(reader: impl std::io::Read) -> Result<Vec<String>, Failure> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_LIST_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| Failure::Refused(format!("the list of addresses: {e}")))?;
+    if bytes.len() as u64 > MAX_LIST_BYTES {
+        return Err(Failure::Refused(format!(
+            "the list of addresses is larger than {} KiB",
+            MAX_LIST_BYTES / 1024
+        )));
+    }
+    let text = String::from_utf8(bytes)
+        .map_err(|_| Failure::Refused("the list of addresses is not UTF-8 text".to_owned()))?;
+    let lines = interweave_human_ui_model::lines_of(&text);
+    if lines.is_empty() {
+        return Err(Failure::Refused("the list holds no address".to_owned()));
+    }
+    if lines.len() > MAX_ADDRESSES_PER_ADD {
+        return Err(Failure::Refused(format!(
+            "address {} of {}: one add takes at most {MAX_ADDRESSES_PER_ADD}; nothing was sent",
+            MAX_ADDRESSES_PER_ADD + 1,
+            lines.len()
+        )));
+    }
+    Ok(lines)
+}
+
+/// Add `lines`, all or none, through `add` (`admin.peers.add_addresses`,
+/// IPC 2.9): one line printed per address, `added` or `unchanged`, in the
+/// order given; a refusal names the address by its number in the list
+/// and its rule, the daemon's detail unshown, and nothing was written
+/// (`a_list_is_added_whole_or_refused_by_its_line`).
+pub(crate) async fn add_list<F, Fut>(lines: Vec<String>, add: F) -> Result<String, Failure>
+where
+    F: FnOnce(Vec<String>) -> Fut,
+    Fut: Future<Output = Result<AddressesChange, TransportError>>,
+{
+    let count = lines.len();
+    match add(lines.clone()).await {
+        Ok(AddressesChange::Added(rows)) if rows.len() == count => {
+            let mut out = String::new();
+            for (row, line) in rows.iter().zip(&lines) {
+                let _ = writeln!(out, "{} {}", row.as_str(), output::one_line(line));
+            }
+            Ok(out)
+        }
+        Ok(AddressesChange::Added(_)) => Err(Failure::Refused(
+            "the daemon answered for another number of addresses than were sent".to_owned(),
+        )),
+        Ok(AddressesChange::Refused {
+            reason,
+            line: Some(n),
+            ..
+        }) => Err(Failure::Refused(format!(
+            "the daemon refused address {} of {count} ({}): {}; nothing was added",
+            n + 1,
+            lines.get(n).map_or("", |l| l.as_str()),
+            reason.as_str()
+        ))),
+        Ok(AddressesChange::Refused { reason, .. }) => Err(Failure::Refused(format!(
+            "the daemon refused the list: {}; nothing was added",
+            reason.as_str()
+        ))),
+        Err(TransportError::ProtocolUnsupported) => Err(Failure::Refused(
+            "the daemon does not add a list of addresses (IPC 2.9): is it older?".to_owned(),
+        )),
+        Err(e) => Err(refused(e)),
+    }
+}
+
 /// Carry out a `peers` verb (ADR-0062), on the admin socket's
 /// `admin.peers` capability: add, remove and list from IPC 2.7, show from
 /// 2.8. An address is sent as typed: the daemon's method judges it,
@@ -144,6 +230,16 @@ pub(crate) async fn peers(
                 .await
                 .map_err(refused)?;
             out.push_str(&change_line(&change)?);
+        }
+        Verb::PeerAddList(source) => {
+            let lines = match source {
+                ListSource::Stdin => address_list(std::io::stdin().lock())?,
+                ListSource::File(path) => address_list(
+                    std::fs::File::open(path)
+                        .map_err(|e| Failure::Refused(format!("the list file: {e}")))?,
+                )?,
+            };
+            out.push_str(&add_list(lines, |l| port.add_bootstrap_addresses(l)).await?);
         }
         Verb::PeerRemove(address) => {
             let change = port
@@ -315,6 +411,115 @@ mod tests {
         assert_eq!(
             change_line(&AddressChange::Unchanged).expect("ok"),
             "unchanged\n"
+        );
+    }
+
+    #[test]
+    fn a_list_past_its_bounds_is_refused_unsent() {
+        let list = |text: &str| address_list(text.as_bytes());
+        assert_eq!(
+            list(" /ip4/192.0.2.1/tcp/1 \r\n\n\t/ip4/192.0.2.2/tcp/2\n").expect("read"),
+            ["/ip4/192.0.2.1/tcp/1", "/ip4/192.0.2.2/tcp/2"],
+            "trimmed, empty lines dropped, as the add page takes typed lines"
+        );
+        let mut sixteen = String::new();
+        for n in 1..=16 {
+            let _ = writeln!(sixteen, "/ip4/192.0.2.{n}/tcp/1");
+        }
+        assert_eq!(list(&sixteen).expect("sixteen").len(), 16);
+        let seventeen = format!("{sixteen}/ip4/192.0.2.17/tcp/1\n");
+        match list(&seventeen) {
+            Err(Failure::Refused(why)) => assert!(why.contains("address 17 of 17"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+        for refused in ["", "\n \n\t\n"] {
+            assert!(
+                matches!(list(refused), Err(Failure::Refused(_))),
+                "{refused:?}"
+            );
+        }
+        assert!(matches!(
+            address_list(&[0xff_u8, 0xfe][..]),
+            Err(Failure::Refused(_))
+        ));
+        let large = vec![b' '; usize::try_from(MAX_LIST_BYTES).expect("fits") + 1];
+        match address_list(&large[..]) {
+            Err(Failure::Refused(why)) => assert!(why.contains("KiB"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_list_is_added_whole_or_refused_by_its_line() {
+        use interweave_local_client_api::{AddressRefusal, LineChange};
+        let lines = vec![
+            "/ip4/192.0.2.1/tcp/1".to_owned(),
+            "/ip4/192.0.2.2/tcp/2".to_owned(),
+            "/ip4/127.0.0.1/tcp/3".to_owned(),
+        ];
+        let sent = std::sync::Mutex::new(Vec::new());
+        let answer = |change: Result<AddressesChange, TransportError>| {
+            let sent = &sent;
+            move |l: Vec<String>| {
+                sent.lock().expect("lock").push(l);
+                std::future::ready(change)
+            }
+        };
+        let out = add_list(
+            lines[..2].to_vec(),
+            answer(Ok(AddressesChange::Added(vec![
+                LineChange::Added,
+                LineChange::Unchanged,
+            ]))),
+        )
+        .await
+        .expect("added");
+        assert_eq!(
+            out,
+            "added /ip4/192.0.2.1/tcp/1\nunchanged /ip4/192.0.2.2/tcp/2\n"
+        );
+        assert_eq!(sent.lock().expect("lock")[0], lines[..2], "one call, whole");
+        let refused = add_list(
+            lines.clone(),
+            answer(Ok(AddressesChange::Refused {
+                reason: AddressRefusal::SpecialUse,
+                line: Some(2),
+                detail: "a secret detail".to_owned(),
+            })),
+        )
+        .await;
+        match refused {
+            Err(Failure::Refused(why)) => {
+                assert!(why.contains("address 3 of 3"), "{why}");
+                assert!(why.contains("/ip4/127.0.0.1/tcp/3"), "{why}");
+                assert!(why.contains("special_use"), "{why}");
+                assert!(!why.contains("secret"), "the detail is not shown: {why}");
+            }
+            other => panic!("{other:?}"),
+        }
+        let whole = add_list(
+            lines.clone(),
+            answer(Ok(AddressesChange::Refused {
+                reason: AddressRefusal::ProviderDisabled,
+                line: None,
+                detail: String::new(),
+            })),
+        )
+        .await;
+        assert!(
+            matches!(&whole, Err(Failure::Refused(why)) if why.contains("provider_disabled")),
+            "{whole:?}"
+        );
+        let short = add_list(
+            lines.clone(),
+            answer(Ok(AddressesChange::Added(vec![LineChange::Added]))),
+        )
+        .await;
+        assert!(matches!(short, Err(Failure::Refused(_))), "{short:?}");
+        let old = add_list(lines, answer(Err(TransportError::ProtocolUnsupported))).await;
+        assert!(
+            matches!(&old, Err(Failure::Refused(why)) if why.contains("2.9")),
+            "{old:?}"
         );
     }
 

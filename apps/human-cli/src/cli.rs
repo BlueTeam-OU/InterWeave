@@ -47,6 +47,7 @@ usage:
   interweave-human --profile <name> contacts delete <contact>
   interweave-human --profile <name> peers [--json]
   interweave-human --profile <name> peers add|remove <address>
+  interweave-human --profile <name> peers add -|--file <file>
   interweave-human --profile <name> peers show [--json]
 
   --wait <ms>   how long to wait for the session and for an answer
@@ -199,8 +200,19 @@ pub(crate) enum Verb {
     PeersShow,
     /// Add a peer by address, as the person typed it.
     PeerAdd(String),
+    /// Add several addresses, all or none, one per line.
+    PeerAddList(ListSource),
     /// Remove an added address.
     PeerRemove(String),
+}
+
+/// Where a list of addresses is read from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ListSource {
+    /// Standard input.
+    Stdin,
+    /// This file.
+    File(std::path::PathBuf),
 }
 
 /// What a photo argument asks.
@@ -232,6 +244,7 @@ struct Flags {
     accept_key_change: Vec<String>,
     decline: Vec<String>,
     confirm: Option<String>,
+    file: Option<String>,
 }
 
 /// Parse a conversation's text: `<peer>`, `<peer>/<endpoint>` or
@@ -338,6 +351,12 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
                     return Err("--confirm given twice".to_owned());
                 }
             }
+            "--file" => {
+                let v = value("--file")?;
+                if flags.file.replace(v).is_some() {
+                    return Err("--file given twice".to_owned());
+                }
+            }
             "--json" => flags.json = true,
             "--none" => flags.none = true,
             // A lone "-" is send's stdin marker, a word.
@@ -351,16 +370,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         return Err("a command is required".to_owned());
     }
     let profile = flags.profile.take().ok_or("--profile <name> is required")?;
-    let wait = flags
-        .wait
-        .take()
-        .map(|ms| {
-            ms.parse::<u64>()
-                .map(Duration::from_millis)
-                .map_err(|_| "--wait: not a number of milliseconds".to_owned())
-        })
-        .transpose()?
-        .unwrap_or(DEFAULT_WAIT);
+    let wait = wait_of(flags.wait.take().as_deref())?;
     let endpoint = |id: &str| EndpointId::parse(id).map_err(|e| format!("the endpoint: {e}"));
     let peer = |id: &str| TransportIdentity::parse(id).map_err(|e| format!("the peer: {e}"));
     let (verb, json_allowed) = match words.as_slice() {
@@ -404,26 +414,17 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         ["identities", "default", id] => (Verb::SetDefault(Some(endpoint(id)?)), false),
         ["identity", "show"] => (Verb::IdentityShow(None), true),
         ["identity", "show", id] => (Verb::IdentityShow(Some(endpoint(id)?)), true),
-        ["identity", "new-key"] => {
-            let confirm = match flags.confirm.take().as_deref() {
-                None => false,
-                Some("key-change") => true,
-                Some(_) => return Err("identity new-key's --confirm takes key-change".to_owned()),
-            };
-            (Verb::IdentityNewKey { confirm }, true)
-        }
+        ["identity", "new-key"] => (
+            Verb::IdentityNewKey {
+                confirm: key_change_confirmed(flags.confirm.take().as_deref())?,
+            },
+            true,
+        ),
         ["store", "health"] => (Verb::StoreHealth, true),
-        ["store", "discard"] => {
-            let scope = match flags.confirm.take().as_deref() {
-                None => None,
-                Some("everything") => Some(DiscardScope::Everything),
-                Some("unfinished-plaintext") => Some(DiscardScope::UnfinishedPlaintext),
-                Some(_) => {
-                    return Err("--confirm takes everything or unfinished-plaintext".to_owned());
-                }
-            };
-            (Verb::StoreDiscard(scope), true)
-        }
+        ["store", "discard"] => (
+            Verb::StoreDiscard(discard_scope(flags.confirm.take().as_deref())?),
+            true,
+        ),
         ["card", "show"] => (Verb::CardShow, true),
         ["card", "set", name, rest @ ..] if rest.len() <= 1 => {
             let photo = match (flags.photo.take(), std::mem::take(&mut flags.no_photo)) {
@@ -466,6 +467,13 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         ),
         ["peers"] => (Verb::PeersList, true),
         ["peers", "show"] => (Verb::PeersShow, true),
+        ["peers", "add"] if flags.file.is_some() => (
+            Verb::PeerAddList(ListSource::File(
+                flags.file.take().unwrap_or_default().into(),
+            )),
+            false,
+        ),
+        ["peers", "add", "-"] => (Verb::PeerAddList(ListSource::Stdin), false),
         ["peers", "add", address] => (Verb::PeerAdd((*address).to_owned()), false),
         ["peers", "remove", address] => (Verb::PeerRemove((*address).to_owned()), false),
         ["contacts", "delete", id] => (Verb::ContactDelete((*id).to_owned()), false),
@@ -492,6 +500,34 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     })
 }
 
+/// `--wait`'s milliseconds, or the default.
+fn wait_of(ms: Option<&str>) -> Result<Duration, String> {
+    ms.map_or(Ok(DEFAULT_WAIT), |ms| {
+        ms.parse::<u64>()
+            .map(Duration::from_millis)
+            .map_err(|_| "--wait: not a number of milliseconds".to_owned())
+    })
+}
+
+/// `store discard`'s `--confirm`: the scope it names, if any.
+fn discard_scope(confirm: Option<&str>) -> Result<Option<DiscardScope>, String> {
+    match confirm {
+        None => Ok(None),
+        Some("everything") => Ok(Some(DiscardScope::Everything)),
+        Some("unfinished-plaintext") => Ok(Some(DiscardScope::UnfinishedPlaintext)),
+        Some(_) => Err("--confirm takes everything or unfinished-plaintext".to_owned()),
+    }
+}
+
+/// `identity new-key`'s `--confirm`: whether it names the key change.
+fn key_change_confirmed(confirm: Option<&str>) -> Result<bool, String> {
+    match confirm {
+        None => Ok(false),
+        Some("key-change") => Ok(true),
+        Some(_) => Err("identity new-key's --confirm takes key-change".to_owned()),
+    }
+}
+
 /// A flag given to a verb that does not take it: a usage error naming
 /// the verbs it applies to.
 fn unused(flags: &Flags) -> Result<(), String> {
@@ -512,6 +548,9 @@ fn unused(flags: &Flags) -> Result<(), String> {
     }
     if flags.photo.is_some() || flags.no_photo {
         return Err("--photo and --no-photo apply to card set only".to_owned());
+    }
+    if flags.file.is_some() {
+        return Err("--file applies to peers add, in place of its address".to_owned());
     }
     Ok(())
 }
@@ -629,6 +668,8 @@ mod tests {
                 "remove",
                 "/ip4/192.0.2.1/tcp/4001/p2p/x",
             ],
+            &["--profile", "p", "peers", "add", "-"],
+            &["--profile", "p", "peers", "add", "--file", "list.txt"],
         ];
         for args in cases {
             assert!(matches!(run(args), Ok(Command::Run { .. })), "{args:?}");
@@ -663,6 +704,7 @@ mod tests {
             "contacts photo",
             "contacts delete",
             "peers add|remove",
+            "peers add -|--file",
         ] {
             assert!(USAGE.contains(word), "{word} in the usage");
         }
@@ -730,6 +772,18 @@ mod tests {
             vec!["--profile", "p", "status", "--photo", "x"],
             vec!["--profile", "p", "messages", &c, "--keep", "u1"],
             vec!["--profile", "p", "status", "--none"],
+            vec![
+                "--profile",
+                "p",
+                "peers",
+                "add",
+                "/ip4/1.2.3.4",
+                "--file",
+                "f",
+            ],
+            vec!["--profile", "p", "peers", "add", "-", "--file", "f"],
+            vec!["--profile", "p", "peers", "remove", "--file", "f"],
+            vec!["--profile", "p", "peers", "add", "--file", "f", "--json"],
             vec!["--profile", "p", "status", "--wait", "soon"],
             vec!["status"],
             vec!["--profile", "p"],
