@@ -1272,11 +1272,12 @@ accessibility tree) are checked now.
 arriving in the shown conversation is announced as `AnnounceCard` ("New
 contact card"), never with the name; Decline, photo removed,
 contact deleted, a Move, Make default and a switch announce their
-snackbar text; Accept announces nothing of its own, because focus moves
-to the confirmation row (§9 item 1's focus table), which is read with its
-`CardAccepted` or `CardUpdated` and any `CardPhotoNotUsed`: a screen
-reader hears the result once, not again as "Contact saved", and the
-snackbar with its Undo is shown unannounced and reachable last in order
+snackbar text; Accept announces nothing of its own. Focus moves to the confirmation
+row (§9 item 1's focus table), and the screen reader reads that row:
+`CardAccepted` or `CardUpdated`, and `CardPhotoNotUsed` when it
+shows. So the person hears the result once, and does not hear it again
+as "Contact saved" or "Contact updated". The snackbar with its Undo is
+shown without an announcement and is reached last in the reading order
 (language-culture-en's observation 01a16df9, 2026-10-24); the transition of §5.7.5 announces `SwitchingTo`; the
 sheet's Share announces nothing extra (focus moves, and the row
 appears with "Sending"). Nothing that arrives for an identity not in
