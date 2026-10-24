@@ -37,6 +37,9 @@ serde_json = { workspace = true }
 # The stand-in's log, filtered as the embedded host filters (gate (g)).
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# src/wifi.rs: tokio's sleep between probes of the phone's listener;
+# each probe is a blocking connect of at most 1 s.
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
 # human_chat.rs: the app's own service host on the host's stand-in for
