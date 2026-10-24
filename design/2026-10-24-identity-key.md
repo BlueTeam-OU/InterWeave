@@ -24,8 +24,8 @@ key is one confirmed action that says, before it is taken, that their
 contacts will see a key change.
 
 Owner of the design: ux-designer. The words are language-culture's:
-§10 names each string, where it shows and what it must say, its text a
-placeholder until language-culture-en writes it. Built by rust-ui-dev
+§10 names each string, where it shows and what it must say, its text
+language-culture-en's English. Built by rust-ui-dev
 in `crates/human/` and the apps. It extends
 `design/2026-10-21-contact-cards.md` (called "cards" below): the
 identity's card page (cards §5.2), the list of identities (cards §5.1),
@@ -123,7 +123,7 @@ directly, so the state is one tap from the menu either way.
 Opened while the conversation's identity is in this state, the sheet
 keeps its title and its "as {identity}" line, and replaces the preview
 and `ShareCardNote` with the reason line and `KeyCannotShareHere`
-("Your card cannot be shared until this identity has a new key").
+("You cannot share your card until this identity's key can be used").
 The primary becomes **Open your card** (`KeyOpenCard`), which opens
 §4.1 for this identity; Cancel stays; Edit your card is not offered
 (it is the same page). Share is never shown disabled, as cards §5.3
@@ -150,7 +150,7 @@ conversation (cards §5.3) stays: it opens this sheet.
   "saved by a newer version", `KeyNewOldNewer` instead: the old key
   works only in a newer version of InterWeave, and once it is deleted,
   updating will not bring it back (architect-cto, Q-file);
-- actions **Cancel** (`Cancel`) and **Make new key** (`KeyNewConfirm`),
+- actions **Cancel** (`Cancel`) and **Make a new key** (`KeyNewConfirm`),
   filled, not in `error`: what is deleted could not be used here, and
   the cost (contacts told of a change) is said above. For "saved by a
   newer version", the confirm is filled in `error`, since something the
@@ -180,10 +180,10 @@ before the new key is stored where the next start will open it.
 
 **Made.** The block is replaced by the fingerprint row with the new
 fingerprint, and under it `KeyMade`: "This identity has a new key.
-Your contacts get it when you share your card with them again."
+Your contacts have the new key only after you share your card with them again."
 Then, when any conversation of this identity has `card_shared_at` set
 (the conversations that hold the old key): `KeyShareAgainTitle`
-("Share your card again with") and one row per such conversation, by
+("Share your card again in these conversations") and one row per such conversation, by
 the conversation's title, most recently shared first, each opening that
 conversation with the share sheet open (cards §5.3). The list is the
 answer to "who will see the change": those, and nobody else. It shows
@@ -200,7 +200,7 @@ new key is stored (§5.2).
 
 Try again opens the key once more. Opened: the block is replaced by the
 fingerprint row, nothing announced beyond §8. Refused again with the
-same kind: `KeyNotNowAgain` ("It still could not be opened.") under the
+same kind: `KeyNotNowAgain` ("InterWeave still could not use the key.") under the
 actions; with another kind: that kind's block.
 
 ## 7. Next to other states
@@ -249,7 +249,7 @@ be used". §4.3's sheet: title, "as {identity}", the reason line,
 | failed | `KeyNewFailed`, which is announced by being focused, not again | keyboard; screen reader |
 | Try again, opened | the fingerprint row | keyboard |
 | Try again, refused again | `KeyNotNowAgain` | keyboard; screen reader |
-| a "Share your card again with" row | the conversation's share sheet, as cards §5.3 opens it | keyboard |
+| a row under `KeyShareAgainTitle` | the conversation's share sheet, as cards §5.3 opens it | keyboard |
 | Open your card from the sheet | as cards §5.2 | keyboard |
 | Back from §4.1 to the sheet, key made | the sheet's Share | keyboard |
 | Back from §4.1 to the sheet, no key | Open your card | keyboard |
@@ -264,8 +264,8 @@ state; `error` repeats them. The icon's colour and the heading in
 `surface` and, in the sheet, the sheet's container — in light and
 dark.
 
-**Targets**: Try again, Make a new key and each "Share your card again
-with" row are at least 48 dp tall on Android and 24 px on the desktop.
+**Targets**: Try again, Make a new key and each row under
+`KeyShareAgainTitle` are at least 48 dp tall on Android and 24 px on the desktop.
 
 **Motion**: the progress indicator is the platform's; with reduced
 motion it is the platform's reduced form.
@@ -292,7 +292,7 @@ On both clients unless said; Android's screen-reader checks blocked as
    control; nothing is sent.
 5. On the page, Save of a changed name works in this state.
 6. Make a new key opens the dialog with focus on Cancel; Enter cancels;
-   Make new key makes the key: the page shows a fingerprint different
+   the dialog's Make a new key makes the key: the page shows a fingerprint different
    from any before, `KeyMade`, and, when the identity had shared its
    card in conversations A and B, those two rows and no other.
 7. After 6, B's Share sends a card that the counterparty's client shows
@@ -309,42 +309,42 @@ On both clients unless said; Android's screen-reader checks blocked as
     opens it and shows the fingerprint.
 11. An identity that has shared its card, its key file removed,
     starts in the "missing" state and makes no key by itself; with the
-    whole `identity-keys/` directory removed, every such identity does;
+    whole `identity-keys/` directory removed, every such identity does the same;
     an identity that never shared gets a key with no state shown.
 12. Focus follows §8's table, row by row, by keyboard; on the desktop,
     the screen reader reads §8's order and each announcement once.
 
 ## 10. Strings
 
-Text is a placeholder for language-culture-en; the third column is what
-it must say. `{identity}` is the identity's card name, or its route
+The Text column is language-culture-en's final English (2026-10-24);
+the third column is what it must say. `{identity}` is the identity's card name, or its route
 label without one (cards §5.7.6).
 
-| Key | Text (placeholder) | Where; must say |
+| Key | Text | Where; must say |
 |---|---|---|
 | `KeyStateTitle` | This identity's key cannot be used | §4.1 heading |
-| `KeyLostDevice` | This phone no longer lets InterWeave use this identity's key. | Android, invalidated or gone; must not claim a cause the client cannot know |
-| `KeyBelowDevice` | This identity's key was not stored with this phone's protection, so it is not used here. | a downgrade; must say it is refused on purpose, not broken |
-| `KeyOtherDevice` | This identity's key was protected by another device, so this computer cannot use it. | desktop, a sealed record |
-| `KeyNewerVersion` | This identity's key was saved by a newer version of InterWeave. Update InterWeave to use it. | must name the way to keep the key before the new-key offer |
-| `KeyDamaged` | This identity's key file is damaged, so it cannot be used. | every damaged or foreign record |
-| `KeyNotNow` | This identity's key could not be opened just now. | a platform error; must suggest trying again, not a loss |
+| `KeyLostDevice` | This phone no longer allows InterWeave to use this identity's key. | Android, invalidated or gone; must not claim a cause the client cannot know |
+| `KeyBelowDevice` | This identity's key has weaker protection than this phone requires, so InterWeave does not use it. | a downgrade; must say it is refused on purpose, not broken |
+| `KeyOtherDevice` | This identity's key was saved on another device and works only there, not on this computer. | desktop, a sealed record |
+| `KeyNewerVersion` | This identity's key was saved by a newer version of InterWeave. To keep this key, update InterWeave. If you make a new key instead, you lose this key. | must name the way to keep the key before the new-key offer |
+| `KeyDamaged` | This identity's key file is not valid, so the key cannot be used. | every damaged or foreign record |
+| `KeyNotNow` | InterWeave could not use this identity's key. The problem may be temporary. Try again. | a platform error; must suggest trying again, not a loss |
 | `KeyMissing` | This identity's key is missing from this device. | a lost file (§7); must not suggest the person deleted it |
-| `KeyCannotShare` | Until it has a key, you cannot share this card. Your messages are not affected. | after every reason; must say what is blocked and what is not |
+| `KeyCannotShare` | You can still send and receive messages. You cannot share this card until the key can be used. | after every reason; must say what is blocked and what is not |
 | `KeyMakeNew` | Make a new key | §4.1 action |
 | `KeyStateRow` | Key cannot be used | §4.2 row line |
-| `KeyCannotShareHere` | Your card cannot be shared until this identity has a new key. | §4.3 sheet |
+| `KeyCannotShareHere` | You cannot share your card until this identity's key can be used. | §4.3 sheet |
 | `KeyOpenCard` | Open your card | §4.3 primary |
 | `KeyNewTitle` | Make a new key for {identity}? | §5.1 title |
-| `KeyNewBody` | Contacts who have your card will see that your key changed the next time you share it with them. Their app will tell them it might be someone else, so let them know it was you. Nothing changes for them before then. | §5.1; must name the change, the warning they will see, and that nothing happens before a share |
+| `KeyNewBody` | The next time you share your card with a contact who has it, their app will show a warning that the card might be from someone else. Tell them it was you. Until then, nothing changes for them. | §5.1; must name the change, the warning they will see, and that nothing happens before a share |
 | `KeyNewOld` | The old key will be deleted and cannot be used again. | §5.1, every kind but missing |
-| `KeyNewOldNewer` | The old key works only in a newer version of InterWeave. Once it is deleted, updating will not bring it back. | §5.1, newer version; must say the choice is the update or the loss |
-| `KeyNewConfirm` | Make new key | §5.1 confirm |
+| `KeyNewOldNewer` | The old key works only in a newer version of InterWeave. To keep it, update InterWeave instead of making a new key. If you make a new key, you lose the old key, and updating will not bring it back. | §5.1, newer version; must say the choice is the update or the loss |
+| `KeyNewConfirm` | Make a new key | §5.1 confirm |
 | `KeyMaking` | Making a new key… | §5.2 |
-| `KeyMade` | This identity has a new key. Your contacts get it when you share your card with them again. | §5.3 |
-| `KeyShareAgainTitle` | Share your card again with | §5.3 list heading |
+| `KeyMade` | This identity has a new key. Your contacts have the new key only after you share your card with them again. | §5.3 |
+| `KeyShareAgainTitle` | Share your card again in these conversations | §5.3 list heading |
 | `KeyNewFailed` | A new key could not be made. Nothing was changed. Try again. | §5.3 failed; must say nothing changed |
-| `KeyNotNowAgain` | It still could not be opened. | §6 |
+| `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
 
 `TryAgain` and `Cancel` are the existing keys.
 
