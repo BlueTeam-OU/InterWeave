@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod host_input;
+pub mod log;
 pub mod mcp;
 pub mod refused;
 pub mod serve;
