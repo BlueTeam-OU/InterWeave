@@ -809,6 +809,16 @@ ui_texts! {
     /// the card's route.
     // PLACEHOLDER (en)
     UpdateContact => "Update contact",
+    /// CARD PROPOSAL, case S: the card changes nothing of the contact
+    /// holding its route, `{contact}`; Close stands in place of Accept
+    /// and Decline (design/2026-10-21-contact-cards.md section 5.4.1).
+    // PLACEHOLDER (en)
+    CardSame => "This card matches your contact {contact}.",
+    /// CARD PROPOSAL: when the card came, `{date}` in the list's time
+    /// format. A proposal is drawn after the conversation's messages,
+    /// not at its place in time, so the row says when.
+    // PLACEHOLDER (en)
+    CardReceivedAt => "Card received {date}",
     /// The Chats menu item and the page listing this identity's contacts.
     // PLACEHOLDER (en)
     ContactsTitle => "Contacts",

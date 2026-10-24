@@ -139,6 +139,11 @@ pub struct ProposalContext {
     pub key: KeyView,
     /// The card's key's fingerprint, 16 lowercase hex characters.
     pub fingerprint: String,
+    /// Accept would write nothing (design section 5.4.1, case S): a
+    /// contact holds the route under the key the card carries, and each
+    /// of its values is the person's or already the card's. The proposal
+    /// then offers Close alone.
+    pub changes_nothing: bool,
 }
 
 /// A card committed unread, with its context: what [`UiModel::card_received`]
@@ -166,6 +171,8 @@ pub enum AcceptLine {
     Creates,
     /// Update this contact, whose own edits stay.
     Updates(String),
+    /// Nothing: this contact already matches the card (case S).
+    Matches(String),
 }
 
 /// A note a proposal shows before Accept.
@@ -206,12 +213,14 @@ pub struct ProposalItem {
 
 impl ProposalItem {
     /// Accept's label, which says what it does before it runs (design
-    /// section 5.4.1): Update contact when a contact holds the route,
+    /// section 5.4.1): Close when the card changes nothing, Update
+    /// contact when a contact holds the route,
     /// Accept as a new contact beside one of the same name on another
     /// `PeerId` or one on the same device, else Accept.
     #[must_use]
     pub fn accept_text(&self) -> UiText {
         match self.accept {
+            AcceptLine::Matches(_) => UiText::Close,
             AcceptLine::Updates(_) => UiText::UpdateContact,
             AcceptLine::Creates
                 if self.notes.iter().any(|n| {
@@ -469,10 +478,11 @@ impl UiModel {
                     has_photo: p.card.photo.is_some(),
                     fingerprint: c.fingerprint.clone(),
                     key: c.key.clone(),
-                    accept: c
-                        .updates
-                        .as_ref()
-                        .map_or(AcceptLine::Creates, |u| AcceptLine::Updates(u.name.clone())),
+                    accept: match &c.updates {
+                        None => AcceptLine::Creates,
+                        Some(u) if c.changes_nothing => AcceptLine::Matches(u.name.clone()),
+                        Some(u) => AcceptLine::Updates(u.name.clone()),
+                    },
                     notes,
                     received_at: p.received_at,
                 }
@@ -500,13 +510,17 @@ impl UiModel {
         keys
     }
 
-    /// What a proposal offers: Accept and Decline, and no Keep.
+    /// What a proposal offers: Accept and Decline, and no Keep; a card
+    /// that changes nothing, Decline alone, which its row labels Close
+    /// (case S): an Accept there would write nothing the person sees.
     #[must_use]
     pub fn card_actions(&self, row: RowId) -> Vec<Intent> {
-        if self.cards.proposals.contains_key(&row) {
-            vec![Intent::AcceptCard(row), Intent::DeclineCard(row)]
-        } else {
-            Vec::new()
+        match self.cards.proposals.get(&row) {
+            Some(p) if p.context.changes_nothing && p.context.updates.is_some() => {
+                vec![Intent::DeclineCard(row)]
+            }
+            Some(_) => vec![Intent::AcceptCard(row), Intent::DeclineCard(row)],
+            None => Vec::new(),
         }
     }
 
@@ -639,6 +653,7 @@ mod tests {
             key_matches: Vec::new(),
             key: KeyView::New,
             fingerprint: "0123456789abcdef".to_owned(),
+            changes_nothing: false,
         }
     }
 
@@ -961,6 +976,27 @@ mod tests {
             shown(&model, Q),
             UiText::UpdateContact,
             "case U, whatever else"
+        );
+        model.card_resolved(row(4));
+        model.card_received(proposal(
+            5,
+            Q,
+            "Ada",
+            ProposalContext {
+                updates: Some(near("u")),
+                changes_nothing: true,
+                ..context()
+            },
+        ));
+        assert_eq!(shown(&model, Q), UiText::Close, "case S");
+        assert_eq!(
+            model.proposals(&direct(Q, "human"))[0].accept,
+            AcceptLine::Matches("Ada".to_owned())
+        );
+        assert_eq!(
+            model.card_actions(row(5)),
+            vec![Intent::DeclineCard(row(5))],
+            "Close alone, which declines"
         );
     }
 
