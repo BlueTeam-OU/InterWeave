@@ -186,6 +186,11 @@
       "name": "peers-addresses-result",
       "file": "peers-addresses-result.schema.json",
       "status": "approved"
+    },
+    {
+      "name": "session-losses-result",
+      "file": "session-losses-result.schema.json",
+      "status": "approved"
     }
   ]
 }

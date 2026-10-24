@@ -28,8 +28,11 @@ pub const IPC_MAJOR: u64 = 2;
 /// `admin.peers` capability with its three address methods brought 2.7
 /// (ADR-0062), and its show side's read, `admin.peers.own_addresses`,
 /// brought 2.8 (ADR-0062 decision 4), and its all-or-none add,
-/// `admin.peers.add_addresses`, brought 2.9 (ADR-0062 decision 4).
-pub const IPC_MAX_MINOR: u64 = 9;
+/// `admin.peers.add_addresses`, brought 2.9 (ADR-0062 decision 4), a
+/// superseded admin write's refusal brought 2.10, and a data session's
+/// broadcast losses, `session.losses`, brought 2.11 (architect-cto's
+/// ruling of 2026-10-24).
+pub const IPC_MAX_MINOR: u64 = 11;
 
 /// A version pair as it crosses the wire.
 ///
@@ -157,7 +160,9 @@ mod tests {
             (7, 7),
             (8, 8),
             (9, 9),
-            (10, 9),
+            (10, 10),
+            (11, 11),
+            (12, 11),
             (u64::MAX, IPC_MAX_MINOR),
         ] {
             assert_eq!(

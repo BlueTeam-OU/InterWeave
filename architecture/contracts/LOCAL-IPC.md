@@ -304,6 +304,7 @@ the schema-agreement test binds the two.
 | `admin.peers.list_addresses` | admin | `admin.peers` | none | `peers-address-list` | 2.7 |
 | `admin.peers.own_addresses` | admin | `admin.peers` | none | `peers-own-addresses` | 2.8 |
 | `admin.peers.add_addresses` | admin | `admin.peers` | `peers-addresses-params` | `peers-addresses-result` | 2.9 |
+| `session.losses` | data | `commands` | none | `session-losses-result` | 2.11 |
 
 `admin.endpoints.set_enabled(false)` revokes a live lease at once
 (`endpoint.lease_changed`) and never auto-rebinds. `set_enabled` and
