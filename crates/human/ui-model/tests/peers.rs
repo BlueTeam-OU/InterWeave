@@ -251,7 +251,20 @@ fn an_empty_or_too_long_field_sends_nothing() {
         "goes once the field is not empty"
     );
 
-    // Typed lines past TYPED_LINES, never split into single writes.
+    // As many typed lines as a code holds are one add; one more is
+    // refused whole, never split into several adds.
+    let full: Vec<String> = (0..TYPED_LINES).map(|_| at(&peer())).collect();
+    let mut f = opened(&me, &[], &[]);
+    let _ = input(&mut f, PeersInput::OpenAdd);
+    let _ = input(&mut f, PeersInput::FieldChanged(full.join("\r\n")));
+    assert_eq!(
+        input(&mut f, PeersInput::Add),
+        vec![Intent::AddAddresses(full)]
+    );
+    assert_eq!(
+        TYPED_LINES, CODE_LINES,
+        "a typed add holds what a code does"
+    );
     let many: Vec<String> = (0..=TYPED_LINES).map(|_| at(&peer())).collect();
     let _ = input(&mut m, PeersInput::FieldChanged(many.join("\n")));
     assert!(input(&mut m, PeersInput::Add).is_empty());
@@ -421,14 +434,8 @@ fn a_failed_add_says_what_is_true() {
     for (lines, problem, note) in cases {
         let mut m = opened(&me, &[], &[]);
         let _ = input(&mut m, PeersInput::OpenAdd);
-        // Several lines reach the runtime only from a scan: typed, the
-        // field takes TYPED_LINES.
-        let sent = if lines.len() > TYPED_LINES {
-            input(&mut m, PeersInput::Scanned(lines.join("\n")))
-        } else {
-            let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
-            input(&mut m, PeersInput::Add)
-        };
+        let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
+        let sent = input(&mut m, PeersInput::Add);
         assert_eq!(sent, vec![Intent::AddAddresses(lines.clone())]);
         m.addresses_added(lines, Err(AddressChangeFailure::NotMade(problem)));
         assert_eq!(m.peers().add_page_note(), Some(&note), "{problem:?}");
@@ -492,7 +499,7 @@ fn a_lost_add_answer_is_decided_on_the_list_read_back() {
     let two = vec![at(&other), line.clone()];
     let mut partly = opened(&me, &[], &[added(&other)]);
     let _ = input(&mut partly, PeersInput::OpenAdd);
-    // Several lines in one add come from a scan (TYPED_LINES).
+    // A scan's lines: one add, never in the field.
     let _ = input(&mut partly, PeersInput::Scanned(two.join("\n")));
     partly.addresses_added(&two, lost());
     let _ = partly.peers_turn();
@@ -839,7 +846,7 @@ fn several_peers_are_several_blocks_each_decided_on_its_own() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let lines = vec![at(&a), at(&b)];
-    // Several lines in one add come from a scan (TYPED_LINES).
+    // A scan's lines: one add, never in the field.
     let _ = input(&mut m, PeersInput::Scanned(lines.join("\n")));
     m.addresses_added(
         &lines,
@@ -892,7 +899,7 @@ fn an_add_for_a_trusted_peer_closes_at_once() {
     let mut m = opened(&me, &[t.clone(), u.clone()], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let lines = vec![at(&t), at(&u)];
-    // Several lines in one add come from a scan (TYPED_LINES).
+    // A scan's lines: one add, never in the field.
     let _ = input(&mut m, PeersInput::Scanned(lines.join("\n")));
     m.addresses_added(
         &lines,
