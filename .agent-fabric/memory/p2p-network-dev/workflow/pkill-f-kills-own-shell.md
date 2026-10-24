@@ -5,7 +5,7 @@ topic: "pkill-f-kills-own-shell"
 description: "pkill -f \"<pattern>\" from a Bash tool call matches the tool's own shell command line and kills it (exit 144)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

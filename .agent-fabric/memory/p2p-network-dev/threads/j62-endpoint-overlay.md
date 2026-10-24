@@ -5,7 +5,7 @@ topic: "j62-endpoint-overlay"
 description: "Plan §20 gate (e): endpoint overlay persisted per architect-cto DECISION seq 109465 (A); branch feat/endpoint-overlay; what was built, limits, what the PR must say"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

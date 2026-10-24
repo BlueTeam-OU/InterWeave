@@ -23,6 +23,8 @@ interweave-human-chat-protocol = { path = "../chat-protocol", features = ["markd
 interweave-human-client-api = { path = "../client-api" }
 interweave-human-core = { path = "../core" }
 interweave-transport-api = { path = "../../api/transport-api" }
+# The card name rule counts after NFC; name_problem counts as it does.
+unicode-normalization = { workspace = true }
 
 [dev-dependencies]
 interweave-human-store = { path = "../store" }

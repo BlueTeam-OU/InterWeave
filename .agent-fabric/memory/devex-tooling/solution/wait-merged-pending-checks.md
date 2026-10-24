@@ -5,7 +5,7 @@ topic: "wait-merged-pending-checks"
 description: "fabric-pr wait-merged and pending checks — gh pr checks exits 8 with JSON on stdout; the tool reads it, test pins it (checked 2026-10-18)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

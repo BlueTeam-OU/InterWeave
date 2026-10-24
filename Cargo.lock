@@ -3397,7 +3397,9 @@ name = "interweave-desktop-e2e-tests"
 version = "0.1.0"
 dependencies = [
  "atspi",
+ "base64 0.23.1",
  "futures-util",
+ "image",
  "interweave-human-chat-protocol",
  "interweave-human-store",
  "interweave-human-transport-client",
@@ -3525,6 +3527,7 @@ dependencies = [
 name = "interweave-human-android"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "interweave-android-e2e-cases",
  "interweave-human-android-platform",
  "interweave-human-app-core",
@@ -3533,6 +3536,7 @@ dependencies = [
  "interweave-human-ui-slint",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-transport-api",
  "jni 0.22.4",
  "ndk-sys 0.6.0+11769913",
  "serde_json",
@@ -3742,6 +3746,7 @@ dependencies = [
  "interweave-transport-api",
  "tempfile",
  "tokio",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -3758,6 +3763,7 @@ dependencies = [
  "interweave-human-chat-protocol",
  "interweave-human-client-api",
  "interweave-human-core",
+ "interweave-human-store",
  "interweave-human-ui-model",
  "interweave-profile-identity",
  "interweave-transport-api",

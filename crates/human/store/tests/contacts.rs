@@ -448,3 +448,49 @@ fn a_deleted_contact_leaves_both_files_before_the_call_returns() {
     assert!(control, "the control: the search sees a kept contact");
     drop(store);
 }
+
+/// When the photo came, as the contact page says it beside where from:
+/// the card's Accept, then the person's removal, which a later card's
+/// photo leaves alone.
+#[test]
+fn a_photo_records_when_it_was_set_and_a_later_card_keeps_the_persons_time() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let first = store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(b"jpeg"),
+                ..card(&p, &human, "Ada", 1)
+            },
+            10,
+        )
+        .expect("accepted");
+    let read = |store: &HumanStore| {
+        store
+            .contact(&first.contact_id)
+            .expect("read")
+            .expect("there")
+    };
+    let contact = read(&store);
+    assert_eq!(contact.photo_source, Some(ValueSource::Card));
+    assert_eq!(contact.photo_at, Some(10));
+
+    assert!(
+        store
+            .set_contact_photo(&first.contact_id, None, 30)
+            .expect("removed")
+    );
+    store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(b"jpeg2"),
+                ..card(&p, &human, "Ada", 1)
+            },
+            40,
+        )
+        .expect("a later card");
+    let contact = read(&store);
+    assert_eq!(contact.photo_source, Some(ValueSource::Person));
+    assert_eq!(contact.photo_at, Some(30), "the person's removal, and when");
+    assert_eq!(contact.photo, None);
+}

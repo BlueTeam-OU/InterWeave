@@ -388,7 +388,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Err(e) => Err(store_failure(&e)),
             Ok(now) if now != *shown => {
                 let received_at = held.received_at();
-                updates.push(Update::ReceivedCard(Box::new(Proposal {
+                // Judged again, not received: a row the model has let go
+                // is not brought back.
+                updates.push(Update::ProposalJudged(Box::new(Proposal {
                     row,
                     peer: peer.clone(),
                     endpoint: endpoint.clone(),
@@ -415,6 +417,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates.push(Update::ContactsListed(
             cards::contact_views(self.client.store_mut()).map_err(|e| store_failure(&e))?,
         ));
+        self.proposals_again(updates);
         Ok(())
     }
 
@@ -572,6 +575,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates.push(Update::ContactsListed(
             cards::contact_views(store).map_err(|e| store_failure(&e))?,
         ));
+        self.proposals_again(updates);
         Ok(())
     }
 
@@ -599,6 +603,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates.push(Update::ContactsListed(
             cards::contact_views(store).map_err(|e| store_failure(&e))?,
         ));
+        self.proposals_again(updates);
         Ok(())
     }
 
@@ -629,7 +634,55 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates.push(Update::ContactsListed(
             cards::contact_views(store).map_err(|e| store_failure(&e))?,
         ));
+        self.proposals_again(updates);
         Ok(())
+    }
+
+    /// Every card proposal still held, judged again against the store
+    /// after the person changed a contact -- an Accept, a rename, a photo,
+    /// a delete: a proposal shows what Accept would do as the store stood
+    /// when it was judged, and a card that matched its contact (case S,
+    /// Close alone) must offer Accept again once the contact is gone or
+    /// another card on its route changed it. Those not yet shown
+    /// are in the store; those shown and undecided are this session's
+    /// copies. The model replaces each it still holds, by its row
+    /// ([`Update::ProposalJudged`]).
+    fn proposals_again(&mut self, updates: &mut Vec<Update>) {
+        match listing::list_unread(self.client.store_mut()) {
+            Ok((_, unshown, _)) => {
+                for card in unshown {
+                    updates.push(match cards::proposal(self.client.store_mut(), card) {
+                        Ok(proposal) => Update::ProposalJudged(Box::new(proposal)),
+                        Err(e) => Update::UnreadNotListed(store_failure(&e)),
+                    });
+                }
+            }
+            Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
+        }
+        let shown: Vec<_> = self
+            .copies
+            .by_row
+            .iter()
+            .filter(|((table, _), _)| *table == Table::Unread)
+            .filter_map(|((_, row), held)| {
+                cards::card_of(held).map(|card| (*row, held.received_at(), card))
+            })
+            .collect();
+        for (row, received_at, (peer, endpoint, card)) in shown {
+            updates.push(
+                match cards::context(self.client.store_mut(), &peer, &endpoint, &card) {
+                    Ok(context) => Update::ProposalJudged(Box::new(Proposal {
+                        row,
+                        peer,
+                        endpoint,
+                        card,
+                        received_at,
+                        context,
+                    })),
+                    Err(e) => Update::UnreadNotListed(store_failure(&e)),
+                },
+            );
+        }
     }
 
     /// Close the session: the endpoint lease is released. The daemon is

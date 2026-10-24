@@ -793,6 +793,127 @@ ui_texts! {
     /// The identity and contact pages: the label beside an identity key's
     /// fingerprint, 16 lowercase hex characters.
     Fingerprint => "Key fingerprint",
+    /// CARD PROPOSAL: the card carries a photo, which is not decoded or
+    /// shown before Accept (design/2026-10-21-contact-cards.md section 5.4).
+    // PLACEHOLDER (en)
+    CardIncludesPhoto => "This card has a photo. You see it after you accept.",
+    /// CARD PROPOSAL, in small type: an unanswered card does not outlive
+    /// the session (RETENTION.md).
+    // PLACEHOLDER (en)
+    CardGoesAtClose => "If you do not accept this card, it is removed when InterWeave stops.",
+    /// CARD PROPOSAL: Accept's label when it makes a contact beside one of
+    /// the same name on another `PeerId`, or one on the same device.
+    // PLACEHOLDER (en)
+    AcceptAsNew => "Accept as a new contact",
+    /// CARD PROPOSAL: Accept's label when it updates the contact holding
+    /// the card's route.
+    // PLACEHOLDER (en)
+    UpdateContact => "Update contact",
+    /// CARD PROPOSAL, case S: the card changes nothing of the contact
+    /// holding its route, `{contact}`; Close stands in place of Accept
+    /// and Decline (design/2026-10-21-contact-cards.md section 5.4.1).
+    // PLACEHOLDER (en)
+    CardSame => "This card matches your contact {contact}.",
+    /// CARD PROPOSAL: when the card came, `{date}` its calendar date and
+    /// `{time}` its clock time. A proposal is drawn after the
+    /// conversation's messages, not at its place in time, so the row says
+    /// when.
+    // PLACEHOLDER (en)
+    CardReceivedAt => "Card received {date} at {time}",
+    /// The Chats menu item and the page listing this identity's contacts.
+    // PLACEHOLDER (en)
+    ContactsTitle => "Contacts",
+    /// Contacts, with none.
+    // PLACEHOLDER (en)
+    ContactsEmpty => "You have no contacts yet. Someone becomes a contact when you accept a card they share.",
+    /// A contact's page: the name came from the counterparty's card;
+    /// `{date}` the day it was accepted.
+    // PLACEHOLDER (en)
+    ContactNameFromCard => "Name from their card, {date}",
+    /// A contact's page: the person wrote the name; `{date}` when.
+    // PLACEHOLDER (en)
+    ContactNameTyped => "Name you entered, {date}",
+    /// A contact's page: the photo came from the counterparty's card;
+    /// `{date}` the day it was accepted.
+    // PLACEHOLDER (en)
+    ContactPhotoFromCard => "Photo from their card, {date}",
+    /// A contact's page: the person removed the photo; a later card's
+    /// photo does not replace it. `{date}` when.
+    // PLACEHOLDER (en)
+    ContactPhotoRemoved => "You removed the photo, {date}. A card they share later does not bring it back.",
+    /// A contact's page: the person chose the photo; `{date}` when.
+    // PLACEHOLDER (en)
+    ContactPhotoChosen => "Photo you chose, {date}",
+    /// A contact's page, under a route: another contact of this identity
+    /// on the same `PeerId`; `{name}` that contact.
+    // PLACEHOLDER (en)
+    ContactSharesDevice => "Same device as your contact {name}",
+    /// A contact's page, once, when a route shares its device.
+    // PLACEHOLDER (en)
+    ContactSharesDeviceNote => "One device can hold several identities, so these contacts may be one person. InterWeave does not combine them.",
+    /// A contact's page: delete the contact and its routes.
+    // PLACEHOLDER (en)
+    DeleteContact => "Delete contact",
+    /// A contact's page: Delete's confirmation, Cancel first; `{name}`
+    /// the contact. Its conversations and the peer's trust stay.
+    // PLACEHOLDER (en)
+    ContactDeleteConfirm => "Delete {name}? Your conversations with them stay, and so does whether you trust their PeerId.",
+    /// A contact's page and the own card: remove the photo.
+    // PLACEHOLDER (en)
+    RemovePhoto => "Remove photo",
+    /// A contact's page and the own card: save the edit.
+    // PLACEHOLDER (en)
+    Save => "Save",
+    /// The Chats menu item and the page editing this identity's own card.
+    // PLACEHOLDER (en)
+    OwnCardTitle => "Your card",
+    /// The own card: the name field.
+    // PLACEHOLDER (en)
+    CardName => "Name",
+    /// The own card: the surname field, optional.
+    // PLACEHOLDER (en)
+    CardSurname => "Family name (optional)",
+    /// The own card: a card already shared does not change.
+    // PLACEHOLDER (en)
+    CardSharedStays => "People who already have this card still see it as it was. To show them your changes, share the card with them again.",
+    /// The own card: the photo is set with the command-line client while
+    /// the graphical clients cannot choose one.
+    // PLACEHOLDER (en)
+    CardPhotoElsewhere => "To add or change the photo, use the command-line client: interweave-human card set --photo.",
+    /// A name field's error: empty.
+    // PLACEHOLDER (en)
+    CardNameNeeded => "Enter a name.",
+    /// A name field's error: over 64 characters.
+    // PLACEHOLDER (en)
+    CardNameTooLong => "Use 64 characters or fewer.",
+    /// A name field's error: a control, format or separator character.
+    // PLACEHOLDER (en)
+    CardNameBadCharacters => "Remove line breaks and invisible characters.",
+    /// The share sheet's title; `{title}` the conversation's.
+    // PLACEHOLDER (en)
+    ShareCardTitle => "Share your card with {title}",
+    /// The share sheet: the heading over what goes.
+    // PLACEHOLDER (en)
+    ShareCardPreview => "What {title} will see",
+    /// The share sheet: a card cannot be taken back.
+    // PLACEHOLDER (en)
+    ShareCardNote => "They will see this name and photo, and they can save them. You cannot remove a card from their device after it arrives.",
+    /// The share sheet's primary.
+    // PLACEHOLDER (en)
+    ShareCardAction => "Share",
+    /// The share sheet when the card has no name yet.
+    // PLACEHOLDER (en)
+    ShareCardNoName => "Your card has no name yet. Add your name, then share the card.",
+    /// The share sheet, the card's photo going too.
+    // PLACEHOLDER (en)
+    ShareCardWithPhoto => "With your photo",
+    /// Details: when this identity's card was shared here, this session;
+    /// `{date}` the day.
+    // PLACEHOLDER (en)
+    DetailsCardShared => "You shared your card here on {date}.",
+    /// Details: no card shared here.
+    // PLACEHOLDER (en)
+    DetailsNoCard => "You have not shared your card here.",
     /// PEERS BY ADDRESS (ADR-0062; design/2026-10-22-add-a-peer.md
     /// §9, every value below language-culture-en's except where marked):
     /// the Chats menu item, the page's title and the no-reach notice's
@@ -1305,6 +1426,18 @@ pub fn short_peer(id: &str) -> String {
     fill(placeholder_en::text(UiText::ShortPeer), &[("tail", tail)])
 }
 
+/// A name as a view shows it inside other text: in a first-strong
+/// isolate (U+2068 ... U+2069), so a right-to-left or mixed name cannot
+/// reorder the words around it (design/2026-10-21-contact-cards.md
+/// section 3; human-client-ui.md section 13). Every name a card or a
+/// person can give is free of bidirectional controls, which the card's
+/// name rule refuses as format characters (`check_draft`), so nothing
+/// inside can close the isolate early.
+#[must_use]
+pub fn isolated(name: &str) -> String {
+    format!("\u{2068}{name}\u{2069}")
+}
+
 /// A link's destination as a view shows it on the link's control: every
 /// control character, and every character Unicode makes default-ignorable
 /// -- drawn as nothing, or as a change of direction or joining -- is shown
@@ -1740,6 +1873,8 @@ mod tests {
             ("age", "3 hours ago"),
             ("name", "Ada Lovelace"),
             ("contact", "Ada"),
+            ("date", "24 October 2026"),
+            ("title", "Ada"),
             ("old", "0123456789abcdef"),
             ("new", "fedcba9876543210"),
             ("max", "64"),

@@ -527,3 +527,48 @@ async fn proposals_are_read_on_a_route_naming_its_endpoint() {
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     assert_eq!(lines(&out)[0]["status"], "unread");
 }
+
+// Case S: a card that changes nothing of its contact says `matches`, and
+// an `--accept` naming it is refused before anything is read, so it stays
+// unread; `--decline` closes it. Mutations: `matches` printed as
+// `updates`; the refusal removed (the accept reaches the model, which
+// offers Decline alone, and is refused after the read).
+#[tokio::test]
+async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
+    let (alice, bob, mut b_run) = shared().await;
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    let accept = |id: String| Verb::ProposalsRead {
+        conversation: alice.route(),
+        accept: vec![id],
+        decline: vec![],
+    };
+    run(&mut b_run, accept(id), true).await.1.expect("accepted");
+    // The same card again.
+    let mut a_run = alice.session();
+    let (_, shared) = run(&mut a_run, Verb::CardShare(bob.route()), true).await;
+    shared.expect("shared again");
+    a_run.close().await;
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    let held = lines(&out);
+    assert_eq!(held.len(), 1, "{out}");
+    assert_eq!(held[0]["accept"]["matches"], "Ada Lovelace", "{out}");
+    let id = held[0]["id"].as_str().expect("id").to_owned();
+    let (out, refused) = run(&mut b_run, accept(id.clone()), true).await;
+    assert!(matches!(refused, Err(Failure::Refused(_))), "{refused:?}");
+    assert!(out.is_empty(), "nothing read or printed: {out}");
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    assert_eq!(lines(&out)[0]["status"], "unread", "{out}");
+    let (out, closed) = run(
+        &mut b_run,
+        Verb::ProposalsRead {
+            conversation: alice.route(),
+            accept: vec![],
+            decline: vec![id],
+        },
+        true,
+    )
+    .await;
+    closed.expect("declined");
+    assert_eq!(lines(&out)[0]["status"], "declined");
+}

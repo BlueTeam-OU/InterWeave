@@ -5,7 +5,7 @@ topic: "interweave-seedcipher-seam-256"
 description: "InterWeave Android custody: the per-profile SeedCipher seam (KeyRef alias, seal/open/retire, reseal + credential prompt for step 7) j53's Keystore adapter implements, as stated on InterWeave#256; verify custody.rs on main"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

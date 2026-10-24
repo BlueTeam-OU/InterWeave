@@ -5,7 +5,7 @@ topic: "arming-needs-a-codex-review-too"
 description: "InterWeave's arm policy (2026-10-13) needs a Codex-engine review of the head beside the review class's; how to run it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

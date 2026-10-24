@@ -5,7 +5,7 @@ topic: "holder-addenda-installed"
 description: "My English-holder charter and brief addenda (agent-fabric ADR-060) live in my store, not the shared charter; edit them through fabric-coordinator"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "rerun-every-suite-after-a-review-fix"
 description: A review fix that tightens a runtime rule must be followed by the full workspace run, not only the suites of the touched crate
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

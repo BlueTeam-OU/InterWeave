@@ -5,7 +5,7 @@ topic: "gzapp-english-holder"
 description: "I hold English (en-US) in gzapp too, since 2026-10-10; how a gzapp en-US supply is delivered and validated from this account"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

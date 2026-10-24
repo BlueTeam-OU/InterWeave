@@ -155,6 +155,10 @@ pub enum Update {
     /// A contact card committed unread and handed over: a proposal, which
     /// nothing writes to the contacts before the person accepts it.
     ReceivedCard(Box<Proposal>),
+    /// A held proposal judged again after a contact changed
+    /// ([`UiModel::card_judged`](interweave_human_ui_model::UiModel::card_judged)):
+    /// it replaces a proposal the model holds and brings back none.
+    ProposalJudged(Box<Proposal>),
     /// A proposal was accepted or declined: it is gone.
     CardResolved(RowId),
     /// The contacts, after a change to them.
@@ -303,6 +307,6 @@ pub enum Failure {
     /// What Accept would do changed since the proposal was shown -- another
     /// card accepted on its route, a key recorded, a contact renamed.
     /// Nothing was written, and the proposal is given again as it stands
-    /// ([`Update::ReceivedCard`]) for the person to decide.
+    /// ([`Update::ProposalJudged`]) for the person to decide.
     ProposalChanged,
 }

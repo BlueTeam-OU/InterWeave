@@ -5,7 +5,7 @@ topic: "full-workspace-tests-before-arm"
 description: "Before opening/arming a PR that changes a shared contract, run the whole workspace's tests, not a hand-picked downstream list"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

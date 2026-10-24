@@ -5,7 +5,7 @@ topic: "keep-else-whole"
 description: "In a spec's English pass, never reword an \"else\" branch into a narrower named condition; that changes behaviour"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

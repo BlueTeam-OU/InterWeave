@@ -5,7 +5,7 @@ topic: "rust-job-cache-and-nextest-measured"
 description: "InterWeave rust CI job — cargo target cache sizes, nextest gains, and how a warm cache was measured before merge (PR #288, 2026-10-16)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 5dae63d84f29ef28
+  - ff9031ac180165cb
 ---
 
 ## InterWeave rust CI job — cargo target cache sizes, nextest gains, and how a warm cache was measured before merge (PR #288, 2026-10-16)
@@ -39,7 +40,7 @@ Two places read the CI test command line, and both had to change with it:
 - `tools/checks/check_root_funnel_precondition.sh`
 - xtask's `the_test_task_is_ci_s_tests_step`, which now strips `--profile ci`. xtask itself keeps `cargo test`.
 
-Merged 2026-10-17 as 420465dd. The first main push run (39006585812, rust 13m32s) saved key rust-cargo-Linux-…-2026-W42-… on refs/heads/main at 1,244,084,044 bytes. Open follow-up: p2p-network-dev-01's j74 makes free_port cross-process and removes the end-to-end group (both e2e packages).
+Merged 2026-10-17 as 420465dd. The first main push run (39006585812, rust 13m32s) saved key rust-cargo-Linux-…-2026-W42-… on refs/heads/main at 1,244,084,044 bytes. free_port became cross-process in #316 (p2p-network-dev-02, 8a0c8d64, per-port flock claims). The end-to-end group then narrowed to `binary_id(interweave-desktop-e2e-tests::human_app)` (commit 5dd169c3 on #311, 2026-10-20): the X focus lock FOCUS is still per process. Verified with the pinned nextest's `show-config test-groups` (19 human_app cases), which needs the e2e packages built (~9 GB target).
 
 Related: [[ci-command-line-is-read-by-guards]].
 

@@ -13,8 +13,8 @@ use interweave_human_client_api::{
 };
 use interweave_human_core::{AppMessageId, RowId};
 use interweave_human_ui_model::{
-    ConversationKey, ErrorClass, Intent, LabelKey, ListedInbound, Reply, Retention,
-    SESSION_ITEM_CAP, SessionNotice, Table, UiModel,
+    ContactView, ConversationKey, ErrorClass, Intent, LabelKey, ListedInbound, Reply, Retention,
+    RouteView, SESSION_ITEM_CAP, SessionNotice, Table, UiModel,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -1003,4 +1003,33 @@ fn an_item_is_named_by_its_table_and_row_and_found_again_by_that_name() {
         Some(item),
         "the name it was shown under"
     );
+}
+
+// A contact's conversation in the list: `title` is the contact's name as
+// it is, for a terminal or a script (the command line prints it and puts
+// it in its JSON); `drawn_title` is the same inside a first-strong
+// isolate, for a view that draws it in other text. Mutations: the
+// summary's `title` built isolated; its `drawn_title` built plain.
+#[test]
+fn a_contacts_conversation_lists_its_title_plain_and_its_drawn_title_isolated() {
+    let p = peer();
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![ContactView {
+        contact_id: "c1".to_owned(),
+        name: "Ada Lovelace".to_owned(),
+        name_from_card: true,
+        name_at: Some(1),
+        photo_from_card: None,
+        photo_at: None,
+        photo: None,
+        routes: vec![RouteView {
+            peer: p.clone(),
+            endpoint: endpoint("human"),
+            fingerprint: None,
+        }],
+    }]);
+    model.unread_listed(vec![listed(1, &p, envelope(1, "hello"), 1)]);
+    let [summary] = model.conversations().try_into().expect("one conversation");
+    assert_eq!(summary.title, "Ada Lovelace");
+    assert_eq!(summary.drawn_title, "\u{2068}Ada Lovelace\u{2069}");
 }

@@ -2288,7 +2288,10 @@ fn a_rows_contact_names_are_every_contact_on_its_peer_in_order() {
         contact_id: id.to_owned(),
         name: name.to_owned(),
         name_from_card: true,
+        name_at: None,
         photo_from_card: None,
+        photo_at: None,
+        photo: None,
         routes: vec![RouteView {
             peer: on.clone(),
             endpoint: EndpointId::parse(endpoint).expect("valid"),

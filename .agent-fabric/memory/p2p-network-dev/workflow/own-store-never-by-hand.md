@@ -5,7 +5,7 @@ topic: "own-store-never-by-hand"
 description: "The login's fabric-agent-<id> repository is its secrets store; write it only through fabric-secrets (settings-put), never clone or push by hand"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

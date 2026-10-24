@@ -653,3 +653,311 @@ async fn a_store_without_its_key_is_discarded_only_on_its_confirmed_scope() {
 
     a_daemon.terminate().await;
 }
+
+/// One direction of one connection, as the tap copied it.
+type Stream = std::sync::Arc<std::sync::Mutex<Vec<u8>>>;
+
+/// A data-socket stand-in that passes every byte both ways to the
+/// daemon's socket and keeps a copy of each direction of each connection
+/// apart, so its frames can be read back whole: what a client sends over
+/// IPC, read at the client's own socket path. Stopped by [`Tap::stop`].
+struct Tap {
+    runtime: tempfile::TempDir,
+    seen: std::sync::Arc<std::sync::Mutex<Vec<Stream>>>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    at: std::path::PathBuf,
+    accept: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Tap {
+    /// A runtime directory of its own whose data socket for `home`'s
+    /// profile is the tap, in front of the daemon's.
+    fn start(home: &Home) -> Self {
+        use std::os::unix::fs::PermissionsExt as _;
+        use std::os::unix::net::{UnixListener, UnixStream};
+        use std::sync::atomic::Ordering;
+        let upstream = home.paths.data_socket().expect("a data socket");
+        let relative = upstream
+            .strip_prefix(home.roots.runtime_dir.as_deref().expect("a runtime dir"))
+            .expect("the socket under the runtime dir")
+            .to_owned();
+        let runtime = tempfile::tempdir().expect("a runtime dir");
+        std::fs::set_permissions(runtime.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("private");
+        let at = runtime.path().join(relative);
+        let parent = at.parent().expect("a parent");
+        std::fs::create_dir_all(parent).expect("the run dir");
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).expect("private");
+        let listener = UnixListener::bind(&at).expect("the tap listens");
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (s, st) = (std::sync::Arc::clone(&seen), std::sync::Arc::clone(&stop));
+        let accept = std::thread::spawn(move || {
+            for client in listener.incoming() {
+                if st.load(Ordering::SeqCst) {
+                    return;
+                }
+                let Ok(client) = client else { return };
+                let Ok(daemon) = UnixStream::connect(&upstream) else {
+                    continue;
+                };
+                for (mut from, mut to) in [
+                    (
+                        client.try_clone().expect("clone"),
+                        daemon.try_clone().expect("clone"),
+                    ),
+                    (daemon, client),
+                ] {
+                    let seen = Stream::default();
+                    s.lock().expect("lock").push(std::sync::Arc::clone(&seen));
+                    std::thread::spawn(move || {
+                        use std::io::{Read as _, Write as _};
+                        let mut buf = [0_u8; 16 * 1024];
+                        loop {
+                            match from.read(&mut buf) {
+                                Ok(0) | Err(_) => {
+                                    let _ = to.shutdown(std::net::Shutdown::Write);
+                                    return;
+                                }
+                                Ok(n) => {
+                                    seen.lock().expect("lock").extend_from_slice(&buf[..n]);
+                                    if to.write_all(&buf[..n]).is_err() {
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        });
+        Self {
+            runtime,
+            seen,
+            stop,
+            at,
+            accept: Some(accept),
+        }
+    }
+
+    /// `interweave-human` for `home`'s profile, through the tap.
+    fn human(&self, home: &Home, args: &[&str]) -> Output {
+        let mut command = command(home, args);
+        command.env("XDG_RUNTIME_DIR", self.runtime.path());
+        command
+            .stdin(Stdio::null())
+            .output()
+            .expect("interweave-human runs")
+    }
+
+    /// Every direction of every connection so far, each as one buffer.
+    fn seen(&self) -> Vec<Vec<u8>> {
+        self.seen
+            .lock()
+            .expect("lock")
+            .iter()
+            .map(|s| s.lock().expect("lock").clone())
+            .collect()
+    }
+
+    fn stop(mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = std::os::unix::net::UnixStream::connect(&self.at);
+        if let Some(accept) = self.accept.take() {
+            accept.join().expect("the tap's accept ends");
+        }
+    }
+}
+
+/// A picture larger than the card's 256-pixel bound, as a PNG carrying a
+/// text block a camera or an editor might leave.
+fn picture_file(dir: &std::path::Path) -> std::path::PathBuf {
+    let image = image::RgbImage::from_fn(320, 200, |x, y| {
+        image::Rgb([
+            u8::try_from(x % 256).unwrap_or(0),
+            u8::try_from(y % 256).unwrap_or(0),
+            128,
+        ])
+    });
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("a PNG");
+    let path = dir.join("portrait.png");
+    std::fs::write(&path, &png).expect("written");
+    path
+}
+
+/// The forms the secret of `home`'s first identity's key could take
+/// anywhere else: its bytes, their base64 and their hex. The record's last
+/// 32 bytes are the secret at the desktop's filesystem floor (IDK1).
+fn key_forms(home: &Home) -> Vec<Vec<u8>> {
+    use base64::Engine as _;
+    let human = interweave_transport_api::EndpointId::parse("human").expect("valid");
+    let line = std::fs::read_to_string(interweave_human_store::identity_key::key_path(
+        &home.paths,
+        &human,
+    ))
+    .expect("the key file");
+    let record = base64::engine::general_purpose::STANDARD
+        .decode(line.trim())
+        .expect("base64");
+    let secret = record[record.len() - 32..].to_vec();
+    let hex = secret.iter().fold(String::new(), |mut s, b| {
+        use std::fmt::Write as _;
+        let _ = write!(s, "{b:02x}");
+        s
+    });
+    vec![
+        base64::engine::general_purpose::STANDARD
+            .encode(&secret)
+            .into_bytes(),
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(&secret)
+            .into_bytes(),
+        hex.into_bytes(),
+        secret,
+    ]
+}
+
+/// What one direction of an IPC connection carried, made plain: each
+/// frame's JSON body (LOCAL-IPC.md: four bytes of length, then the body),
+/// each payload's bytes decoded from their base64url, and each
+/// `HumanChatV2` payload decoded as the client decodes it, compressed or
+/// not. A secret inside a payload is encoded with the payload, at any
+/// alignment, so a grep of the wire alone would not see it there.
+fn ipc_plain(stream: &[u8]) -> Vec<u8> {
+    use base64::Engine as _;
+    fn payloads(value: &Value, out: &mut Vec<u8>) {
+        match value {
+            Value::Object(map) => {
+                if let (Some(Value::String(media)), Some(Value::String(bytes))) =
+                    (map.get("media_type"), map.get("bytes"))
+                {
+                    let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                        .decode(bytes.trim_end_matches('='))
+                        .expect("a payload's bytes are base64url");
+                    if let Ok(info) = interweave_human_chat_protocol::parse_media_type(media) {
+                        let text = interweave_human_chat_protocol::decode_envelope_bytes(
+                            &raw,
+                            info.encoding,
+                        )
+                        .expect("a HumanChatV2 payload decodes");
+                        out.extend_from_slice(text.as_bytes());
+                    }
+                    out.extend_from_slice(&raw);
+                }
+                map.values().for_each(|v| payloads(v, out));
+            }
+            Value::Array(list) => list.iter().for_each(|v| payloads(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    let mut rest = stream;
+    while rest.len() >= 4 {
+        let len = u32::from_be_bytes(rest[..4].try_into().expect("four bytes")) as usize;
+        let Some(body) = rest.get(4..4 + len) else {
+            break;
+        };
+        out.extend_from_slice(body);
+        if let Ok(value) = serde_json::from_slice::<Value>(body) {
+            payloads(&value, &mut out);
+        }
+        rest = &rest[4 + len..];
+    }
+    out
+}
+
+fn holds(haystack: &[u8], forms: &[Vec<u8>]) -> bool {
+    forms
+        .iter()
+        .any(|f| haystack.windows(f.len()).any(|w| w == f.as_slice()))
+}
+
+/// `card set --photo` with a real image file, run once end to end: the
+/// photo prepared, shared, proposed with a photo, accepted as the card's;
+/// and across that run the identity's private key is in no byte the
+/// client sent over IPC, in no log of either daemon and in nothing the
+/// client printed (human-client-ui.md section 13; plan section 29's
+/// exit gate). The tap's control: it read the share's `direct.send` and,
+/// decoded from its payload, the card's name.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_photo_set_from_a_file_reaches_the_contact_and_the_key_stays_in_its_file() {
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let to_b = format!("{}/human", b_peer.as_str());
+    let to_a = format!("{}/human", a_peer.as_str());
+    let scratch = tempfile::tempdir().expect("scratch");
+    let picture = picture_file(scratch.path());
+    let picture = picture.to_str().expect("a UTF-8 path");
+    let tap = Tap::start(&a);
+    let mut printed = Vec::new();
+    let mut keep = |out: &Output| {
+        printed.extend_from_slice(&out.stdout);
+        printed.extend_from_slice(&out.stderr);
+    };
+
+    let out = tap.human(&a, &["card", "set", "Ada", "Lovelace", "--photo", picture]);
+    keep(&out);
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = tap.human(&a, &["card", "show", "--json"]);
+    keep(&out);
+    assert_eq!(lines(&out)[0]["has_photo"], true, "{}", said(&out));
+
+    let listener = Listener::start(&b);
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        let out = tap.human(&a, &["--wait", "3000", "card", "share", &to_b, "--json"]);
+        keep(&out);
+        if code(&out) == Some(0) {
+            break;
+        }
+        assert_eq!(code(&out), Some(6), "{}", said(&out));
+        let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+        keep(&tap.human(&a, &["cancel", &id]));
+        assert!(Instant::now() < deadline, "never accepted: {}", said(&out));
+    }
+    let heard = listener.until("the proposal", |l| l["event"] == "proposal");
+    assert_eq!(heard["has_photo"], true, "the card carries the photo");
+    listener.stop();
+
+    let out = human(&b, &["proposals", "--json"], "");
+    let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    let out = human(
+        &b,
+        &["proposals", "read", &to_a, "--accept", &id, "--json"],
+        "",
+    );
+    assert_eq!(lines(&out)[0]["status"], "accepted", "{}", said(&out));
+    let out = human(&b, &["contacts", "--json"], "");
+    let contact = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["photo_from"],
+        "card",
+        "the accepted photo is the card's: {}",
+        said(&out)
+    );
+
+    let traffic: Vec<u8> = tap.seen().iter().flat_map(|s| ipc_plain(s)).collect();
+    tap.stop();
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+    let forms = key_forms(&a);
+    assert!(
+        holds(&traffic, &[b"direct.send".to_vec()]) && holds(&traffic, &[b"Lovelace".to_vec()]),
+        "the control: the tap carried the share and its card was read back ({} bytes)",
+        traffic.len()
+    );
+    assert!(!holds(&traffic, &forms), "the key went over IPC");
+    assert!(!holds(&printed, &forms), "the client printed the key");
+    for (who, log) in [("A", a_daemon.log()), ("B", b_daemon.log())] {
+        assert!(
+            !holds(log.as_bytes(), &forms),
+            "daemon {who} logged the key"
+        );
+    }
+}
