@@ -27,6 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use interweave_local_client_api::AdminCapability;
 use interweave_transport_api::TransportIdentity;
 
 /// The most keys whose last writer is remembered: the allowlist's
@@ -44,6 +45,22 @@ pub(crate) struct AdmissionOrder {
 }
 
 impl AdmissionOrder {
+    /// A port's write admission: `Some` exactly when `capabilities` let
+    /// it write (`admin.trust` or `admin.peers`). A port that cannot
+    /// write is not admitted: the daemon's status port is held for its
+    /// whole life, and as the oldest admission alive it would keep every
+    /// entry [`LastWrites`] remembers, so the map would never be pruned
+    /// and the ceiling's floor would refuse older writers for every key
+    /// (`a_port_that_cannot_write_is_not_admitted`).
+    pub(crate) fn admit_writer(
+        self: &Arc<Self>,
+        capabilities: &BTreeSet<AdminCapability>,
+    ) -> Option<Admission> {
+        (capabilities.contains(&AdminCapability::Trust)
+            || capabilities.contains(&AdminCapability::Peers))
+        .then(|| self.admit())
+    }
+
     /// Admit a port that may write: the next stamp, alive until the port
     /// and every request carrying a clone of it have gone.
     pub(crate) fn admit(self: &Arc<Self>) -> Admission {
@@ -171,6 +188,32 @@ impl LastWrites {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only a port that can write is admitted, so the status port the
+    /// daemon holds for its life never holds the map unpruned. The
+    /// control is the two writing capabilities, each admitted.
+    #[test]
+    fn a_port_that_cannot_write_is_not_admitted() {
+        let order = Arc::new(AdmissionOrder::default());
+        let status = order.admit_writer(&BTreeSet::from([AdminCapability::Status]));
+        assert!(status.is_none());
+        assert_eq!(
+            order.oldest_alive(),
+            None,
+            "nothing alive for the status port"
+        );
+        let mut writes = LastWrites::new(Arc::clone(&order));
+        let b = order
+            .admit_writer(&BTreeSet::from([AdminCapability::Trust]))
+            .expect("a trust port writes");
+        writes.applied(&b, [address(1)]);
+        drop(b);
+        let c = order
+            .admit_writer(&BTreeSet::from([AdminCapability::Peers]))
+            .expect("a peers port writes");
+        writes.applied(&c, [address(2)]);
+        assert_eq!(writes.len(), 0, "pruned: no writer older than either entry");
+    }
 
     fn address(n: usize) -> WriteKey {
         WriteKey::Address(format!("/ip4/192.0.2.1/tcp/{n}"))
