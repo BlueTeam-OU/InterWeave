@@ -5,7 +5,7 @@ topic: "independent-codecs-lessons"
 description: "writing an \"independent\" codec from contract text — what it finds, how to keep it independent, how to compare it with production"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

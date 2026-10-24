@@ -5,7 +5,7 @@ topic: "j88-device-review-run"
 description: "j88 delivered 2026-10-16: Pixel 9a recorded run of swipe spec §11 on main 761d72b3; results, findings now j90, where the evidence is"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

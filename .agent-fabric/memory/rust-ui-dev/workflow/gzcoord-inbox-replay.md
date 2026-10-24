@@ -5,7 +5,7 @@ topic: "gzcoord-inbox-replay"
 description: "gzcoord-inbox has no --help: it drains and moves the cursor; re-read a consumed message with --replay <seq>, list with --history"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

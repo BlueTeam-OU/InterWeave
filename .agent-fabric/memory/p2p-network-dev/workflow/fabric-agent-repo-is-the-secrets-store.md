@@ -5,7 +5,7 @@ topic: "fabric-agent-repo-is-the-secrets-store"
 description: "Never clone or push my fabric-agent-<id> repo by hand; it is the secrets store, written only by fabric-secrets (settings-put for persona files)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

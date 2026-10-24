@@ -5,7 +5,7 @@ topic: "device-review-run-method"
 description: "how to run a recorded acceptance pass of the InterWeave Android client on the Pixel by adb: real rows from host peers, evidence, redaction, traps (j88, 2026-10-16)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

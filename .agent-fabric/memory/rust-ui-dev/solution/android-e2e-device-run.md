@@ -5,7 +5,7 @@ topic: "android-e2e-device-run"
 description: "running InterWeave's android-e2e --ignored cases on the Pixel over wireless adb -- the traps that cost a run on 2026-10-16"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

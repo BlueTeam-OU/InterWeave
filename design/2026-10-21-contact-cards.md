@@ -964,6 +964,10 @@ none is specified here (§11).
   discard every identity's card is made again with its label as its
   name (ADR-0061 d. 1); it shows as the label, and Share shows that name
   in the preview, so the person sees what goes and can edit first.
+- **Key cannot be used**: its identity key file was refused at open,
+  or is missing after it shared its card. It sends and receives as
+  before; Share and the card page show the state and the way to a new
+  key, which `design/2026-10-24-identity-key.md` defines.
 
 ## 6. Showing contacts
 

@@ -3,7 +3,7 @@ role: "language-culture"
 class: index
 description: "What language-culture knows and where it lives."
 tier: 1
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 ---
 
 # language-culture — knowledge index
@@ -47,6 +47,7 @@ control plane checked out beside it.
 - [`../agent-fabric/memory/domains/language-culture/domain/ru-merge-verb-vlivat.md`](../agent-fabric/memory/domains/language-culture/domain/ru-merge-verb-vlivat.md) — In Russian, merging a branch or PR is «вливать», never «сливать»: colloquially «сливать» means to fail or give up, the exact opposite
 - [`../agent-fabric/memory/domains/language-culture/domain/ru-parenthesis-reads-as-restatement.md`](../agent-fabric/memory/domains/language-culture/domain/ru-parenthesis-reads-as-restatement.md) — A Russian parenthesis "(тот, что …)" reads as "that is"; put a narrower case in its own sentence
 - [`../agent-fabric/memory/domains/language-culture/domain/ru-pronoun-after-telefon-passazhira.md`](../agent-fabric/memory/domains/language-culture/domain/ru-pronoun-after-telefon-passazhira.md) — After «Телефон пассажира…», Russian «его» reads as the phone; repeat the noun
+- [`../agent-fabric/memory/domains/language-culture/domain/typed-names-not-joined.md`](../agent-fabric/memory/domains/language-culture/domain/typed-names-not-joined.md) — names a person types (contact names) are never joined into one list string; a name holding "and" or a comma reads as more people
 - [`../agent-fabric/memory/domains/language-culture/domain/unknown-enum-value-is-neizvestno.md`](../agent-fabric/memory/domains/language-culture/domain/unknown-enum-value-is-neizvestno.md) — ru word for a value the build does not know (status, role, model, language, kind) — «Неизвестно», not «Не распознано»
 - [`../agent-fabric/memory/domains/language-culture/domain/unknown-not-unrecognized.md`](../agent-fabric/memory/domains/language-culture/domain/unknown-not-unrecognized.md) — en word for a value the build does not know (status, role, enum, language, kind) — "Unknown", not "Unrecognized"
 - [`../agent-fabric/memory/domains/language-culture/domain/verbatim-placeholder-carries-no-case.md`](../agent-fabric/memory/domains/language-culture/domain/verbatim-placeholder-carries-no-case.md) — A verbatim placeholder (stop name, line code) never takes a Georgian case ending; the case sits on a generic carrier noun and the name stays quoted in the nominative.
@@ -64,7 +65,11 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/language-culture/workflow/gzapp-english-holder.md`](.agent-fabric/memory/language-culture/workflow/gzapp-english-holder.md) — I hold English (en-US) in gzapp too, since 2026-10-10; how a gzapp en-US supply is delivered and validated from this account
 - [`.agent-fabric/memory/language-culture/workflow/holder-addenda-installed.md`](.agent-fabric/memory/language-culture/workflow/holder-addenda-installed.md) — My English-holder charter and brief addenda (agent-fabric ADR-060) live in my store, not the shared charter; edit them through fabric-coordinator
 - [`.agent-fabric/memory/language-culture/workflow/keep-else-whole.md`](.agent-fabric/memory/language-culture/workflow/keep-else-whole.md) — In a spec's English pass, never reword an "else" branch into a narrower named condition; that changes behaviour
+- [`.agent-fabric/memory/language-culture/workflow/name-the-referent.md`](.agent-fabric/memory/language-culture/workflow/name-the-referent.md) — a "that"/"which"/"it" after two clauses, or before text a screen reader reads next, is replaced by the noun it means
 - [`.agent-fabric/memory/language-culture/workflow/no-reports-on-others-prs.md`](.agent-fabric/memory/language-culture/workflow/no-reports-on-others-prs.md) — Do not report the status, counts or readiness of pull requests I do not own
+- [`.agent-fabric/memory/language-culture/workflow/one-text-read-in-each-place.md`](.agent-fabric/memory/language-culture/workflow/one-text-read-in-each-place.md) — a text one tool writes into several artifacts must be read as the reader of each one; deictic words ("this release", "below") break first
+- [`.agent-fabric/memory/language-culture/workflow/supply-base-moves-merge.md`](.agent-fabric/memory/language-culture/workflow/supply-base-moves-merge.md) — When a caller moves the base of a pushed for/ supply branch, merge the new base in; never rebase or force-push
+- [`.agent-fabric/memory/language-culture/workflow/word-against-the-where-cell.md`](.agent-fabric/memory/language-culture/workflow/word-against-the-where-cell.md) — before wording a design s9 key, list every case its Where cell and the spec rows it cites name; a text true in the request's cases broke in the next one three times
 - [`.agent-fabric/memory/language-culture/workflow/workflow-carried-2026-10-10.md`](.agent-fabric/memory/language-culture/workflow/workflow-carried-2026-10-10.md) — How the English cold read behaves when given only the text and the rules — what it catches and what to check before taking a finding
 
 ## recall

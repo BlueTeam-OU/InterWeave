@@ -5,7 +5,7 @@ topic: "admin-peers-list-branch"
 description: "#212 (j24) merged b8767d23 2026-10-07: admin.peers.list at IPC 2.2, j23 fresh-port redials, held-send policy order; carries one P3 doc fix and two test risks to the next PR"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

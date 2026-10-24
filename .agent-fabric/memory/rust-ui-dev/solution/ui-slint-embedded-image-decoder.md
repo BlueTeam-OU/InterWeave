@@ -5,7 +5,7 @@ topic: "ui-slint-embedded-image-decoder"
 description: "An @image-url in InterWeave's app.slint needs i-slint-core image-decoders, which only backends turn on; workspace CI hides a featureless ui-slint build failure"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

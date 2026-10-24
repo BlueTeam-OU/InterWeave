@@ -5,13 +5,14 @@ topic: "host-cargo-is-system-1-98-no-rustup"
 description: "develop-qzapp has only the distro cargo (Fedora 1.98.1), no rustup. Since #142 (400fb1e3) the pin IS 1.98.1, so local clippy = CI clippy; before that the 1.97.1 pin was not honoured locally. Lessons that outlive the skew: never pipe a…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 8e8f4398a80d4a52
   - a30c1b6d1f8a2159
   - faf8cb2c1134e70d
 ---
@@ -33,6 +34,10 @@ Measured 2026-09-17 on `develop-qzapp` as `p2p-network-dev-01`: `which -a cargo`
 **Bitten the other way, 2026-09-28 (#142 supplier branch).** Five `#[expect(clippy::unused_async_trait_impl)]` passed the local gate on 1.98 but name a lint clippy 1.97 does not have, so CI's pinned 1.97.1 would fail `-D warnings` on `unknown_lints`; the supplier review caught it, not the gate. Any `#[expect]`/`allow` naming a lint must exist in the PINNED clippy. The pinned toolchain CAN be run here without touching the host: `curl -sSf -o $S/rust/rustup-init https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init`, then `RUSTUP_HOME=$S/rust/rustup CARGO_HOME=$S/rust/cargo rustup-init -y --no-modify-path --profile minimal --default-toolchain <pin> -c clippy -c rustfmt` (665 MB) and run cargo from `$S/rust/cargo/bin` with those two variables exported; it rebuilds the target from scratch. The owner then chose to move the pin to 1.98 (raised to devex-tooling on #142), which removes the skew.
 
 **The skew ENDED 2026-09-28.** devex-tooling moved `rust-toolchain.toml` and `rust-version` to 1.98.1 on #142 (400fb1e3, the owner's call), and the host's rustc is Fedora 1.98.1, so a local `cargo clippy --workspace --all-targets --locked -- -D warnings` is now the CI gate. If the pin moves again, re-read `rustc --version` against it before trusting a local gate, and use the scratchpad rustup recipe above for any version the host does not have.
+
+**The skew RETURNED by 2026-10-19.** The host's cargo is now Fedora 1.99.0 (`clippy 0.1.99`) while `rust-toolchain.toml` still pins 1.98.1. On PR #310 (j92) clippy 1.99 fired the new `clippy::double_must_use` in `crates/api/trust-api/src/lib.rs:159`, outside the diff. So the local gate is again `-D warnings -A clippy::double-must-use` given by name, the exit has to be 0, and the output is read. A lint named in an `#[expect]` or `allow` must exist in clippy 1.98.
+
+**A second 1.99-only lint, 2026-10-20 (j94).** `clippy::assert_is_empty` fires in `tests/local-client-conformance/src/lib.rs:1461,1473`, outside any diff of mine. The local gate on the touched packages is now `-D warnings -A clippy::double_must_use -A clippy::assert_is_empty`, both named, exit 0 required. A third one can appear at any time: read the error before allowing it.
 
 *References: known-failing-masks-new-failures*
 

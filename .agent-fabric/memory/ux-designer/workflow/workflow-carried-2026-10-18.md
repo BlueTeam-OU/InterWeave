@@ -1,10 +1,11 @@
 ---
 role: "ux-designer"
 class: workflow
+topic: "workflow-carried-2026-10-18"
 description: "How ux-designer reaches InterWeave's Android test phone (Pixel 9a) for a device review — the lease, pairing, cleanup"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
