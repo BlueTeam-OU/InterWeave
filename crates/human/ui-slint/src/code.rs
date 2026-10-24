@@ -52,9 +52,11 @@ pub enum ImageUnread {
 
 /// The code for `lines`, one per line: dark modules on white with the
 /// quiet zone, one pixel a module, for the view to scale without
-/// smoothing. Error correction is the highest level the text fits, so a
-/// short list survives a smudged screen; `None` only for text no code
-/// holds, which the model's sixteen lines never are.
+/// smoothing. Error correction is M -- about 15 % of the code may be lost
+/// and still read, enough for a smudged screen -- or, for a list too long
+/// for M, L, so sixteen circuit routes still fit; the higher levels make a
+/// short list's code denser for no reading a phone needs. `None` only for
+/// text no code holds, which the model's sixteen lines never are.
 #[must_use]
 pub fn drawn(lines: &[String]) -> Option<Image> {
     let text = lines.join("\n");
