@@ -1283,3 +1283,178 @@ async fn undo_of_a_decline_returns_the_proposal_and_a_closed_snackbar_lets_the_c
         "the card was let go: {updates:?}"
     );
 }
+
+/// A facade whose identity key comes from its file through `cipher`, as
+/// every root composes it (design/2026-10-24-identity-key.md).
+fn facade_with_source(
+    node: &FakeNode,
+    profile: &Profile,
+    cipher: Box<dyn identity_key::KeyCipher + Send>,
+) -> FacadeSide<FakeNode, FakeNode> {
+    let mut side = facade(node, profile, None);
+    side.set_key_source(interweave_human_app_core::KeySource::new(
+        profile.paths.clone(),
+        human(),
+        cipher,
+    ));
+    side
+}
+
+fn own_key(root: &Root) -> interweave_human_ui_model::OwnKey {
+    root.model().identity().expect("the identity").key.clone()
+}
+
+/// Design sections 3, 4.1 and 5, acceptance items 2, 5, 6 and 7 at the
+/// facade: a damaged key file leaves the identity keyless and named so,
+/// its card still saves, Share is refused, and a confirmed new key gives a
+/// new fingerprint and lists the conversation the card was shared in --
+/// whose counterpart then sees the next card as a key change.
+#[tokio::test]
+async fn a_damaged_key_is_named_the_card_still_saves_and_a_new_key_lists_where_to_share_again() {
+    use interweave_human_ui_model::{KeyProblem, KeyStep, OwnKey};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let OwnKey::Ready { fingerprint: old } = own_key(&alice) else {
+        panic!("a first key: {:?}", own_key(&alice))
+    };
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let row = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::AcceptCard(row));
+    bob.pump(5).await;
+    drop(alice);
+
+    // Alice's key file is damaged; she starts again.
+    let file = identity_key::key_path(&pa.paths, &human());
+    std::fs::write(&file, "not a record\n").expect("damage");
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    alice.pump(6).await;
+    assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Damaged));
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: Some("King".to_owned()),
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(7).await;
+    assert!(
+        alice.failed().is_empty(),
+        "Save needs no key: {:?}",
+        alice.failed()
+    );
+    assert_eq!(alice.model().identity().expect("shown").name, "Ada King");
+    let to_bob = direct(b.peer());
+    alice.will(alice.model().share_card(&to_bob).expect("offered"));
+    alice.pump(8).await;
+    assert!(
+        alice
+            .failed()
+            .iter()
+            .any(|(_, why)| *why == Failure::NoIdentityKey),
+        "nothing is signed without a key"
+    );
+
+    alice.will(Intent::AskNewKey);
+    alice.pump(9).await;
+    assert_eq!(
+        alice.model().key_step(),
+        Some(&KeyStep::Confirming { pending: false })
+    );
+    alice.will(Intent::MakeNewKey);
+    alice.pump(10).await;
+    let OwnKey::Ready { fingerprint: new } = own_key(&alice) else {
+        panic!("made: {:?}", own_key(&alice))
+    };
+    assert_ne!(new, old, "a new key");
+    assert_eq!(
+        alice.model().key_step(),
+        Some(&KeyStep::Made {
+            share_again: vec![to_bob.clone()]
+        }),
+        "the conversation the card went to, and no other"
+    );
+
+    // Bob's client shows the next card as a key change.
+    alice.will(alice.model().share_card(&to_bob).expect("offered"));
+    alice.pump(11).await;
+    alice.pump(12).await;
+    bob.pump(13).await;
+    let proposals = bob.model().proposals(&from_alice);
+    assert!(
+        proposals
+            .iter()
+            .any(|p| matches!(&p.key, KeyView::Changed { recorded } if *recorded == old)),
+        "a key change, the old fingerprint named: {proposals:?}"
+    );
+}
+
+/// Acceptance items 9 and 11 at the facade: a key file gone after a
+/// share is missing and nothing makes one by itself; a new key that
+/// cannot be stored after the old file went says the saved key is gone.
+#[tokio::test]
+async fn a_missing_key_after_a_share_is_named_and_a_new_key_not_stored_says_the_old_one_went() {
+    use interweave_human_ui_model::{KeyProblem, KeyStep, OwnKey};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    drop(alice);
+    let file = identity_key::key_path(&pa.paths, &human());
+    std::fs::remove_file(&file).expect("lost");
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(NoSeal)));
+    alice.pump(5).await;
+    assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Missing));
+    assert!(!file.exists(), "no key made by itself");
+
+    std::fs::write(&file, "not a record\n").expect("a file to go");
+    std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600))
+        .expect("chmod");
+    alice.will(Intent::AskNewKey);
+    alice.pump(6).await;
+    alice.will(Intent::MakeNewKey);
+    alice.pump(7).await;
+    assert_eq!(
+        alice.model().key_step(),
+        Some(&KeyStep::Failed { gone: true })
+    );
+    assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Missing));
+    assert!(!file.exists(), "the old file went first");
+}
+
+/// A cipher at the desktop's custody that cannot seal: a new key cannot
+/// be stored under it.
+struct NoSeal;
+
+impl identity_key::KeyCipher for NoSeal {
+    fn custody(&self) -> identity_key::Custody {
+        identity_key::Custody::FilesystemOnly
+    }
+
+    fn seal(
+        &self,
+        _: &str,
+        _: &[u8],
+        _: &[u8; 32],
+    ) -> Result<Vec<u8>, identity_key::CipherFailure> {
+        Err(identity_key::CipherFailure::Platform("no seal".to_owned()))
+    }
+
+    fn open(
+        &self,
+        alias: &str,
+        aad: &[u8],
+        sealed: &[u8],
+    ) -> Result<zeroize::Zeroizing<[u8; 32]>, identity_key::CipherFailure> {
+        FilesystemCustody.open(alias, aad, sealed)
+    }
+
+    fn retire(&self, _: &str) -> Result<(), identity_key::CipherFailure> {
+        Ok(())
+    }
+}

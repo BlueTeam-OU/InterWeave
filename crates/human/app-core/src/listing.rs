@@ -23,7 +23,7 @@ use crate::protocol::Listing;
 const PAGE_RECORDS: usize = 64;
 const PAGE_BYTES: usize = 1024 * 1024;
 
-fn limits() -> PageLimits {
+pub(crate) fn limits() -> PageLimits {
     // Both non-zero: `new` refuses only a zero ceiling.
     PageLimits::new(PAGE_RECORDS, PAGE_BYTES).unwrap_or_else(|_| unreachable!())
 }
@@ -113,7 +113,7 @@ fn card(row: &StoredInbound) -> Option<ReceivedCard> {
     })
 }
 
-fn walk<T>(
+pub(crate) fn walk<T>(
     mut page: impl FnMut(Option<Cursor>) -> Result<Page<T>, StoreError>,
 ) -> Result<Vec<T>, StoreError> {
     let mut rows = Vec::new();

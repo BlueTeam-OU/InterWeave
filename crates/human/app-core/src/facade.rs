@@ -75,6 +75,11 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// creates it at start (`identity_key`), and without it nothing is
     /// shared.
     identity: Option<IdentityKey>,
+    /// Where the key lives, when the root gave it ([`Self::set_key_source`]):
+    /// what opens it again and makes a new one.
+    key_source: Option<crate::KeySource>,
+    /// Why the key could not be used, while it cannot.
+    key_problem: Option<interweave_human_ui_model::KeyProblem>,
     /// The last Accept or Decline, held for its Undo until its snackbar
     /// closes ([`Command::ForgetCard`]) or the next one replaces it: one
     /// snackbar is up at a time, so one is held (message-swipe design
@@ -107,6 +112,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             reported: None,
             outbound: BTreeMap::new(),
             identity: None,
+            key_source: None,
+            key_problem: None,
             card_undo: None,
         }
     }
@@ -115,6 +122,55 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// endpoint must be the one the facade leases.
     pub fn set_identity_key(&mut self, key: IdentityKey) {
         self.identity = Some(key);
+        self.key_problem = None;
+    }
+
+    /// Where the identity's key lives: it is opened now, by the root's
+    /// rule, and a refusal is kept for the identity's page to say
+    /// (design/2026-10-24-identity-key.md section 3), never a key made in
+    /// its place. Its endpoint must be the one the facade leases.
+    pub fn set_key_source(&mut self, source: crate::KeySource) {
+        self.key_source = Some(source);
+        self.open_key();
+    }
+
+    /// Open the key from its source: held, or its refusal kept.
+    fn open_key(&mut self) {
+        let Some(source) = &self.key_source else {
+            return;
+        };
+        match source.open(self.client.store_mut()) {
+            Ok(key) => {
+                self.identity = Some(key);
+                self.key_problem = None;
+            }
+            Err(e) => {
+                self.identity = None;
+                self.key_problem = Some(source.problem(&e));
+            }
+        }
+    }
+
+    /// The identity in front as its page shows it: its card, and its key
+    /// or why it cannot be used. `None` with neither a key nor a source.
+    fn own_view(&mut self) -> Result<Option<interweave_human_ui_model::IdentityView>, StoreError> {
+        use interweave_human_ui_model::{KeyProblem, OwnKey};
+        let (endpoint, key) = match (&self.identity, &self.key_source) {
+            (Some(key), _) => (
+                key.endpoint().clone(),
+                OwnKey::Ready {
+                    fingerprint: key.fingerprint().to_string(),
+                },
+            ),
+            (None, Some(source)) => (
+                source.endpoint().clone(),
+                OwnKey::Unusable(self.key_problem.clone().unwrap_or(KeyProblem::NotNow)),
+            ),
+            (None, None) => return Ok(None),
+        };
+        let peer = self.client.local_peer().cloned();
+        let at = (self.wall)();
+        cards::identity_view(self.client.store_mut(), &endpoint, key, peer.as_ref(), at).map(Some)
     }
 
     /// The facade, to read its state.
@@ -137,16 +193,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// The store's, when it cannot be read.
     pub fn listing(&mut self) -> Result<Listing, StoreError> {
         let mut listing = listing::list_all(self.client.store_mut())?;
-        if let Some(key) = &self.identity {
-            let peer = self.client.local_peer().cloned();
-            let at = (self.wall)();
-            listing.identity = Some(cards::identity_view(
-                self.client.store_mut(),
-                key,
-                peer.as_ref(),
-                at,
-            )?);
-        }
+        listing.identity = self.own_view()?;
         Ok(listing)
     }
 
@@ -361,6 +408,15 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Command::AcceptCard { row, shown } => self.accept_card(*row, shown, &mut updates),
             Command::DeclineCard(row) => self.decline_card(*row, &mut updates),
             Command::UndoCard(row) => self.undo_card(*row, &mut updates),
+            Command::AskNewKey => cards::own_cards_pending(self.client.store_mut())
+                .map(|rows| {
+                    updates.push(Update::NewKeyAsked {
+                        pending: !rows.is_empty(),
+                    });
+                })
+                .map_err(|e| store_failure(&e)),
+            Command::MakeNewKey => self.make_new_key(&mut updates),
+            Command::RetryKey => self.retry_key(&mut updates),
             Command::ForgetCard(row) => {
                 if self.card_undo.as_ref().is_some_and(|u| u.row == *row) {
                     self.card_undo = None;
@@ -461,6 +517,114 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         // a problem of its own, never a refusal of what was done (#414 F8).
         updates.push(contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
+        Ok(())
+    }
+
+    /// Try again: the key opened once more, and the identity as it finds
+    /// it (design/2026-10-24-identity-key.md section 6).
+    fn retry_key(&mut self, updates: &mut Vec<Update>) -> Result<(), Failure> {
+        self.open_key();
+        let view = self
+            .own_view()
+            .map_err(|e| store_failure(&e))?
+            .ok_or(Failure::NoIdentityKey)?;
+        updates.push(Update::KeyRetried(view));
+        Ok(())
+    }
+
+    /// Make a new key, as the person confirmed (design/2026-10-24-
+    /// identity-key.md section 5.2): every own card the facade still holds
+    /// unsent is withdrawn first, with no Undo, since it carries a key the
+    /// person no longer has -- a row the transport may hold already is
+    /// left to arrive; where the store cannot withdraw one, no key is
+    /// made. Then the old key goes and the new one is made, and the
+    /// conversations whose counterparts hold or may hold the old key are
+    /// listed for a share again. A failure after the old file went is said
+    /// as missing, and nothing makes a key in its place this session.
+    fn make_new_key(&mut self, updates: &mut Vec<Update>) -> Result<(), Failure> {
+        use interweave_human_ui_model::KeyProblem;
+        if self.key_source.is_none() {
+            return Err(Failure::NoIdentityKey);
+        }
+        let store = self.client.store_mut();
+        let pending = cards::own_cards_pending(store).map_err(|e| store_failure(&e))?;
+        let mut shared: Vec<ConversationKey> = store
+            .cards_shared()
+            .map_err(|e| store_failure(&e))?
+            .into_iter()
+            .map(|(peer, endpoint, _)| ConversationKey::Direct {
+                peer,
+                endpoint: Some(endpoint),
+            })
+            .collect();
+        for (row, peer, endpoint) in &pending {
+            let key = ConversationKey::Direct {
+                peer: peer.clone(),
+                endpoint: Some(endpoint.clone()),
+            };
+            if !shared.contains(&key) {
+                shared.push(key);
+            }
+            // Not sent: the client holds it, so it is withdrawn. Sending
+            // or unconfirmed: the transport may hold it, so it may arrive.
+            let unsent = self.outbound.get(row).is_some_and(|u| {
+                matches!(
+                    u.status,
+                    interweave_human_client_api::OutboundStatus::NeedsAttention { .. }
+                )
+            });
+            if unsent {
+                if self.client.cancel(*row).is_err() {
+                    let view = self.own_view().map_err(|e| store_failure(&e))?;
+                    if let Some(identity) = view {
+                        updates.push(Update::KeyNotMade {
+                            identity,
+                            gone: false,
+                        });
+                    }
+                    return Ok(());
+                }
+                while let Some(event) = self.client.next_event() {
+                    self.on_event(event, updates);
+                }
+                updates.push(Update::Cancelled {
+                    row: *row,
+                    restorable: false,
+                });
+            }
+        }
+        let made = self.key_source.as_ref().map(crate::KeySource::replace);
+        match made {
+            Some(Ok(key)) => {
+                self.identity = Some(key);
+                self.key_problem = None;
+                if let Some(identity) = self.own_view().map_err(|e| store_failure(&e))? {
+                    updates.push(Update::KeyMade {
+                        identity,
+                        share_again: shared,
+                    });
+                }
+            }
+            Some(Err(failed)) => {
+                let gone = matches!(
+                    failed,
+                    interweave_human_store::identity_key::NewKeyFailed::Gone(_)
+                );
+                if gone {
+                    // Never opened again here: an identity that never
+                    // shared would be given a key silently, and the person
+                    // asked for one and must learn it was not made.
+                    self.identity = None;
+                    self.key_problem = Some(KeyProblem::Missing);
+                } else {
+                    self.open_key();
+                }
+                if let Some(identity) = self.own_view().map_err(|e| store_failure(&e))? {
+                    updates.push(Update::KeyNotMade { identity, gone });
+                }
+            }
+            None => return Err(Failure::NoIdentityKey),
+        }
         Ok(())
     }
 
@@ -611,11 +775,18 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         photo: &PhotoEdit,
         updates: &mut Vec<Update>,
     ) -> Result<(), Failure> {
-        let identity = self.identity.as_ref().ok_or(Failure::NoIdentityKey)?;
+        // The card is signed when it is shared, not when it is saved:
+        // editing it needs no key (design/2026-10-24-identity-key.md
+        // section 4.1), only the identity.
+        let endpoint = match (&self.identity, &self.key_source) {
+            (Some(key), _) => key.endpoint().clone(),
+            (None, Some(source)) => source.endpoint().clone(),
+            (None, None) => return Err(Failure::NoIdentityKey),
+        };
         let at = (self.wall)();
         let store = self.client.store_mut();
         let current = store
-            .ensure_own_card(identity.endpoint(), at)
+            .ensure_own_card(&endpoint, at)
             .map_err(|e| store_failure(&e))?;
         let photo = match photo {
             PhotoEdit::Keep => current.photo,
@@ -635,7 +806,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         store
             .set_own_card(
                 &interweave_human_store::OwnCard {
-                    endpoint: identity.endpoint().clone(),
+                    endpoint,
                     name: name.to_owned(),
                     surname: surname.map(str::to_owned),
                     photo,
@@ -643,10 +814,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 at,
             )
             .map_err(|e| store_failure(&e))?;
-        let peer = self.client.local_peer().cloned();
-        let view = cards::identity_view(self.client.store_mut(), identity, peer.as_ref(), at)
-            .map_err(|e| store_failure(&e))?;
-        updates.push(Update::IdentityShown(view));
+        if let Some(view) = self.own_view().map_err(|e| store_failure(&e))? {
+            updates.push(Update::IdentityShown(view));
+        }
         Ok(())
     }
 
