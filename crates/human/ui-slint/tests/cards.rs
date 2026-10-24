@@ -138,6 +138,7 @@ fn context() -> ProposalContext {
         key_matches: Vec::new(),
         key: KeyView::New,
         fingerprint: "0123456789abcdef".to_owned(),
+        changes_nothing: false,
     }
 }
 
@@ -282,8 +283,62 @@ fn accepts_label_and_context_say_what_it_will_do_and_decline_answers_its_row() {
         &fill(text(UiText::CardSameName), &[("contact", &isolated("Ada"))])
     ));
     assert!(shows(&view, text(UiText::CopyPeerId)));
+    assert!(shows(&view, &received_noon()), "when the card came");
     assert!(!shows(&view, text(UiText::Keep)), "a proposal has no Keep");
     press(&view, text(UiText::CardDecline));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::DeclineCard(row(1))]
+    );
+}
+
+/// What the row says of when its card came, at the tests' clock (NOW is
+/// 12:00 UTC, the offset zero).
+fn received_noon() -> String {
+    fill(text(UiText::CardReceivedAt), &[("date", "12:00")])
+}
+
+// Case S (design/2026-10-21-contact-cards.md section 5.4.1): a card that
+// changes nothing says it matches the contact, offers Close alone in
+// Accept's place, says nothing of being removed at close, and Close
+// answers as Decline. The row says when the card came, as every proposal
+// does, since it is drawn after the messages. Mutations: Decline drawn
+// beside Close; Close raising Accept; the received line not drawn.
+#[test]
+fn a_card_that_changes_nothing_offers_close_alone_and_says_when_it_came() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", false),
+        ProposalContext {
+            updates: Some(ContactRef {
+                contact_id: "c1".to_owned(),
+                name: "Countess".to_owned(),
+            }),
+            key: KeyView::Same,
+            changes_nothing: true,
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, P);
+    assert!(shows(
+        &view,
+        &fill(
+            text(UiText::CardSame),
+            &[("contact", &isolated("Countess"))]
+        )
+    ));
+    assert!(shows(&view, text(UiText::Close)));
+    assert!(
+        !shows(&view, text(UiText::CardDecline)),
+        "no Decline in case S"
+    );
+    assert!(!shows(&view, text(UiText::UpdateContact)));
+    assert!(!shows(&view, text(UiText::CardGoesAtClose)));
+    assert!(shows(&view, &received_noon()));
+    press(&view, text(UiText::Close));
     assert_eq!(
         intents(&mut view, &mut model),
         vec![Intent::DeclineCard(row(1))]

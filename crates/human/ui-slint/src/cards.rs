@@ -201,8 +201,9 @@ fn image(photo: &Photo) -> Image {
     ))
 }
 
-/// A proposal as its row draws it.
-fn proposal_row(handle: i32, p: &ProposalItem) -> ProposalRow {
+/// A proposal as its row draws it; `received` is when it came, as the
+/// clock words it.
+fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     let name = isolated(&p.name);
     let context = match &p.accept {
         AcceptLine::Creates => text(UiText::CardWillCreate).to_owned(),
@@ -210,6 +211,9 @@ fn proposal_row(handle: i32, p: &ProposalItem) -> ProposalRow {
             text(UiText::CardWillUpdate),
             &[("contact", &isolated(contact))],
         ),
+        AcceptLine::Matches(contact) => {
+            fill(text(UiText::CardSame), &[("contact", &isolated(contact))])
+        }
     };
     let notes: Vec<ProposalNoteRow> = p
         .notes
@@ -249,7 +253,14 @@ fn proposal_row(handle: i32, p: &ProposalItem) -> ProposalRow {
         fingerprint: p.fingerprint.as_str().into(),
         context: context.into(),
         notes: ModelRc::new(VecModel::from(notes)),
-        goes: text(UiText::CardGoesAtClose).into(),
+        // Nothing is lost by closing a card that changes nothing.
+        goes: if matches!(p.accept, AcceptLine::Matches(_)) {
+            SharedString::new()
+        } else {
+            text(UiText::CardGoesAtClose).into()
+        },
+        received: fill(text(UiText::CardReceivedAt), &[("date", received)]).into(),
+        closes: matches!(p.accept, AcceptLine::Matches(_)),
         accept: text(p.accept_text()).into(),
         decline: text(UiText::CardDecline).into(),
         copy: text(UiText::CopyPeerId).into(),
@@ -452,10 +463,18 @@ impl View {
                 .enumerate()
                 .map(|(i, p)| {
                     let handle = i32::try_from(i).unwrap_or(i32::MAX);
-                    if let [accept, decline] = model.card_actions(p.row).as_slice() {
-                        answers.insert(handle, (accept.clone(), decline.clone()));
+                    // Case S offers Decline alone, which the row's one
+                    // button, Close, raises whichever callback it takes.
+                    match model.card_actions(p.row).as_slice() {
+                        [accept, decline] => {
+                            answers.insert(handle, (accept.clone(), decline.clone()));
+                        }
+                        [only] => {
+                            answers.insert(handle, (only.clone(), only.clone()));
+                        }
+                        _ => {}
                     }
-                    proposal_row(handle, p)
+                    proposal_row(handle, p, &self.clock.list_time(p.received_at))
                 })
                 .collect();
             rows.set_vec(drawn);

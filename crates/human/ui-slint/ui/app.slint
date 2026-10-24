@@ -81,6 +81,10 @@ export struct ProposalRow {
     notes: [ProposalNoteRow],
     // It goes when InterWeave stops unless accepted.
     goes: string,
+    // When it came: the row is drawn after the messages, not at its time.
+    received: string,
+    // The card changes nothing (case S): Close alone, in Accept's place.
+    closes: bool,
     accept: string,
     decline: string,
     copy: string,
@@ -2040,6 +2044,14 @@ component ProposalCard inherits Rectangle {
             accessible-label: self.text;
         }
         Text {
+            text: root.card.received;
+            font-size: Type.body-small;
+            wrap: word-wrap;
+            color: Palette.on-surface-variant;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        if root.card.goes != "": Text {
             text: root.card.goes;
             font-size: Type.body-small;
             wrap: word-wrap;
@@ -2060,7 +2072,7 @@ component ProposalCard inherits Rectangle {
                 pressed => { root.copy(); }
                 focused(k) => { root.focused(k); }
             }
-            ActionButton {
+            if !root.card.closes: ActionButton {
                 text: root.card.decline;
                 text-button: true;
                 target: 48px;
