@@ -355,6 +355,12 @@ fn file_present(path: &std::path::Path) -> Result<bool, IdentityKeyFileError> {
 pub enum IdentityKeyFileError {
     /// The identity already has a key file.
     Exists,
+    /// The identity's key file is gone after its card was shared, so
+    /// counterparties hold a key this device no longer has: never made
+    /// again silently, only by the person's confirmed new key, which they
+    /// see as a key change (ADR-0063 decision 1, architect-cto's ruling
+    /// of 2026-10-24).
+    Missing,
     /// The key or its record refused.
     Key(IdentityKeyError),
     /// The file or its directory could not be written, read or removed,
@@ -372,6 +378,7 @@ impl core::fmt::Display for IdentityKeyFileError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Exists => f.write_str("the identity already has a key"),
+            Self::Missing => f.write_str("the identity's key file is gone, and its card was shared"),
             Self::Key(e) => e.fmt(f),
             Self::Persist(e) => write!(f, "the identity's key file: {e}"),
         }

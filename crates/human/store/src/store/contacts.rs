@@ -703,6 +703,21 @@ impl HumanStore {
         Ok(())
     }
 
+    /// Whether any conversation ever recorded a share of the identity's
+    /// card: what tells a first start from a key file lost after
+    /// counterparties got its key. `card_shared_at` is cleared by nothing
+    /// short of a discard of the whole store.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn card_ever_shared(&self) -> Result<bool, StoreError> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM conversation_index WHERE card_shared_at IS NOT NULL)",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+
     /// When the conversation on this route last shared its card.
     ///
     /// # Errors
