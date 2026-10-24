@@ -466,6 +466,12 @@ ui_texts! {
     /// not be read: it may not show that change. Never says that nothing
     /// changed. Opening the settings again reads it.
     TrustNotReadAgain => "The list of trusted peers could not be read again, so it may not show the latest change. Open the trust settings again to read it.",
+    // PLACEHOLDER (en)
+    /// Trust settings: a change refused because a later change of the same
+    /// peer from another admin connection stands (IPC 2.10, `superseded`);
+    /// the list is read again and shows that change. `{peer}` the exact
+    /// `PeerId`, whole. Nothing is retried.
+    TrustSuperseded => "The change for {peer} was not saved, because a change made at the same time in another app or window on this device was kept. The list shows what is in effect.",
     /// ANDROID, identity screens: W's title.
     IdWelcomeTitle => "Welcome to InterWeave",
     /// ANDROID, identity screens: W's body, two lines.
@@ -1102,6 +1108,12 @@ ui_texts! {
     /// A step-two block: the trust read back after a lost answer does not
     /// list the peer.
     TrustStepNotMade => "{peer} is still not trusted. Your choice of Trust was not saved. Choose Trust to try again.",
+    // PLACEHOLDER (en)
+    /// A step-two block: the trust was refused because a later change of
+    /// the same peer from another admin connection stands (IPC 2.10,
+    /// `superseded`), and the list read again does not list the peer;
+    /// `{peer}` the short `PeerId`. Nothing is retried.
+    TrustStepSuperseded => "{peer} is still not trusted. Your choice of Trust was not saved, because a change made at the same time in another app or window on this device was kept.",
     /// Under Add: a daemon with the one-address add only did not take
     /// several lines; `{n}` the lines. Daemon only: the embedded runtime
     /// is this app's own version.
