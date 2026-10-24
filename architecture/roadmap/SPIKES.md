@@ -208,8 +208,8 @@ registered and delivered. The same modern-capable server under
 `MCP_PROTOCOL_NEGOTIATION=legacy` registered too. Read from the binary,
 not measured: the era is the gate's second check, before any flag,
 policy or allowlist, and the permission relay excludes a modern
-connection as well. A modern result without `resultType` is rejected
-(run d). So fact 3 holds on this build, and the bridge
+connection as well. A modern `tools/list` result without `resultType`
+is rejected, while a discover result without it was accepted (run d). So fact 3 holds on this build, and the bridge
 stays legacy, as it is (`apps/claude-channel/src/mcp.rs`). A build
 after 2.1.286 is not established.
 
