@@ -371,7 +371,9 @@ fn open_finds_no_key_where_none_was_made_and_refuses_a_file_others_can_read() {
     assert!(
         matches!(
             identity_key::open(&paths, &human, &FilesystemCustody),
-            Err(IdentityKeyFileError::Persist(_))
+            Err(IdentityKeyFileError::Read(
+                identity_key::KeyFileRead::NotPrivate
+            ))
         ),
         "a key file others can read is refused, not opened"
     );
@@ -473,6 +475,133 @@ fn remove_deletes_the_file_before_it_retires_the_platform_key() {
         "the file went first"
     );
     assert!(!cipher.file.exists());
+}
+
+/// design/2026-10-24-identity-key.md section 3: every refusal at open has
+/// its kind, by which the client says what happened and what it offers
+/// (acceptance items 2, 14, 15, 16 and 18, the store's half).
+#[test]
+fn every_open_refusal_has_its_kind() {
+    use identity_key::KeyUnusable as K;
+    let human = endpoint("human");
+    let kind = |paths: &ProfilePaths, cipher: &dyn KeyCipher| {
+        identity_key::open(paths, &human, cipher)
+            .expect_err("refused")
+            .unusable()
+    };
+    let fresh = || {
+        let (dir, paths) = desktop_paths();
+        identity_key::create(&paths, &human, &FilesystemCustody).expect("created");
+        let file = identity_key::key_path(&paths, &human);
+        (dir, paths, file)
+    };
+    let rewrite = |file: &std::path::Path, f: &dyn Fn(&mut Vec<u8>)| {
+        let line = std::fs::read_to_string(file).expect("read");
+        std::fs::write(file, edit_record(line.trim(), |b| f(b))).expect("write");
+    };
+
+    // Another identity's file in this one's place.
+    let (_d, paths, file) = fresh();
+    identity_key::create(&paths, &endpoint("work"), &FilesystemCustody).expect("work");
+    std::fs::copy(identity_key::key_path(&paths, &endpoint("work")), &file).expect("copy");
+    assert_eq!(
+        kind(&paths, &FilesystemCustody),
+        Some(K::Damaged),
+        "another identity's"
+    );
+
+    // A version above this build's is a newer version's; below, damage.
+    let (_d, paths, file) = fresh();
+    rewrite(&file, &|b| b[4] = identity_key::VERSION + 1);
+    assert_eq!(kind(&paths, &FilesystemCustody), Some(K::NewerVersion));
+    rewrite(&file, &|b| b[4] = 0);
+    assert_eq!(kind(&paths, &FilesystemCustody), Some(K::Damaged), "below");
+    // An unknown custody byte may be a newer version's.
+    let (_d, paths, file) = fresh();
+    rewrite(&file, &|b| b[5] = 9);
+    assert_eq!(kind(&paths, &FilesystemCustody), Some(K::NewerVersion));
+
+    // Over the record bound, not text, unreadable by its owner: damage.
+    let (_d, paths, file) = fresh();
+    std::fs::write(&file, "A".repeat(64 * 1024)).expect("write");
+    assert_eq!(
+        kind(&paths, &FilesystemCustody),
+        Some(K::Damaged),
+        "too large"
+    );
+    std::fs::write(&file, [0xff_u8, 0xfe, 0x00]).expect("write");
+    assert_eq!(
+        kind(&paths, &FilesystemCustody),
+        Some(K::Damaged),
+        "not text"
+    );
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    assert_eq!(
+        kind(&paths, &FilesystemCustody),
+        Some(K::Damaged),
+        "mode 0000"
+    );
+
+    // Readable by the group, or a key folder others can read: exposed.
+    let (_d, paths, file) = fresh();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).expect("chmod");
+    assert_eq!(
+        kind(&paths, &FilesystemCustody),
+        Some(K::Exposed),
+        "the file"
+    );
+    let (_d, paths, file) = fresh();
+    let keys = file.parent().expect("the folder").to_owned();
+    std::fs::set_permissions(&keys, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    assert_eq!(
+        kind(&paths, &FilesystemCustody),
+        Some(K::Exposed),
+        "the folder"
+    );
+
+    // The folder a link to a private folder, or a file: never followed.
+    let (_d, paths, file) = fresh();
+    let keys = file.parent().expect("the folder").to_owned();
+    let elsewhere = keys.with_file_name("elsewhere");
+    std::fs::rename(&keys, &elsewhere).expect("move");
+    std::os::unix::fs::symlink(&elsewhere, &keys).expect("link");
+    assert_eq!(
+        kind(&paths, &FilesystemCustody),
+        Some(K::DirUnsafe),
+        "a link"
+    );
+    std::fs::remove_file(&keys).expect("unlink");
+    std::fs::write(&keys, "not a folder").expect("a file");
+    assert_eq!(
+        kind(&paths, &FilesystemCustody),
+        Some(K::DirUnsafe),
+        "a file"
+    );
+    assert_eq!(
+        std::fs::read(&keys).expect("read"),
+        b"not a folder",
+        "left as it is"
+    );
+
+    // Custody: below the platform's, sealed elsewhere, its key gone.
+    let (_d, paths, _) = fresh();
+    assert_eq!(
+        kind(&paths, &keystore::SoftKeystore::default()),
+        Some(K::BelowDevice)
+    );
+    let (_d, paths) = desktop_paths();
+    let soft = keystore::SoftKeystore::default();
+    identity_key::create(&paths, &human, &soft).expect("sealed");
+    assert_eq!(kind(&paths, &FilesystemCustody), Some(K::OtherDevice));
+    soft.invalidate(&identity_key::alias("default", &human));
+    assert_eq!(kind(&paths, &soft), Some(K::LostOnDevice));
+
+    assert_eq!(IdentityKeyFileError::Missing.unusable(), Some(K::Missing));
+    assert_eq!(
+        IdentityKeyFileError::Exists.unusable(),
+        None,
+        "not an open's"
+    );
 }
 
 #[path = "common/keystore.rs"]

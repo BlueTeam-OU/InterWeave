@@ -303,14 +303,15 @@ pub fn open(
     endpoint: &EndpointId,
     cipher: &dyn KeyCipher,
 ) -> Result<Option<IdentityKey>, IdentityKeyFileError> {
-    let Some(line) = interweave_profile_config::read_private_within(
+    keys_dir_is_safe(paths)?;
+    let line = match interweave_profile_config::read_private_within(
         &key_path(paths, endpoint),
         paths.boundary(),
         MAX_RECORD_BYTES,
-    )
-    .map_err(|e| IdentityKeyFileError::Persist(e.to_string()))?
-    else {
-        return Ok(None);
+    ) {
+        Ok(Some(line)) => line,
+        Ok(None) => return Ok(None),
+        Err(e) => return Err(IdentityKeyFileError::Read(KeyFileRead::of(&e))),
     };
     let line = Zeroizing::new(line);
     Ok(Some(IdentityKey::from_record(
@@ -319,6 +320,35 @@ pub fn open(
         endpoint,
         cipher,
     )?))
+}
+
+/// The `identity-keys/` directory, judged by what it is and whose before
+/// any read: a link, something that is not a directory, or a directory
+/// another account owns is [`KeyFileRead::DirUnsafe`] -- never followed,
+/// changed or replaced, since the client changes nothing it does not own
+/// (design/2026-10-24-identity-key.md section 3). Owner is compared with
+/// the profile's state directory, this account's by the profile lock; the
+/// read judges a directory's mode and not its owner. No directory is no
+/// key file, left to the read.
+fn keys_dir_is_safe(paths: &ProfilePaths) -> Result<(), IdentityKeyFileError> {
+    use std::os::unix::fs::MetadataExt as _;
+    let dir = paths.state_dir().join(IDENTITY_KEYS_DIR);
+    let unsafe_dir = || IdentityKeyFileError::Read(KeyFileRead::DirUnsafe);
+    let meta = match std::fs::symlink_metadata(&dir) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(IdentityKeyFileError::Read(KeyFileRead::Io(e.kind()))),
+    };
+    if !meta.file_type().is_dir() {
+        return Err(unsafe_dir());
+    }
+    let owner = std::fs::metadata(paths.state_dir())
+        .map_err(|e| IdentityKeyFileError::Read(KeyFileRead::Io(e.kind())))?
+        .uid();
+    if meta.uid() != owner {
+        return Err(unsafe_dir());
+    }
+    Ok(())
 }
 
 /// Delete `endpoint`'s key file and retire its platform key (ADR-0063
@@ -355,6 +385,8 @@ fn file_present(path: &std::path::Path) -> Result<bool, IdentityKeyFileError> {
 pub enum IdentityKeyFileError {
     /// The identity already has a key file.
     Exists,
+    /// The key file could not be read, before its record was judged.
+    Read(KeyFileRead),
     /// The identity's key file is gone after its card was shared, so
     /// counterparties hold a key this device no longer has: never made
     /// again silently, only by the person's confirmed new key, which they
@@ -382,8 +414,103 @@ impl core::fmt::Display for IdentityKeyFileError {
                 f.write_str("the identity's key file is gone, and its card was shared")
             }
             Self::Key(e) => e.fmt(f),
+            Self::Read(r) => write!(f, "the identity's key file could not be read: {r:?}"),
             Self::Persist(e) => write!(f, "the identity's key file: {e}"),
         }
+    }
+}
+
+/// Why a key file could not be read, before its record was judged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyFileRead {
+    /// Larger than any record.
+    TooLarge,
+    /// The file, or the `identity-keys/` directory this account owns, is
+    /// open to another account.
+    NotPrivate,
+    /// `identity-keys/` is a link, not a directory, or another account's.
+    DirUnsafe,
+    /// The read failed with this kind.
+    Io(std::io::ErrorKind),
+}
+
+impl KeyFileRead {
+    fn of(e: &interweave_profile_config::PrivateReadError) -> Self {
+        use interweave_profile_config::PrivateReadError;
+        match e {
+            PrivateReadError::TooLarge => Self::TooLarge,
+            PrivateReadError::NotPrivate { .. } => Self::NotPrivate,
+            PrivateReadError::Read(e) => Self::Io(e.kind()),
+            // A refusal this build does not know: told as a read that may
+            // pass, never as damage it cannot name.
+            _ => Self::Io(std::io::ErrorKind::Other),
+        }
+    }
+}
+
+/// What kind of refusal an identity's key met at open, in the person's
+/// terms (design/2026-10-24-identity-key.md section 3): what the client
+/// says and offers is chosen by it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyUnusable {
+    /// The platform holds the key no longer, or refuses it.
+    LostOnDevice,
+    /// Protected less than this device requires.
+    BelowDevice,
+    /// Sealed by another device.
+    OtherDevice,
+    /// Possibly a newer version's record.
+    NewerVersion,
+    /// Not a valid record for this identity.
+    Damaged,
+    /// Open to another account.
+    Exposed,
+    /// The key folder is not one this account alone owns.
+    DirUnsafe,
+    /// A platform or read error that may pass.
+    NotNow,
+    /// Gone after the card was shared.
+    Missing,
+}
+
+impl IdentityKeyFileError {
+    /// The kind of refusal this is at open, or `None` for one that is not
+    /// an open's (`Exists`; a write's or removal's `Persist`; `Random`).
+    #[must_use]
+    pub const fn unusable(&self) -> Option<KeyUnusable> {
+        use std::io::ErrorKind;
+        Some(match self {
+            Self::Missing => KeyUnusable::Missing,
+            Self::Read(KeyFileRead::DirUnsafe) => KeyUnusable::DirUnsafe,
+            Self::Read(KeyFileRead::NotPrivate) => KeyUnusable::Exposed,
+            // A file its owner cannot read, or bytes that are not text, is
+            // damage: trying again would repeat it for ever.
+            Self::Read(
+                KeyFileRead::TooLarge
+                | KeyFileRead::Io(ErrorKind::InvalidData | ErrorKind::PermissionDenied),
+            ) => KeyUnusable::Damaged,
+            Self::Read(KeyFileRead::Io(_)) => KeyUnusable::NotNow,
+            Self::Key(e) => match e {
+                IdentityKeyError::Cipher(
+                    CipherFailure::KeyInvalidated | CipherFailure::KeyUnavailable,
+                ) => KeyUnusable::LostOnDevice,
+                IdentityKeyError::Cipher(CipherFailure::Platform(_)) => KeyUnusable::NotNow,
+                IdentityKeyError::CustodyDowngrade => KeyUnusable::BelowDevice,
+                IdentityKeyError::SealedUnreadableHere => KeyUnusable::OtherDevice,
+                IdentityKeyError::UnsupportedVersion(v) if *v > VERSION => {
+                    KeyUnusable::NewerVersion
+                }
+                IdentityKeyError::UnknownCustody => KeyUnusable::NewerVersion,
+                IdentityKeyError::NotARecord
+                | IdentityKeyError::Truncated
+                | IdentityKeyError::UnsupportedVersion(_)
+                | IdentityKeyError::EndpointMismatch
+                | IdentityKeyError::KeyMismatch
+                | IdentityKeyError::Cipher(CipherFailure::Unauthentic) => KeyUnusable::Damaged,
+                IdentityKeyError::Random(_) => return None,
+            },
+            Self::Exists | Self::Persist(_) => return None,
+        })
     }
 }
 
