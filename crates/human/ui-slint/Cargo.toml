@@ -91,6 +91,9 @@ i-slint-compiler = { workspace = true }
 spin_on = { workspace = true }
 interweave-human-chat-protocol = { path = "../chat-protocol" }
 interweave-human-core = { path = "../core" }
+# tests/cards.rs: the fingerprint of the fixture's test key, as the client
+# computes it, against the fixture's vector.
+interweave-human-store = { path = "../store" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
 interweave-transport-api = { path = "../../api/transport-api" }
 # The render-parity golden is JSON (tests/render_parity.rs).

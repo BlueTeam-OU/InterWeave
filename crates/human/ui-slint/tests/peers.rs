@@ -760,7 +760,10 @@ fn a_rows_contact_names_are_drawn_one_per_line() {
         contact_id: id.to_owned(),
         name: name.to_owned(),
         name_from_card: true,
+        name_at: None,
         photo_from_card: None,
+        photo_at: None,
+        photo: None,
         routes: vec![RouteView {
             peer: p.clone(),
             endpoint: interweave_transport_api::EndpointId::parse(endpoint).expect("valid"),

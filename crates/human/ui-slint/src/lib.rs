@@ -36,6 +36,7 @@ use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 mod body;
+mod cards;
 mod clock;
 mod gesture;
 mod identity;
@@ -70,6 +71,8 @@ mod generated {
 }
 
 pub use generated::AppWindow;
+/// Which card page the pane shows, for a test that reads it.
+pub use generated::CardsPage;
 /// The icons the views draw; a test reads which one a status takes.
 pub use generated::Glyph;
 pub use generated::IdentityPage;
@@ -309,6 +312,9 @@ enum Input {
     PeersSnackAction(u64),
     /// Peers' snackbar closed without its action.
     PeersSnackClosed(u64),
+    /// What the person did on a card screen: a proposal's answer names
+    /// the model's intent as drawn, a contact names its id.
+    Cards(cards::CardsInput),
 }
 
 /// What made an item action: its row button, or a touch swipe.
@@ -381,6 +387,9 @@ struct Shared {
     peer_rows: HashMap<i32, (String, Option<TransportIdentity>)>,
     /// The add page's step-two blocks as rendered, by handle.
     blocks: HashMap<i32, TransportIdentity>,
+    /// The card screens as rendered: each proposal's answers, each
+    /// contact row's id, the contact page's, the shareable conversation.
+    cards: cards::Drawn,
     /// The trust change the confirmation shows, as rendered: what a press
     /// of Confirm names.
     pending_shown: Option<TrustChange>,
@@ -428,9 +437,10 @@ impl SnackUp {
     fn closed_by(&self, input: &Input) -> bool {
         match input {
             Input::SnackClosed(id) => *id == self.id,
-            Input::Left | Input::TrustPage(true) | Input::PeersPage(true) => {
-                self.conversation.is_some()
-            }
+            Input::Left
+            | Input::TrustPage(true)
+            | Input::PeersPage(true)
+            | Input::Cards(cards::CardsInput::Open(_)) => self.conversation.is_some(),
             Input::Select(key) => self.conversation.as_ref().is_some_and(|c| c != key),
             _ => false,
         }
@@ -691,6 +701,8 @@ enum Page {
     Trust,
     /// Peers, in its place.
     Peers,
+    /// A card page -- Contacts, a contact, the own card -- in its place.
+    Cards,
 }
 
 /// The reference view: one window, bound to a [`UiModel`].
@@ -749,6 +761,8 @@ pub struct View {
     trust_outcome_on: Page,
     /// Peers' lists and what of its requests the view carried out.
     peer_lists: peers::PeerLists,
+    /// The card screens' page and what they last drew.
+    cards: cards::CardScreens,
     /// Where the runtime runs, which the texts that name it follow.
     host: RuntimeHost,
     shared: Rc<RefCell<Shared>>,
@@ -792,6 +806,15 @@ pub struct View {
     /// ([`View::after_next_frame`]); `None` until the window's one
     /// rendering notifier is set.
     frame_tasks: Option<FrameTasks>,
+}
+
+/// What showing `key` reads: its unread messages, and the card
+/// proposals drawn at its end (`UiModel::proposals_viewed`: a view calls
+/// it when it renders them, which a shown conversation always does).
+fn viewed_intents(model: &UiModel, key: &ConversationKey, focused: bool) -> Vec<Intent> {
+    let mut intents = model.conversation_viewed(key, focused);
+    intents.extend(model.proposals_viewed(key, focused));
+    intents
 }
 
 /// Chats' one-line state (#304 F7): its short text, and the icon beside
@@ -941,6 +964,7 @@ impl View {
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
         wire_trust(&window, &shared);
         peers::wire(&window, &shared);
+        cards::wire(&window, &shared);
 
         let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
         window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
@@ -1018,6 +1042,7 @@ impl View {
             trust_announced: 0,
             trust_outcome_on: Page::Conversation,
             peer_lists,
+            cards: cards::CardScreens::default(),
             host,
             shared,
             leaving_messages: Vec::new(),
@@ -1330,8 +1355,7 @@ impl View {
                     // (`a_selection_behind_the_list_by_its_take_reads_nothing`).
                     if let Some(key) = self.on_screen() {
                         out.extend(
-                            model
-                                .conversation_viewed(key, self.focused)
+                            viewed_intents(model, key, self.focused)
                                 .into_iter()
                                 .map(ViewEvent::Intent),
                         );
@@ -1351,8 +1375,7 @@ impl View {
                     self.focused = focused;
                     if let Some(key) = self.on_screen() {
                         out.extend(
-                            model
-                                .conversation_viewed(key, focused)
+                            viewed_intents(model, key, focused)
                                 .into_iter()
                                 .map(ViewEvent::Intent),
                         );
@@ -1477,6 +1500,13 @@ impl View {
                     out.push(ViewEvent::Peers(input));
                     return out;
                 }
+                // A card page opened in the trust settings' or Peers'
+                // place leaves them as a pick of a conversation does.
+                Input::Cards(input) => {
+                    if self.take_cards_input(model, input, &mut out) {
+                        return out;
+                    }
+                }
                 // Resolved against the snackbar the model holds now: a
                 // press on one a later answer replaced does nothing.
                 Input::PeersSnackAction(id) => {
@@ -1547,7 +1577,7 @@ impl View {
         }
         let viewed = std::mem::take(&mut self.shared.borrow_mut().viewed) || moved;
         if viewed && let Some(key) = self.on_screen() {
-            for intent in model.conversation_viewed(key, self.focused) {
+            for intent in viewed_intents(model, key, self.focused) {
                 // A focus gained or a selection in this same take may have
                 // read these already: one intent per row.
                 let event = ViewEvent::Intent(intent);
@@ -1586,10 +1616,38 @@ impl View {
         Some(FocusTarget::Item(*key))
     }
 
+    /// Take a card input into `out`: true when the take ends here, as a
+    /// page left for a card page hands the root its own close first.
+    fn take_cards_input(
+        &mut self,
+        model: &UiModel,
+        input: cards::CardsInput,
+        out: &mut Vec<ViewEvent>,
+    ) -> bool {
+        let opens = matches!(input, cards::CardsInput::Open(_));
+        let leaving = self.page == Page::Trust;
+        let leaving_peers = self.page == Page::Peers;
+        out.extend(
+            self.take_cards(model, input)
+                .into_iter()
+                .map(ViewEvent::Intent),
+        );
+        self.selection_unrendered = true;
+        if opens && leaving {
+            out.push(ViewEvent::Trust(TrustInput::Cancel));
+            return true;
+        }
+        if opens && leaving_peers && model.peers().add_open() {
+            out.push(ViewEvent::Peers(PeersInput::Close));
+            return true;
+        }
+        false
+    }
+
     fn on_screen(&self) -> Option<&ConversationKey> {
         match self.page {
             Page::Conversation if self.window.get_pane_shown() => self.shown.as_ref(),
-            Page::Conversation | Page::Trust | Page::Peers => None,
+            Page::Conversation | Page::Trust | Page::Peers | Page::Cards => None,
         }
     }
 
@@ -1622,6 +1680,7 @@ impl View {
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
         let peers = self.render_peers(model);
+        self.render_cards(model);
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
         let said = [conversation, trust, peers, outcome]
             .into_iter()
@@ -1640,7 +1699,8 @@ impl View {
                 .conversations()
                 .iter()
                 .any(|s| &s.key == key && s.unread > 0);
-            if unread {
+            // A proposal drawn unread is read as a message is: it is shown.
+            if unread || !model.proposals_viewed(key, true).is_empty() {
                 self.shared.borrow_mut().viewed = true;
             }
         }
@@ -1685,7 +1745,7 @@ impl View {
                 let hide = model.conversation_hide_offered(&summary.key);
                 ConversationRow {
                     handle: self.conversation_handles.of(&summary.key),
-                    title: summary.title.as_str().into(),
+                    title: summary.drawn_title.as_str().into(),
                     description: description.into(),
                     selected: self.shown.as_ref() == Some(&summary.key),
                     hide: swipe::kind(hide.then_some(RowAction::Hide)),
@@ -2565,7 +2625,7 @@ impl View {
                 window.set_refused(SharedString::new());
             }
             Some(key) => {
-                let title = model.title(key);
+                let title = model.drawn_title(key);
                 window.set_header_title(title.into());
                 window.set_header_id(full_id(key).into());
                 let (label, copy, route) = match key {
@@ -2940,7 +3000,7 @@ impl Seen {
         let unread = model
             .conversations()
             .into_iter()
-            .map(|s| (s.key, (s.title, s.unread)))
+            .map(|s| (s.key, (s.drawn_title, s.unread)))
             .collect();
         Self {
             primed: true,

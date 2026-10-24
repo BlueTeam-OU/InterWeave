@@ -48,6 +48,69 @@ export struct ActionRow {
 }
 
 
+// Contact cards (plan section 29 step 4; design/2026-10-21-contact-cards.md):
+// which card page the right-hand pane shows in the conversation's place.
+export enum CardsPage { none, contacts, contact, own-card }
+
+// A note a proposal shows before Accept; a warning is drawn in `error`
+// and says so in its words, never by colour alone.
+export struct ProposalNoteRow {
+    text: string,
+    warning: bool,
+}
+
+// A received card in its conversation (design section 5.4), every
+// string from Rust. The photo is never here: before Accept the card's
+// photo is not decoded, and the row says only that there is one.
+export struct ProposalRow {
+    handle: int,
+    // "This peer says they are {name}", the name isolated.
+    heading: string,
+    // The full name, for Accept's accessible description.
+    full-name: string,
+    // That the card has a photo, or empty.
+    photo-line: string,
+    // A key change in plain words with both fingerprints, or empty.
+    key-change: string,
+    peer-label: string,
+    peer: string,
+    fingerprint-label: string,
+    fingerprint: string,
+    // What Accept will do.
+    context: string,
+    notes: [ProposalNoteRow],
+    // It goes when InterWeave stops unless accepted.
+    goes: string,
+    // When it came: the row is drawn after the messages, not at its time.
+    received: string,
+    // The card changes nothing (case S): Close alone, in Accept's place.
+    closes: bool,
+    accept: string,
+    decline: string,
+    copy: string,
+}
+
+// A contact in the Contacts list.
+export struct ContactListRow {
+    handle: int,
+    name: string,
+    letters: string,
+    hue: int,
+    has-photo: bool,
+    photo: image,
+}
+
+// One conversation of a contact, on its page: one route.
+export struct ContactRouteRow {
+    title: string,
+    peer: string,
+    // The fingerprint of the key its accepted card recorded, or empty: a
+    // typed route shows nothing shaped like one.
+    fingerprint: string,
+    // "Same device as your contact {name}", one per other contact.
+    sharing: [string],
+}
+
 export struct ConversationRow {
     handle: int,
     // A left swipe hides the conversation (section 10): offered only when
@@ -778,6 +841,12 @@ export global Palette {
     out property <color> on-surface: dark ? #e3e6f3 : #161b2e;
     out property <color> on-surface-variant: dark ? #b9bfd6 : #4a5068;
     out property <color> outline: dark ? #6b7396 : #767c95;
+    // The proposal's 1 px border: decoration only, the heading says in
+    // words what the row is (design 2026-10-21 section 8).
+    out property <color> outline-variant: dark ? #444b68 : #c4c8d6;
+    // The proposal's neutral avatar fill; its glyph, on-surface-variant,
+    // needs 3:1 against it.
+    out property <color> surface-variant: dark ? #2f3654 : #dde1ee;
     out property <color> primary: dark ? #5fdccd : #006a61;
     out property <color> on-primary: dark ? #00201d : #ffffff;
     out property <color> primary-container: dark ? #004d46 : #9ff2e5;
@@ -1747,6 +1816,362 @@ component IdentityScreen inherits FocusScope {
     }
 }
 
+// A labelled one-line field (design section 5.2): its label above, its
+// error under it and in its accessible description.
+component NameField inherits VerticalLayout {
+    in property <string> label;
+    in property <string> error;
+    in property <string> focus-key;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    in-out property <string> value;
+    callback focused(string);
+    callback accepted();
+    changed focus-seq => {
+        if (root.focus-wanted) { input.focus(); }
+    }
+    spacing: 4px;
+    Text {
+        text: root.label;
+        font-size: Type.body-small;
+        color: Palette.on-surface-variant;
+        accessible-role: none;
+    }
+    box := Rectangle {
+        height: max(56px, input.preferred-height + 24px);
+        border-width: input.has-focus || root.error != "" ? 2px : 1px;
+        border-color: root.error != "" ? Palette.error
+            : input.has-focus ? Palette.primary : Palette.outline;
+        border-radius: 4px;
+        input := TextInput {
+            x: 16px;
+            width: parent.width - 32px;
+            height: self.preferred-height;
+            y: (parent.height - self.height) / 2;
+            font-size: Type.body-large;
+            color: Palette.on-surface;
+            vertical-alignment: center;
+            single-line: true;
+            text <=> root.value;
+            accessible-label: root.label;
+            accessible-description: root.error;
+            accepted => { root.accepted(); }
+            changed has-focus => {
+                if (self.has-focus) { root.focused(root.focus-key); }
+            }
+        }
+        FocusRing {
+            x: -5px;
+            y: -5px;
+            width: box.width + 10px;
+            height: box.height + 10px;
+            shown: input.has-focus;
+        }
+    }
+    if root.error != "": Text {
+        text: root.error;
+        color: Palette.error;
+        font-size: Type.body-small;
+        wrap: word-wrap;
+        accessible-role: text;
+        accessible-label: self.text;
+    }
+}
+
+// A photo in a circle, or the name's initials on its hue without one.
+// Decoration: the name beside it is what is read. The desktop's software
+// renderer does not clip an image to rounded corners, so the corners
+// outside the circle are painted over in `backdrop`, the colour of what
+// lies behind: a circle on every renderer, as the initials are.
+component PhotoCircle inherits Rectangle {
+    in property <bool> has-photo;
+    in property <image> photo;
+    in property <string> letters;
+    in property <int> hue;
+    in property <length> size: 40px;
+    in property <brush> backdrop: Palette.surface;
+    accessible-role: none;
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    clip: true;
+    if !root.has-photo: Avatar {
+        size: root.size;
+        letters: root.letters;
+        hue: root.hue;
+    }
+    if root.has-photo: Image {
+        width: root.size;
+        height: root.size;
+        source: root.photo;
+        image-fit: cover;
+        accessible-role: none;
+    }
+    // The square less the circle, even-odd: the four corners.
+    if root.has-photo: Path {
+        width: root.size;
+        height: root.size;
+        viewbox-width: 2;
+        viewbox-height: 2;
+        fill-rule: evenodd;
+        commands: "M 0 0 L 2 0 L 2 2 L 0 2 Z M 1 0 A 1 1 0 1 0 1 2 A 1 1 0 1 0 1 0 Z";
+        fill: root.backdrop;
+        accessible-role: none;
+    }
+}
+
+// A proposal's avatar: the same for every card, a person drawn on
+// `surface-variant`, never initials or a colour derived from the claim
+// (design section 5.4). Drawn here, from two shapes.
+component NeutralAvatar inherits Rectangle {
+    accessible-role: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 20px;
+    background: Palette.surface-variant;
+    Rectangle {
+        x: 14px;
+        y: 8px;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: Palette.on-surface-variant;
+    }
+    Rectangle {
+        x: 9px;
+        y: 23px;
+        width: 22px;
+        height: 10px;
+        border-radius: 5px;
+        background: Palette.on-surface-variant;
+    }
+}
+
+// A received card in its conversation (design section 5.4): a row of its
+// own, not a bubble, so the peer's claim never reads as a message the app
+// wrote. Read in order: the claim, the photo line, a key change, the
+// PeerId, the fingerprint, what Accept will do, the notes, the "goes at
+// close" line; then Copy PeerId, Decline and Accept. Accept and Decline
+// show at rest: a proposal exists to be answered.
+component ProposalCard inherits Rectangle {
+    in property <ProposalRow> card;
+    in property <string> code-font;
+    in property <bool> rtl;
+    callback accept();
+    callback decline();
+    callback copy();
+    callback focused(string);
+    background: Palette.surface-container;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Palette.outline-variant;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 12px;
+            VerticalLayout {
+                alignment: start;
+                NeutralAvatar {}
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.card.heading;
+                font-size: Type.title-medium;
+                wrap: word-wrap;
+                color: Palette.on-surface;
+                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+        }
+        if root.card.photo-line != "": Text {
+            text: root.card.photo-line;
+            font-size: Type.body-medium;
+            wrap: word-wrap;
+            color: Palette.on-surface-variant;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        if root.card.key-change != "": Text {
+            text: root.card.key-change;
+            font-size: Type.body-medium;
+            font-weight: 700;
+            wrap: word-wrap;
+            color: Palette.error;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        VerticalLayout {
+            spacing: 2px;
+            Text {
+                text: root.card.peer-label;
+                font-size: Type.body-small;
+                font-weight: 700;
+                color: Palette.on-surface-variant;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            Text {
+                text: root.card.peer;
+                font-family: root.code-font;
+                font-size: Type.body-medium;
+                wrap: char-wrap;
+                color: Palette.on-surface;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+        }
+        VerticalLayout {
+            spacing: 2px;
+            Text {
+                text: root.card.fingerprint-label;
+                font-size: Type.body-small;
+                font-weight: 700;
+                color: Palette.on-surface-variant;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            Text {
+                text: root.card.fingerprint;
+                font-family: root.code-font;
+                font-size: Type.body-medium;
+                color: Palette.on-surface;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+        }
+        Text {
+            text: root.card.context;
+            font-size: Type.body-medium;
+            wrap: word-wrap;
+            color: Palette.on-surface;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        for note in root.card.notes: Text {
+            text: note.text;
+            font-size: Type.body-medium;
+            font-weight: note.warning ? 700 : 400;
+            wrap: word-wrap;
+            color: note.warning ? Palette.error : Palette.on-surface;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        Text {
+            text: root.card.received;
+            font-size: Type.body-small;
+            wrap: word-wrap;
+            color: Palette.on-surface-variant;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        if root.card.goes != "": Text {
+            text: root.card.goes;
+            font-size: Type.body-small;
+            wrap: word-wrap;
+            color: Palette.on-surface-variant;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        // The actions wrap to their own lines when the row is narrow,
+        // rather than squeezing a label out of its button.
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            ActionButton {
+                text: root.card.copy;
+                text-button: true;
+                target: 48px;
+                focus-key: "proposal-copy:" + root.card.handle;
+                pressed => { root.copy(); }
+                focused(k) => { root.focused(k); }
+            }
+            if !root.card.closes: ActionButton {
+                text: root.card.decline;
+                text-button: true;
+                target: 48px;
+                focus-key: "proposal-decline:" + root.card.handle;
+                pressed => { root.decline(); }
+                focused(k) => { root.focused(k); }
+            }
+            ActionButton {
+                text: root.card.accept;
+                detail: root.card.full-name;
+                filled: true;
+                target: 48px;
+                focus-key: "proposal-accept:" + root.card.handle;
+                pressed => { root.accept(); }
+                focused(k) => { root.focused(k); }
+            }
+        }
+    }
+}
+
+// A row of a list that opens what it names: the whole row is one control,
+// labelled by its text.
+component OpenRow inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
+    in property <string> text;
+    in property <string> focus-key;
+    in property <bool> has-photo;
+    in property <image> photo;
+    in property <string> letters;
+    in property <int> hue;
+    in property <bool> rtl;
+    callback pressed();
+    callback focused(string);
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.pressed(); }
+    key-pressed(event) => {
+        if (event.text == Key.Return || event.text == " ") {
+            root.pressed();
+            return accept;
+        }
+        reject
+    }
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    min-height: 56px;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 16px;
+        VerticalLayout {
+            alignment: center;
+            PhotoCircle {
+                has-photo: root.has-photo;
+                photo: root.photo;
+                letters: root.letters;
+                hue: root.hue;
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            font-size: Type.body-large;
+            color: Palette.on-surface;
+            overflow: elide;
+            vertical-alignment: center;
+            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+            accessible-role: none;
+        }
+    }
+    TapArea { tapped => { root.pressed(); } }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        shown: root.has-focus;
+    }
+}
+
 export component AppWindow inherits Window {
     in property <string> window-title;
     // The identity screens (Android): shown over everything while active.
@@ -2172,6 +2597,95 @@ export component AppWindow inherits Window {
     out property <bool> bar-aside: root.typing
         && root.above-keyboard - root.pane-chrome - root.composer-height - root.bar-height < root.least-messages;
 
+    // Contact cards (plan section 29 step 4; design/2026-10-21-contact-cards.md):
+    // the open conversation's proposals, at its end; the card pages, shown
+    // in the conversation's place as the trust settings are; the share
+    // sheet. Every string from Rust, every press back to it.
+    in property <[ProposalRow]> proposals;
+    callback proposal-accept(int);
+    callback proposal-decline(int);
+    // What a proposal's Copy PeerId copies, set by the press. Never shown.
+    in-out property <string> proposal-copy-text;
+    in-out property <CardsPage> cards-page;
+    in property <string> contacts-title;
+    in property <string> own-card-title;
+    in property <string> contacts-empty;
+    in property <[ContactListRow]> contact-rows;
+    callback open-contacts();
+    callback open-own-card();
+    callback close-cards();
+    callback contact-chosen(int);
+    // A contact's page.
+    in property <string> contact-title;
+    in property <bool> contact-has-photo;
+    in property <image> contact-photo;
+    in property <string> contact-letters;
+    in property <int> contact-hue;
+    in property <string> contact-photo-source;
+    in property <string> contact-name-source;
+    in-out property <string> contact-name-draft;
+    in property <string> contact-name-error;
+    in property <[ContactRouteRow]> contact-routes;
+    in property <string> contact-shares-note;
+    in property <string> routes-heading;
+    in property <string> name-label;
+    in property <string> save-label;
+    in property <string> remove-photo-label;
+    in property <string> delete-contact-label;
+    in property <string> delete-contact-confirm;
+    in property <string> cards-cancel-label;
+    in property <string> peer-id-label;
+    in property <string> fingerprint-label;
+    in-out property <bool> contact-confirming-delete;
+    // The confirmation was cancelled: Delete takes focus back.
+    property <bool> contact-delete-refocus;
+    callback contact-save();
+    callback contact-remove-photo();
+    callback contact-delete();
+    // The own card's page.
+    in property <bool> own-has-photo;
+    in property <image> own-photo;
+    in property <string> own-letters;
+    in property <int> own-hue;
+    in-out property <string> own-given;
+    in-out property <string> own-surname;
+    in property <string> own-given-error;
+    in property <string> own-surname-error;
+    in property <string> surname-label;
+    in property <string> own-photo-note;
+    in property <string> own-shared-note;
+    in property <string> own-fingerprint;
+    in property <string> own-peer;
+    callback own-card-save();
+    callback own-card-remove-photo();
+    // Share a card (design section 5.3): offered in a direct conversation's
+    // overflow, never in a channel's; the sheet shows what goes first.
+    in property <bool> share-offered;
+    in property <string> share-label;
+    in-out property <bool> share-open;
+    in property <string> share-title;
+    in property <string> share-preview-heading;
+    in property <string> share-preview-name;
+    in property <string> share-preview-photo;
+    in property <string> share-note;
+    in property <string> share-action;
+    // The card has no name yet: said in the preview's place, and Share is
+    // not offered.
+    in property <string> share-no-name;
+    callback share-confirmed();
+    // Details: whether this identity's card was shared here, and when.
+    in property <string> details-card;
+    function close-cards-page() {
+        root.contact-confirming-delete = false;
+        root.list-shown = true;
+        root.close-cards();
+        root.chats-menu-closed-seq += 1;
+    }
+    function close-share() {
+        root.share-open = false;
+        root.menu-closed-seq += 1;
+    }
+
     function choose(handle: int) {
         root.list-shown = false;
         root.select(handle);
@@ -2197,6 +2711,18 @@ export component AppWindow inherits Window {
     public function handle-back() -> bool {
         if (root.identity-active) {
             root.identity-back();
+            return true;
+        }
+        if (root.share-open) {
+            root.close-share();
+            return true;
+        }
+        if (root.cards-page == CardsPage.contact && root.contact-confirming-delete) {
+            root.contact-confirming-delete = false;
+            return true;
+        }
+        if (root.cards-page != CardsPage.none) {
+            root.close-cards-page();
             return true;
         }
         if (root.row-menu >= 0) {
@@ -3554,7 +4080,416 @@ export component AppWindow inherits Window {
                 }
             }
         }
-        if !root.trust-page && !root.peers-page: VerticalLayout {
+        // The card pages (design sections 5.2 and 6), in the conversation's
+        // place: the back arrow and the page's title, then the page.
+        if root.cards-page != CardsPage.none: VerticalLayout {
+            visible: root.pane-shown;
+            padding: 12px;
+            spacing: 8px;
+            HorizontalLayout {
+                min-height: 64px;
+                spacing: 8px;
+                if !root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.back;
+                        rtl: root.rtl;
+                        ink: Palette.on-surface;
+                        label: root.back-label;
+                        focus-key: "close-cards";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "close-cards";
+                        pressed => { root.close-cards-page(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.cards-page == CardsPage.contacts ? root.contacts-title
+                        : root.cards-page == CardsPage.contact ? root.contact-title
+                        : root.own-card-title;
+                    font-size: Type.title-large;
+                    overflow: elide;
+                    vertical-alignment: center;
+                    horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.back;
+                        rtl: root.rtl;
+                        ink: Palette.on-surface;
+                        label: root.back-label;
+                        focus-key: "close-cards";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "close-cards";
+                        pressed => { root.close-cards-page(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+            Flickable {
+                vertical-stretch: 1;
+                content-height: cards-column.preferred-height;
+                cards-column := VerticalLayout {
+                    width: parent.width;
+                    padding: 5px;
+                    spacing: 12px;
+                    alignment: start;
+                    // Contacts.
+                    if root.cards-page == CardsPage.contacts && root.contact-rows.length == 0: Text {
+                        text: root.contacts-empty;
+                        wrap: word-wrap;
+                        color: Palette.on-surface-variant;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    if root.cards-page == CardsPage.contacts: VerticalLayout {
+                        spacing: 4px;
+                        for row in root.contact-rows: OpenRow {
+                            text: row.name;
+                            has-photo: row.has-photo;
+                            photo: row.photo;
+                            letters: row.letters;
+                            hue: row.hue;
+                            rtl: root.rtl;
+                            focus-key: "contact:" + row.handle;
+                            pressed => { root.contact-chosen(row.handle); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                    // A contact: the photo and where it came from, the name
+                    // and where it came from, its conversations.
+                    if root.cards-page == CardsPage.contact: VerticalLayout {
+                        spacing: 12px;
+                        HorizontalLayout {
+                            spacing: 16px;
+                            PhotoCircle {
+                                size: 96px;
+                                has-photo: root.contact-has-photo;
+                                photo: root.contact-photo;
+                                letters: root.contact-letters;
+                                hue: root.contact-hue;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 8px;
+                                horizontal-stretch: 1;
+                                if root.contact-photo-source != "": Text {
+                                    text: root.contact-photo-source;
+                                    wrap: word-wrap;
+                                    font-size: Type.body-medium;
+                                    color: Palette.on-surface-variant;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
+                                }
+                                if root.contact-has-photo: HorizontalLayout {
+                                    alignment: start;
+                                    ActionButton {
+                                        text: root.remove-photo-label;
+                                        target: 48px;
+                                        focus-key: "contact-remove-photo";
+                                        pressed => { root.contact-remove-photo(); }
+                                        focused(k) => { root.focus-id = k; }
+                                    }
+                                }
+                            }
+                        }
+                        NameField {
+                            label: root.name-label;
+                            error: root.contact-name-error;
+                            value <=> root.contact-name-draft;
+                            focus-key: "contact-name";
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "contact-name";
+                            accepted => { root.contact-save(); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                        Text {
+                            text: root.contact-name-source;
+                            wrap: word-wrap;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface-variant;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            ActionButton {
+                                text: root.save-label;
+                                filled: true;
+                                target: 48px;
+                                focus-key: "contact-save";
+                                pressed => { root.contact-save(); }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                        }
+                        Text {
+                            text: root.routes-heading;
+                            font-size: Type.title-small;
+                            font-weight: 500;
+                            color: Palette.on-surface;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                        for route in root.contact-routes: VerticalLayout {
+                            spacing: 4px;
+                            Text {
+                                text: route.title;
+                                font-size: Type.body-large;
+                                color: Palette.on-surface;
+                                wrap: word-wrap;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            Text {
+                                text: root.peer-id-label;
+                                font-size: Type.body-small;
+                                font-weight: 700;
+                                color: Palette.on-surface-variant;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            Text {
+                                text: route.peer;
+                                font-family: root.code-font;
+                                font-size: Type.body-medium;
+                                wrap: char-wrap;
+                                color: Palette.on-surface;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            if route.fingerprint != "": Text {
+                                text: root.fingerprint-label;
+                                font-size: Type.body-small;
+                                font-weight: 700;
+                                color: Palette.on-surface-variant;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            if route.fingerprint != "": Text {
+                                text: route.fingerprint;
+                                font-family: root.code-font;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            for line in route.sharing: Text {
+                                text: line;
+                                wrap: word-wrap;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                        }
+                        if root.contact-shares-note != "": Text {
+                            text: root.contact-shares-note;
+                            wrap: word-wrap;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface-variant;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                        // Delete asks first, with its initial focus on
+                        // Cancel: there is no undo of a delete yet.
+                        if !root.contact-confirming-delete: delete-row := HorizontalLayout {
+                            alignment: start;
+                            // Back from the confirmation's Cancel, focus is
+                            // here again, once this row exists.
+                            property <bool> taken: !root.contact-delete-refocus;
+                            Timer {
+                                interval: 1ms;
+                                running: !delete-row.taken;
+                                triggered => {
+                                    delete-row.taken = true;
+                                    root.contact-delete-refocus = false;
+                                    delete-button.focus();
+                                }
+                            }
+                            delete-button := ActionButton {
+                                text: root.delete-contact-label;
+                                danger: true;
+                                target: 48px;
+                                focus-key: "contact-delete";
+                                pressed => { root.contact-confirming-delete = true; }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                        }
+                        if root.contact-confirming-delete: confirm-delete := VerticalLayout {
+                            spacing: 8px;
+                            // Focus opens on Cancel once the confirmation is
+                            // in the window: Enter alone never deletes.
+                            property <bool> taken;
+                            Timer {
+                                interval: 1ms;
+                                running: !confirm-delete.taken;
+                                triggered => {
+                                    confirm-delete.taken = true;
+                                    delete-cancel.focus();
+                                }
+                            }
+                            Text {
+                                text: root.delete-contact-confirm;
+                                wrap: word-wrap;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 8px;
+                                delete-cancel := ActionButton {
+                                    text: root.cards-cancel-label;
+                                    text-button: true;
+                                    target: 48px;
+                                    focus-key: "contact-delete-cancel";
+                                    pressed => {
+                                        root.contact-delete-refocus = true;
+                                        root.contact-confirming-delete = false;
+                                    }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                                ActionButton {
+                                    text: root.delete-contact-label;
+                                    danger: true;
+                                    filled: true;
+                                    target: 48px;
+                                    focus-key: "contact-delete-confirm";
+                                    pressed => {
+                                        root.contact-confirming-delete = false;
+                                        root.contact-delete();
+                                    }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                        }
+                    }
+                    // The own card: what a share sends, edited here.
+                    if root.cards-page == CardsPage.own-card: VerticalLayout {
+                        spacing: 12px;
+                        HorizontalLayout {
+                            spacing: 16px;
+                            PhotoCircle {
+                                size: 96px;
+                                has-photo: root.own-has-photo;
+                                photo: root.own-photo;
+                                letters: root.own-letters;
+                                hue: root.own-hue;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 8px;
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: root.own-photo-note;
+                                    wrap: word-wrap;
+                                    font-size: Type.body-medium;
+                                    color: Palette.on-surface-variant;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
+                                }
+                                if root.own-has-photo: HorizontalLayout {
+                                    alignment: start;
+                                    ActionButton {
+                                        text: root.remove-photo-label;
+                                        target: 48px;
+                                        focus-key: "own-remove-photo";
+                                        pressed => { root.own-card-remove-photo(); }
+                                        focused(k) => { root.focus-id = k; }
+                                    }
+                                }
+                            }
+                        }
+                        NameField {
+                            label: root.name-label;
+                            error: root.own-given-error;
+                            value <=> root.own-given;
+                            focus-key: "own-given";
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "own-given";
+                            accepted => { root.own-card-save(); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                        NameField {
+                            label: root.surname-label;
+                            error: root.own-surname-error;
+                            value <=> root.own-surname;
+                            focus-key: "own-surname";
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "own-surname";
+                            accepted => { root.own-card-save(); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                        Text {
+                            text: root.own-shared-note;
+                            wrap: word-wrap;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface-variant;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            ActionButton {
+                                text: root.save-label;
+                                filled: true;
+                                target: 48px;
+                                focus-key: "own-save";
+                                pressed => { root.own-card-save(); }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                        }
+                        // The identity: its key's fingerprint beside the
+                        // PeerId (ADR-0063 decision 1).
+                        VerticalLayout {
+                            spacing: 2px;
+                            Text {
+                                text: root.fingerprint-label;
+                                font-size: Type.body-small;
+                                font-weight: 700;
+                                color: Palette.on-surface-variant;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            Text {
+                                text: root.own-fingerprint;
+                                font-family: root.code-font;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                        }
+                        if root.own-peer != "": VerticalLayout {
+                            spacing: 2px;
+                            Text {
+                                text: root.peer-id-label;
+                                font-size: Type.body-small;
+                                font-weight: 700;
+                                color: Palette.on-surface-variant;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            Text {
+                                text: root.own-peer;
+                                font-family: root.code-font;
+                                font-size: Type.body-medium;
+                                wrap: char-wrap;
+                                color: Palette.on-surface;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !root.trust-page && !root.peers-page && root.cards-page == CardsPage.none: VerticalLayout {
             visible: root.pane-shown;
             padding: 12px;
             // With the app bar aside, the list begins at the pane's top: the
@@ -4236,6 +5171,25 @@ export component AppWindow inherits Window {
                 }
             }
             }
+            // The conversation's card proposals, after its messages: each a
+            // row of its own (design section 5.4).
+            for proposal in root.proposals: HorizontalLayout {
+                padding-top: 8px;
+                ProposalCard {
+                    card: proposal;
+                    code-font: root.code-font;
+                    rtl: root.rtl;
+                    accept => { root.proposal-accept(proposal.handle); }
+                    decline => { root.proposal-decline(proposal.handle); }
+                    copy => {
+                        root.proposal-copy-text = proposal.peer;
+                        proposal-copy.select-all();
+                        proposal-copy.copy();
+                        proposal-copy.clear-selection();
+                    }
+                    focused(k) => { root.focus-id = k; }
+                }
+            }
             }
             }
             }
@@ -4383,7 +5337,7 @@ export component AppWindow inherits Window {
     }
     // Over everything: a press outside the menu or Details closes it, as
     // Escape does.
-    if root.menu-open || root.details-open || root.chats-menu-open: TouchArea {
+    if root.menu-open || root.details-open || root.chats-menu-open || root.share-open: TouchArea {
         x: 0;
         y: 0;
         width: root.width;
@@ -4392,12 +5346,14 @@ export component AppWindow inherits Window {
             FocusMode.keyboard = false;
             if (root.chats-menu-open) {
                 root.close-chats-menu();
+            } else if (root.share-open) {
+                root.close-share();
             } else {
                 root.close-menu();
             }
         }
         Rectangle {
-            background: root.details-open ? #00000052 : transparent;
+            background: root.details-open || root.share-open ? #00000052 : transparent;
         }
     }
     // The app's options (#304 F12), under their button at the Chats bar's
@@ -4441,6 +5397,31 @@ export component AppWindow inherits Window {
                 closed => { root.close-chats-menu(); }
                 focused(k) => { root.focus-id = k; }
             }
+            // After Peers (design section 4): the contacts, then the card.
+            MenuItem {
+                text: root.contacts-title;
+                focus-key: "app-contacts";
+                rtl: root.rtl;
+                pressed => {
+                    root.chats-menu-open = false;
+                    root.list-shown = false;
+                    root.open-contacts();
+                }
+                closed => { root.close-chats-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            MenuItem {
+                text: root.own-card-title;
+                focus-key: "app-own-card";
+                rtl: root.rtl;
+                pressed => {
+                    root.chats-menu-open = false;
+                    root.list-shown = false;
+                    root.open-own-card();
+                }
+                closed => { root.close-chats-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
         }
     }
     // The overflow menu (section 6), under its button at the line's end.
@@ -4472,10 +5453,24 @@ export component AppWindow inherits Window {
                 closed => { root.close-menu(); }
                 focused(k) => { root.focus-id = k; }
             }
+            // Above Details (design section 4), in a direct conversation
+            // only.
+            if root.share-offered: MenuItem {
+                text: root.share-label;
+                focus-key: "share-card";
+                first: !root.hide-conversation-shown;
+                rtl: root.rtl;
+                pressed => {
+                    root.menu-open = false;
+                    root.share-open = true;
+                }
+                closed => { root.close-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
             MenuItem {
                 text: root.details-label;
                 focus-key: "details";
-                first: !root.hide-conversation-shown;
+                first: !root.hide-conversation-shown && !root.share-offered;
                 rtl: root.rtl;
                 pressed => {
                     root.menu-open = false;
@@ -4770,6 +5765,14 @@ export component AppWindow inherits Window {
                     accessible-role: text;
                     accessible-label: self.text;
                 }
+                if root.details-card != "": Text {
+                    text: root.details-card;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    color: Palette.on-surface-variant;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
@@ -4798,6 +5801,143 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
+
+    // The share sheet (design section 5.3): a dialog over a scrim, which
+    // shows what goes before anything is sent. Focus opens on Cancel: a
+    // disclosure has no undo.
+    if root.share-open: share := FocusScope {
+        focus-gained(reason) => {
+            if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+            if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        }
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: min(root.width - 48px, 560px);
+        height: share-box.preferred-height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.close-share();
+                return accept;
+            }
+            reject
+        }
+        property <bool> taken;
+        Timer {
+            interval: 1ms;
+            running: !share.taken;
+            triggered => {
+                share.taken = true;
+                share-cancel.focus();
+            }
+        }
+        share-box := Rectangle {
+            background: Palette.surface-container-high;
+            border-radius: 28px;
+            TouchArea {}
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                Text {
+                    text: root.share-title;
+                    font-size: Type.title-large;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.share-no-name != "": Text {
+                    text: root.share-no-name;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.share-no-name == "": VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: root.share-preview-heading;
+                        font-size: Type.body-small;
+                        font-weight: 700;
+                        color: Palette.on-surface-variant;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        PhotoCircle {
+                            has-photo: root.own-has-photo;
+                            photo: root.own-photo;
+                            letters: root.own-letters;
+                            hue: root.own-hue;
+                            backdrop: share-box.background;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Text {
+                                text: root.share-preview-name;
+                                font-size: Type.title-medium;
+                                wrap: word-wrap;
+                                color: Palette.on-surface;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                            if root.share-preview-photo != "": Text {
+                                text: root.share-preview-photo;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface-variant;
+                                accessible-role: text;
+                                accessible-label: self.text;
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: root.share-note;
+                    wrap: word-wrap;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    share-cancel := ActionButton {
+                        text: root.cards-cancel-label;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "share-cancel";
+                        pressed => { root.close-share(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    if root.share-no-name == "": ActionButton {
+                        text: root.share-action;
+                        filled: true;
+                        target: 48px;
+                        focus-key: "share-confirm";
+                        pressed => {
+                            root.close-share();
+                            root.share-confirmed();
+                        }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+        }
+    }
+
+    // What a proposal's Copy PeerId copies, through the platform's
+    // clipboard as a field's copy would. Never shown.
+    proposal-copy := TextInput {
+        x: 0;
+        y: 0;
+        width: 0;
+        height: 0;
+        visible: false;
+        read-only: true;
+        text: root.proposal-copy-text;
+        accessible-role: none;
     }
 
     if root.identity-active: IdentityScreen {

@@ -66,4 +66,54 @@ mod tests {
         std::fs::create_dir(&keys).expect("identity-keys/");
         assert!(holds(&paths), "the directory, even empty");
     }
+
+    /// Every identity's key lies under the app data directory Android
+    /// hands the runtime (`applicationInfo.dataDir`, the `root` domain of
+    /// the backup rules), and the shipped rules exclude that domain, and
+    /// its device-protected twin, from cloud backup and device transfer
+    /// whole: no backup set carries a key (human-client-ui.md section 13;
+    /// ADR-0063 decision 2; ADR-0060 decision 8). The rules' every domain
+    /// is the tree check's (`check_android_contacts_and_backup.py`); this
+    /// ties the key's place to one of them. Mutation: the `root`
+    /// exclusion dropped from either section fails it.
+    #[test]
+    fn an_identity_key_lies_under_a_domain_every_backup_rule_excludes() {
+        const RULES: &str =
+            include_str!("../android/app/src/main/res/xml/data_extraction_rules.xml");
+        // A scratch directory in `dataDir`'s place: the boundary needs it
+        // to exist.
+        let scratch = Scratch(std::env::temp_dir().join(format!(
+            "interweave-backup-key-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        )));
+        std::fs::create_dir(&scratch.0).expect("scratch");
+        let app_data = scratch.0.clone();
+        let paths = TrustBoundary::new(&app_data)
+            .and_then(|boundary| ProfilePaths::resolve_embedded("default", boundary))
+            .expect("paths");
+        let human = interweave_transport_api::EndpointId::parse("human").expect("valid");
+        let key = interweave_human_store::identity_key::key_path(&paths, &human);
+        assert!(
+            key.starts_with(&app_data),
+            "the key outside the app data directory: {}",
+            key.display()
+        );
+        for section in ["cloud-backup", "device-transfer"] {
+            let body = RULES
+                .split(&format!("<{section}>"))
+                .nth(1)
+                .and_then(|rest| rest.split(&format!("</{section}>")).next())
+                .unwrap_or_else(|| panic!("no <{section}>"));
+            for domain in ["root", "device_root"] {
+                assert!(
+                    body.contains(&format!("<exclude domain=\"{domain}\" path=\".\" />")),
+                    "<{section}> keeps the {domain} domain, where the key is"
+                );
+            }
+            assert!(!body.contains("<include"), "<{section}> re-admits data");
+        }
+    }
 }
