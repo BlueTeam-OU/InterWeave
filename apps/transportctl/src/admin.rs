@@ -7,7 +7,8 @@ use std::fmt::Write as _;
 
 use interweave_ipc_client::{IpcAdmin, IpcBinding, SocketPaths};
 use interweave_local_client_api::{
-    AddressChange, AddressSource, AdminBinding as _, AdminCapability, AdminPort as _, TrustSource,
+    AddressChange, AddressSource, AdminBinding as _, AdminCapability, AdminPort as _, TrustChange,
+    TrustSource,
 };
 use interweave_profile_config::{ProfileLock, ProfilePaths, XdgRoots};
 use interweave_transport_api::TransportError;
@@ -82,6 +83,22 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
             AddressChange::Unchanged => Ok("unchanged\n".to_owned()),
             AddressChange::Refused { reason, detail } => Err(Failure::Refused(format!(
                 "refused {}: {detail}",
+                reason.as_str()
+            ))),
+        };
+    }
+    // And so does a set refused as superseded: another admin
+    // connection's later set for the peer stands (LOCAL-IPC.md
+    // §Cancellation mapping and request concurrency).
+    if let Admin::SetTrust(peer, allowed) = &action {
+        return match port.set_trust(peer.clone(), *allowed).await.map_err(code)? {
+            TrustChange::Set => Ok(format!(
+                "{} {}\n",
+                if *allowed { "allowed" } else { "revoked" },
+                peer.as_str()
+            )),
+            TrustChange::Refused(reason) => Err(Failure::Refused(format!(
+                "refused {}: a later admin connection's set for this peer stands",
                 reason.as_str()
             ))),
         };
@@ -326,14 +343,8 @@ async fn call(port: &IpcAdmin, action: Admin, json: bool) -> Result<String, Tran
             }
         }
         // Answered above, before any printing.
-        Admin::AddAddress(_) | Admin::RemoveAddress(_) => unreachable!("a move is answered in run"),
-        Admin::SetTrust(peer, allowed) => {
-            port.set_trust(peer.clone(), allowed).await?;
-            format!(
-                "{} {}\n",
-                if allowed { "allowed" } else { "revoked" },
-                peer.as_str()
-            )
+        Admin::AddAddress(_) | Admin::RemoveAddress(_) | Admin::SetTrust(..) => {
+            unreachable!("a write is answered in run")
         }
     })
 }

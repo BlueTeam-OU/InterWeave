@@ -686,6 +686,11 @@ async fn set_trust<B: DataSessionBinding, A: AdminBinding>(
              read the list again"
                 .to_owned(),
         ),
+        Some(TrustOutcome::Superseded(_)) => Failure::Refused(
+            "the change was not made: a later change of this peer from another \
+             admin connection stands"
+                .to_owned(),
+        ),
         Some(TrustOutcome::Problem(p) | TrustOutcome::NotReadAgain(p)) => trust_failure(*p),
         _ => Failure::Refused("the change was not made".to_owned()),
     })

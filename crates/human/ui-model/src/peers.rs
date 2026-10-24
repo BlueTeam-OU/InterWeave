@@ -283,6 +283,10 @@ pub enum BlockProblem {
     NotMade,
     /// The answer was lost and the trust list could not be read back.
     Unknown,
+    /// Refused because a later change of the peer from another admin
+    /// connection stands (IPC 2.10, `superseded`), and the trust list
+    /// read again does not list the peer.
+    Superseded,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -831,8 +835,12 @@ fn pending_address(check: &Check) -> Option<&str> {
     }
 }
 
-/// The add page's refusal for the runtime's, or `None` for a removal's
-/// own (`Configured`), which an add never meets.
+/// The add page's refusal for the runtime's, or `None` for one that
+/// names no rule of the address: a removal's own (`Configured`), which
+/// an add never meets, and a write another admin connection's later one
+/// superseded, which wrote nothing and is said as not made -- the list
+/// read back shows what stands
+/// (`each_runtime_refusal_is_named_and_stores_nothing`).
 const fn refusal_of(why: AddressRefused) -> Option<Refusal> {
     Some(match why {
         AddressRefused::Grammar => Refusal::Grammar,
@@ -840,7 +848,7 @@ const fn refusal_of(why: AddressRefused) -> Option<Refusal> {
         AddressRefused::Bound => Refusal::Limit,
         AddressRefused::ListOff => Refusal::ListOff,
         AddressRefused::OwnPeer => Refusal::OwnAddress,
-        AddressRefused::Configured => return None,
+        AddressRefused::Configured | AddressRefused::Superseded => return None,
     })
 }
 
@@ -2449,7 +2457,12 @@ impl Peers {
                         Some(TrustOutcome::Changed(c)) if c.peer == block.peer => {
                             block.known = Some(true);
                         }
-                        Some(TrustOutcome::Unconfirmed(c)) if c.peer == block.peer => {
+                        // Unconfirmed, or refused because another admin
+                        // connection's change stands: the list read again
+                        // decides.
+                        Some(TrustOutcome::Unconfirmed(c) | TrustOutcome::Superseded(c))
+                            if c.peer == block.peer =>
+                        {
                             block.checking = true;
                             block.known = None;
                             checking.get_or_insert_with(|| block.peer.clone());
@@ -2479,6 +2492,9 @@ impl Peers {
                 if !block.allowed(trust) {
                     block.problem = Some(match trust.outcome().0 {
                         Some(TrustOutcome::NotReadAgain(_)) => BlockProblem::Unknown,
+                        Some(TrustOutcome::Superseded(c)) if c.peer == block.peer => {
+                            BlockProblem::Superseded
+                        }
                         _ => BlockProblem::NotMade,
                     });
                 }

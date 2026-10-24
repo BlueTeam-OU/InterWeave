@@ -48,6 +48,11 @@ pub enum TrustOutcome {
     Unconfirmed(TrustChange),
     /// Reading or changing did nothing.
     Problem(TrustProblem),
+    /// The daemon refused the change: a later change of the same peer
+    /// from another admin connection stands (IPC 2.10, `superseded`).
+    /// Nothing was written; the allowlist is read again to show that
+    /// change, and nothing is retried.
+    Superseded(TrustChange),
     /// The list a change left to read again could not be read: it may
     /// not show that change. Never "nothing was changed", which may be
     /// false here.
@@ -400,6 +405,14 @@ impl TrustSettings {
             }
             Err(TrustSetFailure::NotMade(problem)) => {
                 self.say(TrustOutcome::Problem(problem), from);
+            }
+            // Written by the other connection, not this one: the list on
+            // show is not the daemon's now
+            // (`a_superseded_change_is_not_made_and_reads_the_list_again`).
+            Err(TrustSetFailure::Superseded) => {
+                self.held = Held::MayHaveChanged;
+                self.reread = true;
+                self.say(TrustOutcome::Superseded(change), from);
             }
         }
     }
@@ -837,5 +850,25 @@ mod tests {
         );
         assert_eq!(s.outcome().0, Some(&TrustOutcome::Unconfirmed(change)));
         assert_eq!(s.take_reread(), Some(Intent::ReadTrust));
+    }
+
+    /// A change refused because another admin connection's later change
+    /// of the peer stands was not made: said so, the typed `PeerId` kept,
+    /// and the list read again -- once, with no change sent again.
+    #[test]
+    fn a_superseded_change_is_not_made_and_reads_the_list_again() {
+        let (me, them) = (peer(), peer());
+        let mut s = read(&me, &[]);
+        s.entry_changed(them.as_str().to_owned());
+        s.propose_allow();
+        let shown = s.pending().cloned().expect("proposed");
+        let Some(Intent::SetTrust(change)) = s.confirm(&shown) else {
+            panic!("a change");
+        };
+        s.set(change.clone(), Err(TrustSetFailure::Superseded));
+        assert_eq!(s.outcome().0, Some(&TrustOutcome::Superseded(change)));
+        assert_eq!(s.entry(), them.as_str(), "not made: the entry is kept");
+        assert_eq!(s.take_reread(), Some(Intent::ReadTrust));
+        assert_eq!(s.take_reread(), None, "read once");
     }
 }

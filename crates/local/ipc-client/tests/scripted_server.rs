@@ -1453,6 +1453,66 @@ async fn an_endpoint_row_is_read_only_in_the_shape_its_minor_names() {
     }
 }
 
+/// A set's result is read in the shape the connection negotiated: from
+/// 2.10 `trust-set-result`, a superseded set read as the refusal it names
+/// and the 2.1 empty result refused as a shape that minor does not have;
+/// below 2.10 the empty result, a set made. The scripted daemon answers
+/// each.
+#[tokio::test]
+async fn a_set_reads_the_result_its_minor_names() {
+    use interweave_local_client_api::{
+        AdminBinding as _, AdminCapability, AdminPort as _, TrustChange, TrustRefusal,
+    };
+    use interweave_transport_api::{TransportError, TransportIdentity};
+    const OTHER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    let since = interweave_ipc_protocol::SUPERSEDED_SINCE_MINOR;
+    for (minor, result, read) in [
+        (
+            since,
+            json!({"outcome": "refused", "refused": "superseded"}),
+            Ok(TrustChange::Refused(TrustRefusal::Superseded)),
+        ),
+        (since, json!({"outcome": "set"}), Ok(TrustChange::Set)),
+        (since, json!({}), Err(TransportError::ProtocolViolation)),
+        (since - 1, json!({}), Ok(TrustChange::Set)),
+        (
+            since - 1,
+            json!({"outcome": "set"}),
+            Err(TransportError::ProtocolViolation),
+        ),
+    ] {
+        let script = Script::new();
+        let (admin, mut server) = tokio::join!(
+            script.binding.admin([AdminCapability::Trust].into()),
+            async {
+                let (mut probe, _) = admin_hello(&script).await;
+                admin_response(&mut probe, minor, &[]).await;
+                assert!(probe.read().await.is_none());
+                drop(probe);
+                let (mut server, _) = admin_hello(&script).await;
+                admin_response(&mut server, minor, &["admin.trust"]).await;
+                server
+            }
+        );
+        let admin = admin.expect("a port");
+        let (set, ()) = tokio::join!(
+            tokio::time::timeout(
+                PATIENCE,
+                admin.set_trust(TransportIdentity::parse(OTHER).expect("peer"), false)
+            ),
+            async {
+                let Some(Frame::Request(request)) = server.read().await else {
+                    panic!("the set reaches the daemon");
+                };
+                server
+                    .write(&json!({"type": "response", "id": request.id.as_str(), "ok": true, "result": result}))
+                    .await;
+            }
+        );
+        assert_eq!(set.expect("answered"), read, "2.{minor}: {result}");
+    }
+}
+
 /// Below 2.3 the trust read is refused `ProtocolUnsupported` and nothing
 /// is sent -- the 2.1 row carries no source, and an unknown is never
 /// shown as a value -- while `set_trust`, which carries no row, is sent
@@ -1507,7 +1567,11 @@ async fn trust_is_read_only_at_two_three_and_set_is_sent_below_it() {
                         .await;
                 }
             );
-            assert_eq!(set.expect("answered"), Ok(()), "2.{minor}");
+            assert_eq!(
+                set.expect("answered"),
+                Ok(interweave_local_client_api::TrustChange::Set),
+                "2.{minor}"
+            );
             continue;
         }
         let (read, ()) = tokio::join!(tokio::time::timeout(PATIENCE, admin.trust()), async {

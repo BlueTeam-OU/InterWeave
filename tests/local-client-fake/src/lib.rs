@@ -50,8 +50,8 @@ use interweave_local_client_api::{
     EndpointAdminView, EndpointLease, Generation, LeaseRecord, LineChange, LocalAdminPort,
     LocalDataSession, LocalSessionEvent, MAX_ADDRESSES_PER_ADD, MAX_EVENT_QUEUE, OwnAddress,
     OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, RECONNECTED, ROUTE_ESTABLISHED,
-    ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView, TrustSource,
-    TrustedPeer,
+    ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView, TrustChange,
+    TrustRefusal, TrustSource, TrustedPeer,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, ConnectivitySummary, DirectDestination, DirectInboundState,
@@ -464,6 +464,11 @@ struct State {
     /// The bootstrap-peers overlay: added entries in the order added,
     /// kept across a restart as every production binding keeps it.
     added: Vec<String>,
+    /// Per key -- `peer:` and the peer, `address:` and the address -- the
+    /// admission of the port whose write was last applied: the runtime's
+    /// superseded rule (LOCAL-IPC.md §Cancellation mapping and request
+    /// concurrency), unbounded here since a test makes few writes.
+    last_writes: BTreeMap<String, u64>,
 }
 
 impl Node {
@@ -491,6 +496,7 @@ impl Node {
                 ended: BTreeSet::new(),
                 authored: Vec::new(),
                 added: Vec::new(),
+                last_writes: BTreeMap::new(),
             }),
             injected: Mutex::new(VecDeque::new()),
             tag,
@@ -981,6 +987,7 @@ impl AdminBinding for FakeNode {
         Ok(FakeAdmin {
             node: Arc::clone(&self.0),
             port: LocalAdminPort::new(self.0.fresh("admin"), capabilities),
+            admitted: self.0.next.fetch_add(1, Ordering::Relaxed),
         })
     }
 }
@@ -989,9 +996,25 @@ impl AdminBinding for FakeNode {
 pub struct FakeAdmin {
     node: Arc<Node>,
     port: LocalAdminPort,
+    /// The port's place in admission order, which orders its writes.
+    admitted: u64,
 }
 
 impl FakeAdmin {
+    /// Whether this port's write to `key` is superseded: a port admitted
+    /// after it wrote `key` last.
+    fn superseded(&self, state: &State, key: &str) -> bool {
+        state
+            .last_writes
+            .get(key)
+            .is_some_and(|&last| self.admitted < last)
+    }
+
+    fn applied(&self, state: &mut State, key: String) {
+        let last = state.last_writes.entry(key).or_insert(self.admitted);
+        *last = (*last).max(self.admitted);
+    }
+
     fn require(&self, capability: AdminCapability) -> Result<(), TransportError> {
         if self.port.holds(capability) {
             Ok(())
@@ -1144,28 +1167,37 @@ impl AdminPort for FakeAdmin {
     /// The refusals the runtime's policy makes (the local peer, a new
     /// peer at the ceiling) and its no-ops; revoking the paired node is
     /// owed to every session as `PeerDisconnected` with the `policy`
-    /// reason, bounded as any notice.
+    /// reason, bounded as any notice. A set the policy admits from a port
+    /// admitted before the last applied set's for the peer is refused
+    /// `superseded`, nothing changed; an applied set, a no-op included,
+    /// orders.
     async fn set_trust(
         &self,
         peer: TransportIdentity,
         allowed: bool,
-    ) -> Result<(), TransportError> {
+    ) -> Result<TrustChange, TransportError> {
         self.require(AdminCapability::Trust)?;
         // The only peer that can hold a connection here is the pair's
         // other node; a revoked peer that never could is told to nobody.
         let paired = self.node.remote().is_ok_and(|remote| remote.peer == peer);
         let mut state = self.node.running()?;
+        if allowed
+            && (peer == self.node.peer
+                || (!state.trusted.contains(&peer) && state.trusted.len() >= MAX_ALLOWED_PEERS))
+        {
+            return Err(TransportError::InvalidArgument);
+        }
+        let key = format!("peer:{}", peer.as_str());
+        if self.superseded(&state, &key) {
+            return Ok(TrustChange::Refused(TrustRefusal::Superseded));
+        }
+        self.applied(&mut state, key);
         if allowed {
-            if peer == self.node.peer
-                || (!state.trusted.contains(&peer) && state.trusted.len() >= MAX_ALLOWED_PEERS)
-            {
-                return Err(TransportError::InvalidArgument);
-            }
             state.trusted.insert(peer);
-            return Ok(());
+            return Ok(TrustChange::Set);
         }
         if !state.trusted.remove(&peer) || !paired {
-            return Ok(());
+            return Ok(TrustChange::Set);
         }
         let bound = state.queue_bound;
         for queues in state.sessions.values_mut() {
@@ -1187,7 +1219,7 @@ impl AdminPort for FakeAdmin {
                 });
             queues.wake();
         }
-        Ok(())
+        Ok(TrustChange::Set)
     }
 
     /// The single add is the all-or-none add of one line, as in the
@@ -1213,8 +1245,10 @@ impl AdminPort for FakeAdmin {
     /// reads); then every line's `PeerId` against this node's own; then
     /// every line against the special-use floor on every IP
     /// component; then the bound of 64 authored and added together,
-    /// counting only new lines. A line present already, or repeated,
-    /// changes nothing. The fake holds no `enabled: false` provider.
+    /// counting only new lines; then every line against the last applied
+    /// write's admission (`superseded`). A line present already, or
+    /// repeated, changes nothing, and still orders. The fake holds no
+    /// `enabled: false` provider.
     async fn add_bootstrap_addresses(
         &self,
         addresses: Vec<String>,
@@ -1250,8 +1284,8 @@ impl AdminPort for FakeAdmin {
         }
         let mut added = state.added.clone();
         let mut lines = Vec::with_capacity(addresses.len());
-        for (line, address) in addresses.into_iter().enumerate() {
-            if state.authored.iter().chain(&added).any(|a| *a == address) {
+        for (line, address) in addresses.iter().enumerate() {
+            if state.authored.iter().chain(&added).any(|a| a == address) {
                 lines.push(LineChange::Unchanged);
                 continue;
             }
@@ -1262,8 +1296,19 @@ impl AdminPort for FakeAdmin {
                     "authored and added would pass 64",
                 );
             }
-            added.push(address);
+            added.push(address.clone());
             lines.push(LineChange::Added);
+        }
+        let keys: Vec<String> = addresses.iter().map(|a| format!("address:{a}")).collect();
+        if let Some(line) = keys.iter().position(|key| self.superseded(&state, key)) {
+            return refused(
+                AddressRefusal::Superseded,
+                line,
+                "a later port's write stands",
+            );
+        }
+        for key in keys {
+            self.applied(&mut state, key);
         }
         state.added = added;
         Ok(AddressesChange::Added(lines))
@@ -1281,6 +1326,14 @@ impl AdminPort for FakeAdmin {
                 detail: "config.yaml's".to_owned(),
             });
         }
+        let key = format!("address:{address}");
+        if self.superseded(&state, &key) {
+            return Ok(AddressChange::Refused {
+                reason: AddressRefusal::Superseded,
+                detail: "a later port's write stands".to_owned(),
+            });
+        }
+        self.applied(&mut state, key);
         let before = state.added.len();
         state.added.retain(|a| *a != address);
         Ok(if state.added.len() == before {

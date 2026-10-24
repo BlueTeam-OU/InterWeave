@@ -1108,6 +1108,7 @@ fn block_problem(host: RuntimeHost, problem: BlockProblem, short: &str) -> Strin
         BlockProblem::Trust(p) => placeholder_en::trust_problem(host, p).to_owned(),
         BlockProblem::NotMade => fill(text(UiText::TrustStepNotMade), &[("peer", short)]),
         BlockProblem::Unknown => fill(text(UiText::TrustStepUnknown), &[("peer", short)]),
+        BlockProblem::Superseded => fill(text(UiText::TrustStepSuperseded), &[("peer", short)]),
     }
 }
 

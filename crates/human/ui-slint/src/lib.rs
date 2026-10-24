@@ -3584,6 +3584,10 @@ fn outcome_text(host: RuntimeHost, outcome: &TrustOutcome) -> String {
             &[("peer", change.peer.as_str())],
         ),
         TrustOutcome::Problem(problem) => placeholder_en::trust_problem(host, *problem).to_owned(),
+        TrustOutcome::Superseded(change) => fill(
+            placeholder_en::text(UiText::TrustSuperseded),
+            &[("peer", change.peer.as_str())],
+        ),
         TrustOutcome::NotReadAgain(_) => placeholder_en::text(UiText::TrustNotReadAgain).to_owned(),
         TrustOutcome::Entry(problem) => placeholder_en::entry_problem(*problem).to_owned(),
     }

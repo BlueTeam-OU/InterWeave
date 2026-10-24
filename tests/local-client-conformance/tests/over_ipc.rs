@@ -379,3 +379,11 @@ async fn own_addresses_are_what_an_add_takes() {
     suite::own_addresses_are_what_an_add_takes(&a, &pair.a_peer, &b).await;
     pair.stop().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_later_ports_write_supersedes_an_older_ports() {
+    let pair = IpcPair::start().await;
+    let (a, _) = pair.bindings();
+    suite::a_later_ports_write_supersedes_an_older_ports(&a).await;
+    pair.stop().await;
+}
