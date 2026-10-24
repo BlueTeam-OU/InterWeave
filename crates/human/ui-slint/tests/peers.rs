@@ -2758,6 +2758,31 @@ fn a_superseded_removal_snackbar_stays_while_the_pointer_is_on_it() {
     superseded_removal_snackbar(true);
 }
 
+/// With the platform's timeout longer than 10 seconds, the longer one
+/// holds (Android's accessibility timeout, design §5.7).
+#[test]
+fn a_superseded_removal_snackbar_takes_the_platforms_longer_timeout() {
+    let step = |view: &mut View, model: &mut UiModel, ms: u64| {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(ms));
+        let _ = intents(view, model);
+    };
+    let mut view = view();
+    view.set_touch_settings(interweave_human_ui_slint::TouchSettings {
+        snackbar_ms: 15_000,
+        ..interweave_human_ui_slint::TouchSettings::default()
+    });
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a)]);
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::Remove(at(&a)));
+    model.address_removed(&at(&a), superseded(&[added(&a)]));
+    view.render(&model);
+    step(&mut view, &mut model, 10_100);
+    assert!(view.window().get_peers_snack_shown(), "up past 10 s");
+    step(&mut view, &mut model, 5_000);
+    assert!(!view.window().get_peers_snack_shown(), "gone at 15 s");
+}
+
 fn superseded_removal_snackbar(pointer: bool) {
     use slint::platform::WindowEvent;
     let step = |view: &mut View, model: &mut UiModel, ms: u64| {
