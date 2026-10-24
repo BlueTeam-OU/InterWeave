@@ -22,7 +22,7 @@ use interweave_human_transport_client::{
 };
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, AdminPort, DataCapability, DataSessionBinding, DataSessionPort,
-    SessionEvent, SessionRequest,
+    SessionEvent, SessionRequest, TrustChange, TrustRefusal,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
@@ -1776,6 +1776,8 @@ struct Faulty {
     read: Option<TransportError>,
     set: Option<TransportError>,
     read_back: Option<TransportError>,
+    /// The set is refused `superseded`, writing nothing (IPC 2.10).
+    superseded: bool,
     set_called: std::sync::atomic::AtomicBool,
 }
 
@@ -1822,14 +1824,16 @@ impl AdminPort for Faulty {
         &self,
         peer: TransportIdentity,
         allowed: bool,
-    ) -> Result<(), TransportError> {
+    ) -> Result<TrustChange, TransportError> {
         if let Some(error) = self.set {
             return Err(error);
         }
-        self.inner.set_trust(peer, allowed).await?;
         self.set_called
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        Ok(())
+        if self.superseded {
+            return Ok(TrustChange::Refused(TrustRefusal::Superseded));
+        }
+        self.inner.set_trust(peer, allowed).await
     }
     async fn shutdown(&self, grace: std::time::Duration) -> Result<(), TransportError> {
         self.inner.shutdown(grace).await
@@ -1842,6 +1846,7 @@ struct FaultyBinding {
     read: Option<TransportError>,
     set: Option<TransportError>,
     read_back: Option<TransportError>,
+    superseded: bool,
 }
 
 impl AdminBinding for FaultyBinding {
@@ -1858,6 +1863,7 @@ impl AdminBinding for FaultyBinding {
                 read: this.read,
                 set: this.set,
                 read_back: this.read_back,
+                superseded: this.superseded,
                 set_called: std::sync::atomic::AtomicBool::new(false),
             })
         }
@@ -1870,25 +1876,31 @@ impl AdminBinding for FaultyBinding {
 /// alone failed was made -- and the daemon holds it.
 #[tokio::test]
 async fn a_trust_failure_says_whether_the_change_was_made() {
-    for (set, read_back, expected, made) in [
+    for (set, read_back, superseded, expected, made) in [
         (
             Some(TransportError::CapabilityDenied),
             None,
+            false,
             TrustSetFailure::NotMade(TrustProblem::NotPermitted),
             false,
         ),
         (
             Some(TransportError::Timeout),
             None,
+            false,
             TrustSetFailure::Unconfirmed(TrustProblem::Unavailable),
             false,
         ),
         (
             None,
             Some(TransportError::BackendUnavailable),
+            false,
             TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable),
             true,
         ),
+        // Refused because a later admin connection's change stands:
+        // nothing written, and no list read back as this change's.
+        (None, None, true, TrustSetFailure::Superseded, false),
     ] {
         let (a, _b) = FakeNetwork::pair(node_config(), node_config());
         let binding = FaultyBinding {
@@ -1896,6 +1908,7 @@ async fn a_trust_failure_says_whether_the_change_was_made() {
             read: None,
             set,
             read_back,
+            superseded,
         };
         let client = TransportClient::new(
             a.clone(),
@@ -1937,6 +1950,7 @@ async fn a_daemon_without_trusts_version_reads_as_incompatible() {
         read: Some(TransportError::ProtocolUnsupported),
         set: None,
         read_back: None,
+        superseded: false,
     };
     let client = TransportClient::new(
         a.clone(),
