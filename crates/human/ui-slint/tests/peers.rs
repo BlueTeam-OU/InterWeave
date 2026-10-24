@@ -833,6 +833,99 @@ fn an_unknown_add_retried_without_a_write_is_said_again() {
     assert!(after.0 == note || after.1 == note, "{after:?} / {note}");
 }
 
+/// A trust step refused because another admin connection's later change
+/// stands says so on its block, once the list read again does not list
+/// the peer.
+#[test]
+fn a_superseded_trust_says_a_later_change_was_kept() {
+    use interweave_human_client_api::{TrustList, TrustSetFailure};
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    let _ = model.peers_input(PeersInput::FieldChanged(at(&a)));
+    let _ = model.peers_input(PeersInput::Add);
+    model.addresses_added(
+        &[at(&a)],
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            list: Ok(AddressList {
+                addresses: vec![added(&a)],
+            }),
+        }),
+    );
+    let _ = model.peers_turn();
+    view.render(&model);
+    let change = TrustChange {
+        peer: a.clone(),
+        allowed: true,
+    };
+    let _ = model.peers_input(PeersInput::Trust(a.clone()));
+    model
+        .trust_settings_mut()
+        .set(change, Err(TrustSetFailure::Superseded));
+    let _ = model.peers_turn();
+    assert_eq!(
+        model.trust_settings_mut().take_reread(),
+        Some(Intent::ReadTrust)
+    );
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me.clone()),
+        allowed: Vec::new(),
+    }));
+    let _ = model.peers_turn();
+    view.render(&model);
+    let block = view.window().get_trust_blocks().row_data(0).expect("a");
+    assert_eq!(
+        block.problem.as_str(),
+        fill(
+            text(UiText::TrustStepSuperseded),
+            &[("peer", &short_peer(a.as_str()))]
+        )
+    );
+}
+
+/// In the trust settings, a change refused because another admin
+/// connection's later change stands says so, with the peer in full.
+#[test]
+fn a_superseded_change_in_the_settings_says_a_later_change_was_kept() {
+    use interweave_human_client_api::{TrustList, TrustSetFailure};
+    use interweave_human_ui_model::TrustInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::TrustHeading));
+    let _ = intents(&mut view, &mut model);
+    let settings = model.trust_settings_mut();
+    // The read the page's opening sent, answered.
+    settings.read(Ok(TrustList {
+        local_peer: Some(me),
+        allowed: Vec::new(),
+    }));
+    let _ = settings.input(TrustInput::EntryChanged(a.as_str().to_owned()));
+    let _ = settings.input(TrustInput::ProposeAllow);
+    let again = TrustChange {
+        peer: a.clone(),
+        allowed: true,
+    };
+    assert_eq!(
+        settings.input(TrustInput::Confirm(again.clone())),
+        Some(Intent::SetTrust(again.clone()))
+    );
+    settings.set(again, Err(TrustSetFailure::Superseded));
+    view.render(&model);
+    assert_eq!(
+        view.window().get_trust_outcome().as_str(),
+        text(UiText::TrustSuperseded).replace("{peer}", a.as_str())
+    );
+}
+
 /// On Peers a trust step's outcome is its block's to say: a Trust whose
 /// answer was lost and not read back, pressed again and failing before
 /// it was sent, leaves the block unknown, focus on its line -- and the
