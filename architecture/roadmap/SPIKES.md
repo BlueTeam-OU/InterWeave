@@ -208,7 +208,8 @@ registered and delivered. The same modern-capable server under
 `MCP_PROTOCOL_NEGOTIATION=legacy` registered too. Read from the binary,
 not measured: the era is the gate's second check, before any flag,
 policy or allowlist, and the permission relay excludes a modern
-connection as well. So fact 3 holds on this build, and the bridge
+connection as well. A modern result without `resultType` is rejected
+(run d). So fact 3 holds on this build, and the bridge
 stays legacy, as it is (`apps/claude-channel/src/mcp.rs`). A build
 after 2.1.286 is not established.
 
@@ -231,11 +232,10 @@ these sessions nothing: with it and no managed settings nothing was
 delivered (f), and `channel_enable` was refused on the allowlist
 exactly as without it (d, c). That fits fact 4's runs having seen
 nothing, but they ran 2.1.285 with a bare `--mcp-config` server and a
-plain `-p`, which S24 did not, so their cause is inferred. Every
-session ran in the `auto` permission mode, from a source not
-established (h's evidence records it; for the others it rests on raw
-transcripts that are not committed); in it, `reply` reached the peer without `--allowedTools`
-(h). A print session that skips a channel logs nothing about it. Not
+plain `-p`, which S24 did not, so their cause is inferred. h ran in
+the `auto` permission mode, from a source not established (the other
+runs did not record theirs), and in it `reply` reached the peer
+without `--allowedTools`. A print session that skips a channel logs nothing about it. Not
 established: Anthropic's allowlist in `-p`, a bare `--mcp-config`
 server in `-p`, another permission mode, an event arriving during a
 turn, and a session whose stdin has closed.
