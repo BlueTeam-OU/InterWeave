@@ -12,8 +12,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use interweave_human_app_core::FacadeSide;
+use interweave_human_app_core::{FacadeSide, identity_key_under};
 use interweave_human_store::at_rest;
+use interweave_human_store::identity_key::IdentityKey;
 use interweave_human_store::key_custody::KeyCipher;
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
@@ -405,12 +406,13 @@ impl ServiceHost {
             Ok(store) => store,
             Err(e) => return refuse(host, classify(&e)),
         };
+        let key = own_key(host.paths(), &endpoint, &*launch.store_cipher);
         let (data, admin) = (data(&host), host.binding());
         let client_config = client_config(&config, endpoint);
         let make = move || {
             let client =
                 TransportClient::new(data, admin, store, client_config, Box::new(wall_ms), 0)?;
-            Ok(FacadeSide::new(client, wall_ms))
+            Ok(with_key(FacadeSide::new(client, wall_ms), key))
         };
         let facade = match FacadeLoop::spawn(host.runtime(), make, &self.hub) {
             Ok(facade) => facade,
@@ -473,6 +475,7 @@ impl ServiceHost {
             .enable_time()
             .build()
             .map_err(|e| StartRefused::Thread(e.to_string()))?;
+        let key = own_key(&paths, &endpoint, store_cipher);
         let client_config = client_config(&config, endpoint);
         let make = move || {
             let client = TransportClient::new(
@@ -483,7 +486,7 @@ impl ServiceHost {
                 Box::new(wall_ms),
                 0,
             )?;
-            Ok(FacadeSide::new(client, wall_ms))
+            Ok(with_key(FacadeSide::new(client, wall_ms), key))
         };
         // Said before the facade runs, so a view never shows this posture
         // as a service that can send.
@@ -682,6 +685,33 @@ fn human_endpoint(config: &ProfileConfig) -> Option<interweave_transport_api::En
                     .any(|k| k.as_str() == CLIENT_KIND)
         })
     })
+}
+
+/// The identity's own key under the Keystore, at the identity's own alias
+/// (ADR-0063 decision 2, `identity_key::alias`): opened from its file, or
+/// made the first time the service runs, by app-core's rule
+/// (`identity_key_under`, whose tests hold it). The store's cipher is the
+/// same bridge, each secret under its own alias namespace. A file this
+/// build refuses is left as it is and the client runs with no key: Share
+/// says so, and nothing is signed.
+fn own_key(
+    paths: &ProfilePaths,
+    endpoint: &interweave_transport_api::EndpointId,
+    cipher: &dyn KeyCipher,
+) -> Option<IdentityKey> {
+    identity_key_under(paths, std::slice::from_ref(endpoint), cipher)
+        .ok()
+        .flatten()
+}
+
+fn with_key<B: DataSessionBinding, A: interweave_local_client_api::AdminBinding>(
+    mut facade: FacadeSide<B, A>,
+    key: Option<IdentityKey>,
+) -> FacadeSide<B, A> {
+    if let Some(key) = key {
+        facade.set_identity_key(key);
+    }
+    facade
 }
 
 fn client_config(

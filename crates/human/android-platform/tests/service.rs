@@ -962,3 +962,59 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
     );
     let _ = service.stop(GRACE);
 }
+
+/// The identity in front as the first listing after a start reports it.
+fn listed_identity(service: &ServiceHost) -> Option<interweave_human_ui_model::IdentityView> {
+    let mut link = attach(service);
+    let mut held = Vec::new();
+    let mut identity = None;
+    until(&mut link, &mut held, "the listing", |m| match m {
+        ToView::Update(u) => match &**u {
+            Update::Listed(l) => {
+                identity = Some(l.identity.clone());
+                true
+            }
+            _ => false,
+        },
+        _ => false,
+    });
+    identity.expect("listed")
+}
+
+/// ADR-0063 decision 2 on Android: the first start makes the identity's
+/// key sealed under the platform's custody, beside the store and outside
+/// it, and every later start opens that key, never a new one; the record
+/// is the Keystore's, which the desktop's filesystem floor cannot read.
+#[test]
+fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
+    use interweave_human_store::identity_key::{
+        self, FilesystemCustody, IdentityKeyError, IdentityKeyFileError,
+    };
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let keystore = StoreKeystore {
+        invalidated: std::sync::atomic::AtomicBool::new(false),
+    };
+    let service = ServiceHost::new();
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("started");
+    let first = listed_identity(&service).expect("the identity has its key");
+    let _ = service.stop(GRACE);
+
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("started again");
+    let again = listed_identity(&service).expect("the key opened");
+    assert_eq!(again.fingerprint, first.fingerprint, "the same key");
+    let _ = service.stop(GRACE);
+
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    assert_eq!(
+        identity_key::open(&paths, &first.endpoint, &FilesystemCustody).expect_err("sealed"),
+        IdentityKeyFileError::Key(IdentityKeyError::SealedUnreadableHere),
+        "the record is held at the Keystore's custody"
+    );
+}
