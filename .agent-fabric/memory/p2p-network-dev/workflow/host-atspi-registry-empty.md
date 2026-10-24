@@ -5,7 +5,7 @@ topic: "host-atspi-registry-empty"
 description: "on develop-qzapp, 5 desktop-e2e human_app cases fail because the AT-SPI registry lists nothing; they fail on main too, so a red there is the host, not the change"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

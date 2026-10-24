@@ -5,7 +5,7 @@ topic: "commit-before-mutation"
 description: Undoing a mutation with git checkout reverts every uncommitted edit to that file; commit the fix first, then mutate
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "workflow-to-role-finding-goes-to-the-holder-in-the-crate"
 description: "a TO-ROLE finding when the role has two holders — the one whose unmerged branch is in that crate takes it; check before replying \"mine\""
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
