@@ -553,43 +553,36 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         use interweave_human_ui_model::KeyProblem;
         // Refused only before the step starts; from here every path ends
         // it made or not made, so the identity's page never waits on a
-        // step that answered nothing (#423 F1).
+        // step that answered nothing (#423 F1): the start's two reads are
+        // `a_new_key_starts_from_its_two_reads`, a made and a not-made end
+        // the tests/cards.rs key tests, and a refusal the model's
+        // `a_make_the_facade_refuses_ends_the_step_not_made`.
         if self.key_source.is_none() {
             return Err(Failure::NoIdentityKey);
         }
-        let pending = match cards::own_cards_pending(self.client.store_mut()) {
-            Ok(pending) => pending,
-            Err(e) => {
-                // Own cards on their way cannot be known, so none can be
-                // withdrawn: no key is made (design section 7).
-                updates.push(Update::CardsNotRead(store_failure(&e)));
+        let start = new_key_start(
+            cards::own_cards_pending(self.client.store_mut()).map_err(|e| store_failure(&e)),
+            self.client
+                .store_mut()
+                .cards_shared()
+                .map_err(|e| store_failure(&e)),
+        );
+        let (pending, shared) = match start {
+            NewKeyStart::Refused(why) => {
+                updates.push(Update::CardsNotRead(why));
                 self.key_not_made(false, updates);
                 return Ok(());
             }
-        };
-        // The share-again list needs the conversations; where they cannot
-        // be read the key is still made and stands alone (section 7).
-        let mut shared: Vec<ConversationKey> = match self.client.store_mut().cards_shared() {
-            Ok(rows) => rows
-                .into_iter()
-                .map(|(peer, endpoint, _)| ConversationKey::Direct {
-                    peer,
-                    endpoint: Some(endpoint),
-                })
-                .collect(),
-            Err(e) => {
-                updates.push(Update::CardsNotRead(store_failure(&e)));
-                Vec::new()
+            NewKeyStart::Go {
+                pending,
+                share_again,
+                unread,
+            } => {
+                updates.extend(unread.map(Update::CardsNotRead));
+                (pending, share_again)
             }
         };
-        for (row, peer, endpoint) in &pending {
-            let key = ConversationKey::Direct {
-                peer: peer.clone(),
-                endpoint: Some(endpoint.clone()),
-            };
-            if !shared.contains(&key) {
-                shared.push(key);
-            }
+        for (row, _, _) in &pending {
             // Not sent: the client holds it, so it is withdrawn. Sending
             // or unconfirmed: the transport may hold it, so it may arrive.
             let unsent = self.outbound.get(row).is_some_and(|u| {
@@ -1112,6 +1105,62 @@ impl<V> ReadCopies<V> {
     }
 }
 
+/// How Make a new key starts, from its two reads (design/2026-10-24-
+/// identity-key.md sections 5.2 and 7).
+#[derive(Debug, PartialEq, Eq)]
+enum NewKeyStart {
+    /// The own cards on their way cannot be read, so none can be
+    /// withdrawn: no key is made.
+    Refused(Failure),
+    /// The key is made: the own cards on their way, where to share the
+    /// card again, and what could not be read.
+    Go {
+        pending: Vec<(RowId, TransportIdentity, EndpointId)>,
+        share_again: Vec<ConversationKey>,
+        unread: Option<Failure>,
+    },
+}
+
+/// The start of Make a new key from its two reads (#423 F4, F5). The
+/// share-again list is every conversation that recorded a share, newest
+/// first, then the conversations of own cards on their way -- or, when the
+/// shares cannot be read, no list at all, never a part of one passed off
+/// as whole: section 5.3's list is "those, and nobody else".
+fn new_key_start(
+    pending: Result<Vec<(RowId, TransportIdentity, EndpointId)>, Failure>,
+    shared: Result<Vec<(TransportIdentity, EndpointId, u64)>, Failure>,
+) -> NewKeyStart {
+    let pending = match pending {
+        Ok(pending) => pending,
+        Err(why) => return NewKeyStart::Refused(why),
+    };
+    let direct = |peer: &TransportIdentity, endpoint: &EndpointId| ConversationKey::Direct {
+        peer: peer.clone(),
+        endpoint: Some(endpoint.clone()),
+    };
+    let (share_again, unread) = match shared {
+        Ok(rows) => {
+            let mut list: Vec<ConversationKey> = rows
+                .iter()
+                .map(|(peer, endpoint, _)| direct(peer, endpoint))
+                .collect();
+            for (_, peer, endpoint) in &pending {
+                let key = direct(peer, endpoint);
+                if !list.contains(&key) {
+                    list.push(key);
+                }
+            }
+            (list, None)
+        }
+        Err(why) => (Vec::new(), Some(why)),
+    };
+    NewKeyStart::Go {
+        pending,
+        share_again,
+        unread,
+    }
+}
+
 /// What an Undo of a card's answer reads and writes in the store: the
 /// human store, or a test's that fails at the step it is told to.
 pub(crate) trait CardStore {
@@ -1545,6 +1594,54 @@ mod tests {
         assert_eq!(
             run(&mut Failing::default(), false),
             (Ok(true), vec!["restored"])
+        );
+    }
+
+    /// #423 F4, F5: Make a new key starts from its two reads -- refused
+    /// when the own cards on their way cannot be read, made with no list
+    /// when the shares cannot be, and otherwise listing every share newest
+    /// first and then the conversations of cards on their way, once each.
+    #[test]
+    fn a_new_key_starts_from_its_two_reads() {
+        use super::{NewKeyStart, new_key_start};
+        let peer = |s: &str| TransportIdentity::parse(s).expect("a PeerId");
+        let (p, q) = (
+            peer("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"),
+            peer("12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5"),
+        );
+        let human = EndpointId::parse("human").expect("an endpoint");
+        let key = |p: &TransportIdentity| ConversationKey::Direct {
+            peer: p.clone(),
+            endpoint: Some(human.clone()),
+        };
+        let pending = vec![
+            (RowId::from_stored(1), q.clone(), human.clone()),
+            (RowId::from_stored(2), p.clone(), human.clone()),
+        ];
+        assert_eq!(
+            new_key_start(Err(Failure::Corrupt), Ok(Vec::new())),
+            NewKeyStart::Refused(Failure::Corrupt)
+        );
+        assert_eq!(
+            new_key_start(Ok(pending.clone()), Err(Failure::Corrupt)),
+            NewKeyStart::Go {
+                pending: pending.clone(),
+                share_again: Vec::new(),
+                unread: Some(Failure::Corrupt),
+            },
+            "no list, never the pending part of one"
+        );
+        assert_eq!(
+            new_key_start(
+                Ok(pending.clone()),
+                Ok(vec![(p.clone(), human.clone(), 20)])
+            ),
+            NewKeyStart::Go {
+                pending,
+                share_again: vec![key(&p), key(&q)],
+                unread: None,
+            },
+            "every share, then the cards on their way, once each"
         );
     }
 }
