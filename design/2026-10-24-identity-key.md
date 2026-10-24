@@ -80,7 +80,7 @@ mapped here, and nothing else refuses at open:
 | possibly a newer version's | `UnsupportedVersion(v)` with `v` above this build's version; `UnknownCustody` | both | `KeyNewerVersion` | Make a new key (its confirmation differs, §5.1) |
 | damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal while `identity-keys/` is a directory this user owns (a file its owner cannot read) | both | `KeyDamaged` | Make a new key |
 | not protected | the read's `NotPrivate` for the file (readable or writable by another user, a link, another user's file), or for an `identity-keys/` directory this user owns with a loose mode | both (in practice the desktop) | `KeyExposed` | Make a new key (which first makes such a directory owner-only, §5.2) |
-| key folder not safe | the read's `NotPrivate` for an `identity-keys/` that is a link; and any read refusal while `identity-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder; no new key |
+| key folder not safe | the read's `NotPrivate` for an `identity-keys/` that is a link or not a directory at all; and any read refusal while `identity-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder; no new key |
 | temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but the two in the "damaged" row and an other-owner directory | both | `KeyNotNow` | Try again, then Make a new key |
 | missing | no file, for an identity that has shared its card (§7) | both | `KeyMissing` | Make a new key |
 
@@ -119,9 +119,11 @@ Where the page shows the identity's fingerprint (`human-client-ui.md`
 - for "temporarily unusable": **Try again** (`TryAgain`, filled
   tonal), and **Make a new key** (`KeyMakeNew`) as a text button after
   it;
-- for "key folder not safe": the folder's path on a line of its own
-  under the reason line, selectable and copyable as `human-client-ui.md`
-  §11 asks of an exact identifier, then **Try again** (`TryAgain`,
+- for "key folder not safe": the reason line is `KeyDirUnsafe`, whose
+  last part, "Folder: {path}", is drawn on a line of its own with the
+  path isolated (left to right, never translated), selectable and
+  copyable as `human-client-ui.md` §11 asks of an exact identifier;
+  there is no second copy of the path. Then **Try again** (`TryAgain`,
   filled tonal) alone; a new key cannot be made there until the folder
   is fixed. Try again opens the key once more, as in §6, and whatever
   the folder then holds decides the state: the old file opens, or is
@@ -310,7 +312,8 @@ actions; with another kind: that kind's block.
 ## 8. Accessibility
 
 **Reading order**, §4.1's block: the heading (read with "warning"), the
-reason line, `KeyCannotShare`, then the actions; it sits where the
+reason line (for "key folder not safe", its sentences, then "Folder"
+and the path, read as one item), `KeyCannotShare`, then the actions; it sits where the
 fingerprint row would, so it is read in the page's order. §4.2's row
 reads its third line with the row: "{name}, {route label}, key cannot
 be used". §4.3's sheet: title, "as {identity}", the reason line,
@@ -328,6 +331,7 @@ be used". §4.3's sheet: title, "as {identity}", the reason line,
 | made | the new fingerprint row; `KeyMade` announced once | keyboard; screen reader |
 | failed | the failure line (`KeyNewFailed` or `KeyNewFailedGone`), which is announced by being focused, not again | keyboard; screen reader |
 | Try again, opened | the fingerprint row | keyboard |
+| the "Folder: {path}" line ("key folder not safe") | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
 | Try again, refused again | `KeyNotNowAgain` | keyboard; screen reader |
 | a row under `KeyShareAgainTitle` | the conversation's share sheet, as cards §5.3 opens it | keyboard |
 | Open your card from the sheet | as cards §5.2 | keyboard |
@@ -410,6 +414,10 @@ On both clients unless said; Android's screen-reader checks blocked as
     `KeyNewPending`; after Make a new key, both rows are withdrawn with
     no Undo, neither is sent afterwards (a restart included), and C
     and D are in the share-again list.
+    Where the client cannot tell a Sending row it holds from one the
+    transport took (§5.2's fallback), D is instead left to arrive, and
+    D is still in the share-again list; the build states which of the
+    two it does.
 14. A key file of non-text bytes, and one of mode 0000, each show
     `KeyDamaged`, not `KeyNotNow`.
 15. Desktop: `identity-keys/` at mode 0755 shows `KeyExposed`; Make a
