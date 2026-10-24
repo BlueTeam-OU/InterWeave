@@ -301,6 +301,7 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
     let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert!(m.peers().scan_open());
 
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert_eq!(
         m.scanned("https://example.org"),
         (ScanVerdict::NotAddress, None)
@@ -309,6 +310,7 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
 
     let dns = format!("/dns4/peer.example.net/tcp/4001/p2p/{}", peer().as_str());
     let code = format!("{}\n{dns}", at(&peer()));
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert_eq!(m.scanned(&code), (ScanVerdict::Taken, None));
     assert_eq!(
         m.peers().add_page_note(),
@@ -320,6 +322,7 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
     assert_eq!(m.peers().field(), "", "a scan never enters the field");
 
     let long: Vec<String> = (0..=CODE_LINES).map(|_| at(&peer())).collect();
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert_eq!(m.scanned(&long.join("\n")), (ScanVerdict::Taken, None));
     assert!(matches!(
         m.peers().add_page_note(),
@@ -330,6 +333,7 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
     ));
 
     let good = vec![at(&peer()), at(&peer())];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert_eq!(
         m.scanned(&good.join("\r\n")),
         (ScanVerdict::Taken, Some(Intent::AddAddresses(good)))
@@ -499,6 +503,7 @@ fn a_lost_add_answer_is_decided_on_the_list_read_back() {
     let two = vec![at(&other), line.clone()];
     let mut partly = opened(&me, &[], &[added(&other)]);
     let _ = input(&mut partly, PeersInput::OpenAdd);
+    let _ = input(&mut partly, PeersInput::ScanPressed(ScanControl::Camera));
     // A scan's lines: one add, never in the field.
     let _ = input(&mut partly, PeersInput::Scanned(two.join("\n")));
     partly.addresses_added(&two, lost());
@@ -846,6 +851,7 @@ fn several_peers_are_several_blocks_each_decided_on_its_own() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let lines = vec![at(&a), at(&b)];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     // A scan's lines: one add, never in the field.
     let _ = input(&mut m, PeersInput::Scanned(lines.join("\n")));
     m.addresses_added(
@@ -899,6 +905,7 @@ fn an_add_for_a_trusted_peer_closes_at_once() {
     let mut m = opened(&me, &[t.clone(), u.clone()], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let lines = vec![at(&t), at(&u)];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     // A scan's lines: one add, never in the field.
     let _ = input(&mut m, PeersInput::Scanned(lines.join("\n")));
     m.addresses_added(
@@ -1262,6 +1269,7 @@ fn an_unread_trust_list_is_said_and_no_row_guesses_its_trust() {
     let _ = input(&mut m, PeersInput::OpenAdd);
     let (u, v) = (peer(), peer());
     let two = vec![at(&u), at(&v)];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
     m.addresses_added(
         &two,
@@ -1354,6 +1362,7 @@ fn one_blocks_lost_trust_leaves_anothers_known_answer() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let two = vec![at(&a), at(&b)];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
     m.addresses_added(
         &two,
@@ -1787,6 +1796,7 @@ fn step_two_focus_follows_each_blocks_own_answer() {
     let start = || {
         let mut m = opened(&me, &[], &[]);
         let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
         let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
         m.addresses_added(
             &two,
@@ -2815,6 +2825,7 @@ fn this_devices_own_address_is_refused_before_sending() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let code = format!("{}\n{own}", at(&other));
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     assert_eq!(m.scanned(&code), (ScanVerdict::Taken, None), "none of it");
     assert_eq!(m.peers().add_page_note().cloned(), refused(&own));
     assert_eq!(focus(&m), Some(PeersFocus::Note));
@@ -3501,6 +3512,7 @@ fn a_closed_pages_add_lands_on_no_page_opened_after_it() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let two = vec![at(&a), at(&t)];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
     let _ = input(&mut m, PeersInput::Close);
     m.addresses_added(
@@ -4299,6 +4311,7 @@ fn an_add_of_several_counts_the_lines_it_added_and_offers_every_peer() {
     let _ = input(&mut m, PeersInput::OpenAdd);
     let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let code = vec![at(&a), at(&b)];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let (_, sent) = m.scanned(&code.join("\n"));
     assert_eq!(sent, Some(Intent::AddAddresses(code.clone())));
     m.addresses_added(
@@ -4343,6 +4356,7 @@ fn an_add_of_several_refused_names_the_line_at_its_index() {
     let _ = input(&mut m, PeersInput::OpenAdd);
     let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let code = vec![at(&peer()), at(&peer()), at(&peer())];
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
     let _ = m.scanned(&code.join("\n"));
     m.addresses_added(
         &code,
@@ -4584,4 +4598,21 @@ fn a_press_of_add_removes_a_scan_line() {
     assert_eq!(m.peers().add_page_note(), Some(&AddNote::ClipboardNoImage));
     assert!(input(&mut m, PeersInput::Add).is_empty());
     assert_eq!(m.peers().add_page_note(), Some(&AddNote::AddressNeeded));
+}
+
+/// A reader's result that outlived its scan -- the page closed and was
+/// opened again while an image was read -- adds nothing: a code is taken
+/// only by the scan open now (#409 C4).
+#[test]
+fn a_code_with_no_scan_open_adds_nothing() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage));
+    let _ = input(&mut m, PeersInput::Close);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    assert!(!m.peers().scan_open());
+    assert!(input(&mut m, PeersInput::Scanned(at(&peer()))).is_empty());
+    assert!(!m.peers().busy(), "nothing was sent");
+    assert_eq!(m.peers().add_page_note(), None);
 }

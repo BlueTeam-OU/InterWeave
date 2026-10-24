@@ -1267,6 +1267,12 @@ impl Peers {
         let Some(page) = self.page.as_mut() else {
             return (ScanVerdict::NotAddress, None);
         };
+        // A code is taken only by the scan open now: a reader's result
+        // that outlived its scan -- the page closed, or opened again, while
+        // a file was read -- adds nothing (#409 C4).
+        if !page.scanning {
+            return (ScanVerdict::Taken, None);
+        }
         page.scanning = false;
         if !ready || !lines_of(&page.field).is_empty() {
             return (ScanVerdict::Taken, None);
