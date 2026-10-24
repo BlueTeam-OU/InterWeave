@@ -247,9 +247,13 @@ else
     fail "a complete set of inputs was refused" "$(cat "$SANDBOX/err")"
 fi
 
+# A refusal is exit 1 (the script's help); 2 is usage or an unreadable
+# manifest, pinned by its own case below.
 refused() {
-    local what="$1" needle="$2"; shift 2
-    if build "$@"; then fail "$what: accepted"
+    local what="$1" needle="$2" rc=0; shift 2
+    build "$@" || rc=$?
+    if (( rc == 0 )); then fail "$what: accepted"
+    elif (( rc != 1 )); then fail "$what: refused with exit $rc, not 1" "$(cat "$SANDBOX/err")"
     elif ls "$OUT"/*.tar.gz >/dev/null 2>&1; then fail "$what: refused but left an archive"
     elif ! grep -qF -- "$needle" "$SANDBOX/err"; then fail "$what: refused without saying $needle" "$(cat "$SANDBOX/err")"
     else pass "$what: refused, no archive"; fi
@@ -356,10 +360,77 @@ else
     fi
 fi
 
-refused "a version that is not MAJOR.MINOR.PATCH" "not MAJOR.MINOR.PATCH" 0.3 "$OUT"
+# The version rule is release_tag.sh's (ADR-0065), asked of v<version>:
+# its grammar refuses the first three, and a well-formed version that is
+# not the workspace's is refused for that, not for its shape -- the
+# pre-release one is what MAJOR.MINOR.PATCH alone refused as a shape.
+GRAMMAR="is not v<MAJOR>.<MINOR>.<PATCH>[-<pre-release>]"
+refused "a version that is not MAJOR.MINOR.PATCH" "$GRAMMAR" 0.3 "$OUT"
+refused "a version with build metadata" "$GRAMMAR" "$V+build.1" "$OUT"
+refused "a pre-release identifier with a leading zero" "$GRAMMAR" "$V-01" "$OUT"
 OTHER=99.0.0
 [[ "$OTHER" != "$V" ]] || OTHER=98.0.0
-refused "a version that is not the workspace's" "the release version $OTHER is not the workspace version $V" "$OTHER" "$OUT"
+refused "a version that is not the workspace's" "tag v$OTHER is not the workspace version $V" "$OTHER" "$OUT"
+refused "a pre-release that is not the workspace's" "tag v$V-rc.1 is not the workspace version $V" "$V-rc.1" "$OUT"
+
+# A refused version removes an earlier run's outputs of its name, as any
+# other failure does: the version is checked under the trap. The control:
+# all three present before.
+OA="$OUT/interweave-$OTHER-x86_64-unknown-linux-gnu.tar.gz"
+rm -rf "$OUT"
+mkdir -p "$OUT"
+for f in "$OA" "$OA.sha256" "$OUT/linux-values.json"; do printf 'a previous run\n' > "$f"; done
+[[ -e "$OA" && -e "$OA.sha256" && -e "$OUT/linux-values.json" ]] || fail "the control: a previous run's outputs"
+# Not build(), which empties the out-dir first.
+SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
+    bash "$UNDER_TEST" --bin-dir "$BIN" "$OTHER" "$OUT" >/dev/null 2>"$SANDBOX/err"
+# release_tag.sh's own words: build.sh refuses the same version later, in
+# words of its own, and a refusal there must not pass for this one.
+grep -qF "tag v$OTHER is not the workspace version" "$SANDBOX/err" \
+    || fail "the control: the run was not refused by the version check" "$(cat "$SANDBOX/err")"
+[[ ! -e "$OA" && ! -e "$OA.sha256" && ! -e "$OUT/linux-values.json" ]] \
+    && pass "a version refused as not the workspace's leaves none of a previous run's outputs" \
+    || fail "a version refused as not the workspace's left a previous run's outputs" "$(ls -A "$OUT")"
+
+# --root names the repository packaged. Its own root passes (the
+# control); a root whose Cargo.toml is not TOML ends the run with exit 2,
+# release_tag.sh's unreadable manifest, and no archive.
+build --root "$SCRIPT_DIR/../.." "$V" "$OUT" \
+    && pass "--root naming this repository builds the archive" \
+    || fail "--root naming this repository was refused" "$(cat "$SANDBOX/err")"
+# An option with no positionals after it is usage (exit 2), never a
+# version: a values file in the directory it names is left alone. Each
+# is run with a values file planted; the control is the file there.
+for opt in --bin-dir --root; do
+    LONE="$SANDBOX/lone"
+    rm -rf "$LONE"; mkdir -p "$LONE"
+    printf 'kept\n' > "$LONE/linux-values.json"
+    rc=0
+    bash "$UNDER_TEST" "$opt" "$LONE" >/dev/null 2>"$SANDBOX/err" || rc=$?
+    if (( rc != 2 )); then fail "$opt DIR alone exited $rc, not 2" "$(cat "$SANDBOX/err")"
+    elif [[ ! -e "$LONE/linux-values.json" ]]; then fail "$opt DIR alone removed a file in DIR"
+    else pass "$opt DIR alone is usage (2), and a file in DIR is left"; fi
+done
+# An option that is the last argument has no value: usage (2), not an
+# unbound-variable death (1).
+for args in "--bin-dir" "--root" "--root $SANDBOX --bin-dir"; do
+    rc=0
+    # shellcheck disable=SC2086 # the words are the arguments
+    bash "$UNDER_TEST" $args >/dev/null 2>"$SANDBOX/err" || rc=$?
+    (( rc == 2 )) && grep -qF 'usage:' "$SANDBOX/err" \
+        && pass "'$args' with no value is usage (2)" \
+        || fail "'$args' with no value exited $rc, not 2" "$(cat "$SANDBOX/err")"
+done
+BADROOT="$SANDBOX/badroot"
+mkdir -p "$BADROOT"
+printf '[workspace\n' > "$BADROOT/Cargo.toml"
+rc=0
+build --root "$BADROOT" "$V" "$OUT" || rc=$?
+if (( rc != 2 )); then fail "an unreadable root manifest exited $rc, not 2" "$(cat "$SANDBOX/err")"
+elif ls "$OUT"/*.tar.gz >/dev/null 2>&1; then fail "an unreadable root manifest left an archive"
+elif ! grep -qF "cannot read $BADROOT/Cargo.toml as TOML" "$SANDBOX/err"; then
+    fail "an unreadable root manifest was not named" "$(cat "$SANDBOX/err")"
+else pass "an unreadable root manifest: exit 2, no archive"; fi
 mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
 refused "a missing program" "no executable $BIN/human-desktop" "$V" "$OUT"
 mv "$BIN/human-desktop.gone" "$BIN/human-desktop"

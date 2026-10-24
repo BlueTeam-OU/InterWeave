@@ -32,7 +32,10 @@
 # RELEASE_COMPILED_LIST and RELEASE_METADATA_JSON name (the self-test's
 # stand-ins, so nothing is compiled or resolved).
 #
-# REFUSED when <version> is not MAJOR.MINOR.PATCH, when cargo fails, or
+# REFUSED when <version> is not a Semantic Versioning 2.0.0 version
+# without build metadata (MAJOR.MINOR.PATCH[-pre-release], ADR-0065) or
+# not the workspace version -- release_tag.sh's rule, asked of
+# `v<version>` with --manifest -- when cargo fails, or
 # when release_notices.py refuses (a crate with no notice it can ship, a
 # compiled list that does not name the package, ...): its message says
 # which. On any failure none of the three outputs is left in <out-dir>:
@@ -42,7 +45,7 @@
 # Exit codes:
 #   0  written
 #   1  a refusal, or cargo failed
-#   2  usage
+#   2  usage, or release_tag.sh could not read the root manifest
 # <<< help
 
 set -euo pipefail
@@ -79,8 +82,16 @@ finish() {
 }
 trap finish EXIT
 # After the trap, so a refused version also removes an earlier run's files.
-[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
-    || die "version '$version' is not MAJOR.MINOR.PATCH"
+# One rule for the version, the release run's own (ADR-0065 decisions 5
+# and 6): its exit 1 is a refusal, its 2 a manifest it could not read.
+rc=0
+checked="$(bash "$here/release_tag.sh" "v$version" --root "$root" --manifest 2>&1)" || rc=$?
+if (( rc == 1 )); then
+    die "${checked#::error::}"
+elif (( rc != 0 )); then
+    echo "release_crate_notices: ${checked#::error::}" >&2
+    exit 2
+fi
 scratch="$(mktemp -d)"
 mkdir -p "$out_dir"
 

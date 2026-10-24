@@ -214,7 +214,7 @@ KEY=other refused "a key other than the release key" "not the release key's" \
     0.4.1 "$SANDBOX/good.apk" "$OUT"
 # At a workspace of 0.4.2, so the versionName is what refuses it.
 workspace "$SANDBOX/ws-0.4.2" 0.4.2
-ROOT="$SANDBOX/ws-0.4.2" refused "a tag that is not the APK's versionName" "versionName is '0.4.1', not 0.4.2" \
+ROOT="$SANDBOX/ws-0.4.2" refused "a tag that is not the APK's versionName" "versionName is '0.4.1', not 0.4.2: it is built from the workspace version" \
     0.4.2 "$SANDBOX/good.apk" "$OUT"
 grammar="is not v<MAJOR>.<MINOR>.<PATCH>[-<pre-release>]"
 refused "a version with its tag's v" "$grammar" v0.4.1 "$SANDBOX/good.apk" "$OUT"
