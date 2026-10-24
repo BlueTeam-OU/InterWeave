@@ -19,6 +19,7 @@ mod cards;
 #[cfg(test)]
 mod cards_tests;
 mod cli;
+mod identity;
 mod output;
 mod session;
 mod startup;
@@ -223,6 +224,20 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
             return store::discard(&profile.paths, &FilesystemCustody, *confirm, json);
         }
         _ => {}
+    }
+    // Another identity than the one in front has no model: its key file
+    // is read, under the lock, as the store's files are.
+    if let cli::Verb::IdentityShow(Some(endpoint)) = verb
+        && profile.endpoints.first() != Some(endpoint)
+    {
+        let result = if profile.endpoints.contains(endpoint) {
+            identity::show_file(&profile.paths, endpoint, json, &mut out)
+        } else {
+            Err(Failure::Refused(
+                "that endpoint is not one a human client may use in this profile".to_owned(),
+            ))
+        };
+        return Outcome { out, result };
     }
     let (_lock, store) = match startup::open_store(&profile) {
         Ok(store) => (lock, store),

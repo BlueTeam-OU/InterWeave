@@ -87,6 +87,24 @@ impl Side {
     }
 
     fn session(&self) -> Session<FakeNode, FakeNode> {
+        let mut facade = self.facade();
+        facade.set_identity_key(self.key());
+        Session::new(facade, || Some(true)).expect("session")
+    }
+
+    /// A run that opens its key as `main` does, from the key source: a
+    /// key file it refuses leaves the run with no key, the problem shown.
+    fn session_from_file(&self) -> Session<FakeNode, FakeNode> {
+        let mut facade = self.facade();
+        facade.set_key_source(interweave_human_app_core::KeySource::new(
+            self.paths(),
+            endpoint(),
+            Box::new(interweave_human_store::identity_key::FilesystemCustody),
+        ));
+        Session::new(facade, || Some(true)).expect("session")
+    }
+
+    fn facade(&self) -> FacadeSide<FakeNode, FakeNode> {
         let client = TransportClient::new(
             self.node.clone(),
             self.node.clone(),
@@ -101,9 +119,7 @@ impl Side {
             0,
         )
         .expect("facade");
-        let mut facade = FacadeSide::new(client, || WALL);
-        facade.set_identity_key(self.key());
-        Session::new(facade, || Some(true)).expect("session")
+        FacadeSide::new(client, || WALL)
     }
 
     fn route(&self) -> ConversationKey {
@@ -605,12 +621,7 @@ async fn a_key_change_is_accepted_only_by_the_flag_named_for_it() {
     let first = lines(&out)[0]["id"].as_str().expect("id").to_owned();
     assert_eq!(lines(&out)[0]["key"]["state"], "new");
     // The flag names a key change, and a first card is none.
-    let (out, refused) = run(
-        &mut b_run,
-        read_with(alice.route(), &[], &[&first]),
-        false,
-    )
-    .await;
+    let (out, refused) = run(&mut b_run, read_with(alice.route(), &[], &[&first]), false).await;
     assert!(matches!(refused, Err(Failure::Refused(_))), "{refused:?}");
     assert!(out.is_empty(), "refused before anything is read: {out}");
     run(&mut b_run, read_with(alice.route(), &[&first], &[]), false)
@@ -662,5 +673,116 @@ async fn a_key_change_is_accepted_only_by_the_flag_named_for_it() {
         lines(&out)[0]["routes"][0]["fingerprint"],
         new.as_str(),
         "the route holds the new key"
+    );
+}
+
+#[tokio::test]
+async fn identity_show_prints_the_fingerprint_of_the_identity_in_front() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let alice = Side::new(a);
+    let fingerprint = alice.key().fingerprint().to_string();
+    let mut s = alice.session_from_file();
+    let (out, shown) = run(&mut s, Verb::IdentityShow(None), true).await;
+    shown.expect("shown");
+    let line = &lines(&out)[0];
+    assert_eq!(line["endpoint"], "human");
+    assert_eq!(line["fingerprint"], fingerprint.as_str());
+    assert_eq!(line["key_problem"], Value::Null);
+    let (out, _) = run(&mut s, Verb::IdentityShow(None), false).await;
+    assert_eq!(
+        out,
+        format!("identity     human\nfingerprint  {fingerprint}\n")
+    );
+}
+
+/// Overwrite a key file with what is no record, its mode kept.
+fn damage(path: &Path) {
+    std::fs::write(path, "not a record\n").expect("damaged");
+}
+
+#[tokio::test]
+async fn a_new_key_is_made_only_when_confirmed_and_offered() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let alice = Side::new(a);
+    let old = alice.key().fingerprint().to_string();
+    let file = interweave_human_store::identity_key::key_path(&alice.paths(), &endpoint());
+
+    // A usable key is never replaced, confirmed or not.
+    let mut s = alice.session_from_file();
+    let (out, refused) = run(&mut s, Verb::IdentityNewKey { confirm: true }, false).await;
+    assert!(matches!(refused, Err(Failure::Refused(_))), "{refused:?}");
+    assert!(out.is_empty(), "{out}");
+    s.close().await;
+    assert_eq!(alice.key().fingerprint().to_string(), old, "the key stays");
+
+    damage(&file);
+    let damaged = std::fs::read(&file).expect("read");
+    let mut s = alice.session_from_file();
+    let (out, shown) = run(&mut s, Verb::IdentityShow(None), true).await;
+    assert!(matches!(shown, Err(Failure::Refused(_))), "{shown:?}");
+    assert_eq!(lines(&out)[0]["key_problem"], "damaged", "{out}");
+    assert_eq!(lines(&out)[0]["fingerprint"], Value::Null);
+
+    // Unconfirmed: what it would do, and nothing done.
+    let (out, listed) = run(&mut s, Verb::IdentityNewKey { confirm: false }, true).await;
+    match &listed {
+        Err(Failure::Refused(why)) => assert!(why.contains("--confirm key-change"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+    let would = &lines(&out)[0];
+    assert_eq!(would["key_problem"], "damaged");
+    assert_eq!(would["deletes_old_key"], true);
+    assert_eq!(would["cancels_pending_cards"], false);
+    assert_eq!(
+        std::fs::read(&file).expect("read"),
+        damaged,
+        "nothing removed"
+    );
+    s.close().await;
+
+    let mut s = alice.session_from_file();
+    let (out, made) = run(&mut s, Verb::IdentityNewKey { confirm: true }, true).await;
+    made.expect("made");
+    let new = lines(&out)[0]["fingerprint"]
+        .as_str()
+        .expect("a fingerprint")
+        .to_owned();
+    assert_ne!(new, old);
+    s.close().await;
+    assert_eq!(
+        alice.key().fingerprint().to_string(),
+        new,
+        "the new key is the one the next run opens"
+    );
+}
+
+#[test]
+fn another_identitys_key_is_read_and_never_made() {
+    let dir = private_dir();
+    let paths = ProfilePaths::resolve_embedded(
+        "default",
+        TrustBoundary::new(dir.path()).expect("a boundary"),
+    )
+    .expect("paths");
+    let second = EndpointId::parse("second").expect("valid");
+    let mut out = String::new();
+    let shown = crate::identity::show_file(&paths, &second, true, &mut out);
+    assert!(matches!(shown, Err(Failure::Refused(_))), "{shown:?}");
+    assert_eq!(lines(&out)[0]["key_problem"], "absent", "{out}");
+    assert!(
+        !interweave_human_store::identity_key::key_path(&paths, &second).exists(),
+        "no key is made for it"
+    );
+    let key = interweave_human_store::identity_key::create(
+        &paths,
+        &second,
+        &interweave_human_store::identity_key::FilesystemCustody,
+    )
+    .expect("made");
+    let mut out = String::new();
+    crate::identity::show_file(&paths, &second, true, &mut out).expect("shown");
+    assert_eq!(
+        lines(&out)[0]["fingerprint"],
+        key.fingerprint().to_string().as_str()
     );
 }

@@ -72,6 +72,8 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         Verb::TrustList => trust_list(s, r, out).await,
         Verb::SetTrust(peer, allowed) => set_trust(s, r, peer, *allowed, out).await,
         Verb::CardShow => crate::cards::card_show(s, r, out).await,
+        Verb::IdentityShow(None) => crate::identity::show(s, r, out).await,
+        Verb::IdentityNewKey { confirm } => crate::identity::new_key(s, r, *confirm, out).await,
         Verb::CardSet {
             name,
             surname,
@@ -111,6 +113,7 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         | Verb::SetDefault(_)
         | Verb::StoreHealth
         | Verb::StoreDiscard(_)
+        | Verb::IdentityShow(Some(_))
         | Verb::PeersShow => Err(Failure::Refused(
             "this verb does not run through the session".to_owned(),
         )),

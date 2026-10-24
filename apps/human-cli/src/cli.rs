@@ -28,6 +28,8 @@ usage:
   interweave-human --profile <name> identities list [--json]
   interweave-human --profile <name> identities enable|disable <endpoint>
   interweave-human --profile <name> identities default <endpoint>|--none
+  interweave-human --profile <name> identity show [<endpoint>] [--json]
+  interweave-human --profile <name> identity new-key [--confirm key-change] [--json]
   interweave-human --profile <name> store health [--json]
   interweave-human --profile <name> store discard
                    [--confirm everything|unfinished-plaintext] [--json]
@@ -56,6 +58,8 @@ pending, u<row> unread, k<row> kept; a proposal's is its card's u<row>,
 as proposals prints it. A <contact> is its id, as contacts prints it. `send ... -` reads the text from
 stdin. `--` ends the flags. `store discard` without --confirm lists what
 it would remove and removes nothing; --confirm names what it listed.
+`identity new-key` without --confirm key-change says what a new key would
+do and changes nothing.
 
 Exit codes:
   0  done
@@ -132,6 +136,16 @@ pub(crate) enum Verb {
     SetEnabled(EndpointId, bool),
     /// Set the default one, or clear it.
     SetDefault(Option<EndpointId>),
+    /// An identity's fingerprint: the one in front, or the named human
+    /// endpoint's.
+    IdentityShow(Option<EndpointId>),
+    /// A new key for the identity in front, whose key cannot be used:
+    /// made only when `confirm` (the person's `--confirm key-change`),
+    /// else what it would do is said and nothing changes.
+    IdentityNewKey {
+        /// The key change confirmed.
+        confirm: bool,
+    },
     /// The store's health, and its key and files at rest.
     StoreHealth,
     /// Discard and recreate a store that needs recovery (ADR-0060
@@ -309,9 +323,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             }
             "--keep" => flags.keep.push(value("--keep")?),
             "--accept" => flags.accept.push(value("--accept")?),
-            "--accept-key-change" => flags
-                .accept_key_change
-                .push(value("--accept-key-change")?),
+            "--accept-key-change" => flags.accept_key_change.push(value("--accept-key-change")?),
             "--decline" => flags.decline.push(value("--decline")?),
             "--photo" => {
                 let v = value("--photo")?;
@@ -390,6 +402,16 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             (Verb::SetDefault(None), false)
         }
         ["identities", "default", id] => (Verb::SetDefault(Some(endpoint(id)?)), false),
+        ["identity", "show"] => (Verb::IdentityShow(None), true),
+        ["identity", "show", id] => (Verb::IdentityShow(Some(endpoint(id)?)), true),
+        ["identity", "new-key"] => {
+            let confirm = match flags.confirm.take().as_deref() {
+                None => false,
+                Some("key-change") => true,
+                Some(_) => return Err("identity new-key's --confirm takes key-change".to_owned()),
+            };
+            (Verb::IdentityNewKey { confirm }, true)
+        }
         ["store", "health"] => (Verb::StoreHealth, true),
         ["store", "discard"] => {
             let scope = match flags.confirm.take().as_deref() {
@@ -457,10 +479,22 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     let json = std::mem::take(&mut flags.json);
     if json && !json_allowed {
         return Err(
-            "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share and store discard"
+            "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share, store discard and identity new-key"
                 .to_owned(),
         );
     }
+    unused(&flags)?;
+    Ok(Command::Run {
+        profile,
+        verb,
+        json,
+        wait,
+    })
+}
+
+/// A flag given to a verb that does not take it: a usage error naming
+/// the verbs it applies to.
+fn unused(flags: &Flags) -> Result<(), String> {
     if !flags.keep.is_empty() {
         return Err("--keep applies to read only".to_owned());
     }
@@ -474,17 +508,12 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         );
     }
     if flags.confirm.is_some() {
-        return Err("--confirm applies to store discard only".to_owned());
+        return Err("--confirm applies to store discard and identity new-key only".to_owned());
     }
     if flags.photo.is_some() || flags.no_photo {
         return Err("--photo and --no-photo apply to card set only".to_owned());
     }
-    Ok(Command::Run {
-        profile,
-        verb,
-        json,
-        wait,
-    })
+    Ok(())
 }
 
 #[cfg(test)]
@@ -531,6 +560,17 @@ mod tests {
             &["--profile", "p", "identities", "default", "human"],
             &["--profile", "p", "identities", "default", "--none"],
             &["--profile", "p", "store", "health", "--json"],
+            &["--profile", "p", "identity", "show"],
+            &["--profile", "p", "identity", "show", "second", "--json"],
+            &["--profile", "p", "identity", "new-key", "--json"],
+            &[
+                "--profile",
+                "p",
+                "identity",
+                "new-key",
+                "--confirm",
+                "key-change",
+            ],
             &["--profile", "p", "store", "discard", "--json"],
             &["--profile", "p", "peers", "show", "--json"],
             &[
@@ -612,6 +652,8 @@ mod tests {
             "identities enable|disable",
             "identities default",
             "store health",
+            "identity show",
+            "identity new-key",
             "card show",
             "card set",
             "card share",
@@ -677,7 +719,14 @@ mod tests {
             vec!["--profile", "p", "card", "set", "A", "B", "C"],
             vec!["--profile", "p", "read", &c, "--accept", "u1"],
             vec!["--profile", "p", "read", &c, "--accept-key-change", "u1"],
-            vec!["--profile", "p", "proposals", "read", &c, "--accept-key-change"],
+            vec![
+                "--profile",
+                "p",
+                "proposals",
+                "read",
+                &c,
+                "--accept-key-change",
+            ],
             vec!["--profile", "p", "status", "--photo", "x"],
             vec!["--profile", "p", "messages", &c, "--keep", "u1"],
             vec!["--profile", "p", "status", "--none"],
@@ -696,7 +745,7 @@ mod tests {
         assert_eq!(
             run(&["--profile", "p", "trust", "allow", PEER, "--json"]),
             Err(
-                "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share and store discard"
+                "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share, store discard and identity new-key"
                     .to_owned()
             )
         );
@@ -731,6 +780,28 @@ mod tests {
             })
         ));
         assert!(discard(&["--confirm", "yes"]).is_err());
+        assert!(discard(&["--confirm", "key-change"]).is_err());
+        let new_key = |extra: &[&str]| {
+            let mut args = vec!["--profile", "p", "identity", "new-key"];
+            args.extend_from_slice(extra);
+            run(&args)
+        };
+        assert!(matches!(
+            new_key(&[]),
+            Ok(Command::Run {
+                verb: Verb::IdentityNewKey { confirm: false },
+                ..
+            })
+        ));
+        assert!(matches!(
+            new_key(&["--confirm", "key-change"]),
+            Ok(Command::Run {
+                verb: Verb::IdentityNewKey { confirm: true },
+                ..
+            })
+        ));
+        assert!(new_key(&["--confirm", "everything"]).is_err());
+        assert!(new_key(&["--confirm", "yes"]).is_err());
         assert!(discard(&["--confirm"]).is_err());
         assert!(discard(&["--confirm", "everything", "--confirm", "everything"]).is_err());
         assert!(
