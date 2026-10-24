@@ -87,10 +87,10 @@ prints, and the host asserts only in the cache-alone variant:
   control, so the window could not have failed whatever A still held
   (the blind review of #421, F1). These three runs are not a control.
   What does stand in for one here is narrower: before each add, A read
-  B unconnected for 3 s with B listening (above). The driver now runs
-  B's `await_peer` with an `apart` window through the control and
-  fails if B's case ends first. The four variants are owed a re-run on
-  the phones at that commit.
+  B unconnected for 3 s with B listening (above). The driver at
+  `bf114692` runs B's `await_peer` with an `apart` window through the
+  control and fails if B's case ends first; the four variants are owed
+  a re-run on the phones at that commit or later.
 - **Both kept.** A connected again in 255–509 ms. Which source "was"
   the dial has no answer here, because the two do not dial separately.
   Discovery merges providers by address, so both sources support one
