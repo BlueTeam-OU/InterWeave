@@ -27,7 +27,7 @@ pub use client::{CancelledSend, ClientConfig, TransportClient, WallClock};
 pub use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
     AddressProblem, AddressRefused, ClientEvent, Connectivity, Destination, Diagnostics, Inbound,
-    Origin, OutboundStatus, OutboundUpdate, PeerAddress, Received, ReceivedCard, RowError,
-    SendError, SendProblem, SessionProblem, SessionState, TrustList, TrustOrigin, TrustProblem,
-    TrustRow, TrustSetFailure,
+    LineAdded, Origin, OutboundStatus, OutboundUpdate, PeerAddress, Received, ReceivedCard,
+    RowError, SendError, SendProblem, SessionProblem, SessionState, ShowAddresses, TrustList,
+    TrustOrigin, TrustProblem, TrustRow, TrustSetFailure,
 };
