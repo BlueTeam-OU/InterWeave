@@ -465,6 +465,85 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// What a reboot did to a device, read from the device on both sides of
+/// it: the platform's own record, not this host's belief.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rebooted {
+    /// The `adb -s` serial the device came back on: a phone on wireless
+    /// debugging listens on a new port after every boot.
+    pub serial: String,
+    /// `/proc/sys/kernel/random/boot_id` before and after: different, or
+    /// the device never went down.
+    pub boot_id: (String, String),
+    /// The device's uptime when it was found again, in seconds.
+    pub uptime: String,
+    /// The app's processes once the boot completed and before any case
+    /// ran: empty when the platform started nothing of the app's.
+    pub app_pids: String,
+}
+
+fn shell_line(serial: &str, command: &str) -> Result<String, String> {
+    text(Some(serial), &["shell", command]).map(|out| out.trim().to_owned())
+}
+
+/// Reboot the device with `serial`, and wait until a device with the same
+/// hardware serial (`ro.serialno`) is back under `adb` on a new boot with
+/// its boot completed, for at most `patience`. Someone may have to
+/// `adb connect` it again meanwhile -- wireless debugging's port changes
+/// with each boot -- so the wait says once what it waits for.
+///
+/// # Panics
+/// When the device cannot be read before the reboot, refuses it, or is
+/// not back within `patience`.
+#[must_use]
+pub fn reboot_and_await(serial: &str, patience: std::time::Duration) -> Rebooted {
+    let hardware = shell_line(serial, "getprop ro.serialno").expect("the hardware serial");
+    let boot_before =
+        shell_line(serial, "cat /proc/sys/kernel/random/boot_id").expect("the boot id");
+    run_ok(Some(serial), &["reboot"]);
+    eprintln!(
+        "rebooted {serial} (ro.serialno {hardware}); waiting up to {patience:?} for it on a new boot -- \
+         `adb connect` its new wireless-debugging port if it does not come back by itself"
+    );
+    let until = std::time::Instant::now() + patience;
+    loop {
+        assert!(
+            std::time::Instant::now() < until,
+            "{hardware} was not back on a new boot within {patience:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let Ok(listed) = text(None, &["devices"]) else {
+            continue;
+        };
+        for candidate in listed
+            .lines()
+            .skip(1)
+            .filter_map(|l| l.split_once('\t'))
+            .filter(|(_, state)| *state == "device")
+            .map(|(s, _)| s)
+        {
+            let same = shell_line(candidate, "getprop ro.serialno").is_ok_and(|h| h == hardware);
+            let booted =
+                shell_line(candidate, "getprop sys.boot_completed").is_ok_and(|b| b == "1");
+            let boot_after = shell_line(candidate, "cat /proc/sys/kernel/random/boot_id");
+            if let (true, true, Ok(boot_after)) = (same, booted, boot_after) {
+                if boot_after == boot_before {
+                    continue;
+                }
+                return Rebooted {
+                    serial: candidate.to_owned(),
+                    boot_id: (boot_before, boot_after),
+                    uptime: shell_line(candidate, "cut -d' ' -f1 /proc/uptime")
+                        .unwrap_or_else(|e| e),
+                    // pidof exits 1 when it finds nothing: that is the answer.
+                    app_pids: shell_line(candidate, &format!("pidof {PACKAGE} || true"))
+                        .unwrap_or_else(|e| e),
+                };
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
