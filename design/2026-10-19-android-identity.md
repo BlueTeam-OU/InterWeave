@@ -192,7 +192,12 @@ cost about ten taps, and the picker already exists.
 
 **C4, PeerId created.** The PeerId in full again, then one line that
 the network is about to start. Primary: continue. This commits the
-identity, starts the service, and opens the Chats screen. There is no
+identity, starts the service, and opens onboarding's third step,
+Connect, when the overlay and the trust set are both empty, and the
+Chats screen otherwise (`design/2026-10-22-add-a-peer.md` §5.1 and
+§5.6; a refused service start still ends on Chats with its locked
+notice first, and Connect shows on the next start that reaches Chats
+with the condition still holding). There is no
 Back: the identity now exists. It is sealed here, after the person's
 confirmation and before anything starts (§11 Q3). After this, the words
 reach the screen only through §3.5.
@@ -249,7 +254,7 @@ enabled.
   exists to prevent.
 
 **R4, Restored.** The same layout as C4. Primary: continue (starts the
-service, opens Chats).
+service, then opens Connect or Chats by C4's rule).
 
 ### 3.4 Recovery required (a record exists and does not open)
 
@@ -618,7 +623,8 @@ landscape:
    it into Trust's field.
 4. C3 asks two positions. A wrong word shows `IdCheckWrong` and clears
    the entry. Two right words reach C4. Continue starts the service and
-   opens Chats.
+   opens Connect on a fresh install (no address, no trusted peer), or
+   Chats when either list has an entry.
 5. Back from C2 and returning shows the same words. Process death
    before C4 leaves no identity: the next launch shows W with
    `IdVoidPaper`. So does Back from C1 to W after C2 was shown. A
@@ -664,7 +670,7 @@ landscape:
    A C4 that answers `AlreadyProvisioned` with another identity on
    record shows `IdAlreadyCreated`. A C4 whose directory sync fails
    after the record is written (a test hook) reads the record back and
-   reaches the Chats screen as a success, never `IdStorageFailed` or
+   reaches Connect or the Chats screen (C4's rule) as a success, never `IdStorageFailed` or
    `IdAlreadyCreated`; so does a C4 that answers `OldKeyRemains`.
 10. Show my phrase:
     - a cancelled prompt shows nothing and no error;
