@@ -120,8 +120,8 @@ Where the page shows the identity's fingerprint (`human-client-ui.md`
   tonal), and **Make a new key** (`KeyMakeNew`) as a text button after
   it;
 - for "key folder not safe": the reason line is `KeyDirUnsafe`, and
-  under it, on a line of its own, `KeyDirUnsafePath` ("Folder:
-  {path}"), the path isolated (left to right, never translated),
+  under it, on a line of its own, `KeyDirUnsafePath` ("Folder
+  location: {path}"), the path isolated (left to right, never translated),
   selectable and copyable as `human-client-ui.md` §11 asks of an exact
   identifier; the path appears nowhere else. Then **Try again** (`TryAgain`,
   filled tonal) alone; a new key cannot be made there until the folder
@@ -466,8 +466,8 @@ as the platform shows it, isolated as a path, never translated.
 | `KeyNewFailed` | InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed before the old file was removed; says nothing about what changed |
 | `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
 | `KeyNewFailedGone` | The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order) |
-| `KeyDirUnsafe` | placeholder: The place where this identity's key is kept is not a regular folder that only your user account owns, so InterWeave does not use the key. Make it such a folder, then choose Try again. | §3, desktop only; must be true for a symbolic link, a folder owned by another user account, and a file where the folder should be; must say what to make of it, since the client never changes what it does not own; awaiting language-culture-en (review round 5) |
-| `KeyDirUnsafePath` | placeholder: Folder: {path} | §4.1, desktop only, the line under `KeyDirUnsafe`; a label and the path, `{path}` last so no punctuation touches it; awaiting language-culture-en |
+| `KeyDirUnsafe` | This identity's key must be kept in a regular folder that only your user account owns. The location shown is not a folder like that, so InterWeave does not use the key. Make it a regular folder that only your user account owns, then choose Try again. | §3, desktop only; must be true for a symbolic link, a folder owned by another user account, and a file where the folder should be; must say what to make of it, since the client never changes what it does not own |
+| `KeyDirUnsafePath` | Folder location: {path} | §4.1, desktop only, the line under `KeyDirUnsafe`; a label and the path, `{path}` last so no punctuation touches it |
 | `KeyNewPending` | In some conversations, your card has not reached the contact yet. If InterWeave has not sent the card yet, making a new key cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make (review round 3, F11) |
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
 
