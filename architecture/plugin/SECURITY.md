@@ -40,8 +40,8 @@ ceiling; A 2026-10-21). The rule, kept by `apps/claude-channel`'s
   rest is discarded to its newline as it arrives and never kept, and the
   next line is read normally. It is answered with NOTHING, as a line that
   is not JSON is: its id may follow its params, in the bytes refused
-  unread, so no id is trusted from it. One stderr line names the size
-  and carries no content.
+  unread, so no id is trusted from it. One log line, on stderr and in
+  the bridge's log file, names the size and carries no content.
 - **A line that is not UTF-8 is dropped the same way**, never ending the
   bridge, as it did before the ceiling.
 - The reader is cancel-safe: the serve loop re-enters it every turn, and
