@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 
+import com.android.build.api.artifact.SingleArtifact
+
 plugins {
     alias(libs.plugins.android.application)
 }
@@ -13,6 +15,32 @@ val workspace: File = rootDir.resolve("../../..").canonicalFile
 // (review of #255).
 fun rustJniLibs(variant: String): Provider<Directory> =
     layout.buildDirectory.dir("rustJniLibs/${variant.lowercase()}")
+
+// The release version (ADR-0065 decision 5): the root Cargo.toml's
+// [workspace.package] version is its one committed place, and the APK's
+// versionName is produced from it, never typed here. A pre-release
+// (0.4.0-rc.1) is carried whole; build metadata is refused, since a tag
+// carries none (decision 6) and release_android_apk.sh compares the
+// versionName with the tag's version exactly.
+val workspaceVersion: String = run {
+    val manifest = rootProject.layout.projectDirectory.file("../../../Cargo.toml")
+    var section = ""
+    var version: String? = null
+    for (line in providers.fileContents(manifest).asText.get().lines()) {
+        Regex("""^\s*\[([^\]]+)]\s*(#.*)?$""").find(line)?.let { section = it.groupValues[1].trim() }
+        if (section == "workspace.package") {
+            Regex("""^\s*version\s*=\s*"([^"]*)"\s*(#.*)?$""").find(line)?.let { version = it.groupValues[1] }
+        }
+    }
+    val found = checkNotNull(version) { "${manifest.asFile} has no [workspace.package] version" }
+    // tools/ci/release_tag.sh's grammar, which the release run applies to the tag.
+    val num = "(0|[1-9][0-9]*)"
+    val ident = "($num|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    check(Regex("""^$num\.$num\.$num(-$ident(\.$ident)*)?$""").matches(found)) {
+        "the workspace version '$found' is not MAJOR.MINOR.PATCH[-pre-release] (Semantic Versioning 2.0.0, no build metadata)"
+    }
+    found
+}
 
 android {
     namespace = "org.interweave.human"
@@ -28,8 +56,12 @@ android {
         // API 34+ enforces the remoteMessaging foreground-service type
         // (ADR-0041); 36 is Play's floor from 2026-08-31.
         targetSdk = 36
+        // Not a version (ADR-0065 decision 5): the counter Android orders
+        // installs by, raised by one in a commit for every APK published,
+        // pre-releases included, never reused and never derived from
+        // versionName. No APK has been published yet.
         versionCode = 1
-        versionName = "0.0.0"
+        versionName = workspaceVersion
         // The android-e2e cases' runner (src/androidTest/, tests/android-e2e's
         // src/adb.rs): one case per `am instrument`, in the app's process.
         testInstrumentationRunner = "org.interweave.human.test.E2eCase"
@@ -116,4 +148,35 @@ val verifyReleaseNative = tasks.register("verifyReleaseNative") {
 }
 tasks.matching { it.name == "mergeReleaseJniLibFolders" }.configureEach {
     dependsOn(verifyReleaseNative)
+}
+
+// The APK's own versionName against the workspace version, read from the
+// merged manifest the APK is packaged with: a value set anywhere else -- a
+// hand edit of defaultConfig above, a variant or a manifest overriding it
+// -- fails the assemble (ADR-0065: a test that fails when its value and the
+// workspace's differ). release_android_apk.sh checks the signed APK again,
+// against a manifest read of its own.
+androidComponents {
+    onVariants { variant ->
+        val name = variant.name.replaceFirstChar { it.uppercase() }
+        val verify = tasks.register("verify${name}VersionName") {
+            group = "verification"
+            description = "Fails if the ${variant.name} APK's versionName is not the workspace version."
+            val merged = variant.artifacts.get(SingleArtifact.MERGED_MANIFEST)
+            // Plain values for the action: the Variant itself holds the
+            // project's services, which the configuration cache cannot
+            // store (review of #404).
+            val variantName = variant.name
+            val expected = workspaceVersion
+            inputs.file(merged)
+            doLast {
+                val found = Regex("""android:versionName="([^"]*)"""")
+                    .find(merged.get().asFile.readText())?.groupValues?.get(1)
+                check(found == expected) {
+                    "the $variantName APK's versionName is '$found', not the workspace version $expected"
+                }
+            }
+        }
+        tasks.matching { it.name == "assemble$name" }.configureEach { dependsOn(verify) }
+    }
 }

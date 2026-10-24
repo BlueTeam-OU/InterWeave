@@ -11,16 +11,22 @@ channel: a person installs and updates the APK by hand, from the page.
 
 ## The release run
 
-A release is a tag `v<MAJOR>.<MINOR>.<PATCH>` on `main`. The workflow
+A release is a tag `v` and a Semantic Versioning 2.0.0 version on `main`,
+`v<MAJOR>.<MINOR>.<PATCH>[-<pre-release>]`: pre-release identifiers are
+admitted (`v0.4.0-rc.1`, published as a pre-release), build metadata is
+not (ADR-0065 decisions 1 and 6; `tools/ci/release_tag.sh`). The workflow
 that runs on it is devex-tooling's `.github/workflows/release.yml`;
 every step it runs is
 a script in `tools/ci/` with a self-test beside it, so the workflow
 holds no release logic of its own. In order:
 
-1. **The version is already committed.** `versionName` in
-   `apps/human-android/android/app/build.gradle.kts` is the tag's
-   version and `versionCode` is higher than every earlier release's;
-   step 5 refuses an APK whose `versionName` is not the tag's.
+1. **The version is already committed.** The root `Cargo.toml`'s
+   `[workspace.package] version` is the tag's version, and the APK's
+   `versionName` is produced from it by
+   `apps/human-android/android/app/build.gradle.kts`; `versionCode`
+   there is raised by one in a commit before the tag, higher than every
+   earlier published APK's (ADR-0065 decision 5); step 5 refuses an APK
+   whose `versionName` is not the tag's.
 2. **Skia, pinned.** `tools/ci/skia_prebuilt.sh fetch <dir>` downloads
    the one archive `tools/ci/skia-binaries.pin` names, checks its
    SHA-256, and prints `SKIA_BINARIES_URL=file://…` for the build's
