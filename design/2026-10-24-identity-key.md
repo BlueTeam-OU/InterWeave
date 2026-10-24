@@ -541,5 +541,6 @@ Asked after review round 2, the note built on the reading given:
   and where, with Try again; the client never follows or replaces a
   link there and never changes what it does not own. `KeyNewFailed`
   stays for a tightening or a create the platform refuses. A file
-  standing where the directory should be is read here as the same
-  class: the client replaces nothing it did not make (review round 5).
+  standing where the directory should be is the same class, confirmed
+  by architect-cto (REPLY 01a16dad): the client replaces nothing it did
+  not make.
