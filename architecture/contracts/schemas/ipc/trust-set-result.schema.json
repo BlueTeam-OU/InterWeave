@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:trust-set-result",
+  "title": "IPC admin.trust.set result",
+  "description": "What a trust set did, from minor 2.10 (below it the set answers empty-result). `set`: the policy is as asked, changed by the set or already so. `refused`: NOTHING was written, and `refused` names the rule. A REFUSAL IS AN ANSWER, not an error; `detail` is for a log, never parsed. A set refused by the policy (this profile's own identity, the allowlist's ceiling) is still the error `InvalidArgument`, and a write that fails the error `Internal` (ADR-0028).",
+  "type": "object",
+  "required": [
+    "outcome"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "outcome": {
+      "enum": [
+        "set",
+        "refused"
+      ]
+    },
+    "refused": {
+      "$comment": "Present exactly when outcome is refused. superseded: the set came from an admin connection admitted before the one whose set for the same peer the daemon last applied, so the later connection's set stands (LOCAL-IPC.md, Cancellation mapping and request concurrency).",
+      "enum": [
+        "superseded"
+      ]
+    },
+    "detail": {
+      "type": "string",
+      "maxLength": 512
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "refused"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "refused"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "refused"
+          ]
+        }
+      }
+    }
+  ],
+  "x-contract": {
+    "name": "ipc.trust-set-result",
+    "status": "approved",
+    "version": "1.0.0",
+    "adr": [
+      "0012",
+      "0017",
+      "0028"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

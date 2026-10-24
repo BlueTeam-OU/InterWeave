@@ -381,6 +381,42 @@ pub enum TrustSource {
     Administered,
 }
 
+/// What an `admin.trust.set` did (`trust-set-result`, IPC 2.10). A
+/// refusal is an answer, not an error; MUST be used, since a caller that
+/// discards it would show a refused set as made.
+#[must_use = "a refused set changed nothing; a caller that ignores it shows it as made"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrustChange {
+    /// The policy is as asked: changed by the set, or already so.
+    Set,
+    /// Refused; nothing was written.
+    Refused(TrustRefusal),
+}
+
+/// Why an `admin.trust.set` was refused, by name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrustRefusal {
+    /// The set came from an admin port opened before the one whose set
+    /// for the same peer the runtime last applied: the later port's set
+    /// stands (LOCAL-IPC.md §Cancellation mapping and request
+    /// concurrency).
+    Superseded,
+}
+
+impl TrustRefusal {
+    /// Every reason; what a decoder matches a name against.
+    /// `every_trust_refusal_is_in_all` keeps it whole.
+    pub const ALL: [Self; 1] = [Self::Superseded];
+
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Superseded => "superseded",
+        }
+    }
+}
+
 /// How the last dial to, or connection with, a peer ended
 /// (`CONNECTIVITY.md` §19's `last_outcome`): a bounded class, never an
 /// address. Every refusal folds to `Denied`; the connectivity log line
@@ -531,18 +567,25 @@ pub enum AddressRefusal {
     ProviderDisabled,
     /// A removal of an entry `config.yaml` authors.
     Authored,
+    /// A write every other rule admits, from an admin port opened before
+    /// the one whose write for the same address the runtime last applied
+    /// (LOCAL-IPC.md §Cancellation mapping and request concurrency): the
+    /// later port's write stands. Checked last, so it names a write that
+    /// would otherwise have taken effect; from minor 2.10.
+    Superseded,
 }
 
 impl AddressRefusal {
     /// Every reason, in the order the methods check them; what a decoder
     /// matches a name against. `every_refusal_is_in_all` keeps it whole.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Grammar,
         Self::OwnPeer,
         Self::ProviderDisabled,
         Self::SpecialUse,
         Self::Bound,
         Self::Authored,
+        Self::Superseded,
     ];
 
     /// The name the wire carries.
@@ -555,6 +598,7 @@ impl AddressRefusal {
             Self::Bound => "bound",
             Self::ProviderDisabled => "provider_disabled",
             Self::Authored => "authored",
+            Self::Superseded => "superseded",
         }
     }
 }
@@ -778,7 +822,10 @@ pub trait AdminPort {
     /// order, the configuration's grammar, then this node's own `PeerId`
     /// (`own_peer`), then an authored `enabled: false` provider, then
     /// ADR-0052 rule 2's special-use floor, then the provider's bound of
-    /// 64, each refusing by name whoever the caller; an accepted address is written to the bootstrap-peers
+    /// 64, then -- an add every other rule admits -- `superseded`, for a
+    /// port opened before the one whose write for the same address was
+    /// last applied (from 2.10), each refusing by name whoever the
+    /// caller; an accepted address is written to the bootstrap-peers
     /// overlay before it reaches the running provider and before the
     /// answer. Adding an address grants no trust. Not implemented by a
     /// port that predates it.
@@ -802,7 +849,7 @@ pub trait AdminPort {
     /// [`Self::add_bootstrap_address`]'s order -- every line's grammar,
     /// every line's `PeerId` against this node's own, the provider, every
     /// line's special-use floor, then the bound
-    /// counting only new lines -- so a one-line list is answered as that
+    /// counting only new lines, then every line's `superseded` -- so a one-line list is answered as that
     /// method answers its line; the accepted lines are written in one
     /// overlay write before the running provider is told and before the
     /// answer. Adding an address grants no trust. Not implemented by a
@@ -825,7 +872,9 @@ pub trait AdminPort {
     /// Remove `address` from the profile's bootstrap addresses
     /// (`admin.peers.remove_address`): out of the overlay, the running
     /// provider and the operator's door, dialled no more without a
-    /// restart; an authored entry is refused by name.
+    /// restart; an authored entry is refused by name, and then a removal
+    /// from a port opened before the one whose write for the address was
+    /// last applied is refused `superseded` (from 2.10).
     ///
     /// # Errors
     /// As [`Self::add_bootstrap_address`].
@@ -866,7 +915,9 @@ pub trait AdminPort {
     /// directory, and each session holding `events` is told
     /// `PeerDisconnected` with the `policy` reason (ADR-0012). Allowing a
     /// listed peer or revoking an unlisted one changes nothing and
-    /// succeeds.
+    /// answers [`TrustChange::Set`]. A set from a port opened before the
+    /// one whose set for `peer` was last applied is answered
+    /// [`TrustRefusal::Superseded`] with nothing written.
     ///
     /// # Errors
     /// `CapabilityDenied` without `admin.trust`; `InvalidArgument` for
@@ -880,7 +931,7 @@ pub trait AdminPort {
         &self,
         peer: TransportIdentity,
         allowed: bool,
-    ) -> impl Future<Output = Result<(), TransportError>> + Send;
+    ) -> impl Future<Output = Result<TrustChange, TransportError>> + Send;
 
     /// Ask the runtime's owner to shut down within `grace`. A REQUEST: the
     /// port does not own the runtime, and the owner -- the composition
@@ -894,7 +945,7 @@ pub trait AdminPort {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
-    use super::{AddressRefusal, SessionRequest};
+    use super::{AddressRefusal, SessionRequest, TrustRefusal};
     use crate::{DataCapability, MAX_CLIENT_KIND_CHARS, SessionError};
 
     #[test]
@@ -922,6 +973,17 @@ mod tests {
     /// A reason added to the enum and not to `ALL` would decode as no
     /// reason at all: the match makes a new variant a compile error here,
     /// where `ALL` is in view, and the loop that `ALL` holds each once.
+    /// As `every_refusal_is_in_all`, for the trust set's reasons.
+    #[test]
+    fn every_trust_refusal_is_in_all() {
+        let position = |reason| match reason {
+            TrustRefusal::Superseded => 0,
+        };
+        for (i, reason) in TrustRefusal::ALL.into_iter().enumerate() {
+            assert_eq!(position(reason), i, "{reason:?}");
+        }
+    }
+
     #[test]
     fn every_refusal_is_in_all() {
         let position = |reason| match reason {
@@ -931,6 +993,7 @@ mod tests {
             AddressRefusal::SpecialUse => 3,
             AddressRefusal::Bound => 4,
             AddressRefusal::Authored => 5,
+            AddressRefusal::Superseded => 6,
         };
         for (i, reason) in AddressRefusal::ALL.into_iter().enumerate() {
             assert_eq!(position(reason), i, "{reason:?}");

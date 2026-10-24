@@ -9,6 +9,7 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+use interweave_local_client_api::TrustChange;
 use interweave_local_client_conformance_tests as suite;
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
@@ -1109,15 +1110,17 @@ async fn a_revocation_cuts_the_pair_both_ways_until_allowed_again() {
             .await
             .expect("a port");
     across_the_pair(&p, &a, &b, true).await;
-    admin
-        .set_trust(p.b_peer.clone(), false)
-        .await
-        .expect("revoked");
+    assert_eq!(
+        admin.set_trust(p.b_peer.clone(), false).await,
+        Ok(TrustChange::Set),
+        "revoked"
+    );
     across_the_pair(&p, &a, &b, false).await;
-    admin
-        .set_trust(p.b_peer.clone(), true)
-        .await
-        .expect("allowed");
+    assert_eq!(
+        admin.set_trust(p.b_peer.clone(), true).await,
+        Ok(TrustChange::Set),
+        "allowed"
+    );
     across_the_pair(&p, &a, &b, true).await;
 }
 
@@ -1143,4 +1146,10 @@ async fn a_list_is_added_all_or_none_at_every_binding() {
 async fn own_addresses_are_what_an_add_takes() {
     let p = pair();
     suite::own_addresses_are_what_an_add_takes(&p.a, &p.a_peer, &p.b).await;
+}
+
+#[tokio::test]
+async fn a_later_ports_write_supersedes_an_older_ports() {
+    let p = pair();
+    suite::a_later_ports_write_supersedes_an_older_ports(&p.a).await;
 }

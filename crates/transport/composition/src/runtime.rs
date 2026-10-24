@@ -18,7 +18,8 @@ use std::time::Duration;
 
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, BootstrapAddress, Generation,
-    LineChange, MAX_ADDRESSES_PER_ADD, OwnAddresses, TrustAdminView, TrustSource, TrustedPeer,
+    LineChange, MAX_ADDRESSES_PER_ADD, OwnAddresses, TrustAdminView, TrustChange, TrustRefusal,
+    TrustSource, TrustedPeer,
 };
 #[cfg(feature = "test-hooks")]
 use interweave_profile_config::PersistError;
@@ -49,6 +50,7 @@ use crate::session::InProcessBinding;
 use crate::translate::{
     CompositionError, StaticAuthoring, static_authoring, static_entry, translate,
 };
+use crate::write_order::{Admission, AdmissionOrder, LastWrites, WriteKey};
 
 /// How a runtime is composed beyond what the profile says.
 ///
@@ -173,6 +175,19 @@ pub enum Ended {
     RuntimeEnded,
 }
 
+/// The audit record of an `admin.peers` write refused as superseded, on
+/// the trust record's target (LOCAL-IPC.md §Cancellation mapping and
+/// request concurrency): the address, which is the change, and what came
+/// of it. The other `admin.peers` answers are not audited.
+fn audit_superseded(method: &'static str, address: &str) {
+    tracing::info!(
+        target: AUDIT_TARGET,
+        address,
+        outcome = "superseded",
+        "{method}"
+    );
+}
+
 /// A path change's class as the session notice and the wire name it:
 /// `PathChangeReason`'s own serialized names.
 const fn reason_class(reason: PathChangeReason) -> &'static str {
@@ -194,11 +209,13 @@ pub(crate) enum Request {
     Shutdown(Duration, oneshot::Sender<u64>),
     /// The data-plane trust policy as the driver holds it.
     Trust(oneshot::Sender<TrustAdminView>),
-    /// Allow a peer, or revoke it (`admin.trust.set`).
+    /// Allow a peer, or revoke it (`admin.trust.set`), for the asking
+    /// port's write admission.
     SetTrust(
+        Admission,
         TransportIdentity,
         bool,
-        oneshot::Sender<Result<(), TransportError>>,
+        oneshot::Sender<Result<TrustChange, TransportError>>,
     ),
     /// Enable or disable an endpoint (`admin.endpoints.set_enabled`),
     /// answered with the epoch disabling revoked.
@@ -215,16 +232,19 @@ pub(crate) enum Request {
     ),
     /// Add a bootstrap address (`admin.peers.add_address`).
     AddBootstrap(
+        Admission,
         String,
         oneshot::Sender<Result<AddressChange, TransportError>>,
     ),
     /// Add bootstrap addresses all or none (`admin.peers.add_addresses`).
     AddBootstraps(
+        Admission,
         Vec<String>,
         oneshot::Sender<Result<AddressesChange, TransportError>>,
     ),
     /// Remove a bootstrap address (`admin.peers.remove_address`).
     RemoveBootstrap(
+        Admission,
         String,
         oneshot::Sender<Result<AddressChange, TransportError>>,
     ),
@@ -548,6 +568,7 @@ impl ComposedRuntime {
         let (requests, request_rx) = mpsc::channel(64);
         let (shutdown_tx, shutdown_requests) = watch::channel(None);
         let notices = SessionNotices::default();
+        let order = Arc::new(AdmissionOrder::default());
         let sessions = InProcessBinding::new(
             swarm.commander(),
             // `start` is async, so this is the runtime the substrate runs
@@ -559,6 +580,7 @@ impl ComposedRuntime {
             Arc::new(shutdown_tx),
             notices.clone(),
             options.endpoint_overlay_file.is_some(),
+            Arc::clone(&order),
         );
         let (event_tx, events) = mpsc::channel(options.event_capacity.max(1));
         let dropped = Arc::new(AtomicU64::new(0));
@@ -600,6 +622,7 @@ impl ComposedRuntime {
             publish_faults: 0,
             outcomes: LastOutcomes::default(),
             refusals: ReconnectRefusals::default(),
+            writes: LastWrites::new(order),
         };
         let task = tokio::spawn(driver.run(options.discovery_interval));
         Ok(Self {
@@ -904,6 +927,9 @@ struct Driver {
     outcomes: LastOutcomes,
     /// Each allowlisted peer's last reconnect refusal, logged on change.
     refusals: ReconnectRefusals,
+    /// Per key, the write admission whose write was last applied: what
+    /// refuses an older port's late write (`write_order`).
+    writes: LastWrites,
     /// Held for its drop alone: the driver's loop returning, a panic
     /// unwinding or the task aborted each drops the driver, and with it
     /// this sender, which closes the owner's `ended` channel.
@@ -1242,8 +1268,8 @@ impl Driver {
                         .collect(),
                 });
             }
-            Request::SetTrust(peer, allowed, reply) => {
-                let _ = reply.send(self.set_trust(peer, allowed).await);
+            Request::SetTrust(by, peer, allowed, reply) => {
+                let _ = reply.send(self.set_trust(&by, peer, allowed).await);
             }
             Request::SetEndpointEnabled(endpoint, enabled, reply) => {
                 let moved =
@@ -1279,14 +1305,14 @@ impl Driver {
                 };
                 let _ = reply.send(self.set_endpoints("set_default", moved, publish).await);
             }
-            Request::AddBootstrap(address, reply) => {
-                let _ = reply.send(self.add_bootstrap(address).await);
+            Request::AddBootstrap(by, address, reply) => {
+                let _ = reply.send(self.add_bootstrap(&by, address).await);
             }
-            Request::AddBootstraps(addresses, reply) => {
-                let _ = reply.send(self.add_bootstraps(addresses).await);
+            Request::AddBootstraps(by, addresses, reply) => {
+                let _ = reply.send(self.add_bootstraps(&by, addresses).await);
             }
-            Request::RemoveBootstrap(address, reply) => {
-                let _ = reply.send(self.remove_bootstrap(address).await);
+            Request::RemoveBootstrap(by, address, reply) => {
+                let _ = reply.send(self.remove_bootstrap(&by, address).await);
             }
             Request::Bootstrap(reply) => {
                 let _ = reply.send(self.bootstrap_rows());
@@ -1474,17 +1500,26 @@ impl Driver {
 
     /// Add a bootstrap address (ADR-0062 decision 1): the all-or-none add
     /// of one line, so the two methods cannot answer one line apart.
-    async fn add_bootstrap(&mut self, address: String) -> Result<AddressChange, TransportError> {
-        Ok(match self.add_bootstraps(vec![address]).await? {
-            AddressesChange::Added(lines) => match lines.as_slice() {
-                [LineChange::Added] => AddressChange::Added,
-                [LineChange::Unchanged] => AddressChange::Unchanged,
-                _ => return Err(TransportError::Internal),
+    async fn add_bootstrap(
+        &mut self,
+        by: &Admission,
+        address: String,
+    ) -> Result<AddressChange, TransportError> {
+        Ok(
+            match self
+                .add_lines(by, vec![address], "admin.peers.add_address")
+                .await?
+            {
+                AddressesChange::Added(lines) => match lines.as_slice() {
+                    [LineChange::Added] => AddressChange::Added,
+                    [LineChange::Unchanged] => AddressChange::Unchanged,
+                    _ => return Err(TransportError::Internal),
+                },
+                AddressesChange::Refused { reason, detail, .. } => {
+                    AddressChange::Refused { reason, detail }
+                }
             },
-            AddressesChange::Refused { reason, detail, .. } => {
-                AddressChange::Refused { reason, detail }
-            }
-        })
+        )
     }
 
     /// Add every one of `addresses` as a bootstrap address or none
@@ -1498,13 +1533,28 @@ impl Driver {
     /// special-use floor, applied HERE whoever the caller, since the
     /// operator set an address enters is admitted at every store door
     /// whatever its class; then the provider's bound, counting only new
-    /// lines. A line already present, or repeated, changes nothing. The
+    /// lines; then, every other rule admitting the list, every line's
+    /// address against the last applied write's admission (`write_order`:
+    /// `superseded`, audited). A line already present, or repeated,
+    /// changes nothing -- and still stands, so it is ordered. The
     /// accepted lines are written to the overlay in ONE write, so a kill
     /// leaves all or none, before they reach the running provider and the
     /// operator's door, and before the answer.
     async fn add_bootstraps(
         &mut self,
+        by: &Admission,
         addresses: Vec<String>,
+    ) -> Result<AddressesChange, TransportError> {
+        self.add_lines(by, addresses, "admin.peers.add_addresses")
+            .await
+    }
+
+    /// [`Self::add_bootstraps`], audited under `method`'s name.
+    async fn add_lines(
+        &mut self,
+        by: &Admission,
+        addresses: Vec<String>,
+        method: &'static str,
     ) -> Result<AddressesChange, TransportError> {
         if addresses.is_empty() || addresses.len() > MAX_ADDRESSES_PER_ADD {
             return Err(TransportError::InvalidArgument);
@@ -1563,6 +1613,15 @@ impl Driver {
             }
             Err((MoveRefusal::Authored, _)) => return Err(TransportError::Internal),
         };
+        let keys = || addresses.iter().cloned().map(WriteKey::Address);
+        if let Some(line) = keys().position(|key| self.writes.superseded(by, &key)) {
+            audit_superseded(method, &addresses[line]);
+            return refused(
+                AddressRefusal::Superseded,
+                Some(line),
+                "a later admin connection's write for this address stands".to_owned(),
+            );
+        }
         let lines = added
             .iter()
             .map(|&new| {
@@ -1574,9 +1633,12 @@ impl Driver {
             })
             .collect();
         let Some(moved) = moved else {
+            self.writes.applied(by, keys());
             return Ok(AddressesChange::Added(lines));
         };
         self.commit_bootstrap(moved)?;
+        // Written, so it stands from here, whatever the door says below.
+        self.writes.applied(by, keys());
         let new_lines = || {
             addresses
                 .iter()
@@ -1610,10 +1672,13 @@ impl Driver {
     /// absent one changes nothing, and a removed one leaves the overlay,
     /// the running provider, the operator's door and the book, so it is
     /// dialled no more without a restart (ADR-0062 decision 2).
-    async fn remove_bootstrap(&mut self, address: String) -> Result<AddressChange, TransportError> {
+    async fn remove_bootstrap(
+        &mut self,
+        by: &Admission,
+        address: String,
+    ) -> Result<AddressChange, TransportError> {
         let moved = match self.bootstrap.remove(&self.static_authored, &address) {
-            Ok(Some(moved)) => moved,
-            Ok(None) => return Ok(AddressChange::Unchanged),
+            Ok(moved) => moved,
             Err(MoveRefusal::Authored) => {
                 return Ok(AddressChange::Refused {
                     reason: AddressRefusal::Authored,
@@ -1623,7 +1688,23 @@ impl Driver {
             }
             Err(_) => return Err(TransportError::Internal),
         };
+        // Superseded after the authored refusal, as the add checks it
+        // after every other rule; a removal that changes nothing still
+        // stands, so it is ordered.
+        let key = WriteKey::Address(address.clone());
+        if self.writes.superseded(by, &key) {
+            audit_superseded("admin.peers.remove_address", &address);
+            return Ok(AddressChange::Refused {
+                reason: AddressRefusal::Superseded,
+                detail: "a later admin connection's write for this address stands".to_owned(),
+            });
+        }
+        let Some(moved) = moved else {
+            self.writes.applied(by, [key]);
+            return Ok(AddressChange::Unchanged);
+        };
         self.commit_bootstrap(moved)?;
+        self.writes.applied(by, [key]);
         // Under an authored `enabled: false` nothing of the overlay reached
         // the door or the book this run (`with_added_bootstrap`), so there
         // is nothing of its to undo; a route another source taught the
@@ -1771,17 +1852,19 @@ impl Driver {
     /// LOCAL-IPC.md `admin.trust.set`): the peer, the request and its
     /// outcome -- changed, unchanged, refused (by the policy, or by the
     /// bound of an overlay left ahead), failed, or
-    /// unwritten (the overlay write failed, so nothing changed) --
-    /// timestamped by the host's log. A set that never reaches it is not:
+    /// unwritten (the overlay write failed, so nothing changed), or
+    /// superseded (a later port's set for the peer stands, nothing
+    /// written) -- timestamped by the host's log. A set that never reaches it is not:
     /// one refused at the port for want of `admin.trust`, or by the IPC
     /// server before the port, and one whose driver has gone; none of
     /// them changed anything. Who asked is not known here: every admin
     /// connection is the run-dir owner's (ADR-0037).
     async fn set_trust(
         &mut self,
+        by: &Admission,
         peer: TransportIdentity,
         allowed: bool,
-    ) -> Result<(), TransportError> {
+    ) -> Result<TrustChange, TransportError> {
         let mut next = self.trust.clone();
         let decided = if allowed {
             next.allow(peer.clone())
@@ -1813,6 +1896,21 @@ impl Driver {
             }
             (decided, overlay) => (decided, overlay),
         };
+        // SUPERSEDED, after every refusal of the policy's and before
+        // anything is written: a set from a port admitted before the one
+        // whose set for this peer was last applied would undo it
+        // (`write_order`). An answer, never an error.
+        let key = WriteKey::Peer(peer.clone());
+        if decided.is_ok() && self.writes.superseded(by, &key) {
+            tracing::info!(
+                target: AUDIT_TARGET,
+                peer = peer.as_str(),
+                allowed,
+                outcome = "superseded",
+                "admin.trust.set"
+            );
+            return Ok(TrustChange::Refused(TrustRefusal::Superseded));
+        }
         // `None` written, or the write's error: before its rename nothing
         // changed; after it (`installed`) the new overlay is on disk, and
         // is put back below exactly as after a failed publish.
@@ -1875,6 +1973,13 @@ impl Driver {
             outcome,
             "admin.trust.set"
         );
+        // APPLIED is what stands: the policy as asked, already so or
+        // changed, or an overlay left ahead, which takes effect at the
+        // next start whatever follows. A set that changed nothing on disk
+        // or in the runtime orders nothing.
+        if published.is_ok() || ahead {
+            self.writes.applied(by, [key]);
+        }
         let changed = published?;
         // ANSWERED `ok`, THE OVERLAY WRITTEN IS THE ONE KEPT -- whether or
         // not the policy moved. After a set left ahead, a set the policy
@@ -1893,7 +1998,7 @@ impl Driver {
                 self.refusals.forget(&peer);
             }
         }
-        Ok(())
+        Ok(TrustChange::Set)
     }
 
     /// One row per allowlisted peer: the substrate's deadlines beside the
