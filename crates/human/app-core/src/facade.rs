@@ -117,7 +117,54 @@ enum Held {
     Removed,
     /// Prepared for the model's choice `seq`: these bytes, exactly what a
     /// share sends.
-    Photo { seq: u64, bytes: Vec<u8> },
+    Photo {
+        seq: u64,
+        bytes: Vec<u8>,
+        /// What it replaced, which a later choice may still name: the model
+        /// may not have taken this answer yet (#449 F4).
+        under: Box<Held>,
+    },
+}
+
+impl Held {
+    /// The photo a choice's basis names in what this side holds: the
+    /// prepared photo of that choice, found under any answer the model has
+    /// not taken, else the card's; a removal; or the card's.
+    fn named(self, basis: PhotoBasis) -> Self {
+        let PhotoBasis::Prepared(wanted) = basis else {
+            return match basis {
+                PhotoBasis::Removed => Self::Removed,
+                PhotoBasis::Card | PhotoBasis::Prepared(_) => Self::Card,
+            };
+        };
+        let mut held = self;
+        loop {
+            match held {
+                Self::Photo { seq, bytes, .. } if seq == wanted => {
+                    return Self::Photo {
+                        seq,
+                        bytes,
+                        under: Box::new(Self::Card),
+                    };
+                }
+                Self::Photo { under, .. } => held = *under,
+                Self::Card | Self::Removed => return Self::Card,
+            }
+        }
+    }
+
+    /// What a preparation came to: its photo over its fallback, or the
+    /// fallback.
+    fn prepared(prepared: Option<Vec<u8>>, seq: u64, fallback: Self) -> Self {
+        match prepared {
+            Some(bytes) => Self::Photo {
+                seq,
+                bytes,
+                under: Box::new(fallback),
+            },
+            None => fallback,
+        }
+    }
 }
 
 /// A choice being prepared: a decode and an encode of a camera-sized
@@ -365,9 +412,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             else {
                 return;
             };
-            self.own_photo = OwnPhoto::Held(
-                prepared.map_or(preparing.fallback, |bytes| Held::Photo { seq, bytes }),
-            );
+            self.own_photo = OwnPhoto::Held(Held::prepared(prepared, seq, preparing.fallback));
         }
         for save in &mut self.own_saves {
             if let OwnPhoto::Preparing(preparing) = &save.photo
@@ -379,9 +424,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                     continue;
                 };
                 let seq = preparing.seq;
-                save.photo = OwnPhoto::Held(
-                    prepared.map_or(preparing.fallback, |bytes| Held::Photo { seq, bytes }),
-                );
+                save.photo = OwnPhoto::Held(Held::prepared(prepared, seq, preparing.fallback));
             }
         }
         self.own_saves_due(updates);
@@ -442,15 +485,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                     OwnPhoto::Held(held) => held,
                     OwnPhoto::Preparing(preparing) => preparing.fallback,
                 };
-                let fallback = match (basis, held) {
-                    (PhotoBasis::Removed, _) => Held::Removed,
-                    (PhotoBasis::Prepared(shown), Held::Photo { seq: held, bytes })
-                        if *shown == held =>
-                    {
-                        Held::Photo { seq: held, bytes }
-                    }
-                    (PhotoBasis::Prepared(_) | PhotoBasis::Card, _) => Held::Card,
-                };
+                let fallback = held.named(*basis);
                 let chosen = chosen.clone();
                 let (answer, done) = std::sync::mpsc::channel();
                 let spawned = std::thread::Builder::new()

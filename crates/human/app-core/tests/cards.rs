@@ -2742,3 +2742,61 @@ async fn a_choices_fallback_is_what_the_model_showed() {
         assert_eq!(photo, kept, "basis {basis:?}");
     }
 }
+
+/// #449 F4, the chained case: the model shows P1 when it chooses P2, and
+/// chooses P3 before it took P2's answer, so P3's basis names P1 while
+/// the facade side holds P2 over it. P3 proves unusable, and Save writes
+/// P1, what the editor shows. Mutation: a prepared photo's fallback
+/// dropped when it is held.
+#[tokio::test]
+async fn a_basis_finds_its_photo_under_an_answer_not_taken() {
+    use interweave_human_ui_model::PhotoBasis;
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will(set_own(PhotoEdit::Keep));
+    alice.pump(1).await;
+    for (seq, chosen, basis) in [
+        (1, png(64, 64), PhotoBasis::Card),
+        (2, png(80, 80), PhotoBasis::Prepared(1)),
+        (3, b"not an image".to_vec(), PhotoBasis::Prepared(1)),
+    ] {
+        let _ = alice
+            .facade
+            .execute(Command::PrepareOwnPhoto { chosen, seq, basis }, 2)
+            .await;
+        let mut seen = false;
+        for _ in 0..400 {
+            let updates = alice.facade.turn(3).await;
+            if updates
+                .iter()
+                .any(|u| matches!(u, Update::OwnPhotoPrepared { seq: s, .. } if *s == seq))
+            {
+                seen = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(seen, "choice {seq} answered on the facade side");
+    }
+    let updates = alice
+        .facade
+        .execute(
+            Command::SetOwnCard {
+                name: "Ada".to_owned(),
+                surname: None,
+                photo: PhotoEdit::Prepared,
+            },
+            4,
+        )
+        .await;
+    for update in updates {
+        alice.model.apply(update);
+    }
+    let photo = alice
+        .model()
+        .identity()
+        .and_then(|i| i.photo.as_ref().map(|p| (p.width, p.height)));
+    assert_eq!(photo, Some((64, 64)), "P1, under the untaken P2");
+}
