@@ -7,10 +7,13 @@
 //! read; the result goes back as the [`PeersInput`] the model takes.
 //!
 //! A file is held to [`crate::code`]'s bounds before it is decoded: its
-//! bytes, its sides and the decoder's allocation. A clipboard image is
-//! read whole and decoded by the clipboard crate, under the image
-//! crate's default allocation bound, before its sides are refused past
-//! the same bound -- a known limit ([`crate::code::read_pasted`]).
+//! bytes, its sides and the decoder's allocation. The clipboard's image
+//! is not read at all: the clipboard crate decodes an image whole, under
+//! no bound of this client's, before handing it over, so a small image
+//! with huge declared sides could take hundreds of MiB (#409 F1). A
+//! Paste press ends as a cancelled scan, whatever the window offers,
+//! until the clipboard's encoded bytes can be read and taken through
+//! [`crate::code::read_image`].
 
 use std::io::Read as _;
 use std::sync::{Arc, Mutex};
@@ -29,8 +32,7 @@ pub(crate) fn read(
 ) {
     let read = move || match control {
         ScanControl::OpenImage => from_file(&filter),
-        ScanControl::PasteImage => from_clipboard(),
-        ScanControl::Camera => PeersInput::ScannerClosed,
+        ScanControl::PasteImage | ScanControl::Camera => PeersInput::ScannerClosed,
     };
     // Whoever takes `done` first calls it: the thread with its result, or
     // this function when no thread could be made, ending the scan as a
@@ -74,25 +76,30 @@ fn from_file(filter: &str) -> PeersInput {
     code::read_image(&bytes).map_or(PeersInput::ImageUnreadable, found)
 }
 
-fn from_clipboard() -> PeersInput {
-    let image = arboard::Clipboard::new().and_then(|mut c| c.get_image());
-    match image {
-        Ok(image) => code::read_pasted(image.width, image.height, &image.bytes)
-            .map_or(PeersInput::ImageUnreadable, found),
-        // No image there: text only, or nothing.
-        Err(arboard::Error::ContentNotAvailable) => PeersInput::ClipboardNoImage,
-        // An image that could not be converted, or a clipboard that could
-        // not be read at all -- busy, unsupported, failed: never "no
-        // image", which was not seen (#409 F6). The design names no line
-        // of its own for an unreadable clipboard; the image's is the
-        // nearest true one.
-        Err(_) => PeersInput::ImageUnreadable,
-    }
-}
-
 fn found(read: CodeRead) -> PeersInput {
     match read {
         CodeRead::Text(text) => PeersInput::Scanned(text),
         CodeRead::NoCode => PeersInput::ImageNoCode,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use super::*;
+
+    /// A Paste press reads no clipboard and ends as a cancelled scan,
+    /// whatever the window offers (#409 F1): the clipboard crate's
+    /// decode is unbounded, so the reader must not reach it.
+    #[test]
+    fn a_paste_press_reads_no_clipboard_and_ends_cancelled() {
+        let (tx, rx) = mpsc::channel();
+        read(ScanControl::PasteImage, String::new(), move |input| {
+            let _ = tx.send(input);
+        });
+        let input = rx.recv_timeout(Duration::from_secs(10));
+        assert_eq!(input, Ok(PeersInput::ScannerClosed));
     }
 }

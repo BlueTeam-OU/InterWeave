@@ -1,0 +1,361 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Andrea Benetton
+//! Plan §29 (e)'s two code cases against a real daemon, and what the
+//! daemon holds afterwards read over its own admin port.
+//!
+//! - **A hostile code adds its addresses and nothing else.** The text a
+//!   hostile party's code decodes to, for a peer nobody trusts, handed to
+//!   the client as both shells hand a scan's text over
+//!   (`PeersInput::Scanned`), through the client's own root halves --
+//!   `app-core`'s model side and facade side over the human client's
+//!   facade, on the daemon's IPC sockets: the daemon's address list gains
+//!   exactly the code's lines, its trust set is unchanged, and no trust
+//!   change was asked of it, by command or on the admin socket. The
+//!   controls that each read is live: the trust set read before holds B,
+//!   the list afterwards holds the code's lines, and the tap saw the add.
+//!   The window is not in this case: the desktop withholds Paste an image
+//!   (#409 F1) and Open an image… is the XDG portal's dialog, which this
+//!   display has no backend for; what an image decodes to is `ui-slint`'s
+//!   (`code.rs`, the Show test's read back).
+//! - **The shown code is this node's addresses and `PeerId` and nothing
+//!   else.** Show my address's code in the shipped window, read from the
+//!   window's pixels as a phone's camera reads a screen, decodes to
+//!   exactly the lines the daemon answers for its own addresses, each
+//!   ending in its `PeerId`, none loopback, unspecified or link-local. The
+//!   control: the daemon listens on this host's private address, so the
+//!   list is not empty.
+//!
+//! What this does not prove: the camera's path on Android (the same
+//! model input takes its text; `ui-model`'s `peers.rs` holds a scan's
+//! refusals), or that the daemon's floor refuses every class -- its own
+//! tests do, and here the classes are only those this host's interfaces
+//! offer.
+
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use interweave_human_app_core::{Command, FacadeSide, ModelSide, Opener, Surface, Update};
+use interweave_human_store::{HumanStore, StoreOptions};
+use interweave_human_transport_client::{ClientConfig, TransportClient};
+use interweave_human_ui_model::{
+    PeersInput, ScanControl, UiModel, UiText, ViewEvent, fill, placeholder_en,
+};
+use interweave_ipc_client::IpcBinding;
+use interweave_local_client_api::{
+    AddressSource, AdminBinding as _, AdminCapability, AdminPort as _, BootstrapAddress,
+};
+use interweave_transport_api::MAX_PAYLOAD_BYTES;
+
+use crate::a11y::{Bus, Element};
+use crate::common::{Home, PATIENCE, human};
+use crate::daemon_link::{Tap, asked};
+use crate::display;
+use crate::harness::{self as app, until_lease};
+use crate::world::two_daemons;
+
+fn text(key: UiText) -> &'static str {
+    placeholder_en::text(key)
+}
+
+/// What the daemon's trust policy allows, as strings, in its order.
+async fn allowed(home: &Home) -> Vec<String> {
+    let port = home
+        .binding()
+        .admin([AdminCapability::Trust].into())
+        .await
+        .expect("an admin port");
+    let view = port.trust().await.expect("the trust view");
+    view.peers().map(|p| p.as_str().to_owned()).collect()
+}
+
+/// Every bootstrap address the daemon holds, authored then added.
+async fn addresses(home: &Home) -> Vec<BootstrapAddress> {
+    let port = home
+        .binding()
+        .admin([AdminCapability::Peers].into())
+        .await
+        .expect("an admin port");
+    port.bootstrap_addresses().await.expect("the address list")
+}
+
+/// A surface whose person acts from a queue the case fills.
+#[derive(Clone, Default)]
+struct Scripted(Rc<RefCell<VecDeque<Vec<ViewEvent>>>>);
+
+impl Surface for Scripted {
+    fn render(&mut self, _model: &UiModel) {}
+
+    fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+        self.0.borrow_mut().pop_front().unwrap_or_default()
+    }
+}
+
+/// Asked to open nothing in this case.
+struct Nothing;
+
+impl Opener for Nothing {
+    fn open(&mut self, destination: &str) {
+        panic!("asked to open {destination}");
+    }
+
+    fn ask_network_access(&mut self) {}
+
+    fn authenticate(&mut self) {}
+}
+
+fn wall_ms() -> u64 {
+    u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after the epoch")
+            .as_millis(),
+    )
+    .expect("ms")
+}
+
+/// One pass of the root's loop, as the desktop root runs it: the
+/// facade's turn, then each command the model side asks for, its updates
+/// applied; `now` the milliseconds since `start`, the monotonic clock the
+/// facade was started at 0 on. Whether the model side asked for anything.
+async fn pump(
+    model: &mut ModelSide<Scripted, Nothing>,
+    facade: &mut FacadeSide<IpcBinding, IpcBinding>,
+    commands: &mut Vec<Command>,
+    start: Instant,
+) -> bool {
+    let now = || u64::try_from(start.elapsed().as_millis()).expect("ms");
+    for update in facade.turn(now()).await {
+        model.apply(update);
+    }
+    let asked = model.turn();
+    let any = !asked.is_empty();
+    for command in asked {
+        commands.push(command.clone());
+        for update in facade.execute(command, now()).await {
+            model.apply(update);
+        }
+    }
+    any
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_set_unchanged() {
+    let world = two_daemons().await;
+    let hostile = libp2p::identity::Keypair::generate_ed25519()
+        .public()
+        .to_peer_id()
+        .to_string();
+    let lines = vec![
+        format!("/ip4/192.168.1.20/tcp/4001/p2p/{hostile}"),
+        format!("/ip4/10.0.0.7/tcp/4001/p2p/{hostile}"),
+    ];
+
+    let trusted = allowed(&world.a).await;
+    assert!(
+        trusted.iter().any(|p| p == world.b_peer.as_str()),
+        "the control: the trust read is live and holds B: {trusted:?}"
+    );
+    let before = addresses(&world.a).await;
+    assert!(
+        !before.iter().any(|r| r.address.contains(&hostile)),
+        "{before:?}"
+    );
+
+    // The client's root halves over the human client's facade, on A's
+    // sockets, as the desktop window composes them.
+    let admin = Tap::install(&world.a.admin_socket());
+    let store_dir = tempfile::tempdir().expect("a store directory");
+    let store = HumanStore::open(
+        &store_dir.path().join("state/human.sqlite"),
+        StoreOptions::default(),
+    )
+    .expect("a store");
+    let start = Instant::now();
+    let client = TransportClient::new(
+        world.a.binding(),
+        world.a.binding(),
+        store,
+        ClientConfig {
+            client_kind: "human-client".to_owned(),
+            endpoints: vec![human()],
+            channels: Vec::new(),
+            max_payload_bytes: MAX_PAYLOAD_BYTES,
+        },
+        Box::new(wall_ms),
+        0,
+    )
+    .expect("an empty store's pending rows");
+    let mut facade = FacadeSide::new(client, wall_ms);
+    let person = Scripted::default();
+    let mut model = ModelSide::new(person.clone(), Nothing);
+    model.apply(Update::Listed(facade.listing().expect("a listing")));
+    let mut commands = Vec::new();
+    for _ in 0..4 {
+        pump(&mut model, &mut facade, &mut commands, start).await;
+    }
+
+    // The person opens the add page and scans the hostile code.
+    person.0.borrow_mut().extend([
+        vec![ViewEvent::Peers(PeersInput::OpenAdd)],
+        vec![ViewEvent::Peers(PeersInput::ScanPressed(
+            ScanControl::Camera,
+        ))],
+        vec![ViewEvent::Peers(PeersInput::Scanned(lines.join("\n")))],
+    ]);
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        pump(&mut model, &mut facade, &mut commands, start).await;
+        let now = addresses(&world.a).await;
+        if now.len() > before.len() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the scanned code was never added: {now:?}; commands {commands:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    // The model side acts on the add's answer in the turns after it (a
+    // re-read, a next step): run the loop until it has asked for nothing
+    // three passes running, so a command the answer leads to is made
+    // before what the daemon holds is read.
+    let mut quiet = 0;
+    while quiet < 3 {
+        if pump(&mut model, &mut facade, &mut commands, start).await {
+            quiet = 0;
+        } else {
+            quiet += 1;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the model side never settled after the add: {commands:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let after = addresses(&world.a).await;
+    let mut want = before.clone();
+    want.extend(lines.iter().map(|line| BootstrapAddress {
+        address: line.clone(),
+        source: AddressSource::Added,
+        dialled: true,
+    }));
+    assert_eq!(after, want, "its addresses and nothing else");
+    assert_eq!(
+        allowed(&world.a).await,
+        trusted,
+        "the trust set unchanged: {hostile} not added to it"
+    );
+    assert!(
+        commands.contains(&Command::AddAddresses(lines.clone())),
+        "the control: the scan was one add: {commands:?}"
+    );
+    assert!(
+        !commands.iter().any(|c| matches!(c, Command::SetTrust(_))),
+        "no trust change commanded: {commands:?}"
+    );
+    let methods = asked(&admin.from(i32::try_from(std::process::id()).expect("a pid"))).methods;
+    assert!(
+        methods.contains("admin.peers.add_addresses"),
+        "the control: the tap saw the add: {methods:?}"
+    );
+    assert!(
+        !methods.contains("admin.trust.set"),
+        "no trust change asked: {methods:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shown_code_reads_back_as_this_nodes_own_addresses_and_peer_id_alone() {
+    let _focus = display::exclusive().await;
+    let world = two_daemons().await;
+    let own = world
+        .a
+        .binding()
+        .admin([AdminCapability::Peers].into())
+        .await
+        .expect("an admin port")
+        .own_addresses()
+        .await
+        .expect("this node's own addresses");
+    assert_eq!(own.peer, world.a_peer);
+    let lines: Vec<String> = own.addresses.iter().map(|r| r.address.clone()).collect();
+    assert!(
+        !lines.is_empty(),
+        "the control: A listens on a private address"
+    );
+
+    let bus = Bus::connect().await;
+    let mut client = app::start(&world.a);
+    until_lease(&world.a.binding(), true, &client).await;
+    let window = bus.window_of(client.child.id(), || client.log()).await;
+    display::focus(client.child.id(), || client.log()).await;
+    let log = || client.log();
+    let press = |name: &'static str| move |e: &Element| e.name == name && e.actions == ["click"];
+    for (what, name) in [
+        ("the app's options", text(UiText::AppOptions)),
+        ("the app's Peers entry", text(UiText::PeersTitle)),
+        ("Show my address", text(UiText::ShowMyAddress)),
+    ] {
+        let control = window.until(what, press(name), log).await;
+        window.activate(&control, "click").await;
+    }
+    let label = if lines.len() == 1 {
+        text(UiText::QrLabelOne).to_owned()
+    } else {
+        fill(
+            text(UiText::QrLabelOther),
+            &[("n", &lines.len().to_string())],
+        )
+    };
+    window
+        .until("the code, labelled", |e: &Element| e.name == label, log)
+        .await;
+
+    // Read as a camera reads the screen: the window's pixels, until a
+    // frame holds the code (the label is set in the render that draws it,
+    // and the frame reaches the display a moment later).
+    let pid = client.child.id();
+    let deadline = Instant::now() + PATIENCE;
+    let read = loop {
+        let (width, height, luma) = display::luma_of(pid);
+        let mut prepared =
+            rqrr::PreparedImage::prepare_from_greyscale(width, height, |x, y| luma[y * width + x]);
+        let decoded: Vec<String> = prepared
+            .detect_grids()
+            .into_iter()
+            .filter_map(|grid| grid.decode().ok().map(|(_, text)| text))
+            .collect();
+        if !decoded.is_empty() {
+            break decoded;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no code in the window's pixels ({width}x{height}):\n{}",
+            client.log()
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+    assert_eq!(read.len(), 1, "one code on the screen: {read:?}");
+    let shown: Vec<&str> = read[0].lines().collect();
+    assert_eq!(
+        shown, lines,
+        "exactly the daemon's own addresses, in its order"
+    );
+    let suffix = format!("/p2p/{}", world.a_peer.as_str());
+    for line in &shown {
+        assert!(line.ends_with(&suffix), "{line} names this node's PeerId");
+        for refused in [
+            "/ip4/127.",
+            "/ip4/0.0.0.0/",
+            "/ip4/169.254.",
+            "/ip6/::1/",
+            "/ip6/::/",
+            "/ip6/fe80",
+        ] {
+            assert!(!line.starts_with(refused), "{line} is of a refused class");
+        }
+    }
+    assert!(client.terminate().success(), "{}", client.log());
+}
