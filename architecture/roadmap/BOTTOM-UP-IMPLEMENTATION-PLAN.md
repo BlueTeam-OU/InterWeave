@@ -5660,15 +5660,16 @@ decided (6), the mesh identity rows, the `no_route` probing rows) and
 S5–S8's first pass (#268, 6fd3b0ae, 2026-10-11: address poisoning from
 each learning source, the hostile Kademlia routers, the relay class
 rows, `tests/security/tests/autonat_ssrf.rs` over the whole address
-matrix); S6 (#273, 7870492d, 2026-10-13: the bootstrap storm in
-synthetic time, the full-bucket eviction, the inbound stream flood kept
-at libp2p-kad's 32; S21-06's limit cell carries decided (2)'s figures,
-N=6 trusted routers of which M=3 hostile, 12 explorations, 0 eclipsed,
-12 at the cap, with the reason the count is fixed by the topology and
-not measured against an attacker); S7 and S8 (#452, e31760d0,
-2026-10-25, below). p2p-network-dev-02's S10 store half with rust-ui-dev
-(#315, 074ba19d, 2026-10-19: a corrupt store, a failed migration, a full
-medium; TM-44/45/46), S9 and S11 (#337, fc5eeb81, 2026-10-21: the
+matrix, and S21-06's limit cell with decided (2)'s figures, N=6
+trusted routers of which M=3 hostile, 12 explorations, 0 eclipsed, 12
+at the cap, with the reason the count is fixed by the topology and not
+measured against an attacker); S6 (#273, 7870492d, 2026-10-13: the
+bootstrap storm in synthetic time, the full-bucket eviction, the
+inbound stream flood kept at libp2p-kad's 32); S7 and S8 (#452,
+e31760d0, 2026-10-25, below). rust-ui-dev-02's S10 store half (#315,
+074ba19d, 2026-10-19: a corrupt store, a failed migration, a full
+medium; TM-44/45/46). p2p-network-dev-02's S9 and S11 (#337, fc5eeb81,
+2026-10-21: the
 sockets under a hostile umask, the foreign uid by the modes and then by
 the peer credential, the tampered phrase and the wrong PeerId through
 `transportctl`, the phrase scanned out of every captured stream; the CI
@@ -5712,8 +5713,8 @@ rulings, not tests (architect-cto, 2026-10-25, each an amendment of
 branch): the dialling end of a circuit holds no reservation on the relay
 and was never pinged there, so the keepalive now runs on every relayed
 connection, end to end toward the data-plane peer, at both ends, a
-missed liveness closing it (the ping's bytes measured at about 0.02 % of
-the per-circuit budget before the rule was given); and a control peer's
+missed liveness closing it (the ping's bytes computed at the defaults as
+about 0.02 % of the per-circuit budget, §14); and a control peer's
 refusal of the ping protocol is a missed liveness, closed and reported
 by cause, so a relay that cannot be found dead is not a usable relay —
 required, not preferred. Both are `relay_keepalive.rs`'s cases, and the
@@ -5724,14 +5725,18 @@ reservation dial; it now leaves such a relay to the relay ladder and
 still retries a relay that is also a data-plane peer. Every test relay,
 the shared e2e harness's included (`tests/support/src/e2e/relay.rs`),
 answers ping since this change, which the android-e2e `human_chat` case
-needed. Limits, in the rows: one host on loopback, no NAT, a stopped
-relay a parked thread and not a crashed host; the 60 s hold is the
-crate's timeout, which the step did not shorten; a foreign relay that
-declines ping cannot serve this profile; the AutoNAT "no vote" is the
-vendored crate's behaviour and was not mutation-checked, every other
-negative was. The keepalive rule has no ADR of its own: the owner's word
-of 2026-09-26 and the two rulings live in §14; a third rule there
-promotes the three into a record.
+needed. Limits the rows carry: the 60 s hold is the crate's timeout,
+which the step did not shorten; a stopped relay is found within about
+a minute, each send through it meanwhile ending `PeerUnreachable`; a
+relay that refuses ping is not used, so a foreign relay that declines
+it cannot serve this profile; the misbehaving AutoNAT server is driven
+against the vendored client in a raw Swarm. Limits the tests show and
+the rows do not state: every address is loopback on one host, so no
+NAT is crossed (`relay_double.rs`'s harness), and a stopped relay is a
+parked thread, not a crashed host. The keepalive rule has no ADR of
+its own: the owner's word of 2026-09-26 and the two rulings live in
+§14, and no record promotes them yet; if §14 grows a third keepalive
+rule, architect-cto promotes the three into one.
 
 **Open before the close (the same read).** Each named to its owner;
 none is the status value's, which stays on this stage.
@@ -5744,7 +5749,16 @@ none is the status value's, which stays on this stage.
   cases), so what the rows wait on is a phone in a window and
   p2p-network-dev-02's cases; the owner gives the phone. A row the phone
   does not reach by the close is a `limit` cell, re-carried in the
-  closing record, as decided (0) said.
+  closing record, as decided (0) said, and its `owed` item takes the
+  carried shape below (the section it is carried to named), so the
+  guard counts it carried and not empty: clause (a)'s "no row is
+  empty" reads, at the close, as no row without a test or a named
+  carry.
+- **TM-45's owed cases** (step S10 (02, with rust-ui-dev)): the
+  notification content and the clients' own logs as a shadow archive
+  (`apps/human-desktop`, `apps/human-android`), the one `owed` item
+  outside S12 and C-04; the clients are rust-ui-dev's, so the cases are
+  theirs to land or to record as a limit, the row's step naming them.
 - **S21-06's and TM-04's step cells** still name S6 (01) while
   S21-06's limit cell holds decided (2)'s figures and clause (c) is met
   by them. Nothing is owed on either (p2p-network-dev-01, 2026-10-25,
@@ -5762,7 +5776,7 @@ none is the status value's, which stays on this stage.
   decided (5) carried the binding and its spoofing tests to Stage 19 on
   the owner's word of 2026-10-11, and P4 records that word as given, so
   the row's "owed: the owner's word" was stale and now records the carry
-  as clause (d) asks. What the close still needs is a guard that reads a
+  as clause (d) asks, its step cell naming §22 as the carry's holder. What the close still needs is a guard that reads a
   carried row as not empty — an `owed` item in the shape `owed: … in
   Stage NN (plan section MM)`, counted carried under `--strict` and
   labelled so in the plain report, with the grammar sentence and the
@@ -5772,13 +5786,14 @@ none is the status value's, which stays on this stage.
   architect-cto's word); until it lands, the close runs the guard
   without `--strict` and this record names C-04 as the one row carried
   whole.
-- **TM-52 to TM-56's step cells** named §29 step 2 (rust-ui-dev) after
-  Stage 21 closed on 2026-10-25. Read against `main` by rust-ui-dev-01
+- **TM-52, TM-54, TM-55 and TM-56's step cells** named §29 step 2
+  (rust-ui-dev) after Stage 21 closed on 2026-10-25 (TM-53's already
+  read `—`). Read against `main` by rust-ui-dev-01
   the same day (REPLY 01a17548-26af to QUESTION 01a17545-a033; the
   assignment architect-cto's, REPLY 01a17549-2349): TM-52 and
   TM-55 move to `—`, TM-52's cell adding the rendered half's own test
   (`crates/human/ui-slint/tests/cards.rs`, the key change read before
-  Accept with both fingerprints); TM-53 already reads `—`; TM-54 moves
+  Accept with both fingerprints); TM-54 moves
   to `S12 (rust-ui-dev)`, since the identity key's Keystore cipher,
   alias retirement and invalidation have no device run yet and are
   S12's item in rust-ui-dev's lane, run with the store key's device
@@ -5787,9 +5802,11 @@ none is the status value's, which stays on this stage.
   apart by the short PeerId, Stage 21's carried work and not a Stage 18
   step. The four cells moved in one commit, a3c92915 on #451 (REPLY
   01a1754a-7708), which lands them when that pull request merges.
-- **Clause (f)**: `error_contract_matrix.rs` holds no `Proof::Stage(18)`
-  deferral (read 2026-10-25), as decided (0) required while the stage
-  ran beside Stage 17; the close re-reads it.
+- **Clause (f)**: the ledger `tools/checks/domain_fn_exempt.txt` holds
+  no `stage-18` entry (read 2026-10-25); the close re-reads it. Apart
+  from the clause, `error_contract_matrix.rs` holds no `Proof::Stage(18)`
+  deferral either, as decided (0) required while the stage ran beside
+  Stage 17.
 - **The closing record itself**: on the owner's word, the `Met.` block
   in §28's shape, the status to Stage 19's value since §20 has closed,
   and the three prose status sites with it.
