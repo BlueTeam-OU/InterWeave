@@ -171,6 +171,14 @@ impl Root {
             .push_back(vec![ViewEvent::Intent(intent)]);
     }
 
+    /// Several intents raised in one turn, as one batch of view events.
+    fn will_all(&mut self, intents: Vec<Intent>) {
+        self.model
+            .surface_mut()
+            .batches
+            .push_back(intents.into_iter().map(ViewEvent::Intent).collect());
+    }
+
     fn model(&self) -> &UiModel {
         self.model.model()
     }
@@ -2126,7 +2134,14 @@ async fn a_later_card_with_no_photo_removes_a_cards_photo_until_undone() {
         AcceptLine::Matches("Ada".to_owned()),
         "case S: the person's photo stays and nothing changes"
     );
-    assert_eq!(again.values, ValueChanges::default());
+    assert_eq!(
+        again.values,
+        ValueChanges {
+            photo: PhotoChange::Kept,
+            ..ValueChanges::default()
+        },
+        "and the proposal says that photo stays (#443)"
+    );
 }
 
 /// Contact-cards design 5.4.2 and item 7: a later card whose photo does
@@ -2271,4 +2286,517 @@ async fn a_later_card_keeps_the_persons_name_and_names_the_photo_it_removes() {
     let answer = answer_of(&bob, &from_alice, unusable.row);
     assert!(answer.photo_dropped && answer.photo_removed, "{answer:?}");
     assert_eq!(bob.model().contacts()[0].name, "Countess");
+}
+
+/// Turns until the own card's chosen photo is no longer being prepared:
+/// its thread answers in its own time.
+async fn prepared(root: &mut Root, from: u64) {
+    use interweave_human_ui_model::OwnPhotoStep;
+    for t in from..from + 500 {
+        root.pump(t).await;
+        if !matches!(root.model().own_photo(), Some(OwnPhotoStep::Preparing)) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("the photo was never prepared");
+}
+
+fn set_own(photo: PhotoEdit) -> Intent {
+    Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: None,
+        photo,
+    }
+}
+
+/// Contact-cards design 5.2, "The photo": a chosen image is prepared off
+/// the facade's task, and the editor previews exactly what a share sends,
+/// 256 x 256; Save takes it; an image that cannot be prepared leaves the
+/// card's photo as it was. Mutations: Save writing the card without the
+/// prepared bytes; an unusable choice clearing the card's photo.
+#[tokio::test]
+async fn a_chosen_photo_is_previewed_as_prepared_and_saved_by_save() {
+    use interweave_human_ui_model::OwnPhotoStep;
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will(set_own(PhotoEdit::Keep));
+    alice.pump(1).await;
+    assert!(alice.model().identity().is_some_and(|i| i.photo.is_none()));
+
+    alice.will(Intent::ChooseOwnPhoto(png(400, 300)));
+    prepared(&mut alice, 2).await;
+    let Some(OwnPhotoStep::Prepared(preview)) = alice.model().own_photo().cloned() else {
+        panic!("prepared: {:?}", alice.model().own_photo());
+    };
+    assert_eq!(
+        (preview.width, preview.height),
+        (256, 256),
+        "the largest centred square"
+    );
+    assert!(
+        alice.model().identity().is_some_and(|i| i.photo.is_none()),
+        "nothing saved before Save"
+    );
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(600).await;
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    let saved = alice.model().identity().and_then(|i| i.photo.clone());
+    assert_eq!(saved, Some(preview), "what was previewed is what was saved");
+    assert_eq!(
+        alice.model().own_photo(),
+        None,
+        "the editor's choice is done"
+    );
+
+    alice.will(Intent::ChooseOwnPhoto(b"not an image".to_vec()));
+    prepared(&mut alice, 601).await;
+    assert_eq!(alice.model().own_photo(), Some(&OwnPhotoStep::Unusable));
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(1200).await;
+    assert!(
+        alice.model().identity().is_some_and(|i| i.photo.is_some()),
+        "the card's photo as it was"
+    );
+}
+
+/// Design 5.2: "Save waits for it". A Save that reaches the facade while
+/// the chosen photo is still being prepared is carried out once it is,
+/// with that photo; one whose photo cannot be prepared saves the rest and
+/// keeps the card's photo. Mutation: the held Save dropped, or carried out
+/// before the photo is ready.
+#[tokio::test]
+async fn a_save_while_the_photo_is_prepared_waits_for_it() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will_all(vec![
+        Intent::ChooseOwnPhoto(png(64, 64)),
+        set_own(PhotoEdit::Prepared),
+    ]);
+    alice.pump(1).await;
+    for t in 2..500 {
+        if alice.model().identity().is_some_and(|i| i.photo.is_some()) {
+            break;
+        }
+        alice.pump(t).await;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    let photo = alice.model().identity().and_then(|i| i.photo.clone());
+    assert_eq!(
+        photo.map(|p| (p.width, p.height)),
+        Some((64, 64)),
+        "saved with the photo, never enlarged"
+    );
+
+    alice.will_all(vec![
+        Intent::ChooseOwnPhoto(b"not an image".to_vec()),
+        Intent::SetOwnCard {
+            name: "Ada Lovelace".to_owned(),
+            surname: None,
+            photo: PhotoEdit::Prepared,
+        },
+    ]);
+    alice.pump(600).await;
+    for t in 601..1100 {
+        if alice
+            .model()
+            .identity()
+            .is_some_and(|i| i.given == "Ada Lovelace")
+        {
+            break;
+        }
+        alice.pump(t).await;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let identity = alice.model().identity().expect("shown");
+    assert_eq!(identity.given, "Ada Lovelace", "the name saved");
+    assert!(identity.photo.is_some(), "and the card's photo kept");
+}
+
+/// Design 5.2 as #443 proposes it: Remove photo in the editor is an
+/// unsaved change that drops a photo being prepared; Save then removes
+/// the card's photo, and the dropped preparation changes nothing after.
+/// Mutation: `RemoveOwnPhoto` leaving the facade side's prepared photo for
+/// a later Save to take.
+#[tokio::test]
+async fn an_editors_remove_drops_a_photo_being_prepared_and_save_removes_the_cards() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will(Intent::ChooseOwnPhoto(png(64, 64)));
+    prepared(&mut alice, 1).await;
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(600).await;
+    assert!(
+        alice.model().identity().is_some_and(|i| i.photo.is_some()),
+        "the setup"
+    );
+
+    alice.will_all(vec![
+        Intent::ChooseOwnPhoto(png(80, 80)),
+        Intent::RemoveOwnPhoto,
+    ]);
+    alice.pump(601).await;
+    assert_eq!(alice.model().own_photo_edit(), PhotoEdit::Remove);
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(602).await;
+    for t in 603..700 {
+        alice.pump(t).await;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    assert!(
+        alice.model().identity().is_some_and(|i| i.photo.is_none()),
+        "removed, and the dropped photo never came back"
+    );
+    assert_eq!(alice.model().own_photo(), None);
+
+    // A prepared photo removed in the editor is let go on the facade side
+    // too: what it holds is the removal, so a Save naming the prepared
+    // photo writes none, never the 80 x 80 removed.
+    alice.will(Intent::ChooseOwnPhoto(png(64, 64)));
+    prepared(&mut alice, 701).await;
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(1300).await;
+    alice.will(Intent::ChooseOwnPhoto(png(80, 80)));
+    prepared(&mut alice, 1301).await;
+    alice.will(Intent::RemoveOwnPhoto);
+    alice.pump(1900).await;
+    alice.will(set_own(PhotoEdit::Prepared));
+    alice.pump(1901).await;
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    assert!(
+        alice.model().identity().is_some_and(|i| i.photo.is_none()),
+        "the removal written, the removed 80 x 80 not"
+    );
+}
+
+/// Contact-cards design item 7 as #443 left it: after Remove photo on a
+/// contact whose name came from a card, a later card with the same name
+/// and a photo is case S keeping no photo, and Close leaves the contact
+/// without one; the same name and no photo is case S with no photo line;
+/// another name with a photo updates the name and keeps no photo. The
+/// control: the same card against the contact before Remove photo is case
+/// U with a new photo. Mutations: `KeptNone` never chosen; a card photo
+/// judged against the contact's when it is not a local choice.
+#[tokio::test]
+async fn after_remove_photo_a_later_cards_photo_is_not_used() {
+    use interweave_human_ui_model::{PhotoChange, ValueChanges};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let from_alice = direct(a.peer());
+    let first = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Chosen(png(64, 64))),
+        1,
+    )
+    .await;
+    bob.will(Intent::AcceptCard(first.row));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+
+    // The control: the same card again, the photo a card's: an update.
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(6).await;
+    alice.pump(7).await;
+    bob.pump(8).await;
+    let control = bob.model().proposals(&from_alice)[0].clone();
+    assert_eq!(control.accept, AcceptLine::Updates("Ada".to_owned()));
+    assert_eq!(
+        control.values.photo,
+        PhotoChange::New,
+        "never compared undecoded"
+    );
+    bob.will(Intent::DeclineCard(control.row));
+    bob.pump(9).await;
+
+    bob.will(Intent::SetContactPhoto {
+        contact_id: contact_id.clone(),
+        photo: PhotoEdit::Remove,
+    });
+    bob.pump(10).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(11).await;
+    alice.pump(12).await;
+    bob.pump(13).await;
+    let same = bob.model().proposals(&from_alice)[0].clone();
+    assert_eq!(same.accept, AcceptLine::Matches("Ada".to_owned()), "case S");
+    assert_eq!(
+        same.values,
+        ValueChanges {
+            photo: PhotoChange::KeptNone,
+            ..ValueChanges::default()
+        }
+    );
+    bob.will(Intent::DeclineCard(same.row));
+    bob.pump(14).await;
+    assert!(
+        bob.model().contacts()[0].photo.is_none(),
+        "still without one"
+    );
+
+    let no_photo = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Remove),
+        20,
+    )
+    .await;
+    assert_eq!(no_photo.accept, AcceptLine::Matches("Ada".to_owned()));
+    assert_eq!(no_photo.values, ValueChanges::default(), "no photo line");
+    bob.will(Intent::DeclineCard(no_photo.row));
+    bob.pump(25).await;
+
+    let renamed = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada King", None, PhotoEdit::Chosen(png(64, 64))),
+        30,
+    )
+    .await;
+    assert_eq!(
+        renamed.values,
+        ValueChanges {
+            new_name: Some("Ada King".to_owned()),
+            photo: PhotoChange::KeptNone,
+            ..ValueChanges::default()
+        }
+    );
+    bob.will(Intent::AcceptCard(renamed.row));
+    bob.pump(35).await;
+    let contact = bob.model().contacts()[0].clone();
+    assert_eq!(contact.name, "Ada King");
+    assert!(contact.photo.is_none(), "the card's photo not used");
+}
+
+/// #449 F3, design 5.2 "Save waits for it": a Save that names a photo
+/// still being prepared is written once it is, with that photo, whatever
+/// the editor does meanwhile -- a new choice here -- and a later Save
+/// lands after it, never before. Mutations: a new choice dropping the held
+/// Save; Saves written out of their order.
+#[tokio::test]
+async fn a_save_waiting_for_its_photo_is_neither_dropped_nor_overtaken() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will(set_own(PhotoEdit::Keep));
+    alice.pump(1).await;
+
+    // One batch, so the facade side takes all four before any turn: the
+    // first Save is certainly still waiting for its photo when the editor
+    // makes another choice and a Save of a new name that keeps the card's
+    // photo.
+    alice.will_all(vec![
+        Intent::ChooseOwnPhoto(png(64, 64)),
+        set_own(PhotoEdit::Prepared),
+        Intent::ChooseOwnPhoto(png(80, 80)),
+        Intent::SetOwnCard {
+            name: "Ada Lovelace".to_owned(),
+            surname: None,
+            photo: PhotoEdit::Keep,
+        },
+    ]);
+    alice.pump(2).await;
+    for t in 3..600 {
+        if alice
+            .model()
+            .identity()
+            .is_some_and(|i| i.given == "Ada Lovelace" && i.photo.is_some())
+        {
+            break;
+        }
+        alice.pump(t).await;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    let identity = alice.model().identity().expect("shown");
+    assert_eq!(identity.given, "Ada Lovelace", "the later Save, last");
+    assert_eq!(
+        identity.photo.as_ref().map(|p| (p.width, p.height)),
+        Some((64, 64)),
+        "the first Save's photo, which it waited for"
+    );
+}
+
+/// #449 F2 on the facade side, design 5.2: a choice that comes to nothing
+/// leaves what the editor showed before it -- a prepared photo stays the
+/// one Save writes, and a removal stays a removal. Mutation: an unusable
+/// choice falling back to the saved card.
+#[tokio::test]
+async fn an_unusable_choice_leaves_what_the_editor_showed_before_it() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will(set_own(PhotoEdit::Keep));
+    alice.pump(1).await;
+
+    alice.will(Intent::ChooseOwnPhoto(png(64, 64)));
+    prepared(&mut alice, 2).await;
+    alice.will(Intent::ChooseOwnPhoto(b"not an image".to_vec()));
+    prepared(&mut alice, 600).await;
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(1200).await;
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    assert_eq!(
+        alice
+            .model()
+            .identity()
+            .and_then(|i| i.photo.as_ref().map(|p| (p.width, p.height))),
+        Some((64, 64)),
+        "the prepared photo before the unusable one"
+    );
+
+    alice.will(Intent::RemoveOwnPhoto);
+    alice.pump(1201).await;
+    alice.will(Intent::ChooseOwnPhoto(b"not an image".to_vec()));
+    prepared(&mut alice, 1202).await;
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(1800).await;
+    assert!(
+        alice.model().identity().is_some_and(|i| i.photo.is_none()),
+        "the removal before the unusable choice"
+    );
+}
+
+/// #449 F4: what a new choice falls back to is what the model showed, as
+/// its basis names it, never a photo whose answer the model did not take.
+/// Driven at the facade side as the window's thread can interleave it: a
+/// first choice's answer reaches the facade side, a second choice is made
+/// over the saved card before the model took the first, and it proves
+/// unusable; Save keeps the card's photo (none). The control: the same
+/// with the first choice as the basis saves it. Mutation: the fallback
+/// taken from what the facade side holds, whatever the basis.
+#[tokio::test]
+async fn a_choices_fallback_is_what_the_model_showed() {
+    use interweave_human_ui_model::PhotoBasis;
+    for (basis, kept) in [
+        (PhotoBasis::Card, None),
+        (PhotoBasis::Prepared(1), Some((64, 64))),
+    ] {
+        let (a, _b) = FakeNetwork::pair(node(), node());
+        let pa = profile();
+        let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+        alice.pump(0).await;
+        alice.will(set_own(PhotoEdit::Keep));
+        alice.pump(1).await;
+
+        let answered = |updates: &[Update], seq: u64| {
+            updates
+                .iter()
+                .any(|u| matches!(u, Update::OwnPhotoPrepared { seq: s, .. } if *s == seq))
+        };
+        for (seq, chosen, basis) in [
+            (1, png(64, 64), PhotoBasis::Card),
+            (2, b"not an image".to_vec(), basis),
+        ] {
+            let _ = alice
+                .facade
+                .execute(Command::PrepareOwnPhoto { chosen, seq, basis }, 2)
+                .await;
+            let mut seen = false;
+            for _ in 0..400 {
+                if answered(&alice.facade.turn(3).await, seq) {
+                    seen = true;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(seen, "choice {seq} answered on the facade side");
+        }
+        let updates = alice
+            .facade
+            .execute(
+                Command::SetOwnCard {
+                    name: "Ada".to_owned(),
+                    surname: None,
+                    photo: PhotoEdit::Prepared,
+                },
+                4,
+            )
+            .await;
+        for update in updates {
+            alice.model.apply(update);
+        }
+        let photo = alice
+            .model()
+            .identity()
+            .and_then(|i| i.photo.as_ref().map(|p| (p.width, p.height)));
+        assert_eq!(photo, kept, "basis {basis:?}");
+    }
+}
+
+/// #449 F4, the chained case: the model shows P1 when it chooses P2, and
+/// chooses P3 before it took P2's answer, so P3's basis names P1 while
+/// the facade side holds P2 over it. P3 proves unusable, and Save writes
+/// P1, what the editor shows. Mutation: a prepared photo's fallback
+/// dropped when it is held.
+#[tokio::test]
+async fn a_basis_finds_its_photo_under_an_answer_not_taken() {
+    use interweave_human_ui_model::PhotoBasis;
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will(set_own(PhotoEdit::Keep));
+    alice.pump(1).await;
+    for (seq, chosen, basis) in [
+        (1, png(64, 64), PhotoBasis::Card),
+        (2, png(80, 80), PhotoBasis::Prepared(1)),
+        (3, b"not an image".to_vec(), PhotoBasis::Prepared(1)),
+    ] {
+        let _ = alice
+            .facade
+            .execute(Command::PrepareOwnPhoto { chosen, seq, basis }, 2)
+            .await;
+        let mut seen = false;
+        for _ in 0..400 {
+            let updates = alice.facade.turn(3).await;
+            if updates
+                .iter()
+                .any(|u| matches!(u, Update::OwnPhotoPrepared { seq: s, .. } if *s == seq))
+            {
+                seen = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(seen, "choice {seq} answered on the facade side");
+    }
+    let updates = alice
+        .facade
+        .execute(
+            Command::SetOwnCard {
+                name: "Ada".to_owned(),
+                surname: None,
+                photo: PhotoEdit::Prepared,
+            },
+            4,
+        )
+        .await;
+    for update in updates {
+        alice.model.apply(update);
+    }
+    let photo = alice
+        .model()
+        .identity()
+        .and_then(|i| i.photo.as_ref().map(|p| (p.width, p.height)));
+    assert_eq!(photo, Some((64, 64)), "P1, under the untaken P2");
 }

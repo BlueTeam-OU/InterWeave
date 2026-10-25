@@ -192,6 +192,19 @@ pub(crate) fn camera_denied(for_good: bool) {
     with_view(move |view| view.camera_denied(for_good));
 }
 
+/// `Native.photoPicked`: what the photo picker came to -- the image's
+/// bytes, empty when they could not be read, or `None` when nothing was
+/// chosen.
+pub(crate) fn photo_picked(chosen: Option<Vec<u8>>) {
+    // Handed over once: `with_view` may run its task again on a retry.
+    let chosen = Mutex::new(Some(chosen));
+    with_view(move |view| {
+        if let Some(chosen) = chosen.lock().ok().and_then(|mut c| c.take()) {
+            view.photo_picked(chosen);
+        }
+    });
+}
+
 /// `Native.cameraClosed`: the camera stopped under the scan.
 pub(crate) fn camera_closed() {
     with_view(|view| view.camera_closed());
@@ -483,6 +496,12 @@ fn android_main(app: AndroidApp) {
     view.on_open_settings(|| {
         use crate::onboard::{ASKS, ask};
         ASKS.push(ask::OPEN_SETTINGS);
+    });
+    // The own card's photo: Android's photo picker, which needs no
+    // permission (contact-cards design section 3).
+    view.photo_picker_hook(|| {
+        use crate::onboard::{ASKS, ask};
+        ASKS.push(ask::PICK_PHOTO);
     });
     view.offer_scans(CAMERA_PRESENT.load(Ordering::SeqCst), false, false);
     let view = Rc::new(RefCell::new(view));

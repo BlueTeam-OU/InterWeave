@@ -79,14 +79,21 @@ pub(crate) fn context(
         key,
         key_matches,
     } = standing;
-    // What Accept would do to the photo (design 5.4.1): a photo the person
-    // chose stays; any other becomes the card's, or goes when the card
-    // carries none. A photo the card carries is a change whenever it is
-    // not the one the contact holds, even one that will not decode, since
-    // what decodes is decided at Accept (5.4.2, `CardPhotoNotUsed`).
-    let card_photo = card.photo.as_ref().map(|p| p.bytes.as_slice());
-    let photo_changes = |c: &Contact| {
-        c.photo_source != Some(ValueSource::Person) && c.photo.as_deref() != card_photo
+    // What Accept would do to the photo (design 5.4.1, as #443 left it).
+    // A local choice stays -- the person's photo, or no photo by their
+    // Remove -- whatever the card carries. Any other photo becomes the
+    // card's whenever the card carries one, since a photo not yet decoded
+    // cannot be compared, and goes when the card carries none.
+    let card_carries = card.photo.is_some();
+    let photo_change = |c: &Contact| match (
+        c.photo_source == Some(ValueSource::Person),
+        c.photo.is_some(),
+    ) {
+        (true, true) => PhotoChange::Kept,
+        (true, false) if card_carries => PhotoChange::KeptNone,
+        (false, _) if card_carries => PhotoChange::New,
+        (false, true) => PhotoChange::Removed,
+        (true | false, false) => PhotoChange::Unchanged,
     };
     // What Accept would leave as it is, judged as `HumanStore::accept_card`
     // writes: a person's value stays, any other becomes the card's, and an
@@ -95,23 +102,17 @@ pub(crate) fn context(
         && updates.as_ref().is_some_and(|c| {
             (c.name_source == ValueSource::Person
                 || c.display_name == card_as_accepted.display_name())
-                && !photo_changes(c)
+                && !matches!(photo_change(c), PhotoChange::New | PhotoChange::Removed)
         });
-    // The values design 5.4.1 names (cases U and E): a person's name stays,
-    // any other becomes the card's, and the photo as above.
+    // The values design 5.4.1 names (cases U, E and S): a person's name
+    // stays, any other becomes the card's, and the photo as above.
     let values = updates.as_ref().map_or_else(ValueChanges::default, |c| {
         let name_differs = c.display_name != card_as_accepted.display_name();
         let person_name = c.name_source == ValueSource::Person;
-        let person_photo = c.photo_source == Some(ValueSource::Person);
         ValueChanges {
             new_name: (name_differs && !person_name).then(|| card_as_accepted.display_name()),
             kept_name: name_differs && person_name,
-            photo: match (card_photo.is_some(), photo_changes(c)) {
-                (true, true) => PhotoChange::New,
-                (false, true) => PhotoChange::Removed,
-                (true, false) if person_photo => PhotoChange::Kept,
-                _ => PhotoChange::Unchanged,
-            },
+            photo: photo_change(c),
         }
     });
     let context = ProposalContext {
@@ -149,7 +150,7 @@ pub(crate) fn kept_photo(card: &Card) -> Option<&[u8]> {
 
 /// A kept photo decoded for the model, or nothing when it does not
 /// decode within the card's bound.
-fn shown(bytes: &[u8]) -> Option<Photo> {
+pub(crate) fn shown(bytes: &[u8]) -> Option<Photo> {
     crate::card_photo::decode_kept(bytes).map(|p| Photo {
         width: p.width,
         height: p.height,

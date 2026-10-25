@@ -83,6 +83,26 @@ fn found(read: CodeRead) -> PeersInput {
     }
 }
 
+/// The own card's photo, from the file dialog (contact-cards design 5.2):
+/// `None` when the person cancels; the file's bytes otherwise, held to the
+/// scan's byte bound. A file that cannot be read, or is past the bound,
+/// is handed on empty, which preparing refuses, so the editor says the
+/// photo cannot be used rather than that nothing was chosen.
+pub(crate) fn photo_file(filter: &str) -> Option<Vec<u8>> {
+    let path = rfd::FileDialog::new()
+        .add_filter(filter, &["png", "jpg", "jpeg"])
+        .pick_file()?;
+    let Ok(file) = std::fs::File::open(path) else {
+        return Some(Vec::new());
+    };
+    let mut bytes = Vec::new();
+    let bound = u64::try_from(MAX_IMAGE_BYTES).unwrap_or(u64::MAX) + 1;
+    if file.take(bound).read_to_end(&mut bytes).is_err() || bytes.len() > MAX_IMAGE_BYTES {
+        return Some(Vec::new());
+    }
+    Some(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;

@@ -115,6 +115,43 @@ pub enum PhotoEdit {
     /// The image the person chose, as its file holds it: re-encoded and
     /// stripped of every metadata block before anything keeps it.
     Chosen(Vec<u8>),
+    /// The photo the facade side prepared from the last
+    /// [`Intent::ChooseOwnPhoto`](crate::Intent::ChooseOwnPhoto), as the
+    /// editor previewed it; the card stays as it was if there is none.
+    /// The bytes are the facade side's own, never the view's.
+    Prepared,
+}
+
+/// What a new photo choice falls back to, as the model shows it: the
+/// facade side keeps a prepared photo as the fallback only when its number
+/// is the one named here, found under any answer the model has not taken
+/// yet, so a Save writes what the editor showed (#449 F4; app-core's
+/// `a_choices_fallback_is_what_the_model_showed` and
+/// `a_basis_finds_its_photo_under_an_answer_not_taken`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PhotoBasis {
+    /// The saved card's photo, or none.
+    Card,
+    /// Removed in the editor.
+    Removed,
+    /// The prepared photo of this choice.
+    Prepared(u64),
+}
+
+/// The photo the own card's editor holds, chosen and not yet saved
+/// (contact-cards design section 5.2, "The photo").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnPhotoStep {
+    /// Being prepared: the circle shows progress, and Save waits for it.
+    Preparing,
+    /// Prepared: exactly what a share sends, decoded for the preview.
+    Prepared(Photo),
+    /// It could not be read or prepared: the card stays as it was
+    /// (`PhotoUnusable`).
+    Unusable,
+    /// Removed in the editor, which Save writes (design 5.2 as #443
+    /// proposes it: an unsaved change, with no snackbar and no Undo).
+    Removed,
 }
 
 /// A contact named in a proposal's context.
@@ -191,9 +228,13 @@ pub enum PhotoChange {
     /// The card carries none, so the contact's, which the person did not
     /// choose, would go (`CardUpdatesPhotoRemoved`).
     Removed,
-    /// The card carries a photo, and the person's chosen one stays
-    /// (`CardKeepsPhoto`).
+    /// The person chose the contact's photo, which stays whatever the
+    /// card carries (`CardKeepsPhoto`).
     Kept,
+    /// The card carries a photo, and the person removed the contact's:
+    /// it stays without one and the card's is not used
+    /// (`CardKeepsNoPhoto`, contact-cards design 5.4.1).
+    KeptNone,
 }
 
 /// What became of a proposal the person answered: what the confirmation
@@ -530,6 +571,18 @@ pub(super) struct Cards {
     answers: BTreeMap<RowId, CardAnswer>,
     /// Make a new key or Try again, on the card page.
     key_step: Option<KeyStep>,
+    /// The editor's chosen photo, until it is saved or the editor closes.
+    own_photo: Option<OwnPhotoStep>,
+    /// What the editor showed before the choice being prepared, or found
+    /// unusable: a prepared photo, a removal, or (`None`) the saved card's
+    /// (design 5.2: the buttons stay as they were before the choice).
+    own_photo_before: Option<OwnPhotoStep>,
+    /// The last choice's number: an answer for an earlier one is not
+    /// this one's.
+    own_photo_seq: u64,
+    /// The number of the choice whose prepared photo the editor shows,
+    /// or showed before the choice now held.
+    own_photo_shown_seq: u64,
 }
 
 /// The confirmation row an Accept leaves in its proposal's place: "You
@@ -949,6 +1002,97 @@ impl UiModel {
             && matches!(self.key_problem(), Some(KeyProblem::NotNow));
         self.cards.identity = Some(identity);
         self.cards.key_step = again.then_some(KeyStep::StillNotNow);
+    }
+
+    /// A photo chosen in the own card's editor: being prepared, under the
+    /// number its answer must carry. Any earlier choice not saved is
+    /// replaced; what the editor showed before it is kept, to show while
+    /// it is prepared and should it be unusable (design 5.2).
+    pub fn own_photo_chosen(&mut self) -> u64 {
+        let was = self.cards.own_photo.take();
+        self.cards.own_photo_before = match was {
+            Some(shown @ (OwnPhotoStep::Prepared(_) | OwnPhotoStep::Removed)) => Some(shown),
+            Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) => {
+                self.cards.own_photo_before.take()
+            }
+            None => None,
+        };
+        self.cards.own_photo = Some(OwnPhotoStep::Preparing);
+        self.cards.own_photo_seq += 1;
+        self.cards.own_photo_seq
+    }
+
+    /// What preparing choice `seq` came to: the photo as a share would
+    /// send it, or `None` when it could not be read or prepared. Only the
+    /// last choice, still being prepared, takes it: an earlier choice's
+    /// answer, or one forgotten, removed or saved meanwhile, changes
+    /// nothing.
+    pub fn own_photo_prepared(&mut self, seq: u64, photo: Option<Photo>) {
+        if seq != self.cards.own_photo_seq
+            || !matches!(self.cards.own_photo, Some(OwnPhotoStep::Preparing))
+        {
+            return;
+        }
+        if let Some(photo) = photo {
+            self.cards.own_photo = Some(OwnPhotoStep::Prepared(photo));
+            self.cards.own_photo_before = None;
+            self.cards.own_photo_shown_seq = seq;
+        } else {
+            self.cards.own_photo = Some(OwnPhotoStep::Unusable);
+        }
+    }
+
+    /// Remove photo in the editor: no photo, once saved. A photo being
+    /// prepared is dropped, and its answer changes nothing.
+    pub fn own_photo_removed(&mut self) {
+        self.cards.own_photo = Some(OwnPhotoStep::Removed);
+        self.cards.own_photo_before = None;
+    }
+
+    /// The editor closed, or its card saved: the chosen photo is let go.
+    pub fn own_photo_forgotten(&mut self) {
+        self.cards.own_photo = None;
+        self.cards.own_photo_before = None;
+    }
+
+    /// The editor's chosen photo, if any.
+    #[must_use]
+    pub const fn own_photo(&self) -> Option<&OwnPhotoStep> {
+        self.cards.own_photo.as_ref()
+    }
+
+    /// What the last choice falls back to, for the facade side to keep:
+    /// what the editor showed before it.
+    #[must_use]
+    pub const fn own_photo_basis(&self) -> PhotoBasis {
+        match self.cards.own_photo_before {
+            Some(OwnPhotoStep::Prepared(_)) => PhotoBasis::Prepared(self.cards.own_photo_shown_seq),
+            Some(OwnPhotoStep::Removed) => PhotoBasis::Removed,
+            Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) | None => PhotoBasis::Card,
+        }
+    }
+
+    /// What the editor showed before the choice being prepared or found
+    /// unusable: a prepared photo or a removal; `None` for the saved
+    /// card's photo.
+    #[must_use]
+    pub const fn own_photo_before(&self) -> Option<&OwnPhotoStep> {
+        self.cards.own_photo_before.as_ref()
+    }
+
+    /// What Save does to the photo: no photo after Remove; the facade
+    /// side's own while a choice is held -- the prepared one, or, while it
+    /// is prepared or when it is unusable, what the editor showed before
+    /// it (the facade side keeps that too); else the card's as it is.
+    #[must_use]
+    pub const fn own_photo_edit(&self) -> PhotoEdit {
+        match self.cards.own_photo {
+            Some(OwnPhotoStep::Removed) => PhotoEdit::Remove,
+            Some(OwnPhotoStep::Preparing | OwnPhotoStep::Prepared(_) | OwnPhotoStep::Unusable) => {
+                PhotoEdit::Prepared
+            }
+            None => PhotoEdit::Keep,
+        }
     }
 
     /// The confirmation cancelled, or the card page left: what it showed
@@ -2159,5 +2303,92 @@ mod tests {
                 hold: 8,
             })
         );
+    }
+
+    /// Contact-cards design section 5.2, "The photo": a chosen photo is
+    /// being prepared, and Save then takes the facade side's own; an
+    /// answer counts only for the last choice still being prepared; while
+    /// a choice is prepared or found unusable, what the editor showed
+    /// before it stays known (a prepared photo, a removal, or the saved
+    /// card's); Remove is an unsaved removal. Mutations: an earlier
+    /// choice's answer taken for a later one; what was shown before
+    /// forgotten at a second choice; Save keeping the card's photo while
+    /// one is prepared.
+    #[test]
+    fn a_chosen_photo_is_prepared_before_save_takes_it() {
+        let photo = |n: u8| Photo {
+            width: 2,
+            height: 2,
+            rgba: vec![n; 16],
+        };
+        let mut model = UiModel::new();
+        assert_eq!(model.own_photo(), None);
+        assert_eq!(model.own_photo_edit(), PhotoEdit::Keep, "nothing chosen");
+
+        let first = model.own_photo_chosen();
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Preparing));
+        assert_eq!(model.own_photo_before(), None, "the saved card's, before");
+        assert_eq!(model.own_photo_basis(), PhotoBasis::Card);
+        assert_eq!(
+            model.own_photo_edit(),
+            PhotoEdit::Prepared,
+            "Save waits for it"
+        );
+        model.own_photo_prepared(first, Some(photo(1)));
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Prepared(photo(1))));
+
+        // A second choice: P1 is what the editor showed before it, through
+        // an earlier answer arriving late, and through an unusable one.
+        let second = model.own_photo_chosen();
+        assert_eq!(
+            model.own_photo_before(),
+            Some(&OwnPhotoStep::Prepared(photo(1)))
+        );
+        assert_eq!(
+            model.own_photo_basis(),
+            PhotoBasis::Prepared(first),
+            "by its number"
+        );
+        model.own_photo_prepared(first, Some(photo(9)));
+        assert_eq!(
+            model.own_photo(),
+            Some(&OwnPhotoStep::Preparing),
+            "not this choice's"
+        );
+        let third = model.own_photo_chosen();
+        assert_eq!(
+            model.own_photo_before(),
+            Some(&OwnPhotoStep::Prepared(photo(1))),
+            "a choice replacing one being prepared keeps what was shown before"
+        );
+        model.own_photo_prepared(second, Some(photo(2)));
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Preparing));
+        model.own_photo_prepared(third, None);
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Unusable));
+        assert_eq!(
+            model.own_photo_before(),
+            Some(&OwnPhotoStep::Prepared(photo(1)))
+        );
+        assert_eq!(
+            model.own_photo_edit(),
+            PhotoEdit::Prepared,
+            "the facade side keeps P1 for Save"
+        );
+
+        // Remove, then a choice: the removal is what was shown before.
+        model.own_photo_removed();
+        assert_eq!(model.own_photo_edit(), PhotoEdit::Remove);
+        let fourth = model.own_photo_chosen();
+        assert_eq!(model.own_photo_before(), Some(&OwnPhotoStep::Removed));
+        assert_eq!(model.own_photo_basis(), PhotoBasis::Removed);
+        model.own_photo_removed();
+        model.own_photo_prepared(fourth, Some(photo(4)));
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Removed), "dropped");
+
+        let fifth = model.own_photo_chosen();
+        model.own_photo_forgotten();
+        model.own_photo_prepared(fifth, Some(photo(5)));
+        assert_eq!(model.own_photo(), None, "a late answer changes nothing");
+        assert_eq!(model.own_photo_before(), None);
     }
 }

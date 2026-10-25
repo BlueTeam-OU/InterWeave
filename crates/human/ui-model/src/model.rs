@@ -428,6 +428,15 @@ pub enum Intent {
     /// Close what the card page shows of a key step: the confirmation
     /// cancelled, or the page left. The model's alone.
     CloseKeyStep,
+    /// A photo chosen for the own card, as its file holds it: the facade
+    /// side prepares it (contact-cards design section 5.2), and the editor
+    /// shows what it came to ([`UiModel::own_photo`]).
+    ChooseOwnPhoto(Vec<u8>),
+    /// The own card's editor closed without saving its chosen photo.
+    ForgetOwnPhoto,
+    /// Remove photo in the own card's editor: no photo once saved, and a
+    /// photo being prepared is let go.
+    RemoveOwnPhoto,
     /// The person's edit of their identity's own card, from its settings.
     SetOwnCard {
         /// The name.

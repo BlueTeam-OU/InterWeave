@@ -779,16 +779,16 @@ fn the_own_card_refuses_an_empty_name_in_place_and_saves_a_valid_one() {
         text(UiText::CardNameNeeded)
     );
 
+    // Remove photo is an unsaved change (design 5.2 as #443 proposes it):
+    // nothing written until Save. The model's side of it, as model_side
+    // applies it.
     press(&view, text(UiText::RemovePhoto));
     assert_eq!(
         intents(&mut view, &mut model),
-        vec![Intent::SetOwnCard {
-            name: "Ada".to_owned(),
-            surname: None,
-            photo: PhotoEdit::Remove,
-        }],
-        "the photo removed, the names as stored"
+        vec![Intent::RemoveOwnPhoto],
+        "nothing saved yet"
     );
+    model.own_photo_removed();
 
     view.window().set_own_given("Ada".into());
     view.window().set_own_surname("Lovelace".into());
@@ -798,8 +798,9 @@ fn the_own_card_refuses_an_empty_name_in_place_and_saves_a_valid_one() {
         vec![Intent::SetOwnCard {
             name: "Ada".to_owned(),
             surname: Some("Lovelace".to_owned()),
-            photo: PhotoEdit::Keep,
-        }]
+            photo: PhotoEdit::Remove,
+        }],
+        "the names and the removal, written together"
     );
 }
 
@@ -1772,4 +1773,274 @@ fn a_card_page_left_another_way_forgets_its_way_back() {
     settle();
     assert!(!view.window().get_share_open(), "no old share sheet");
     assert_eq!(view.window().get_focus_id(), "proposal-contact:0:0");
+}
+
+/// What the window's announcement slots say now.
+fn announced(view: &View) -> Vec<String> {
+    ["AppWindow::announce-a", "AppWindow::announce-b"]
+        .iter()
+        .flat_map(|id| ElementHandle::find_by_element_id(view.window(), id))
+        .filter_map(|e| e.accessible_label().map(|l| l.to_string()))
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
+/// Contact-cards design 5.2, with the focus and speech #443 proposes:
+/// Add a photo opens the platform's picker, and what it picks goes to the
+/// facade side to prepare; a cancel changes nothing. While it is prepared
+/// the circle reads `CardPhotoPreparing`; once ready it shows the photo
+/// and reads `CardPhotoLabel`, Change photo and Remove photo are offered,
+/// focus stays on the button and `PhotoAdded` is announced; an unusable
+/// one shows and announces `PhotoUnusable`; closing the page lets an
+/// unsaved choice go. Mutations: the picked bytes not raised; the circle's
+/// label left as it was; no announcement when the photo is ready; Close
+/// keeping the choice.
+#[test]
+fn the_editor_chooses_a_photo_through_the_platforms_picker() {
+    let mut view = view();
+    let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = std::rc::Rc::clone(&asked);
+    view.photo_picker_hook(move || counted.set(counted.get() + 1));
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: false,
+        photo: None,
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        peer: Some(peer(Q)),
+    });
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(
+        !shows(&view, text(UiText::CardPhotoElsewhere)),
+        "a picker here"
+    );
+    assert!(
+        shows(&view, text(UiText::CardPhotoNone)),
+        "the circle, no photo"
+    );
+    assert!(!shows(&view, text(UiText::RemovePhoto)));
+
+    press(&view, text(UiText::AddPhoto));
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(asked.get(), 1, "the platform's picker");
+    view.photo_picked(None);
+    assert!(
+        intents(&mut view, &mut model).is_empty(),
+        "a cancel: nothing"
+    );
+
+    view.photo_picked(Some(vec![1, 2, 3]));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::ChooseOwnPhoto(vec![1, 2, 3])]
+    );
+    settle();
+    assert_eq!(view.window().get_focus_id(), "own-choose-photo");
+    let first = model.own_photo_chosen();
+    view.render(&model);
+    settle();
+    assert!(shows(&view, text(UiText::CardPhotoPreparing)));
+    assert!(view.window().get_own_photo_preparing());
+    assert!(announced(&view).is_empty(), "the start is not announced");
+
+    model.own_photo_prepared(first, Some(photo()));
+    view.render(&model);
+    settle();
+    assert!(shows(&view, text(UiText::CardPhotoLabel)));
+    assert!(shows(&view, text(UiText::ChangePhoto)));
+    assert!(shows(&view, text(UiText::RemovePhoto)));
+    assert!(images(&view) >= 1, "the prepared photo, drawn");
+    assert_eq!(announced(&view), vec![text(UiText::PhotoAdded).to_owned()]);
+    assert_eq!(view.window().get_focus_id(), "own-choose-photo");
+
+    press(&view, text(UiText::ChangePhoto));
+    view.photo_picked(Some(vec![9]));
+    let _ = intents(&mut view, &mut model);
+    let second = model.own_photo_chosen();
+    view.render(&model);
+    model.own_photo_prepared(second, None);
+    view.render(&model);
+    settle();
+    assert!(shows(&view, text(UiText::PhotoUnusable)));
+    assert_eq!(
+        announced(&view),
+        vec![text(UiText::PhotoUnusable).to_owned()]
+    );
+
+    view.window().invoke_close_cards();
+    let raised = intents(&mut view, &mut model);
+    assert!(
+        raised.contains(&Intent::ForgetOwnPhoto),
+        "the unsaved choice goes: {raised:?}"
+    );
+}
+
+/// Contact-cards design 5.4 and 5.4.1 as #443 left them: case S says
+/// `CardSame` only when nothing is kept by a local choice, the kept line
+/// standing in its place otherwise; `CardIncludesPhoto` shows only when
+/// Accept would write the card's photo. Mutations: `CardSame` drawn beside
+/// a kept line; the photo line drawn whenever the card carries one.
+#[test]
+fn a_matching_card_says_it_matches_only_when_nothing_is_kept() {
+    use interweave_human_ui_model::{PhotoChange, ValueChanges};
+    let mut view = view();
+    let mut model = UiModel::new();
+    let ada = ContactRef {
+        contact_id: "c1".to_owned(),
+        name: "Ada".to_owned(),
+    };
+    let same = fill(text(UiText::CardSame), &[("contact", &isolated("Ada"))]);
+    let judged = |photo: PhotoChange, matches: bool| ProposalContext {
+        updates: Some(ada.clone()),
+        changes_nothing: matches,
+        values: ValueChanges {
+            photo,
+            ..ValueChanges::default()
+        },
+        ..context()
+    };
+
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", true),
+        judged(PhotoChange::KeptNone, true),
+    ));
+    let _ = shown(&mut view, &mut model, P);
+    assert!(shows(&view, text(UiText::CardKeepsNoPhoto)));
+    assert!(!shows(&view, &same), "the kept line in its place");
+    assert!(
+        !shows(&view, text(UiText::CardIncludesPhoto)),
+        "the photo is not used"
+    );
+
+    model.card_received(proposal(
+        2,
+        Q,
+        card("Ada", false),
+        judged(PhotoChange::Unchanged, true),
+    ));
+    let _ = shown(&mut view, &mut model, Q);
+    assert!(shows(&view, &same), "nothing kept: it matches");
+
+    model.card_received(proposal(
+        3,
+        R,
+        card("Ada", true),
+        judged(PhotoChange::New, false),
+    ));
+    let _ = shown(&mut view, &mut model, R);
+    assert!(
+        shows(&view, text(UiText::CardIncludesPhoto)),
+        "control: written"
+    );
+}
+
+/// #449 F1: the editor's circle draws the card's saved photo when it
+/// opens with nothing chosen, and the new one after a Save that changed
+/// it, not a blank or an earlier one. Mutation: the circle's image set
+/// only when the photo step changes.
+#[test]
+fn the_editor_draws_the_saved_photo_and_follows_a_new_one() {
+    let mut view = view();
+    view.photo_picker_hook(|| {});
+    let mut model = UiModel::new();
+    let identity = |photo: Option<Photo>| IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: photo.is_some(),
+        photo,
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        peer: Some(peer(Q)),
+    };
+    model.identity_shown(identity(Some(photo())));
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    let drawn = |view: &View| {
+        let image = view.window().get_own_edit_photo();
+        let size = image.size();
+        (size.width, size.height)
+    };
+    assert!(view.window().get_own_edit_has_photo());
+    assert_eq!(drawn(&view), (4, 4), "the saved photo, drawn");
+
+    let other = Photo {
+        width: 8,
+        height: 8,
+        rgba: vec![90; 256],
+    };
+    model.identity_shown(identity(Some(other)));
+    view.render(&model);
+    assert_eq!(drawn(&view), (8, 8), "the card's new photo");
+}
+
+/// #449 F2, design 5.2: while a choice is prepared the buttons and circle
+/// stay as they were before it -- Change photo and Remove photo over a
+/// photo prepared earlier, Add a photo and no Remove photo after a
+/// removal -- and an unusable choice leaves them so. Mutation: the circle
+/// following the saved card while a choice is prepared.
+#[test]
+fn while_a_photo_is_prepared_the_editor_stays_as_it_was_before() {
+    let mut view = view();
+    view.photo_picker_hook(|| {});
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: false,
+        photo: None,
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        peer: Some(peer(Q)),
+    });
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    let first = model.own_photo_chosen();
+    model.own_photo_prepared(first, Some(photo()));
+    view.render(&model);
+
+    let _second = model.own_photo_chosen();
+    view.render(&model);
+    assert!(
+        shows(&view, text(UiText::ChangePhoto)),
+        "as before the choice"
+    );
+    assert!(shows(&view, text(UiText::RemovePhoto)));
+    assert!(view.window().get_own_edit_has_photo(), "the earlier photo");
+    let third = model.own_photo_chosen();
+    model.own_photo_prepared(third, None);
+    view.render(&model);
+    assert!(shows(&view, text(UiText::PhotoUnusable)));
+    assert!(shows(&view, text(UiText::ChangePhoto)), "still as before");
+
+    model.own_photo_removed();
+    let _fourth = model.own_photo_chosen();
+    view.render(&model);
+    assert!(
+        shows(&view, text(UiText::AddPhoto)),
+        "the removal stays shown"
+    );
+    assert!(!shows(&view, text(UiText::RemovePhoto)));
+    assert!(!view.window().get_own_edit_has_photo());
 }
