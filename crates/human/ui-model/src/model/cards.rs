@@ -212,9 +212,13 @@ pub enum PhotoChange {
     /// The card carries none, so the contact's, which the person did not
     /// choose, would go (`CardUpdatesPhotoRemoved`).
     Removed,
-    /// The card carries a photo, and the person's chosen one stays
-    /// (`CardKeepsPhoto`).
+    /// The person chose the contact's photo, which stays whatever the
+    /// card carries (`CardKeepsPhoto`).
     Kept,
+    /// The card carries a photo, and the person removed the contact's:
+    /// it stays without one and the card's is not used
+    /// (`CardKeepsNoPhoto`, contact-cards design 5.4.1).
+    KeptNone,
 }
 
 /// What became of a proposal the person answered: what the confirmation

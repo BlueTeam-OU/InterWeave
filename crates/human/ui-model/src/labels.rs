@@ -800,6 +800,11 @@ ui_texts! {
     /// it stays.
     // PLACEHOLDER (en)
     CardKeepsPhoto => "You chose this contact's photo yourself. That photo stays.",
+    /// CARD PROPOSAL, cases E and S: the card carries a photo, and the
+    /// person removed the contact's, which stays without one (design
+    /// 5.4.1, #443).
+    // PLACEHOLDER (en)
+    CardKeepsNoPhoto => "You removed this contact's photo yourself. The contact stays without a photo, and the photo on this card is not used.",
     /// CARD PROPOSAL, the same-name note: `{contact}` is a contact of this
     /// identity with the same name on another `PeerId`.
     CardSameName => "One of your contacts is named {contact} and has a different PeerId. Compare the two PeerIds before you accept.",
