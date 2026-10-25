@@ -296,7 +296,9 @@ impl ProposalItem {
     /// would write a clashing name -- never accepts by swipe (the owner's
     /// O2, "whenever warned"): a swipe can happen without reading, and a
     /// stranger saved under a contact's name by a stray thumb is the
-    /// impersonation ADR-0059 makes visible; only its button saves it.
+    /// impersonation ADR-0059 makes visible. Its Accept button, or its
+    /// menu's Accept, saves it: each pressed on purpose, beside the
+    /// warning (`a_proposal_swipes_both_ways_but_never_accepts_when_warned_or_moves_in_s`).
     /// Judged on what the row shows now, so a row judged again after a
     /// change (5.4.5) swipes as it then reads.
     #[must_use]
