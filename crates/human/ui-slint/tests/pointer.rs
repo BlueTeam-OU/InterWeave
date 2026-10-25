@@ -667,3 +667,126 @@ fn an_accept_by_swipe_leaves_focus_where_it_was() {
         view.window().get_focus_target()
     );
 }
+
+/// The labels of the open menu's entries, in order.
+fn menu_items(view: &View) -> Vec<String> {
+    ElementHandle::find_by_element_type_name(view.window(), "MenuItem")
+        .filter_map(|e| e.accessible_label().map(|l| l.to_string()))
+        .collect()
+}
+
+/// A press on `at` held `hold` ms, moved `moved` px first; whether the
+/// proposal's menu was open before the finger lifted.
+fn hold(view: &View, at: (f32, f32), moved: f32, hold: u64, button: PointerEventButton) -> i32 {
+    let position = |dx: f32| LogicalPosition::new(at.0 + dx, at.1);
+    event(
+        view,
+        WindowEvent::PointerPressed {
+            position: position(0.0),
+            button,
+        },
+    );
+    tick(120);
+    if moved != 0.0 {
+        event(
+            view,
+            WindowEvent::PointerMoved {
+                position: position(moved),
+            },
+        );
+    }
+    tick(hold);
+    let opened = view.window().get_card_menu();
+    event(
+        view,
+        WindowEvent::PointerReleased {
+            position: position(moved),
+            button,
+        },
+    );
+    tick(16);
+    opened
+}
+
+/// Contact-cards design section 5.4.4 with message-swipe section 7's menu:
+/// a press on a proposal held within the slop for the long-press time
+/// opens its menu with one haptic tick, a press past the slop never does,
+/// and a secondary click opens it at once. It holds the answers the row
+/// shows under the case's labels -- Accept and Decline, or Close alone --
+/// then Copy `PeerId`, and an entry chosen is the row's answer. Mutations:
+/// the timer running past the slop; Close's entry drawn beside an Accept
+/// in case S; an entry raising the other answer.
+#[test]
+fn a_proposals_menu_opens_by_long_press_and_holds_its_cases_answers() {
+    let mut view = phone();
+    view.set_touch_settings(TouchSettings {
+        long_press_ms: 400,
+        ..TouchSettings::default()
+    });
+    let ticks = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = std::rc::Rc::clone(&ticks);
+    view.on_haptic(move || counted.set(counted.get() + 1));
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let at = proposal_heading_at(&view, 0);
+    let text = placeholder_en::text;
+
+    assert_eq!(
+        hold(&view, at, 0.0, 200, PointerEventButton::Left),
+        -1,
+        "control: too short"
+    );
+    assert_eq!(
+        hold(&view, at, 0.0, 400, PointerEventButton::Left),
+        0,
+        "held: its menu"
+    );
+    assert_eq!(ticks.get(), 1, "one haptic tick as it opens");
+    assert_eq!(
+        menu_items(&view),
+        [
+            text(UiText::CardAccept),
+            text(UiText::CardDecline),
+            text(UiText::CopyPeerId)
+        ]
+    );
+    view.window().invoke_close_card_menu();
+    assert_eq!(
+        hold(&view, at, 0.0, 16, PointerEventButton::Right),
+        0,
+        "a secondary click"
+    );
+
+    let decline = ElementHandle::find_by_element_type_name(view.window(), "MenuItem")
+        .find(|e| e.accessible_label().as_deref() == Some(text(UiText::CardDecline)))
+        .expect("Decline's entry");
+    decline.invoke_accessible_default_action();
+    tick(16);
+    assert_eq!(view.window().get_card_menu(), -1, "closed by its choice");
+    assert_eq!(
+        answers(turn(&mut view, &mut model)),
+        vec![Intent::DeclineCard(RowId::from_stored(1))]
+    );
+
+    // Case S: Close alone, then Copy `PeerId`.
+    let bob = peer();
+    proposal(&mut model, 2, &bob, judged(Some("c1"), false, true));
+    view.select(direct(&bob));
+    let _ = turn(&mut view, &mut model);
+    let at = proposal_heading_at(&view, 0);
+    // A row that swipes neither way, so no swipe takes the drag from it.
+    assert_eq!(
+        hold(&view, at, 30.0, 800, PointerEventButton::Left),
+        -1,
+        "past the slop first: never"
+    );
+    assert!(answers(turn(&mut view, &mut model)).is_empty());
+    assert_eq!(hold(&view, at, 0.0, 400, PointerEventButton::Left), 0);
+    assert_eq!(
+        menu_items(&view),
+        [text(UiText::Close), text(UiText::CopyPeerId)]
+    );
+}

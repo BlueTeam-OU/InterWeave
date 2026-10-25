@@ -2105,6 +2105,12 @@ component ProposalCard inherits Rectangle {
     callback decline();
     callback copy();
     callback focused(string);
+    // Its menu (design section 5.4.4, message-swipe section 7): a press
+    // held within the slop for the long-press time, `true` for the
+    // haptic tick, or a secondary click.
+    callback menu(bool);
+    in property <bool> swipe-tracking;
+    in property <bool> menu-open;
     background: Palette.surface-container;
     border-radius: 12px;
     border-width: 1px;
@@ -2121,7 +2127,35 @@ component ProposalCard inherits Rectangle {
     // the press, as a message row's does: left to the swipe handler, a
     // drag the row does not offer ends with no callback and the next
     // drag is read as its continuation (swipe spec section 11, item 5).
-    TouchArea {}
+    // A press past the slop is a swipe or a scroll and never opens the
+    // menu; an answered row has none.
+    card-touch := TouchArea {
+        property <bool> drifted;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                self.drifted = false;
+                FocusMode.keyboard = false;
+                if (event.button == PointerEventButton.right && !root.card.answered) {
+                    root.menu(false);
+                }
+            }
+        }
+        moved => {
+            if (abs(self.mouse-x - self.pressed-x) > Touch.slop
+                || abs(self.mouse-y - self.pressed-y) > Touch.slop) {
+                self.drifted = true;
+            }
+        }
+        Timer {
+            interval: Touch.long-press;
+            running: card-touch.pressed && !card-touch.drifted && !root.menu-open
+                && !root.swipe-tracking && !root.card.answered;
+            triggered => {
+                self.running = false;
+                root.menu(true);
+            }
+        }
+    }
     body := VerticalLayout {
     if root.card.answered: VerticalLayout {
         padding: 16px;
@@ -2700,6 +2734,29 @@ export component AppWindow inherits Window {
     property <length> row-menu-y;
     property <length> row-menu-w;
     property <length> row-menu-h;
+    // The proposal whose menu is open, by its handle, or -1, with its row
+    // as drawn and the card it is anchored to (design section 5.4.4).
+    in-out property <int> card-menu: -1;
+    property <ProposalRow> card-menu-row;
+    property <length> card-menu-x;
+    property <length> card-menu-y;
+    property <length> card-menu-w;
+    property <length> card-menu-h;
+    function open-card-menu(row: ProposalRow, x: length, y: length, w: length, h: length) {
+        root.card-menu-row = row;
+        root.card-menu-x = x;
+        root.card-menu-y = y;
+        root.card-menu-w = w;
+        root.card-menu-h = h;
+        root.card-menu = row.handle;
+    }
+    // Closed with nothing done: focus back on the card's first control.
+    public function close-card-menu() {
+        if (root.card-menu < 0) { return; }
+        root.focus-target = "proposal-copy:" + root.card-menu;
+        root.card-menu = -1;
+        root.focus-seq += 1;
+    }
     // Show source chosen from a menu, for the row that keeps the choice.
     property <int> source-toggle: -1;
     property <int> source-toggle-seq;
@@ -3011,6 +3068,10 @@ export component AppWindow inherits Window {
         }
         if (root.row-menu >= 0) {
             root.close-row-menu();
+            return true;
+        }
+        if (root.card-menu >= 0) {
+            root.close-card-menu();
             return true;
         }
         if (root.chats-menu-open) {
@@ -5786,6 +5847,14 @@ export component AppWindow inherits Window {
                     rtl: root.rtl;
                     focus-seq: root.focus-seq;
                     focus-target: root.focus-target;
+                    swipe-tracking: root.swipe-tracking;
+                    menu-open: root.card-menu == proposal.handle;
+                    menu(haptic) => {
+                        if (haptic) { root.menu-haptic(); }
+                        root.open-card-menu(proposal, proposal-row.absolute-position.x,
+                            proposal-row.absolute-position.y, proposal-row.width,
+                            proposal-row.height);
+                    }
                     accept => { root.proposal-accept(proposal.handle); }
                     decline => { root.proposal-decline(proposal.handle); }
                     copy => {
@@ -6156,6 +6225,87 @@ export component AppWindow inherits Window {
                     root.close-row-menu();
                 }
                 closed => { root.close-row-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+        }
+    }
+    // A proposal's menu: the same answers its row shows, with the case's
+    // labels -- Accept and Decline, or Close alone -- then Copy PeerId; no
+    // Show source, since a card has no markdown source (design section
+    // 5.4.4). Placed and closed as a message's menu is.
+    if root.card-menu >= 0: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => {
+            FocusMode.keyboard = false;
+            root.close-card-menu();
+        }
+    }
+    if root.card-menu >= 0: Rectangle {
+        property <length> below: root.card-menu-y + root.card-menu-h + 4px;
+        width: min(root.width - 16px, max(200px, card-menu-items.preferred-width));
+        height: card-menu-items.preferred-height;
+        x: max(8px, min(root.card-menu-x, root.width - self.width - 8px));
+        y: self.below + self.height <= root.height - root.safe-area-insets.bottom - 8px ? self.below
+            : max(root.safe-area-insets.top + 8px, root.card-menu-y - self.height - 4px);
+        background: Palette.surface-container-high;
+        border-radius: 4px;
+        drop-shadow-blur: 8px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: #00000052;
+        TouchArea {}
+        card-menu-items := VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            if !root.card-menu-row.closes: MenuItem {
+                text: root.card-menu-row.accept;
+                detail: root.card-menu-row.full-name;
+                iconed: true;
+                kind: SwipeKind.accept;
+                focus-key: "card-menu-accept:" + root.card-menu;
+                first: true;
+                rtl: root.rtl;
+                pressed => {
+                    let handle = root.card-menu;
+                    root.close-card-menu();
+                    root.proposal-accept(handle);
+                }
+                closed => { root.close-card-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            // Close, in case S, is Decline's answer under Accept's label.
+            MenuItem {
+                text: root.card-menu-row.closes ? root.card-menu-row.accept : root.card-menu-row.decline;
+                detail: root.card-menu-row.full-name;
+                iconed: true;
+                kind: SwipeKind.decline;
+                focus-key: "card-menu-decline:" + root.card-menu;
+                first: root.card-menu-row.closes;
+                rtl: root.rtl;
+                pressed => {
+                    let handle = root.card-menu;
+                    root.close-card-menu();
+                    root.proposal-decline(handle);
+                }
+                closed => { root.close-card-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            MenuItem {
+                text: root.card-menu-row.copy;
+                detail: root.card-menu-row.peer;
+                iconed: true;
+                focus-key: "card-menu-copy:" + root.card-menu;
+                rtl: root.rtl;
+                pressed => {
+                    root.close-card-menu();
+                    root.proposal-copy-text = root.card-menu-row.peer;
+                    proposal-copy.select-all();
+                    proposal-copy.copy();
+                    proposal-copy.clear-selection();
+                }
+                closed => { root.close-card-menu(); }
                 focused(k) => { root.focus-id = k; }
             }
         }
