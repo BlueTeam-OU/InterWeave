@@ -4630,7 +4630,8 @@ command (B9 reaches `DirectoryCache::forget` only through a trust
 revocation); endpoint narrowing (`EndpointTrustPolicy`) through
 administration; a new conversation by PeerId, with the
 contacts UX and the owner's privacy review (11 — ADR-0059's work since
-2026-10-21, carried under §29); client autostart of
+2026-10-21, carried under §29 and met at its close, 2026-10-25, the
+review answered at its (d)); client autostart of
 the daemon, the owner's with packaging (9); the persistence of
 `admin.trust.*` and `admin.endpoints.*` changes beyond the runtime
 overlay (ADR-0028, the owner's); the Windows binding behind the
@@ -6370,8 +6371,246 @@ either direction, the dialler's row reading `denied` in five runs and
 
 ### Record
 
-The closing record lands here when the owner closes the stage, with
-the figures and the carried limits, as §28's does.
+The owner's word closes it, as every stage. The `Met.` block names the
+cases, SPIKE-011's figures, the privacy review's answer and what was
+carried.
+
+**Met (2026-10-25; the closing record).** Stage 21 closed on the owner's
+word of 2026-10-25 — given on the arming of the pull request that lands
+this record, which is its approval on record, as §28's was; the
+direction was the owner's "complete stage 21" of 2026-10-24 — having
+run beside Stages 17, 18 and 19 from 2026-10-21, on the steps above in
+order, each in its lane's pull requests, the stage's six decisions
+(ADR-0059, ADR-0060, ADR-0061, ADR-0062, ADR-0063, ADR-0065) all
+Accepted before the close: step 1, the card on the wire (rust-ui-dev:
+the parser and its three-way answer, the fixture vectors frozen on #343
+ahead of it, the identity key and signature of ADR-0063 on #344); step
+2, the proposal and the acceptance (the manifest and dependency check,
+the identity key pair and its sealed file, the proposal and contact
+screens #407, the Android key under the Keystore #414, the unusable key
+and Make a new key #423, Undo and the swipes #433, the same-name key
+#437, the permission allow-list #436); step 3, the encrypted store
+(#377, after SPIKE-011 #342); step 4, the command-line client first
+(#368, #369, #387, #429: every action of steps 2 and 3 as a command,
+ADR-0059 decision 9 met on the owner's word of 2026-10-22) and the
+screens on both clients (#384 the add page and the no-reach notice,
+#407, #409 Show my address and the desktop's scan of an image, #418
+Scan a code with the phone's camera, #428 the superseded address);
+step 5, a peer by address and one's own (p2p-network-dev: the overlay,
+the provider, the admin methods and `transportctl`'s verbs; rust-ui-dev:
+the add, Show and Scan screens, the camera module `CodeCamera.kt`;
+ux-designer: the two flows in `design/2026-10-22-add-a-peer.md`, #405).
+The exit gate: (a) steps 1–5 are on `main` with CI green at the merge
+of the last gate item (#436, 08ad14be); (b) each case by a named test
+at the lowest layer that proves it, the store's in
+`crates/human/store/tests/contacts.rs` and `at_rest.rs`, the
+application's in `crates/human/app-core/tests/cards.rs`, the facade's
+in `crates/human/transport-client/tests/facade.rs`, the two clients'
+end to end in `tests/desktop-e2e/tests/human_cli.rs` and `human_app/`:
+the valid card by
+`a_valid_card_accepted_creates_the_contact_and_names_the_conversation`;
+the unknown kind or over-bound card by
+`a_card_of_an_unknown_kind_or_over_a_bound_is_rejected_with_no_network_effect`
+(the facade's, watching both endpoints and the room, with a control
+that the watch sees traffic); broadcast by
+`a_card_received_over_broadcast_is_ignored_and_shows_nothing`; the
+second card from one route by
+`a_second_card_from_the_same_route_updates_it_and_overwrites_no_local_edit`
+and `a_later_card_names_the_values_it_changes_and_the_edit_it_keeps`;
+two same-name cards by
+`two_same_name_cards_from_two_peer_ids_are_two_proposals` (and the
+Cyrillic lookalike as the same name by the store's key,
+`a_lookalike_name_on_another_peer_id_is_named_as_the_same_name`); the
+declined card by `a_declined_card_leaves_nothing_in_the_store` and the
+command line's `decline_writes_nothing`; the photo's metadata by
+`a_photo_chosen_with_a_gps_block_and_a_camera_serial_leaves_the_sender_with_neither`;
+the local edit and its provenance by
+`an_accepted_photo_is_kept_as_bytes_and_a_photo_the_person_set_is_never_replaced`
+and the page's
+`the_contact_page_says_where_each_value_came_from_and_a_local_edit_stands`;
+the second route of a known PeerId by
+`a_card_on_another_route_of_a_known_peer_id_makes_its_own_contact_and_names_the_one_sharing_its_node`;
+the card shared to two conversations by
+`the_card_shared_to_two_conversations_is_the_conversations_identitys_each_time`
+over two daemons with a tap on the sender's IPC; the signature by
+`a_built_card_verifies_on_its_route_and_on_no_other`, the frozen
+vectors' `every_frozen_card_gets_its_verdict_and_its_one_reason` and
+the replay by `a_malformed_card_is_counted_as_a_card_and_never_stored`;
+the key change by
+`a_changed_key_is_a_key_change_and_accepting_it_replaces_the_key_on_that_route_alone`
+and `a_key_change_is_accepted_only_by_the_flag_named_for_it`; the
+identity key out of the store by `the_identity_key_never_enters_the_store`
+(raw, base64 and hex, with a control) and out of the logs, IPC and
+output by
+`a_photo_set_from_a_file_reaches_the_contact_and_the_key_stays_in_its_file`,
+out of a backup by the manifest check alone (`allowBackup="false"` and
+every domain excluded, so no file of the app is backed up — no case
+reads a backup); the stalled rewrite's discard by
+`a_discard_during_a_stalled_rewrite_removes_the_plaintext_and_keeps_the_key_and_the_copy`
+with the screen's `the_partial_confirmation_names_the_unfinished_file_only`;
+the unopenable copy's by
+`a_discard_with_the_copy_unopenable_removes_plaintext_copy_and_key_in_one_step`
+(all four spoilings) with
+`the_full_confirmation_lists_every_loss_and_cancel_has_focus`; the
+command-line discard by
+`a_discard_is_refused_without_the_scope_it_lists_and_removes_nothing`
+and `a_store_without_its_key_is_discarded_only_on_its_confirmed_scope`;
+every action of steps 2 and 3 from a shell with no display by the
+`human_cli.rs` cases run under a cleared environment
+(`a_card_shared_accepted_edited_and_deleted_across_two_daemons`,
+`a_key_change_is_made_and_accepted_only_on_its_flags_across_two_daemons`,
+the photo case and the discard case above) over the verbs ADR-0059
+decision 9 names, complete with #429; the photo not decoded before
+Accept by
+`a_photo_reaches_the_screens_decoded_only_once_it_is_accepted_with_its_time`
+and the decoder's bounds in `card_photo.rs`; the Android build's
+declarations and the permission allow-list by
+`check_android_contacts_and_backup.py`, its self-test breaking it once
+per declaration and once per allow-list failure (`allow-list-extra`,
+`camera-required`; #436); no plaintext at rest by
+`no_plaintext_after_an_unclean_close_of_the_encrypted_store` (the
+content in the write-ahead log, a control asserting it) and
+`released_content_is_absent_from_every_decrypted_page_after_a_clean_close`;
+the missing key by
+`a_store_whose_key_is_lost_is_discarded_and_recreated_on_the_persons_word`
+on the shipped window (identity, key, profile and trust compared before
+and after); the invalidated key by
+`an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store`
+against a fake Keystore; the rewrite killed at each step by
+`the_rewrite_killed_after_each_step_loses_no_row_at_the_next_open`
+(eight crash points) and the damaged header by
+`a_plaintext_store_with_a_damaged_header_reaches_recovery_mode_not_discard`;
+(c) SPIKE-011's Result (SPIKES.md, 2026-10-21): PASS for the first
+candidate, SQLCipher 4.14.0 as `rusqlite`'s
+`bundled-sqlcipher-vendored-openssl` builds it, within ADR-0060
+decision 4's criterion of twice the plaintext baseline on both targets,
+judged on medians — on the desktop every operation within x1.21 of the
+plaintext at 500 and 2000 kept, at schema v7 and v8, no single round
+above x1.93, a cold open of 5–8 ms; on the Pixel 9a every operation
+within x1.58 at 500 and 2000 kept at v7 and v8, two rounds of 36 above
+x2 at v7 and none above x1.85 at v8, a cold open of 42–54 ms against
+the one-second bound, the deletion property holding on the device's
+encrypted file; and the walk was quadratic whatever the engine, 23.8 s
+on the desktop and 10.8 s on the device at the 20 000-row stress row
+under SQLCipher, 146 ms and 127 ms once schema v8 indexed
+`(received_at, row_id)` on both inbound tables — the stage's one store
+schema change the spike itself caused; (d) the owner's privacy review
+of Stage 15's carry 11, answered here — the answer architect-cto's
+reading, the owner's by the word that lands this record, as every
+ruling of this stage: over the card, what it still discloses is what
+ADR-0059's Security implications state and nothing more — a person's
+name and face, sent to one peer on the person's own action and never
+to the trust set (decision 2), bound to the node's PeerId, so that any
+two holders of the node's cards who compare link every identity of the
+node (a person who needs identities that cannot be linked needs
+separate profiles, ADR-0061 decision 5), the impersonation of a known
+name made visible by the PeerId beside every proposal and the same-name
+note rather than prevented, the photo decoded only after Accept, and no
+address book read, by the manifest check; over the store's content-free
+columns, each named for what it holds: `read_pairs`, where a message
+came from and the id its sender gave it, at most 4096 rows and no text;
+`conversation_index`, whom a conversation is with, which identity it
+speaks as, when it was last active and when its card was last shared;
+`contact_routes.last_seen`, when a route last reached; and the
+contacts' `name_source`, `name_at`, `photo_source` and `photo_at`,
+whether a name or a photo came from a card or from the person, and
+when. None of them leaves the device: none is on the wire, none is in a
+backup (`allowBackup="false"`, every domain excluded), and all are
+ciphertext at rest under the platform-sealed key since step 3; what
+each discloses, to whoever holds the open store, is when and with whom
+the person talked, which the conversation list shows in any case. The
+review accepts every one as it stands, with one rule: no column of
+this set, and no derivative of one, reaches the wire, a backup, a log
+or an export without a record that names it; (e) the added address by
+`an_added_address_is_dialled_and_survives_a_restart_with_no_provider_authored`
+(`crates/transport/composition/tests/bootstrap_overlay.rs`) and on the
+phones below; the camera permission's timing by the dated device-run
+record `apps/human-android/device-runs/2026-10-25-samsung-a40-camera.md`
+(#436: on the A40 at API 30, CAMERA asked at the first press of Scan a
+code and at no other moment of a launch, the add page and a restart;
+Don't allow leaving the add page with its field, its line and typing)
+and a refusal leaving typing by
+`a_refused_camera_returns_to_the_field_with_its_line` and
+`a_camera_refused_for_good_offers_open_settings`; no camera use outside
+Scan by the same check's `camera-api-*` cases (`CodeCamera.kt` the one
+module, `MainActivity.kt` allowed the ask alone; #436); the no-reach
+notice by `the_no_reach_notice_shows_on_two_empty_lists_and_nothing_else`;
+the grammar by `each_refusal_is_named_and_writes_nothing`, which is also
+the 65th entry's, and the start failure by
+`a_composed_count_past_64_stops_the_start_naming_the_overlay`; the
+special-use classes by
+`transportctl_adds_lists_and_removes_and_the_method_refuses_every_special_use_class`
+(fourteen classes against a live daemon, a private address of each
+family admitted) and the floor's unit test
+`the_add_floor_refuses_every_special_use_class_and_admits_private_and_public`;
+the disabled provider by
+`a_disabled_provider_refuses_the_add_and_lists_the_overlay_as_not_dialled`;
+the DNS name by `a_scan_is_taken_whole_or_refused_whole_before_it_is_sent`;
+the hostile code by
+`a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_set_unchanged`
+(through the facade to a real daemon, the admin socket watched; #436)
+with `the_host_adds_a_scan_all_or_none_through_its_binding` for the
+whole-or-none rule; the shown code by
+`show_draws_a_code_that_reads_back_as_its_lines` and
+`the_shown_code_reads_back_as_this_nodes_own_addresses_and_peer_id_alone`
+from the shipped window's pixels (#436); the removal by
+`a_removed_address_is_dialled_no_more_without_a_restart` and
+`an_authored_address_cannot_be_removed_and_an_added_one_leaves_at_once`;
+the listing by the same `transportctl` case and the command line's
+`a_peer_added_by_address_is_listed_refused_by_class_and_removed`; and
+the two phone rows: an address added on the Pixel 9a for the A40
+dialled and surviving a restart, 4 of 4
+(`tests/android-e2e/runs/2026-10-24-pixel-9a-a40-wifi-added-address.md`,
+#417), its cache-on variants 12 of 12 and the reboot in its second
+run, 193.86 s, the first stopped at the harness's 1200 s wait for the
+phone's new address (`…-cache-on.md`, `…-reboot.md`, #421); two
+fresh phones on one LAN connecting after each trusted the other's
+PeerId and not before, 3 of 3 (`…-fresh-pair.md`, #417), "connect" read
+as an admitted connection carrying a message (A 2026-10-24). The
+status value does not move: Stage 18 stays the lowest open stage.
+
+**Measured, and carried as limits.** Carried by name, each to its
+owner:
+- The two phone rows added the address through the binding's add, the
+  call the Scan screen makes, not by scanning a shown code: the Scan
+  screen landed after them (#409 the image, #418 the camera). Row 2
+  through the real Scan is p2p-network-dev-02's (j69), on the owner's
+  word to clear both phones; its run file is that carry's evidence
+  when it runs, never a condition of this close.
+- The cache-on row's "neither" control (`…-cache-on.md`) measured
+  nothing in #421's three runs — B was not listening in A's window —
+  and was re-run live on both phones on 2026-10-25, 12 of 12 with B
+  listening through the window; that run file is p2p-network-dev-02's
+  to land (j69), owed to `main` at this close.
+- The camera row's record does not show a second press of Scan a code
+  after a refusal (where a lasting refusal names Settings), a grant and
+  a real scan (#418's device check), a phone without a camera, TalkBack's
+  reading, or the Pixel's API 37 (the record names each).
+- The same-name rule: design 5.4.1 (#438) decides one name by three
+  keys (case, shape, compatibility shape; any match), the store's
+  `name_key` computes the case key alone and the ui-model's titles
+  compare exactly; `human-client-ui.md` §13 bullets 4 and 9 state the
+  three-key rule (A 2026-10-25), the store and the titles are
+  rust-ui-dev-02's gap (j60 and after).
+- `contact_routes.local_endpoint_id`, the composite key and the
+  backfill are Stage 22's (STATE.md, A 2026-10-25); every row is the
+  one `human` identity's.
+- Acceptance 10's superseded cases need a hold-the-call hook
+  (rust-ui-dev-01's j157); #428 covers the read-back.
+- The allow-list reads the source manifests; a permission a library's
+  manifest merges in is visible only in the merged manifest (#436).
+- The hostile-code case does not drive a window's scan: Open an image…
+  is the portal's dialog, so the code reaches the facade through the
+  binding the scan controls call (#436).
+- No boot start of the app by product rule, so "survives a reboot" is
+  the app relaunched by hand after the reboot (`…-reboot.md`).
+- The two-identity card case is §30's gate; A's claude identity is
+  unkeyed (#437's desktop-e2e limit).
+- The no-reach notice: a ui-model test only; not on a device.
+- The fresh-pair row's one-sided step in the other direction (B
+  trusting first) was not run; which side dialled in its step 3, and
+  from which source, is not told apart (the peer cache was on).
+- The release: v0.1.0 cut, its run failed at the APK signing (§22).
 
 ## 30. Stage 22 — several user identities in one client
 

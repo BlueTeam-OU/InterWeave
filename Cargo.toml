@@ -706,9 +706,10 @@ overflow-checks = true
 # tests/security and tests/security-local and whose exit gate is
 # tests/SECURITY-MATRIX.md. STAGE 19 RUNS BESIDE IT by the plan's section
 # 22 record (activated 2026-10-20 on the owner's word): packaging,
-# migration and release. STAGE 21 RUNS BESIDE IT by the plan's section 29
-# record (the owner's word of 2026-10-21): contacts, cards and the
-# encrypted store, in the human crates. This value names the lowest open
+# migration and release. STAGE 21 CLOSED on 2026-10-25 (the plan's section
+# 29 closing record, on the owner's word): contacts, cards and the
+# encrypted store, in the human crates, with what it did not prove
+# carried by name. This value names the lowest open
 # stage because the guards read it as one number.
 status = "stage-18-adversarial-security-gate"
 architecture_root = "architecture"
