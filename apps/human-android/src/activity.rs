@@ -457,6 +457,10 @@ fn android_main(app: AndroidApp) {
     if AndroidApp::sdk_version() >= 33 {
         view.set_copy_feedback(interweave_human_ui_slint::CopyFeedback::Platform);
     }
+    // The debug build's trace, for the screen-driving tests: kinds only,
+    // never text, an address or a PeerId (ui-slint's trace.rs).
+    #[cfg(feature = "ui-trace")]
+    view.on_trace(|line| log(line));
     let handle = view.handle();
     view.set_wake(|| defer(turn));
     view.on_haptic(|| HAPTIC.raise());
