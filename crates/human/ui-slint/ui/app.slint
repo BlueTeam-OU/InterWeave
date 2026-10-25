@@ -3036,6 +3036,15 @@ export component AppWindow inherits Window {
     in property <string> delete-contact-label;
     in property <string> delete-contact-confirm;
     in property <string> cards-cancel-label;
+    // Back with unsaved changes on the own card (design 5.2): the dialog's
+    // words, whether it is open, where focus was, and whether what the
+    // fields hold, with the photo, differs from the saved card.
+    in property <string> discard-title;
+    in property <string> keep-editing-label;
+    in property <string> discard-label;
+    in-out property <bool> own-discard-open;
+    property <string> own-discard-return;
+    pure callback own-card-unsaved(string, string) -> bool;
     in property <string> peer-id-label;
     in property <string> fingerprint-label;
     in-out property <bool> contact-confirming-delete;
@@ -3134,11 +3143,33 @@ export component AppWindow inherits Window {
     callback share-confirmed();
     // Details: whether this identity's card was shared here, and when.
     in property <string> details-card;
+    // Back on a card page: the own card's editor with unsaved changes
+    // asks first (contact-cards design 5.2), else the page closes.
     function close-cards-page() {
+        if (root.cards-page == CardsPage.own-card && !root.own-discard-open
+            && root.own-card-unsaved(root.own-given, root.own-surname)) {
+            root.own-discard-return = root.focus-id;
+            root.own-discard-open = true;
+            return;
+        }
+        root.leave-cards-page();
+    }
+    function leave-cards-page() {
         root.contact-confirming-delete = false;
         root.list-shown = true;
         root.close-cards();
         root.chats-menu-closed-seq += 1;
+    }
+    // The unsaved-changes dialog closed on Continue editing: focus where
+    // it was when Back asked (section 9's focus table).
+    function keep-editing() {
+        root.own-discard-open = false;
+        root.focus-target = root.own-discard-return;
+        root.focus-seq += 1;
+    }
+    function discard-changes() {
+        root.own-discard-open = false;
+        root.leave-cards-page();
     }
     function close-share() {
         root.share-open = false;
@@ -3179,6 +3210,11 @@ export component AppWindow inherits Window {
         }
         if (root.share-open) {
             root.close-share();
+            return true;
+        }
+        // A dialog over a card page answers Back before the page does.
+        if (root.own-discard-open) {
+            root.keep-editing();
             return true;
         }
         if (root.cards-page == CardsPage.contact && root.contact-confirming-delete) {
@@ -6747,6 +6783,95 @@ export component AppWindow inherits Window {
                             root.close-menu();
                             root.identifier-copied();
                         }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+        }
+    }
+
+    // Back with unsaved changes on the own card (contact-cards design 5.2):
+    // a basic dialog over a scrim; focus opens on Continue editing, and
+    // Escape, Back and the scrim are Continue editing. Tab stays on its two
+    // buttons.
+    if root.own-discard-open: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => {
+            FocusMode.keyboard = false;
+            root.keep-editing();
+        }
+        Rectangle { background: #00000052; }
+    }
+    if root.own-discard-open: discard := FocusScope {
+        focus-gained(reason) => {
+            if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+            if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        }
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: min(root.width - 48px, 560px);
+        height: discard-box.preferred-height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.keep-editing();
+                return accept;
+            }
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                FocusMode.keyboard = true;
+                if (discard-keep.has-focus) {
+                    discard-confirm.focus();
+                } else {
+                    discard-keep.focus();
+                }
+                return accept;
+            }
+            reject
+        }
+        property <bool> taken;
+        Timer {
+            interval: 1ms;
+            running: !discard.taken;
+            triggered => {
+                discard.taken = true;
+                discard-keep.focus();
+            }
+        }
+        discard-box := Rectangle {
+            background: Palette.surface-container-high;
+            border-radius: 28px;
+            TouchArea {}
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                Text {
+                    text: root.discard-title;
+                    font-size: Type.title-large;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    discard-confirm := ActionButton {
+                        text: root.discard-label;
+                        detail: root.discard-title;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "discard-confirm";
+                        pressed => { root.discard-changes(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    discard-keep := ActionButton {
+                        text: root.keep-editing-label;
+                        filled: true;
+                        target: 48px;
+                        focus-key: "discard-keep";
+                        pressed => { root.keep-editing(); }
                         focused(k) => { root.focus-id = k; }
                     }
                 }

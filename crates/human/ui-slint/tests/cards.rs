@@ -2044,3 +2044,100 @@ fn while_a_photo_is_prepared_the_editor_stays_as_it_was_before() {
     assert!(!shows(&view, text(UiText::RemovePhoto)));
     assert!(!view.window().get_own_edit_has_photo());
 }
+
+/// Contact-cards design 5.2 and item 11: Back on the own card's editor
+/// with unsaved changes opens `CardDiscardChanges`, focus on Continue
+/// editing; Back or Continue editing returns to the field that had focus;
+/// Discard leaves without saving. With no change -- a trailing space
+/// alone, or nothing -- Back leaves at once. Remove photo is a change on a
+/// card with a photo. Mutations: the dialog never asked; a trailing space
+/// counted as a change.
+#[test]
+fn back_with_unsaved_changes_asks_before_the_editor_closes() {
+    use interweave_human_ui_slint::CardsPage;
+    let mut view = view();
+    view.photo_picker_hook(|| {});
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: true,
+        photo: Some(photo()),
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        peer: Some(peer(Q)),
+    });
+    view.render(&model);
+    let open = |view: &mut View, model: &mut UiModel| {
+        press(view, text(UiText::AppOptions));
+        press(view, text(UiText::OwnCardTitle));
+        let _ = intents(view, model);
+        settle();
+        assert_eq!(view.window().get_cards_page(), CardsPage::OwnCard);
+    };
+    let back = |view: &mut View, model: &mut UiModel| {
+        assert!(view.window().invoke_handle_back());
+        let _ = intents(view, model);
+        settle();
+    };
+
+    // No change, a trailing space alone: Back leaves at once.
+    open(&mut view, &mut model);
+    view.window().set_own_given("Ada ".into());
+    back(&mut view, &mut model);
+    assert!(!view.window().get_own_discard_open());
+    assert_eq!(view.window().get_cards_page(), CardsPage::None);
+
+    // A new name: Back asks, focus on Continue editing.
+    open(&mut view, &mut model);
+    let window = view.window();
+    window.set_focus_target("own-given".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    view.window().set_own_given("Augusta".into());
+    back(&mut view, &mut model);
+    assert!(view.window().get_own_discard_open(), "asked");
+    assert!(shows(&view, text(UiText::CardDiscardChanges)));
+    assert_eq!(view.window().get_focus_id(), "discard-keep");
+    assert_eq!(
+        view.window().get_cards_page(),
+        CardsPage::OwnCard,
+        "still open"
+    );
+    // Back on the dialog is Continue editing: focus where it was.
+    back(&mut view, &mut model);
+    assert!(!view.window().get_own_discard_open());
+    assert_eq!(view.window().get_own_given(), "Augusta", "nothing lost");
+    assert_eq!(view.window().get_focus_id(), "own-given");
+
+    // Discard: the editor closes, nothing saved.
+    back(&mut view, &mut model);
+    press(&view, text(UiText::DiscardChanges));
+    let raised = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(view.window().get_cards_page(), CardsPage::None);
+    assert!(
+        !raised
+            .iter()
+            .any(|i| matches!(i, Intent::SetOwnCard { .. })),
+        "nothing saved: {raised:?}"
+    );
+
+    // Item 11: Remove photo, then Back asks; Discard keeps the saved photo.
+    open(&mut view, &mut model);
+    press(&view, text(UiText::RemovePhoto));
+    let _ = intents(&mut view, &mut model);
+    model.own_photo_removed();
+    view.render(&model);
+    back(&mut view, &mut model);
+    assert!(
+        view.window().get_own_discard_open(),
+        "a removal is a change"
+    );
+    press(&view, text(UiText::DiscardChanges));
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.contains(&Intent::ForgetOwnPhoto), "{raised:?}");
+}
