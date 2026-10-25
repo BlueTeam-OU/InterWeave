@@ -876,3 +876,56 @@ fn a_proposals_menu_opens_from_the_keyboard() {
     chord(&view, &[Key::Shift, Key::F10]);
     assert_eq!(view.window().get_card_menu(), 0, "Shift+F10");
 }
+
+/// #433 round 3 F1, design section 5.4.4: a swipe is judged again when it
+/// is taken. A right swipe released on a row without the same-name warning,
+/// whose card is judged again into it before the root takes the swipe,
+/// accepts nothing; the button still does. Mutation: the take judging a
+/// swipe by the row's buttons alone.
+#[test]
+fn a_swiped_accept_is_refused_once_the_row_is_warned() {
+    let mut view = phone();
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+
+    drag(&view, proposal_heading_at(&view, 0), 180.0);
+    // Judged again before the take, as an update the root applies first.
+    let warned = Proposal {
+        row: RowId::from_stored(1),
+        peer: alice.clone(),
+        endpoint: human(),
+        card: Card {
+            app_message_id: format!("{:032x}", 2_001),
+            name: "Ada 1".to_owned(),
+            surname: None,
+            photo: None,
+            identity_key: [1; 32],
+            sent_at_ms: None,
+            from_endpoint: None,
+        },
+        received_at: 1,
+        context: judged(None, true, false),
+    };
+    model.card_judged(warned);
+    view.render(&model);
+    assert!(
+        answers(turn(&mut view, &mut model)).is_empty(),
+        "the warned row accepts nothing by swipe"
+    );
+
+    // The control: its button still accepts.
+    let accept = ElementHandle::find_by_accessible_label(
+        view.window(),
+        placeholder_en::text(UiText::AcceptAsNew),
+    )
+    .next()
+    .expect("its Accept");
+    accept.invoke_accessible_default_action();
+    assert_eq!(
+        answers(turn(&mut view, &mut model)),
+        vec![Intent::AcceptCard(RowId::from_stored(1))]
+    );
+}

@@ -455,7 +455,27 @@ impl View {
             CardsInput::Answer(intent) | CardsInput::Swiped(intent) => {
                 let offered = match &intent {
                     Intent::AcceptCard(row) | Intent::DeclineCard(row) => {
-                        let offered = model.card_actions(*row).contains(&intent);
+                        // A swipe is judged again here, on the row as the
+                        // model holds it now: a card judged again into the
+                        // same-name warning since the finger lifted accepts
+                        // nothing (design section 5.4.4, #433 round 3 F1;
+                        // `a_swiped_accept_is_refused_once_the_row_is_warned`).
+                        let swipe_allows = by_button
+                            || self
+                                .shown
+                                .as_ref()
+                                .and_then(|key| {
+                                    model.proposals(key).into_iter().find(|p| p.row == *row)
+                                })
+                                .is_some_and(|p| {
+                                    let swipe = p.swipe();
+                                    if matches!(intent, Intent::AcceptCard(_)) {
+                                        swipe.accept
+                                    } else {
+                                        swipe.decline
+                                    }
+                                });
+                        let offered = swipe_allows && model.card_actions(*row).contains(&intent);
                         // The row's own button: its answer moves focus
                         // whatever the focus id last said (swipe spec 7).
                         // A swipe claims nothing: focus moves only if it
