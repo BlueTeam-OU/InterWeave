@@ -242,7 +242,7 @@ turn, and a session whose stdin has closed.
 
 **Carried measurement, S25 (2026-10-24, Claude Code 2.1.286,
 rust-services-dev, plan §19): an event during a print turn waits for it;
-`--channels` without the allow entry is silent; the `manual` mode denies
+`--channels` without the allow entry logs no refusal the driver searched for; the `manual` mode denies
 `reply` without `--allowedTools`; `userConfig` reaches a channel
 session's bridge; `plugin configure` writes only with `--values-stdin`.**
 Read off `spikes/spike-001/README.md` §S25 (facts 45–50, runs `s25-a` to
