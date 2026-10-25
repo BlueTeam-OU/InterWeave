@@ -384,6 +384,10 @@ async fn the_relay_server_retains_authorized_peers_and_serves_nobody_without_a_v
 struct UpstreamBehaviour {
     identify: identify::Behaviour,
     relay: relay::Behaviour,
+    /// Answers the keepalive's pings, as this project's relays do: a
+    /// relay that refuses ping is closed (`transport/libp2p/
+    /// CONNECTIVITY.md` section 14, A 2026-10-25).
+    ping: libp2p::ping::Behaviour,
 }
 
 /// A bare relay the dual-role subject reserves on: scenery, driven on
@@ -406,6 +410,7 @@ async fn upstream_relay() -> (TransportIdentity, Multiaddr) {
                 k.public(),
             )),
             relay: relay::Behaviour::new(k.public().to_peer_id(), relay::Config::default()),
+            ping: libp2p::ping::Behaviour::new(libp2p::ping::Config::new()),
         })
         .expect("behaviour")
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))
