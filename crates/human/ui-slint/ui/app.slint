@@ -1144,6 +1144,9 @@ component Snackbar inherits Rectangle {
     // The action's focus as it changes: true while it holds focus, and
     // still true once the snackbar goes from under it.
     callback action-focus-changed(bool);
+    // Whether the pointer is on it: a snackbar with no action stays up
+    // while it is (add-a-peer section 5.7).
+    out property <bool> pointer-on: hover.has-hover;
     // Material's snackbar (section 7): the inverse surface, 4 px corners,
     // at least 48 px tall.
     background: Palette.inverse-surface;
@@ -1153,6 +1156,8 @@ component Snackbar inherits Rectangle {
         handle-swipe-left: true;
         handle-swipe-right: true;
         swiped => { root.dismissed(root.snack-id); }
+        // Beneath the line and its action, only to see the pointer.
+        hover := TouchArea { }
         // The Undo sits at the line's end in either direction. It is
         // placed, not laid out, so the tree keeps the text before it in
         // both: a screen reader reads what happened, then its Undo.
@@ -2646,6 +2651,8 @@ export component AppWindow inherits Window {
     // Whether the snackbar's action held focus when it last changed: so
     // a snackbar leaving says whether focus went with its Try again.
     in-out property <bool> peers-snack-action-focused;
+    // The pointer is on Peers' snackbar (add-a-peer section 5.7).
+    in-out property <bool> peers-snack-pointer-on;
     // Chats' no-reach notice (section 5.6): a state, not news, so it has
     // no Close; its action opens Peers.
     in property <bool> no-reach-shown;
@@ -4477,6 +4484,7 @@ export component AppWindow inherits Window {
                     dismissed(id) => { root.peers-snack-closed(id); }
                     focused(k) => { root.focus-id = k; }
                     action-focus-changed(f) => { root.peers-snack-action-focused = f; }
+                    changed pointer-on => { root.peers-snack-pointer-on = self.pointer-on; }
                 }
             }
         }
