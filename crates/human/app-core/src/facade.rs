@@ -18,7 +18,10 @@ use interweave_human_client_api::{
     SessionState,
 };
 use interweave_human_store::identity_key::IdentityKey;
-use interweave_human_store::{AcceptUndo, HumanStore, ReadEphemeral, RowId, StoreError};
+use interweave_human_store::{
+    AcceptUndo, ContactRestored, DeletedContact, HumanStore, ReadEphemeral, RemovedPhoto, RowId,
+    StoreError,
+};
 use interweave_human_transport_client::{CancelledSend, TransportClient};
 use interweave_human_ui_model::{
     ContactView, ConversationKey, PhotoEdit, Proposal, ProposalContext, Table,
@@ -86,6 +89,38 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// snackbar is up at a time, so one is held (message-swipe design
     /// section 6).
     card_undo: Option<Box<CardUndo>>,
+    /// The last delete of a contact or removal of its photo, held for its
+    /// Undo until its snackbar closes ([`Command::ForgetContact`]) or
+    /// another change replaces it, as `card_undo` is.
+    contact_undo: Option<Box<ContactUndo>>,
+}
+
+/// What the Undo of a contact's change writes back.
+enum ContactUndo {
+    /// A deleted contact, with the routes it held: an Accept that puts one
+    /// of them under a contact withdraws it.
+    Deleted {
+        deleted: DeletedContact,
+        routes: Vec<(TransportIdentity, EndpointId)>,
+    },
+    /// A removed photo.
+    Photo(RemovedPhoto),
+}
+
+impl ContactUndo {
+    fn contact_id(&self) -> &str {
+        match self {
+            Self::Deleted { deleted, .. } => deleted.contact_id(),
+            Self::Photo(removed) => removed.contact_id(),
+        }
+    }
+
+    const fn change(&self) -> interweave_human_ui_model::ContactChange {
+        match self {
+            Self::Deleted { .. } => interweave_human_ui_model::ContactChange::Deleted,
+            Self::Photo(_) => interweave_human_ui_model::ContactChange::PhotoRemoved,
+        }
+    }
 }
 
 /// What the Undo of an Accept or a Decline needs: the card's read copy,
@@ -116,6 +151,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             key_source: None,
             key_problem: None,
             card_undo: None,
+            contact_undo: None,
         }
     }
 
@@ -444,6 +480,19 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 self.set_contact_photo(contact_id, photo, &mut updates)
             }
             Command::DeleteContact(contact_id) => self.delete_contact(contact_id, &mut updates),
+            Command::UndoContact { contact_id, change } => {
+                self.undo_contact(contact_id, *change, &mut updates)
+            }
+            Command::ForgetContact(contact_id) => {
+                if self
+                    .contact_undo
+                    .as_ref()
+                    .is_some_and(|u| u.contact_id() == contact_id)
+                {
+                    self.contact_undo = None;
+                }
+                Ok(())
+            }
             Command::DeleteRoute {
                 contact_id,
                 peer,
@@ -526,6 +575,16 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             held,
             accept: Some(accepted.undo),
         }));
+        // The route is under a contact now: a deleted contact that held it
+        // cannot come back without putting it under two (design 6.3).
+        let held_route = matches!(
+            self.contact_undo.as_deref(),
+            Some(ContactUndo::Deleted { routes, .. })
+                if routes.iter().any(|(p, e)| *p == peer && *e == endpoint)
+        );
+        if held_route && let Some(undo) = self.contact_undo.take() {
+            updates.push(Update::ContactUndoWithdrawn(undo.contact_id().to_owned()));
+        }
         // The Accept is written: a contacts list that cannot be read now is
         // a problem of its own, never a refusal of what was done (#414 F8).
         updates.push(contacts_update(self.client.store_mut()));
@@ -860,15 +919,66 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates: &mut Vec<Update>,
     ) -> Result<(), Failure> {
         let store = self.client.store_mut();
-        if !store
-            .delete_contact(contact_id)
+        let routes = store
+            .contact(contact_id)
             .map_err(|e| store_failure(&e))?
-        {
+            .map(|c| c.routes.into_iter().map(|r| (r.peer, r.endpoint)).collect())
+            .unwrap_or_default();
+        let Some(deleted) = store
+            .delete_contact_for_undo(contact_id)
+            .map_err(|e| store_failure(&e))?
+        else {
             return Err(Failure::NoSuchRow);
+        };
+        self.contact_undo = Some(Box::new(ContactUndo::Deleted { deleted, routes }));
+        // The delete is written: its snackbar opens whatever the reads
+        // after it find.
+        updates.push(Update::ContactChanged {
+            contact_id: contact_id.to_owned(),
+            change: interweave_human_ui_model::ContactChange::Deleted,
+        });
+        updates.push(contacts_update(self.client.store_mut()));
+        self.proposals_again(updates);
+        Ok(())
+    }
+
+    /// The Undo of a contact's delete or photo removal (design section
+    /// 6.3): what the store removed is written back as it was. Refused,
+    /// nothing written, when the facade side no longer holds it, when a
+    /// route the deleted contact held is under another contact now, or
+    /// when a photo was set since the removal.
+    fn undo_contact(
+        &mut self,
+        contact_id: &str,
+        change: interweave_human_ui_model::ContactChange,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
+        let undo = self
+            .contact_undo
+            .take_if(|u| u.contact_id() == contact_id && u.change() == change)
+            .ok_or(Failure::NoSuchRow)?;
+        let store = self.client.store_mut();
+        let restored = match &*undo {
+            ContactUndo::Deleted { deleted, .. } => store
+                .restore_contact(deleted)
+                .map(|r| r == ContactRestored::Restored),
+            ContactUndo::Photo(removed) => store.restore_contact_photo(removed),
+        };
+        match restored {
+            Ok(true) => {}
+            Ok(false) => return Err(Failure::Refused),
+            Err(e) => {
+                // A storage error writes nothing: the Undo is still the
+                // person's to try while its snackbar is up.
+                self.contact_undo = Some(undo);
+                return Err(store_failure(&e));
+            }
         }
-        updates.push(Update::ContactsListed(
-            cards::contact_views(store).map_err(|e| store_failure(&e))?,
-        ));
+        updates.push(contacts_update(self.client.store_mut()));
+        updates.push(Update::ContactRestored {
+            contact_id: contact_id.to_owned(),
+            change,
+        });
         self.proposals_again(updates);
         Ok(())
     }
@@ -939,7 +1049,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     ) -> Result<(), Failure> {
         let photo = match photo {
             PhotoEdit::Keep => return Ok(()),
-            PhotoEdit::Remove => None,
+            PhotoEdit::Remove => return self.remove_contact_photo(contact_id, updates),
             PhotoEdit::Chosen(chosen) => Some(
                 crate::card_photo::prepare_photo(chosen)
                     .map_err(|_| Failure::OutOfBounds)?
@@ -957,6 +1067,31 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates.push(Update::ContactsListed(
             cards::contact_views(store).map_err(|e| store_failure(&e))?,
         ));
+        self.proposals_again(updates);
+        Ok(())
+    }
+
+    /// The person's removal of a contact's photo, held for its Undo:
+    /// refused, nothing written, when there is no such contact or no
+    /// photo to remove.
+    fn remove_contact_photo(
+        &mut self,
+        contact_id: &str,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
+        let at = (self.wall)();
+        let removed = self
+            .client
+            .store_mut()
+            .remove_contact_photo(contact_id, at)
+            .map_err(|e| store_failure(&e))?
+            .ok_or(Failure::NoSuchRow)?;
+        self.contact_undo = Some(Box::new(ContactUndo::Photo(removed)));
+        updates.push(Update::ContactChanged {
+            contact_id: contact_id.to_owned(),
+            change: interweave_human_ui_model::ContactChange::PhotoRemoved,
+        });
+        updates.push(contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
         Ok(())
     }

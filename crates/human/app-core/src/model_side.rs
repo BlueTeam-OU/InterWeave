@@ -214,6 +214,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::ProposalNotRestored(row) => self.model.card_not_restored(row),
             Update::CardsNotRead(why) => self.problem(Problem::CardsNotRead(why)),
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
+            Update::ContactChanged { contact_id, change } => {
+                self.model.contact_changed(contact_id, change);
+            }
+            Update::ContactRestored { contact_id, change } => {
+                self.model.contact_restored(&contact_id, change);
+            }
+            Update::ContactUndoWithdrawn(contact_id) => {
+                self.model.contact_undo_withdrawn(&contact_id);
+            }
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
             Update::NewKeyAsked { pending } => self.model.new_key_asked(pending),
             Update::KeyMade {
@@ -330,6 +339,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     Command::Restore(row) => Some(Intent::Restore(*row)),
                     Command::Cancel(row) => Some(Intent::Cancel(*row)),
                     Command::UndoCard(row) => Some(Intent::UndoCard(*row)),
+                    Command::UndoContact { contact_id, change } => Some(Intent::UndoContact {
+                        contact_id: contact_id.clone(),
+                        change: *change,
+                    }),
                     _ => None,
                 };
                 if let Some(intent) = undone {
@@ -366,6 +379,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
         commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
         commands.extend(released.cards.into_iter().map(Command::ForgetCard));
+        commands.extend(released.contacts.into_iter().map(Command::ForgetContact));
         // A trust input changes what the settings show -- a proposal to
         // confirm, why a typed value was not proposed -- and may ask the
         // facade nothing, so no update would bring another turn: the
@@ -384,6 +398,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
                 commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
                 commands.extend(released.cards.into_iter().map(Command::ForgetCard));
+                commands.extend(released.contacts.into_iter().map(Command::ForgetContact));
                 // A change's answer may have left the list to read again.
                 if let Some(intent) = self.model.trust_settings_mut().take_reread()
                     && let Some(command) = self.command_for(intent)
@@ -609,6 +624,9 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 Command::SetContactPhoto { contact_id, photo }
             }
             Intent::DeleteContact { contact_id } => Command::DeleteContact(contact_id),
+            Intent::UndoContact { contact_id, change } => {
+                Command::UndoContact { contact_id, change }
+            }
             Intent::DeleteRoute {
                 contact_id,
                 peer,
