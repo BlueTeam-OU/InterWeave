@@ -1031,17 +1031,11 @@ async fn losses_until<S: DataSessionPort>(
 /// holds.
 ///
 /// `overflow` says whether the binding can show the overflow phase at
-/// all. Over IPC it cannot: the server takes from the session queue on a
-/// 20 ms timer (`interweave-ipc-server`'s `EVENT_POLL`), at most its event
-/// lane's room -- the session's own bound -- per tick, and the client's
-/// buffer, for a session holding no endpoint lease as the case's do
-/// `DEFAULT_EVENT_QUEUE`, 256 events (`interweave-ipc-client`'s
-/// `receive_buffer`), keeps the socket from pushing back. So the queue
-/// fills only when more copies than its bound arrive within one tick --
-/// timing, which the case cannot hold, so the phase is asserted neither
-/// way there. That binding forwards the runtime's count (`tests/ipc-v2`'s
-/// wire test holds it to its schema), and the overflow itself is shown by
-/// the other three.
+/// all. Over IPC it cannot -- whether the session queue fills there is
+/// timing the case cannot hold, for the reason `LOCAL-CLIENT.md` section
+/// 7 item 15 gives -- so the phase is asserted neither way there. That
+/// binding forwards the runtime's count (`tests/ipc-v2`'s wire test holds
+/// it to its schema), and the overflow itself is shown by the other three.
 /// Each phase asserts a rise, never an exact number: the mesh may lose a
 /// copy before admission, uncounted. What a republish does to each count
 /// is the runtime's `a_republished_*` tests in `broadcast_inbound`.
