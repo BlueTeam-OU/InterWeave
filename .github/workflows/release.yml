@@ -12,7 +12,7 @@
 # release logic of its own -- only where each script runs, what it is
 # handed, and which job may hold what.
 #
-# Five jobs, so that no job holds both the signing key and a token that
+# Six jobs, so that no job holds both the signing key and a token that
 # can write to the repository, and no job holding the key runs the build:
 #   tag      refuses a tag that is not v<MAJOR>.<MINOR>.<PATCH>[-<pre>],
 #            not the workspace version, not on main, or not signed by the

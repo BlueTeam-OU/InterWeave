@@ -78,7 +78,9 @@ an asset beside the archive), what it contains, and the install and
 update notes; the
 archive's name and contents are packaging/linux's, a proposal until that
 lands, and the run fills `{linux_archive}`, `{linux_archive_url}` and
-`{linux_sha256}`.
+`{linux_sha256}`, and `{linux_minisign_public_key}` from the
+`signing-values.json` that `tools/ci/release_sign_archive.sh --values`
+writes once both signatures verify.
 
 The page's English is final (language-culture-en, 2026-10-19 for the
 Android text, 2026-10-20 for the shared page and the Linux section); the

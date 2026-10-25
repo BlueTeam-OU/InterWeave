@@ -52,8 +52,8 @@ holds no release logic of its own. In order:
    writes `interweave-<version>-arm64-v8a.apk`, its `.sha256` and
    `android-values.json`.
 6. **The Linux archive**, for the same page:
-   `tools/ci/release_linux_archive.sh <version> <out-dir>`
-   (`packaging/linux/README.md`).
+   `tools/ci/release_linux_archive.sh --glibc-floor 2.35 <version>
+   <out-dir>` (`packaging/linux/README.md`).
 7. **The notices.** `tools/ci/skia_notices.py <out.json>` fetches every
    licence text the APK's native Skia library owes, each checked
    against `tools/ci/skia-notices.pin`, with FreeType's credit line;
@@ -67,9 +67,12 @@ holds no release logic of its own. In order:
 8. **The page.** `tools/ci/release_page.py
    apps/human-android/release/release-page.md.in <page.md>
    <run.json> android-values.json linux-values.json <notices.json>
-   <crate-notices.json>`,
+   <crate-notices.json> signing-values.json`,
    `<run.json>` holding the version, the release notes and the two
-   download URLs, the rest the files steps 5–7 wrote. It refuses a
+   download URLs, the rest the files steps 5–7 wrote, and
+   `signing-values.json` the archive key's public half that
+   `tools/ci/release_sign_archive.sh --values` writes once both
+   signatures verify (below). It refuses a
    placeholder left unfilled, a value with no placeholder, and a value
    two files give. Then `tools/ci/check_release_body.sh <page.md>`
    refuses a page over the release-body limit, before anything is
