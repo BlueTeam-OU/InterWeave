@@ -2148,6 +2148,28 @@ impl SwarmRuntime {
                                 }
                                 continue;
                             }
+                            // NOR A RELAY'S, for the AutoNAT targets'
+                            // reason above: a failed reservation dial
+                            // schedules a retry like any other, this
+                            // scheduler's origin is refused for an
+                            // infrastructure-only peer
+                            // (`NotAuthorizedForDataPlane`, reported to
+                            // nobody who asked), and the relay driver
+                            // re-asks on its own ladder. Only while the
+                            // relay is infrastructure-only: one that is
+                            // also a data-plane peer is this scheduler's
+                            // to reconnect, and a revoked one was
+                            // reported just above.
+                            // `relay_client::a_failed_reservation_dial_is_retried_by_the_relay_ladder_and_not_by_the_reconnect_scheduler`
+                            // pins it.
+                            if matches!(
+                                manager.classify(&peer),
+                                interweave_transport_runtime::ConnectionClass::ConnectivityInfrastructureOnly
+                            ) && relay_state.as_ref().is_some_and(|s| s.is_relay(&peer))
+                            {
+                                manager.clear_retry_claim(&peer);
+                                continue;
+                            }
                             let candidates = manager.dial_candidates(&peer, now);
                             if candidates.is_empty() {
                                 // NOTHING TO TRY. Reconsidering this

@@ -1144,3 +1144,68 @@ async fn an_addition_inside_the_gates_floor_leaves_the_relay_ladder_alone() {
     );
     subject.shutdown().await.expect("shutdown");
 }
+
+/// A FAILED RESERVATION DIAL IS THE RELAY LADDER'S TO RETRY. The gate
+/// schedules a reconnect for every failed dial, but the reconnect
+/// scheduler dials under its own origin, which the gate refuses for an
+/// infrastructure-only peer: before this was fixed, every failed ask was
+/// followed 30 s later by a `DialFailed` "scheduled retry:
+/// Policy(NotAuthorizedForDataPlane)" for a relay nobody had asked to
+/// reach as a data-plane peer (measured in `tests/security`'s
+/// stopped-relay run). The relay is down for the whole test; the ladder
+/// asking it again is the control that it is retried at all.
+#[tokio::test]
+async fn a_failed_reservation_dial_is_retried_by_the_relay_ladder_and_not_by_the_reconnect_scheduler()
+ {
+    let relay_keys = identity::Keypair::generate_ed25519();
+    let relay_peer = identity_of(&relay_keys);
+    // Bound and dropped: nothing listens there.
+    let relay_addr = bound(&mut relay_server(relay_keys)).await;
+    let mut relay_settings = settings(
+        vec![StaticRelay {
+            peer: relay_peer.clone(),
+            address: format!("{relay_addr}/p2p/{}", relay_peer.as_str()),
+        }],
+        false,
+    );
+    relay_settings.reservations.retry_min_ms = 5_000;
+    relay_settings.reservations.retry_max_ms = 600_000;
+    let mut subject = SwarmRuntime::start(
+        &ProfileIdentity::generate(),
+        SubstrateConfig {
+            relay_client: Some(relay_settings),
+            ..SubstrateConfig::default()
+        },
+        infrastructure_only(&[&relay_peer]),
+    )
+    .expect("the runtime starts");
+
+    // Past the gate's 30 s retry delay after the first failure, with
+    // room for the scheduler's tick.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
+    let mut failed_asks = 0_usize;
+    let mut seen = Vec::new();
+    while let Ok(Some(event)) = tokio::time::timeout_at(deadline, subject.next_event()).await {
+        match &event {
+            SwarmEvent::RelayReservationChanged {
+                relay,
+                outcome: RelayReservationOutcome::Failed,
+                ..
+            } if *relay == relay_peer => failed_asks += 1,
+            SwarmEvent::DialFailed {
+                peer: Some(peer),
+                detail,
+                ..
+            } if *peer == relay_peer && detail.starts_with("scheduled retry") => {
+                panic!("the reconnect scheduler dialled the relay: {detail}; saw {seen:#?}")
+            }
+            _ => {}
+        }
+        seen.push(event);
+    }
+    assert!(
+        failed_asks >= 2,
+        "the control: the relay ladder asked the down relay again: {seen:#?}"
+    );
+    subject.shutdown().await.expect("shutdown");
+}

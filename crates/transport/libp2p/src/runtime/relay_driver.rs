@@ -348,6 +348,14 @@ impl RelayState {
         self.manager.advertised()
     }
 
+    /// Whether `peer` is a relay this driver reserves on, static or
+    /// learned -- the peers the reconnect scheduler leaves to its ladder
+    /// while they are infrastructure-only.
+    #[must_use]
+    pub(crate) fn is_relay(&self, peer: &TransportIdentity) -> bool {
+        self.manager.state(peer).is_some()
+    }
+
     /// Reservations held and wanted, `(active, target)`: the status
     /// surface's relay half (`CONNECTIVITY.md` §3).
     #[must_use]
