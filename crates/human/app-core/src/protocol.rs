@@ -125,9 +125,12 @@ pub enum Command {
         contact_id: String,
         /// What is taken back.
         change: ContactChange,
+        /// The hold [`Update::ContactChanged`] named.
+        hold: u64,
     },
-    /// Let go of what that Undo would have needed: its snackbar closed.
-    ForgetContact(String),
+    /// Let go of what that Undo would have needed, by its hold: its
+    /// snackbar closed.
+    ForgetContact(u64),
     /// Delete one route of a contact and its recorded key; the store
     /// refuses the contact's last.
     DeleteRoute {
@@ -219,6 +222,9 @@ pub enum Update {
         contact_id: String,
         /// What changed.
         change: ContactChange,
+        /// The facade side's hold for it, one per change: what its Undo
+        /// and its release name.
+        hold: u64,
     },
     /// That Undo was carried out.
     ContactRestored {
@@ -229,7 +235,7 @@ pub enum Update {
     },
     /// The facade side let go of a deleted contact's Undo: a route it held
     /// came under another contact, and one route is never under two.
-    ContactUndoWithdrawn(String),
+    ContactUndoWithdrawn(u64),
     /// The identity in front, after its own card changed.
     IdentityShown(IdentityView),
     /// Whether a new key would cancel own cards still on their way.

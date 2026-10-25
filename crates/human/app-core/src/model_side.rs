@@ -214,15 +214,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::ProposalNotRestored(row) => self.model.card_not_restored(row),
             Update::CardsNotRead(why) => self.problem(Problem::CardsNotRead(why)),
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
-            Update::ContactChanged { contact_id, change } => {
-                self.model.contact_changed(contact_id, change);
-            }
+            Update::ContactChanged {
+                contact_id,
+                change,
+                hold,
+            } => self.model.contact_changed(contact_id, change, hold),
             Update::ContactRestored { contact_id, change } => {
                 self.model.contact_restored(&contact_id, change);
             }
-            Update::ContactUndoWithdrawn(contact_id) => {
-                self.model.contact_undo_withdrawn(&contact_id);
-            }
+            Update::ContactUndoWithdrawn(hold) => self.model.contact_undo_withdrawn(hold),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
             Update::NewKeyAsked { pending } => self.model.new_key_asked(pending),
             Update::KeyMade {
@@ -339,9 +339,14 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     Command::Restore(row) => Some(Intent::Restore(*row)),
                     Command::Cancel(row) => Some(Intent::Cancel(*row)),
                     Command::UndoCard(row) => Some(Intent::UndoCard(*row)),
-                    Command::UndoContact { contact_id, change } => Some(Intent::UndoContact {
+                    Command::UndoContact {
+                        contact_id,
+                        change,
+                        hold,
+                    } => Some(Intent::UndoContact {
                         contact_id: contact_id.clone(),
                         change: *change,
+                        hold: *hold,
                     }),
                     _ => None,
                 };
@@ -624,9 +629,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 Command::SetContactPhoto { contact_id, photo }
             }
             Intent::DeleteContact { contact_id } => Command::DeleteContact(contact_id),
-            Intent::UndoContact { contact_id, change } => {
-                Command::UndoContact { contact_id, change }
-            }
+            Intent::UndoContact {
+                contact_id,
+                change,
+                hold,
+            } => Command::UndoContact {
+                contact_id,
+                change,
+                hold,
+            },
             Intent::DeleteRoute {
                 contact_id,
                 peer,

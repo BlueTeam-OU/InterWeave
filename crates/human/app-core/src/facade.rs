@@ -92,7 +92,15 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// The last delete of a contact or removal of its photo, held for its
     /// Undo until its snackbar closes ([`Command::ForgetContact`]) or
     /// another change replaces it, as `card_undo` is.
-    contact_undo: Option<Box<ContactUndo>>,
+    contact_undo: Option<Box<HeldContact>>,
+    /// The last hold handed out: each change gets the next.
+    contact_holds: u64,
+}
+
+/// A contact's change held for its Undo, by the hold the model names it by.
+struct HeldContact {
+    hold: u64,
+    undo: ContactUndo,
 }
 
 /// What the Undo of a contact's change writes back.
@@ -152,6 +160,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             key_problem: None,
             card_undo: None,
             contact_undo: None,
+            contact_holds: 0,
         }
     }
 
@@ -480,15 +489,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 self.set_contact_photo(contact_id, photo, &mut updates)
             }
             Command::DeleteContact(contact_id) => self.delete_contact(contact_id, &mut updates),
-            Command::UndoContact { contact_id, change } => {
-                self.undo_contact(contact_id, *change, &mut updates)
-            }
-            Command::ForgetContact(contact_id) => {
-                if self
-                    .contact_undo
-                    .as_ref()
-                    .is_some_and(|u| u.contact_id() == contact_id)
-                {
+            Command::UndoContact {
+                contact_id,
+                change,
+                hold,
+            } => self.undo_contact(contact_id, *change, *hold, &mut updates),
+            Command::ForgetContact(hold) => {
+                if self.contact_undo.as_ref().is_some_and(|h| h.hold == *hold) {
                     self.contact_undo = None;
                 }
                 Ok(())
@@ -579,11 +586,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         // cannot come back without putting it under two (design 6.3).
         let held_route = matches!(
             self.contact_undo.as_deref(),
-            Some(ContactUndo::Deleted { routes, .. })
+            Some(HeldContact { undo: ContactUndo::Deleted { routes, .. }, .. })
                 if routes.iter().any(|(p, e)| *p == peer && *e == endpoint)
         );
-        if held_route && let Some(undo) = self.contact_undo.take() {
-            updates.push(Update::ContactUndoWithdrawn(undo.contact_id().to_owned()));
+        if held_route && let Some(held) = self.contact_undo.take() {
+            updates.push(Update::ContactUndoWithdrawn(held.hold));
         }
         // The Accept is written: a contacts list that cannot be read now is
         // a problem of its own, never a refusal of what was done (#414 F8).
@@ -930,12 +937,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         else {
             return Err(Failure::NoSuchRow);
         };
-        self.contact_undo = Some(Box::new(ContactUndo::Deleted { deleted, routes }));
+        let hold = self.hold(ContactUndo::Deleted { deleted, routes });
         // The delete is written: its snackbar opens whatever the reads
         // after it find.
         updates.push(Update::ContactChanged {
             contact_id: contact_id.to_owned(),
             change: interweave_human_ui_model::ContactChange::Deleted,
+            hold,
         });
         updates.push(contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
@@ -951,14 +959,17 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         &mut self,
         contact_id: &str,
         change: interweave_human_ui_model::ContactChange,
+        hold: u64,
         updates: &mut Vec<Update>,
     ) -> Result<(), Failure> {
-        let undo = self
+        let taken = self
             .contact_undo
-            .take_if(|u| u.contact_id() == contact_id && u.change() == change)
+            .take_if(|h| {
+                h.hold == hold && h.undo.contact_id() == contact_id && h.undo.change() == change
+            })
             .ok_or(Failure::NoSuchRow)?;
         let store = self.client.store_mut();
-        let restored = match &*undo {
+        let restored = match &taken.undo {
             ContactUndo::Deleted { deleted, .. } => store
                 .restore_contact(deleted)
                 .map(|r| r == ContactRestored::Restored),
@@ -970,7 +981,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Err(e) => {
                 // A storage error writes nothing: the Undo is still the
                 // person's to try while its snackbar is up.
-                self.contact_undo = Some(undo);
+                self.contact_undo = Some(taken);
                 return Err(store_failure(&e));
             }
         }
@@ -1071,6 +1082,15 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         Ok(())
     }
 
+    /// Hold a contact's change for its Undo, replacing the one held: one
+    /// snackbar is up at a time. Its hold, the next, names it.
+    fn hold(&mut self, undo: ContactUndo) -> u64 {
+        self.contact_holds += 1;
+        let hold = self.contact_holds;
+        self.contact_undo = Some(Box::new(HeldContact { hold, undo }));
+        hold
+    }
+
     /// The person's removal of a contact's photo, held for its Undo. A
     /// contact with no photo still takes the removal as the person's
     /// choice, so no card's photo replaces it (design section 6.3), with
@@ -1088,10 +1108,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             .map_err(|e| store_failure(&e))?
         {
             Some(removed) => {
-                self.contact_undo = Some(Box::new(ContactUndo::Photo(removed)));
+                let hold = self.hold(ContactUndo::Photo(removed));
                 updates.push(Update::ContactChanged {
                     contact_id: contact_id.to_owned(),
                     change: interweave_human_ui_model::ContactChange::PhotoRemoved,
+                    hold,
                 });
             }
             None => {
