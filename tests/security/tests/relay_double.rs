@@ -469,6 +469,7 @@ struct Moved {
     at: tokio::time::Instant,
     relay: TransportIdentity,
     outcome: RelayReservationOutcome,
+    detail: Option<String>,
 }
 
 /// Drive `subject` until an `Accepted` from `honest` or `window` ends,
@@ -485,11 +486,11 @@ async fn reservations_until_honest(
     loop {
         tokio::select! {
             event = subject.next_event() => {
-                if let SwarmEvent::RelayReservationChanged { relay, outcome, .. } =
+                if let SwarmEvent::RelayReservationChanged { relay, outcome, detail, .. } =
                     event.expect("the subject is alive")
                 {
                     let done = relay == *honest && outcome == RelayReservationOutcome::Accepted;
-                    moved.push(Moved { at: tokio::time::Instant::now(), relay, outcome });
+                    moved.push(Moved { at: tokio::time::Instant::now(), relay, outcome, detail });
                     if done {
                         return (moved, asks);
                     }
@@ -556,6 +557,14 @@ async fn a_relay_that_never_answers_reserve_holds_the_ask_until_the_crates_timeo
         first.relay == double_peer && first.outcome == RelayReservationOutcome::Failed,
         "the first thing the subject reported is the double's ask failing: {moved:#?}"
     );
+    // And it says why: the detail tells a stall from a garbled answer.
+    assert!(
+        first
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.contains("timed out")),
+        "the failure says the request timed out: {moved:#?}"
+    );
     let held = first.at - asked_at;
     assert!(
         held + Duration::from_secs(2) >= CRATE_STREAM_TIMEOUT
@@ -599,6 +608,13 @@ async fn a_relay_that_answers_reserve_with_an_undecodable_frame_fails_the_ask_at
         first.at - asked_at < Duration::from_secs(5),
         "an undecodable answer fails the ask at once: {:?}; {moved:#?}",
         first.at - asked_at
+    );
+    assert!(
+        first
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.contains("decode")),
+        "the failure says the answer did not decode: {moved:#?}"
     );
     eprintln!("undecodable RESERVE: reported {moved:#?}");
     subject.shutdown().await.expect("shuts down");

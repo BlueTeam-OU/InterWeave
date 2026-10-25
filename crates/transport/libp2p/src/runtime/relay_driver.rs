@@ -593,9 +593,17 @@ pub(super) fn handle_relay(
         } if state.listeners.contains_key(&listener_id) => {
             if let Some(Listening { relay, through }) = state.listeners.remove(&listener_id) {
                 state.by_relay.remove(&relay);
+                // THE WHOLE CHAIN: the crate's error displays only
+                // "Failed to get Reservation." and keeps why -- a request
+                // that timed out, an answer that did not decode, a
+                // refusal -- as its source, so a stalled relay and a
+                // garbling one read the same without it.
                 let detail = Some(match reason {
                     Ok(()) => format!("the listener closed (asked through {through})"),
-                    Err(e) => format!("{e} (asked through {through})"),
+                    Err(e) => format!(
+                        "{} (asked through {through})",
+                        super::commands::error_chain(&e)
+                    ),
                 });
                 closed(state, &relay, detail, now_ms, out);
                 sync(state, swarm, now_ms, out);
