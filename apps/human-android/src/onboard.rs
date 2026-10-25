@@ -89,6 +89,10 @@ pub(crate) mod ask {
     pub(crate) const CAMERA_STOP: jint = 12;
     /// Open settings on the camera's denied-for-good line.
     pub(crate) const OPEN_SETTINGS: jint = 13;
+    /// The own card's Add a photo or Change photo: the platform's photo
+    /// picker, images only, one item (contact-cards design 5.2); answered
+    /// by `Native.photoPicked`.
+    pub(crate) const PICK_PHOTO: jint = 14;
 }
 
 /// The asks, in order, for one waiting Kotlin thread.

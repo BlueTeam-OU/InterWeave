@@ -256,6 +256,62 @@ class MainActivity : NativeActivity() {
         super.onStop()
     }
 
+    /**
+     * The own card's photo (contact-cards design 5.2): the system photo
+     * picker, images only, one item, which needs no permission; where the
+     * phone has no picker, the document picker for images.
+     */
+    private fun pickPhoto() {
+        val picker = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ||
+            android.os.ext.SdkExtensions.getExtensionVersion(Build.VERSION_CODES.R) >= 2
+        val intent = if (picker) {
+            Intent(PICK_IMAGES).setType("image/*")
+        } else {
+            Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        try {
+            @Suppress("DEPRECATION") // NativeActivity has no result API of its own.
+            startActivityForResult(intent, PHOTO_REQUEST)
+        } catch (_: android.content.ActivityNotFoundException) {
+            Native.photoPicked(null)
+        }
+    }
+
+    /** The stream's bytes, or empty past [MAX_PHOTO_BYTES]: one byte over tells too large from at the bound. */
+    private fun readBounded(input: java.io.InputStream): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val chunk = ByteArray(64 * 1024)
+        while (true) {
+            val n = input.read(chunk)
+            if (n < 0) return out.toByteArray()
+            out.write(chunk, 0, n)
+            if (out.size() > MAX_PHOTO_BYTES) return ByteArray(0)
+        }
+    }
+
+    @Deprecated("NativeActivity has no result API of its own.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != PHOTO_REQUEST) return
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) {
+            Native.photoPicked(null)
+            return
+        }
+        // Read off the main thread, held to the bound the desktop's file
+        // dialog keeps: past it, or unreadable, handed on empty, which the
+        // editor says cannot be used.
+        Thread {
+            val bytes = try {
+                contentResolver.openInputStream(uri)?.use { input -> readBounded(input) } ?: ByteArray(0)
+            } catch (_: Exception) {
+                ByteArray(0)
+            }
+            Native.photoPicked(bytes)
+        }.start()
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -544,6 +600,7 @@ class MainActivity : NativeActivity() {
                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
                 )
             }
+            Ask.PICK_PHOTO -> pickPhoto()
             // Show my address: the flag before its addresses are drawn,
             // which the window does once told (add-a-peer section 5.4).
             Ask.SHOW_SECURE -> {
@@ -666,6 +723,11 @@ class MainActivity : NativeActivity() {
         private const val RUNTIME_INTERNET_SDK = 37
         private const val NETWORK_REQUEST = 2
         private const val CAMERA_REQUEST = 3
+        private const val PHOTO_REQUEST = 4
+        /** MediaStore.ACTION_PICK_IMAGES, by its value: an API 33 constant also served by the R extension 2. */
+        private const val PICK_IMAGES = "android.provider.action.PICK_IMAGES"
+        /** The most a chosen photo's file may hold: the desktop file dialog's bound (32 MiB). */
+        private const val MAX_PHOTO_BYTES = 32 * 1024 * 1024
         /** The last CAMERA answer was a refusal: the next refusal the system will not ask again is "for good". */
         private const val CAMERA_REFUSED = "camera-refused"
         private const val NOTIFICATIONS_REQUEST = 1
