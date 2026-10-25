@@ -2455,6 +2455,8 @@ async fn a_losses_read_in_flight_when_the_queue_fills_is_cancelled() {
     fill(&mut w, 15).await;
     w.record.hold_losses.store(true, Ordering::SeqCst);
     w.record.hold_ready.store(true, Ordering::SeqCst);
+    // Counted before the call is written, or a read made first is missed.
+    let asked = w.record.calls().iter().filter(|c| *c == "losses").count();
     w.next_id += 1;
     let id = w.next_id;
     let line = json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
@@ -2463,7 +2465,6 @@ async fn a_losses_read_in_flight_when_the_queue_fills_is_cancelled() {
         .write_all(format!("{line}\n").as_bytes())
         .await
         .expect("written");
-    let asked = w.record.calls().iter().filter(|c| *c == "losses").count();
     let deadline = tokio::time::Instant::now() + PATIENCE;
     while w.record.calls().iter().filter(|c| *c == "losses").count() == asked {
         assert!(tokio::time::Instant::now() < deadline, "never asked");
