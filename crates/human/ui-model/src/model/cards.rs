@@ -2045,7 +2045,7 @@ mod tests {
     fn a_contacts_delete_and_photo_removal_offer_an_undo_that_restores() {
         use super::super::swipe::ContactChange;
         let mut model = UiModel::new();
-        model.contact_changed("c1".to_owned(), ContactChange::Deleted);
+        model.contact_changed("c1".to_owned(), ContactChange::Deleted, 1);
         let snack = model.snackbar().expect("up");
         assert_eq!(snack.confirms, Confirmation::ContactDeleted);
         assert_eq!(snack.contact.as_deref(), Some("c1"));
@@ -2061,6 +2061,7 @@ mod tests {
             Some(Intent::UndoContact {
                 contact_id: "c1".to_owned(),
                 change: ContactChange::Deleted,
+                hold: 1,
             })
         );
         assert!(model.snackbar().is_none());
@@ -2071,12 +2072,12 @@ mod tests {
         assert!(model.take_released().is_empty(), "the Undo used it");
 
         // A refused Undo: the removal stands, its hold let go.
-        model.contact_changed("c2".to_owned(), ContactChange::PhotoRemoved);
+        model.contact_changed("c2".to_owned(), ContactChange::PhotoRemoved, 2);
         let snack = model.snackbar().expect("up");
         assert_eq!(snack.confirms, Confirmation::PhotoRemoved);
         let undo = model.undo(snack.id).expect("raised");
         model.intent_refused(&undo);
-        assert_eq!(model.take_released().contacts, vec!["c2".to_owned()]);
+        assert_eq!(model.take_released().contacts, vec![2]);
         assert_eq!(
             model.outcome().and_then(|o| o.focus.clone()),
             Some(FocusTarget::ContactPage("c2".to_owned()))
@@ -2089,21 +2090,43 @@ mod tests {
         );
 
         // Closed with no Undo: let go, focus on the list if it held it.
-        model.contact_changed("c3".to_owned(), ContactChange::Deleted);
+        model.contact_changed("c3".to_owned(), ContactChange::Deleted, 3);
         let id = model.snackbar().expect("up").id;
         model.snackbar_closed(id);
-        assert_eq!(model.take_released().contacts, vec!["c3".to_owned()]);
+        assert_eq!(model.take_released().contacts, vec![3]);
         assert_eq!(
             model.undo_closed().map(|u| u.focus.clone()),
             Some(FocusTarget::Contacts)
         );
 
-        // Withdrawn: another contact's withdrawal closes nothing.
-        model.contact_changed("c4".to_owned(), ContactChange::Deleted);
-        model.contact_undo_withdrawn("c5");
+        // Withdrawn: another hold's withdrawal closes nothing.
+        model.contact_changed("c4".to_owned(), ContactChange::Deleted, 4);
+        model.contact_undo_withdrawn(5);
         assert!(model.snackbar().is_some());
-        model.contact_undo_withdrawn("c4");
+        model.contact_undo_withdrawn(4);
         assert!(model.snackbar().is_none());
-        assert_eq!(model.take_released().contacts, vec!["c4".to_owned()]);
+        assert_eq!(model.take_released().contacts, vec![4]);
+    }
+
+    // #433 F1: two changes of one contact in a row -- Remove photo, then
+    // Delete -- release the first change's hold alone, and the second's
+    // Undo names its own. Mutation: a release by the contact's id, which
+    // let the facade side drop the newer hold.
+    #[test]
+    fn a_contacts_second_change_releases_the_first_hold_and_keeps_its_own() {
+        use super::super::swipe::ContactChange;
+        let mut model = UiModel::new();
+        model.contact_changed("c1".to_owned(), ContactChange::PhotoRemoved, 7);
+        model.contact_changed("c1".to_owned(), ContactChange::Deleted, 8);
+        assert_eq!(model.take_released().contacts, vec![7], "the replaced one");
+        let id = model.snackbar().expect("up").id;
+        assert_eq!(
+            model.undo(id),
+            Some(Intent::UndoContact {
+                contact_id: "c1".to_owned(),
+                change: ContactChange::Deleted,
+                hold: 8,
+            })
+        );
     }
 }

@@ -408,6 +408,10 @@ pub enum Intent {
         contact_id: String,
         /// What is taken back.
         change: swipe::ContactChange,
+        /// The facade side's hold for this change: one per change, so
+        /// a release or an Undo names this change and no other of the
+        /// same contact.
+        hold: u64,
     },
     /// Send this conversation's identity's own card to its route. Only
     /// [`UiModel::share_card`] makes one, for a direct conversation.

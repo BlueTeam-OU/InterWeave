@@ -208,9 +208,9 @@ pub struct Released {
     pub cancelled: Vec<RowId>,
     /// The cards held for the Undo of their Accept or Decline, by row.
     pub cards: Vec<RowId>,
-    /// The contacts whose deleted rows or removed photo were held for an
-    /// Undo, by id.
-    pub contacts: Vec<String>,
+    /// The contacts' deleted rows or removed photos held for an Undo, by
+    /// the facade side's hold for each change.
+    pub contacts: Vec<u64>,
 }
 
 impl Released {
@@ -251,6 +251,7 @@ enum Undo {
     Contact {
         contact_id: String,
         change: ContactChange,
+        hold: u64,
     },
     /// Nothing to take back: a copy changes nothing here.
     None,
@@ -312,8 +313,8 @@ pub(super) struct SwipeState {
     /// Where the answer a card Undo takes back sent focus: where a
     /// refused Undo sends it again.
     card_focus: Option<FocusTarget>,
-    /// A contact's Undo raised and not answered yet.
-    contact_awaiting: Option<(String, ContactChange)>,
+    /// A contact's Undo raised and not answered yet, by its hold.
+    contact_awaiting: Option<(String, ContactChange, u64)>,
 }
 
 impl SwipeState {
@@ -678,13 +679,17 @@ impl UiModel {
     /// move focus: a row a swipe slid out for it -- a Cancel the store
     /// refused -- springs back on it, and focus stays (§8).
     pub fn intent_refused(&mut self, intent: &Intent) {
-        if let Intent::UndoContact { contact_id, change } = intent
-            && self.swipe.contact_awaiting.as_ref() == Some(&(contact_id.clone(), *change))
+        if let Intent::UndoContact {
+            contact_id,
+            change,
+            hold,
+        } = intent
+            && self.swipe.contact_awaiting.as_ref() == Some(&(contact_id.clone(), *change, *hold))
         {
             // The change stands, as the snackbar said; what its Undo
             // needed is let go, and focus goes where the change sent it.
             self.swipe.contact_awaiting = None;
-            self.swipe.released.contacts.push(contact_id.clone());
+            self.swipe.released.contacts.push(*hold);
             let focus = contact_closed_focus(contact_id, *change);
             self.set_outcome(None, Some(focus), None);
             return;
@@ -827,9 +832,17 @@ impl UiModel {
                 self.swipe.card_focus = open.sent_focus;
                 Some(Intent::UndoCard(row))
             }
-            Undo::Contact { contact_id, change } => {
-                self.swipe.contact_awaiting = Some((contact_id.clone(), change));
-                Some(Intent::UndoContact { contact_id, change })
+            Undo::Contact {
+                contact_id,
+                change,
+                hold,
+            } => {
+                self.swipe.contact_awaiting = Some((contact_id.clone(), change, hold));
+                Some(Intent::UndoContact {
+                    contact_id,
+                    change,
+                    hold,
+                })
             }
             Undo::None => None,
         }
@@ -966,7 +979,7 @@ impl UiModel {
     /// pages, with the Undo the facade side holds what for (contact-cards
     /// design section 6.3). Announced, as section 8 says. Focus is the
     /// view's: a delete closes the page to the list.
-    pub fn contact_changed(&mut self, contact_id: String, change: ContactChange) {
+    pub fn contact_changed(&mut self, contact_id: String, change: ContactChange, hold: u64) {
         let confirms = match change {
             ContactChange::Deleted => Confirmation::ContactDeleted,
             ContactChange::PhotoRemoved => Confirmation::PhotoRemoved,
@@ -974,21 +987,27 @@ impl UiModel {
         self.open(
             confirms,
             None,
-            Undo::Contact { contact_id, change },
+            Undo::Contact {
+                contact_id,
+                change,
+                hold,
+            },
             None,
             None,
         );
     }
 
-    /// The facade side let go of `contact_id`'s Undo: a route the deleted
+    /// The facade side let go of the Undo it held as `hold`: a route the deleted
     /// contact held came under another contact, and writing it back would
     /// put one route under two (section 6.3). Its snackbar closes, as by
     /// its timeout.
-    pub fn contact_undo_withdrawn(&mut self, contact_id: &str) {
-        let held = self.swipe.open.as_ref().is_some_and(
-            |o| matches!(&o.undo, Undo::Contact { contact_id: id, .. } if id == contact_id),
-        );
-        if held && let Some(open) = self.swipe.open.take() {
+    pub fn contact_undo_withdrawn(&mut self, hold: u64) {
+        let offered = self
+            .swipe
+            .open
+            .as_ref()
+            .is_some_and(|o| matches!(&o.undo, Undo::Contact { hold: h, .. } if *h == hold));
+        if offered && let Some(open) = self.swipe.open.take() {
             self.closed_under(&open);
             self.finish(open);
         }
@@ -998,7 +1017,12 @@ impl UiModel {
     /// restored, focus on the restored contact's row, or its Remove photo
     /// again. A restore the model did not ask for says nothing.
     pub fn contact_restored(&mut self, contact_id: &str, change: ContactChange) {
-        if self.swipe.contact_awaiting.as_ref() != Some(&(contact_id.to_owned(), change)) {
+        if self
+            .swipe
+            .contact_awaiting
+            .as_ref()
+            .is_none_or(|(id, c, _)| id != contact_id || *c != change)
+        {
             return;
         }
         self.swipe.contact_awaiting = None;
@@ -1080,7 +1104,7 @@ impl UiModel {
             }
             Undo::Unkeep { .. } | Undo::Keep { .. } => self.evict(),
             Undo::Card { row } => self.swipe.released.cards.push(row),
-            Undo::Contact { contact_id, .. } => self.swipe.released.contacts.push(contact_id),
+            Undo::Contact { hold, .. } => self.swipe.released.contacts.push(hold),
             Undo::None => {}
         }
     }
@@ -1127,7 +1151,9 @@ impl UiModel {
                     open.sent_focus.clone()
                 }
             }
-            Undo::Contact { contact_id, change } => Some(contact_closed_focus(contact_id, *change)),
+            Undo::Contact {
+                contact_id, change, ..
+            } => Some(contact_closed_focus(contact_id, *change)),
             Undo::None => None,
         };
         // No row left to name: the conversation's header title, or the
