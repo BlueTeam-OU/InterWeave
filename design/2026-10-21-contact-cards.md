@@ -513,11 +513,11 @@ out (§11).
   before the choice and stay usable; a picture chosen while another
   is being prepared replaces the one being prepared, and only the
   last one chosen is shown. During the preparation, Remove photo is
-  offered whenever it was offered before the choice, that is, when a
-  photo was shown then, whether that photo is saved or not (during
-  the preparation the circle shows the progress indicator), and
-  Remove photo cancels
-  the preparation: the picture being prepared
+  offered whenever the button was offered before the person chose the
+  picture, that is, whenever the circle showed a photo before that
+  choice, whether that photo was saved or not. (During the
+  preparation, the circle shows the progress indicator instead.)
+  Remove photo cancels the preparation: the picture being prepared
   is dropped, nothing is shown or announced when it would have been
   ready, and Save does not wait for it; then Remove photo does what
   the item **Remove photo in this editor** below says.
