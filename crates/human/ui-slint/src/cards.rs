@@ -417,6 +417,11 @@ pub(crate) struct CardScreens {
     contact: Option<String>,
     proposals_shown: Vec<Entry>,
     proposals: Option<Rc<VecModel<ProposalRow>>>,
+    /// Each drawn row's card and whether it is a confirmation row, in the
+    /// order drawn: the rows are updated in place by it, so a touch on a
+    /// row judged again keeps its grab (design section 5.4.4: a left drag
+    /// goes on when the warning appears).
+    proposal_keys: Vec<(RowId, bool)>,
     /// Each drawn row's handle and whether it is a confirmation row, by
     /// the card's row: where [`FocusTarget::Proposal`] moves focus.
     ///
@@ -961,7 +966,11 @@ impl View {
                     }
                 }
             }
-            rows.set_vec(drawn);
+            let keys: Vec<(RowId, bool)> = shown
+                .iter()
+                .map(|e| (e.place().1, matches!(e, Entry::Answer(..))))
+                .collect();
+            crate::update_by_key(&*rows, &mut self.cards.proposal_keys, &keys, &drawn);
             let mut shared = self.shared.borrow_mut();
             shared.cards.answers = answers;
             shared.swipes.retain(|k, _| !k.starts_with("p:"));
