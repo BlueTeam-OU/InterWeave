@@ -1491,16 +1491,18 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    §5.4.5 adds the warning to the row: the row returns to rest, and
    the later release accepts nothing. On desktop, with no contact
    named "Anna Rossi", the person drags the row of a card naming itself
-   "Anna Rossi" with the pointer and holds it, and meanwhile, from the
-   keyboard, accepts another proposal that saves a contact "Anna
+   "Anna Rossi" right with the pointer past the threshold and holds it
+   there, and then, from the keyboard, accepts another proposal that saves a contact "Anna
    Rossi" on another PeerId. While a withheld right
    drag is held, an action of §5.4.5 removes the warning: the row
    stays still, and the release accepts nothing. On desktop, the person
    first accepts, from the keyboard, the proposal that saves a contact
    "Anna Rossi" on another PeerId, so that the row shows the warning.
-   Then the person drags the row right with the pointer, holds it, and
-   chooses, from the keyboard, the Undo of that Accept. A left drag held past the threshold while
-   the warning appears or disappears still declines on release.
+   Then the person drags the row right with the pointer, the pointer
+   past the threshold, holds it there, and then chooses, from the
+   keyboard, the Undo of that Accept. A left drag held past the
+   threshold while the warning appears or disappears still declines on
+   release.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
    it: the Move's Undo is gone. No action and no Undo leaves a contact
