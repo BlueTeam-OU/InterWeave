@@ -51,6 +51,9 @@
 #             INTERWEAVE_RELEASE_KEY_PASS (if it differs),
 #             INTERWEAVE_RELEASE_CERT_SHA256 -- packaging/android/README.md,
 #             "The signing key", says what each holds;
+#             INTERWEAVE_RELEASE_MINISIGN_KEY (the archive key's secret
+#             file) and INTERWEAVE_RELEASE_MINISIGN_PASS, whose public
+#             half packaging/release-keys.toml pins;
 #   variable  INTERWEAVE_RELEASE_FIRST=true for the first release only,
 #             with no INTERWEAVE_RELEASE_CERT_SHA256: the run passes
 #             --first-release and prints the fingerprint to record, and the
@@ -320,6 +323,31 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/release.keystore"
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux
+          path: ${{ runner.temp }}/linux
+
+      # The Linux archive and its .sha256, signed with the archive key and
+      # each signature verified with main's pinned public key before it is
+      # kept (tools/ci/release_sign_archive.sh): a .sha256 beside the
+      # archive in the same release catches corruption and authenticates
+      # nothing. minisign is the pinned build, from main's pin; the key is
+      # a file only the script reads, removed however it ends.
+      - name: The archive's signatures
+        env:
+          VERSION: ${{ needs.tag.outputs.version }}
+          INTERWEAVE_RELEASE_MINISIGN_KEY: ${{ secrets.INTERWEAVE_RELEASE_MINISIGN_KEY }}
+          INTERWEAVE_RELEASE_MINISIGN_PASS: ${{ secrets.INTERWEAVE_RELEASE_MINISIGN_PASS }}
+        run: |
+          bash main-tip/tools/ci/minisign_install.sh "$RUNNER_TEMP/minisign"
+          archive="$RUNNER_TEMP/linux/interweave-$VERSION-x86_64-unknown-linux-gnu.tar.gz"
+          MINISIGN="$RUNNER_TEMP/minisign/minisign" bash main-tip/tools/ci/release_sign_archive.sh \
+            --keys main-tip/packaging/release-keys.toml "$archive" "$archive.sha256"
+          # Into the APK's directory: one directory for the artifact, as
+          # the apk job's comment says why.
+          cp "$archive.minisig" "$archive.sha256.minisig" "$RUNNER_TEMP/out/"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: apk
@@ -327,6 +355,8 @@ jobs:
             ${{ runner.temp }}/out/interweave-*-arm64-v8a.apk
             ${{ runner.temp }}/out/interweave-*-arm64-v8a.apk.sha256
             ${{ runner.temp }}/out/android-values.json
+            ${{ runner.temp }}/out/interweave-*-x86_64-unknown-linux-gnu.tar.gz.minisig
+            ${{ runner.temp }}/out/interweave-*-x86_64-unknown-linux-gnu.tar.gz.sha256.minisig
           if-no-files-found: error
           # The signed APK, kept a day: publish runs straight after this
           # job, and a publish re-run later than that is a full re-run,

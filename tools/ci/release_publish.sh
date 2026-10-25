@@ -20,12 +20,16 @@
 #
 # --verify-tag: the release is the pushed tag's, never one gh would
 # create at another commit. The files are the signed APK, the archive,
-# the Android crate notices and the .sha256 of each, read from <in-dir>
-# by the names the build jobs give them.
+# the Android crate notices and the .sha256 of each, and the archive's
+# and its .sha256's minisign signatures (.minisig, the sign job's), read
+# from <in-dir> by the names the build jobs give them at <version>. A
+# missing one is refused before gh runs: a release without the archive's
+# signature is not published at all.
 #
 # Exit codes:
 #   0  gh created the release
-#   1  <prerelease> is neither true nor false, or gh failed
+#   1  <prerelease> is neither true nor false, a file is missing, or gh
+#      failed
 #   2  usage
 # <<< help
 
@@ -46,8 +50,13 @@ false) kind=() ;;
 *) printf '::error::prerelease is %q, neither true nor false\n' "$prerelease"; exit 1 ;;
 esac
 
+apk="$in/interweave-$version-arm64-v8a.apk"
+archive="$in/interweave-$version-x86_64-unknown-linux-gnu.tar.gz"
+files=("$apk" "$apk.sha256" "$archive" "$archive.sha256" "$archive.minisig" "$archive.sha256.minisig"
+    "$in/THIRD-PARTY-NOTICES-android.md" "$in/THIRD-PARTY-NOTICES-android.md.sha256")
+for f in "${files[@]}"; do
+    [[ -f "$f" ]] || { printf '::error::no %q to publish\n' "$f"; exit 1; }
+done
+
 gh release create "$tag" --verify-tag "${kind[@]}" --title "InterWeave $version" \
-    --notes-file "$page" \
-    "$in"/interweave-*-arm64-v8a.apk "$in"/interweave-*-arm64-v8a.apk.sha256 \
-    "$in"/interweave-*-x86_64-unknown-linux-gnu.tar.gz "$in"/interweave-*-x86_64-unknown-linux-gnu.tar.gz.sha256 \
-    "$in"/THIRD-PARTY-NOTICES-android.md "$in"/THIRD-PARTY-NOTICES-android.md.sha256
+    --notes-file "$page" "${files[@]}"
