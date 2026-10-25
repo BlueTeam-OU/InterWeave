@@ -1688,8 +1688,9 @@ fn a_deleted_contact_leaves_focus_on_the_lists_first_row() {
 /// conversation chosen -- forgets the way back it was opened with, so a
 /// later Back from a page the app options opened is that page's own: the
 /// list shown, no old proposal link focused, no old share sheet opened.
-/// Mutations: `forget_returns` not called when a card page opens; the
-/// share sheet's way back set before the open, which forgets it.
+/// Mutations: `forget_returns` not called when a card page opens from
+/// the app options, or from a proposal's link; the share sheet's way
+/// back set before the open, which forgets it.
 #[test]
 fn a_card_page_left_another_way_forgets_its_way_back() {
     use interweave_human_ui_model::KeyProblem;
@@ -1757,4 +1758,18 @@ fn a_card_page_left_another_way_forgets_its_way_back() {
     let _ = shown(&mut view, &mut model, R);
     back_from_contacts(&mut view, &mut model);
     assert!(!view.window().get_share_open(), "no old share sheet");
+
+    // The sheet's way back left the same way, then a proposal's link:
+    // its Back is the link's alone (round 2).
+    open_card_from_share(&mut view, &mut model);
+    let _ = shown(&mut view, &mut model, R);
+    let _ = shown(&mut view, &mut model, P);
+    press(&view, &link);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    key(&view, Key::Return);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(!view.window().get_share_open(), "no old share sheet");
+    assert_eq!(view.window().get_focus_id(), "proposal-contact:0:0");
 }

@@ -481,10 +481,10 @@ pub(crate) struct CardScreens {
 
 impl CardScreens {
     /// The ways back a card page was opened with -- to a proposal's link,
-    /// to a share sheet -- forgotten when a card page is opened afresh,
-    /// which is how every later Back starts: a page left some other way
-    /// (another conversation chosen) keeps them only until then, and a
-    /// later Back is that page's own (#440 F1).
+    /// to a share sheet -- forgotten whenever a card page opens: from the
+    /// app options, from the share sheet, from a proposal's link. A page
+    /// left some other way (another conversation chosen) keeps them only
+    /// until then, and a later Back is that page's own (#440 F1).
     fn forget_returns(&mut self) {
         self.return_to_link = None;
         self.focus_link = None;
@@ -618,6 +618,7 @@ impl View {
                 if let (Some(id), Some(row), Some(key)) = (id, row, self.shown.clone())
                     && model.contact(&id).is_some()
                 {
+                    self.cards.forget_returns();
                     self.cards.return_to_link = Some((key, row, note));
                     self.page = crate::Page::Cards;
                     self.open_contact(&window, id);
