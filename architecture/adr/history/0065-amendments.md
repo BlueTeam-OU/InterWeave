@@ -18,8 +18,9 @@ digest entry's state line.
 ### Amendment 2026-10-25 — The Linux archive's minimum platform is public API: raising it is breaking, lowering it a patch
 
 **Trigger.** The external review of `v0.1.0` (handed to p2p-network-dev
-by the owner on 2026-10-25) found that the Linux archive states no
-minimum platform while its `human-desktop` needs glibc 2.43, the glibc of
+by the owner on 2026-10-25) found that the Linux archive's page states no
+glibc version (only the processor architecture, x86_64) while its
+`human-desktop` needs glibc 2.43, the glibc of
 the `ubuntu-latest` image the release job built on: a host at 2.42
 refuses it before `main`. Decision 2 listed what a previous version's
 peer, client, profile or script relies on and said nothing of the host
