@@ -29,7 +29,6 @@ pub(crate) const PREFIX: &str = "ui-trace";
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Shown {
     pub(crate) page: &'static str,
-    pub(crate) menu: bool,
     pub(crate) show: Option<&'static str>,
     pub(crate) adding: bool,
     pub(crate) add: Option<(&'static str, usize)>,
@@ -40,12 +39,11 @@ pub(crate) struct Shown {
 /// One trust block: its handle, state and problem.
 pub(crate) type Block = (i32, &'static str, Option<&'static str>);
 
-/// What a render showed: `page` and `menu` as the window has them, the
-/// rest read from the model it drew; `handle` is the view's own handle
+/// What a render showed: `page` as the window has it, the rest read
+/// from the model it drew; `handle` is the view's own handle
 /// for a block's peer.
 pub(crate) fn shown(
     page: &'static str,
-    menu: bool,
     peers: &Peers,
     trust: &TrustSettings,
     mut handle: impl FnMut(&TransportIdentity) -> i32,
@@ -68,7 +66,6 @@ pub(crate) fn shown(
         .collect();
     Shown {
         page,
-        menu,
         show,
         adding: peers.add_waiting(),
         add,
@@ -125,12 +122,6 @@ pub(crate) fn changes(before: &Shown, now: &Shown) -> Vec<String> {
     let mut lines = Vec::new();
     if now.page != before.page {
         lines.push(format!("{PREFIX} page={}", now.page));
-    }
-    if now.menu != before.menu {
-        lines.push(format!(
-            "{PREFIX} menu={}",
-            if now.menu { "open" } else { "closed" }
-        ));
     }
     if now.show != before.show {
         lines.push(format!("{PREFIX} show={}", now.show.unwrap_or("closed")));

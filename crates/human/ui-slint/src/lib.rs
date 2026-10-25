@@ -1101,7 +1101,8 @@ impl View {
     }
 
     /// Write what the window shows to `sink` from now on, a line per
-    /// change: the page, where focus is, and the Peers steps' outcomes,
+    /// change: the page a render drew, where focus is, and the Peers
+    /// steps' outcomes,
     /// in kinds only (`trace.rs`). For a driver that steps the app by key
     /// events; the debug APK turns it on, the release build has none.
     #[cfg(feature = "ui-trace")]
@@ -1131,9 +1132,8 @@ impl View {
             Page::Peers if window.get_peers_add_open() => "peers-add-trust",
             Page::Peers => "peers",
         };
-        let menu = window.get_menu_open();
         let handles = &mut self.peer_lists.block_handles;
-        let now = trace::shown(page, menu, model.peers(), model.trust_settings(), |p| {
+        let now = trace::shown(page, model.peers(), model.trust_settings(), |p| {
             handles.of(p)
         });
         if let Some(tracer) = self.trace.as_mut() {
