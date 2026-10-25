@@ -431,6 +431,9 @@ struct Shared {
     /// The scan a reader runs for: bumped as each scan ends, so a result
     /// that outlives its scan is dropped (#409 C4).
     scan_number: u64,
+    /// The own card's file dialog's answer, put here by its thread and
+    /// taken on the window's, as the input it becomes.
+    photo_pick: std::sync::Arc<std::sync::Mutex<Option<cards::CardsInput>>>,
 }
 
 /// An Accept's snackbar's clock (contact-cards design section 5.4.2):
@@ -1149,10 +1152,11 @@ impl View {
     /// desktop. None by default, and none is drawn: typing or pasting the
     /// text does all a scan does. The images' reader is compiled only
     /// with the `desktop` feature; without it an image scan ends at once
-    /// as a cancelled one. The clipboard's image is offered apart: the
-    /// clipboard crate decodes it whole before any bound of this client's
-    /// applies, so the desktop withholds it until a bounded read exists
-    /// (#409 F1).
+    /// as a cancelled one. The clipboard's image is offered apart, and
+    /// its reader reads nothing yet: the clipboard crate decodes an image
+    /// whole before any bound of this client's applies, so a Paste press
+    /// ends as a cancelled scan and the desktop withholds the control
+    /// until a bounded read exists (#409 F1).
     pub fn offer_scans(&self, camera: bool, files: bool, clipboard: bool) {
         self.window.set_scan_camera(camera);
         self.window.set_scan_images(files);
@@ -1360,6 +1364,24 @@ impl View {
         if let Some(guard) = self.peer_lists.show_guard.as_ref() {
             guard.secured();
         }
+    }
+
+    /// Give the own card's editor the platform's photo picker (contact-
+    /// cards design 5.2: Android's Photo Picker, images only, one item):
+    /// `pick()` opens it, and the root answers with [`Self::photo_picked`].
+    /// Without one, the desktop build opens its file dialog.
+    pub fn photo_picker_hook(&mut self, pick: impl Fn() + 'static) {
+        self.cards.photo_picker = Some(Rc::new(pick));
+    }
+
+    /// The picker's answer: the image as its file holds it, or `None` when
+    /// the person chose nothing. An image that could not be read is handed
+    /// on empty, so the editor says it cannot be used.
+    pub fn photo_picked(&self, chosen: Option<Vec<u8>>) {
+        enqueue(
+            &self.shared,
+            Input::Cards(cards::CardsInput::PhotoPicked(chosen)),
+        );
     }
 
     /// Give the add page the platform's camera (add-a-peer §5.5):
@@ -3592,6 +3614,9 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::ReadOwnAddresses
         // Edits come from the settings and the contact page's own
         // controls, never an item's.
+        | Intent::ChooseOwnPhoto(_)
+        | Intent::ForgetOwnPhoto
+        | Intent::RemoveOwnPhoto
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
         | Intent::SetContactPhoto { .. }

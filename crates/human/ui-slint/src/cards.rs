@@ -20,8 +20,8 @@ use std::rc::Rc;
 
 use interweave_human_ui_model::{
     AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, FocusTarget, Intent,
-    KeyProblem, KeyStep, KeyView, Photo, PhotoChange, PhotoEdit, ProposalItem, ProposalNote, RowId,
-    UiModel, UiText, fill, isolated, name_problem, placeholder_en, short_peer,
+    KeyProblem, KeyStep, KeyView, OwnPhotoStep, Photo, PhotoChange, PhotoEdit, ProposalItem,
+    ProposalNote, RowId, UiModel, UiText, fill, isolated, name_problem, placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
@@ -58,6 +58,11 @@ pub(crate) enum CardsInput {
     /// A proposal's "Open your contact" link: the row's handle and the
     /// note's place among its notes.
     ProposalContact(i32, i32),
+    /// The own card's Add a photo or Change photo: the platform's picker.
+    ChoosePhoto,
+    /// What the picker came to: the image as its file holds it, or `None`
+    /// when nothing was chosen (or it could not be read).
+    PhotoPicked(Option<Vec<u8>>),
     /// A contact's name saved: the contact, and the field as typed.
     SaveName(String, String),
     /// A contact's photo removed.
@@ -120,6 +125,14 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     window.on_open_own_card(on(shared, CardsInput::Open(Opened::OwnCard)));
     window.on_close_cards(on(shared, CardsInput::Close));
     window.on_own_card_remove_photo(on(shared, CardsInput::RemoveOwnPhoto));
+    window.on_own_card_choose_photo(on(shared, CardsInput::ChoosePhoto));
+    let s = Rc::clone(shared);
+    window.on_own_photo_picked_done(move || {
+        let picked = s.borrow().photo_pick.lock().ok().and_then(|mut p| p.take());
+        if let Some(picked) = picked {
+            enqueue(&s, Input::Cards(picked));
+        }
+    });
     let s = Rc::clone(shared);
     window.on_proposal_accept(move |handle| {
         let answer = s.borrow().cards.answers.get(&handle).map(|a| a.0.clone());
@@ -267,6 +280,14 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
         AcceptLine::Updates(contact) => {
             fill(text(UiText::CardUpdates), &[("name", &isolated(contact))])
         }
+        // Case S says the card matches only when nothing is kept by a
+        // local choice: otherwise the kept lines stand in its place
+        // (design 5.4.1 as #443 left it).
+        AcceptLine::Matches(_)
+            if p.values.kept_name || p.values.photo != PhotoChange::Unchanged =>
+        {
+            String::new()
+        }
         AcceptLine::Matches(contact) => {
             fill(text(UiText::CardSame), &[("contact", &isolated(contact))])
         }
@@ -291,6 +312,7 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
             PhotoChange::New => Some(text(UiText::CardUpdatesPhoto).to_owned()),
             PhotoChange::Removed => Some(text(UiText::CardUpdatesPhotoRemoved).to_owned()),
             PhotoChange::Kept => Some(text(UiText::CardKeepsPhoto).to_owned()),
+            PhotoChange::KeptNone => Some(text(UiText::CardKeepsNoPhoto).to_owned()),
         },
     ]
     .into_iter()
@@ -332,7 +354,11 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
         handle,
         heading: fill(text(UiText::CardProposal), &[("name", &name)]).into(),
         full_name: name.into(),
-        photo_line: if p.has_photo {
+        // Only when Accept would write the card's photo: a local choice
+        // keeps it unused, and its kept line says so (design 5.4).
+        photo_line: if p.has_photo
+            && !matches!(p.values.photo, PhotoChange::Kept | PhotoChange::KeptNone)
+        {
             text(UiText::CardIncludesPhoto).into()
         } else {
             SharedString::new()
@@ -474,6 +500,15 @@ pub(crate) struct CardScreens {
     return_to_link: Option<(ConversationKey, RowId, i32)>,
     /// That link, focused once its conversation draws it again.
     focus_link: Option<(RowId, i32)>,
+    /// The platform's photo picker, when the root gives one (Android's
+    /// Photo Picker); the desktop build has its file dialog.
+    pub(crate) photo_picker: Option<Rc<dyn Fn()>>,
+    /// The editor's photo step as last drawn: what a change of it says.
+    own_step_drawn: Option<OwnPhotoStep>,
+    /// The photo the editor's circle was last given, once it was given
+    /// one: redrawn whenever what it should show changes, a saved card's
+    /// photo included, not only when the step does (#449 F1).
+    own_photo_drawn: Option<DrawnPhoto>,
     /// A contact deleted from its page: the list's first row takes focus
     /// once the list is drawn without it (design section 9's focus table).
     deleted: Option<String>,
@@ -574,6 +609,10 @@ impl View {
                 self.cards.own_errors = (String::new(), String::new());
                 window.set_cards_page(page);
                 self.focus_key_after_draw("close-cards".to_owned());
+                // The editor opens on the card as saved.
+                if page == CardsPage::OwnCard && model.own_photo().is_some() {
+                    return vec![Intent::ForgetOwnPhoto];
+                }
             }
             CardsInput::Close => {
                 let own = self.cards.page == Some(CardsPage::OwnCard);
@@ -593,7 +632,12 @@ impl View {
                     window.set_share_open(true);
                 }
                 if own {
-                    return vec![Intent::CloseKeyStep];
+                    // A photo chosen or removed and not saved goes with
+                    // the editor.
+                    let forget = model.own_photo().map(|_| Intent::ForgetOwnPhoto);
+                    return std::iter::once(Intent::CloseKeyStep)
+                        .chain(forget)
+                        .collect();
                 }
             }
             CardsInput::Contact(id) => {
@@ -687,18 +731,12 @@ impl View {
                 return vec![Intent::SetOwnCard {
                     name: given,
                     surname: (!surname.is_empty()).then_some(surname),
-                    photo: PhotoEdit::Keep,
+                    photo: model.own_photo_edit(),
                 }];
             }
-            CardsInput::RemoveOwnPhoto => {
-                if let Some(own) = model.identity().filter(|i| i.has_photo) {
-                    return vec![Intent::SetOwnCard {
-                        name: own.given.clone(),
-                        surname: own.surname.clone(),
-                        photo: PhotoEdit::Remove,
-                    }];
-                }
-            }
+            photo @ (CardsInput::RemoveOwnPhoto
+            | CardsInput::ChoosePhoto
+            | CardsInput::PhotoPicked(_)) => return self.take_own_photo(model, photo),
             CardsInput::Share(key) => {
                 // Shared only for the conversation still shown, by the
                 // model's own offer: never a channel, never on its own.
@@ -708,6 +746,77 @@ impl View {
             }
         }
         Vec::new()
+    }
+
+    /// The own card editor's photo (contact-cards design 5.2).
+    fn take_own_photo(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
+        if self.cards.page != Some(CardsPage::OwnCard) {
+            return Vec::new();
+        }
+        match input {
+            // An unsaved change, which Save writes: Add a photo takes Change
+            // photo's place, and focus.
+            CardsInput::RemoveOwnPhoto if edit_photo(model).is_some() => {
+                self.focus_key_after_draw("own-choose-photo".to_owned());
+                vec![Intent::RemoveOwnPhoto]
+            }
+            CardsInput::ChoosePhoto => {
+                self.pick_photo();
+                Vec::new()
+            }
+            // Focus is on the button that opened the picker, chosen or
+            // not; a cancel changes nothing.
+            CardsInput::PhotoPicked(picked) => {
+                self.focus_key("own-choose-photo".to_owned());
+                picked.map(Intent::ChooseOwnPhoto).into_iter().collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The platform's photo picker: the root's, else the desktop's file
+    /// dialog on a thread of its own, whose answer comes back as
+    /// [`CardsInput::PhotoPicked`]. With neither, nothing opens; the page
+    /// then offers no control that asks.
+    fn pick_photo(&self) {
+        if let Some(pick) = self.cards.photo_picker.as_ref() {
+            pick();
+        } else {
+            self.pick_photo_file();
+        }
+    }
+
+    /// The desktop's file dialog, on a thread of its own.
+    #[cfg(not(feature = "desktop"))]
+    #[allow(clippy::unused_self, reason = "the desktop build's has a self to use")]
+    const fn pick_photo_file(&self) {}
+
+    /// The desktop's file dialog, on a thread of its own.
+    #[cfg(feature = "desktop")]
+    fn pick_photo_file(&self) {
+        {
+            let slot = std::sync::Arc::clone(&self.shared.borrow().photo_pick);
+            let window = slint::ComponentHandle::as_weak(&self.window);
+            let filter = text(UiText::CodeImageFilter).to_owned();
+            let answer = move |picked: Option<Vec<u8>>| {
+                if let Ok(mut held) = slot.lock() {
+                    *held = Some(CardsInput::PhotoPicked(picked));
+                }
+                let _ = window.upgrade_in_event_loop(|w| w.invoke_own_photo_picked_done());
+            };
+            let spawned = std::thread::Builder::new()
+                .name("photo-dialog".to_owned())
+                .spawn(move || answer(crate::scan_images::photo_file(&filter)));
+            if spawned.is_err() {
+                enqueue(&self.shared, Input::Cards(CardsInput::PhotoPicked(None)));
+            }
+        }
+    }
+
+    /// Whether this build can choose a photo: the root's picker, or the
+    /// desktop's file dialog.
+    fn photo_choosable(&self) -> bool {
+        self.cards.photo_picker.is_some() || cfg!(feature = "desktop")
     }
 
     /// Show contact `id`'s page, focus on its back arrow.
@@ -786,7 +895,8 @@ impl View {
         self.render_contacts(model, &window);
         self.render_contact(model, &window);
         self.render_own(model, &window);
-        let said = self.render_key(model, &window);
+        let photo_said = self.render_own_photo(model, &window);
+        let said = self.render_key(model, &window).or(photo_said);
         self.render_share(model, &window);
         if let Some(key) = self.cards.share_on_open.take() {
             if self.shown.as_ref() == Some(&key) && self.page == crate::Page::Conversation {
@@ -1247,6 +1357,54 @@ impl View {
         self.cards.contact_drawn = Some(contact);
     }
 
+    /// The editor's photo (design 5.2): the circle, its label, the
+    /// progress while a chosen photo is prepared, and what a change of step
+    /// announces -- `PhotoAdded` when one is ready, `PhotoUnusable` when
+    /// it cannot be used, each once.
+    fn render_own_photo(&mut self, model: &UiModel, window: &AppWindow) -> Option<String> {
+        window.set_add_photo_label(text(UiText::AddPhoto).into());
+        window.set_change_photo_label(text(UiText::ChangePhoto).into());
+        window.set_own_photo_choosable(self.photo_choosable());
+        let step = model.own_photo().cloned();
+        let shown = edit_photo(model);
+        window.set_own_edit_has_photo(shown.is_some());
+        window.set_own_photo_preparing(matches!(step, Some(OwnPhotoStep::Preparing)));
+        window.set_own_circle_label(
+            text(match (&step, shown) {
+                (Some(OwnPhotoStep::Preparing), _) => UiText::CardPhotoPreparing,
+                (_, Some(_)) => UiText::CardPhotoLabel,
+                (_, None) => UiText::CardPhotoNone,
+            })
+            .into(),
+        );
+        window.set_own_photo_unusable(
+            if matches!(step, Some(OwnPhotoStep::Unusable)) {
+                text(UiText::PhotoUnusable)
+            } else {
+                ""
+            }
+            .into(),
+        );
+        if self.cards.own_photo_drawn.as_ref().map(|d| d.0.as_ref()) != Some(shown) {
+            window.set_own_edit_photo(shown.map(image).unwrap_or_default());
+            self.cards.own_photo_drawn = Some(DrawnPhoto(shown.cloned()));
+        }
+        if self.cards.own_step_drawn == step {
+            return None;
+        }
+        let was = std::mem::replace(&mut self.cards.own_step_drawn, step.clone());
+        let from_preparing = matches!(was, Some(OwnPhotoStep::Preparing));
+        match step {
+            Some(OwnPhotoStep::Prepared(_)) if from_preparing => {
+                Some(text(UiText::PhotoAdded).to_owned())
+            }
+            Some(OwnPhotoStep::Unusable) if from_preparing => {
+                Some(text(UiText::PhotoUnusable).to_owned())
+            }
+            _ => None,
+        }
+    }
+
     fn render_own(&mut self, model: &UiModel, window: &AppWindow) {
         window.set_surname_label(text(UiText::CardSurname).into());
         window.set_own_photo_note(text(UiText::CardPhotoElsewhere).into());
@@ -1368,3 +1526,30 @@ fn route_title(
         ],
     )
 }
+
+/// The photo the own card's editor shows: the chosen one once prepared,
+/// none once removed; while a choice is prepared or after it proved
+/// unusable, what it showed before that choice (design 5.2: the buttons
+/// stay as they were; #449 F2); else the card's as saved.
+fn edit_photo(model: &UiModel) -> Option<&Photo> {
+    let saved = model.identity().and_then(|i| i.photo.as_ref());
+    match model.own_photo() {
+        Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) => {
+            shown_by(model.own_photo_before(), saved)
+        }
+        step => shown_by(step, saved),
+    }
+}
+
+/// What a step shows: its prepared photo, none once removed, else the
+/// card's as saved.
+fn shown_by<'a>(step: Option<&'a OwnPhotoStep>, saved: Option<&'a Photo>) -> Option<&'a Photo> {
+    match step {
+        Some(OwnPhotoStep::Prepared(photo)) => Some(photo),
+        Some(OwnPhotoStep::Removed) => None,
+        Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) | None => saved,
+    }
+}
+
+/// The photo the editor's circle was given: a photo, or none.
+struct DrawnPhoto(Option<Photo>);

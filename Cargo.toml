@@ -253,10 +253,6 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # allow-list.
 qrcode = { version = "0.14.1", default-features = false }
 rqrr = { version = "0.11.0", default-features = false }
-# The desktop's Paste an image: the clipboard crate the toolkit's winit
-# backend already uses, with the image read it leaves off; on Linux that
-# decodes PNG with the `image` crate already in the graph.
-arboard = { version = "3.6.1", default-features = false, features = ["image-data"] }
 # The desktop's Open an image…: the platform's file dialog, through the
 # XDG desktop portal on Linux (no GTK), MIT.
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
@@ -710,9 +706,10 @@ overflow-checks = true
 # tests/security and tests/security-local and whose exit gate is
 # tests/SECURITY-MATRIX.md. STAGE 19 RUNS BESIDE IT by the plan's section
 # 22 record (activated 2026-10-20 on the owner's word): packaging,
-# migration and release. STAGE 21 RUNS BESIDE IT by the plan's section 29
-# record (the owner's word of 2026-10-21): contacts, cards and the
-# encrypted store, in the human crates. This value names the lowest open
+# migration and release. STAGE 21 CLOSED on 2026-10-25 (the plan's section
+# 29 closing record, on the owner's word): contacts, cards and the
+# encrypted store, in the human crates, with what it did not prove
+# carried by name. This value names the lowest open
 # stage because the guards read it as one number.
 status = "stage-18-adversarial-security-gate"
 architecture_root = "architecture"

@@ -183,6 +183,12 @@ internal object Native {
     /** Back from the app's system settings, opened by Open settings. */
     @JvmStatic external fun settingsReturned()
 
+    /**
+     * The photo picker's answer: the image's bytes (empty when they could
+     * not be read), or null when nothing was chosen.
+     */
+    @JvmStatic external fun photoPicked(bytes: ByteArray?)
+
     /** True when Back found no way back: finish. BLOCKS. */
     @JvmStatic external fun waitLeave(timeoutMs: Long): Boolean
 
@@ -213,6 +219,8 @@ internal object Ask {
     const val CAMERA_STOP = 12
     // Open settings on the camera's denied-for-good line.
     const val OPEN_SETTINGS = 13
+    // The own card's Add a photo or Change photo: the photo picker.
+    const val PICK_PHOTO = 14
 }
 
 /** The keys of the texts the platform shows, as `jni.rs` maps them. */

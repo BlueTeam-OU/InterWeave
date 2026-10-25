@@ -104,8 +104,8 @@ fn a_photo_chosen_with_a_gps_block_and_a_camera_serial_leaves_the_sender_with_ne
     );
     assert_eq!(
         (sent.width, sent.height),
-        (256, 192),
-        "scaled to fit, its shape kept"
+        (256, 256),
+        "its largest centred square, exactly 256 a side"
     );
 }
 
@@ -129,19 +129,84 @@ fn a_png_text_chunk_is_not_carried_either() {
     assert!(sent.width <= MAX_CARD_PHOTO_SIDE && sent.height <= MAX_CARD_PHOTO_SIDE);
 }
 
+/// A picture `width` wide, red on its left half and blue on its right.
+fn halves(width: u32, height: u32) -> DynamicImage {
+    DynamicImage::ImageRgb8(RgbImage::from_fn(width, height, |x, _| {
+        if x < width / 2 {
+            image::Rgb([255, 0, 0])
+        } else {
+            image::Rgb([0, 0, 255])
+        }
+    }))
+}
+
+/// The prepared photo's pixel at `(x, y)`.
+fn pixel(sent: &interweave_human_app_core::card_photo::PreparedPhoto, x: u32, y: u32) -> [u8; 3] {
+    image::load_from_memory(&sent.bytes)
+        .expect("decodes")
+        .to_rgb8()
+        .get_pixel(x, y)
+        .0
+}
+
+fn reddish([r, _, b]: [u8; 3]) -> bool {
+    r > 200 && b < 60
+}
+
 #[test]
 fn a_photo_is_turned_as_its_orientation_says_before_the_orientation_is_dropped() {
-    // EXIF orientation 6: the stored pixels are to be turned 90° clockwise.
-    let chosen = jpeg_with_metadata(&picture(400, 200), 6);
+    // EXIF orientation 6: the stored pixels are to be turned 90° clockwise,
+    // so the red left half is the top of the photo the person saw.
+    let chosen = jpeg_with_metadata(&halves(400, 200), 6);
     let sent = prepare_photo(&chosen).expect("prepared");
-    assert_eq!(
-        (sent.width, sent.height),
-        (128, 256),
-        "the tall photo the person saw"
-    );
-    let upright = jpeg_with_metadata(&picture(400, 200), 1);
+    assert_eq!((sent.width, sent.height), (200, 200), "a 200 square, kept");
+    assert!(reddish(pixel(&sent, 100, 20)), "red on top");
+    assert!(!reddish(pixel(&sent, 100, 180)), "blue below");
+    let upright = jpeg_with_metadata(&halves(400, 200), 1);
     let sent = prepare_photo(&upright).expect("prepared");
-    assert_eq!((sent.width, sent.height), (256, 128), "the control");
+    assert!(
+        reddish(pixel(&sent, 20, 100)),
+        "the control: red on the left"
+    );
+    assert!(!reddish(pixel(&sent, 180, 100)));
+}
+
+/// Design 5.2: the largest centred square, exactly 256 a side; a smaller
+/// one at its own size, never enlarged; what is transparent laid over
+/// white. Mutations: the crop taken from a corner; a small photo
+/// enlarged; transparency left black.
+#[test]
+fn a_chosen_photo_is_its_centred_square_at_256_and_laid_over_white() {
+    // Green, red and blue thirds: the centred square is all red but its
+    // edges.
+    let thirds = DynamicImage::ImageRgb8(RgbImage::from_fn(600, 300, |x, _| match x {
+        0..200 => image::Rgb([0, 255, 0]),
+        200..400 => image::Rgb([255, 0, 0]),
+        _ => image::Rgb([0, 0, 255]),
+    }));
+    let sent = prepare_photo(&encode(&thirds, ImageFormat::Png)).expect("prepared");
+    assert_eq!((sent.width, sent.height), (256, 256));
+    assert!(
+        reddish(pixel(&sent, 128, 128)),
+        "the middle third at its centre"
+    );
+    assert!(!reddish(pixel(&sent, 2, 128)), "green at its left edge");
+    assert!(!reddish(pixel(&sent, 253, 128)), "blue at its right edge");
+
+    let small = prepare_photo(&encode(&picture(100, 60), ImageFormat::Png)).expect("prepared");
+    assert_eq!((small.width, small.height), (60, 60), "never enlarged");
+
+    let clear = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        40,
+        40,
+        image::Rgba([0, 0, 0, 0]),
+    ));
+    let sent = prepare_photo(&encode(&clear, ImageFormat::Png)).expect("prepared");
+    let [r, g, b] = pixel(&sent, 20, 20);
+    assert!(
+        r > 245 && g > 245 && b > 245,
+        "white, not black: {r} {g} {b}"
+    );
 }
 
 #[test]

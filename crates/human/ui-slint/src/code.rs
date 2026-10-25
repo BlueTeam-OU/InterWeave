@@ -8,11 +8,7 @@
 //! never here. Reading a file is held to bounds a hostile image cannot
 //! move: its bytes, sides and the decoder's allocation are capped before
 //! a pixel is decoded ([`read_image`]), and the code's text by the QR
-//! format itself ([`rqrr::MAX_PAYLOAD_SIZE`]). A pasted image is not: the
-//! clipboard crate reads the clipboard's bytes whole and decodes them
-//! under the image crate's default allocation bound (512 MiB) before this
-//! client sees a pixel, and [`read_pasted`] can only refuse its sides
-//! afterwards -- a known limit, stated in the PR that built it (#409).
+//! format itself ([`rqrr::MAX_PAYLOAD_SIZE`]).
 
 use std::io::Cursor;
 
@@ -116,20 +112,6 @@ pub fn read_rgba(width: usize, height: usize, rgba: &[u8]) -> CodeRead {
         .map(|&[r, g, b, a]| luma_over_white(r, g, b, a))
         .collect();
     read_luma(width, height, &luma)
-}
-
-/// Read the first code in an image pasted from the clipboard, already
-/// decoded by the clipboard crate: refused past [`MAX_IMAGE_SIDE`], as a
-/// file is, before anything more is allocated for it.
-///
-/// # Errors
-/// [`ImageUnread::TooLarge`] past the side bound.
-pub fn read_pasted(width: usize, height: usize, rgba: &[u8]) -> Result<CodeRead, ImageUnread> {
-    let side = usize::try_from(MAX_IMAGE_SIDE).unwrap_or(usize::MAX);
-    if width > side || height > side {
-        return Err(ImageUnread::TooLarge);
-    }
-    Ok(read_rgba(width, height, rgba))
 }
 
 /// Read the first code in a PNG or JPEG file's bytes, within bounds.
@@ -352,15 +334,5 @@ mod tests {
         chunk(&mut png, *b"IDAT", &[0x78, 0x9c, 0x03, 0x00, 0, 0, 0, 1]);
         chunk(&mut png, *b"IEND", &[]);
         png
-    }
-
-    /// A pasted image is refused past the side bound, as a file is, and
-    /// read within it (#409 C1).
-    #[test]
-    fn a_pasted_image_is_refused_past_the_side_bound() {
-        let side = MAX_IMAGE_SIDE as usize;
-        assert_eq!(read_pasted(side + 1, 1, &[]), Err(ImageUnread::TooLarge));
-        assert_eq!(read_pasted(1, side + 1, &[]), Err(ImageUnread::TooLarge));
-        assert_eq!(read_pasted(4, 4, &[255; 64]), Ok(CodeRead::NoCode));
     }
 }

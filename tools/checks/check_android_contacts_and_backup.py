@@ -4,8 +4,9 @@
 # tools/checks/check_android_contacts_and_backup.py
 #
 # >>> help
-# Does the Android client reach no address book, and leave the phone
-# through no platform backup or transfer?
+# Does the Android client reach no address book, leave the phone through
+# no platform backup or transfer, ask no permission its records do not
+# name, and use the camera only to scan a code?
 #
 #   tools/checks/check_android_contacts_and_backup.py [--root <dir>]
 #
@@ -23,6 +24,16 @@
 #   adopts a backup agent, a platform account sync or a device-to-device
 #   transfer path"; the manifest check plan section 29 step 2 owes "pins
 #   these two declarations as well".
+#
+#   Plan section 29 step 2 (A 2026-10-22, ADR-0062 decision 8): "it pins
+#   the app's permission set as an allow-list: exactly `INTERNET`,
+#   `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`,
+#   `FOREGROUND_SERVICE_REMOTE_MESSAGING`, `POST_NOTIFICATIONS`,
+#   `USE_BIOMETRIC` and, from step 5, `CAMERA` with `<uses-feature
+#   android:name="android.hardware.camera" android:required="false"/>`
+#   beside it -- any other permission or a required camera feature fails
+#   the check by name ... and from step 5 it holds the camera APIs to the
+#   Scan module alone."
 #
 # WHAT IS READ, under apps/human-android/:
 #   - every AndroidManifest.xml of a source set that can reach an APK the
@@ -43,6 +54,28 @@
 #     path ".", and no <include> anywhere;
 #   - permissions: no <uses-permission>, <uses-permission-sdk-23> or
 #     <permission> naming one of the three, in any manifest read;
+#   - the permission allow-list: every <uses-permission> and
+#     <uses-permission-sdk-23> in any manifest read names one of the
+#     seven above, each named by the main manifest, and no manifest
+#     defines a <permission> of its own;
+#   - the camera feature: the main manifest declares
+#     android.hardware.camera with android:required="false" -- the
+#     CAMERA permission alone makes the platform's store take that
+#     feature as required -- and every <uses-feature> naming a camera
+#     (android.hardware.camera*) in any manifest read says
+#     android:required="false" in so many words, the attribute's absence
+#     meaning "true";
+#   - the camera APIs (camera2, the legacy Camera and Camera.open,
+#     CameraX, the NDK's ACamera* and its header, the camera service by
+#     constant or by name, the capture intents, the CAMERA permission and
+#     the camera features by name) in the Kotlin, Java, Rust, C/C++,
+#     Gradle and resource sources of apps/human-android and of
+#     crates/human/android-platform, read raw, a source not readable as
+#     UTF-8 or a root that is absent failing:
+#     anywhere in the Scan module, CodeCamera.kt; in MainActivity.kt only
+#     its use of the module -- the CAMERA permission asked and the
+#     camera feature asked of the package manager -- and nowhere else
+#     (the manifests' declarations are the allow-list's);
 #   - the contacts provider: no manifest, Kotlin, Java, Gradle script,
 #     version catalog or Rust source of the Android client (the app, its
 #     Rust library, crates/human/android-platform) naming
@@ -56,10 +89,14 @@
 #     artifact contains "contact" (any case).
 #
 # FAIL-CLOSED: an absent main manifest, an absent extraction-rules file,
-# a manifest that does not parse, or no lockfile read is a failure, not
-# a pass. What the check does NOT see is the desktop half of decision 6
-# (the client reads no system address book there), which no tree check
-# can pin: the desktop has no manifest.
+# a manifest that does not parse, no lockfile read, no Scan module
+# found, a source root that is absent, or a source that cannot be read
+# is a failure, not a pass. What the check does NOT see: the
+# desktop half of decision 6 (the client reads no system address book
+# there), which no tree check can pin, the desktop having no manifest;
+# and a permission a library's own manifest merges into the APK, which
+# only the merged manifest, a build output, holds -- the lockfile names
+# no library that declares one today, and that is read, not checked.
 #
 # Exit codes:
 #   0  every rule holds
@@ -82,6 +119,40 @@ CONTACTS_PERMISSIONS = {
     "android.permission.GET_ACCOUNTS",
 }
 PERMISSION_TAGS = ("uses-permission", "uses-permission-sdk-23", "permission")
+USES_PERMISSION_TAGS = ("uses-permission", "uses-permission-sdk-23")
+# Plan section 29 step 2's list (A 2026-10-22): a permission enters the
+# app only through a record that names it there, and then here.
+ALLOWED_PERMISSIONS = {
+    "android.permission." + name
+    for name in (
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_REMOTE_MESSAGING",
+        "POST_NOTIFICATIONS",
+        "USE_BIOMETRIC",
+        "CAMERA",
+    )
+}
+CAMERA_FEATURE = "android.hardware.camera"
+# The camera APIs by the names they are reached by. Read raw over the
+# Android client's sources, so a comment naming one counts too.
+CAMERA_API = re.compile(
+    r"android\.hardware\.camera2|android/hardware/camera2"
+    r"|android\.hardware\.Camera\b|android/hardware/Camera\b"
+    r"|androidx\.camera|\bCameraManager\b|\bCAMERA_SERVICE\b"
+    r"|\bACamera\w*|\bACTION_IMAGE_CAPTURE\w*|\bACTION_VIDEO_CAPTURE\b"
+    r"|\bINTENT_ACTION_STILL_IMAGE_CAMERA\w*|\bINTENT_ACTION_VIDEO_CAMERA\b"
+    r"|permission\.CAMERA\b|\bFEATURE_CAMERA\w*|android\.hardware\.camera\b[\w.]*"
+    r"|\bCamera\.open\b|getSystemService\(\s*\"camera\"|camera/NdkCamera"
+)
+# The sources the camera scan reads: what the app and its platform crate
+# are built from, native code included.
+CAMERA_SUFFIXES = {".kt", ".java", ".rs", ".kts", ".gradle", ".toml", ".xml", ".lockfile", ".c", ".cc", ".cpp", ".h"}
+SCAN_MODULE = "CodeCamera.kt"
+# MainActivity's use of the Scan module, and nothing else of the camera.
+SCAN_CALLER = "MainActivity.kt"
+SCAN_CALLER_USES = {"permission.CAMERA", "FEATURE_CAMERA_ANY"}
 FORBIDDEN_APPLICATION_ATTRS = ("backupAgent", "fullBackupContent", "fullBackupOnly")
 # Every domain data_extraction_rules.xml accepts, credential- and
 # device-protected: a domain left out is a directory a store or a key
@@ -142,6 +213,31 @@ def check_manifest(path: pathlib.Path, root: pathlib.Path, main: bool):
             name = el.get(A + "name", "")
             if name in CONTACTS_PERMISSIONS:
                 report(f"{rel}: <{tag}> declares {name} (ADR-0059 decision 6)")
+    declared = set()
+    for tag in USES_PERMISSION_TAGS:
+        for el in doc.iter(tag):
+            name = el.get(A + "name", "")
+            declared.add(name)
+            if name not in ALLOWED_PERMISSIONS and name not in CONTACTS_PERMISSIONS:
+                report(f"{rel}: <{tag}> declares {name}, which the permission allow-list does not name (plan section 29 step 2)")
+    for el in doc.iter("permission"):
+        report(f"{rel}: <permission> defines {el.get(A + 'name', '')}, and the app defines none (plan section 29 step 2)")
+    camera_declared = False
+    for el in doc.iter("uses-feature"):
+        name = el.get(A + "name", "")
+        if not name.startswith(CAMERA_FEATURE):
+            continue
+        required = el.get(A + "required")
+        if required != "false":
+            said = "no android:required, which means true" if required is None else f'android:required="{required}"'
+            report(f"{rel}: <uses-feature> {name} is required ({said}); a camera is never required (plan section 29 step 2)")
+        if name == CAMERA_FEATURE:
+            camera_declared = True
+    if main:
+        for name in sorted(ALLOWED_PERMISSIONS - declared):
+            report(f"{rel}: the main manifest does not declare {name}, which the permission allow-list names (plan section 29 step 2)")
+        if not camera_declared:
+            report(f'{rel}: no <uses-feature android:name="{CAMERA_FEATURE}" android:required="false"/> beside CAMERA (plan section 29 step 2)')
     apps = list(doc.iter("application"))
     for app in apps:
         for attr in FORBIDDEN_APPLICATION_ATTRS:
@@ -198,6 +294,35 @@ def check_extraction_rules(path: pathlib.Path, root: pathlib.Path, required: boo
             report(f"{rel}: <{section}> does not exclude the domain(s) {', '.join(missing)} at path \".\" (ADR-0060 decision 8)")
 
 
+def check_camera_apis(bases: list[pathlib.Path], root: pathlib.Path) -> None:
+    """The camera APIs in the Scan module alone (plan section 29 step 2)."""
+    modules = 0
+    for base in bases:
+        if not base.is_dir():
+            report(f"{base.relative_to(root)}: missing; the camera APIs were not checked there")
+    paths = [p for base in bases for p in walk(base) if not (set(p.relative_to(base).parts) & TEST_SOURCE_SETS)]
+    for path in paths:
+        if path.name == "AndroidManifest.xml" or path.suffix not in CAMERA_SUFFIXES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError) as e:
+            # A source that cannot be read was not checked: fail closed.
+            report(f"{path.relative_to(root)}: not readable ({e.__class__.__name__}); the camera APIs were not checked in it")
+            continue
+        if path.name == SCAN_MODULE:
+            modules += 1
+            continue
+        rel = path.relative_to(root)
+        for i, line in enumerate(text.splitlines(), 1):
+            for m in CAMERA_API.finditer(line):
+                if path.name == SCAN_CALLER and m.group(0) in SCAN_CALLER_USES:
+                    continue
+                report(f"{rel}:{i}: names {m.group(0)}, a camera API outside the Scan module {SCAN_MODULE} (plan section 29 step 2)")
+    if modules != 1:
+        report(f"{bases[0].relative_to(root)}: {modules} Scan module(s) {SCAN_MODULE} found, not one; the camera APIs were not held to it")
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(__file__).resolve().parent.parent.parent
     args = argv[1:]
@@ -248,12 +373,16 @@ def main(argv: list[str]) -> int:
             for x in dirs:
                 check_extraction_rules(x / rules, root, d.name == "main" and x.name == "xml")
 
+    check_camera_apis([app, root / "crates" / "human" / "android-platform"], root)
+
     # Raw scans: a provider name anywhere the Android client is built from,
     # and a contacts coordinate anywhere the Gradle dependency list is.
     scanned = 0
     lockfiles = 0
     raw_roots = [android, app / "src", root / "crates" / "human" / "android-platform"]
     for base in raw_roots:
+        if not base.is_dir():
+            report(f"{base.relative_to(root)}: missing; the contacts provider and libraries were not checked there")
         for path in walk(base):
             parts = set(path.relative_to(base).parts)
             if parts & TEST_SOURCE_SETS:
@@ -262,7 +391,9 @@ def main(argv: list[str]) -> int:
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
+            except (UnicodeDecodeError, OSError) as e:
+                # A source that cannot be read was not checked: fail closed.
+                report(f"{path.relative_to(root)}: not readable ({e.__class__.__name__}); the contacts provider and libraries were not checked in it")
                 continue
             scanned += 1
             rel = path.relative_to(root)
@@ -289,7 +420,8 @@ def finish(manifests: int = 0, scanned: int = 0) -> int:
     print(
         f"check_android_contacts_and_backup: OK — {manifests} manifest(s), the extraction rules "
         f"and {scanned} source file(s) read: no contacts permission, provider or library; "
-        f"allowBackup false; every domain excluded from cloud-backup and device-transfer."
+        f"allowBackup false; every domain excluded from cloud-backup and device-transfer; "
+        f"only the allow-listed permissions, the camera not required, its APIs in {SCAN_MODULE} alone."
     )
     return 0
 

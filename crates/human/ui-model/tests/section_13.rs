@@ -93,6 +93,11 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::MakeNewKey
         | Intent::RetryKey
         | Intent::CloseKeyStep
+        // A chosen photo is prepared for the identity's own card, which
+        // carries no trust.
+        | Intent::ChooseOwnPhoto(_)
+        | Intent::ForgetOwnPhoto
+        | Intent::RemoveOwnPhoto
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
         | Intent::SetContactPhoto { .. }

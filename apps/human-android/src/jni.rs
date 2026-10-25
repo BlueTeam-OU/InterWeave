@@ -847,6 +847,30 @@ extern "system" fn Java_org_interweave_human_Native_cameraDenied<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
+/// `Native.photoPicked(bytes)`: the photo picker's answer, `null` when
+/// nothing was chosen (contact-cards design 5.2).
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_photoPicked<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    bytes: JByteArray<'caller>,
+) {
+    env.with_env(|env| -> Result<(), jni::errors::Error> {
+        let chosen = if bytes.is_null() {
+            None
+        } else {
+            Some(env.convert_byte_array(&bytes)?)
+        };
+        crate::activity::photo_picked(chosen);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
 /// `Native.cameraClosed()`: the camera stopped under the scan.
 #[allow(
     unsafe_code,

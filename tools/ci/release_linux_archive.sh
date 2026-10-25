@@ -7,7 +7,7 @@
 # >>> help
 # Build the Linux release archive (plan section 22, packaging/linux):
 #
-#   tools/ci/release_linux_archive.sh [--bin-dir DIR] [--root DIR] <version> <out-dir>
+#   tools/ci/release_linux_archive.sh [--bin-dir DIR] [--root DIR] [--glibc-floor X.Y] <version> <out-dir>
 #
 # writes into <out-dir>
 #   interweave-<version>-x86_64-unknown-linux-gnu.tar.gz
@@ -36,6 +36,15 @@
 # RELEASE_COMPILED_LIST and RELEASE_METADATA_JSON name. --root names the
 # repository whose manifest, units, scripts and plugin are packaged
 # (default: this one).
+#
+# --glibc-floor is the oldest glibc the archive is to run on (ADR-0065 A
+# 2026-10-25; 2.35 in the release run, which builds in an image of that
+# glibc). Every program staged -- the four in bin/ and the plugin's
+# claude-channel -- is held to it with check_glibc_floor.py before the
+# tar is written, and a program needing more is a refusal. Without it no
+# floor is checked: a local build is whatever the builder's glibc makes.
+# RELEASE_GLIBC_CHECK names another checker taking the same arguments
+# (the self-test's stand-in).
 #
 # The archive is byte-for-byte reproducible from the same inputs: names
 # sorted, owner and group 0, modes fixed whatever the umask, every mtime
@@ -74,12 +83,12 @@ bridge=claude-channel
 units=(interweave-daemon@.service interweave-client@.service)
 
 usage() {
-    echo "usage: release_linux_archive.sh [--bin-dir DIR] [--root DIR] <version> <out-dir>" >&2
+    echo "usage: release_linux_archive.sh [--bin-dir DIR] [--root DIR] [--glibc-floor X.Y] <version> <out-dir>" >&2
     exit 2
 }
 die() { echo "release_linux_archive: $*" >&2; exit 1; }
 
-bin_dir=""
+bin_dir="" glibc_floor=""
 case "${1-}" in
 -h | --help)
     sed -n '/^# >>> help$/,/^# <<< help$/p' "$0" | sed '1d;$d;s/^# \{0,1\}//'
@@ -93,6 +102,10 @@ while [[ "${1-}" == --* ]]; do
     case "$1" in
     --bin-dir) bin_dir="$2" ;;
     --root) root="$(cd "$2" && pwd)" || usage ;;
+    --glibc-floor)
+        [[ "$2" =~ ^[0-9]+\.[0-9]+$ ]] || usage
+        glibc_floor="$2"
+        ;;
     *) usage ;;
     esac
     shift 2
@@ -184,6 +197,18 @@ if [[ -z "$compiled" ]]; then
     tree_args=(tree --locked -e normal --target "$target" --prefix none -f '{p}')
     for p in "${packages[@]}"; do tree_args+=(-p "$p"); done
     (cd "$root" && cargo "${tree_args[@]}") > "$compiled" || die "cargo tree failed"
+fi
+if [[ -n "$glibc_floor" ]]; then
+    elves=("${programs[@]/#/$stage/bin/}" "$stage/claude-plugin/interweave/bin/$bridge")
+    # A plain command each, not an array of one: the wiring check
+    # (check_guards_are_wired.sh) reads a script as run only so.
+    if [[ -n "${RELEASE_GLIBC_CHECK-}" ]]; then
+        "$RELEASE_GLIBC_CHECK" "$glibc_floor" "${elves[@]}" >&2 \
+            || die "a program needs a glibc above the floor $glibc_floor (above)"
+    else
+        python3 "$here/check_glibc_floor.py" "$glibc_floor" "${elves[@]}" >&2 \
+            || die "a program needs a glibc above the floor $glibc_floor (above)"
+    fi
 fi
 python3 "$here/release_notices.py" "$metadata" "$compiled" "$stage/THIRD-PARTY-NOTICES.md" "${packages[@]}" >&2 \
     || die "the third-party notices could not be written"

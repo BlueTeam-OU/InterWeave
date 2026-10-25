@@ -24,7 +24,7 @@ use interweave_human_store::{
 };
 use interweave_human_transport_client::{CancelledSend, TransportClient};
 use interweave_human_ui_model::{
-    ContactView, ConversationKey, PhotoEdit, Proposal, ProposalContext, Table,
+    ContactView, ConversationKey, PhotoBasis, PhotoEdit, Proposal, ProposalContext, Table,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -95,6 +95,120 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     contact_undo: Option<Box<HeldContact>>,
     /// The last hold handed out: each change gets the next.
     contact_holds: u64,
+    /// The own card editor's photo: held, or being prepared on a thread
+    /// of its own, until a Save takes it or the editor lets it go.
+    own_photo: OwnPhoto,
+    /// The own card's Saves not yet written, in the order they were made:
+    /// one that named a photo still being prepared waits for it, and the
+    /// ones after it wait their turn, so a later edit never lands before
+    /// an earlier one and none is dropped (contact-cards design 5.2:
+    /// "Save waits for it"; #449 F3).
+    own_saves: VecDeque<OwnSave>,
+}
+
+/// What the own card's editor holds of its photo, on the facade side.
+#[derive(Default)]
+enum Held {
+    /// The saved card's: nothing chosen, or a choice that came to nothing
+    /// over it.
+    #[default]
+    Card,
+    /// Removed in the editor: a Save writes no photo.
+    Removed,
+    /// Prepared for the model's choice `seq`: these bytes, exactly what a
+    /// share sends.
+    Photo {
+        seq: u64,
+        bytes: Vec<u8>,
+        /// What it replaced, which a later choice may still name: the model
+        /// may not have taken this answer yet (#449 F4).
+        under: Box<Held>,
+    },
+}
+
+impl Held {
+    /// The photo a choice's basis names in what this side holds: the
+    /// prepared photo of that choice, found under any answer the model has
+    /// not taken, else the card's; a removal; or the card's.
+    fn named(self, basis: PhotoBasis) -> Self {
+        let PhotoBasis::Prepared(wanted) = basis else {
+            return match basis {
+                PhotoBasis::Removed => Self::Removed,
+                PhotoBasis::Card | PhotoBasis::Prepared(_) => Self::Card,
+            };
+        };
+        let mut held = self;
+        loop {
+            match held {
+                Self::Photo { seq, bytes, .. } if seq == wanted => {
+                    return Self::Photo {
+                        seq,
+                        bytes,
+                        under: Box::new(Self::Card),
+                    };
+                }
+                Self::Photo { under, .. } => held = *under,
+                Self::Card | Self::Removed => return Self::Card,
+            }
+        }
+    }
+
+    /// What a preparation came to: its photo over its fallback, or the
+    /// fallback.
+    fn prepared(prepared: Option<Vec<u8>>, seq: u64, fallback: Self) -> Self {
+        match prepared {
+            Some(bytes) => Self::Photo {
+                seq,
+                bytes,
+                under: Box::new(fallback),
+            },
+            None => fallback,
+        }
+    }
+}
+
+/// A choice being prepared: a decode and an encode of a camera-sized
+/// image, kept off the task that carries messages.
+struct Preparing {
+    /// The model's number for the choice, which the answer carries.
+    seq: u64,
+    done: std::sync::mpsc::Receiver<Option<Vec<u8>>>,
+    /// What the editor showed before the choice, which stands should it
+    /// come to nothing (design 5.2).
+    fallback: Held,
+}
+
+/// Where a preparation stands.
+enum Answer {
+    /// Still running.
+    Waiting,
+    /// Over: the photo, or `None` when nothing could be prepared.
+    Came(Option<Vec<u8>>),
+}
+
+impl Preparing {
+    fn answer(&self) -> Answer {
+        match self.done.try_recv() {
+            Ok(prepared) => Answer::Came(prepared),
+            Err(std::sync::mpsc::TryRecvError::Empty) => Answer::Waiting,
+            // The thread went without an answer: nothing was prepared.
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Answer::Came(None),
+        }
+    }
+}
+
+/// The own card editor's photo, on the facade side.
+enum OwnPhoto {
+    Held(Held),
+    Preparing(Preparing),
+}
+
+/// A Save of the own card, not yet written.
+struct OwnSave {
+    command: Command,
+    /// The editor's photo as the Save took it: held, or still being
+    /// prepared.
+    photo: OwnPhoto,
 }
 
 /// A contact's change held for its Undo, by the hold the model names it by.
@@ -161,6 +275,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             card_undo: None,
             contact_undo: None,
             contact_holds: 0,
+            own_photo: OwnPhoto::Held(Held::Card),
+            own_saves: VecDeque::new(),
         }
     }
 
@@ -276,7 +392,147 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             self.reported = Some(diagnostics);
             updates.push(Update::Diagnostics(diagnostics));
         }
+        self.own_photo_turn(&mut updates);
         updates
+    }
+
+    /// The own card's photo, once a preparation is over: the editor's
+    /// preview, and the Saves that waited for theirs, in their order.
+    fn own_photo_turn(&mut self, updates: &mut Vec<Update>) {
+        if let OwnPhoto::Preparing(preparing) = &self.own_photo
+            && let Answer::Came(prepared) = preparing.answer()
+        {
+            let seq = preparing.seq;
+            updates.push(Update::OwnPhotoPrepared {
+                seq,
+                photo: prepared.as_deref().and_then(cards::shown),
+            });
+            let OwnPhoto::Preparing(preparing) =
+                std::mem::replace(&mut self.own_photo, OwnPhoto::Held(Held::Card))
+            else {
+                return;
+            };
+            self.own_photo = OwnPhoto::Held(Held::prepared(prepared, seq, preparing.fallback));
+        }
+        for save in &mut self.own_saves {
+            if let OwnPhoto::Preparing(preparing) = &save.photo
+                && let Answer::Came(prepared) = preparing.answer()
+            {
+                let OwnPhoto::Preparing(preparing) =
+                    std::mem::replace(&mut save.photo, OwnPhoto::Held(Held::Card))
+                else {
+                    continue;
+                };
+                let seq = preparing.seq;
+                save.photo = OwnPhoto::Held(Held::prepared(prepared, seq, preparing.fallback));
+            }
+        }
+        self.own_saves_due(updates);
+    }
+
+    /// Write the Saves at the queue's front whose photo is known, in their
+    /// order; one still waiting for its photo holds the rest.
+    fn own_saves_due(&mut self, updates: &mut Vec<Update>) {
+        while self
+            .own_saves
+            .front()
+            .is_some_and(|save| matches!(save.photo, OwnPhoto::Held(_)))
+        {
+            let Some(OwnSave {
+                command,
+                photo: OwnPhoto::Held(held),
+            }) = self.own_saves.pop_front()
+            else {
+                continue;
+            };
+            let Command::SetOwnCard {
+                name,
+                surname,
+                photo,
+            } = &command
+            else {
+                continue;
+            };
+            // The prepared photo names what the editor held: its bytes, no
+            // photo after a removal, or the card's own.
+            let (edit, prepared) = match (photo, held) {
+                (PhotoEdit::Prepared, Held::Photo { bytes, .. }) => {
+                    (PhotoEdit::Prepared, Some(bytes))
+                }
+                (PhotoEdit::Prepared, Held::Removed) => (PhotoEdit::Remove, None),
+                (PhotoEdit::Prepared, Held::Card) => (PhotoEdit::Keep, None),
+                (edit, _) => (edit.clone(), None),
+            };
+            if let Err(why) = self.set_own_card(name, surname.as_deref(), &edit, prepared, updates)
+            {
+                updates.push(Update::Failed { command, why });
+            }
+        }
+    }
+
+    /// The own card's photo and its Save (contact-cards design 5.2).
+    fn own_card_command(&mut self, command: &Command, updates: &mut Vec<Update>) {
+        match command {
+            Command::PrepareOwnPhoto { chosen, seq, basis } => {
+                // A choice not yet saved is replaced: its thread runs out
+                // and its answer goes nowhere. The fallback is what the
+                // model showed before it, as it names it: a photo this side
+                // holds counts only when it is that choice's, since an
+                // answer the model has not taken is no photo it showed
+                // (#449 F4).
+                let held = match std::mem::replace(&mut self.own_photo, OwnPhoto::Held(Held::Card))
+                {
+                    OwnPhoto::Held(held) => held,
+                    OwnPhoto::Preparing(preparing) => preparing.fallback,
+                };
+                let fallback = held.named(*basis);
+                let chosen = chosen.clone();
+                let (answer, done) = std::sync::mpsc::channel();
+                let spawned = std::thread::Builder::new()
+                    .name("own-photo".to_owned())
+                    .spawn(move || {
+                        let prepared = crate::card_photo::prepare_photo(&chosen).ok();
+                        let _ = answer.send(prepared.map(|p| p.bytes));
+                    });
+                self.own_photo = if spawned.is_ok() {
+                    OwnPhoto::Preparing(Preparing {
+                        seq: *seq,
+                        done,
+                        fallback,
+                    })
+                } else {
+                    // No thread: as an image that could not be prepared.
+                    updates.push(Update::OwnPhotoPrepared {
+                        seq: *seq,
+                        photo: None,
+                    });
+                    OwnPhoto::Held(fallback)
+                };
+            }
+            Command::ForgetOwnPhoto => {
+                self.own_photo = OwnPhoto::Held(Held::Card);
+            }
+            Command::RemoveOwnPhoto => {
+                self.own_photo = OwnPhoto::Held(Held::Removed);
+            }
+            Command::SetOwnCard { photo, .. } => {
+                // The editor's photo goes with the Save that names it; after
+                // any Save the editor starts again from the card, as the
+                // model's does.
+                let held = std::mem::replace(&mut self.own_photo, OwnPhoto::Held(Held::Card));
+                let photo = if matches!(photo, PhotoEdit::Prepared) {
+                    held
+                } else {
+                    OwnPhoto::Held(Held::Card)
+                };
+                self.own_saves.push_back(OwnSave {
+                    command: command.clone(),
+                    photo,
+                });
+                self.own_saves_due(updates);
+            }
+            _ => {}
+        }
     }
 
     /// One facade event, and what follows from it.
@@ -477,11 +733,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 Ok(())
             }
             Command::ShareCard(key) => Box::pin(self.share_card(key, now, &mut updates)).await,
-            Command::SetOwnCard {
-                name,
-                surname,
-                photo,
-            } => self.set_own_card(name, surname.as_deref(), photo, &mut updates),
+            Command::PrepareOwnPhoto { .. }
+            | Command::ForgetOwnPhoto
+            | Command::RemoveOwnPhoto
+            | Command::SetOwnCard { .. } => {
+                self.own_card_command(&command, &mut updates);
+                Ok(())
+            }
             Command::RenameContact { contact_id, name } => {
                 self.rename_contact(contact_id, name, &mut updates)
             }
@@ -872,6 +1130,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         name: &str,
         surname: Option<&str>,
         photo: &PhotoEdit,
+        prepared: Option<Vec<u8>>,
         updates: &mut Vec<Update>,
     ) -> Result<(), Failure> {
         // The card is signed when it is shared, not when it is saved:
@@ -889,6 +1148,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             .map_err(|e| store_failure(&e))?;
         let photo = match photo {
             PhotoEdit::Keep => current.photo,
+            // The photo this side prepared; one that could not be, or none
+            // held, leaves the card's as it was (design 5.2, "The photo").
+            PhotoEdit::Prepared => prepared.or(current.photo),
             PhotoEdit::Remove => None,
             PhotoEdit::Chosen(chosen) => Some(
                 crate::card_photo::prepare_photo(chosen)
@@ -1060,6 +1322,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let photo = match photo {
             PhotoEdit::Keep => return Ok(()),
             PhotoEdit::Remove => return self.remove_contact_photo(contact_id, updates),
+            // What this side prepares is the own card's alone: a contact's
+            // photo is chosen with its bytes.
+            PhotoEdit::Prepared => return Err(Failure::OutOfBounds),
             PhotoEdit::Chosen(chosen) => Some(
                 crate::card_photo::prepare_photo(chosen)
                     .map_err(|_| Failure::OutOfBounds)?
