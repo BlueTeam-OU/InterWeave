@@ -5,8 +5,8 @@
 #
 # >>> help
 # Does the Android client reach no address book, leave the phone through
-# no platform backup or transfer, and ask no permission its records do
-# not name?
+# no platform backup or transfer, ask no permission its records do not
+# name, and use the camera only to scan a code?
 #
 #   tools/checks/check_android_contacts_and_backup.py [--root <dir>]
 #
@@ -32,7 +32,8 @@
 #   `USE_BIOMETRIC` and, from step 5, `CAMERA` with `<uses-feature
 #   android:name="android.hardware.camera" android:required="false"/>`
 #   beside it -- any other permission or a required camera feature fails
-#   the check by name".
+#   the check by name ... and from step 5 it holds the camera APIs to the
+#   Scan module alone."
 #
 # WHAT IS READ, under apps/human-android/:
 #   - every AndroidManifest.xml of a source set that can reach an APK the
@@ -64,6 +65,14 @@
 #     (android.hardware.camera*) in any manifest read says
 #     android:required="false" in so many words, the attribute's absence
 #     meaning "true";
+#   - the camera APIs (camera2, the legacy Camera, CameraX, the NDK's
+#     ACamera*, the camera service, the capture intents, the CAMERA
+#     permission and the camera features by name) in the Kotlin, Java,
+#     Rust, Gradle and resource sources of apps/human-android, read raw:
+#     anywhere in the Scan module, CodeCamera.kt; in MainActivity.kt only
+#     its use of the module -- the CAMERA permission asked and the
+#     camera feature asked of the package manager -- and nowhere else
+#     (the manifests' declarations are the allow-list's);
 #   - the contacts provider: no manifest, Kotlin, Java, Gradle script,
 #     version catalog or Rust source of the Android client (the app, its
 #     Rust library, crates/human/android-platform) naming
@@ -77,8 +86,8 @@
 #     artifact contains "contact" (any case).
 #
 # FAIL-CLOSED: an absent main manifest, an absent extraction-rules file,
-# a manifest that does not parse, or no lockfile read is a failure, not
-# a pass. What the check does NOT see: the
+# a manifest that does not parse, no lockfile read, or no Scan module
+# found is a failure, not a pass. What the check does NOT see: the
 # desktop half of decision 6 (the client reads no system address book
 # there), which no tree check can pin, the desktop having no manifest;
 # and a permission a library's own manifest merges into the APK, which
@@ -122,6 +131,20 @@ ALLOWED_PERMISSIONS = {
     )
 }
 CAMERA_FEATURE = "android.hardware.camera"
+# The camera APIs by the names they are reached by. Read raw over the
+# Android client's sources, so a comment naming one counts too.
+CAMERA_API = re.compile(
+    r"android\.hardware\.camera2|android/hardware/camera2"
+    r"|android\.hardware\.Camera\b|android/hardware/Camera\b"
+    r"|androidx\.camera|\bCameraManager\b|\bCAMERA_SERVICE\b"
+    r"|\bACamera\w*|\bACTION_IMAGE_CAPTURE\w*|\bACTION_VIDEO_CAPTURE\b"
+    r"|\bINTENT_ACTION_STILL_IMAGE_CAMERA\w*|\bINTENT_ACTION_VIDEO_CAMERA\b"
+    r"|permission\.CAMERA\b|\bFEATURE_CAMERA\w*|android\.hardware\.camera\b[\w.]*"
+)
+SCAN_MODULE = "CodeCamera.kt"
+# MainActivity's use of the Scan module, and nothing else of the camera.
+SCAN_CALLER = "MainActivity.kt"
+SCAN_CALLER_USES = {"permission.CAMERA", "FEATURE_CAMERA_ANY"}
 FORBIDDEN_APPLICATION_ATTRS = ("backupAgent", "fullBackupContent", "fullBackupOnly")
 # Every domain data_extraction_rules.xml accepts, credential- and
 # device-protected: a domain left out is a directory a store or a key
@@ -263,6 +286,32 @@ def check_extraction_rules(path: pathlib.Path, root: pathlib.Path, required: boo
             report(f"{rel}: <{section}> does not exclude the domain(s) {', '.join(missing)} at path \".\" (ADR-0060 decision 8)")
 
 
+def check_camera_apis(app: pathlib.Path, root: pathlib.Path) -> None:
+    """The camera APIs in the Scan module alone (plan section 29 step 2)."""
+    modules = 0
+    for path in walk(app):
+        rel_parts = set(path.relative_to(app).parts)
+        if rel_parts & TEST_SOURCE_SETS or path.name == "AndroidManifest.xml":
+            continue
+        if path.suffix not in {".kt", ".java", ".rs", ".kts", ".gradle", ".toml", ".xml", ".lockfile"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if path.name == SCAN_MODULE:
+            modules += 1
+            continue
+        rel = path.relative_to(root)
+        for i, line in enumerate(text.splitlines(), 1):
+            for m in CAMERA_API.finditer(line):
+                if path.name == SCAN_CALLER and m.group(0) in SCAN_CALLER_USES:
+                    continue
+                report(f"{rel}:{i}: names {m.group(0)}, a camera API outside the Scan module {SCAN_MODULE} (plan section 29 step 2)")
+    if modules != 1:
+        report(f"{app.relative_to(root)}: {modules} Scan module(s) {SCAN_MODULE} found, not one; the camera APIs were not held to it")
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(__file__).resolve().parent.parent.parent
     args = argv[1:]
@@ -313,6 +362,8 @@ def main(argv: list[str]) -> int:
             for x in dirs:
                 check_extraction_rules(x / rules, root, d.name == "main" and x.name == "xml")
 
+    check_camera_apis(app, root)
+
     # Raw scans: a provider name anywhere the Android client is built from,
     # and a contacts coordinate anywhere the Gradle dependency list is.
     scanned = 0
@@ -355,7 +406,7 @@ def finish(manifests: int = 0, scanned: int = 0) -> int:
         f"check_android_contacts_and_backup: OK — {manifests} manifest(s), the extraction rules "
         f"and {scanned} source file(s) read: no contacts permission, provider or library; "
         f"allowBackup false; every domain excluded from cloud-backup and device-transfer; "
-        f"only the allow-listed permissions, the camera not required."
+        f"only the allow-listed permissions, the camera not required, its APIs in {SCAN_MODULE} alone."
     )
     return 0
 

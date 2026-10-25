@@ -8,7 +8,8 @@
 # and app lockfile, and breaks each declaration once (plan §29 exit gate
 # (b), "the tree check, broken on purpose once per declaration and once
 # per allow-list failure: an extra permission, and the camera feature
-# declared required"). The
+# declared required"), and the camera APIs once outside the Scan module
+# (exit gate (e)). The
 # unbroken copy passes first, so a check that fails everything cannot
 # pass this test.
 
@@ -42,6 +43,9 @@ make_root() {
     cp "$REAL/$MAIN/res/xml/data_extraction_rules.xml" "$r/$MAIN/res/xml/data_extraction_rules.xml"
     cp "$REAL/$APP/gradle.lockfile" "$r/$APP/gradle.lockfile"
     printf 'package org.interweave.human\nclass Plain\n' > "$r/$MAIN/kotlin/org/interweave/human/Plain.kt"
+    # The Scan module and its one caller, as they are: the control passes
+    # with their real camera uses.
+    cp "$REAL/$MAIN/kotlin/org/interweave/human/CodeCamera.kt" "$REAL/$MAIN/kotlin/org/interweave/human/MainActivity.kt" "$r/$MAIN/kotlin/org/interweave/human/"
     printf '// SPDX-License-Identifier: Apache-2.0\npub fn plain() {}\n' > "$r/crates/human/android-platform/src/lib.rs"
 }
 
@@ -150,6 +154,21 @@ fails "camera-feature-absent" 'no <uses-feature android:name="android.hardware.c
     "edit $M \"s.replace('<uses-feature android:name=\\\"android.hardware.camera\\\" android:required=\\\"false\\\" />', '')\""
 fails "camera-any-required-variant" "release/AndroidManifest.xml: <uses-feature> android.hardware.camera.any is required" \
     "mkdir -p $APP/src/release && printf '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><uses-feature android:name=\"android.hardware.camera.any\" android:required=\"true\" /></manifest>\n' > $APP/src/release/AndroidManifest.xml"
+# The camera APIs outside the Scan module: another Kotlin file, the
+# Activity beyond its use of the module, the Rust library, a dependency.
+fails "camera-api-kotlin" "Plain.kt:3: names android.hardware.camera2, a camera API outside the Scan module CodeCamera.kt" \
+    "printf 'import android.hardware.camera2.CameraManager\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "camera-api-activity" "MainActivity.kt:1: names CameraManager, a camera API outside the Scan module" \
+    "edit $MAIN/kotlin/org/interweave/human/MainActivity.kt \"'// CameraManager\\n' + s\""
+fails "camera-api-rust" "apps/human-android/src/lib.rs:2: names ACameraManager_create" \
+    "printf '// SPDX-License-Identifier: Apache-2.0\nfn open() { ACameraManager_create(); }\n' > apps/human-android/src/lib.rs"
+fails "camera-api-gradle" "names androidx.camera, a camera API outside the Scan module" \
+    "printf 'dependencies { implementation(\"androidx.camera:camera-core:1.4.0\") }\n' > $APP/build.gradle.kts"
+fails "camera-api-capture-intent" "names ACTION_IMAGE_CAPTURE" \
+    "printf 'val i = android.provider.MediaStore.ACTION_IMAGE_CAPTURE\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "scan-module-missing" "0 Scan module(s) CodeCamera.kt found" \
+    "rm $MAIN/kotlin/org/interweave/human/CodeCamera.kt"
+
 # A test source set's manifest is test tooling, not the shipped app.
 R="$TMP/androidtest"; make_root "$R"
 mkdir -p "$R/$APP/src/androidTest"
