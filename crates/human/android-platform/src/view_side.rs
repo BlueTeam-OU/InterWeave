@@ -12,8 +12,7 @@
 
 use interweave_human_app_core::{ModelSide, Opener, Surface};
 
-use crate::hub::StoreRefusal;
-use crate::hub::ToView;
+use crate::hub::{StoreAnswer, StoreGeneration, ToView};
 
 /// The store could not be listed for this view: what it holds stays
 /// unshown until the view attaches again. A class, never content.
@@ -28,11 +27,9 @@ pub struct ViewSide<S: Surface, O: Opener> {
     network: bool,
     /// Whether the person must authenticate first, as the hub last said.
     authentication: bool,
-    /// The store's refusal of the last start, as the hub last said.
-    store: Option<StoreRefusal>,
-    /// How many store answers the hub has sent this view: a refusal of a
-    /// start, or the end of one.
-    store_answers: u64,
+    /// The last start's answer and the hub's count with it, as the hub
+    /// last said; `None` until a start has answered.
+    store: Option<(StoreAnswer, StoreGeneration)>,
 }
 
 impl<S: Surface, O: Opener> ViewSide<S, O> {
@@ -45,24 +42,15 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             network: true,
             authentication: false,
             store: None,
-            store_answers: 0,
         }
     }
 
-    /// The screen the store's refusal of the last start calls for (ADR-0060
-    /// decision 6), shown in place of the chats; `None` once a start
-    /// opened the store.
+    /// The last start's answer as the store saw it (ADR-0060 decision 6),
+    /// with the hub's count of answers when it was said, which a view
+    /// attached again hears unchanged; `None` until a start has answered.
     #[must_use]
-    pub const fn store_refused(&self) -> Option<StoreRefusal> {
+    pub const fn store_answer(&self) -> Option<(StoreAnswer, StoreGeneration)> {
         self.store
-    }
-
-    /// How many store answers the hub has sent: a count that grows with
-    /// each refused start and each start that opened the store, so a view
-    /// tells a refusal that came after its own discard from one before it.
-    #[must_use]
-    pub const fn store_answers(&self) -> u64 {
-        self.store_answers
     }
 
     /// Apply one message from the hub.
@@ -90,10 +78,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             }
             ToView::Update(update) => self.side.apply(*update),
             ToView::ListingFailed => return Err(ListingFailed),
-            ToView::StoreRefused(screen) => {
-                self.store = screen;
-                self.store_answers += 1;
-            }
+            ToView::Store(answer, generation) => self.store = Some((answer, generation)),
         }
         Ok(())
     }

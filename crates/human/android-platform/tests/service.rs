@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use interweave_human_android_platform::stand_in;
 use interweave_human_android_platform::{
     AvailabilityMode, Ended, Link, NetworkReport, ServiceHost, ServiceLaunch, StartRefused,
-    StayReachable, ToView, ViewLink,
+    StayReachable, StoreAnswer, ToView, ViewLink,
 };
 use interweave_human_app_core::Update;
 use interweave_human_client_api::{ClientEvent, SessionState};
@@ -942,15 +942,16 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
         Err(StartRefused::StoreKeyInvalidated)
     );
     assert!(!service.is_running());
-    // A view attached now hears which screen the refusal calls for.
+    // A view attached now hears which screen the refusal calls for, at
+    // the hub's count: the opened first start, then this refusal.
     let mut link = service.hub().attach(Arc::new(|| {}));
-    assert!(
-        link.take().iter().any(|m| matches!(
-            m,
-            ToView::StoreRefused(Some(
-                interweave_human_android_platform::StoreRefusal::KeyLost
-            ))
-        )),
+    let refused = store_answers(&mut link);
+    assert_eq!(
+        refused,
+        [(
+            StoreAnswer::Refused(interweave_human_android_platform::StoreRefusal::KeyLost),
+            2
+        )],
         "the key-lost screen"
     );
     let health = service
@@ -966,17 +967,77 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
         .expect("a plan");
     assert_eq!(plan.scope(), DiscardScope::Everything);
     assert!(plan.removes_key());
-    service
+    let discarded = service
         .discard_store(&app.dir, PROFILE, &keystore, plan.confirm())
         .expect("discarded");
+    assert_eq!(
+        discarded.answered.count(),
+        2,
+        "the discard ends after the refusal's answer"
+    );
     service
         .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("the store is recreated under a new key");
+    let opened = store_answers(&mut link);
+    assert_eq!(
+        opened,
+        [(StoreAnswer::Opened, 3)],
+        "the screen goes once a start opened the store, counted past the discard"
+    );
+    let _ = service.stop(GRACE);
+}
+
+/// The store answers a view took from `link`, with the hub's count.
+fn store_answers(link: &mut ViewLink) -> Vec<(StoreAnswer, u64)> {
+    link.take()
+        .into_iter()
+        .filter_map(|m| match m {
+            ToView::Store(answer, generation) => Some((answer, generation.count())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A start refused for a reason no store screen shows answers so, never
+/// as an opened store, whether the host refused it -- here no profile --
+/// or the platform side did before reaching it (#377 review r3,
+/// pre-existing); a start while the client runs answers nothing new.
+#[test]
+fn a_start_refused_elsewhere_answers_so_and_never_as_an_opened_store() {
+    let app = app();
+    let keystore = std::sync::Arc::new(StoreKeystore {
+        invalidated: std::sync::atomic::AtomicBool::new(false),
+    });
+    let service = ServiceHost::new();
+    let mut link = service.hub().attach(Arc::new(|| {}));
+    assert!(store_answers(&mut link).is_empty(), "no start, no answer");
     assert!(
-        link.take()
-            .iter()
-            .any(|m| matches!(m, ToView::StoreRefused(None))),
-        "the screen goes once a start opened the store"
+        service
+            .start_without_network(&app.dir, PROFILE, keystore.clone())
+            .is_err(),
+        "no profile"
+    );
+    service.refused_before_start();
+    assert_eq!(
+        store_answers(&mut link),
+        [
+            (StoreAnswer::OtherRefusal, 1),
+            (StoreAnswer::OtherRefusal, 2)
+        ]
+    );
+
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    service
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
+        .expect("started");
+    service
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
+        .expect("a start while running does nothing");
+    service.refused_before_start();
+    assert_eq!(
+        store_answers(&mut link),
+        [(StoreAnswer::Opened, 3)],
+        "the second start and the late refusal changed nothing"
     );
     let _ = service.stop(GRACE);
 }
