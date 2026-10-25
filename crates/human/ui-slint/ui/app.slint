@@ -2185,6 +2185,21 @@ component ProposalCard inherits Rectangle {
                 accessible-role: text;
                 accessible-label: self.text;
             }
+            // Copy PeerId under the PeerId it copies (design section
+            // 5.4), which leaves the action line Decline and Accept alone.
+            HorizontalLayout {
+                alignment: start;
+                ActionButton {
+                    text: root.card.copy;
+                    text-button: true;
+                    target: 48px;
+                    focus-key: "proposal-copy:" + root.card.handle;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "proposal-copy:" + root.card.handle;
+                    pressed => { root.copy(); }
+                    focused(k) => { root.focused(k); }
+                }
+            }
         }
         VerticalLayout {
             spacing: 2px;
@@ -2238,21 +2253,15 @@ component ProposalCard inherits Rectangle {
             accessible-role: text;
             accessible-label: self.text;
         }
-        // The actions wrap to their own lines when the row is narrow,
-        // rather than squeezing a label out of its button.
+        // One line, which never wraps: a layout choosing lines by width
+        // would read the window's, a binding loop on Slint 1.18. Decline
+        // and the longest Accept fit a phone at 100 % text (tests/cards.rs,
+        // `a_proposal_fits_a_phone_with_its_longest_accept`); at 200 % they
+        // do not, though design section 8 asks them to wrap -- an open
+        // question to ux-designer.
         HorizontalLayout {
             alignment: end;
             spacing: 8px;
-            ActionButton {
-                text: root.card.copy;
-                text-button: true;
-                target: 48px;
-                focus-key: "proposal-copy:" + root.card.handle;
-                focus-seq: root.focus-seq;
-                focus-wanted: root.focus-target == "proposal-copy:" + root.card.handle;
-                pressed => { root.copy(); }
-                focused(k) => { root.focused(k); }
-            }
             if !root.card.closes: ActionButton {
                 text: root.card.decline;
                 text-button: true;

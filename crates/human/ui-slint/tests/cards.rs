@@ -1253,3 +1253,43 @@ fn a_proposal_row_is_as_tall_as_what_it_says() {
         );
     }
 }
+
+/// A proposal fits a phone-wide window with its longest Accept label,
+/// "Accept as a new contact" (case D): nothing of the card reaches past
+/// the window, so the list never scrolls sideways under a swipe. Copy
+/// `PeerId` sat on the action line once and pushed it 23 px past its row.
+/// Mutation: Copy `PeerId` back on the action line.
+#[test]
+fn a_proposal_fits_a_phone_with_its_longest_accept() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", false),
+        ProposalContext {
+            same_name: vec![ContactRef {
+                contact_id: "c2".to_owned(),
+                name: "Ada".to_owned(),
+            }],
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, P);
+    assert!(shows(&view, text(UiText::AcceptAsNew)), "case D");
+    let cards: Vec<ElementHandle> =
+        ElementHandle::find_by_element_type_name(view.window(), "ProposalCard").collect();
+    let (at, size) = (cards[0].absolute_position(), cards[0].size());
+    assert!(
+        at.x >= 0.0 && at.x + size.width <= 390.0,
+        "the card at {at:?}, {size:?}, inside 390 px"
+    );
+    let accept = bounds(&view, text(UiText::AcceptAsNew));
+    assert!(
+        accept.2 <= at.x + size.width && accept.3 <= at.y + size.height,
+        "Accept at {accept:?} inside the card"
+    );
+}
