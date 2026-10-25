@@ -1944,3 +1944,48 @@ fn a_matching_card_says_it_matches_only_when_nothing_is_kept() {
         "control: written"
     );
 }
+
+/// #449 F1: the editor's circle draws the card's saved photo when it
+/// opens with nothing chosen, and the new one after a Save that changed
+/// it, not a blank or an earlier one. Mutation: the circle's image set
+/// only when the photo step changes.
+#[test]
+fn the_editor_draws_the_saved_photo_and_follows_a_new_one() {
+    let mut view = view();
+    view.photo_picker_hook(|| {});
+    let mut model = UiModel::new();
+    let identity = |photo: Option<Photo>| IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: photo.is_some(),
+        photo,
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        peer: Some(peer(Q)),
+    };
+    model.identity_shown(identity(Some(photo())));
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    let drawn = |view: &View| {
+        let image = view.window().get_own_edit_photo();
+        let size = image.size();
+        (size.width, size.height)
+    };
+    assert!(view.window().get_own_edit_has_photo());
+    assert_eq!(drawn(&view), (4, 4), "the saved photo, drawn");
+
+    let other = Photo {
+        width: 8,
+        height: 8,
+        rgba: vec![90; 256],
+    };
+    model.identity_shown(identity(Some(other)));
+    view.render(&model);
+    assert_eq!(drawn(&view), (8, 8), "the card's new photo");
+}

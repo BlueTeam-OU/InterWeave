@@ -505,6 +505,10 @@ pub(crate) struct CardScreens {
     pub(crate) photo_picker: Option<Rc<dyn Fn()>>,
     /// The editor's photo step as last drawn: what a change of it says.
     own_step_drawn: Option<OwnPhotoStep>,
+    /// The photo the editor's circle was last given, once it was given
+    /// one: redrawn whenever what it should show changes, a saved card's
+    /// photo included, not only when the step does (#449 F1).
+    own_photo_drawn: Option<Option<Photo>>,
     /// A contact deleted from its page: the list's first row takes focus
     /// once the list is drawn without it (design section 9's focus table).
     deleted: Option<String>,
@@ -1381,10 +1385,13 @@ impl View {
             }
             .into(),
         );
+        if self.cards.own_photo_drawn.as_ref().map(Option::as_ref) != Some(shown) {
+            window.set_own_edit_photo(shown.map(image).unwrap_or_default());
+            self.cards.own_photo_drawn = Some(shown.cloned());
+        }
         if self.cards.own_step_drawn == step {
             return None;
         }
-        window.set_own_edit_photo(shown.map(image).unwrap_or_default());
         let was = std::mem::replace(&mut self.cards.own_step_drawn, step.clone());
         let from_preparing = matches!(was, Some(OwnPhotoStep::Preparing));
         match step {
