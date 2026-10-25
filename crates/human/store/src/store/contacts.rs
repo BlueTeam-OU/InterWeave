@@ -374,8 +374,9 @@ pub fn direct_conversation_id(peer: &TransportIdentity, endpoint: &EndpointId) -
 /// full case folding, each run of whitespace one space and the ends
 /// trimmed, then Unicode TS #39's confusable skeleton. A peer naming
 /// itself "Аnna" with a Cyrillic А, "Anna Rossi" with a no-break space or
-/// "Ａnna" in fullwidth letters meets the same warning as "Anna". Only
-/// compared, never shown or stored. White space is Rust's `White_Space`,
+/// "Ａnna" in fullwidth letters meets the same warning as "Anna". The
+/// design keeps the key for comparison: a key is not a name to show or
+/// store. White space is Rust's `White_Space`,
 /// a superset of the design's Zs and tab; a card's name holds no other
 /// (HUMAN-CHAT.md refuses controls in it).
 #[must_use]
