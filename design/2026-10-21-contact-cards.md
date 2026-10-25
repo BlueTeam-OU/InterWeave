@@ -1489,10 +1489,11 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    `CardKeepsPhoto`, and its right swipe is withheld. While a right
    drag is held past the threshold and not yet released, an action of
    §5.4.5 adds the warning to the row: the row returns to rest, and
-   the later release accepts nothing. On desktop, the test drags the
-   row of a card naming itself "Anna Rossi" with the pointer and holds
-   it, while the person, using the keyboard, accepts another proposal that saves
-   a contact "Anna Rossi" on another PeerId. While a withheld right
+   the later release accepts nothing. On desktop, with no contact
+   named "Anna Rossi", the test drags the row of a card naming itself
+   "Anna Rossi" with the pointer and holds it, while the person, using
+   the keyboard, accepts another proposal that saves a contact "Anna
+   Rossi" on another PeerId. While a withheld right
    drag is held, an action of §5.4.5 removes the warning: the row
    stays still, and the release accepts nothing. On desktop, the test
    first accepts the other proposal from the keyboard, so that the row
