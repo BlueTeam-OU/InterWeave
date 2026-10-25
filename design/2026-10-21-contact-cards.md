@@ -1684,7 +1684,8 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    arrives on a route of a contact whose photo came from an earlier card: the proposal is case U and shows `CardUpdatesPhotoRemoved`;
    after Accept the contact has no photo, and Undo gives it back. The
    same later card against a contact whose photo the person chose is
-   case S when the name matches, and Accept is not offered. A later
+   case S when the name matches, shows `CardKeepsPhoto` and no
+   `CardSame`, and Accept is not offered. A later
    card whose photo fails to decode, against a contact whose photo came
    from a card, shows `CardPhotoNotUsedRemoved` on the confirmation row and
    leaves no photo; against a contact with none, `CardPhotoNotUsed`.
