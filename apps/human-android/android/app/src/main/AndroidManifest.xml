@@ -17,8 +17,12 @@
     <!-- Scan a code (add-a-peer 5.5; ADR-0062 decision 8 as amended): asked
          by the Activity on a Scan press when not held (MainActivity's
          CAMERA_START). The camera is not a required feature, so a phone
-         without one installs and offers typing. -->
+         without one installs and offers typing. CAMERA alone makes the
+         platform's store take android.hardware.camera as required, so it
+         is declared not required by name (plan s29 step 2), beside the
+         any-camera feature the Activity asks for. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <!-- No fullBackupContent: below Android 12 (minSdk 30) allowBackup
