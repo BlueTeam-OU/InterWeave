@@ -495,7 +495,8 @@ photographs measured at 256 px fit at 50, the largest 17,405 bytes); the
   and shows `PhotoUnusable` under the circle.
 
 Preparing can take a moment on a phone: the circle shows a progress
-indicator, and Save waits for it. Choosing the crop is deliberately left
+indicator, and Save waits for it, unless Remove photo drops it
+(below). Choosing the crop is deliberately left
 out (§11).
 
 **Focus and speech in the photo step** (rust-ui-dev-02's QUESTION
@@ -511,8 +512,8 @@ out (§11).
   chosen, and focus is on the button. The buttons stay as they were
   before the choice and stay usable; a picture chosen while another
   is being prepared replaces the one being prepared, and only the
-  last one chosen is shown. Remove photo, offered there while a saved
-  photo is shown, cancels the preparation: the picture being prepared
+  last one chosen is shown. Remove photo, offered there while a photo
+  is shown, saved or not, cancels the preparation: the picture being prepared
   is dropped, nothing is shown or announced when it would have been
   ready, and Save does not wait for it; then Remove photo does what
   the last item below says.
@@ -757,7 +758,7 @@ false warning above.
 | **N** the route is under no contact; no route of its PeerId is under one; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
 | **D** the route is under no contact; no route of its PeerId is under one; a contact on another PeerId has the same name | `CardSameName`, in `error`, with a warning icon: "One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept.", `{name}` being the existing contact's name as stored, so the person sees both spellings; and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
 | **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`, `CardUpdatesPhotoRemoved`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
-| **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or a photo line: `CardKeepsPhoto` when X holds a photo the person chose, `CardKeepsNoPhoto` when the person removed X's photo), and, for each value that Accept writes, that value's change line as in case U (`CardUpdatesName`, `CardUpdatesPhoto`, `CardUpdatesPhotoRemoved`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
+| **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or a photo line: `CardKeepsPhoto` when X holds a photo the person chose, `CardKeepsNoPhoto` when the card carries a photo and the person removed X's photo), and, for each value that Accept writes, that value's change line as in case U (`CardUpdatesName`, `CardUpdatesPhoto`, `CardUpdatesPhotoRemoved`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
 | **S** the route is under X and the card changes nothing | `CardSame`: "This card matches your contact {X}." when the card's name is X's name, character for character (not by the same-name rule), and neither the card nor X has a photo; otherwise, when the card differs only in values that are local choices, the kept lines of case E in its place (`CardKeepsEdit`, `CardKeepsPhoto`, `CardKeepsNoPhoto`), never `CardSame` | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
 
 Every contact compared here is a contact of the identity the
@@ -1615,7 +1616,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | the editor's Photo Picker or file dialog closes, a picture chosen or cancelled (§5.2) | the button that opened it (Add a photo, or Change photo) | keyboard on desktop: open the file dialog from Add a photo, cancel it, focus on Add a photo; choose a picture, focus on the same button. Keyboard on Android: open the Photo Picker from Add a photo, press Back (`adb shell input keyevent KEYCODE_BACK`), focus on Add a photo; choose a picture, focus on the same button |
    | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while the picture is being prepared, then `CardPhotoLabel`; TalkBack blocked (§8) |
    | the editor's picture unusable | stays on that button; `PhotoUnusable` announced once | keyboard, choosing a file named `.png` that holds no image; desktop screen reader: heard once; TalkBack blocked (§8) |
-   | the editor's Remove photo, also while a picture is being prepared (§5.2) | Add a photo; nothing is announced, also when the dropped picture would have been ready | keyboard; on a card with a saved photo, choose a large picture and press Remove photo before it is ready: focus on Add a photo, the circle shows the initials, and Save leaves the card with no photo |
+   | the editor's Remove photo, also while a picture is being prepared (§5.2) | Add a photo; nothing is announced, also when the dropped picture would have been ready | keyboard; on a card with a saved photo, choose a large picture and press Remove photo before it is ready: focus on Add a photo, the circle shows the initials, and Save leaves the card with no photo; the same on a card saved with no photo, after a first picture is prepared and Change photo chooses a second |
    | unsaved-changes dialog opens / closes on Continue editing (also when a switch asked it) | Continue editing / the field that had focus | keyboard |
    | an identity added | its new row in the list | keyboard |
    | Add an identity at the bound | `IdentityLimit` | keyboard |
