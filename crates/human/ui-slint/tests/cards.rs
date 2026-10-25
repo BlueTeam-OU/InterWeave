@@ -1883,3 +1883,64 @@ fn the_editor_chooses_a_photo_through_the_platforms_picker() {
         "the unsaved choice goes: {raised:?}"
     );
 }
+
+/// Contact-cards design 5.4 and 5.4.1 as #443 left them: case S says
+/// `CardSame` only when nothing is kept by a local choice, the kept line
+/// standing in its place otherwise; `CardIncludesPhoto` shows only when
+/// Accept would write the card's photo. Mutations: `CardSame` drawn beside
+/// a kept line; the photo line drawn whenever the card carries one.
+#[test]
+fn a_matching_card_says_it_matches_only_when_nothing_is_kept() {
+    use interweave_human_ui_model::{PhotoChange, ValueChanges};
+    let mut view = view();
+    let mut model = UiModel::new();
+    let ada = ContactRef {
+        contact_id: "c1".to_owned(),
+        name: "Ada".to_owned(),
+    };
+    let same = fill(text(UiText::CardSame), &[("contact", &isolated("Ada"))]);
+    let judged = |photo: PhotoChange, matches: bool| ProposalContext {
+        updates: Some(ada.clone()),
+        changes_nothing: matches,
+        values: ValueChanges {
+            photo,
+            ..ValueChanges::default()
+        },
+        ..context()
+    };
+
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", true),
+        judged(PhotoChange::KeptNone, true),
+    ));
+    let _ = shown(&mut view, &mut model, P);
+    assert!(shows(&view, text(UiText::CardKeepsNoPhoto)));
+    assert!(!shows(&view, &same), "the kept line in its place");
+    assert!(
+        !shows(&view, text(UiText::CardIncludesPhoto)),
+        "the photo is not used"
+    );
+
+    model.card_received(proposal(
+        2,
+        Q,
+        card("Ada", false),
+        judged(PhotoChange::Unchanged, true),
+    ));
+    let _ = shown(&mut view, &mut model, Q);
+    assert!(shows(&view, &same), "nothing kept: it matches");
+
+    model.card_received(proposal(
+        3,
+        R,
+        card("Ada", true),
+        judged(PhotoChange::New, false),
+    ));
+    let _ = shown(&mut view, &mut model, R);
+    assert!(
+        shows(&view, text(UiText::CardIncludesPhoto)),
+        "control: written"
+    );
+}

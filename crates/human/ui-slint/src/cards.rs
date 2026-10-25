@@ -280,6 +280,14 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
         AcceptLine::Updates(contact) => {
             fill(text(UiText::CardUpdates), &[("name", &isolated(contact))])
         }
+        // Case S says the card matches only when nothing is kept by a
+        // local choice: otherwise the kept lines stand in its place
+        // (design 5.4.1 as #443 left it).
+        AcceptLine::Matches(_)
+            if p.values.kept_name || p.values.photo != PhotoChange::Unchanged =>
+        {
+            String::new()
+        }
         AcceptLine::Matches(contact) => {
             fill(text(UiText::CardSame), &[("contact", &isolated(contact))])
         }
@@ -304,6 +312,7 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
             PhotoChange::New => Some(text(UiText::CardUpdatesPhoto).to_owned()),
             PhotoChange::Removed => Some(text(UiText::CardUpdatesPhotoRemoved).to_owned()),
             PhotoChange::Kept => Some(text(UiText::CardKeepsPhoto).to_owned()),
+            PhotoChange::KeptNone => Some(text(UiText::CardKeepsNoPhoto).to_owned()),
         },
     ]
     .into_iter()
@@ -345,7 +354,11 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
         handle,
         heading: fill(text(UiText::CardProposal), &[("name", &name)]).into(),
         full_name: name.into(),
-        photo_line: if p.has_photo {
+        // Only when Accept would write the card's photo: a local choice
+        // keeps it unused, and its kept line says so (design 5.4).
+        photo_line: if p.has_photo
+            && !matches!(p.values.photo, PhotoChange::Kept | PhotoChange::KeptNone)
+        {
             text(UiText::CardIncludesPhoto).into()
         } else {
             SharedString::new()

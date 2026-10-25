@@ -2329,7 +2329,7 @@ component ProposalCard inherits Rectangle {
                 accessible-label: self.text;
             }
         }
-        Text {
+        if root.card.context != "": Text {
             text: root.card.context;
             font-size: Type.body-medium;
             wrap: word-wrap;
