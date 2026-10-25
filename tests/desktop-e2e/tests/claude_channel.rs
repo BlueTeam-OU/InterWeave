@@ -725,6 +725,71 @@ async fn broadcast_join_publish_reply_and_channel_not_joined() {
     assert!(error && answer.starts_with("ChannelNotJoined"), "{answer}");
 }
 
+/// `status.broadcast_loss` against two real daemons (TOOL-SURFACE.md
+/// §status, A 2026-10-25): B floods `general` past A's per-peer ingress
+/// burst, and the bridge's status reports the refusals as
+/// `ingress_refused` for its session, read over IPC 2.11, never lower on
+/// a later read. The control: after the mesh warm-up, under the burst,
+/// the count is zero. The overflow count is read but not asserted:
+/// whether A's session queue fills behind a draining bridge is timing
+/// (LOCAL-CLIENT.md §7 item 15).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_flood_past_the_ingress_burst_is_the_bridges_ingress_refused() {
+    let (a, a_daemon, a_peer, b, b_daemon, _) = two_daemons().await;
+    let daemons = [&a_daemon, &b_daemon];
+    let mut bridge = Bridge::start(&a);
+    bridge.wait_leased(&daemons).await;
+    let b_human = session(&b, human()).await;
+    send_until_accepted(&b_human, &a_peer, claude(), "warm", &daemons).await;
+    let _ = bridge.notification().await;
+    let (answer, error) = bridge.tool("join", json!({"channel": "general"})).await;
+    assert!(!error, "{answer}");
+    b_human.join(general()).await.expect("B joins");
+    broadcast_until(&b_human, &mut bridge, "mesh", &daemons).await;
+
+    let before = bridge.status().await["broadcast_loss"].clone();
+    assert_eq!(before["ingress_refused"], json!(0), "the control: {before}");
+    assert!(before["since"].is_string(), "{before}");
+
+    // Twice the runtime's per-peer burst of 32, at once.
+    for _ in 0..64 {
+        b_human
+            .broadcast(
+                general(),
+                BroadcastMessageV1 {
+                    message_id: MessageId::from_bytes(rand_bytes()),
+                    sent_at_ms: 0,
+                    payload: text("flood"),
+                },
+            )
+            .await
+            .expect("accepted for local publish");
+    }
+    let deadline = tokio::time::Instant::now() + PATIENCE * 2;
+    let refused = loop {
+        let loss = bridge.status().await["broadcast_loss"].clone();
+        let refused = loss["ingress_refused"]
+            .as_u64()
+            .expect("read, not unavailable");
+        assert!(loss["queue_overflow"].is_u64(), "{loss}");
+        if refused > 0 {
+            break refused;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no refusal counted: {loss}\n{}",
+            logs(&daemons)
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+    let later = bridge.status().await["broadcast_loss"].clone();
+    assert!(
+        later["ingress_refused"].as_u64().expect("a count") >= refused,
+        "never lower: {refused} then {later}"
+    );
+    assert_eq!(later["since"], before["since"], "the same session");
+}
+
 /// The daemon away and back: A's daemon stopped, the bridge keeps
 /// answering `status` and refuses network tools clearly; restarted, the
 /// bridge claims afresh, and a reply token from before fails rather than
