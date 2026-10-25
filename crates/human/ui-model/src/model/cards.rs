@@ -122,6 +122,20 @@ pub enum PhotoEdit {
     Prepared,
 }
 
+/// What a new photo choice falls back to, as the model shows it: the
+/// facade side keeps a prepared photo as the fallback only when its number
+/// is the one named here (#449 F4), so the two sides never disagree on what
+/// the editor showed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PhotoBasis {
+    /// The saved card's photo, or none.
+    Card,
+    /// Removed in the editor.
+    Removed,
+    /// The prepared photo of this choice.
+    Prepared(u64),
+}
+
 /// The photo the own card's editor holds, chosen and not yet saved
 /// (contact-cards design section 5.2, "The photo").
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -564,6 +578,9 @@ pub(super) struct Cards {
     /// The last choice's number: an answer for an earlier one is not
     /// this one's.
     own_photo_seq: u64,
+    /// The number of the choice whose prepared photo the editor shows,
+    /// or showed before the choice now held.
+    own_photo_shown_seq: u64,
 }
 
 /// The confirmation row an Accept leaves in its proposal's place: "You
@@ -1017,6 +1034,7 @@ impl UiModel {
         if let Some(photo) = photo {
             self.cards.own_photo = Some(OwnPhotoStep::Prepared(photo));
             self.cards.own_photo_before = None;
+            self.cards.own_photo_shown_seq = seq;
         } else {
             self.cards.own_photo = Some(OwnPhotoStep::Unusable);
         }
@@ -1039,6 +1057,17 @@ impl UiModel {
     #[must_use]
     pub const fn own_photo(&self) -> Option<&OwnPhotoStep> {
         self.cards.own_photo.as_ref()
+    }
+
+    /// What the last choice falls back to, for the facade side to keep:
+    /// what the editor showed before it.
+    #[must_use]
+    pub const fn own_photo_basis(&self) -> PhotoBasis {
+        match self.cards.own_photo_before {
+            Some(OwnPhotoStep::Prepared(_)) => PhotoBasis::Prepared(self.cards.own_photo_shown_seq),
+            Some(OwnPhotoStep::Removed) => PhotoBasis::Removed,
+            Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) | None => PhotoBasis::Card,
+        }
     }
 
     /// What the editor showed before the choice being prepared or found
@@ -2297,6 +2326,7 @@ mod tests {
         let first = model.own_photo_chosen();
         assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Preparing));
         assert_eq!(model.own_photo_before(), None, "the saved card's, before");
+        assert_eq!(model.own_photo_basis(), PhotoBasis::Card);
         assert_eq!(
             model.own_photo_edit(),
             PhotoEdit::Prepared,
@@ -2311,6 +2341,11 @@ mod tests {
         assert_eq!(
             model.own_photo_before(),
             Some(&OwnPhotoStep::Prepared(photo(1)))
+        );
+        assert_eq!(
+            model.own_photo_basis(),
+            PhotoBasis::Prepared(first),
+            "by its number"
         );
         model.own_photo_prepared(first, Some(photo(9)));
         assert_eq!(
@@ -2343,6 +2378,7 @@ mod tests {
         assert_eq!(model.own_photo_edit(), PhotoEdit::Remove);
         let fourth = model.own_photo_chosen();
         assert_eq!(model.own_photo_before(), Some(&OwnPhotoStep::Removed));
+        assert_eq!(model.own_photo_basis(), PhotoBasis::Removed);
         model.own_photo_removed();
         model.own_photo_prepared(fourth, Some(photo(4)));
         assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Removed), "dropped");
