@@ -1482,15 +1482,19 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    (case U), each show `CardSameName` naming the "Anna Rossi" on another
    PeerId before Accept; a card naming itself "Carol" on another route
    of Carol's PeerId shows case P's line and no `CardSameName`. A
-   contact named Dan has a photo the person chose locally. A card
-   naming itself "Anna Rossi" from Dan's route is case E: the name
-   changes and the photo stays. It shows `CardSameName` and
+   contact named Dan has a photo the person chose locally and a name
+   that is not a local edit. A card naming itself "Anna Rossi", with a
+   photo, from Dan's route is case E: the name changes and the photo
+   stays. It shows `CardSameName` and
    `CardKeepsPhoto`, and its right swipe is withheld. While a right
-   drag is held past the threshold and not yet released, a change adds
-   the warning to the row (on desktop, for example, a second window
-   renames a contact to the card's name): the row returns to rest, and
+   drag is held past the threshold and not yet released, an action of
+   §5.4.5 adds the warning to the row (on desktop: the pointer holds
+   the drag on a card naming itself "Anna Rossi" while, from the
+   keyboard, the person accepts another proposal that saves a contact
+   "Anna Rossi" on another PeerId): the row returns to rest, and
    the later release accepts nothing. While a withheld right drag is
-   held, a change removes the warning: the row stays still, and the
+   held, an action of §5.4.5 removes the warning (the same, with that
+   accept's Undo): the row stays still, and the
    release accepts nothing. A left drag held past the threshold while
    the warning appears or disappears still declines on release.
 8. Delete contact Carol, then accept a card on one of Carol's routes
