@@ -254,7 +254,7 @@ async fn session_losses_rise_and_never_fall() {
         &b,
         &ChannelId::parse("general").expect("valid"),
         common::QUEUE_BOUND,
-        suite::Overflow::PastThePipeline,
+        suite::Overflow::NotAsserted,
     )
     .await;
     pair.stop().await;

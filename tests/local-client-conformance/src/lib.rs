@@ -983,7 +983,7 @@ pub enum Overflow {
     Shown,
     /// Whether the session queue fills is timing the case cannot hold, so
     /// the phase is asserted neither way: over IPC.
-    PastThePipeline,
+    NotAsserted,
 }
 
 /// Read `session`'s losses until `reached` holds or the patience runs
@@ -1031,13 +1031,15 @@ async fn losses_until<S: DataSessionPort>(
 /// holds.
 ///
 /// `overflow` says whether the binding can show the overflow phase at
-/// all. Over IPC it cannot: the server takes the session queue on a 20 ms
-/// timer (`interweave-ipc-server`'s `EVENT_POLL`) into a client buffer
-/// that, for a session holding no endpoint lease as the case's do, is
+/// all. Over IPC it cannot: the server takes from the session queue on a
+/// 20 ms timer (`interweave-ipc-server`'s `EVENT_POLL`), at most its event
+/// lane's room -- the session's own bound -- per tick, and the client's
+/// buffer, for a session holding no endpoint lease as the case's do
 /// `DEFAULT_EVENT_QUEUE`, 256 events (`interweave-ipc-client`'s
-/// `receive_buffer`), so the queue fills only when more copies than its
-/// bound arrive within one tick -- timing, which the case cannot hold, so
-/// the phase is asserted neither way there. That binding forwards the runtime's count (`tests/ipc-v2`'s
+/// `receive_buffer`), keeps the socket from pushing back. So the queue
+/// fills only when more copies than its bound arrive within one tick --
+/// timing, which the case cannot hold, so the phase is asserted neither
+/// way there. That binding forwards the runtime's count (`tests/ipc-v2`'s
 /// wire test holds it to its schema), and the overflow itself is shown by
 /// the other three.
 /// Each phase asserts a rise, never an exact number: the mesh may lose a
@@ -1110,7 +1112,7 @@ pub async fn session_losses_rise_and_never_fall<B: DataSessionBinding>(
             )
             .await
         }
-        Overflow::PastThePipeline => {
+        Overflow::NotAsserted => {
             losses_until(&joined, start, |_| true, "the losses are read").await
         }
     };
