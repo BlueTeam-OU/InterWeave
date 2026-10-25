@@ -9,9 +9,11 @@
 //! two sizes are timed in alternation and the best of each kept, so a
 //! burst of load on a busy host falls on both sides rather than one; a
 //! ratio over the bound is measured again, up to [`ATTEMPTS`] times, and
-//! only one over it every time fails. A quadratic cost is over it every
-//! time, which `the_harness_fails_a_quadratic_cost_and_passes_a_linear_one`
-//! holds. (Timed one size after the other, the test failed under a full
+//! only one over it every time fails. That a quadratic cost still fails
+//! and a linear one passes is held for a synthetic workload of each by
+//! `the_harness_fails_a_quadratic_cost_and_passes_a_linear_one`; the
+//! file's two timed tests take [`TIMING`] in turn, so neither is timed
+//! while the other burns the CPU. (Timed one size after the other, the test failed under a full
 //! parallel workspace run while passing alone, 2026-10-25.)
 
 #![allow(clippy::expect_used, clippy::panic)]
@@ -22,6 +24,11 @@ use interweave_human_chat_protocol::render;
 
 /// Four times the input may cost at most this many times the time.
 const ALLOWED_RATIO: f64 = 9.0;
+
+/// Held by each timed test for its whole run: libtest runs a file's tests
+/// in parallel, and the control's quadratic loop beside the render timing
+/// would load one side of it (#450 review, risk 1).
+static TIMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// How many times a ratio over the bound is measured before it fails.
 const ATTEMPTS: usize = 3;
@@ -72,6 +79,9 @@ fn fill(unit: &str, len: usize) -> String {
 
 #[test]
 fn every_pathological_shape_renders_in_linear_time() {
+    let _timing = TIMING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let shapes: [(&str, &str); 7] = [
         ("unclosed link brackets", "["),
         ("unclosed emphasis runs", "*a"),
@@ -108,6 +118,9 @@ fn every_pathological_shape_renders_in_linear_time() {
 /// `within_bound` passing on any attempt's measurement but the last.
 #[test]
 fn the_harness_fails_a_quadratic_cost_and_passes_a_linear_one() {
+    let _timing = TIMING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let small = fill("a", 2_000);
     let large = fill("a", 8_000);
     let quadratic = |source: &str| {
