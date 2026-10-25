@@ -196,7 +196,7 @@ async fn honest_relay_speaking(keys: identity::Keypair, speaks_ping: bool) -> Mu
 /// at once: what a process stopped by a signal, or wedged, looks like
 /// from outside. Its sockets stay open and the kernel goes on
 /// accepting bytes into them; nothing is forwarded and nothing closed.
-fn stoppable_relay(keys: identity::Keypair, speaks_ping: bool) -> (Multiaddr, Stopper) {
+fn stoppable_relay(keys: identity::Keypair) -> (Multiaddr, Stopper) {
     let (addr_tx, addr_rx) = std::sync::mpsc::channel();
     let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
     let (stopped_tx, stopped_rx) = std::sync::mpsc::channel::<()>();
@@ -206,7 +206,7 @@ fn stoppable_relay(keys: identity::Keypair, speaks_ping: bool) -> (Multiaddr, St
             .build()
             .expect("a runtime");
         runtime.block_on(async move {
-            let mut swarm = relay_swarm(keys, speaks_ping);
+            let mut swarm = relay_swarm(keys, true);
             let address = bound(&mut swarm).await;
             swarm.add_external_address(address.clone());
             addr_tx.send(address).expect("the test waits for the address");
@@ -847,10 +847,10 @@ struct AfterTheStop {
 /// A target reserved on a stoppable relay, a source connected to it
 /// through a circuit there and a send through it answered; then the
 /// relay is stopped and both ends are watched for `horizon`.
-async fn stop_the_relay_under_a_circuit(speaks_ping: bool, horizon: Duration) -> AfterTheStop {
+async fn stop_the_relay_under_a_circuit(horizon: Duration) -> AfterTheStop {
     let relay_keys = identity::Keypair::generate_ed25519();
     let relay_peer = identity_of(&relay_keys);
-    let (relay_addr, stop) = stoppable_relay(relay_keys, speaks_ping);
+    let (relay_addr, stop) = stoppable_relay(relay_keys);
 
     let target_id = ProfileIdentity::generate();
     let target_peer = target_id.transport_identity().expect("peer id");
@@ -977,7 +977,7 @@ async fn stop_the_relay_under_a_circuit(speaks_ping: bool, horizon: Duration) ->
         target_told,
         reservation_lost,
     };
-    eprintln!("relay stopped (speaks ping: {speaks_ping}): {after:?}");
+    eprintln!("relay stopped: {after:?}");
     for line in &log {
         eprintln!("  {line}");
     }
@@ -994,7 +994,7 @@ const KEEPALIVE_CLOSES_WITHIN: Duration = Duration::from_secs(90);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_relay_that_stops_under_a_circuit_bounds_the_send_and_is_found_by_both_ends() {
-    let after = stop_the_relay_under_a_circuit(true, Duration::from_secs(120)).await;
+    let after = stop_the_relay_under_a_circuit(Duration::from_secs(120)).await;
 
     // THE SEND THROUGH THE STOPPED RELAY is answered, and by the direct
     // protocol's own timeout: no exchange outlives it.

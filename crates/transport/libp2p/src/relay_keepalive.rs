@@ -184,10 +184,6 @@ pub struct RelayKeepalive {
     /// The two together: the peers whose connections are pinged.
     active: HashSet<PeerId>,
     connections: HashMap<PeerId, HashSet<ConnectionId>>,
-    /// The open connections whose path is a circuit: pinged from their
-    /// establishment, whatever the switches say. A subset of
-    /// `connections`, and left on the same close.
-    relayed: HashSet<ConnectionId>,
     pending: VecDeque<ToSwarm<KeepaliveEvent, Switch>>,
     counters: KeepaliveCounters,
 }
@@ -209,7 +205,6 @@ impl RelayKeepalive {
             reserved: HashSet::new(),
             active: HashSet::new(),
             connections: HashMap::new(),
-            relayed: HashSet::new(),
             pending: VecDeque::new(),
             counters: KeepaliveCounters::default(),
         }
@@ -257,9 +252,6 @@ impl RelayKeepalive {
 
     fn handler(&mut self, id: ConnectionId, peer: PeerId, relayed: bool) -> KeepaliveHandler {
         self.connections.entry(peer).or_default().insert(id);
-        if relayed {
-            self.relayed.insert(id);
-        }
         KeepaliveHandler {
             config: self.config.clone(),
             pinging: (relayed || self.active.contains(&peer))
@@ -315,7 +307,6 @@ impl NetworkBehaviour for RelayKeepalive {
             && let Some(ids) = self.connections.get_mut(&peer_id)
         {
             ids.remove(&connection_id);
-            self.relayed.remove(&connection_id);
             if ids.is_empty() {
                 self.connections.remove(&peer_id);
             }
