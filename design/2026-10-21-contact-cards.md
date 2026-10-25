@@ -640,7 +640,7 @@ same warning as "Anna".
 | **N** the route is under no contact; no route of its PeerId is under one; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
 | **D** the route is under no contact; no route of its PeerId is under one; a contact on another PeerId has the same name | `CardSameName`, in `error`, with a warning icon: "One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept.", `{name}` being the existing contact's name as stored, so the person sees both spellings; and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
 | **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`, `CardUpdatesPhotoRemoved`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
-| **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
+| **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`), and, for each value it does write, that value's change line as in case U (`CardUpdatesName`, `CardUpdatesPhoto`, `CardUpdatesPhotoRemoved`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
 | **S** the route is under X and the card changes nothing | `CardSame`: "This card matches your contact {X}." | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
 
 Every contact compared here is a contact of the identity the
@@ -714,8 +714,8 @@ while the Accept's snackbar is open:
 A photo that fails to decode, or decodes larger than 256 × 256, is
 discarded and the contact is saved without it (HUMAN-CHAT.md);
 `CardPhotoNotUsed` is added to the confirmation row. The accept is not
-refused for a photo. In case U, when X held a photo that was not a
-local choice, that photo is removed too, because the card's unusable photo is saved
+refused for a photo. In cases U and E, when X held a photo that was
+not a local choice, that photo is removed too, because the card's unusable photo is saved
 as no photo. The row then says `CardPhotoNotUsedRemoved`
 in place of `CardPhotoNotUsed`, and the snackbar's Undo gives the old
 photo back, as it gives back every other value.
@@ -800,13 +800,16 @@ from the missing bubble and the warning:
 - when a chosen item leaves the row in place (Copy PeerId, or an Accept
   that the store refuses, §5.4.2), focus goes to the same place as when
   the menu closes with nothing chosen;
-- on a row showing `CardSameName`, the release that ends the long press
-  chooses nothing, even over Accept, and a press-drag-release onto
-  Accept chooses nothing. On that row, Accept is chosen only by a press that
-  starts and ends on it after the menu has opened (a tap, Enter or
-  Space). Accept is the menu's first item, and the menu opens where
-  the finger already is. Without this rule, a long press with a slight slide could
-  save a warned card unread, which §12 O1–O3 do not allow.
+- on a row showing `CardSameName`, a press-drag-release onto Accept
+  chooses nothing (§4's release that ends the long press already
+  chooses nothing on every row). On that row, Accept is chosen only by
+  a press that starts and ends on it after the menu has opened (a tap,
+  Enter or Space). A press-drag-release chooses whatever item the
+  finger ends on, and Accept is the menu's first item, near where the
+  press began. Without this rule, a long press with a slight slide
+  could save a warned card unread. This rule is the designer's reading
+  of §12 O3's reason (a deliberate choice of Accept, never one that
+  can happen without reading), not a separate answer of the owner's.
 
 §9's focus table holds each of these.
 
@@ -1359,7 +1362,7 @@ accessibility tree) are checked now.
   S, the only custom action is Close, as in the row's menu.
 - Confirmation row (§5.4.2): one focusable group, read as
   `CardAccepted` or `CardUpdated` (with the name as saved), then
-  `CardPhotoNotUsed` when it shows, then, while the Accept's snackbar
+  `CardPhotoNotUsed` or `CardPhotoNotUsedRemoved` when one shows, then, while the Accept's snackbar
   is open, `CardUndoHint` as its description.
 - Own card row: "You shared your card", the name, status, time.
 - Share sheet: title, the "as {identity}" line when shown, then the
@@ -1384,8 +1387,8 @@ contact card"), never with the name; Decline, photo removed,
 contact deleted, a Move, Make default and a switch announce their
 snackbar text; Accept announces nothing of its own. Focus moves to the confirmation
 row (§9 item 1's focus table), and the screen reader reads that row:
-`CardAccepted` or `CardUpdated`, and `CardPhotoNotUsed` when it
-shows. So the person hears the result once, and does not hear it again
+`CardAccepted` or `CardUpdated`, and `CardPhotoNotUsed` or
+`CardPhotoNotUsedRemoved` when one shows. So the person hears the result once, and does not hear it again
 as "Contact saved" or "Contact updated". The snackbar with its Undo is
 shown without an announcement and is reached last in the reading order
 (language-culture-en's observation 01a16df9, 2026-10-24); the transition of §5.7.5 announces `SwitchingTo`; the
@@ -1529,6 +1532,13 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    card whose photo fails to decode, against a contact whose photo came
    from a card, shows `CardPhotoNotUsedRemoved` on the confirmation row and
    leaves no photo; against a contact with none, `CardPhotoNotUsed`.
+   Case E: a contact the person named themselves, whose photo came from
+   an earlier card, meets a later card with another name and no photo:
+   the proposal shows `CardKeepsEdit` and `CardUpdatesPhotoRemoved`,
+   and after Accept the name is unchanged and the photo is gone. The
+   same contact meets a later card with another name and a photo that
+   fails to decode: the proposal shows `CardKeepsEdit` and
+   `CardUpdatesPhoto`, and the confirmation row `CardPhotoNotUsedRemoved`.
    Fixtures for D against a contact "Anna Rossi": a card "Anna" +
    "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; a name "Anna Rossi" with
    U+00A0 between the words and no surname; "Ａnna" (fullwidth) +
@@ -1572,9 +1582,8 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    your contact, Decline and Accept, by a long press, and on the
    desktop by a secondary click. Enter on each of those controls does
    that control's action and opens no menu. On Android,
-   on the case D row, a long press released over Accept as the menu
-   opens, and a long press that slides onto Accept and lifts there,
-   each leave the menu open with nothing saved. Then a tap on Accept
+   on the case D row, a long press that slides onto Accept and lifts
+   there leaves the menu open with nothing saved. Then a tap on Accept
    saves the card. On a case N row, the same slide and lift accepts the card.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
@@ -1789,14 +1798,14 @@ and are for them to write.
 | `CardSameName` | One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept. | case D, and cases P, U and E when Accept would write a name that clashes with a contact on another PeerId (§5.4.1); `{name}` the other contact's name; must name both facts |
 | `ShowContact` | Open your contact {name} | the link beside `CardSameName`: case D, and cases P, U and E when `CardSameName` shows |
 | `CardUpdates` | If you accept, your contact {name} is updated. | case U |
-| `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | case U, the changes |
+| `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | cases U and E, the changes written |
 | `CardKeepsEdit` | You named this contact {name} yourself. That name stays. | case E, name |
 | `CardKeepsPhoto` | You chose this contact's photo yourself. That photo stays. | case E, photo |
 | `CardSame` | This card matches your contact {name}. | case S |
 | `CardAccepted` | You saved {name} as a contact. | confirmation row, cases N, D and P |
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
-| `CardUpdatesPhotoRemoved` | Current photo removed | case U, the change when the card carries no photo and the contact's photo came from a card (§5.4.1); must say that the contact's current photo goes, not that the card's is missing |
-| `CardPhotoNotUsedRemoved` | The card's photo could not be used, so the contact no longer has a photo. | confirmation row addition in place of `CardPhotoNotUsed`, case U only, when the contact's previous photo came from a card (§5.4.2); must say the previous photo is gone too |
+| `CardUpdatesPhotoRemoved` | Current photo removed | cases U and E, the change when the card carries no photo and the contact's photo came from a card (§5.4.1); must say that the contact's current photo goes, not that the card's is missing |
+| `CardPhotoNotUsedRemoved` | The card's photo could not be used, so the contact no longer has a photo. | confirmation row addition in place of `CardPhotoNotUsed`, cases U and E, when the contact's previous photo came from a card (§5.4.2); must say the previous photo is gone too |
 | `CardPhotoNotUsed` | The card's photo could not be used, so the contact was saved without it. | confirmation row addition, in both cases of §5.4.2 (the photo fails to decode, or decodes larger than 256 × 256); must not say the photo was shown, since it is decoded only at Accept (language-culture-en's final English, 2026-10-24) |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo; not announced (§8 Announcements) |
 | `CardUndoHint` | You can undo this change. Undo comes after all the messages in this conversation. | accessible description of the confirmation row while the Accept's snackbar is open (§5.4.2), never shown as text; must say that the save can be undone and where the Undo is, in a phrase read after `CardAccepted` or `CardUpdated` |
