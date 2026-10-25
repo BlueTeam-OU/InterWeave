@@ -2414,7 +2414,7 @@ async fn a_save_while_the_photo_is_prepared_waits_for_it() {
 /// Design 5.2 as #443 proposes it: Remove photo in the editor is an
 /// unsaved change that drops a photo being prepared; Save then removes
 /// the card's photo, and the dropped preparation changes nothing after.
-/// Mutation: RemoveOwnPhoto leaving the facade side's preparation for a
+/// Mutation: `RemoveOwnPhoto` leaving the facade side's preparation for a
 /// later Save to take.
 #[tokio::test]
 async fn an_editors_remove_drops_a_photo_being_prepared_and_save_removes_the_cards() {
