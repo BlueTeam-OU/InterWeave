@@ -25,7 +25,7 @@ Every closed stage has a closing record in the [implementation plan](./architect
 | 17 | 2026-10-22 | the Android human client: the APK hosting the embedded runtime, the Keystore-sealed identity, recovery, the device-run records, the design review's six rounds | plan §20 |
 | 21 | 2026-10-25 | contacts, cards and the encrypted store (ran beside Stages 17, 18 and 19): a contact built from a card the counterparty sends and the person accepts, signed by its identity's key; the human store ciphertext at rest under a platform-sealed key; a peer added by address and one's own shown as a QR; the command-line human client | plan §29 |
 
-Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migration and release, plan §22) and 21 (contacts, cards and the encrypted store, plan §29) ran beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20; §29, the owner's word of 2026-10-21) and, since Stage 17 closed on 2026-10-22, ran beside Stage 18; Stage 21 closed 2026-10-25 on §29's closing record, and Stage 19 runs beside Stage 18; the status value names the lowest open stage.
+Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migration and release, plan §22) and 21 (contacts, cards and the encrypted store, plan §29) ran beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20; §29, the owner's word of 2026-10-21) and, since Stage 17 closed on 2026-10-22, Stages 19 and 21 ran beside Stage 18; Stage 21 closed 2026-10-25 on §29's closing record, and Stage 19 runs beside Stage 18; the status value names the lowest open stage.
 
 ## What runs today
 
