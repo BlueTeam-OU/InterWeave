@@ -226,6 +226,12 @@ unicode-normalization = { version = "0.1", default-features = false, features = 
 # The card's names refuse format characters (Cf), which no std predicate
 # names. Already in the graph via jsonschema; Apache-2.0, no dependencies.
 unicode-general-category = "1.1"
+# The same-name key a card's name is compared by (contact-cards design
+# 5.4.1, the human store's `name_key`): full case folding, and Unicode TS
+# #39's confusable skeleton. Both unicode-rs, MIT and MIT/Apache-2.0, over
+# unicode-normalization and unicode-script, already in the graph.
+caseless = "0.2"
+unicode-security = "0.1"
 # A card's photo (app-core's card_photo.rs): the sender re-encodes the
 # chosen image, the receiver decodes an accepted one at 256 x 256. PNG and
 # JPEG only, pure Rust (png, zune-jpeg), the version and the two features

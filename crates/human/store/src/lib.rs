@@ -62,7 +62,7 @@ pub use schema::{REQUIRED_TABLES, SCHEMA_VERSION};
 pub use store::contacts::{
     AcceptUndo, Accepted, AcceptedCard, CardStanding, Contact, ContactRestored, ContactRoute,
     DeletedContact, KeyStanding, OwnCard, RemovedPhoto, RouteDeleted, ValueSource,
-    direct_conversation_id,
+    direct_conversation_id, name_key,
 };
 pub use store::{HumanStore, READ_PAIR_CAP, STORE_FILE, StoreOptions};
 
