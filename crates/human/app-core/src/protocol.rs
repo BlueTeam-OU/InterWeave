@@ -100,6 +100,8 @@ pub enum Command {
         chosen: Vec<u8>,
         /// The model's number for this choice, which the answer carries.
         seq: u64,
+        /// What it falls back to, as the model shows it.
+        basis: interweave_human_ui_model::PhotoBasis,
     },
     /// Let go of the own card's prepared photo: its editor closed unsaved.
     ForgetOwnPhoto,

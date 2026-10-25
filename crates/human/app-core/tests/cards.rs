@@ -2675,3 +2675,70 @@ async fn an_unusable_choice_leaves_what_the_editor_showed_before_it() {
         "the removal before the unusable choice"
     );
 }
+
+/// #449 F4: what a new choice falls back to is what the model showed, as
+/// its basis names it, never a photo whose answer the model did not take.
+/// Driven at the facade side as the window's thread can interleave it: a
+/// first choice's answer reaches the facade side, a second choice is made
+/// over the saved card before the model took the first, and it proves
+/// unusable; Save keeps the card's photo (none). The control: the same
+/// with the first choice as the basis saves it. Mutation: the fallback
+/// taken from what the facade side holds, whatever the basis.
+#[tokio::test]
+async fn a_choices_fallback_is_what_the_model_showed() {
+    use interweave_human_ui_model::PhotoBasis;
+    for (basis, kept) in [
+        (PhotoBasis::Card, None),
+        (PhotoBasis::Prepared(1), Some((64, 64))),
+    ] {
+        let (a, _b) = FakeNetwork::pair(node(), node());
+        let pa = profile();
+        let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+        alice.pump(0).await;
+        alice.will(set_own(PhotoEdit::Keep));
+        alice.pump(1).await;
+
+        let answered = |updates: &[Update], seq: u64| {
+            updates
+                .iter()
+                .any(|u| matches!(u, Update::OwnPhotoPrepared { seq: s, .. } if *s == seq))
+        };
+        for (seq, chosen, basis) in [
+            (1, png(64, 64), PhotoBasis::Card),
+            (2, b"not an image".to_vec(), basis),
+        ] {
+            let _ = alice
+                .facade
+                .execute(Command::PrepareOwnPhoto { chosen, seq, basis }, 2)
+                .await;
+            let mut seen = false;
+            for _ in 0..400 {
+                if answered(&alice.facade.turn(3).await, seq) {
+                    seen = true;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(seen, "choice {seq} answered on the facade side");
+        }
+        let updates = alice
+            .facade
+            .execute(
+                Command::SetOwnCard {
+                    name: "Ada".to_owned(),
+                    surname: None,
+                    photo: PhotoEdit::Prepared,
+                },
+                4,
+            )
+            .await;
+        for update in updates {
+            alice.model.apply(update);
+        }
+        let photo = alice
+            .model()
+            .identity()
+            .and_then(|i| i.photo.as_ref().map(|p| (p.width, p.height)));
+        assert_eq!(photo, kept, "basis {basis:?}");
+    }
+}

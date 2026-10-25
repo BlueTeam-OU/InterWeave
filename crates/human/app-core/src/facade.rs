@@ -24,7 +24,7 @@ use interweave_human_store::{
 };
 use interweave_human_transport_client::{CancelledSend, TransportClient};
 use interweave_human_ui_model::{
-    ContactView, ConversationKey, PhotoEdit, Proposal, ProposalContext, Table,
+    ContactView, ConversationKey, PhotoBasis, PhotoEdit, Proposal, ProposalContext, Table,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -115,8 +115,9 @@ enum Held {
     Card,
     /// Removed in the editor: a Save writes no photo.
     Removed,
-    /// Prepared: these bytes, exactly what a share sends.
-    Photo(Vec<u8>),
+    /// Prepared for the model's choice `seq`: these bytes, exactly what a
+    /// share sends.
+    Photo { seq: u64, bytes: Vec<u8> },
 }
 
 /// A choice being prepared: a decode and an encode of a camera-sized
@@ -364,7 +365,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             else {
                 return;
             };
-            self.own_photo = OwnPhoto::Held(prepared.map_or(preparing.fallback, Held::Photo));
+            self.own_photo = OwnPhoto::Held(
+                prepared.map_or(preparing.fallback, |bytes| Held::Photo { seq, bytes }),
+            );
         }
         for save in &mut self.own_saves {
             if let OwnPhoto::Preparing(preparing) = &save.photo
@@ -375,7 +378,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 else {
                     continue;
                 };
-                save.photo = OwnPhoto::Held(prepared.map_or(preparing.fallback, Held::Photo));
+                let seq = preparing.seq;
+                save.photo = OwnPhoto::Held(
+                    prepared.map_or(preparing.fallback, |bytes| Held::Photo { seq, bytes }),
+                );
             }
         }
         self.own_saves_due(updates);
@@ -407,7 +413,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             // The prepared photo names what the editor held: its bytes, no
             // photo after a removal, or the card's own.
             let (edit, prepared) = match (photo, held) {
-                (PhotoEdit::Prepared, Held::Photo(bytes)) => (PhotoEdit::Prepared, Some(bytes)),
+                (PhotoEdit::Prepared, Held::Photo { bytes, .. }) => {
+                    (PhotoEdit::Prepared, Some(bytes))
+                }
                 (PhotoEdit::Prepared, Held::Removed) => (PhotoEdit::Remove, None),
                 (PhotoEdit::Prepared, Held::Card) => (PhotoEdit::Keep, None),
                 (edit, _) => (edit.clone(), None),
@@ -422,15 +430,27 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// The own card's photo and its Save (contact-cards design 5.2).
     fn own_card_command(&mut self, command: &Command, updates: &mut Vec<Update>) {
         match command {
-            Command::PrepareOwnPhoto { chosen, seq } => {
+            Command::PrepareOwnPhoto { chosen, seq, basis } => {
                 // A choice not yet saved is replaced: its thread runs out
-                // and its answer goes nowhere. What the editor showed
-                // before stays the fallback.
-                let fallback =
-                    match std::mem::replace(&mut self.own_photo, OwnPhoto::Held(Held::Card)) {
-                        OwnPhoto::Held(held) => held,
-                        OwnPhoto::Preparing(preparing) => preparing.fallback,
-                    };
+                // and its answer goes nowhere. The fallback is what the
+                // model showed before it, as it names it: a photo this side
+                // holds counts only when it is that choice's, since an
+                // answer the model has not taken is no photo it showed
+                // (#449 F4).
+                let held = match std::mem::replace(&mut self.own_photo, OwnPhoto::Held(Held::Card))
+                {
+                    OwnPhoto::Held(held) => held,
+                    OwnPhoto::Preparing(preparing) => preparing.fallback,
+                };
+                let fallback = match (basis, held) {
+                    (PhotoBasis::Removed, _) => Held::Removed,
+                    (PhotoBasis::Prepared(shown), Held::Photo { seq: held, bytes })
+                        if *shown == held =>
+                    {
+                        Held::Photo { seq: held, bytes }
+                    }
+                    (PhotoBasis::Prepared(_) | PhotoBasis::Card, _) => Held::Card,
+                };
                 let chosen = chosen.clone();
                 let (answer, done) = std::sync::mpsc::channel();
                 let spawned = std::thread::Builder::new()
@@ -461,10 +481,12 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 self.own_photo = OwnPhoto::Held(Held::Removed);
             }
             Command::SetOwnCard { photo, .. } => {
-                // The editor's photo goes with the Save that names it; the
-                // editor starts again from the card.
+                // The editor's photo goes with the Save that names it; after
+                // any Save the editor starts again from the card, as the
+                // model's does.
+                let held = std::mem::replace(&mut self.own_photo, OwnPhoto::Held(Held::Card));
                 let photo = if matches!(photo, PhotoEdit::Prepared) {
-                    std::mem::replace(&mut self.own_photo, OwnPhoto::Held(Held::Card))
+                    held
                 } else {
                     OwnPhoto::Held(Held::Card)
                 };

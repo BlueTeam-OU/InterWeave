@@ -616,7 +616,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Intent::ShareCard(key) => Command::ShareCard(key),
             Intent::ChooseOwnPhoto(chosen) => {
                 let seq = self.model.own_photo_chosen();
-                Command::PrepareOwnPhoto { chosen, seq }
+                let basis = self.model.own_photo_basis();
+                Command::PrepareOwnPhoto { chosen, seq, basis }
             }
             Intent::ForgetOwnPhoto => {
                 self.model.own_photo_forgotten();
