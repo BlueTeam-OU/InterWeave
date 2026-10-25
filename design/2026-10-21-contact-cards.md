@@ -774,11 +774,28 @@ proposal has no focus stop of its own, and Enter on each of its
 controls is that control's action. A focus stop for the
 card would add a Tab stop per proposal only to repeat what the visible
 buttons already do (rust-ui-dev-02's finding while building the menu,
-QUESTION 01a1718c, 2026-10-25). The menu opens and closes as §7 says,
-with one difference that follows from the missing bubble: when it
-closes with nothing chosen, focus goes back to the control it was
-opened from by key, or, opened by long press or secondary click, to the
-row's first control, Copy PeerId (§9's focus table).
+QUESTION 01a1718c, 2026-10-25). For the same reason no accessible
+default action opens it: each of the row's controls keeps its own, and
+a screen reader reaches the menu's actions as the row's custom actions
+(§8). Once open, the menu behaves as §7's and §4's (focus on its first
+item; Escape, Back or a touch outside closes it; a press released on
+the item it started on chooses it), with three differences that follow
+from the missing bubble and the warning:
+
+- when it closes with nothing chosen, focus goes back to the control
+  it was opened from by key, or, opened by long press or secondary
+  click, to the row's first control, Copy PeerId;
+- when a chosen item leaves the row in place (Copy PeerId, or an Accept
+  the store refuses, §5.4.2), focus goes to the same control;
+- on a row showing `CardSameName`, the release that ends the long press
+  chooses nothing, even over Accept, and a press-drag-release onto
+  Accept chooses nothing: Accept is chosen there only by a press that
+  starts and ends on it after the menu has opened (a tap, Enter or
+  Space). Accept is the menu's first item and a long press ends under
+  the finger, so without this a long press with a slight slide could
+  save a warned card unread, which is what §12 O1–O3 rule out.
+
+§9's focus table holds each of these.
 
 **Two differences from message-swipe §6 and §7 for Accept, on
 purpose.** Accept's result is not announced through the live region,
@@ -1449,8 +1466,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | Decline by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set elsewhere first, then a swipe |
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
    | case S Close | as Decline | keyboard |
-   | the proposal's menu opens (Menu key or Shift+F10 on a row control, long press, secondary click) | its first item | keyboard: from each of Copy PeerId, Decline and Accept |
+   | the proposal's menu opens (Menu key or Shift+F10 on a row control, long press, secondary click) | its first item | keyboard: Menu key and Shift+F10 from each of Copy PeerId, Open your contact (a warned row), Decline, Accept, and Close (case S); long press (Android) and secondary click (desktop) |
    | the proposal's menu closes with nothing chosen (Escape, Back, outside) | the control it was opened from by key; after a long press or secondary click, Copy PeerId | keyboard: opened from Accept, Escape returns to Accept; secondary click then Escape, Copy PeerId |
+   | a menu item that leaves the row in place: Copy PeerId, or Accept refused by a degraded store | as the row above | keyboard: Shift+F10 on Decline, choose Copy PeerId, focus on Decline; with the store degraded, Shift+F10 on Accept, choose Accept, focus on Accept |
    | snackbar appears (except after Accept, above) | stays where it was; the snackbar is reachable last in order | keyboard |
    | Open your contact {name} on a row showing `CardSameName`, or a shares-a-device link | the contact page title; Back returns to the control that opened it | keyboard |
    | contact deleted | the Contacts list's first row, else its empty text | keyboard |
@@ -1531,7 +1549,11 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    §8). The menu opens by the Menu key and by Shift+F10 with focus on
    each of Copy PeerId, Open your contact, Decline and Accept, by long
    press, and on the desktop by secondary click; Enter on each of those
-   controls does that control's action and opens no menu.
+   controls does that control's action and opens no menu. On Android,
+   on the case D row, a long press released over Accept as the menu
+   opens, and a long press that slides onto Accept and lifts there,
+   each leave the menu open with nothing saved; a tap on Accept then
+   saves the card. On a case N row the same slide and lift accepts.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
    it: the Move's Undo is gone. No action and no Undo leaves a contact
