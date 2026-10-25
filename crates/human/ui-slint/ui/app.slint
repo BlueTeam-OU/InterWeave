@@ -1931,6 +1931,28 @@ component NameField inherits VerticalLayout {
 // renderer does not clip an image to rounded corners, so the corners
 // outside the circle are painted over in `backdrop`, the colour of what
 // lies behind: a circle on every renderer, as the initials are.
+// Work under way, drawn over what it is for: a quarter arc that turns,
+// held still when the person asked for less motion. Not a focus stop and
+// not read: what it is for says so in its own label.
+component ProgressRing inherits Rectangle {
+    in property <bool> reduced-motion;
+    in property <length> size: 40px;
+    in property <brush> ink: Palette.primary;
+    accessible-role: none;
+    width: root.size;
+    height: root.size;
+    Path {
+        width: root.size;
+        height: root.size;
+        viewbox-width: 2;
+        viewbox-height: 2;
+        stroke: root.ink;
+        stroke-width: 4px;
+        transform-rotation: root.reduced-motion ? 0deg : animation-tick() * 360deg / 1000ms;
+        commands: "M 1 0.1 A 0.9 0.9 0 0 1 1.9 1";
+    }
+}
+
 component PhotoCircle inherits Rectangle {
     in property <bool> has-photo;
     in property <image> photo;
@@ -3033,6 +3055,21 @@ export component AppWindow inherits Window {
     in property <string> own-surname-error;
     in property <string> surname-label;
     in property <string> own-photo-note;
+    // The editor's photo (contact-cards design 5.2): what the circle shows
+    // -- the chosen photo once prepared, the initials once removed, else
+    // the card's -- its label, whether it is being prepared, why a chosen
+    // one cannot be used, and whether a photo can be chosen here at all.
+    in property <bool> own-edit-has-photo;
+    in property <image> own-edit-photo;
+    in property <string> own-circle-label;
+    in property <bool> own-photo-preparing;
+    in property <string> own-photo-unusable;
+    in property <bool> own-photo-choosable;
+    in property <string> add-photo-label;
+    in property <string> change-photo-label;
+    callback own-card-choose-photo();
+    // A file dialog's answer, handed over on the window's thread.
+    callback own-photo-picked-done();
     in property <string> own-shared-note;
     in property <string> own-fingerprint;
     // The identity's key that cannot be used, in the fingerprint's place
@@ -4960,18 +4997,30 @@ export component AppWindow inherits Window {
                         spacing: 12px;
                         HorizontalLayout {
                             spacing: 16px;
-                            PhotoCircle {
-                                size: 96px;
-                                has-photo: root.own-has-photo;
-                                photo: root.own-photo;
-                                letters: root.own-letters;
-                                hue: root.own-hue;
+                            Rectangle {
+                                width: 96px;
+                                height: 96px;
+                                accessible-role: image;
+                                accessible-label: root.own-circle-label;
+                                PhotoCircle {
+                                    size: 96px;
+                                    has-photo: root.own-edit-has-photo;
+                                    photo: root.own-edit-photo;
+                                    letters: root.own-letters;
+                                    hue: root.own-hue;
+                                }
+                                if root.own-photo-preparing: ProgressRing {
+                                    size: 48px;
+                                    reduced-motion: root.reduced-motion;
+                                }
                             }
                             VerticalLayout {
                                 alignment: center;
                                 spacing: 8px;
                                 horizontal-stretch: 1;
-                                Text {
+                                // No picker in this build: where a photo is
+                                // chosen instead.
+                                if !root.own-photo-choosable: Text {
                                     text: root.own-photo-note;
                                     wrap: word-wrap;
                                     font-size: Type.body-medium;
@@ -4979,15 +5028,41 @@ export component AppWindow inherits Window {
                                     accessible-role: text;
                                     accessible-label: self.text;
                                 }
-                                if root.own-has-photo: HorizontalLayout {
+                                if root.own-photo-choosable: HorizontalLayout {
+                                    alignment: start;
+                                    ActionButton {
+                                        text: root.own-edit-has-photo ? root.change-photo-label : root.add-photo-label;
+                                        text-button: true;
+                                        wraps: true;
+                                        target: 48px;
+                                        focus-key: "own-choose-photo";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "own-choose-photo";
+                                        pressed => { root.own-card-choose-photo(); }
+                                        focused(k) => { root.focus-id = k; }
+                                    }
+                                }
+                                if root.own-edit-has-photo: HorizontalLayout {
                                     alignment: start;
                                     ActionButton {
                                         text: root.remove-photo-label;
+                                        text-button: true;
+                                        wraps: true;
                                         target: 48px;
                                         focus-key: "own-remove-photo";
                                         pressed => { root.own-card-remove-photo(); }
                                         focused(k) => { root.focus-id = k; }
                                     }
+                                }
+                                // Read after the circle; not a stop of its
+                                // own (design 5.2).
+                                if root.own-photo-unusable != "": Text {
+                                    text: root.own-photo-unusable;
+                                    wrap: word-wrap;
+                                    font-size: Type.body-medium;
+                                    color: Palette.error;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
                                 }
                             }
                         }
