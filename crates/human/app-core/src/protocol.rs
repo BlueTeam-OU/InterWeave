@@ -92,6 +92,12 @@ pub enum Command {
     ForgetCard(RowId),
     /// Send this identity's own card on a direct conversation's route.
     ShareCard(ConversationKey),
+    /// Prepare a photo chosen for the own card, as its file holds it, off
+    /// the facade's own task, and hold it for the Save that names it
+    /// ([`PhotoEdit::Prepared`](interweave_human_ui_model::PhotoEdit)).
+    PrepareOwnPhoto(Vec<u8>),
+    /// Let go of the own card's prepared photo: its editor closed unsaved.
+    ForgetOwnPhoto,
     /// Write the identity's own card as the person edited it.
     SetOwnCard {
         /// The name.
@@ -238,6 +244,10 @@ pub enum Update {
     ContactUndoWithdrawn(u64),
     /// The identity in front, after its own card changed.
     IdentityShown(IdentityView),
+    /// What preparing the own card's chosen photo came to: the photo as a
+    /// share sends it, decoded for the preview, or `None` when it could
+    /// not be read or prepared.
+    OwnPhotoPrepared(Option<interweave_human_ui_model::Photo>),
     /// Whether a new key would cancel own cards still on their way.
     NewKeyAsked {
         /// Own card rows not yet accepted by the remote transport.

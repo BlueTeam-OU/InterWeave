@@ -171,6 +171,14 @@ impl Root {
             .push_back(vec![ViewEvent::Intent(intent)]);
     }
 
+    /// Several intents raised in one turn, as one batch of view events.
+    fn will_all(&mut self, intents: Vec<Intent>) {
+        self.model
+            .surface_mut()
+            .batches
+            .push_back(intents.into_iter().map(ViewEvent::Intent).collect());
+    }
+
     fn model(&self) -> &UiModel {
         self.model.model()
     }
@@ -2271,4 +2279,134 @@ async fn a_later_card_keeps_the_persons_name_and_names_the_photo_it_removes() {
     let answer = answer_of(&bob, &from_alice, unusable.row);
     assert!(answer.photo_dropped && answer.photo_removed, "{answer:?}");
     assert_eq!(bob.model().contacts()[0].name, "Countess");
+}
+
+/// Turns until the own card's chosen photo is no longer being prepared:
+/// its thread answers in its own time.
+async fn prepared(root: &mut Root, from: u64) {
+    use interweave_human_ui_model::OwnPhotoStep;
+    for t in from..from + 500 {
+        root.pump(t).await;
+        if !matches!(root.model().own_photo(), Some(OwnPhotoStep::Preparing)) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("the photo was never prepared");
+}
+
+fn set_own(photo: PhotoEdit) -> Intent {
+    Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: None,
+        photo,
+    }
+}
+
+/// Contact-cards design 5.2, "The photo": a chosen image is prepared off
+/// the facade's task, and the editor previews exactly what a share sends,
+/// 256 x 256; Save takes it; an image that cannot be prepared leaves the
+/// card's photo as it was. Mutations: Save writing the card without the
+/// prepared bytes; an unusable choice clearing the card's photo.
+#[tokio::test]
+async fn a_chosen_photo_is_previewed_as_prepared_and_saved_by_save() {
+    use interweave_human_ui_model::OwnPhotoStep;
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will(set_own(PhotoEdit::Keep));
+    alice.pump(1).await;
+    assert!(alice.model().identity().is_some_and(|i| i.photo.is_none()));
+
+    alice.will(Intent::ChooseOwnPhoto(png(400, 300)));
+    prepared(&mut alice, 2).await;
+    let Some(OwnPhotoStep::Prepared(preview)) = alice.model().own_photo().cloned() else {
+        panic!("prepared: {:?}", alice.model().own_photo());
+    };
+    assert_eq!(
+        (preview.width, preview.height),
+        (256, 256),
+        "the largest centred square"
+    );
+    assert!(
+        alice.model().identity().is_some_and(|i| i.photo.is_none()),
+        "nothing saved before Save"
+    );
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(600).await;
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    let saved = alice.model().identity().and_then(|i| i.photo.clone());
+    assert_eq!(saved, Some(preview), "what was previewed is what was saved");
+    assert_eq!(
+        alice.model().own_photo(),
+        None,
+        "the editor's choice is done"
+    );
+
+    alice.will(Intent::ChooseOwnPhoto(b"not an image".to_vec()));
+    prepared(&mut alice, 601).await;
+    assert_eq!(alice.model().own_photo(), Some(&OwnPhotoStep::Unusable));
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(1200).await;
+    assert!(
+        alice.model().identity().is_some_and(|i| i.photo.is_some()),
+        "the card's photo as it was"
+    );
+}
+
+/// Design 5.2: "Save waits for it". A Save that reaches the facade while
+/// the chosen photo is still being prepared is carried out once it is,
+/// with that photo; one whose photo cannot be prepared saves the rest and
+/// keeps the card's photo. Mutation: the held Save dropped, or carried out
+/// before the photo is ready.
+#[tokio::test]
+async fn a_save_while_the_photo_is_prepared_waits_for_it() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will_all(vec![
+        Intent::ChooseOwnPhoto(png(64, 64)),
+        set_own(PhotoEdit::Prepared),
+    ]);
+    alice.pump(1).await;
+    for t in 2..500 {
+        if alice.model().identity().is_some_and(|i| i.photo.is_some()) {
+            break;
+        }
+        alice.pump(t).await;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    let photo = alice.model().identity().and_then(|i| i.photo.clone());
+    assert_eq!(
+        photo.map(|p| (p.width, p.height)),
+        Some((64, 64)),
+        "saved with the photo, never enlarged"
+    );
+
+    alice.will_all(vec![
+        Intent::ChooseOwnPhoto(b"not an image".to_vec()),
+        Intent::SetOwnCard {
+            name: "Ada Lovelace".to_owned(),
+            surname: None,
+            photo: PhotoEdit::Prepared,
+        },
+    ]);
+    alice.pump(600).await;
+    for t in 601..1100 {
+        if alice
+            .model()
+            .identity()
+            .is_some_and(|i| i.given == "Ada Lovelace")
+        {
+            break;
+        }
+        alice.pump(t).await;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let identity = alice.model().identity().expect("shown");
+    assert_eq!(identity.given, "Ada Lovelace", "the name saved");
+    assert!(identity.photo.is_some(), "and the card's photo kept");
 }

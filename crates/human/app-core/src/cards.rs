@@ -149,7 +149,7 @@ pub(crate) fn kept_photo(card: &Card) -> Option<&[u8]> {
 
 /// A kept photo decoded for the model, or nothing when it does not
 /// decode within the card's bound.
-fn shown(bytes: &[u8]) -> Option<Photo> {
+pub(crate) fn shown(bytes: &[u8]) -> Option<Photo> {
     crate::card_photo::decode_kept(bytes).map(|p| Photo {
         width: p.width,
         height: p.height,

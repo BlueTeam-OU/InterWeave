@@ -224,6 +224,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             }
             Update::ContactUndoWithdrawn(hold) => self.model.contact_undo_withdrawn(hold),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
+            Update::OwnPhotoPrepared(photo) => self.model.own_photo_prepared(photo),
             Update::NewKeyAsked { pending } => self.model.new_key_asked(pending),
             Update::KeyMade {
                 identity,
@@ -613,15 +614,27 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 return None;
             }
             Intent::ShareCard(key) => Command::ShareCard(key),
+            Intent::ChooseOwnPhoto(chosen) => {
+                self.model.own_photo_chosen();
+                Command::PrepareOwnPhoto(chosen)
+            }
+            Intent::ForgetOwnPhoto => {
+                self.model.own_photo_forgotten();
+                Command::ForgetOwnPhoto
+            }
             Intent::SetOwnCard {
                 name,
                 surname,
                 photo,
-            } => Command::SetOwnCard {
-                name,
-                surname,
-                photo,
-            },
+            } => {
+                // Saved, or saved without it: the editor's choice is done.
+                self.model.own_photo_forgotten();
+                Command::SetOwnCard {
+                    name,
+                    surname,
+                    photo,
+                }
+            }
             Intent::RenameContact { contact_id, name } => {
                 Command::RenameContact { contact_id, name }
             }
