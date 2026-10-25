@@ -2687,6 +2687,232 @@ fn the_clipboard_image_is_offered_apart_from_the_file() {
     assert_eq!(labelled(&view, text(UiText::PasteCodeImage)).len(), 1);
 }
 
+/// The facade's answer to a change refused `superseded`, its list read
+/// back holding `rows`.
+#[allow(clippy::unnecessary_wraps)]
+fn superseded(
+    rows: &[PeerAddress],
+) -> Result<AddressAnswer, interweave_human_client_api::AddressChangeFailure> {
+    Ok(AddressAnswer {
+        outcome: AddressOutcome::Refused(AddressRefused::Superseded),
+        list: Ok(AddressList {
+            addresses: rows.to_vec(),
+        }),
+    })
+}
+
+/// An add refused `superseded`, its read back lacking the line, says
+/// `AddSuperseded` under Add -- one line and several by their own texts
+/// -- announced, and never the not-written `AddFailed` (design §5.7).
+#[test]
+fn a_superseded_add_of_one_line_says_so_under_add() {
+    superseded_add(false);
+}
+
+/// The same for several lines, by its own text.
+#[test]
+fn a_superseded_add_of_several_lines_says_so_under_add() {
+    superseded_add(true);
+}
+
+fn superseded_add(several: bool) {
+    use interweave_human_ui_model::PeersInput;
+    {
+        let mut view = view();
+        let mut model = UiModel::new();
+        let (me, a, b) = (peer(), peer(), peer());
+        open_peers(&mut view, &mut model, &me, &[], &[]);
+        let lines = if several {
+            vec![at(&a), at(&b)]
+        } else {
+            vec![at(&a)]
+        };
+        let _ = model.peers_input(PeersInput::OpenAdd);
+        let _ = model.peers_input(PeersInput::FieldChanged(lines.join("\n")));
+        let _ = model.peers_input(PeersInput::Add);
+        model.addresses_added(&lines, superseded(&[]));
+        view.render(&model);
+        let expected = if several {
+            UiText::AddSupersededOther
+        } else {
+            UiText::AddSupersededOne
+        };
+        assert_eq!(view.window().get_add_note().as_str(), text(expected));
+        assert!(view.window().get_add_note_live(), "announced");
+    }
+}
+
+/// A removal refused `superseded` and read back with its row shows
+/// `RemoveSuperseded` with no action; it is still up after a snackbar
+/// with an action would have gone, closes at 10 seconds, and stays while
+/// the pointer is on it (design §5.7).
+#[test]
+fn a_superseded_removal_snackbar_has_no_action_and_stays_ten_seconds() {
+    superseded_removal_snackbar(false);
+}
+
+/// The same snackbar, the pointer on it at 10 seconds: it stays, and
+/// goes once the pointer leaves.
+#[test]
+fn a_superseded_removal_snackbar_stays_while_the_pointer_is_on_it() {
+    superseded_removal_snackbar(true);
+}
+
+/// With the platform's timeout longer than 10 seconds, the longer one
+/// holds (Android's accessibility timeout, design §5.7).
+#[test]
+fn a_superseded_removal_snackbar_takes_the_platforms_longer_timeout() {
+    let step = |view: &mut View, model: &mut UiModel, ms: u64| {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(ms));
+        let _ = intents(view, model);
+    };
+    let mut view = view();
+    view.set_touch_settings(interweave_human_ui_slint::TouchSettings {
+        snackbar_ms: 15_000,
+        ..interweave_human_ui_slint::TouchSettings::default()
+    });
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a)]);
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::Remove(at(&a)));
+    model.address_removed(&at(&a), superseded(&[added(&a)]));
+    view.render(&model);
+    step(&mut view, &mut model, 10_100);
+    assert!(view.window().get_peers_snack_shown(), "up past 10 s");
+    step(&mut view, &mut model, 5_000);
+    assert!(!view.window().get_peers_snack_shown(), "gone at 15 s");
+}
+
+fn superseded_removal_snackbar(pointer: bool) {
+    use slint::platform::WindowEvent;
+    let step = |view: &mut View, model: &mut UiModel, ms: u64| {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(ms));
+        let _ = intents(view, model);
+    };
+    {
+        let mut view = view();
+        let mut model = UiModel::new();
+        let (me, a) = (peer(), peer());
+        open_peers(&mut view, &mut model, &me, &[], &[added(&a)]);
+        let _ = model.peers_input(interweave_human_ui_model::PeersInput::Remove(at(&a)));
+        model.address_removed(&at(&a), superseded(&[added(&a)]));
+        view.render(&model);
+        assert!(view.window().get_peers_snack_shown());
+        assert_eq!(
+            view.window().get_peers_snack_text().as_str(),
+            text(UiText::RemoveSuperseded)
+        );
+        assert!(!view.window().get_peers_snack_action_shown(), "no action");
+        if pointer {
+            let line = labelled(&view, text(UiText::RemoveSuperseded));
+            let at = line[0].absolute_position();
+            view.window()
+                .window()
+                .dispatch_event(WindowEvent::PointerMoved {
+                    position: slint::LogicalPosition::new(at.x + 2.0, at.y + 2.0),
+                });
+            step(&mut view, &mut model, 10);
+            assert!(
+                view.window().get_peers_snack_pointer_on(),
+                "the pointer seen"
+            );
+        }
+        step(&mut view, &mut model, 6_100);
+        assert!(view.window().get_peers_snack_shown(), "up past 6 s");
+        step(&mut view, &mut model, 4_000);
+        assert_eq!(
+            view.window().get_peers_snack_shown(),
+            pointer,
+            "at 10 s: gone, unless the pointer is on it"
+        );
+        if pointer {
+            view.window()
+                .window()
+                .dispatch_event(WindowEvent::PointerExited);
+            step(&mut view, &mut model, 10);
+            step(&mut view, &mut model, 1_100);
+            assert!(!view.window().get_peers_snack_shown(), "gone once left");
+        }
+    }
+}
+
+/// An Undo refused `superseded` and read back without its row shows
+/// `UndoSuperseded`, with no action.
+#[test]
+fn a_superseded_undo_says_it_was_not_added_back() {
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a)]);
+    let _ = model.peers_input(PeersInput::Remove(at(&a)));
+    model.address_removed(
+        &at(&a),
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Removed,
+            list: Ok(AddressList::default()),
+        }),
+    );
+    let _ = model.peers_input(PeersInput::Undo);
+    model.addresses_added(&[at(&a)], superseded(&[]));
+    view.render(&model);
+    assert_eq!(
+        view.window().get_peers_snack_text().as_str(),
+        text(UiText::UndoSuperseded)
+    );
+    assert!(!view.window().get_peers_snack_action_shown(), "no action");
+}
+
+/// A superseded Trust whose trust list cannot be read again says
+/// `TrustStepSupersededUnread` on its block, never `TrustStepUnknown`.
+#[test]
+fn a_superseded_trust_left_unread_says_so_on_its_block() {
+    use interweave_human_client_api::{TrustProblem, TrustSetFailure};
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    let _ = model.peers_input(PeersInput::FieldChanged(at(&a)));
+    let _ = model.peers_input(PeersInput::Add);
+    model.addresses_added(
+        &[at(&a)],
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            list: Ok(AddressList {
+                addresses: vec![added(&a)],
+            }),
+        }),
+    );
+    let _ = model.peers_turn();
+    let change = TrustChange {
+        peer: a.clone(),
+        allowed: true,
+    };
+    let _ = model.peers_input(PeersInput::Trust(a.clone()));
+    model
+        .trust_settings_mut()
+        .set(change, Err(TrustSetFailure::Superseded));
+    let _ = model.peers_turn();
+    let _ = model.trust_settings_mut().take_reread();
+    model
+        .trust_settings_mut()
+        .read(Err(TrustProblem::Unavailable));
+    let _ = model.peers_turn();
+    view.render(&model);
+    let block = view.window().get_trust_blocks().row_data(0).expect("a");
+    assert_eq!(
+        block.problem.as_str(),
+        fill(
+            text(UiText::TrustStepSupersededUnread),
+            &[("peer", &short_peer(a.as_str()))]
+        )
+    );
+}
+
 /// Scan a code opens the viewfinder and asks the platform's camera:
 /// what the camera is for until the first frame, then the frames and
 /// the hint; a code that is no address list says so and stays; an

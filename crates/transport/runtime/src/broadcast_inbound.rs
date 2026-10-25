@@ -207,6 +207,10 @@ pub fn admit_broadcast(
     //    the same words, because a bound is worth exactly what its stated
     //    scope is.
     if let Err(refusal) = admit_prefix(source, clocks.monotonic_ms, &mut ctx.prefix) {
+        // COUNTED HERE, the one place a broadcast is refused at ingress:
+        // one increment for the channel, none per session, so the work
+        // the bucket bounds stays bounded (`session_losses`).
+        ctx.queues.losses_mut().refused(channel);
         return BroadcastAdmission::Refused(refusal);
     }
 
@@ -393,6 +397,7 @@ mod tests {
                 subs.join(channel(), (*s).to_owned())
                     .expect("within the bounds");
                 queues.open(*s, 8);
+                queues.losses_mut().joined(s, &channel());
             }
             Self {
                 trust: PeerTrustPolicy::new([peer(P1)]).expect("a small allowlist"),
@@ -593,6 +598,148 @@ mod tests {
             BroadcastAdmission::Refused(Refusal::Draining)
         );
         assert!(w.queues.drain("human").is_empty());
+    }
+
+    /// `session.losses`' two counts move at the two places a copy is lost,
+    /// for the session that lost it, and nowhere else.
+    #[test]
+    fn a_refused_broadcast_and_an_overflowed_copy_are_counted_for_their_sessions() {
+        let mut w = World::new(&["fast", "slow"]);
+        w.queues.open("slow", 1);
+        assert!(matches!(
+            w.admit(&frame(7, b"one"), P1, 0),
+            BroadcastAdmission::Delivered { .. }
+        ));
+        assert_eq!(
+            w.queues.losses().read("slow"),
+            crate::SessionLosses::default(),
+            "the control: a delivery with room costs nothing"
+        );
+        assert!(matches!(
+            w.admit(&frame(8, b"two"), P1, 1),
+            BroadcastAdmission::Delivered { .. }
+        ));
+        assert_eq!(w.queues.losses().read("slow").queue_overflow, 1);
+        assert_eq!(w.queues.losses().read("fast").queue_overflow, 0);
+
+        w.draining = true;
+        assert!(matches!(
+            w.admit(&frame(9, b"three"), P1, 2),
+            BroadcastAdmission::Refused(_)
+        ));
+        for session in ["fast", "slow"] {
+            assert_eq!(
+                w.queues.losses().read(session).ingress_refused,
+                1,
+                "{session} held the channel the gate refused on"
+            );
+        }
+    }
+
+    /// `queue_overflow` is a lower bound on broadcasts LOST, not delayed
+    /// (ADR-0026 A 2026-10-24): the overflowed broadcast was admitted and
+    /// its dedup entry recorded, so within the dedup window a republish of
+    /// its id is a duplicate, queued for nobody, and the count does not
+    /// rise again.
+    #[test]
+    fn a_republished_overflowed_broadcast_is_a_duplicate_and_counts_once() {
+        let mut w = World::new(&["slow"]);
+        w.queues.open("slow", 1);
+        for (id, at) in [(7, 0), (8, 1)] {
+            assert!(matches!(
+                w.admit(&frame(id, b"body"), P1, at),
+                BroadcastAdmission::Delivered { .. }
+            ));
+        }
+        assert_eq!(
+            w.queues.losses().read("slow").queue_overflow,
+            1,
+            "7 was dropped to take 8"
+        );
+
+        assert_eq!(
+            w.admit(&frame(7, b"body"), P1, 2),
+            BroadcastAdmission::Duplicate,
+            "the overflowed id's dedup entry outlives the drop"
+        );
+        assert_eq!(w.queues.losses().read("slow").queue_overflow, 1);
+
+        // The control: a fresh id is delivered, and drops 8 for itself.
+        assert!(matches!(
+            w.admit(&frame(9, b"body"), P1, 3),
+            BroadcastAdmission::Delivered { .. }
+        ));
+        assert_eq!(w.queues.losses().read("slow").queue_overflow, 2);
+    }
+
+    /// The same for a copy no queue could take: a joined session whose
+    /// queue is not open loses the copy, and the broadcast's dedup entry
+    /// is recorded even though no session received it, so a republish
+    /// within the window is a duplicate and counts nothing more.
+    #[test]
+    fn a_republished_broadcast_no_session_could_queue_is_a_duplicate_and_counts_once() {
+        let mut w = World::new(&["closed"]);
+        w.queues.close("closed");
+        let first = w.admit(&frame(7, b"body"), P1, 0);
+        assert!(
+            matches!(&first, BroadcastAdmission::Delivered { sessions, .. } if sessions.is_empty()),
+            "no queue took it: {first:?}"
+        );
+        assert_eq!(w.queues.losses().read("closed").queue_overflow, 1);
+
+        assert_eq!(
+            w.admit(&frame(7, b"body"), P1, 1),
+            BroadcastAdmission::Duplicate,
+            "recorded though every joined session dropped it"
+        );
+        assert_eq!(w.queues.losses().read("closed").queue_overflow, 1);
+
+        // The control: a fresh id is still lost, and counted.
+        assert!(matches!(
+            w.admit(&frame(9, b"body"), P1, 2),
+            BroadcastAdmission::Delivered { .. }
+        ));
+        assert_eq!(w.queues.losses().read("closed").queue_overflow, 2);
+    }
+
+    /// `ingress_refused` is a signal, not a count of distinct losses
+    /// (ADR-0026 A 2026-10-24): a refused broadcast has no dedup entry, so
+    /// each refused copy of one id counts, and a republish once the
+    /// publisher's bucket has refilled is delivered -- and the count, a
+    /// record of refusals, does not fall.
+    #[test]
+    fn a_republished_refused_broadcast_counts_each_copy_and_is_delivered_after_the_refill() {
+        let mut w = World::new(&["human"]);
+        w.queues.open("human", 1_000);
+        let refused = (1..=u8::MAX)
+            .find(|id| match w.admit(&frame(*id, b"body"), P1, 0) {
+                BroadcastAdmission::Delivered { .. } => false,
+                BroadcastAdmission::Refused(Refusal::RateLimited) => true,
+                other => panic!("a distinct id is delivered or rate-limited: {other:?}"),
+            })
+            .expect("the publisher's burst is spent within 255 ids");
+        assert!(refused > 1, "the control: the burst admitted some first");
+        assert_eq!(w.queues.losses().read("human").ingress_refused, 1);
+
+        assert_eq!(
+            w.admit(&frame(refused, b"body"), P1, 0),
+            BroadcastAdmission::Refused(Refusal::RateLimited)
+        );
+        assert_eq!(
+            w.queues.losses().read("human").ingress_refused,
+            2,
+            "each refused copy counts"
+        );
+
+        assert!(
+            matches!(
+                w.admit(&frame(refused, b"body"), P1, 60_000),
+                BroadcastAdmission::Delivered { .. }
+            ),
+            "no dedup entry was kept for the refused id"
+        );
+        assert_eq!(w.queues.losses().read("human").ingress_refused, 2);
+        assert_eq!(w.queues.losses().read("human").queue_overflow, 0);
     }
 
     #[test]

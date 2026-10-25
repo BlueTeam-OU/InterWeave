@@ -965,6 +965,20 @@ impl SwarmCommander {
         .await
     }
 
+    /// Read one session's broadcast losses since its first join: the two
+    /// monotonic counts IPC 2.11's `session.losses` answers.
+    ///
+    /// # Errors
+    /// [`SubstrateError::Stopped`] if the task is gone.
+    pub async fn session_losses(
+        &self,
+        session: impl Into<String>,
+    ) -> Result<interweave_transport_runtime::SessionLosses, SubstrateError> {
+        let session = session.into();
+        self.ask(|reply| SwarmCommand::SessionLosses { session, reply })
+            .await
+    }
+
     /// See [`SwarmRuntime::revoke_endpoint`].
     ///
     /// # Errors

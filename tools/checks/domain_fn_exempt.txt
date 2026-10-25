@@ -63,6 +63,15 @@ SessionQueues::is_open                call  broadcast_state.queues.is_open(
 SessionQueues::drain_up_to            call  broadcast_state.queues.drain_up_to(
 TopicKey::wire_string                 call  topic_key_v1(channel).wire_string(
 
+# --- IPC 2.11 session.losses: the loss ledger is reached through
+# --- `queues.losses()` / `losses_mut()`, so no caller names its type.
+SessionQueues::losses                 call  broadcast_state.queues.losses().read(
+LossLedger::read                      call  queues.losses().read(&session)
+LossLedger::joined                    call  .joined(&session, &channel)
+LossLedger::left                      call  queues.losses_mut().left(&session, &channel)
+LossLedger::released                  call  queues.losses_mut().released(&session)
+LossLedger::refused                   call  ctx.queues.losses_mut().refused(channel)
+
 # --- stage 8 wired these; a directory budget/cache reached through a
 # --- field, and MessageId hex reached through Display/Serialize.
 DirectoryBudget::charge_rate          call  .budget.charge_rate(

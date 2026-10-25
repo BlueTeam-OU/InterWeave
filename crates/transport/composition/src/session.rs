@@ -656,6 +656,14 @@ impl DataSessionPort for InProcessSession {
         Ok(())
     }
 
+    async fn losses(&self) -> Result<interweave_local_client_api::SessionLosses, TransportError> {
+        self.require(DataCapability::Commands)?;
+        self.commander
+            .session_losses(self.key().to_owned())
+            .await
+            .map_err(stopped)
+    }
+
     async fn query_endpoints(
         &self,
         peer: TransportIdentity,

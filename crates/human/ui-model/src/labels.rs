@@ -1155,6 +1155,18 @@ ui_texts! {
     AddUnknownOne => "InterWeave could not check whether the address was saved. Choose Add to try again. If an address is already saved, it is not saved again.",
     /// The same, several lines.
     AddUnknownOther => "InterWeave could not check whether the addresses were saved. Choose Add to try again. If an address is already saved, it is not saved again.",
+    /// Under Add: the add was refused `superseded` (IPC 2.10) and the list
+    /// read back lacks a line, or could not be read: no Try again, and
+    /// nothing said of the list (add-a-peer §5.7). One line.
+    AddSupersededOne => "This attempt to add the address saved nothing. Another program or window on this device might have changed this address at about the same time. Check the list of addresses before you add it again.",
+    /// The same, several lines.
+    AddSupersededOther => "This attempt to add the addresses saved nothing. Another program or window on this device might have changed one or more of these addresses at about the same time. Check the list of addresses before you add them again.",
+    /// The snackbar, with no action, after a removal refused `superseded`
+    /// whose list read back still lists the address (§5.7).
+    RemoveSuperseded => "The address was not removed. Another program or window on this device might have changed this address at about the same time. The address is still in the list.",
+    /// The snackbar, with no action, after an Undo refused `superseded`
+    /// whose list read back does not list the address (§5.7).
+    UndoSuperseded => "The address was not added back. Another program or window on this device might have changed this address at about the same time. The address is not in the list.",
     /// The snackbar after a removal not made, with Try again.
     RemoveFailed => "The address could not be removed. It is still in the list.",
     /// The snackbar after a removal whose answer was lost and whose list
@@ -1180,12 +1192,17 @@ ui_texts! {
     /// A step-two block: the trust read back after a lost answer does not
     /// list the peer.
     TrustStepNotMade => "{peer} is still not trusted. Your choice of Trust was not saved. Choose Trust to try again.",
-    // PLACEHOLDER (en)
-    /// A step-two block: the trust was refused because a later change of
-    /// the same peer from another admin connection stands (IPC 2.10,
-    /// `superseded`), and the list read again does not list the peer;
-    /// `{peer}` the short `PeerId`. Nothing is retried.
-    TrustStepSuperseded => "{peer} is still not trusted. Your choice of Trust was not saved, because a change made at the same time in another app or window on this device was kept.",
+    /// A step-two block: the Trust was refused `superseded` (IPC 2.10) and
+    /// the trust list read again does not list the peer, or a later read
+    /// decided an unread block so; `{peer}` the short `PeerId`. Trust
+    /// stays in the block, named only under a condition: no retry is
+    /// asked for (add-a-peer §5.3, §5.7).
+    TrustStepSuperseded => "{peer} is not trusted. Your choice of Trust was not saved. Another program or window on this device might have changed whether {peer} is trusted at about the same time. If you still want to trust {peer}, choose Trust again.",
+    /// A step-two block: the Trust was refused `superseded` and the trust
+    /// list could not be read again; `{peer}` the short `PeerId`. Claims
+    /// no trust state and points to the trust settings before any Trust
+    /// again: never `TrustStepUnknown`, which says retrying does no harm.
+    TrustStepSupersededUnread => "Your choice of Trust for {peer} was not saved. Another program or window on this device might have changed whether {peer} is trusted at about the same time. InterWeave could not check whether {peer} is trusted. To see whether {peer} is trusted, open the trust settings.",
     /// Under Add: a daemon with the one-address add only did not take
     /// several lines; `{n}` the lines. Daemon only: the embedded runtime
     /// is this app's own version.

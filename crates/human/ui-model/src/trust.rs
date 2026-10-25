@@ -406,10 +406,16 @@ impl TrustSettings {
             Err(TrustSetFailure::NotMade(problem)) => {
                 self.say(TrustOutcome::Problem(problem), from);
             }
-            // Written by the other connection, not this one: the list on
-            // show is not the daemon's now
-            // (`a_superseded_change_is_not_made_and_reads_the_list_again`).
+            // Written by nobody here, and perhaps by the later connection:
+            // the list on show is not the daemon's now, and a read started
+            // before the refusal does not make it so -- one started after
+            // does (add-a-peer §5.3). It ends a lost change of the peer
+            // too: that change was sent on an older connection than this
+            // one, which the contract never applies after this refusal's
+            // cause (`a_superseded_change_is_not_made_and_reads_the_list_again`).
             Err(TrustSetFailure::Superseded) => {
+                self.lost.retain(|(peer, _)| peer != &change.peer);
+                self.unread_write = self.sent;
                 self.held = Held::MayHaveChanged;
                 self.reread = true;
                 self.say(TrustOutcome::Superseded(change), from);
@@ -870,5 +876,43 @@ mod tests {
         assert_eq!(s.entry(), them.as_str(), "not made: the entry is kept");
         assert_eq!(s.take_reread(), Some(Intent::ReadTrust));
         assert_eq!(s.take_reread(), None, "read once");
+    }
+
+    /// A superseded change ends a lost change of its peer, which went on
+    /// an older connection (add-a-peer §5.3), and a read started before
+    /// the refusal does not make the kept list the daemon's word.
+    #[test]
+    fn a_superseded_change_ends_pending_and_an_earlier_read_confirms_nothing() {
+        let me = peer();
+        let them = peer();
+        let mut s = read(&me, &[]);
+        let change = TrustChange {
+            peer: them.clone(),
+            allowed: true,
+        };
+        let _ = s.propose_allow_of(&them);
+        let _ = s.confirm(&change);
+        s.set(
+            change.clone(),
+            Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+        );
+        assert!(s.is_pending(&them));
+
+        // A read on its way while the next Trust is sent and refused.
+        assert_eq!(s.take_reread(), Some(Intent::ReadTrust));
+        let _ = s.propose_allow_of(&them);
+        let _ = s.confirm(&change);
+        s.set(change, Err(TrustSetFailure::Superseded));
+        assert!(!s.is_pending(&them), "the refusal ends it");
+        s.read(Ok(TrustList {
+            local_peer: Some(me),
+            allowed: Vec::new(),
+        }));
+        assert_eq!(
+            s.confirmed_list(),
+            None,
+            "started before the refusal: not the daemon's word"
+        );
+        assert_eq!(s.take_reread(), Some(Intent::ReadTrust), "read again");
     }
 }
