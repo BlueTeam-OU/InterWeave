@@ -128,12 +128,13 @@ def main() -> int:
     text = json.dumps(record, indent=2, ensure_ascii=False)
     for path, name in ((str(scratch), "$SCRATCH"), (str(REPO) + "/", ""), (str(pathlib.Path.home()), "$HOME")):
         text = text.replace(path, name)
+    # Checked before anything is written: a failed check leaves no evidence in the tree.
+    if scratch.name in text:
+        raise SystemExit("the evidence still names the scratch directory")
     dest = HERE / "runs" / RUN
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "evidence.md").write_text(f"# {RUN}\n\nNo session, no model, no credential.\n\n## Run\n\n```json\n"
                                       f"{text}\n```\n")
-    if scratch.name in text:
-        raise SystemExit("the evidence still names the scratch directory")
     print(f"{RUN}: passed={record['passed']}")
     return 0 if record["passed"] else 1
 

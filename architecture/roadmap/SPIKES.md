@@ -254,7 +254,7 @@ held in run b, with stdin closed before the event. The process finished
 the turn, answered the event, then exited 0 with no signal sent: run b's
 outcome, one run (b). The after-turn control was
 answered (c). Without managed settings, `--channels` gave no channel,
-and nothing in the debug log, stderr or stdout said so (d). In
+and no line of the debug log, stderr or stdout matched the four patterns the driver searched for (d). In
 `--permission-mode manual`, which `init` reports as `default`, `reply`
 without `--allowedTools` was denied (`permission_denied`, and
 `permission_denials` in the result), and no request reached the host
