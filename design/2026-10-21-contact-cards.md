@@ -480,8 +480,10 @@ client prepares what will be sent from the picked image:
   offers; an encoder that offers 4:2:0, if one is adopted later, would
   use 4:2:0 (architect-cto's decision 01a173ac, 2026-10-25). At 4:4:4,
   with the image crate 0.25.10 and this preparation, rust-ui-dev-02
-  measured seven photographs (850 × 772 to 3024 × 4032) on 2026-10-25:
-  they land at quality 85 to 90, from 13,123 to 24,555 bytes (recorded
+  measured seven photographs (from 850 × 772 to 3024 × 4032 pixels
+  before preparation) on 2026-10-25: the preparation chose quality 85
+  to 90 for them, and the prepared photographs were 13,123 to 24,555
+  bytes (recorded
   in `crates/human/app-core/src/card_photo.rs` at 4df2fa26 on
   develop-qzapp/rust-ui-dev-02/feat/j54-photo-choosing). So with
   today's encoder a camera photograph fits far above quality 50. An
@@ -500,9 +502,11 @@ client prepares what will be sent from the picked image:
   before each byte, each byte taken from bits 24 to 31 of the state,
   in row-major RGB order), the square was 56,257 bytes at quality 50,
   47,920 at 40, 24,967 at 22, 23,340 at 21 and 21,626 at 20, so at
-  4:4:4 such a picture fits only at quality 21 or below; rust-ui-dev-02's
-  own noise square in the same record lands at 21 too (55,940 bytes at
-  50, 47,781 at 40, 21,616 at 20). The squares come from different
+  4:4:4 such a picture fits only at quality 21 or below. In
+  rust-ui-dev-02's record in `card_photo.rs`, also at 4:4:4 with the
+  image crate, the preparation chooses quality 21 for their own noise
+  square too (55,940 bytes at quality 50, 47,781 at 40 and
+  21,616 at 20). The squares come from different
   generators, so these sets of figures do not measure one picture at
   two subsamplings. So the picture keeps its pixel size (256 × 256, or
   its own smaller square), and the quality is what goes down. An image
