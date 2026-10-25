@@ -26,7 +26,11 @@
 //!   connection opened while it was open is refused, the connection
 //!   kept;
 //! - with the gate open, the per-peer and global ceilings are exact and
-//!   a peer in no trust set is offered nothing.
+//!   a peer in no trust set is offered nothing;
+//! - the gate's SECOND reading: a hop stream negotiated while the gate
+//!   was open, whose RESERVE arrives after it shut, is answered nothing
+//!   and counted in `refused_late` -- beside the same request on an
+//!   open gate, answered with a status (the control).
 
 #![allow(clippy::expect_used, clippy::panic)]
 
@@ -474,5 +478,294 @@ async fn with_the_gate_open_the_ceilings_are_exact_and_a_stranger_is_offered_not
         accepted(&s.drain()),
         2,
         "A and B, and nobody else, were granted"
+    );
+}
+
+/// An outbound-only stream opener: one hop stream on the first
+/// connection to `target`, handed to the test as soon as it is
+/// negotiated. What a client that negotiates hop and then holds back
+/// its request looks like -- the crate's client cannot be told to wait.
+mod opener {
+    use std::collections::VecDeque;
+    use std::task::{Context, Poll};
+
+    use libp2p::core::transport::PortUse;
+    use libp2p::core::upgrade::{DeniedUpgrade, ReadyUpgrade};
+    use libp2p::core::{Endpoint, Multiaddr};
+    use libp2p::swarm::handler::{ConnectionEvent, DialUpgradeError, FullyNegotiatedOutbound};
+    use libp2p::swarm::{
+        ConnectionDenied, ConnectionHandler, ConnectionHandlerEvent, ConnectionId, FromSwarm,
+        NetworkBehaviour, Stream, SubstreamProtocol, THandler, THandlerInEvent, THandlerOutEvent,
+        ToSwarm,
+    };
+    use libp2p::{PeerId, StreamProtocol};
+
+    pub(super) type Opened = Result<Stream, String>;
+
+    pub(super) struct Behaviour {
+        target: PeerId,
+        protocol: StreamProtocol,
+        pending: bool,
+        events: VecDeque<Opened>,
+    }
+
+    impl Behaviour {
+        pub(super) fn new(target: PeerId, protocol: StreamProtocol) -> Self {
+            Self {
+                target,
+                protocol,
+                pending: true,
+                events: VecDeque::new(),
+            }
+        }
+
+        fn handler(&mut self, peer: PeerId) -> Handler {
+            let open = peer == self.target && std::mem::take(&mut self.pending);
+            Handler {
+                protocol: self.protocol.clone(),
+                open,
+                opened: VecDeque::new(),
+            }
+        }
+    }
+
+    impl NetworkBehaviour for Behaviour {
+        type ConnectionHandler = Handler;
+        type ToSwarm = Opened;
+
+        fn handle_established_inbound_connection(
+            &mut self,
+            _: ConnectionId,
+            peer: PeerId,
+            _: &Multiaddr,
+            _: &Multiaddr,
+        ) -> Result<THandler<Self>, ConnectionDenied> {
+            Ok(self.handler(peer))
+        }
+
+        fn handle_established_outbound_connection(
+            &mut self,
+            _: ConnectionId,
+            peer: PeerId,
+            _: &Multiaddr,
+            _: Endpoint,
+            _: PortUse,
+        ) -> Result<THandler<Self>, ConnectionDenied> {
+            Ok(self.handler(peer))
+        }
+
+        fn on_connection_handler_event(
+            &mut self,
+            _: PeerId,
+            _: ConnectionId,
+            event: THandlerOutEvent<Self>,
+        ) {
+            self.events.push_back(event);
+        }
+
+        fn poll(
+            &mut self,
+            _: &mut Context<'_>,
+        ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+            self.events
+                .pop_front()
+                .map_or(Poll::Pending, |e| Poll::Ready(ToSwarm::GenerateEvent(e)))
+        }
+
+        fn on_swarm_event(&mut self, _: FromSwarm<'_>) {}
+    }
+
+    pub(super) struct Handler {
+        protocol: StreamProtocol,
+        open: bool,
+        opened: VecDeque<Opened>,
+    }
+
+    impl ConnectionHandler for Handler {
+        type FromBehaviour = std::convert::Infallible;
+        type ToBehaviour = Opened;
+        type InboundProtocol = DeniedUpgrade;
+        type OutboundProtocol = ReadyUpgrade<StreamProtocol>;
+        type InboundOpenInfo = ();
+        type OutboundOpenInfo = ();
+
+        fn listen_protocol(&self) -> SubstreamProtocol<DeniedUpgrade> {
+            SubstreamProtocol::new(DeniedUpgrade, ())
+        }
+
+        fn connection_keep_alive(&self) -> bool {
+            true
+        }
+
+        fn poll(
+            &mut self,
+            _: &mut Context<'_>,
+        ) -> Poll<ConnectionHandlerEvent<ReadyUpgrade<StreamProtocol>, (), Opened>> {
+            if let Some(opened) = self.opened.pop_front() {
+                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(opened));
+            }
+            if std::mem::take(&mut self.open) {
+                return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest {
+                    protocol: SubstreamProtocol::new(ReadyUpgrade::new(self.protocol.clone()), ()),
+                });
+            }
+            Poll::Pending
+        }
+
+        fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
+            match event {}
+        }
+
+        fn on_connection_event(
+            &mut self,
+            event: ConnectionEvent<'_, DeniedUpgrade, ReadyUpgrade<StreamProtocol>>,
+        ) {
+            match event {
+                ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
+                    protocol: stream,
+                    ..
+                }) => self.opened.push_back(Ok(stream)),
+                ConnectionEvent::DialUpgradeError(DialUpgradeError { error, .. }) => {
+                    self.opened.push_back(Err(error.to_string()));
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+#[derive(NetworkBehaviour)]
+struct OpenerBehaviour {
+    identify: identify::Behaviour,
+    hop: opener::Behaviour,
+}
+
+/// A `HopMessage { type: RESERVE }`, length-prefixed: field 1, varint,
+/// value 0.
+const RESERVE: &[u8] = &[0x02, 0x08, 0x00];
+
+/// Negotiate hop on `s` while its gate is open, then -- when `shut` --
+/// expire the address that opened it, and only then send RESERVE.
+/// Returns what the stream yielded before it ended or `PATIENCE` ran
+/// out: the relay's answer, or nothing.
+async fn reserve_after_negotiation(
+    s: &Server,
+    keys: identity::Keypair,
+    direct: &Multiaddr,
+    shut: bool,
+) -> Vec<u8> {
+    use futures::{AsyncReadExt as _, AsyncWriteExt as _};
+    let target = s.peer;
+    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keys)
+        .with_tokio()
+        .with_tcp(
+            libp2p::tcp::Config::default(),
+            libp2p::noise::Config::new,
+            libp2p::yamux::Config::default,
+        )
+        .expect("tcp")
+        .with_behaviour(|k| OpenerBehaviour {
+            identify: identify::Behaviour::new(identify::Config::new(
+                "/interweave-hop-gate-client/1".to_owned(),
+                k.public(),
+            )),
+            hop: opener::Behaviour::new(target, libp2p::StreamProtocol::new(HOP)),
+        })
+        .expect("behaviour")
+        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))
+        .build();
+    swarm
+        .dial(s.addr.clone().with(Protocol::P2p(target)))
+        .expect("dials");
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let mut stream = loop {
+        match tokio::time::timeout_at(deadline, swarm.select_next_some()).await {
+            Ok(SwarmEvent::Behaviour(OpenerBehaviourEvent::Hop(opened))) => {
+                break opened.expect("hop is negotiated while the gate is open");
+            }
+            Ok(_) => {}
+            Err(elapsed) => panic!("hop was never negotiated ({elapsed})"),
+        }
+    };
+    // Keep the connection driven for the rest of the exchange.
+    tokio::spawn(async move {
+        loop {
+            swarm.select_next_some().await;
+        }
+    });
+    if shut {
+        s.set(External::Remove(direct.clone()));
+    }
+    // The counters are answered by the server task after the command
+    // above, so the gate has moved by the time they arrive.
+    assert_eq!(
+        s.counters().await.refused_late,
+        0,
+        "nothing refused before the request is sent"
+    );
+    stream
+        .write_all(RESERVE)
+        .await
+        .expect("the request is sent");
+    stream.flush().await.expect("flushed");
+    let mut answer = Vec::new();
+    let mut buf = [0_u8; 256];
+    loop {
+        match tokio::time::timeout(PATIENCE, stream.read(&mut buf)).await {
+            Ok(Ok(0) | Err(_)) => return answer,
+            Ok(Ok(n)) => {
+                answer.extend_from_slice(&buf[..n]);
+                // One length-prefixed message is the whole answer.
+                if answer
+                    .first()
+                    .is_some_and(|&len| answer.len() > usize::from(len))
+                {
+                    return answer;
+                }
+            }
+            Err(elapsed) => panic!("the stream neither answered nor ended ({elapsed}): {answer:?}"),
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_request_on_a_stream_negotiated_open_is_dropped_when_the_gate_shut_before_it_arrived() {
+    let direct: Multiaddr = "/ip4/198.51.100.7/tcp/4001".parse().expect("valid");
+    let keys_open = identity::Keypair::generate_ed25519();
+    let keys_shut = identity::Keypair::generate_ed25519();
+
+    // THE CONTROL: the gate stays open, and the same RESERVE on the same
+    // kind of stream is answered with a status -- so the drop below is
+    // the gate's and not a request the relay could not read.
+    let open = server(RelayServerSettings::default(), &[&keys_open]).await;
+    open.set(External::Add(direct.clone()));
+    let answer = reserve_after_negotiation(&open, keys_open, &direct, false).await;
+    assert!(
+        answer.len() > 2 && answer[1..3] == [0x08, 0x02],
+        "the open gate's relay answered RESERVE with a STATUS message: {answer:?}"
+    );
+    assert_eq!(
+        open.counters().await,
+        HopCounters {
+            requests: 1,
+            refused_late: 0
+        }
+    );
+
+    // SHUT BETWEEN NEGOTIATION AND THE REQUEST: the stream ends with no
+    // answer, and the gate counts the request it dropped.
+    let shut = server(RelayServerSettings::default(), &[&keys_shut]).await;
+    shut.set(External::Add(direct.clone()));
+    let answer = reserve_after_negotiation(&shut, keys_shut, &direct, true).await;
+    assert!(
+        answer.is_empty(),
+        "a request that arrives after the gate shut is answered nothing: {answer:?}"
+    );
+    assert_eq!(
+        shut.counters().await,
+        HopCounters {
+            requests: 1,
+            refused_late: 1
+        }
     );
 }
