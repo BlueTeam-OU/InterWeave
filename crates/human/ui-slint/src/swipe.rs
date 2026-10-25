@@ -342,16 +342,40 @@ pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>) -> bool {
     [
         "answer:",
         "proposal-copy:",
+        "proposal-contact:",
         "proposal-decline:",
         "proposal-accept:",
     ]
     .into_iter()
     .find_map(|prefix| focus.strip_prefix(prefix))
-    .and_then(|rest| rest.parse::<i32>().ok())
+    // A link's key adds its note's place after the handle.
+    .and_then(|rest| rest.split(':').next()?.parse::<i32>().ok())
     .is_some_and(|handle| handle >= row)
 }
 
 /// Keep `window` reachable from a callback without keeping it alive.
 pub(crate) fn weak(window: &AppWindow) -> slint::Weak<AppWindow> {
     window.as_weak()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::in_accept_span;
+
+    /// Contact-cards design 5.4.2: the span runs from the confirmation row
+    /// through every card row after it, a proposal's "Open your contact"
+    /// link included, whose key carries its note's place after the
+    /// handle. Mutation: the link's prefix missing, or its handle read
+    /// with the note's place attached.
+    #[test]
+    fn a_proposal_link_after_the_confirmation_row_is_in_its_span() {
+        assert!(in_accept_span("proposal-contact:3:1", Some(2)));
+        assert!(in_accept_span("proposal-contact:2:0", Some(2)));
+        assert!(
+            !in_accept_span("proposal-contact:1:0", Some(2)),
+            "before it"
+        );
+        assert!(in_accept_span("proposal-copy:3", Some(2)), "control");
+        assert!(!in_accept_span("proposal-contact:3:1", None));
+    }
 }

@@ -1551,3 +1551,94 @@ fn an_unusable_photo_note_says_when_the_previous_photo_went() {
         assert!(!shows(&view, text(not)), "removed {removed}");
     }
 }
+
+/// One key pressed and released.
+fn key(view: &View, key: slint::platform::Key) {
+    let text: slint::SharedString = key.into();
+    let window = view.window().window();
+    window.dispatch_event(slint::platform::WindowEvent::KeyPressed { text: text.clone() });
+    window.dispatch_event(slint::platform::WindowEvent::KeyReleased { text });
+}
+
+/// Contact-cards design 5.4.1 and section 9: a row showing `CardSameName`
+/// links the contact it names, "Open your contact {name}", in focus order
+/// after Copy `PeerId` and before Decline; the link opens that contact's
+/// page, and Back returns to the link in its conversation. A note that is
+/// no same-name warning has no link. Mutations: the link dropped from the
+/// note; Close not returning to it.
+#[test]
+fn a_same_name_warning_links_its_contact_and_back_returns_to_the_link() {
+    use slint::platform::Key;
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", Q), contact("c2", "Bea", R)]);
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", false),
+        ProposalContext {
+            same_name: vec![ContactRef {
+                contact_id: "c1".to_owned(),
+                name: "Ada".to_owned(),
+            }],
+            shares_node: vec![ContactRef {
+                contact_id: "c2".to_owned(),
+                name: "Bea".to_owned(),
+            }],
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, P);
+    let link = fill(text(UiText::ShowContact), &[("name", &isolated("Ada"))]);
+    assert_eq!(labelled(&view, &link).len(), 1, "the same-name note's");
+    let other = fill(text(UiText::ShowContact), &[("name", &isolated("Bea"))]);
+    assert!(!shows(&view, &other), "a shares-a-device note has none");
+
+    let window = view.window();
+    window.set_focus_target("proposal-copy:0".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    assert_eq!(window.get_focus_id(), "proposal-copy:0");
+    let order: Vec<String> = (0..3)
+        .map(|_| {
+            key(&view, Key::Tab);
+            view.window().get_focus_id().to_string()
+        })
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "proposal-contact:0:0",
+            "proposal-decline:0",
+            "proposal-accept:0"
+        ],
+        "Copy PeerId, the link, Decline, Accept"
+    );
+
+    key(&view, Key::Backtab);
+    key(&view, Key::Backtab);
+    assert_eq!(view.window().get_focus_id(), "proposal-contact:0:0");
+    key(&view, Key::Return);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::Contact
+    );
+    assert_eq!(view.window().get_contact_title(), isolated("Ada"));
+    assert_eq!(view.window().get_focus_id(), "close-cards");
+
+    key(&view, Key::Return);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None
+    );
+    assert!(shows(&view, &link), "the conversation, shown again");
+    assert_eq!(
+        view.window().get_focus_id(),
+        "proposal-contact:0:0",
+        "Back returns to the link"
+    );
+}

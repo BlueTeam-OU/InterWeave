@@ -64,6 +64,8 @@ export struct ShareAgainRow {
 export struct ProposalNoteRow {
     text: string,
     warning: bool,
+    // "Open your contact {name}" under a same-name warning, or empty.
+    link: string,
 }
 
 // A received card in its conversation (design section 5.4), every
@@ -2118,6 +2120,8 @@ component ProposalCard inherits Rectangle {
     callback accept();
     callback decline();
     callback copy();
+    // A note's link chosen, by the note's place.
+    callback open-contact(int);
     callback focused(string);
     // Its menu (design section 5.4.4, message-swipe section 7): a press
     // held within the slop for the long-press time, `true` for the
@@ -2310,14 +2314,33 @@ component ProposalCard inherits Rectangle {
             accessible-role: text;
             accessible-label: self.text;
         }
-        for note in root.card.notes: Text {
-            text: note.text;
-            font-size: Type.body-medium;
-            font-weight: note.warning ? 700 : 400;
-            wrap: word-wrap;
-            color: note.warning ? Palette.error : Palette.on-surface;
-            accessible-role: text;
-            accessible-label: self.text;
+        for note[i] in root.card.notes: VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: note.text;
+                font-size: Type.body-medium;
+                font-weight: note.warning ? 700 : 400;
+                wrap: word-wrap;
+                color: note.warning ? Palette.error : Palette.on-surface;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            // The contact the warning names, a step away (design section
+            // 5.4.1): after Copy PeerId and before Decline in focus order.
+            if note.link != "": HorizontalLayout {
+                alignment: start;
+                ActionButton {
+                    text: note.link;
+                    text-button: true;
+                    wraps: true;
+                    target: 48px;
+                    focus-key: "proposal-contact:" + root.card.handle + ":" + i;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "proposal-contact:" + root.card.handle + ":" + i;
+                    pressed => { root.open-contact(i); }
+                    focused(k) => { root.focused(k); }
+                }
+            }
         }
         Text {
             text: root.card.received;
@@ -2940,6 +2963,9 @@ export component AppWindow inherits Window {
     in property <[ProposalRow]> proposals;
     callback proposal-accept(int);
     callback proposal-decline(int);
+    // A proposal's "Open your contact" link: the row's handle, the note's
+    // place.
+    callback proposal-open-contact(int, int);
     // What a proposal's Copy PeerId copies, set by the press. Never shown.
     in-out property <string> proposal-copy-text;
     in-out property <CardsPage> cards-page;
@@ -5912,6 +5938,7 @@ export component AppWindow inherits Window {
                     }
                     accept => { root.proposal-accept(proposal.handle); }
                     decline => { root.proposal-decline(proposal.handle); }
+                    open-contact(note) => { root.proposal-open-contact(proposal.handle, note); }
                     copy => {
                         root.proposal-copy-text = proposal.peer;
                         proposal-copy.select-all();

@@ -55,6 +55,9 @@ pub(crate) enum CardsInput {
     Close,
     /// A contact opened from the list, by its id.
     Contact(String),
+    /// A proposal's "Open your contact" link: the row's handle and the
+    /// note's place among its notes.
+    ProposalContact(i32, i32),
     /// A contact's name saved: the contact, and the field as typed.
     SaveName(String, String),
     /// A contact's photo removed.
@@ -97,6 +100,9 @@ pub(crate) struct Drawn {
     answers: HashMap<i32, (Intent, Intent)>,
     /// Each drawn contact row's id, by its handle.
     contacts: HashMap<i32, String>,
+    /// The contact each drawn proposal link opens, by the row's handle and
+    /// the note's place.
+    links: HashMap<(i32, i32), String>,
     /// The contact whose page is drawn.
     contact: Option<String>,
     /// The conversation the share sheet can share for.
@@ -120,6 +126,10 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
         if let Some(intent) = answer {
             enqueue(&s, Input::Cards(CardsInput::Answer(intent)));
         }
+    });
+    let s = Rc::clone(shared);
+    window.on_proposal_open_contact(move |handle, note| {
+        enqueue(&s, Input::Cards(CardsInput::ProposalContact(handle, note)));
     });
     let s = Rc::clone(shared);
     window.on_proposal_decline(move |handle| {
@@ -288,17 +298,26 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     .map(|line| ProposalNoteRow {
         text: line.into(),
         warning: false,
+        link: SharedString::new(),
     });
     let notes: Vec<ProposalNoteRow> = value_lines
         .chain(p.notes.iter().map(|n| {
             let (template, contact, warning) = match n {
-                ProposalNote::SameName(c) => (UiText::CardSameName, c, true),
+                ProposalNote::SameName(c) => (UiText::CardSameName, &c.name, true),
                 ProposalNote::SharesNode(c) => (UiText::CardSharesNode, c, false),
                 ProposalNote::KeyMatches(c) => (UiText::CardKeyMatches, c, false),
+            };
+            // The same-name contact's page, a step away (design 5.4.1).
+            let link = match n {
+                ProposalNote::SameName(c) => {
+                    fill(text(UiText::ShowContact), &[("name", &isolated(&c.name))])
+                }
+                ProposalNote::SharesNode(_) | ProposalNote::KeyMatches(_) => String::new(),
             };
             ProposalNoteRow {
                 text: fill(text(template), &[("contact", &isolated(contact))]).into(),
                 warning,
+                link: link.into(),
             }
         }))
         .collect();
@@ -449,6 +468,12 @@ pub(crate) struct CardScreens {
     /// A share-again row chosen: its conversation's sheet opens once it is
     /// on screen.
     share_on_open: Option<ConversationKey>,
+    /// The proposal link that opened the contact page: its conversation,
+    /// its card and the note's place (contact-cards design section 9's
+    /// focus table: Back returns to the control that opened it).
+    return_to_link: Option<(ConversationKey, RowId, i32)>,
+    /// That link, focused once its conversation draws it again.
+    focus_link: Option<(RowId, i32)>,
 }
 
 impl View {
@@ -534,6 +559,14 @@ impl View {
             CardsInput::Close => {
                 let own = self.cards.page == Some(CardsPage::OwnCard);
                 self.close_cards(&window);
+                // Back from a contact a proposal's link opened: to that
+                // link, in its conversation (design section 9).
+                if let Some((key, row, note)) = self.cards.return_to_link.take()
+                    && self.shown.as_ref() == Some(&key)
+                {
+                    window.set_list_shown(false);
+                    self.cards.focus_link = Some((row, note));
+                }
                 // Back from the card page to the share sheet that opened it.
                 if let Some(key) = self.cards.return_to_share.take()
                     && self.shown.as_ref() == Some(&key)
@@ -546,12 +579,29 @@ impl View {
             }
             CardsInput::Contact(id) => {
                 if model.contact(&id).is_some() {
-                    self.cards.page = Some(CardsPage::Contact);
-                    self.cards.contact = Some(id);
-                    self.cards.contact_drawn = None;
-                    self.cards.contact_error.clear();
-                    window.set_cards_page(CardsPage::Contact);
-                    self.focus_key_after_draw("close-cards".to_owned());
+                    self.open_contact(&window, id);
+                }
+            }
+            CardsInput::ProposalContact(handle, note) => {
+                let id = self
+                    .shared
+                    .borrow()
+                    .cards
+                    .links
+                    .get(&(handle, note))
+                    .cloned();
+                let row = self
+                    .cards
+                    .drawn_rows
+                    .iter()
+                    .find(|(_, drawn)| **drawn == (handle, false))
+                    .map(|(row, _)| *row);
+                if let (Some(id), Some(row), Some(key)) = (id, row, self.shown.clone())
+                    && model.contact(&id).is_some()
+                {
+                    self.cards.return_to_link = Some((key, row, note));
+                    self.page = crate::Page::Cards;
+                    self.open_contact(&window, id);
                 }
             }
             CardsInput::SaveName(id, typed) => {
@@ -635,6 +685,16 @@ impl View {
             }
         }
         Vec::new()
+    }
+
+    /// Show contact `id`'s page, focus on its back arrow.
+    fn open_contact(&mut self, window: &AppWindow, id: String) {
+        self.cards.page = Some(CardsPage::Contact);
+        self.cards.contact = Some(id);
+        self.cards.contact_drawn = None;
+        self.cards.contact_error.clear();
+        window.set_cards_page(CardsPage::Contact);
+        self.focus_key_after_draw("close-cards".to_owned());
     }
 
     fn close_cards(&mut self, window: &AppWindow) {
@@ -903,6 +963,7 @@ impl View {
             let mut answers = HashMap::new();
             let mut swipes = HashMap::new();
             let mut handles = HashMap::new();
+            let mut links = HashMap::new();
             let drawn: Vec<ProposalRow> = shown
                 .iter()
                 .enumerate()
@@ -939,7 +1000,17 @@ impl View {
                         }
                         _ => {}
                     }
-                    proposal_row(handle, p, &self.received(p.received_at))
+                    let row = proposal_row(handle, p, &self.received(p.received_at));
+                    // The notes after the value lines are the model's, in
+                    // its order: a same-name one links its contact.
+                    let first = slint::Model::row_count(&row.notes) - p.notes.len();
+                    for (k, note) in p.notes.iter().enumerate() {
+                        if let ProposalNote::SameName(c) = note {
+                            let at = i32::try_from(first + k).unwrap_or(i32::MAX);
+                            links.insert((handle, at), c.contact_id.clone());
+                        }
+                    }
+                    row
                 })
                 .collect();
             // A proposal's open menu shows the answers its row had: a row
@@ -973,6 +1044,7 @@ impl View {
             crate::update_by_key(&*rows, &mut self.cards.proposal_keys, &keys, &drawn);
             let mut shared = self.shared.borrow_mut();
             shared.cards.answers = answers;
+            shared.cards.links = links;
             shared.swipes.retain(|k, _| !k.starts_with("p:"));
             shared.swipes.extend(swipes);
             drop(shared);
@@ -980,6 +1052,24 @@ impl View {
             self.cards.proposals_shown = shown;
         }
         window.set_proposals(ModelRc::from(rows));
+        // Back from the contact a link opened: the link, drawn again; its
+        // row's first control if the link went meanwhile.
+        if self.page == crate::Page::Conversation
+            && let Some((row, note)) = self.cards.focus_link.take()
+            && let Some((handle, false)) = self.cards.drawn_rows.get(&row).copied()
+        {
+            let linked = self
+                .shared
+                .borrow()
+                .cards
+                .links
+                .contains_key(&(handle, note));
+            self.focus_key_after_draw(if linked {
+                format!("proposal-contact:{handle}:{note}")
+            } else {
+                format!("proposal-copy:{handle}")
+            });
+        }
     }
 
     fn render_contacts(&mut self, model: &UiModel, window: &AppWindow) {
