@@ -980,6 +980,27 @@ ui_texts! {
     /// A contact's page and the own card: remove the photo.
     // PLACEHOLDER (en)
     RemovePhoto => "Remove photo",
+    /// The own card's editor, under the circle with no photo: choose one
+    /// (contact-cards design 5.2).
+    // PLACEHOLDER (en)
+    AddPhoto => "Add a photo",
+    /// The own card's editor, under the circle with a photo.
+    // PLACEHOLDER (en)
+    ChangePhoto => "Change photo",
+    /// The own card's editor, under the circle: the chosen image could not
+    /// be read or prepared, and the card stays as it was.
+    // PLACEHOLDER (en)
+    PhotoUnusable => "This photo cannot be used. Choose another one.",
+    /// The editor's photo circle, accessible label, with a photo.
+    // PLACEHOLDER (en)
+    CardPhotoLabel => "Photo for this card",
+    /// The same, with no photo.
+    // PLACEHOLDER (en)
+    CardPhotoNone => "No photo for this card",
+    /// The same, while the chosen photo is being prepared (no design text
+    /// yet: asked of ux-designer, 01a17307).
+    // PLACEHOLDER (en)
+    PhotoPreparing => "Preparing the photo",
     /// A contact's page and the own card: save the edit.
     // PLACEHOLDER (en)
     Save => "Save",

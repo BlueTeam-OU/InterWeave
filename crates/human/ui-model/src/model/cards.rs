@@ -115,6 +115,24 @@ pub enum PhotoEdit {
     /// The image the person chose, as its file holds it: re-encoded and
     /// stripped of every metadata block before anything keeps it.
     Chosen(Vec<u8>),
+    /// The photo the facade side prepared from the last
+    /// [`Intent::ChooseOwnPhoto`](crate::Intent::ChooseOwnPhoto), as the
+    /// editor previewed it; the card stays as it was if there is none.
+    /// The bytes are the facade side's own, never the view's.
+    Prepared,
+}
+
+/// The photo the own card's editor holds, chosen and not yet saved
+/// (contact-cards design section 5.2, "The photo").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnPhotoStep {
+    /// Being prepared: the circle shows progress, and Save waits for it.
+    Preparing,
+    /// Prepared: exactly what a share sends, decoded for the preview.
+    Prepared(Photo),
+    /// It could not be read or prepared: the card stays as it was
+    /// (`PhotoUnusable`).
+    Unusable,
 }
 
 /// A contact named in a proposal's context.
@@ -530,6 +548,8 @@ pub(super) struct Cards {
     answers: BTreeMap<RowId, CardAnswer>,
     /// Make a new key or Try again, on the card page.
     key_step: Option<KeyStep>,
+    /// The editor's chosen photo, until it is saved or the editor closes.
+    own_photo: Option<OwnPhotoStep>,
 }
 
 /// The confirmation row an Accept leaves in its proposal's place: "You
@@ -949,6 +969,45 @@ impl UiModel {
             && matches!(self.key_problem(), Some(KeyProblem::NotNow));
         self.cards.identity = Some(identity);
         self.cards.key_step = again.then_some(KeyStep::StillNotNow);
+    }
+
+    /// A photo chosen in the own card's editor: being prepared. Any
+    /// earlier choice not saved is replaced.
+    pub fn own_photo_chosen(&mut self) {
+        self.cards.own_photo = Some(OwnPhotoStep::Preparing);
+    }
+
+    /// What preparing the chosen photo came to: the photo as a share would
+    /// send it, or `None` when it could not be read or prepared. Only a
+    /// photo being prepared takes it: one forgotten or saved meanwhile
+    /// stays so.
+    pub fn own_photo_prepared(&mut self, photo: Option<Photo>) {
+        if matches!(self.cards.own_photo, Some(OwnPhotoStep::Preparing)) {
+            self.cards.own_photo =
+                Some(photo.map_or(OwnPhotoStep::Unusable, OwnPhotoStep::Prepared));
+        }
+    }
+
+    /// The editor closed, or its card saved: the chosen photo is let go.
+    pub fn own_photo_forgotten(&mut self) {
+        self.cards.own_photo = None;
+    }
+
+    /// The editor's chosen photo, if any.
+    #[must_use]
+    pub const fn own_photo(&self) -> Option<&OwnPhotoStep> {
+        self.cards.own_photo.as_ref()
+    }
+
+    /// What Save does to the photo: the chosen one, prepared or still
+    /// being prepared (the facade side waits for it), else the card's as
+    /// it is.
+    #[must_use]
+    pub const fn own_photo_edit(&self) -> PhotoEdit {
+        match self.cards.own_photo {
+            Some(OwnPhotoStep::Preparing | OwnPhotoStep::Prepared(_)) => PhotoEdit::Prepared,
+            Some(OwnPhotoStep::Unusable) | None => PhotoEdit::Keep,
+        }
     }
 
     /// The confirmation cancelled, or the card page left: what it showed
@@ -2159,5 +2218,51 @@ mod tests {
                 hold: 8,
             })
         );
+    }
+
+    /// Contact-cards design section 5.2, "The photo": a chosen photo is
+    /// being prepared, and Save then takes the prepared one, whose bytes
+    /// the facade side holds; an unusable one leaves the card's photo as
+    /// it is; an answer after the editor let the choice go changes
+    /// nothing. Mutations: Save keeping the photo while it is prepared;
+    /// a late answer taken after the forget.
+    #[test]
+    fn a_chosen_photo_is_prepared_before_save_takes_it() {
+        let photo = Photo {
+            width: 2,
+            height: 2,
+            rgba: vec![9; 16],
+        };
+        let mut model = UiModel::new();
+        assert_eq!(model.own_photo(), None);
+        assert_eq!(model.own_photo_edit(), PhotoEdit::Keep, "nothing chosen");
+
+        model.own_photo_chosen();
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Preparing));
+        assert_eq!(
+            model.own_photo_edit(),
+            PhotoEdit::Prepared,
+            "Save waits for it"
+        );
+        model.own_photo_prepared(Some(photo.clone()));
+        assert_eq!(
+            model.own_photo(),
+            Some(&OwnPhotoStep::Prepared(photo.clone()))
+        );
+        assert_eq!(model.own_photo_edit(), PhotoEdit::Prepared);
+
+        model.own_photo_chosen();
+        model.own_photo_prepared(None);
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Unusable));
+        assert_eq!(
+            model.own_photo_edit(),
+            PhotoEdit::Keep,
+            "the card as it was"
+        );
+
+        model.own_photo_chosen();
+        model.own_photo_forgotten();
+        model.own_photo_prepared(Some(photo));
+        assert_eq!(model.own_photo(), None, "a late answer changes nothing");
     }
 }
