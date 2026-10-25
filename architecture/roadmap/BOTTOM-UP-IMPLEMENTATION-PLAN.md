@@ -6607,11 +6607,18 @@ owner:
   the cache's write timing for a kill sooner after a connection, and
   who dialled beyond inference stay unproved (`…-cache-on-control.md`
   names each): p2p-network-dev-02's (j69), with row 2 through Scan.
-- Every phone row ran on one LAN that does not isolate its clients,
-  over IPv4, with no relayed path, no change of network, the app in
-  the foreground and stopped by force, never gracefully (each run
-  file's list): p2p-network-dev-02's, as device rows under Stage 18
-  where its matrix names them, else carried.
+- What the phone rows share, as their files list it: every case ran by
+  the app's instrumentation in a fresh process, no window shown and
+  the network service unbound (`…-fresh-pair.md`; `E2eCase.kt` starts
+  no Activity and no service); every file names a relayed path, the
+  app in the background, IPv6 and a LAN that isolates its clients as
+  not run; row 1 and its cache-on variants add DCUtR and AutoNAT,
+  dozing, a change of network and the app's graceful stop (their
+  restart is the platform's force-stop) and, with the reboot row,
+  assert the connection only, never a message (`…-added-address.md`,
+  `…-cache-on.md`, `…-cache-on-control.md`, `…-reboot.md`).
+  p2p-network-dev-02's, carried here until a Stage 18 matrix row
+  names one.
 - The camera row's record does not show a second press of Scan a code
   after a refusal (where a lasting refusal names Settings), a grant and
   a real scan (#418's device check), a phone without a camera, TalkBack's
