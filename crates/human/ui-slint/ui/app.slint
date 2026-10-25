@@ -5009,8 +5009,18 @@ export component AppWindow inherits Window {
                                     letters: root.own-letters;
                                     hue: root.own-hue;
                                 }
+                                // Preparing: the circle dimmed under the
+                                // ring, so the two read as one state rather
+                                // than a spinner over the initials (seen
+                                // rendered).
+                                if root.own-photo-preparing: Rectangle {
+                                    width: 96px;
+                                    height: 96px;
+                                    border-radius: 48px;
+                                    background: Palette.surface.with-alpha(0.7);
+                                }
                                 if root.own-photo-preparing: ProgressRing {
-                                    size: 48px;
+                                    size: 64px;
                                     reduced-motion: root.reduced-motion;
                                 }
                             }
