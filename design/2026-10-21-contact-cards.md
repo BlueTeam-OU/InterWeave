@@ -741,13 +741,13 @@ renames a contact to that name, that is the impersonation ADR-0059
 makes visible, and Undo helps only a person who noticed. Whether the
 swipe is withheld is decided by what the row shows when the drag
 starts, after any recomputation of §5.4.5. So a row never accepts by
-swipe while it shows the warning, and never refuses the swipe without
-the warning. If the warning appears during a right drag, the drag is
+swipe while it shows the warning, and never withholds a swipe that
+starts without the warning. If the warning appears during a right drag, the drag is
 cancelled: the row returns to rest as it does after a release below
-the threshold, and nothing is accepted. If the warning goes during a
+the threshold, and nothing is accepted. If the warning disappears during a
 right drag that started withheld, the row stays still until the
-release, which accepts nothing. A left drag is not affected by the
-warning in either direction, since Decline is the same with or
+release, which accepts nothing. A left drag is not affected when the
+warning appears or disappears, since Decline is the same with or
 without it. The left
 swipe still declines. In case S neither direction moves (Close is not a
 swipe action). The buttons are
@@ -1492,7 +1492,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    the later release accepts nothing. While a withheld right drag is
    held, a change removes the warning: the row stays still, and the
    release accepts nothing. A left drag held past the threshold while
-   the warning comes or goes still declines on release.
+   the warning appears or disappears still declines on release.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
    it: the Move's Undo is gone. No action and no Undo leaves a contact
