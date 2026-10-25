@@ -66,8 +66,7 @@ pub(crate) const fn follow(
     };
     match (s.done_at, answer) {
         (Some(at), _) if generation <= at => Follow::Keep,
-        (_, Answer::Opened) => Follow::Hide,
-        (Some(_), Answer::OtherRefusal) => Follow::Hide,
+        (_, Answer::Opened) | (Some(_), Answer::OtherRefusal) => Follow::Hide,
         (None, Answer::OtherRefusal) => Follow::Keep,
         (None, Answer::Refused(screen)) if same(s.screen, screen) => Follow::Keep,
         (_, Answer::Refused(screen)) => Follow::Show(screen),
