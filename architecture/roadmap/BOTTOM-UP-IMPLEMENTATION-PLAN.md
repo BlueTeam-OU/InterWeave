@@ -5772,11 +5772,21 @@ none is the status value's, which stays on this stage.
   architect-cto's word); until it lands, the close runs the guard
   without `--strict` and this record names C-04 as the one row carried
   whole.
-- **TM-52 to TM-56's step cells** name §29 step 2 (rust-ui-dev) after
-  Stage 21 closed on 2026-10-25; the rendered halves landed (#407), and
-  TM-54's Keystore cipher, alias retirement and invalidation are device
-  rows. rust-ui-dev moves each cell to `—` or to the device row it waits
-  on (asked 2026-10-25, QUESTION 01a17545-a033 to the role).
+- **TM-52 to TM-56's step cells** named §29 step 2 (rust-ui-dev) after
+  Stage 21 closed on 2026-10-25. Read against `main` by rust-ui-dev-01
+  the same day (REPLY 01a17548-26af to QUESTION 01a17545-a033; the
+  assignment architect-cto's, REPLY 01a17549-2349): TM-52 and
+  TM-55 move to `—`, TM-52's cell adding the rendered half's own test
+  (`crates/human/ui-slint/tests/cards.rs`, the key change read before
+  Accept with both fingerprints); TM-53 already reads `—`; TM-54 moves
+  to `S12 (rust-ui-dev)`, since the identity key's Keystore cipher,
+  alias retirement and invalidation have no device run yet and are
+  S12's item in rust-ui-dev's lane, run with the store key's device
+  rows in the owner's phone window; TM-56 moves to a §29 carry
+  (rust-ui-dev): the same-name three-key rule and a rendered title told
+  apart by the short PeerId, Stage 21's carried work and not a Stage 18
+  step. The four cells moved in one commit, a3c92915 on #451 (REPLY
+  01a1754a-7708), which lands them when that pull request merges.
 - **Clause (f)**: `error_contract_matrix.rs` holds no `Proof::Stage(18)`
   deferral (read 2026-10-25), as decided (0) required while the stage
   ran beside Stage 17; the close re-reads it.
