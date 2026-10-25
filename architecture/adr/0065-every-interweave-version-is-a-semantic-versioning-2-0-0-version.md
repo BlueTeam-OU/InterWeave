@@ -38,8 +38,16 @@ An upgrade or a rollback is judged by version precedence first and by the profil
 
 ## Implementation implications
 
-The root manifest's workspace version and the crates' inheritance, and `release.yml`'s tag rule and pre-release marking, are devex-tooling's with p2p-network-dev's release scripts (`tools/ci/release_linux_archive.sh`, `release_android_apk.sh`: accept the full grammar, check against the workspace version); the plugin manifest's version is rust-services-dev's (`packaging/claude-plugin/build.sh` writes it from the release version); the Android `versionName` and `versionCode` rule is rust-ui-dev's (`apps/human-android/android/app/build.gradle.kts`); `--version` on `transport-daemon`, `transportctl`, `interweave-human` and `claude-channel` reports the workspace version with the commit id as build metadata. Each lands with a test that fails when its value and the workspace's differ. Until they land, the release run's present rule (bare triple, hand-set `versionName`, plugin at `0.0.0`) stands and the first tag waits for decision 5's single source.
+The root manifest's workspace version and the crates' inheritance, and `release.yml`'s tag rule and pre-release marking, are devex-tooling's with p2p-network-dev's release scripts (`tools/ci/release_linux_archive.sh`, `release_android_apk.sh`: accept the full grammar, check against the workspace version); the plugin manifest's version is rust-services-dev's (`packaging/claude-plugin/build.sh` writes it from the release version); the Android `versionName` and `versionCode` rule is rust-ui-dev's (`apps/human-android/android/app/build.gradle.kts`); `--version` on `transport-daemon`, `transportctl`, `interweave-human` and `claude-channel` reports the workspace version with the commit id as build metadata. Each landed with a test that fails when its value and the workspace's differ, all of them on `main` by 2026-10-24 (the workspace version and the tag check #394, `--version` and the APK rule #386, the plugin manifest #398, `versionName` from the workspace and `interweave-human`'s `--version` #404, the archive script's grammar #402), and the owner cut the first tag, `v0.1.0`, on 2026-10-25 (A 2026-10-25); its run's outcome and what the release page carries are plan §22's record, not this one's.
 
 ## Revisit conditions
 
 The owner declaring the public API stable (`1.0.0`); a second organisation deploying InterWeave, which turns decision 2's "previous version" into a population; a store distribution (ADR-0057's revisit), whose own version rules would be read against decision 5.
+
+## Amendments
+
+Full notes: [`history/0065-amendments.md`](./history/0065-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-25 | The version items landed and the first tag was cut | A reader no longer takes the release run's old rule as current: every artifact carries the workspace version, and `v0.1.0` exists; the run's outcome is plan §22's record |
