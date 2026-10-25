@@ -1503,7 +1503,10 @@ mod tests {
         assert_ne!(second, first);
         out.clear();
         let _ = handle_relay(
-            closed(second, Err(std::io::Error::other("the reservation timed out"))),
+            closed(
+                second,
+                Err(std::io::Error::other("the reservation timed out")),
+            ),
             &mut swarm,
             &mut state,
             &trust,

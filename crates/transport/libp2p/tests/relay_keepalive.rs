@@ -381,7 +381,11 @@ fn relay_client_swarm<B: NetworkBehaviour>(
 ) -> Swarm<B> {
     libp2p::SwarmBuilder::with_new_identity()
         .with_tokio()
-        .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )
         .expect("tcp")
         .with_relay_client(noise::Config::new, yamux::Config::default)
         .expect("the relay transport")
@@ -399,7 +403,11 @@ async fn bare_relay() -> Multiaddr {
     let peer = keys.public().to_peer_id();
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keys)
         .with_tokio()
-        .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )
         .expect("tcp")
         .with_behaviour(|_| relay::Behaviour::new(peer, relay::Config::default()))
         .expect("behaviour")
