@@ -997,10 +997,14 @@ ui_texts! {
     /// The same, with no photo.
     // PLACEHOLDER (en)
     CardPhotoNone => "No photo for this card",
-    /// The same, while the chosen photo is being prepared (no design text
-    /// yet: asked of ux-designer, 01a17307).
+    /// The same, while the chosen photo is being prepared (design 5.2 as
+    /// #443 proposes it): the photo is not ready yet.
     // PLACEHOLDER (en)
-    PhotoPreparing => "Preparing the photo",
+    CardPhotoPreparing => "Preparing the photo…",
+    /// Announced once in the editor when a chosen photo has been
+    /// prepared: never that it is saved or sent (design 5.2, #443).
+    // PLACEHOLDER (en)
+    PhotoAdded => "Photo ready",
     /// A contact's page and the own card: save the edit.
     // PLACEHOLDER (en)
     Save => "Save",

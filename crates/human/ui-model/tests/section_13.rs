@@ -97,6 +97,7 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         // carries no trust.
         | Intent::ChooseOwnPhoto(_)
         | Intent::ForgetOwnPhoto
+        | Intent::RemoveOwnPhoto
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
         | Intent::SetContactPhoto { .. }

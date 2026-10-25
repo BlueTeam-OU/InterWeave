@@ -434,6 +434,9 @@ pub enum Intent {
     ChooseOwnPhoto(Vec<u8>),
     /// The own card's editor closed without saving its chosen photo.
     ForgetOwnPhoto,
+    /// Remove photo in the own card's editor: no photo once saved, and a
+    /// photo being prepared is let go.
+    RemoveOwnPhoto,
     /// The person's edit of their identity's own card, from its settings.
     SetOwnCard {
         /// The name.

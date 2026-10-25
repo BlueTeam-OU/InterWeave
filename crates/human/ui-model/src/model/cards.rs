@@ -133,6 +133,9 @@ pub enum OwnPhotoStep {
     /// It could not be read or prepared: the card stays as it was
     /// (`PhotoUnusable`).
     Unusable,
+    /// Removed in the editor, which Save writes (design 5.2 as #443
+    /// proposes it: an unsaved change, with no snackbar and no Undo).
+    Removed,
 }
 
 /// A contact named in a proposal's context.
@@ -988,6 +991,12 @@ impl UiModel {
         }
     }
 
+    /// Remove photo in the editor: no photo, once saved. A photo being
+    /// prepared is dropped, and its answer changes nothing.
+    pub fn own_photo_removed(&mut self) {
+        self.cards.own_photo = Some(OwnPhotoStep::Removed);
+    }
+
     /// The editor closed, or its card saved: the chosen photo is let go.
     pub fn own_photo_forgotten(&mut self) {
         self.cards.own_photo = None;
@@ -1006,6 +1015,7 @@ impl UiModel {
     pub const fn own_photo_edit(&self) -> PhotoEdit {
         match self.cards.own_photo {
             Some(OwnPhotoStep::Preparing | OwnPhotoStep::Prepared(_)) => PhotoEdit::Prepared,
+            Some(OwnPhotoStep::Removed) => PhotoEdit::Remove,
             Some(OwnPhotoStep::Unusable) | None => PhotoEdit::Keep,
         }
     }
@@ -2262,7 +2272,15 @@ mod tests {
 
         model.own_photo_chosen();
         model.own_photo_forgotten();
-        model.own_photo_prepared(Some(photo));
+        model.own_photo_prepared(Some(photo.clone()));
         assert_eq!(model.own_photo(), None, "a late answer changes nothing");
+
+        // Remove photo in the editor drops a photo being prepared, and
+        // Save then removes the card's.
+        model.own_photo_chosen();
+        model.own_photo_removed();
+        model.own_photo_prepared(Some(photo));
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Removed));
+        assert_eq!(model.own_photo_edit(), PhotoEdit::Remove);
     }
 }
