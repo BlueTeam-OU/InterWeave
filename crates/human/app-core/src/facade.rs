@@ -1071,26 +1071,38 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         Ok(())
     }
 
-    /// The person's removal of a contact's photo, held for its Undo:
-    /// refused, nothing written, when there is no such contact or no
-    /// photo to remove.
+    /// The person's removal of a contact's photo, held for its Undo. A
+    /// contact with no photo still takes the removal as the person's
+    /// choice, so no card's photo replaces it (design section 6.3), with
+    /// no Undo, since no bytes went (the command line's
+    /// `a_contact_is_renamed_its_photo_removed_and_deleted_by_the_person`).
     fn remove_contact_photo(
         &mut self,
         contact_id: &str,
         updates: &mut Vec<Update>,
     ) -> Result<(), Failure> {
         let at = (self.wall)();
-        let removed = self
-            .client
-            .store_mut()
+        let store = self.client.store_mut();
+        match store
             .remove_contact_photo(contact_id, at)
             .map_err(|e| store_failure(&e))?
-            .ok_or(Failure::NoSuchRow)?;
-        self.contact_undo = Some(Box::new(ContactUndo::Photo(removed)));
-        updates.push(Update::ContactChanged {
-            contact_id: contact_id.to_owned(),
-            change: interweave_human_ui_model::ContactChange::PhotoRemoved,
-        });
+        {
+            Some(removed) => {
+                self.contact_undo = Some(Box::new(ContactUndo::Photo(removed)));
+                updates.push(Update::ContactChanged {
+                    contact_id: contact_id.to_owned(),
+                    change: interweave_human_ui_model::ContactChange::PhotoRemoved,
+                });
+            }
+            None => {
+                if !store
+                    .set_contact_photo(contact_id, None, at)
+                    .map_err(|e| store_failure(&e))?
+                {
+                    return Err(Failure::NoSuchRow);
+                }
+            }
+        }
         updates.push(contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
         Ok(())
