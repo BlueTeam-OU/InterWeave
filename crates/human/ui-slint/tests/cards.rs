@@ -1350,7 +1350,7 @@ fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
 
     // As the facade answers a Delete: the list, then the change.
     model.contacts_listed(Vec::new());
-    model.contact_changed("c1".to_owned(), ContactChange::Deleted);
+    model.contact_changed("c1".to_owned(), ContactChange::Deleted, 1);
     let _ = intents(&mut view, &mut model);
     assert!(shows(&view, text(UiText::ConfirmContactDeleted)));
     press(&view, text(UiText::Undo));
@@ -1359,6 +1359,7 @@ fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
         vec![Intent::UndoContact {
             contact_id: "c1".to_owned(),
             change: ContactChange::Deleted,
+            hold: 1,
         }]
     );
     model.contacts_listed(vec![ada.clone()]);
@@ -1369,14 +1370,14 @@ fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
 
     // Deleted again, then the card pages left: the snackbar closes.
     model.contacts_listed(Vec::new());
-    model.contact_changed("c1".to_owned(), ContactChange::Deleted);
+    model.contact_changed("c1".to_owned(), ContactChange::Deleted, 2);
     let _ = intents(&mut view, &mut model);
     assert!(shows(&view, text(UiText::ConfirmContactDeleted)));
     press(&view, text(UiText::BackToConversations));
     let _ = intents(&mut view, &mut model);
     let _ = intents(&mut view, &mut model);
     assert!(model.snackbar().is_none(), "closed by leaving");
-    assert_eq!(model.take_released().contacts, vec!["c1".to_owned()]);
+    assert_eq!(model.take_released().contacts, vec![2]);
     assert!(!shows(&view, text(UiText::ConfirmContactDeleted)));
 
     // Remove photo, on the contact's page.
@@ -1396,7 +1397,7 @@ fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
         photo_from_card: Some(false),
         ..ada.clone()
     }]);
-    model.contact_changed("c1".to_owned(), ContactChange::PhotoRemoved);
+    model.contact_changed("c1".to_owned(), ContactChange::PhotoRemoved, 3);
     let _ = intents(&mut view, &mut model);
     assert!(shows(&view, text(UiText::ConfirmPhotoRemoved)));
     press(&view, text(UiText::Undo));
