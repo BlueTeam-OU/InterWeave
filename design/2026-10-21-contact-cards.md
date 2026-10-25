@@ -71,7 +71,8 @@ And, 2026-10-16, for the message swipe (`design/2026-10-16-message-swipe.md` §1
 > Swipe left → Discard / Reject / Skip
 
 At the time nothing could be accepted. A received card can be, so §5.4
-gives it that swipe, with one narrowing the owner agreed to (§12 O1).
+gives it that swipe, with two narrowings the owner agreed to (§12 O1,
+O2).
 
 ## 2. The person's goals
 
@@ -595,7 +596,18 @@ never looks like a message the app wrote:
 - `CardGoesAtClose`, in body small: if you do not accept it, it is removed
   when InterWeave stops;
 - actions at the end: **Decline** (`Decline`, text button) and **Accept**
-  (`Accept`, filled; its label changes by case, §5.4.1).
+  (`Accept`, filled; its label changes by case, §5.4.1), **stacked**:
+  each on a line of its own, the full width of the content column,
+  Decline first and Accept last, at every width and every text scale;
+  in case S, Close alone. A label that does not fit wraps inside its
+  button, which grows in height and is never under 48 dp. They are
+  stacked at every scale rather than only when they do not fit side by
+  side, because the toolkit (Slint 1.18) cannot choose a layout by the
+  width of its text (rust-ui-dev-02's finding while building it,
+  QUESTION 01a170cb, 2026-10-25), and a translated case label ("Accept
+  as a new contact") may not fit beside Decline even at 100 %; one
+  layout everywhere also keeps the reading and focus order the same in
+  every locale.
 
 The row carries the time and the status words of any received item
 (Unread, Read) under `human-client-ui.md` §5–§6. It has no Keep: Accept
@@ -717,12 +729,18 @@ The proposal row takes the owner's swipe (§1): **swipe right (start→end)
 with the message-swipe spec's region, thresholds, reveal, haptics, RTL
 mirroring, reduced-motion rules and Undo snackbar (its §3–§8), as a new
 row kind E there. The reveal's label is the button's label of the case,
-never a bare "Accept". **In case D the right swipe is withheld** (§12
-O1, the owner's answer): the row does not move to the right and shows no
-accept reveal, and only the button "Accept as a new contact" saves the
-card, since a swipe can happen without reading, and a stranger saved
-under an existing contact's name by a stray thumb is the impersonation
-ADR-0059 makes visible; Undo helps only a person who noticed. The left
+never a bare "Accept". **Whenever the row shows `CardSameName`, the
+right swipe is withheld** — in case D, and in cases P, U and E when
+Accept would write a clashing name (§5.4.1) — (§12 O1 for case D, O2
+for the others, the owner's answers): the row does not move to the
+right and shows no accept reveal, and only the button (its case label)
+saves the card, since a swipe can happen without reading, and a
+stranger saved, or a contact renamed, under an existing contact's name
+by a stray thumb is the impersonation ADR-0059 makes visible; Undo
+helps only a person who noticed. Whether the swipe is withheld is
+decided by what the row shows when the drag starts, after any
+recomputation of §5.4.5, so a row never accepts by swipe while it
+shows the warning, and never refuses the swipe without it. The left
 swipe still declines. In case S neither direction moves (Close is not a
 swipe action). The buttons are
 the non-gesture equivalent, always present.
@@ -1321,7 +1339,8 @@ front is announced in the app: its notification is the platform's.
 **Targets**: every control at least 48 × 48 dp (Android) and keyboard
 reachable (desktop and a hardware keyboard on Android); radio rows 56 dp
 high. **Text scaling** to 200 % reflows: the sheets and the proposal
-scroll rather than clip; the proposal's actions wrap to their own line;
+scroll rather than clip; the proposal's actions, stacked at every
+scale (§5.4), grow in height as their labels wrap;
 the switch keeps its avatar and three graphemes and the "As {identity}"
 line wraps to two lines before it ellipsises, since it is the one
 naming that must stay readable where the person sends.
@@ -1436,10 +1455,12 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    "goes at close" line; before Accept no decoded photo appears anywhere,
    and a test pins that the decoder is not called (rust-ui-dev).
 7. Each case P, N, D, U, E and S of §5.4.1 shows its context line and Accept
-   label, and Accept does what the table says; in case D a right swipe
-   past the commit threshold neither moves the row nor accepts, shows
-   no accept reveal, and the store is unchanged, while a left swipe
-   declines (§5.4.4); in case E a locally
+   label, and Accept does what the table says; on every row that shows
+   `CardSameName` (case D, and the case P and U fixtures below that
+   show it) a right swipe past the commit threshold neither moves the
+   row nor accepts, shows no accept reveal, and the store is unchanged,
+   while a left swipe declines, and on the case P fixture without it
+   ("Carol") the right swipe accepts (§5.4.4); in case E a locally
    edited name is unchanged after Accept.
    Fixtures for D against a contact "Anna Rossi": a card "Anna" +
    "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; a name "Anna Rossi" with
@@ -1503,7 +1524,14 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     `StoreDiscarded` once.
 17. Every control in this spec is labelled in the accessibility tree
     (desktop now; Android blocked on the bridge), and each swipe has its
-    buttons.
+    buttons. The proposal's actions are stacked (§5.4): at 100 % and
+    at 200 % text, in English and with a case label long enough to
+    wrap, on the narrow layout and the wide one, Decline and Accept
+    each fill the content column's width on a line of their own,
+    Decline above Accept (Close alone in case S); a wrapped label
+    shows whole inside its button, each button at least 48 dp high;
+    keyboard focus goes Copy PeerId, Decline, Accept (Copy PeerId,
+    Close in case S).
 18. §8's contrast table measured, every row at or above its threshold,
     in both schemes.
 19. **One identity in front.** With two identities, `human` in front:
@@ -1824,6 +1852,13 @@ For the owner:
   "i agree with your reccomandation" — withheld in case D (§5.4.4); the
   left swipe still declines, and every other case keeps the owner's
   swipe as given.
+- **O2** — `CardSameName` also shows in cases P, U and E when Accept
+  would write a name that clashes with a contact on another PeerId
+  (§5.4.1), and O1's answer covered case D only. Should the right swipe
+  be withheld there too? Proposed: withheld whenever the warning shows,
+  judged when the swipe starts. **Answered 2026-10-25**, the owner, who
+  chose "Whenever warned" over "Case D only": withheld whenever the row
+  shows `CardSameName` (§5.4.4); a row without it keeps the swipe.
 
 For architect-cto, asked with this revision (the shape of ADR-0061
 decision 9 and the records around it; the note is built on the reading
