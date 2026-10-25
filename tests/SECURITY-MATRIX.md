@@ -32,7 +32,13 @@ holder can add rows without entering the other's crate.
   to the repository root, separated by `; `. A test inside a
   `#[cfg(test)]` module is named by its source file. `owed: <what>`
   marks work a step still has to land. A row whose tests cell holds
-  only `owed:` is still empty, and so is a cell holding `—`.
+  only `owed:` is still empty, and so is a cell holding `—`. A row
+  carried whole to a later stage is not: when every item in its cell
+  names the plan section that carries it, as `owed: <what> in Stage NN
+  (plan section MM)`, the row is carried, and
+  `tools/checks/check_security_matrix.py` reports it so and passes it
+  under `--strict`; any other `owed:` beside or instead of that leaves
+  the row empty.
 - **limit**: what the named tests do not prove (the residual the
   threat model accepts, a recorded measurement, or a platform the
   runner lacks), or `—`.

@@ -171,6 +171,23 @@ help="$(python3 "$CHECK" --help 2>&1)"
 [[ "$help" == *"does not vouch"* && "$help" == *"--strict"* ]] && ok "--help prints the rules block and the options" || bad "--help: $help"
 [[ "$(run_code "$full" --strict)" == 0 ]] && ok "--strict passes a matrix with no empty row" || bad "--strict control failed: $(run "$full" --strict)"
 
+# A row carried whole to a later stage names its plan section and is not empty;
+# a bare owed marker, or a carried one beside it, still is.
+CARRY='owed: the binding'"'"'s spoofing tests, with the binding, in Stage 19 (plan section 22)'
+carried="$(root carried "| S21-01 | floods | S1 | $T | — |" "| C-04 | windows | — | $CARRY | — |")"
+out="$(run "$carried" --strict)"; code="$(run_code "$carried" --strict)"
+[[ "$code" == 0 && "$out" == *"C-04 names no test, carried to Stage 19 (plan section 22) (carried"* && "$out" == *"0 empty row(s), 1 carried"* ]] \
+    && ok "--strict passes a row carried by its plan section, and names it carried" || bad "carried: exit $code: $out"
+out="$(run "$carried")"
+[[ "$out" == *"C-04 names no test, carried to Stage 19"* && "$out" != *"reported; --strict fails it"* ]] \
+    && ok "  and the plain report lists it as carried, not empty" || bad "carried report: $out"
+for marker in "owed: the owner's word" "owed: the tests, in Stage 19" "owed: in Stage 19 (plan section 22)" "$CARRY; owed" "$CARRY; —" "owed: the tests in Stage 19 (plan section 22) later"; do
+    dir="$(root "notcarried$((pass + fail))" "| C-04 | windows | — | $marker | — |")"
+    out="$(run "$dir" --strict)"; code="$(run_code "$dir" --strict)"
+    [[ "$code" == 1 && "$out" == *"C-04 names no test (--strict: an empty row fails the close)"* ]] \
+        && ok "--strict still fails $marker" || bad "not carried ($marker): exit $code: $out"
+done
+
 expect_fail() {  # <label> <needle> <rows...>
     local label="$1" needle="$2"; shift 2
     local dir; dir="$(root "case$((pass + fail))" "$@")"

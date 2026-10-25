@@ -35,7 +35,13 @@
 # and a `;` inside a compiled-out item's header (`fn f(x: [u8;`) ends it
 # early. A test in any of those still vouches.
 # A row with no `path::fn` at all is empty: reported always, and a
-# failure only under --strict, which Stage 18's close runs.
+# failure only under --strict, which Stage 18's close runs. It is carried
+# instead when every item in its tests cell is an owed marker naming the
+# plan section that carries the row, `owed: <what> in Stage NN (plan
+# section MM)`: reported always, labelled carried, and never a failure.
+# Any other owed marker, `—` and a carried marker beside either leave the
+# row empty. Limit: the shape is read, not the plan; whether section MM
+# exists and holds Stage NN, or NN is a later stage, is not checked.
 #
 # Exit codes: 0 every named test exists (and, under --strict, no row is
 # empty); 1 a problem, each on its own line; 2 usage.
@@ -59,6 +65,9 @@ ITEM = re.compile(r"`?(?P<path>[^`:\s][^`:]*)::(?P<fn>[A-Za-z_][A-Za-z0-9_]*)`?"
 # "owed", "owed: <text>" and "owed (<text>)": an owed marker never counts
 # as a test, so its wording is free after the word.
 OWED = re.compile(r"owed\b.*|—")
+# An owed marker that names where the row's work is carried: the row is
+# carried out of this stage, not empty (Row grammar, tests/SECURITY-MATRIX.md).
+CARRIED = re.compile(r"owed: .+ in Stage (?P<stage>\d+) \(plan section (?P<section>\d+)\)")
 
 
 TEST_ATTRIBUTE = re.compile(r"#\[\s*(test\s*\]|tokio::test\b)")
@@ -203,14 +212,15 @@ def defines(path: str, fn: str) -> bool:
         return test_fns(handle.read(), fn)
 
 
-def check(root: str, strict: bool) -> tuple[list[str], list[str], int]:
-    """(problems, empty rows, tests named)."""
+def check(root: str, strict: bool) -> tuple[list[str], list[str], list[str], int]:
+    """(problems, empty rows, carried rows, tests named)."""
     matrix = os.path.join(root, MATRIX)
     if not os.path.isfile(matrix):
-        return [f"{MATRIX}: missing; the security matrix the Stage 18 gate reads is not there"], [], 0
+        return [f"{MATRIX}: missing; the security matrix the Stage 18 gate reads is not there"], [], [], 0
     real_root = os.path.realpath(root)
     problems: list[str] = []
     empty: list[str] = []
+    carried: list[str] = []
     seen: dict[str, int] = {}
     named = 0
     with open(matrix, encoding="utf-8") as handle:
@@ -242,6 +252,7 @@ def check(root: str, strict: bool) -> tuple[list[str], list[str], int]:
             problems.append(f"{where}: {first} has {len(cells)} cells, not the five | id | guards | step | tests | limit |")
             continue
         tests = 0
+        carries = [CARRIED.fullmatch(raw.strip()) for raw in cells[3].split("; ")]
         for raw in cells[3].split("; "):
             item = raw.strip()
             if OWED.fullmatch(item):
@@ -260,13 +271,16 @@ def check(root: str, strict: bool) -> tuple[list[str], list[str], int]:
             elif not defines(full, fn):
                 problems.append(f"{where}: {first}: {path} defines no test fn {fn} (#[test] or #[tokio::test])")
         named += tests
-        if tests == 0:
+        if tests == 0 and all(carries):
+            to = carries[-1]
+            carried.append(f"{where}: {first} names no test, carried to Stage {to['stage']} (plan section {to['section']})")
+        elif tests == 0:
             empty.append(f"{where}: {first} names no test")
     if not seen:
         problems.append(f"{MATRIX}: no row with an S21-NN, TM-NN or C-NN id; the gate would read nothing")
     if strict:
         problems += [f"{e} (--strict: an empty row fails the close)" for e in empty]
-    return problems, empty, named
+    return problems, empty, carried, named
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -278,16 +292,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     parser.add_argument("--strict", action="store_true", help="fail on a row that names no test (Stage 18's close)")
     args = parser.parse_args(argv)
-    problems, empty, named = check(args.root, args.strict)
+    problems, empty, carried, named = check(args.root, args.strict)
     for line in problems:
         print(line)
+    for line in carried:
+        print(f"{line} (carried; --strict passes it)")
     if not args.strict:
         for line in empty:
             print(f"{line} (reported; --strict fails it)")
     if problems:
         print(f"check_security_matrix: {len(problems)} problem(s)", file=sys.stderr)
         return 1
-    print(f"check_security_matrix: OK, {named} named test(s) exist; {len(empty)} empty row(s)")
+    print(f"check_security_matrix: OK, {named} named test(s) exist; {len(empty)} empty row(s), {len(carried)} carried")
     return 0
 
 
