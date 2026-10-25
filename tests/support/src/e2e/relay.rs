@@ -11,7 +11,10 @@
 //! infrastructure, and the hop gate reads the external set as it does in
 //! a daemon. What a daemon puts AROUND the field is absent here -- its
 //! inbound retention arm, the relay keepalive and pre-auth admission --
-//! so nothing of those is exercised on the relay's side.
+//! so nothing of those is exercised on the relay's side; it answers ping
+//! as a daemon relay does, because a client closes a relay that refuses
+//! its keepalive (`transport/libp2p/CONNECTIVITY.md` section 14,
+//! A 2026-10-25).
 //!
 //! Why not a daemon configured as the relay: `RELAY.md` §8 offers hop
 //! only while the relay holds a VERIFIED direct address, a daemon's only
@@ -50,6 +53,7 @@ use super::PATIENCE;
 struct RelayBehaviour {
     identify: identify::Behaviour,
     relay: ServerField,
+    ping: libp2p::ping::Behaviour,
 }
 
 /// What the relay did, as its server field reported it.
@@ -124,6 +128,7 @@ impl Relay {
                     k.public().to_peer_id(),
                     policy,
                 ),
+                ping: libp2p::ping::Behaviour::new(libp2p::ping::Config::new()),
             })
             .expect("the behaviour")
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))

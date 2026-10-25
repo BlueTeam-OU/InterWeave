@@ -17,8 +17,13 @@ have no safe place to live (`NoRuntimeDir`).
 
 ## 0. What the host needs
 
-- Linux x86_64 with systemd, and a user manager for the account
-  (`systemctl --user status` answers).
+- Linux x86_64 with glibc 2.35 or later (Ubuntu 22.04, Debian 12,
+  Fedora 36 and later; `ldd --version` names it), with systemd and a
+  user manager for the account (`systemctl --user status` answers). On
+  an older glibc the binaries refuse to start, naming the missing
+  `GLIBC_2.x`. v0.1.0 is the exception: its `human-desktop` needs glibc
+  2.43 and `interweave-human` 2.38; from v0.1.1 every binary in the
+  archive is checked against 2.35 when the release is built.
 - Lingering for the account, so its units keep running with nobody
   logged in and start at boot: `loginctl enable-linger` (the host's
   polkit policy decides whether an account may do this for itself;
