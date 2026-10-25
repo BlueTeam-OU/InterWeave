@@ -117,21 +117,27 @@ fn wall_ms() -> u64 {
 
 /// One pass of the root's loop, as the desktop root runs it: the
 /// facade's turn, then each command the model side asks for, its updates
-/// applied.
+/// applied; `now` the milliseconds since `start`, the monotonic clock the
+/// facade was started at 0 on. Whether the model side asked for anything.
 async fn pump(
     model: &mut ModelSide<Scripted, Nothing>,
     facade: &mut FacadeSide<IpcBinding, IpcBinding>,
     commands: &mut Vec<Command>,
-) {
-    for update in facade.turn(wall_ms()).await {
+    start: Instant,
+) -> bool {
+    let now = || u64::try_from(start.elapsed().as_millis()).expect("ms");
+    for update in facade.turn(now()).await {
         model.apply(update);
     }
-    for command in model.turn() {
+    let asked = model.turn();
+    let any = !asked.is_empty();
+    for command in asked {
         commands.push(command.clone());
-        for update in facade.execute(command, wall_ms()).await {
+        for update in facade.execute(command, now()).await {
             model.apply(update);
         }
     }
+    any
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -166,6 +172,7 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
         StoreOptions::default(),
     )
     .expect("a store");
+    let start = Instant::now();
     let client = TransportClient::new(
         world.a.binding(),
         world.a.binding(),
@@ -186,7 +193,7 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
     model.apply(Update::Listed(facade.listing().expect("a listing")));
     let mut commands = Vec::new();
     for _ in 0..4 {
-        pump(&mut model, &mut facade, &mut commands).await;
+        pump(&mut model, &mut facade, &mut commands, start).await;
     }
 
     // The person opens the add page and scans the hostile code.
@@ -198,18 +205,36 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
         vec![ViewEvent::Peers(PeersInput::Scanned(lines.join("\n")))],
     ]);
     let deadline = Instant::now() + PATIENCE;
-    let after = loop {
-        pump(&mut model, &mut facade, &mut commands).await;
+    loop {
+        pump(&mut model, &mut facade, &mut commands, start).await;
         let now = addresses(&world.a).await;
         if now.len() > before.len() {
-            break now;
+            break;
         }
         assert!(
             Instant::now() < deadline,
             "the scanned code was never added: {now:?}; commands {commands:?}"
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
-    };
+    }
+    // The model side acts on the add's answer in the turns after it (a
+    // re-read, a next step): run the loop until it has asked for nothing
+    // three passes running, so a command the answer leads to is made
+    // before what the daemon holds is read.
+    let mut quiet = 0;
+    while quiet < 3 {
+        if pump(&mut model, &mut facade, &mut commands, start).await {
+            quiet = 0;
+        } else {
+            quiet += 1;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the model side never settled after the add: {commands:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let after = addresses(&world.a).await;
     let mut want = before.clone();
     want.extend(lines.iter().map(|line| BootstrapAddress {
         address: line.clone(),
