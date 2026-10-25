@@ -25,7 +25,9 @@
 #            checked again with main's verifier and pin, then the release
 #            environment's secrets, a read-only token, and nothing run but
 #            the toolchain install and the signing
-#   publish  steps 8-9: contents: write, no secrets, builds nothing
+#   publish  steps 8-9 and the provenance attestation of the APK and the
+#            archive: contents: write, id-token and attestations write,
+#            no secrets, builds nothing
 # Steps 2-7 are run in the README's order within a job; the page that
 # consumes them is filled only once every one has finished.
 #
@@ -408,6 +410,10 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      # The provenance attestation below: a Sigstore certificate for this
+      # run's identity, and the attestation stored on the repository.
+      id-token: write
+      attestations: write
     env:
       TAG: ${{ github.ref_name }}
       VERSION: ${{ needs.tag.outputs.version }}
@@ -460,6 +466,20 @@ jobs:
       # already pushed (ADR-0058 A 2026-10-22 (ii)).
       - name: The page fits a release body
         run: bash tools/ci/check_release_body.sh "$RUNNER_TEMP/page.md"
+
+      # A provenance attestation for the APK and the archive, each by its
+      # SHA-256: the repository, the workflow file at the tagged commit,
+      # the run and its trigger, signed by Sigstore for this run's
+      # identity. Anyone checks one with
+      #   gh attestation verify <file> --repo BlueTeam-OU/InterWeave
+      # It records where a file was built, not that the build is the one
+      # the source describes; the toolchain and the locks are the tagged
+      # commit's, which the attestation names.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            ${{ runner.temp }}/in/interweave-*-arm64-v8a.apk
+            ${{ runner.temp }}/in/interweave-*-x86_64-unknown-linux-gnu.tar.gz
 
       # Step 9: tools/ci/release_publish.sh creates the tag's release, a
       # pre-release tag marked as one and never as the latest release
