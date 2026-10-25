@@ -365,8 +365,9 @@ impl Root {
                 log("the message store could not be listed");
             }
         }
-        // The store refused the service's start: its screen in place of
-        // the chats, or, once a start opened it, gone (ADR-0060).
+        // The last start's answer: the store's screen in place of the
+        // chats, gone once a start opened the store or the restart after a
+        // discard was refused elsewhere (ADR-0060; store::follow).
         crate::store::follow(&self.view, self.side.store_answer());
         if self.link.lost() {
             // Detached by the hub: attach again, and start from a listing.
