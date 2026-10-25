@@ -87,3 +87,15 @@ texts, none of the 50 real crates refused. p2p-network-dev-01 asked
 the ruling (REQUEST 01a164e0); the code is theirs, after #381.
 Propagation: decisions 2.ii and 3; this note; the log row; the digest
 entry; the README row.
+
+### Amendment 2026-10-25 — The derivation landed and the first release ran under the fail-closed tool
+
+Decision 6 opened "Until the derivation lands, the tool stays
+fail-closed ... and no release runs". The derivation landed with #374
+(65c3e4c7, 2026-10-22), and the first release, v0.1.0, ran on
+2026-10-25 with the Linux archive's `THIRD-PARTY-NOTICES.md` and the
+APK page's `THIRD-PARTY-NOTICES-android.md` written by the tool (plan
+§22). The rule itself is unchanged — a crate whose notice cannot be
+derived still refuses the artifact — so the sentence loses its
+"until" and names the release that ran under it. Propagation: this
+note; the log row; the digest entry.
