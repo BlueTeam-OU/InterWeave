@@ -1371,7 +1371,9 @@ fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
     model.contact_restored("c1", ContactChange::Deleted);
     let _ = intents(&mut view, &mut model);
     settle();
-    assert_eq!(view.window().get_focus_target().as_str(), "contact:0");
+    // Where focus is, not only where it was asked for: a row taking no
+    // focus request once left it on the back arrow.
+    assert_eq!(view.window().get_focus_id().as_str(), "contact:0");
 
     // Deleted again, then the card pages left: the snackbar closes.
     model.contacts_listed(Vec::new());
@@ -1412,7 +1414,7 @@ fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
     let _ = intents(&mut view, &mut model);
     settle();
     assert_eq!(
-        view.window().get_focus_target().as_str(),
+        view.window().get_focus_id().as_str(),
         "contact-remove-photo"
     );
 }

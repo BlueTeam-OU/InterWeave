@@ -2407,6 +2407,13 @@ component OpenRow inherits FocusScope {
     }
     in property <string> text;
     in property <string> focus-key;
+    // A focus request, as `ActionButton` takes one: the Contacts list's
+    // first row after a delete, a contact's row after its page closes.
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
     in property <bool> has-photo;
     in property <image> photo;
     in property <string> letters;
@@ -4731,6 +4738,8 @@ export component AppWindow inherits Window {
                             hue: row.hue;
                             rtl: root.rtl;
                             focus-key: "contact:" + row.handle;
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "contact:" + row.handle;
                             pressed => { root.contact-chosen(row.handle); }
                             focused(k) => { root.focus-id = k; }
                         }
@@ -4766,6 +4775,8 @@ export component AppWindow inherits Window {
                                         text: root.remove-photo-label;
                                         target: 48px;
                                         focus-key: "contact-remove-photo";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "contact-remove-photo";
                                         pressed => { root.contact-remove-photo(); }
                                         focused(k) => { root.focus-id = k; }
                                     }
@@ -5066,6 +5077,8 @@ export component AppWindow inherits Window {
                                     text: row.title;
                                     rtl: root.rtl;
                                     focus-key: "share-again:" + row.handle;
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "share-again:" + row.handle;
                                     pressed => { root.own-key-share-again-chosen(row.handle); }
                                     focused(k) => { root.focus-id = k; }
                                 }

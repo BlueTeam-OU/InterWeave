@@ -2769,8 +2769,20 @@ impl View {
             return false;
         };
         // Once the rows it names exist: a restored row is drawn by this
-        // render, and its controls are made after it.
-        self.focus_key(target);
+        // render, and its controls are made after it. The card pages'
+        // lists are replaced whole, so a contact's row is a control made
+        // by this render, which misses a first request.
+        if matches!(
+            focus,
+            FocusTarget::Contacts
+                | FocusTarget::Contact(_)
+                | FocusTarget::ContactPage(_)
+                | FocusTarget::ContactRemovePhoto(_)
+        ) {
+            self.focus_key_after_draw(target);
+        } else {
+            self.focus_key(target);
+        }
         true
     }
 
