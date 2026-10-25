@@ -480,13 +480,21 @@ client prepares what will be sent from the picked image:
   offers; when an encoder that offers 4:2:0 is adopted, the subsampling
   is 4:2:0 (architect-cto, 2026-10-25). At 4:2:0, a camera photograph
   fits at quality 50 or above: 15 photographs at 256 px all fit at 50,
-  and at 50 the largest of them was 17,405 bytes. The lower qualities are for a
+  and at 50 the largest of them was 17,405 bytes (which photographs,
+  and which encoder, that run used was not recorded). At 4:4:4 no
+  photograph has been measured yet, so whether a camera photograph
+  still fits at 50 with today's encoder is open; rust-ui-dev-02's
+  figures with the image crate go here. The lower qualities are for a
   picture of fine texture or noise, which at 256 px can exceed the
-  bound at quality 50. Measured at 4:2:0, uniform noise was 27,478
-  bytes at quality 50, 23,260 at 40 and 13,620 at 20. Measured at 4:4:4
-  with the image crate 0.25.10, a generated uniform-noise square was
-  56,257 bytes at 50, 47,920 at 40 and 21,626 at 20, so at 4:4:4 such a
-  picture fits only at quality 20. So the size stays fixed, and the
+  bound at quality 50. The noise is a 256 × 256 RGB square whose every
+  channel byte is random. Measured at 4:2:0 with libjpeg-turbo (through
+  Pillow, Huffman optimisation off, which #447's review reproduced
+  byte for byte from Python's `random.seed(1)`), it was 27,478 bytes at
+  quality 50, 23,260 at 40 and 13,620 at 20. Measured at 4:4:4 with the
+  image crate 0.25.10 (the bytes from a xorshift generator), it was
+  56,257 bytes at 50, 47,920 at 40, 24,967 at 22, 23,340 at 21 and
+  21,626 at 20, so at 4:4:4 such a picture fits only at quality 21 or
+  below. So the size stays fixed, and the
   quality is what goes down. An image that still does not fit at 20
   is unusable (below). JPEG always, because a lossless PNG of a
   photograph seldom fits and has no quality to lower.
