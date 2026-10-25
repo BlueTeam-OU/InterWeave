@@ -661,9 +661,9 @@ NFKC and one with it, because each catches lookalikes that the other
 misses.
 NFKC rewrites some lookalikes before `skeleton` sees them: long "ſ"
 becomes "s", so "Alſie" would be compared as "Alsie"; the shape key
-reads "Alſie" as written. Other characters look Latin only after NFKC: a
-circled capital I "Ⓘ" becomes "I", and a fullwidth digit zero becomes
-"0", whose skeleton is "O"; the compatibility shape key catches those. The rule is not transitive: "Ian" is
+reads "Alſie" as written. Other characters look Latin only after NFKC: a fullwidth digit zero
+becomes "0", whose skeleton is "O", so "J０hn" meets "John" only through
+the compatibility shape key. The rule is not transitive: "Ian" is
 the same name as "ian" and as "lan", but "ian" and "lan" are not the
 same name. Nothing here needs the rule to be transitive, because the
 warning and
@@ -695,8 +695,12 @@ missed 435, among them "ꓟax" against "Max" (a small m's skeleton is
 that `skeleton` itself does not join (such as "ȧ" and "å"). Without
 the compatibility shape key, the rule would also miss 45 pairs of a
 compatibility character against a Latin form, found by checking every
-code point that NFKC changes (such as "Ⓘ" against "L", and the
-fullwidth digit zero against "O"). Among 106
+code point that NFKC changes against the Latin forms of its
+compatibility shape key. In 15 of them the character's NFKC form looks
+like the Latin form with its case as written (the fullwidth digit zero
+against "O", a circled number twenty against "2O"); the other 30 join
+only after the fold, and some of those are the I and L false warning
+above (a circled capital I against "L"). Among 106
 common given names, the rule joins only one pair, "Ian" and "Lan", the
 false warning above.
 
@@ -880,9 +884,9 @@ from the missing bubble and the warning:
   card, as message-swipe §7 anchors a message's menu to its bubble. It
   opens under the card when it fits in the visible area there; else
   above the card when it fits there; else over the card, at the top of
-  the visible area (this happens with a card whose height is more
-  than the visible area's height minus the menu's height, as at a
-  large text size). The visible area is the
+  the visible area (when neither the space below the card nor the
+  space above it holds the menu, as with a tall card at a large text
+  size). The visible area is the
   window inside the system bars; the menu may cover the app bar or the
   composer. The menu's place depends on the card alone, never on
   where the press was made. So a
@@ -1625,13 +1629,15 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    Fixtures for D against a contact "Anna Rossi": a card "Anna" +
    "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; a name "Anna Rossi" with
    U+00A0 between the words and no surname; "Ａnna" (fullwidth) +
-   "Rossi" — each shows `CardSameName`. Fixtures for D that only the
-   shape key joins, each card against a contact of the plain name, on
+   "Rossi" — each shows `CardSameName`. Fixtures for D that the case key does
+   not join, each card against a contact of the plain name, on
    another PeerId: "ꓮda" (Lisu U+A4EE) against "Ada"; "Ꭰave"
    (Cherokee U+13A0) against "Dave"; "ꓟax" (Lisu U+A4DF) against
    "Max"; "Βob" (Greek U+0392) against "Bob"; "Alſie" (long s,
-   U+017F) against "Alfie" — each shows
-   `CardSameName`. A card "Ian" against a contact "ian", a pair that only
+   U+017F) against "Alfie"; "J０hn" (fullwidth digit zero U+FF10)
+   against "John" — each shows `CardSameName`. "Alſie" is joined only
+   by the shape key and "J０hn" only by the compatibility shape key, so
+   a build that leaves out either key fails one of them. A card "Ian" against a contact "ian", a pair that only
    the case key joins, also shows `CardSameName`. Controls: a card "Mia" against a
    contact "Max", and "Hanna" + "Rossi" against "Anna Rossi", are case
    N and show no `CardSameName`. Each pair is also checked by §5.4.1's
