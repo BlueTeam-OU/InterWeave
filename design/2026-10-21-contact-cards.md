@@ -622,7 +622,7 @@ and one Accept label.
 **Same name.** What is compared is the name the card would give the
 contact — its `name`, then a space and its `surname` when it has one
 (ADR-0059 d. 3's `display_name`) — against each contact's
-`display_name`. Two keys are made from each name. Here `skeleton` is
+`display_name`. Three keys are made from each name. Here `skeleton` is
 the confusable skeleton of Unicode TS #39 (TS #39's §4), "fold" is full
 case folding, and "spaces" means every run of whitespace (any `Zs`
 character, a no-break space included, and tabs) collapsed to one space
@@ -630,10 +630,12 @@ and trimmed:
 
 - the **case key**: NFKC, then spaces, then fold, then `skeleton`;
 - the **shape key**: spaces, then `skeleton`, then fold, then
-  `skeleton` again. It has no NFKC step.
+  `skeleton` again;
+- the **compatibility shape key**: NFKC, then the shape key's steps.
 
-Two names are the same when their case keys are equal **or** their
-shape keys are equal. The keys decide only whether the warning shows
+Two names are the same when their case keys are equal, **or** their
+shape keys are equal, **or** their compatibility shape keys are equal.
+Each key is compared only with the same key of the other name. The keys decide only whether the warning shows
 and whether titles carry the PeerId (§6.1); they are never displayed
 and never stored in place of the name. The reason is the threat
 ADR-0059 makes visible: a peer naming itself "Аnna" with a Cyrillic А,
@@ -642,7 +644,7 @@ ADR-0059 makes visible: a peer naming itself "Аnna" with a Cyrillic А,
 with a long s — each allowed by HUMAN-CHAT.md's name rules — must meet
 the same warning as "Anna", "Anna Rossi", "Bob", "Ada" or "Alfie".
 
-Why two keys. TS #39's prototypes are case-sensitive: a capital
+Why these keys. TS #39's prototypes are case-sensitive: a capital
 lookalike maps to a capital Latin letter (Greek "Β" and Lisu "ꓮ" to
 "B" and "A"). Folding first turns such a letter into one that no
 longer looks Latin (Greek "Β" folds to "β"), or leaves the letter as it
@@ -651,20 +653,22 @@ So the case key misses them; the shape key reads the name as written
 and catches them. The shape key alone would miss what the case key
 catches: "Ian" and "ian" differ only in case, yet their shape keys
 differ, because a capital I looks like a small l and a small i does
-not. A match on either key is enough for the warning, because a missed
+not. A match on any one key is enough for the warning, because a missed
 lookalike lets a peer pass as a contact, while an extra warning costs
 the person one comparison of PeerIds. The rule warns on every pair
-that the case key alone warns on. The shape key has no NFKC step
-because NFKC rewrites some lookalikes before `skeleton` sees them
-(long "ſ" becomes "s", so "Alſie" would be compared as "Alsie");
-`skeleton` maps fullwidth and other compatibility forms itself, and the
-case key keeps NFKC. The rule is not transitive: "Ian" is
+that the case key alone warns on. The shape key is made both without
+and with NFKC because each form catches lookalikes the other misses.
+NFKC rewrites some lookalikes before `skeleton` sees them: long "ſ"
+becomes "s", so "Alſie" would be compared as "Alsie"; the shape key
+reads it as written. Other characters look Latin only after NFKC: a
+circled capital I "Ⓘ" becomes "I", and a fullwidth digit zero becomes
+"0", whose skeleton is "O"; the compatibility shape key catches those. The rule is not transitive: "Ian" is
 the same name as "ian" and as "lan", but "ian" and "lan" are not the
 same name. Nothing here needs the rule to be transitive, because the
 warning and
 §6.1's titles compare one pair of names at a time.
 
-The shape key's cost is a few false warnings. The shape key folds
+The shape keys' cost is a few false warnings. A shape key folds
 after `skeleton`, so it joins a capital I, which `skeleton` turns into a
 small l, with a capital L, which the fold turns into a small l. "Ian"
 and "Lan" are the same name
@@ -672,8 +676,11 @@ by this rule though they do not look alike. Such a warning costs the
 person one comparison of PeerIds, and the contact is still saved on
 Accept.
 
-Evidence (`confusables.txt` of Unicode 16.0.0, SHA-256 95bd0aad…8611;
-the script, its input and the name list are on PR #438). A pair is a
+Evidence (`confusables.txt` of Unicode 16.0.0, SHA-256
+95bd0aad6dced5ebc63436f459c06ab21a8d107cd842fb57f5c3a1e91bca8611; the
+script and its name list are in PR #438's comment
+https://github.com/BlueTeam-OU/InterWeave/pull/438#issuecomment-6395097730,
+and the script prints every figure below). A pair is a
 source character of the file against one form of its prototype. A
 source character counts when its prototype has at least one letter
 and is made only of code points that are below U+0250 or are
@@ -684,7 +691,11 @@ alone missed 949 of them. The first fix proposed for this gap
 (rust-ui-dev-02's observation), fold, then `skeleton`, then fold,
 missed 435, among them "ꓟax" against "Max" (a small m's skeleton is
 "rn") and "Βob" against "Bob". The rule above misses 17, each a pair
-that `skeleton` itself does not join (such as "ȧ" and "å"). Among 106
+that `skeleton` itself does not join (such as "ȧ" and "å"). Without
+the compatibility shape key it would also miss 45 pairs of a
+compatibility character against a Latin form, found by checking every
+code point that NFKC changes (such as "Ⓘ" against "L", and the
+fullwidth digit zero against "O"). Among 106
 common given names, the rule joins only one pair, "Ian" and "Lan", the
 false warning above.
 
@@ -868,8 +879,10 @@ from the missing bubble and the warning:
   card, as message-swipe §7 anchors a message's menu to its bubble. It
   opens under the card when it fits in the visible area there; else
   above the card when it fits there; else over the card, at the top of
-  the visible area (this happens with a tall card at a large text
-  size, or with a card scrolled partly out of view). Its place depends on the card alone, never on
+  the visible area (this happens with a card taller than the visible
+  area less the menu, as at a large text size). The visible area is the
+  window inside the system bars; the menu may cover the app bar or the
+  composer. Its place depends on the card alone, never on
   where the press was made. So a
   long press that slides from the card onto the menu can end on
   Accept, the menu's first item, before the person has read the card. Without
@@ -1620,7 +1633,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    the case key joins, also shows `CardSameName`. Controls: a card "Mia" against a
    contact "Max", and "Hanna" + "Rossi" against "Anna Rossi", are case
    N and show no `CardSameName`. Each pair is also checked by §5.4.1's
-   two keys directly, as a unit test of the store's comparison
+   three keys directly, as a unit test of the store's comparison
    (rust-ui-dev). A card from a second endpoint
    of contact Carol's PeerId is case P: Accept leaves two contacts, each
    holding one route, Carol unchanged, and each contact page naming the
