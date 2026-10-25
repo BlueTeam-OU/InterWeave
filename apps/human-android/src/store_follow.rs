@@ -65,8 +65,8 @@ pub(crate) const fn follow(
         };
     };
     match (s.done_at, answer) {
-        (_, Answer::Opened) => Follow::Hide,
         (Some(at), _) if generation <= at => Follow::Keep,
+        (_, Answer::Opened) => Follow::Hide,
         (Some(_), Answer::OtherRefusal) => Follow::Hide,
         (None, Answer::OtherRefusal) => Follow::Keep,
         (None, Answer::Refused(screen)) if same(s.screen, screen) => Follow::Keep,
@@ -126,6 +126,7 @@ mod tests {
         assert_eq!(follow(Some(shown(R, Some(3))), REFUSED_R, 3), Follow::Keep);
         assert_eq!(follow(Some(shown(K, Some(3))), REFUSED_R, 2), Follow::Keep);
         assert_eq!(follow(Some(shown(R, Some(3))), OTHER, 3), Follow::Keep);
+        assert_eq!(follow(Some(shown(R, Some(3))), OPENED, 3), Follow::Keep);
         assert_eq!(follow(Some(shown(R, Some(3))), OPENED, 4), Follow::Hide);
     }
 
