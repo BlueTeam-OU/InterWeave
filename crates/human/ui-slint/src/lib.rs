@@ -2584,6 +2584,9 @@ impl View {
                 .is_some_and(|key| model.conversation_hide_offered(key)),
         );
 
+        // The rows' offers as this render drew them, against the touch
+        // that may be dragging one (contact-cards design 5.4.4).
+        swipe::reoffered(&self.shared, window);
         let outcome = model.outcome().cloned();
         let outcome_id = outcome.as_ref().map(|o| o.id);
         // A row a committed swipe slid out stays there until the render

@@ -930,3 +930,128 @@ fn a_swiped_accept_is_refused_once_the_row_is_warned() {
         vec![Intent::AcceptCard(RowId::from_stored(1))]
     );
 }
+
+/// A finger down on `from`, held past the list's forwarding delay; each
+/// later [`Finger::to`] moves it in 10 dp steps 16 ms apart.
+struct Finger {
+    from: (f32, f32),
+    was: f32,
+}
+
+impl Finger {
+    fn down(view: &View, from: (f32, f32)) -> Self {
+        event(
+            view,
+            WindowEvent::PointerPressed {
+                position: LogicalPosition::new(from.0, from.1),
+                button: PointerEventButton::Left,
+            },
+        );
+        tick(120);
+        Self { from, was: 0.0 }
+    }
+
+    fn to(&mut self, view: &View, dx: f32) {
+        let steps = ((dx - self.was).abs() / 10.0).ceil();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        for i in 1..=steps as u32 {
+            tick(16);
+            #[allow(clippy::cast_precision_loss)]
+            let at = self.was + (dx - self.was) * (i as f32 / steps);
+            event(
+                view,
+                WindowEvent::PointerMoved {
+                    position: LogicalPosition::new(self.from.0 + at, self.from.1),
+                },
+            );
+        }
+        self.was = dx;
+    }
+
+    fn up(self, view: &View) {
+        tick(16);
+        event(
+            view,
+            WindowEvent::PointerReleased {
+                position: LogicalPosition::new(self.from.0 + self.was, self.from.1),
+                button: PointerEventButton::Left,
+            },
+        );
+        tick(16);
+    }
+}
+
+/// Contact-cards design section 5.4.4: when the same-name warning appears
+/// during a right drag on a proposal, the drag is cancelled -- the row back
+/// at rest at once, as after a release short of the threshold -- and the
+/// rest of the touch accepts nothing; a left drag goes on and declines.
+/// Mutations: `swipe::reoffered` not called by the render; the proposal
+/// rows replaced whole rather than updated in place.
+#[test]
+fn a_warning_appearing_under_a_right_drag_cancels_it() {
+    let mut view = phone();
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let judge = |model: &mut UiModel, view: &mut View, warned: bool| {
+        model.card_judged(Proposal {
+            row: RowId::from_stored(1),
+            peer: alice.clone(),
+            endpoint: human(),
+            card: Card {
+                app_message_id: format!("{:032x}", 2_001),
+                name: "Ada 1".to_owned(),
+                surname: None,
+                photo: None,
+                identity_key: [1; 32],
+                sent_at_ms: None,
+                from_endpoint: None,
+            },
+            received_at: 1,
+            context: judged(None, warned, false),
+        });
+        view.render(model);
+        tick(16);
+    };
+
+    let mut finger = Finger::down(&view, proposal_heading_at(&view, 0));
+    finger.to(&view, 60.0);
+    assert!(
+        view.window().get_swipe_offset() > 50.0,
+        "control: the row follows the finger"
+    );
+    judge(&mut model, &mut view, true);
+    assert_eq!(
+        view.window().get_swipe_offset(),
+        0.0,
+        "back at rest at once"
+    );
+    assert!(!view.window().get_swipe_tracking());
+    finger.to(&view, 220.0);
+    assert_eq!(
+        view.window().get_swipe_offset(),
+        0.0,
+        "the rest of the touch does not move it"
+    );
+    finger.up(&view);
+    assert!(
+        answers(turn(&mut view, &mut model)).is_empty(),
+        "nothing accepted"
+    );
+
+    // A left drag, the warning appearing under it: Decline is the same
+    // either way.
+    judge(&mut model, &mut view, false);
+    let mut finger = Finger::down(&view, proposal_heading_at(&view, 0));
+    finger.to(&view, -60.0);
+    judge(&mut model, &mut view, true);
+    assert!(view.window().get_swipe_offset() < -50.0, "still dragging");
+    finger.to(&view, -220.0);
+    finger.up(&view);
+    assert_eq!(
+        answers(turn(&mut view, &mut model)),
+        vec![Intent::DeclineCard(RowId::from_stored(1))]
+    );
+}

@@ -236,6 +236,37 @@ pub(crate) fn cancelled(shared: &Rc<RefCell<Shared>>, window: &slint::Weak<AppWi
     }
 }
 
+/// The rows were drawn again under a touch: a direction its row no
+/// longer offers is withdrawn from the gesture (contact-cards design
+/// 5.4.4: the same-name warning appearing during a right drag on a
+/// proposal). A row moved toward it springs back to rest, as after a
+/// release short of the threshold, and nothing is done for that touch;
+/// a row gone takes every direction with it.
+pub(crate) fn reoffered(shared: &Rc<RefCell<Shared>>, window: &AppWindow) {
+    let cancelled = {
+        let mut s = shared.borrow_mut();
+        let rtl = s.touch.rtl;
+        let Some(key) = s.tracked.as_ref().map(|t| t.key.clone()) else {
+            return;
+        };
+        let target = s.swipes.get(&key).cloned();
+        let offers = |side| {
+            target
+                .as_ref()
+                .is_some_and(|t| t.toward(side, rtl).is_some())
+        };
+        let (left, right) = (offers(Side::Left), offers(Side::Right));
+        s.tracked
+            .as_mut()
+            .is_some_and(|t| t.gesture.withdraw(left, right))
+    };
+    if cancelled {
+        window.set_swipe_tracking(false);
+        window.set_swipe_armed(false);
+        window.set_swipe_offset(0.0);
+    }
+}
+
 /// The kind a direction's action is drawn as.
 pub(crate) const fn kind(action: Option<RowAction>) -> SwipeKind {
     match action {
