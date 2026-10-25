@@ -6357,12 +6357,14 @@ and an authored one cannot be removed; `transportctl` lists what the
 app added; two phones on one LAN, each fresh, connect after each has
 scanned the other and trusted the shown PeerId, and not before —
 "connect" being a connection the data plane admits on which a
-message crosses: a TCP and Noise handshake the untrusted side closes
-at establishment is the refusal itself, since a peer is classed only
-once Noise has authenticated it (A 2026-10-24, measured in
-`tests/android-e2e/runs/2026-10-24-pixel-9a-a40-wifi-fresh-pair.md`,
-#417: with one side trusting, nothing crossed and the dialler's row
-read connected once before the close).
+message crosses (A 2026-10-24): a TCP and Noise handshake that the
+untrusted side ends at establishment is the refusal itself by design,
+since a peer is classed only once Noise has authenticated it
+(`architecture/transport/libp2p/SECURITY.md`); what the run file
+`tests/android-e2e/runs/2026-10-24-pixel-9a-a40-wifi-fresh-pair.md`
+(#417) measured is that with one side trusting nothing crossed in
+either direction, the dialler's row reading `denied` in five runs and
+`connected` in one, the close itself unquoted there.
 
 ### Record
 
