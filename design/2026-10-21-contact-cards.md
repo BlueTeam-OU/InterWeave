@@ -1494,9 +1494,11 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    it, while the person, using the keyboard, accepts another proposal that saves
    a contact "Anna Rossi" on another PeerId. While a withheld right
    drag is held, an action of §5.4.5 removes the warning: the row
-   stays still, and the release accepts nothing. The test is the same, and
-   then the person chooses, from the keyboard, the Undo of the other
-   proposal's Accept. A left drag held past the threshold while
+   stays still, and the release accepts nothing. On desktop, the test
+   first accepts the other proposal from the keyboard, so that the row
+   shows the warning; then it drags the row right with the pointer and
+   holds it, while the person chooses, from the keyboard, the Undo of
+   the other proposal's Accept. A left drag held past the threshold while
    the warning appears or disappears still declines on release.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
