@@ -10,7 +10,13 @@
 //! laid over white where it is transparent, and written again as a new
 //! JPEG at the highest quality from 90 down to 20 that the card allows.
 //! The `image` crate's encoder writes every component at full resolution
-//! (4:4:4), not the design's 4:2:0, which costs quality at the bound. A new
+//! (4:4:4), not the 4:2:0 design 5.2's figures were measured at;
+//! architect-cto accepted it (2026-10-25: nothing on the wire names a
+//! subsampling). Measured with this preparation on 2026-10-25: seven
+//! photographs (850 x 772 to 3024 x 4032) land at quality 85 to 90, from
+//! 13,123 to 24,555 bytes; uniform noise at 256 px is 55,940 bytes at 50,
+//! 47,781 at 40 and 21,616 at 20, and lands at 21. Below about 40 for an
+//! ordinary photograph is the measure that brings an encoder with 4:2:0. A new
 //! encoding carries the pixels and nothing else — no EXIF, XMP or GPS
 //! block, no embedded thumbnail, no text chunk, no file name — because
 //! nothing of the original file but its pixels reaches the encoder.
