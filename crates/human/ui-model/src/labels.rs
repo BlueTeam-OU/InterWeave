@@ -803,7 +803,6 @@ ui_texts! {
     /// CARD PROPOSAL, cases E and S: the card carries a photo, and the
     /// person removed the contact's, which stays without one (design
     /// 5.4.1, #443).
-    // PLACEHOLDER (en)
     CardKeepsNoPhoto => "You removed this contact's photo yourself. The contact stays without a photo, and the photo on this card is not used.",
     /// CARD PROPOSAL, the same-name note: `{contact}` is a contact of this
     /// identity with the same name on another `PeerId`.
@@ -987,28 +986,21 @@ ui_texts! {
     RemovePhoto => "Remove photo",
     /// The own card's editor, under the circle with no photo: choose one
     /// (contact-cards design 5.2).
-    // PLACEHOLDER (en)
     AddPhoto => "Add a photo",
     /// The own card's editor, under the circle with a photo.
-    // PLACEHOLDER (en)
     ChangePhoto => "Change photo",
     /// The own card's editor, under the circle: the chosen image could not
     /// be read or prepared, and the card stays as it was.
-    // PLACEHOLDER (en)
     PhotoUnusable => "This photo cannot be used. Choose another one.",
     /// The editor's photo circle, accessible label, with a photo.
-    // PLACEHOLDER (en)
     CardPhotoLabel => "Photo for this card",
     /// The same, with no photo.
-    // PLACEHOLDER (en)
     CardPhotoNone => "No photo for this card",
     /// The same, while the chosen photo is being prepared (design 5.2 as
     /// #443 proposes it): the photo is not ready yet.
-    // PLACEHOLDER (en)
     CardPhotoPreparing => "Preparing the photo…",
     /// Announced once in the editor when a chosen photo has been
     /// prepared: never that it is saved or sent (design 5.2, #443).
-    // PLACEHOLDER (en)
     PhotoAdded => "Photo ready",
     /// A contact's page and the own card: save the edit.
     // PLACEHOLDER (en)
