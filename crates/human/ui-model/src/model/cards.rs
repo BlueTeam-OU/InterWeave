@@ -2009,4 +2009,76 @@ mod tests {
         assert_eq!(held.name, "Ada", "the card as it was");
         assert_eq!(held.key.fingerprint(), Some("fedcba9876543210"));
     }
+
+    // Contact-cards design section 6.3: Delete contact and Remove photo
+    // each open a snackbar on the card pages with an Undo the facade side
+    // carries out; its answer restores and is announced, a refusal or a
+    // close lets go of what it held, and focus goes by the focus table.
+    // Mutations: the snackbar not naming its contact; a close not
+    // releasing it; a refused Undo leaving it awaited.
+    #[test]
+    fn a_contacts_delete_and_photo_removal_offer_an_undo_that_restores() {
+        use super::super::swipe::ContactChange;
+        let mut model = UiModel::new();
+        model.contact_changed("c1".to_owned(), ContactChange::Deleted);
+        let snack = model.snackbar().expect("up");
+        assert_eq!(snack.confirms, Confirmation::ContactDeleted);
+        assert_eq!(snack.contact.as_deref(), Some("c1"));
+        assert_eq!(snack.conversation, None);
+        assert!(snack.undo);
+        assert_eq!(
+            model.outcome().and_then(|o| o.announce),
+            Some(crate::Announce::Confirmed(Confirmation::ContactDeleted)),
+            "announced (section 8)"
+        );
+        assert_eq!(
+            model.undo(snack.id),
+            Some(Intent::UndoContact {
+                contact_id: "c1".to_owned(),
+                change: ContactChange::Deleted,
+            })
+        );
+        assert!(model.snackbar().is_none());
+        model.contact_restored("c1", ContactChange::Deleted);
+        let outcome = model.outcome().expect("restored");
+        assert_eq!(outcome.announce, Some(crate::Announce::Restored));
+        assert_eq!(outcome.focus, Some(FocusTarget::Contact("c1".to_owned())));
+        assert!(model.take_released().is_empty(), "the Undo used it");
+
+        // A refused Undo: the removal stands, its hold let go.
+        model.contact_changed("c2".to_owned(), ContactChange::PhotoRemoved);
+        let snack = model.snackbar().expect("up");
+        assert_eq!(snack.confirms, Confirmation::PhotoRemoved);
+        let undo = model.undo(snack.id).expect("raised");
+        model.intent_refused(&undo);
+        assert_eq!(model.take_released().contacts, vec!["c2".to_owned()]);
+        assert_eq!(
+            model.outcome().and_then(|o| o.focus.clone()),
+            Some(FocusTarget::ContactPage("c2".to_owned()))
+        );
+        model.contact_restored("c2", ContactChange::PhotoRemoved);
+        assert_ne!(
+            model.outcome().and_then(|o| o.announce),
+            Some(crate::Announce::Restored),
+            "nothing awaited any more"
+        );
+
+        // Closed with no Undo: let go, focus on the list if it held it.
+        model.contact_changed("c3".to_owned(), ContactChange::Deleted);
+        let id = model.snackbar().expect("up").id;
+        model.snackbar_closed(id);
+        assert_eq!(model.take_released().contacts, vec!["c3".to_owned()]);
+        assert_eq!(
+            model.undo_closed().map(|u| u.focus.clone()),
+            Some(FocusTarget::Contacts)
+        );
+
+        // Withdrawn: another contact's withdrawal closes nothing.
+        model.contact_changed("c4".to_owned(), ContactChange::Deleted);
+        model.contact_undo_withdrawn("c5");
+        assert!(model.snackbar().is_some());
+        model.contact_undo_withdrawn("c4");
+        assert!(model.snackbar().is_none());
+        assert_eq!(model.take_released().contacts, vec!["c4".to_owned()]);
+    }
 }

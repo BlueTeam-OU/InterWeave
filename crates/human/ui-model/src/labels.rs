@@ -829,6 +829,13 @@ ui_texts! {
     /// SNACKBAR, with Undo, after a Decline: the proposal is gone from
     /// the session unless the person takes it back.
     ConfirmCardDeclined => "Card declined",
+    /// SNACKBAR, with Undo, after Delete contact (contact-cards design
+    /// section 6.3): the contact and its routes are gone unless the
+    /// person takes it back. PLACEHOLDER (en), the design's wording.
+    ConfirmContactDeleted => "Contact deleted",
+    /// SNACKBAR, with Undo, after a contact's Remove photo (section
+    /// 6.3). PLACEHOLDER (en), the design's wording.
+    ConfirmPhotoRemoved => "Photo removed",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 heading
     KeyStateTitle => "This identity's key cannot be used",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): Android, invalidated or gone; must not claim a cause the client cannot know

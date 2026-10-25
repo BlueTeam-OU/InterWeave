@@ -42,11 +42,11 @@ pub use model::cards::{
     ProposalItem, ProposalNote, READ_PROPOSAL_CAP, RouteView, ValueChanges, name_problem,
 };
 pub use model::{
-    Announce, Composer, Confirmation, ConversationKey, ConversationSummary, DEDUP_CAP, Direction,
-    FocusTarget, HELD_UPDATE_CAP, Intent, ItemDiagnostics, ItemKey, ItemStatus, LastMessage,
-    ListedInbound, ListedOutbound, MessageItem, Outcome, Released, Reply, Retention, RouteLabel,
-    RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table, Trust, UiModel,
-    UndoClosed, ViewEvent,
+    Announce, Composer, Confirmation, ContactChange, ConversationKey, ConversationSummary,
+    DEDUP_CAP, Direction, FocusTarget, HELD_UPDATE_CAP, Intent, ItemDiagnostics, ItemKey,
+    ItemStatus, LastMessage, ListedInbound, ListedOutbound, MessageItem, Outcome, Released, Reply,
+    Retention, RouteLabel, RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table,
+    Trust, UiModel, UndoClosed, ViewEvent,
 };
 pub use peers::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES,
