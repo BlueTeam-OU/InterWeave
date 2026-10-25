@@ -84,9 +84,21 @@ download it again from this page.
 
 Download [`{linux_archive}`]({linux_archive_url}).
 
-It runs on Linux computers with a 64-bit x86 processor. On such a
-computer, the command `uname -m` shows `x86_64`. There is no archive
-for macOS, for Windows, or for Linux on an ARM processor.
+It runs on Linux computers that have a 64-bit x86 processor (x86_64)
+and version 2.35 or higher of the GNU C Library (glibc). Ubuntu 22.04
+or later, Debian 12 or later, and Fedora 36 or later have a glibc
+version that is new enough. To check a computer, run these two commands
+in a terminal:
+
+- `uname -m` must show `x86_64`.
+- `ldd --version` must show 2.35 or a higher number at the end of its
+  first line.
+
+If either command shows something else, this archive does not run on
+that computer.
+
+There is no archive for macOS, for Windows, or for Linux on an ARM
+processor.
 
 Use this value to check that the archive is the one published here:
 

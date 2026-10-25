@@ -253,10 +253,6 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # allow-list.
 qrcode = { version = "0.14.1", default-features = false }
 rqrr = { version = "0.11.0", default-features = false }
-# The desktop's Paste an image: the clipboard crate the toolkit's winit
-# backend already uses, with the image read it leaves off; on Linux that
-# decodes PNG with the `image` crate already in the graph.
-arboard = { version = "3.6.1", default-features = false, features = ["image-data"] }
 # The desktop's Open an image…: the platform's file dialog, through the
 # XDG desktop portal on Linux (no GTK), MIT.
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
