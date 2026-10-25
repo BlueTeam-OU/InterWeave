@@ -498,6 +498,40 @@ Preparing can take a moment on a phone: the circle shows a progress
 indicator, and Save waits for it. Choosing the crop is deliberately left
 out (§11).
 
+**Focus and speech in the photo step** (rust-ui-dev-02's QUESTION
+01a17307, 2026-10-25), on both platforms:
+
+- When the Photo Picker or the file dialog closes, whether a picture
+  was chosen or not, focus is on the button that opened it (Add a
+  photo, or Change photo). A cancel changes nothing and announces
+  nothing.
+- While a picture is being prepared, the circle's accessible label is
+  `CardPhotoPreparing`, and the progress indicator inside it is not
+  a separate stop. The start is not announced: the person has just
+  chosen, and focus is on the button. The buttons stay as they were
+  before the choice and stay usable; a picture chosen while another
+  is being prepared replaces it, and only the last one is shown.
+- When the photo is prepared, the circle shows it and its label is
+  `CardPhotoLabel`; focus stays on the same button, which now reads
+  Change photo, with Remove photo after it. `PhotoAdded` is announced
+  once through the live region, because the result changes the page
+  where focus is not (WCAG 2.2 SC 4.1.3, status messages).
+- When the picture cannot be used, `PhotoUnusable` shows under the
+  circle and is announced once through the live region; focus stays
+  on the button, so the person can choose another at once. The line
+  is read after the circle in the reading order and is not a stop of
+  its own. It goes when another picture is chosen or the photo is
+  removed.
+- **Remove photo in this editor is an unsaved change**, as a chosen
+  photo is: nothing is written until Save, so there is no snackbar
+  and no Undo. The way back is Back's `CardDiscardChanges` dialog, or
+  choosing a photo again. The circle shows the initials, its label
+  becomes `CardPhotoNone`, and focus goes to Add a photo, which
+  replaces Change photo and Remove photo; nothing is announced,
+  since the button that takes focus says there is no photo. The
+  contact page's Remove photo (§6.3) is different: that page has no
+  Save, so it removes at once with an Undo.
+
 ### 5.3 Share a card
 
 Entry: **Share a card** in a direct conversation's overflow, or the
@@ -1485,7 +1519,10 @@ accessibility tree) are checked now.
 arriving in the shown conversation is announced as `AnnounceCard` ("New
 contact card"), never with the name; Decline, photo removed,
 contact deleted, a Move, Make default and a switch announce their
-snackbar text; Accept announces nothing of its own. Focus moves to the confirmation
+snackbar text (photo removed being the contact page's, §6.3; the
+editor's Remove photo announces nothing, §5.2); in the card editor,
+a prepared photo announces `PhotoAdded` and an unusable one
+`PhotoUnusable`, and the start of preparing announces nothing (§5.2); Accept announces nothing of its own. Focus moves to the confirmation
 row (§9 item 1's focus table), and the screen reader reads that row:
 `CardAccepted` or `CardUpdated`, and `CardPhotoNotUsed` or
 `CardPhotoNotUsedRemoved` when one shows. So the person hears the result once, and does not hear it again
@@ -1561,6 +1598,10 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | Your identities / Your card / Contacts opened from the menu | the page title (focusable heading) | keyboard |
    | a card saved | the identity's row in the list, else the control that opened the page (the sheet's Edit your card or Add your name) | keyboard |
    | a card's Save with an invalid field | the first invalid field | keyboard |
+   | the editor's Photo Picker or file dialog closes, a picture chosen or cancelled (§5.2) | the button that opened it (Add a photo, or Change photo) | keyboard on desktop: open the file dialog from Add a photo, cancel it, focus on Add a photo; choose a picture, focus on the same button |
+   | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while preparing, then `CardPhotoLabel`; TalkBack blocked (§8) |
+   | the editor's picture unusable | stays on that button; `PhotoUnusable` announced once | keyboard, choosing a file named `.png` that holds no image; desktop screen reader: heard once; TalkBack blocked (§8) |
+   | the editor's Remove photo | Add a photo | keyboard |
    | unsaved-changes dialog opens / closes on Continue editing (also when a switch asked it) | Continue editing / the field that had focus | keyboard |
    | an identity added | its new row in the list | keyboard |
    | Add an identity at the bound | `IdentityLimit` | keyboard |
@@ -1739,7 +1780,10 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     metadata block (EXIF, XMP, text chunks), checked on the bytes a test
     captures before send; a JPEG fixture stored with Orientation 6
     arrives with its marker in the corner where a viewer that honours the
-    tag shows it.
+    tag shows it. In the card editor, Remove photo writes nothing: with
+    a saved photo, Remove photo then Back shows `CardDiscardChanges`,
+    and Discard leaves the saved photo; Remove photo then Save leaves
+    the card with no photo; no snackbar shows in either.
 12. A card too large for a low-limit profile is offered "Share without
     the photo" and nothing is sent before the person presses it.
 13. R shows Delete stored data… as a third action on both clients (on
@@ -1902,7 +1946,9 @@ and are for them to write.
 | `CharCount` | {n} / 64 | field counter |
 | `CardDiscardChanges` | Discard your changes? | unsaved-changes dialog |
 | `KeepEditing` / `DiscardChanges` | Continue editing / Discard | its actions |
-| `PhotoUnusable` | This photo cannot be used. Choose another one. | editor, under the circle |
+| `PhotoUnusable` | This photo cannot be used. Choose another one. | editor, under the circle; announced once (§5.2) |
+| `CardPhotoPreparing` | Preparing the photo… | new text, proposal; the editor's photo circle, accessible label while a chosen picture is prepared (§5.2); must say the photo is not ready yet |
+| `PhotoAdded` | Photo added | new text, proposal; announced once in the editor when a chosen picture is prepared (§5.2); must not say it is saved or sent, since that happens only on Save and Share |
 | `ShareCard` | Share a card | conversation overflow, empty-conversation offer |
 | `ShareCardTitle` | Share your card with {title} | share sheet title |
 | `ShareCardPreview` | What {title} will see | share sheet preview heading |
@@ -1963,7 +2009,7 @@ and are for them to write.
 | `ConfirmRouteMoved` | Conversation moved to {other} | snackbar after Move, with Undo |
 | `Move` | Move | dialog primary |
 | `DeleteContact` | Delete contact | contact overflow |
-| `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
+| `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo; `ConfirmPhotoRemoved` on the contact page only, never in the card editor (§5.2) |
 | `IdentitiesTitle` | Your identities | menu item, page title, the switcher's link |
 | `OwnCardTitle` | Your card | menu item with one identity |
 | `IdentitiesShareDevice` | Desktop: Your identities use this device's PeerId and network addresses. Someone who talks to two of your identities can see that these identities are on the same device. Anyone who sees your network traffic can also see this. To stop the people you talk to from linking two identities, use a separate InterWeave profile for each. The network can still see that both profiles are on this device. Any peer you trust who knows an identity's label can write to that identity. There is no setting to limit this. Android: Your identities use this device's PeerId and network addresses. Someone who talks to two of your identities can see that these identities are on the same device. Anyone who sees your network traffic can also see this. On this phone, any two of your identities can be linked in this way. Any peer you trust who knows an identity's label can write to that identity. There is no setting to limit this. | §5.1; Android ends instead: "This phone cannot keep two identities fully apart." Must state the shared PeerId and addresses, who can see it, the separation that exists, and that a label is no secret from a trusted peer (ADR-0061 d. 5) The last sentence was changed by ux-designer when the reach control was withdrawn |
