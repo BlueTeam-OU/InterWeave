@@ -347,8 +347,11 @@ jobs:
         run: |
           bash main-tip/tools/ci/minisign_install.sh "$RUNNER_TEMP/minisign"
           archive="$RUNNER_TEMP/linux/interweave-$VERSION-x86_64-unknown-linux-gnu.tar.gz"
+          # signing-values.json: the key the signatures were verified
+          # with, for the page's minisign check.
           MINISIGN="$RUNNER_TEMP/minisign/minisign" bash main-tip/tools/ci/release_sign_archive.sh \
-            --keys main-tip/packaging/release-keys.toml "$archive" "$archive.sha256"
+            --keys main-tip/packaging/release-keys.toml --values "$RUNNER_TEMP/out/signing-values.json" \
+            "$archive" "$archive.sha256"
           # Into the APK's directory: one directory for the artifact, as
           # the apk job's comment says why.
           cp "$archive.minisig" "$archive.sha256.minisig" "$RUNNER_TEMP/out/"
@@ -362,6 +365,7 @@ jobs:
             ${{ runner.temp }}/out/android-values.json
             ${{ runner.temp }}/out/interweave-*-x86_64-unknown-linux-gnu.tar.gz.minisig
             ${{ runner.temp }}/out/interweave-*-x86_64-unknown-linux-gnu.tar.gz.sha256.minisig
+            ${{ runner.temp }}/out/signing-values.json
           if-no-files-found: error
           # The signed APK, kept a day: publish runs straight after this
           # job, and a publish re-run later than that is a full re-run,
@@ -533,7 +537,7 @@ jobs:
           python3 tools/ci/release_page.py apps/human-android/release/release-page.md.in \
             "$RUNNER_TEMP/page.md" "$RUNNER_TEMP/run.json" \
             "$in/android-values.json" "$in/linux-values.json" "$in/notices.json" \
-            "$in/crate-notices.json"
+            "$in/crate-notices.json" "$in/signing-values.json"
 
       # Before anything is created: a page the API would refuse fails here,
       # its size and the limit named, not at gh release create with the tag

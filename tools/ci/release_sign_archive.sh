@@ -8,7 +8,7 @@
 # Sign release files with the archive key, and check each signature with
 # the pinned public key:
 #
-#   tools/ci/release_sign_archive.sh [--keys FILE] <file>...
+#   tools/ci/release_sign_archive.sh [--keys FILE] [--values FILE] <file>...
 #
 # Writes <file>.minisig beside each <file> (the release run: the Linux
 # archive and its .sha256). The secret key and its password come from
@@ -27,10 +27,15 @@
 # the sign job passes main's): a key in the environment that is not the
 # pinned one signs nothing that is kept.
 #
+# --values writes {"linux_minisign_public_key": <that key>} to FILE once
+# every signature verified, for release_page.py: the page's check names
+# the key the signatures were verified with, never one read elsewhere.
+#
 # REFUSED, with none of the .minisig files it was to write left behind,
 # when no archive key is pinned (the release fails closed), the
 # environment holds no secret key, the password does not open it, or a
-# signature does not verify with the pinned key. Prints
+# signature does not verify with the pinned key; nor the --values file.
+# Prints
 # `minisig <file>.minisig` for each.
 #
 # Exit codes:
@@ -44,8 +49,9 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 keys="$here/../../packaging/release-keys.toml"
 minisign="${MINISIGN:-minisign}"
+values=""
 
-usage() { echo "usage: release_sign_archive.sh [--keys FILE] <file>..." >&2; exit 2; }
+usage() { echo "usage: release_sign_archive.sh [--keys FILE] [--values FILE] <file>..." >&2; exit 2; }
 die() { echo "::error::release_sign_archive: $*"; exit 1; }
 
 case "${1-}" in
@@ -58,6 +64,7 @@ while [[ "${1-}" == --* ]]; do
     (( $# >= 2 )) || usage
     case "$1" in
     --keys) keys="$2" ;;
+    --values) values="$2" ;;
     *) usage ;;
     esac
     shift 2
@@ -72,7 +79,10 @@ ok=0
 finish() {
     local f
     if [[ -n "$scratch" ]]; then rm -rf "$scratch"; fi
-    if (( ! ok )); then for f in "${written[@]}"; do rm -f -- "$f"; done; fi
+    if (( ! ok )); then
+        for f in "${written[@]}"; do rm -f -- "$f"; done
+        if [[ -n "$values" ]]; then rm -f -- "$values"; fi
+    fi
 }
 trap finish EXIT
 
@@ -94,5 +104,9 @@ for f in "${files[@]}"; do
     "$minisign" -V -q -P "$pub" -m "$f" -x "$f.minisig" >/dev/null 2>&1 \
         || die "$f's signature does not verify with the pinned archive key: the environment's key is another"
 done
+if [[ -n "$values" ]]; then
+    printf '{"linux_minisign_public_key": "%s"}\n' "$pub" > "$values" \
+        || die "could not write $values"
+fi
 ok=1
 for f in "${files[@]}"; do echo "minisig $f.minisig"; done

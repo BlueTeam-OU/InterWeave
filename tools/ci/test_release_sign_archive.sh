@@ -12,6 +12,8 @@
 # archive key pinned (fail closed), no secret key in the environment, a
 # wrong password, an environment key that is not the pinned one, a file
 # that does not exist. The password never appears in what it prints.
+# --values writes the pinned key for the page once every signature
+# verified, and a refusal leaves no values file, an earlier one included.
 #
 # Exit codes:
 #   0  all assertions passed
@@ -73,6 +75,18 @@ printf 'tampered\n' >> "$F1"
 "$MS" -V -q -p "$SANDBOX/a.pub" -m "$F1" -x "$F1.minisig" 2>/dev/null \
     && fail "control: a changed file still verified" || pass "control: the signature does not verify a changed file"
 printf 'archive bytes\n' > "$F1"
+V="$SANDBOX/signing-values.json"
+status=0
+out="$(INTERWEAVE_RELEASE_MINISIGN_KEY="$(cat "$SANDBOX/a.key")" INTERWEAVE_RELEASE_MINISIGN_PASS="$PASS" MINISIGN="$MS" \
+    bash "$UNDER_TEST" --keys "$SANDBOX/keys.toml" --values "$V" "$F1" 2>&1)" || status=$?
+expect "--values with a good signature" 0
+[[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["linux_minisign_public_key"])' "$V" 2>/dev/null)" == "$(pub a)" ]] \
+    && pass "  writes the pinned key as linux_minisign_public_key" || fail "  the values file is not the pinned key" "$(cat "$V" 2>&1)"
+status=0
+out="$(INTERWEAVE_RELEASE_MINISIGN_KEY="$(cat "$SANDBOX/b.key")" INTERWEAVE_RELEASE_MINISIGN_PASS=other MINISIGN="$MS" \
+    bash "$UNDER_TEST" --keys "$SANDBOX/keys.toml" --values "$V" "$F1" 2>&1)" || status=$?
+expect "--values with a key that is not the pinned one" 1 "does not verify"
+[[ ! -e "$V" ]] && pass "  leaves no values file, the earlier one removed" || fail "  a refusal left the values file"
 pin "$(pub n)"
 run n "" "$F1"
 expect "a key made without a password signs with an empty one" 0 "minisig $F1.minisig"
