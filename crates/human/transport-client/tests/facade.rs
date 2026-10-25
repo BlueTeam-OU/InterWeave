@@ -2269,20 +2269,39 @@ async fn a_card_of_an_unknown_kind_or_over_a_bound_is_rejected_with_no_network_e
     assert!(raw_traffic(&from).await.is_empty(), "sent to the sender");
     assert!(raw_traffic(&beside).await.is_empty(), "sent to its node");
 
-    // The control: what the receiver does send reaches the watch.
-    receiver
-        .send(
-            Destination::Direct {
-                peer: a.peer().clone(),
-                endpoint: Some(agent()),
-            },
-            &envelope("seen"),
-            3,
-        )
-        .await
-        .expect("row");
+    // The control: what the receiver does send reaches every lane watched
+    // -- a direct to each endpoint and a broadcast on the room.
+    for destination in [
+        Destination::Direct {
+            peer: a.peer().clone(),
+            endpoint: Some(agent()),
+        },
+        to(a.peer()),
+        Destination::Broadcast(room()),
+    ] {
+        receiver
+            .send(destination, &envelope("seen"), 3)
+            .await
+            .expect("row");
+    }
     receiver.tick(3).await;
-    assert_eq!(raw_direct_ids(&from).await.len(), 1, "the watch is live");
+    let lanes = |seen: Vec<SessionEvent>| {
+        let direct = seen
+            .iter()
+            .filter(|e| matches!(e, SessionEvent::Direct(_)))
+            .count();
+        (direct, seen.len() - direct)
+    };
+    assert_eq!(
+        lanes(raw_traffic(&from).await),
+        (1, 1),
+        "the sender's watch"
+    );
+    assert_eq!(
+        lanes(raw_traffic(&beside).await),
+        (1, 1),
+        "its node's watch"
+    );
 }
 
 #[tokio::test]
