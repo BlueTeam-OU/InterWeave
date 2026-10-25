@@ -622,17 +622,51 @@ and one Accept label.
 **Same name.** What is compared is the name the card would give the
 contact — its `name`, then a space and its `surname` when it has one
 (ADR-0059 d. 3's `display_name`) — against each contact's
-`display_name`. Both sides are reduced to a key: NFKC, then full case
-folding, then every run of whitespace (any `Zs` character, a no-break
-space included, and tabs) collapsed to one space and trimmed, then the
-confusable skeleton of Unicode TS #39 (§4, `skeleton`). Two names are
-the same when their keys are equal. The key decides only whether the
-warning shows and whether titles carry the PeerId (§6.1); it is never
-displayed and never stored in place of the name. The reason is the
-threat ADR-0059 makes visible: a peer naming itself "Аnna" with a
-Cyrillic А, "Anna Rossi" with a no-break space or "Ａnna" in fullwidth
-letters — each allowed by HUMAN-CHAT.md's name rules — must meet the
-same warning as "Anna".
+`display_name`. Each name is first prepared: NFKC, then every run of
+whitespace (any `Zs` character, a no-break space included, and tabs)
+collapsed to one space and trimmed. Two keys are made from the
+prepared name, `skeleton` being the confusable skeleton of Unicode
+TS #39 (§4) and "fold" full case folding:
+
+- the **case key**: fold, then `skeleton`;
+- the **shape key**: `skeleton`, then fold, then `skeleton` again.
+
+Two names are the same when their case keys are equal **or** their
+shape keys are equal. The keys decide only whether the warning shows
+and whether titles carry the PeerId (§6.1); they are never displayed
+and never stored in place of the name. The reason is the threat
+ADR-0059 makes visible: a peer naming itself "Аnna" with a Cyrillic А,
+"Anna Rossi" with a no-break space, "Ａnna" in fullwidth letters,
+"Βob" with a Greek capital Beta or "ꓮda" with a Lisu letter — each
+allowed by HUMAN-CHAT.md's name rules — must meet the same warning as
+"Anna", "Bob" or "Ada".
+
+Why two keys. TS #39's prototypes are case-sensitive: a capital
+lookalike maps to a capital Latin letter (Greek "Β" and Lisu "ꓮ" to
+"B" and "A"). Folding first turns such a letter into one that no
+longer looks Latin (Greek "Β" folds to "β") or leaves its prototype
+capital (Lisu "ꓮ" has no case), so the case key misses them; the shape
+key reads the name as written and catches them. The shape key alone
+would miss what the case key catches: "Ian" and "ian" differ only in
+case, yet their shape keys differ, because a capital I looks like a
+small l and a small i does not. Either key is enough, because a missed
+lookalike lets a peer pass as a contact, while an extra warning costs
+the person one comparison of PeerIds. The rule warns on every pair the
+case key alone warned on. It is not transitive ("Ian" meets "ian" and
+"lan", which do not meet each other), and nothing here needs it to
+be: the warning and §6.1's titles compare one pair of names at a time.
+
+Evidence: a sweep of TS #39's `confusables.txt` (Unicode 16.0.0) compared every
+source character whose prototype is Latin with that prototype in
+lower, upper and title case: 3,765 pairs. The case key alone missed
+949 of them. Fold, `skeleton`, fold, the first fix proposed for this gap
+(rust-ui-dev-02's observation), missed 435, among them "ꓟax" against
+"Max" (a small m's skeleton is "rn") and "Βob" against "Bob". The rule
+above misses 26: 21 pairs that `skeleton` itself does not join (such
+as "ȧ" and "å"), and 5 whose source character NFKC changes before
+`skeleton` sees it (long "ſ" becomes "s"). On about 120 common given
+names, the rule joins only "Ian" and "Lan", a capital I against a small
+l, which look alike in a sans-serif face.
 
 | case | context line | Accept label | Accept does |
 |---|---|---|---|
@@ -655,8 +689,8 @@ is already under X updates X rather than creating a contact, since X is
 that identity of that peer; but X being that identity says nothing about
 whether it is naming itself as someone else. So **whenever Accept would
 write a name** — in case P, and in cases U and E when the name changes
-and is not a local edit — and that name has the same key as a contact on
-another PeerId, `CardSameName` is shown too, in `error`, above the
+and is not a local edit — and that name is the same name, by the rule
+above, as the name of a contact on another PeerId, `CardSameName` is shown too, in `error`, above the
 case's own line, naming that contact, with its Open your contact link
 (ADR-0059 Security implications: a second contact with an existing name
 is shown as such before acceptance). The Accept label stays the case's.
@@ -1086,7 +1120,7 @@ none is specified here (§11).
   different routes exist, the title is `DirectTitle` with the name in
   `{peer}`.
 - **Two contacts with the same name** (of the identity in front, by
-  §5.4.1's key, so a lookalike spelling counts): each title carries
+  §5.4.1's rule, so a lookalike spelling counts): each title carries
   what tells it apart from every other contact of that name, both when
   both are needed (`human-client-ui.md` §4, §13):
   - another contact of that name on **another PeerId** → the short
@@ -1544,7 +1578,17 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    Fixtures for D against a contact "Anna Rossi": a card "Anna" +
    "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; a name "Anna Rossi" with
    U+00A0 between the words and no surname; "Ａnna" (fullwidth) +
-   "Rossi" — each shows `CardSameName`. A card from a second endpoint
+   "Rossi" — each shows `CardSameName`. Fixtures for D that only the
+   shape key joins, each card against a contact of the plain name, on
+   another PeerId: "ꓮda" (Lisu U+A4EE) against "Ada"; "Ꭰave"
+   (Cherokee U+13A0) against "Dave"; "ꓟax" (Lisu U+A4DF) against
+   "Max"; "Βob" (Greek U+0392) against "Bob" — each shows
+   `CardSameName`. A card "Ian" against a contact "ian", which only the
+   case key joins, shows it too. Controls: a card "Mia" against a
+   contact "Max", and "Hanna" + "Rossi" against "Anna Rossi", are case
+   N and show no `CardSameName`. Each pair is also checked by §5.4.1's
+   two keys directly, as a unit test of the store's comparison
+   (rust-ui-dev). A card from a second endpoint
    of contact Carol's PeerId is case P: Accept leaves two contacts, each
    holding one route, Carol unchanged, and each contact page naming the
    other as sharing its device. A card naming itself "Anna Rossi" from
