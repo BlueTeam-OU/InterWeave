@@ -89,8 +89,9 @@ prints, and the host asserts only in the cache-alone variant:
   What does stand in for one here is narrower: before each add, A read
   B unconnected for 3 s with B listening (above). The driver at
   `bf114692` runs B's `await_peer` with an `apart` window through the
-  control and fails if B's case ends first; the four variants are owed
-  a re-run on the phones at that commit or later.
+  control and fails if B's case ends first. The four variants were
+  re-run on the phones at `8f978966`, which holds it, on 2026-10-25:
+  `2026-10-25-pixel-9a-a40-wifi-added-address-cache-on-control.md`.
 - **Both kept.** A connected again in 255–509 ms. Which source "was"
   the dial has no answer here, because the two do not dial separately.
   Discovery merges providers by address, so both sources support one
