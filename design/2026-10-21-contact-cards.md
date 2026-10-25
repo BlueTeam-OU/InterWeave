@@ -625,8 +625,8 @@ contact — its `name`, then a space and its `surname` when it has one
 `display_name`. Each name is first prepared: NFKC, then every run of
 whitespace (any `Zs` character, a no-break space included, and tabs)
 collapsed to one space and trimmed. Two keys are made from the
-prepared name, `skeleton` being the confusable skeleton of Unicode
-TS #39 (§4) and "fold" full case folding:
+prepared name. Here `skeleton` is the confusable skeleton of Unicode
+TS #39 (TS #39's §4), and "fold" is full case folding:
 
 - the **case key**: fold, then `skeleton`;
 - the **shape key**: `skeleton`, then fold, then `skeleton` again.
@@ -644,28 +644,31 @@ allowed by HUMAN-CHAT.md's name rules — must meet the same warning as
 Why two keys. TS #39's prototypes are case-sensitive: a capital
 lookalike maps to a capital Latin letter (Greek "Β" and Lisu "ꓮ" to
 "B" and "A"). Folding first turns such a letter into one that no
-longer looks Latin (Greek "Β" folds to "β") or leaves its prototype
-capital (Lisu "ꓮ" has no case), so the case key misses them; the shape
-key reads the name as written and catches them. The shape key alone
-would miss what the case key catches: "Ian" and "ian" differ only in
-case, yet their shape keys differ, because a capital I looks like a
-small l and a small i does not. Either key is enough, because a missed
+longer looks Latin (Greek "Β" folds to "β"), or leaves the letter as it
+is, so that its prototype is still a capital (Lisu "ꓮ" has no case).
+So the case key misses them; the shape key reads the name as written
+and catches them. The shape key alone would miss what the case key
+catches: "Ian" and "ian" differ only in case, yet their shape keys
+differ, because a capital I looks like a small l and a small i does
+not. A match on either key is enough for the warning, because a missed
 lookalike lets a peer pass as a contact, while an extra warning costs
-the person one comparison of PeerIds. The rule warns on every pair the
-case key alone warned on. It is not transitive ("Ian" meets "ian" and
-"lan", which do not meet each other), and nothing here needs it to
-be: the warning and §6.1's titles compare one pair of names at a time.
+the person one comparison of PeerIds. The rule warns on every pair
+that the case key alone warns on. The rule is not transitive: "Ian" is
+the same name as "ian" and as "lan", but "ian" and "lan" are not the
+same name. Nothing here needs the rule to be transitive, because the
+warning and
+§6.1's titles compare one pair of names at a time.
 
 Evidence: a sweep of TS #39's `confusables.txt` (Unicode 16.0.0) compared every
 source character whose prototype is Latin with that prototype in
 lower, upper and title case: 3,765 pairs. The case key alone missed
-949 of them. Fold, `skeleton`, fold, the first fix proposed for this gap
-(rust-ui-dev-02's observation), missed 435, among them "ꓟax" against
+949 of them. The first fix proposed for this gap (rust-ui-dev-02's
+observation), fold, then `skeleton`, then fold, missed 435, among them "ꓟax" against
 "Max" (a small m's skeleton is "rn") and "Βob" against "Bob". The rule
 above misses 26: 21 pairs that `skeleton` itself does not join (such
 as "ȧ" and "å"), and 5 whose source character NFKC changes before
-`skeleton` sees it (long "ſ" becomes "s"). On about 120 common given
-names, the rule joins only "Ian" and "Lan", a capital I against a small
+`skeleton` sees it (long "ſ" becomes "s"). Among about 120 common given
+names, the rule joins only one pair, "Ian" and "Lan": a capital I against a small
 l, which look alike in a sans-serif face.
 
 | case | context line | Accept label | Accept does |
@@ -698,9 +701,9 @@ A contact on the same PeerId with the same name is not a lookalike
 warning: it is the same device, which case P's line already says, and
 their titles are told apart by the route label (§6.1). A photo is a
 local choice when the store records that the person, not a card,
-decided it on this device (Remove photo, §6.3, records one); every
-other photo is not, one whose source the store did not record
-included. A photo is a
+decided it on this device (Remove photo, §6.3, records one). Every
+other photo is not a local choice, including one whose source the
+store did not record. A photo is a
 "value that changes" whenever the card carries one and X's photo is not
 a local choice, since the client cannot compare a photo it has not
 decoded (`CardUpdatesPhoto`). It is one too when the card carries no
@@ -842,13 +845,14 @@ from the missing bubble and the warning:
   chooses nothing (message-swipe §4's release that ends the long press
   already chooses nothing on every row). On that row, Accept is chosen
   only by a press that starts and ends on Accept after the menu has
-  opened (a tap, Enter or Space). Everywhere else, a press-drag-release
-  chooses whatever item the finger ends on. The menu is anchored to the
+  opened (a tap, Enter or Space). Onto any other item of that row's
+  menu, and onto any item on every other row, a press-drag-release
+  chooses the item the finger ends on. The menu is anchored to the
   card as a message's menu is to its bubble (message-swipe §7): under
   the card, or above it when the space below runs out; it is never
   placed at the press point. So a
   long press that slides from the card onto the menu can end on
-  Accept, its first item, without the person having read it. Without
+  Accept, the menu's first item, before the person has read the card. Without
   this rule, a warned card could be saved that way unread. This rule
   is the designer's reading of §12 O3's reason (a deliberate choice of
   Accept, never one that can happen without reading), not a separate
@@ -1591,8 +1595,8 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    another PeerId: "ꓮda" (Lisu U+A4EE) against "Ada"; "Ꭰave"
    (Cherokee U+13A0) against "Dave"; "ꓟax" (Lisu U+A4DF) against
    "Max"; "Βob" (Greek U+0392) against "Bob" — each shows
-   `CardSameName`. A card "Ian" against a contact "ian", which only the
-   case key joins, shows it too. Controls: a card "Mia" against a
+   `CardSameName`. A card "Ian" against a contact "ian", a pair that only
+   the case key joins, also shows `CardSameName`. Controls: a card "Mia" against a
    contact "Max", and "Hanna" + "Rossi" against "Anna Rossi", are case
    N and show no `CardSameName`. Each pair is also checked by §5.4.1's
    two keys directly, as a unit test of the store's comparison
