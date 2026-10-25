@@ -2099,6 +2099,10 @@ component ProposalCard inherits Rectangle {
     border-radius: 12px;
     border-width: 1px;
     border-color: Palette.outline-variant;
+    // Its size is this layout's: a conditional child passes none to the
+    // card, which would be drawn 0 px tall, its text spilling past the
+    // list's end (tests/cards.rs, `a_proposal_row_is_as_tall_as_what_it_says`).
+    body := VerticalLayout {
     if root.card.answered: VerticalLayout {
         padding: 16px;
         spacing: 8px;
@@ -2264,6 +2268,7 @@ component ProposalCard inherits Rectangle {
                 focused(k) => { root.focused(k); }
             }
         }
+    }
     }
 }
 

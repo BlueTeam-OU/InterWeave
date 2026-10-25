@@ -1213,3 +1213,38 @@ fn the_share_sheet_says_the_key_cannot_be_used_and_opens_the_card_page() {
     assert!(!shows(&view, text(UiText::KeyMakeNew)), "no new key there");
     assert!(shows(&view, text(UiText::TryAgain)));
 }
+
+/// The bounds of the one element labelled `label`.
+fn bounds(view: &View, label: &str) -> (f32, f32, f32, f32) {
+    let found = labelled(view, label);
+    assert_eq!(found.len(), 1, "one {label:?}");
+    let (at, size) = (found[0].absolute_position(), found[0].size());
+    (at.x, at.y, at.x + size.width, at.y + size.height)
+}
+
+/// A proposal's row holds what it says: its heading and its Accept lie
+/// inside the card's fill, so the card is drawn behind them and the list
+/// reaches its end. Its children were all conditional once, which pass no
+/// size up, and the card was drawn 0 px tall with its text spilling below
+/// it. Mutation: the card's body layout taken away, its branches the
+/// card's own children again.
+#[test]
+fn a_proposal_row_is_as_tall_as_what_it_says() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.card_received(proposal(1, P, card("Ada", false), context()));
+    let _ = shown(&mut view, &mut model, P);
+    let cards: Vec<ElementHandle> =
+        ElementHandle::find_by_element_type_name(view.window(), "ProposalCard").collect();
+    assert_eq!(cards.len(), 1, "one card");
+    let (at, size) = (cards[0].absolute_position(), cards[0].size());
+    let card = (at.x, at.y, at.x + size.width, at.y + size.height);
+    let heading = fill(text(UiText::CardProposal), &[("name", &isolated("Ada"))]);
+    for label in [heading.as_str(), text(UiText::CardAccept)] {
+        let inner = bounds(&view, label);
+        assert!(
+            inner.1 >= card.1 && inner.3 <= card.3,
+            "{label:?} at {inner:?} inside the card at {card:?}"
+        );
+    }
+}
