@@ -282,6 +282,8 @@ pub(crate) fn confirmation_text(confirms: Confirmation) -> &'static str {
         Confirmation::ContactSaved => placeholder_en::text(UiText::ConfirmContactSaved),
         Confirmation::ContactUpdated => placeholder_en::text(UiText::ConfirmContactUpdated),
         Confirmation::CardDeclined => placeholder_en::text(UiText::ConfirmCardDeclined),
+        Confirmation::ContactDeleted => placeholder_en::text(UiText::ConfirmContactDeleted),
+        Confirmation::PhotoRemoved => placeholder_en::text(UiText::ConfirmPhotoRemoved),
     }
 }
 

@@ -2509,16 +2509,28 @@ impl View {
         let snack = model.snackbar();
         let up = snack.as_ref().map(SnackUp::of);
         let closing = up.as_ref().is_some_and(|s| self.shared.borrow().closing(s));
+        // A contact's snackbar is the card pages', and leaving them closes
+        // it, as leaving a conversation closes its own (contact-cards
+        // design section 6.3, message-swipe section 5).
+        let on_cards = self.page == Page::Cards;
+        if let Some(s) = &snack
+            && s.contact.is_some()
+            && !on_cards
+        {
+            enqueue(&self.shared, Input::SnackClosed(s.id));
+        }
         let shown = snack.as_ref().filter(|s| {
             !closing
-                && match &s.conversation {
-                    None => true,
-                    Some(c) => self.on_screen() == Some(c),
+                && match (&s.contact, &s.conversation) {
+                    (Some(_), _) => on_cards,
+                    (None, None) => true,
+                    (None, Some(c)) => self.on_screen() == Some(c),
                 }
         });
         window.set_snack_shown(shown.is_some());
         if let Some(s) = shown {
-            window.set_snack_on_list(s.conversation.is_none());
+            window.set_snack_on_cards(s.contact.is_some());
+            window.set_snack_on_list(s.conversation.is_none() && s.contact.is_none());
             window.set_snack_id(i32::try_from(s.id).unwrap_or(i32::MAX));
             window.set_snack_text(swipe::confirmation_text(s.confirms).into());
             window.set_snack_undo(s.undo);
@@ -2745,6 +2757,10 @@ impl View {
                 .get(row)
                 .filter(|(_, answered)| !answered)
                 .map(|(handle, _)| format!("proposal-accept:{handle}")),
+            FocusTarget::Contacts
+            | FocusTarget::Contact(_)
+            | FocusTarget::ContactPage(_)
+            | FocusTarget::ContactRemovePhoto(_) => self.contact_focus(focus),
         };
         let Some(target) = target else {
             return false;
@@ -3546,6 +3562,7 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::OpenLink(_)
         | Intent::Restore(_)
         | Intent::UndoCard(_)
+        | Intent::UndoContact { .. }
         // The key's actions are the card page's own controls.
         | Intent::AskNewKey
         | Intent::MakeNewKey

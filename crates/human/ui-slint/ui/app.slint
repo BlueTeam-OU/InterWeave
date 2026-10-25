@@ -2548,6 +2548,9 @@ export component AppWindow inherits Window {
     // no Undo can be pressed on screen for one the queue has closed.
     in property <bool> snack-shown;
     in property <bool> snack-on-list;
+    // The snackbar is a contact's (contact-cards design section 6.3): shown
+    // on the card pages, and only there.
+    in property <bool> snack-on-cards;
     in property <int> snack-id;
     in property <string> snack-text;
     in property <bool> snack-undo;
@@ -5138,6 +5141,18 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+            // A contact's change and its Undo (section 6.3), at the page's end.
+            if root.snack-shown && root.snack-on-cards: Snackbar {
+                text: root.snack-text;
+                undo: root.snack-undo;
+                undo-label: root.undo-label;
+                snack-id: root.snack-id;
+                focus-seq: root.focus-seq;
+                rtl: root.rtl;
+                undo-pressed(id) => { root.undo(id); }
+                dismissed(id) => { root.snack-closed(id); }
+                focused(k) => { root.focus-id = k; }
+            }
         }
         if !root.trust-page && !root.peers-page && root.cards-page == CardsPage.none: VerticalLayout {
             visible: root.pane-shown;
@@ -5898,7 +5913,7 @@ export component AppWindow inherits Window {
             }
             // The snackbar (swipe spec section 6): above the composer,
             // never over it; one at a time.
-            if root.snack-shown && !root.snack-on-list: Snackbar {
+            if root.snack-shown && !root.snack-on-list && !root.snack-on-cards: Snackbar {
                 text: root.snack-text;
                 undo: root.snack-undo;
                 undo-label: root.undo-label;

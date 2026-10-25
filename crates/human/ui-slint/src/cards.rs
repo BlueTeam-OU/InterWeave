@@ -19,9 +19,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use interweave_human_ui_model::{
-    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, Intent, KeyProblem,
-    KeyStep, KeyView, Photo, PhotoEdit, ProposalItem, ProposalNote, RowId, UiModel, UiText, fill,
-    isolated, name_problem, placeholder_en, short_peer,
+    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, FocusTarget, Intent,
+    KeyProblem, KeyStep, KeyView, Photo, PhotoEdit, ProposalItem, ProposalNote, RowId, UiModel,
+    UiText, fill, isolated, name_problem, placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
@@ -618,6 +618,37 @@ impl View {
         self.cards.contact = None;
         window.set_cards_page(CardsPage::None);
         window.set_contact_confirming_delete(false);
+    }
+
+    /// The focus key a contact's focus target names on the card page
+    /// drawn, if it is drawn: the Contacts list's first row, else the
+    /// page's back arrow, its empty text and its title being no focus
+    /// stop; a contact's row; a contact page's back arrow; its Remove
+    /// photo.
+    pub(crate) fn contact_focus(&self, focus: &FocusTarget) -> Option<String> {
+        let shared = self.shared.borrow();
+        let drawn = &shared.cards;
+        let page = self.cards.page;
+        match focus {
+            FocusTarget::Contacts => (page == Some(CardsPage::Contacts)).then(|| {
+                drawn
+                    .contacts
+                    .keys()
+                    .min()
+                    .map_or_else(|| "close-cards".to_owned(), |h| format!("contact:{h}"))
+            }),
+            FocusTarget::Contact(id) => (page == Some(CardsPage::Contacts))
+                .then(|| drawn.contacts.iter().find(|(_, c)| *c == id))
+                .flatten()
+                .map(|(h, _)| format!("contact:{h}")),
+            FocusTarget::ContactPage(id) => (page == Some(CardsPage::Contact)
+                && self.cards.contact.as_ref() == Some(id))
+            .then(|| "close-cards".to_owned()),
+            FocusTarget::ContactRemovePhoto(id) => (page == Some(CardsPage::Contact)
+                && self.cards.contact.as_ref() == Some(id))
+            .then(|| "contact-remove-photo".to_owned()),
+            _ => None,
+        }
     }
 
     /// Draw the card screens from `model`.

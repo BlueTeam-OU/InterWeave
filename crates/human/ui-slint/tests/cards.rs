@@ -1325,3 +1325,88 @@ fn a_proposal_fits_a_phone_with_its_longest_accept() {
 fn a_proposal_fits_a_narrow_window_with_large_text() {
     case_d_at(320.0, Some(28.0));
 }
+
+/// Contact-cards design section 6.3 on the card pages: Delete contact's
+/// snackbar shows on the Contacts list with its Undo, which raises the
+/// Undo and, once the contact is back, sends focus to its row; leaving
+/// the card pages closes it. Remove photo's shows on the contact's page,
+/// and its Undo sends focus back to Remove photo. Mutations: leaving not
+/// closing it; the restored focus not mapped, to the row or to Remove
+/// photo.
+#[test]
+fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
+    use interweave_human_ui_model::ContactChange;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let ada = ContactView {
+        photo: Some(photo()),
+        photo_from_card: Some(true),
+        photo_at: Some(NOW),
+        ..contact("c1", "Ada", P)
+    };
+    model.contacts_listed(vec![ada.clone()]);
+    view.render(&model);
+    open_contact(&mut view, &mut model, "Ada");
+
+    // As the facade answers a Delete: the list, then the change.
+    model.contacts_listed(Vec::new());
+    model.contact_changed("c1".to_owned(), ContactChange::Deleted);
+    let _ = intents(&mut view, &mut model);
+    assert!(shows(&view, text(UiText::ConfirmContactDeleted)));
+    press(&view, text(UiText::Undo));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::UndoContact {
+            contact_id: "c1".to_owned(),
+            change: ContactChange::Deleted,
+        }]
+    );
+    model.contacts_listed(vec![ada.clone()]);
+    model.contact_restored("c1", ContactChange::Deleted);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(view.window().get_focus_target().as_str(), "contact:0");
+
+    // Deleted again, then the card pages left: the snackbar closes.
+    model.contacts_listed(Vec::new());
+    model.contact_changed("c1".to_owned(), ContactChange::Deleted);
+    let _ = intents(&mut view, &mut model);
+    assert!(shows(&view, text(UiText::ConfirmContactDeleted)));
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    let _ = intents(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "closed by leaving");
+    assert_eq!(model.take_released().contacts, vec!["c1".to_owned()]);
+    assert!(!shows(&view, text(UiText::ConfirmContactDeleted)));
+
+    // Remove photo, on the contact's page.
+    model.contacts_listed(vec![ada.clone()]);
+    view.render(&model);
+    open_contact(&mut view, &mut model, "Ada");
+    press(&view, text(UiText::RemovePhoto));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::SetContactPhoto {
+            contact_id: "c1".to_owned(),
+            photo: PhotoEdit::Remove,
+        }]
+    );
+    model.contacts_listed(vec![ContactView {
+        photo: None,
+        photo_from_card: Some(false),
+        ..ada.clone()
+    }]);
+    model.contact_changed("c1".to_owned(), ContactChange::PhotoRemoved);
+    let _ = intents(&mut view, &mut model);
+    assert!(shows(&view, text(UiText::ConfirmPhotoRemoved)));
+    press(&view, text(UiText::Undo));
+    let _ = intents(&mut view, &mut model);
+    model.contacts_listed(vec![ada]);
+    model.contact_restored("c1", ContactChange::PhotoRemoved);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_target().as_str(),
+        "contact-remove-photo"
+    );
+}
