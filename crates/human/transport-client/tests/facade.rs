@@ -2192,6 +2192,99 @@ async fn a_malformed_card_is_counted_as_a_card_and_never_stored() {
     );
 }
 
+/// What `session` has received from the network, directs and broadcasts:
+/// its own notices are not traffic.
+async fn raw_traffic(session: &impl DataSessionPort) -> Vec<SessionEvent> {
+    session
+        .events(usize::MAX)
+        .await
+        .expect("events")
+        .into_iter()
+        .filter(|e| !matches!(e, SessionEvent::Local(_)))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_card_of_an_unknown_kind_or_over_a_bound_is_rejected_with_no_network_effect() {
+    // Plan §29 (b). The sender's node is watched on both its endpoints and
+    // on the room the receiver joins, so a reply, a receipt or a broadcast
+    // the rejection caused would land on one of them.
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut receiver = client(&b, human(), memory());
+    ready(&mut receiver, 0).await;
+    let from = raw(&a, Some(agent())).await;
+    let beside = raw(&a, Some(human())).await;
+    from.join(room()).await.expect("joined");
+    beside.join(room()).await.expect("joined");
+
+    let valid = card_text(a.peer(), &agent(), "Ada");
+    let unknown_kind = valid.replacen(
+        &format!(
+            "\"kind\":\"{}\"",
+            interweave_human_chat_protocol::CONTACT_CARD_KIND
+        ),
+        "\"kind\":\"contact_card_v3\"",
+        1,
+    );
+    let long = "A".repeat(interweave_human_chat_protocol::MAX_CARD_NAME_SCALARS + 1);
+    let over_bound = valid.replacen("\"name\":\"Ada\"", &format!("\"name\":\"{long}\""), 1);
+    let route = interweave_human_chat_protocol::CardRoute {
+        source_peer: a.peer(),
+        source_endpoint: &agent(),
+    };
+    // Each is the rejection it is named for, not some other fault.
+    assert_eq!(
+        interweave_human_chat_protocol::classify(&unknown_kind, route),
+        interweave_human_chat_protocol::Classified::NotCard
+    );
+    assert!(HumanChatV2::parse(&unknown_kind).is_err(), "nor a message");
+    assert_eq!(
+        interweave_human_chat_protocol::classify(&over_bound, route),
+        interweave_human_chat_protocol::Classified::MalformedCard(
+            interweave_human_chat_protocol::CardFault::Name
+        )
+    );
+
+    for (seq, text) in [(1u8, unknown_kind), (2, over_bound)] {
+        from.send_direct(
+            DirectDestination::to_default(b.peer().clone()),
+            MessageId::from_bytes([seq; 16]),
+            Payload::at_ceiling(Some(human_chat_media()), text.into_bytes()).expect("fits"),
+        )
+        .await
+        .expect("accepted by the queue");
+    }
+    assert!(
+        receiver.drain_inbound(16, 1).await.is_empty(),
+        "nothing presented"
+    );
+    receiver.tick(1).await;
+    receiver.tick(2).await;
+    let d = receiver.diagnostics();
+    assert_eq!(d.malformed_invalid_envelope, 1, "the unknown kind");
+    assert_eq!(d.malformed_card, 1, "the card over its bound");
+    let store = receiver.store_mut();
+    assert!(store.unread_inbound().expect("read").is_empty(), "stored");
+    assert!(store.pending_outbound().expect("read").is_empty(), "queued");
+    assert!(raw_traffic(&from).await.is_empty(), "sent to the sender");
+    assert!(raw_traffic(&beside).await.is_empty(), "sent to its node");
+
+    // The control: what the receiver does send reaches the watch.
+    receiver
+        .send(
+            Destination::Direct {
+                peer: a.peer().clone(),
+                endpoint: Some(agent()),
+            },
+            &envelope("seen"),
+            3,
+        )
+        .await
+        .expect("row");
+    receiver.tick(3).await;
+    assert_eq!(raw_direct_ids(&from).await.len(), 1, "the watch is live");
+}
+
 #[tokio::test]
 async fn a_card_received_over_broadcast_is_ignored_and_shows_nothing() {
     let (a, b) = FakeNetwork::pair(node_config(), node_config());
