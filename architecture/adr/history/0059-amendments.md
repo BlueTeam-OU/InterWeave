@@ -91,7 +91,7 @@ row; the digest entry; STATE.md's row.
 
 Decision 9 said the client's name, argument shape and output format
 would be "recorded in `architecture/clients/human/` when it lands".
-The client landed as `interweave-human` (#368, #369, #404, #429, by
+The client landed as `interweave-human` (#368, #369, #387, #429, by
 2026-10-24) with its record in `apps/human-cli/README.md` — every verb,
 flag, exit code and output token a script may rely on — and nothing
 under `architecture/clients/human/` names it; a reader following the
