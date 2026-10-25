@@ -661,9 +661,9 @@ NFKC and one with it, because each catches lookalikes that the other
 misses.
 NFKC rewrites some lookalikes before `skeleton` sees them: long "ſ"
 becomes "s", so "Alſie" would be compared as "Alsie"; the shape key
-reads "Alſie" as written. Other characters look Latin only after NFKC: a fullwidth digit zero
-becomes "0", whose skeleton is "O", so "J０hn" meets "John" only through
-the compatibility shape key. The rule is not transitive: "Ian" is
+reads "Alſie" as written, and `skeleton` maps "ſ" to "f". Other characters look Latin only after NFKC: a fullwidth digit zero
+becomes "0", whose skeleton is "O", so only the compatibility shape
+key joins "J０hn" and "John". The rule is not transitive: "Ian" is
 the same name as "ian" and as "lan", but "ian" and "lan" are not the
 same name. Nothing here needs the rule to be transitive, because the
 warning and
@@ -694,13 +694,13 @@ missed 435, among them "ꓟax" against "Max" (a small m's skeleton is
 "rn") and "Βob" against "Bob". The rule above misses 17, each a pair
 that `skeleton` itself does not join (such as "ȧ" and "å"). Without
 the compatibility shape key, the rule would also miss 45 pairs of a
-compatibility character against a Latin form, found by checking every
-code point that NFKC changes against the Latin forms of its
+compatibility character against a Latin form, found by comparing every
+code point that NFKC changes with the Latin forms of that code point's
 compatibility shape key. In 15 of them the character's NFKC form looks
 like the Latin form with its case as written (the fullwidth digit zero
 against "O", a circled number twenty against "2O"); the other 30 join
-only after the fold, and some of those are the I and L false warning
-above (a circled capital I against "L"). Among 106
+only after the fold, and some of the 30 are false warnings of the I
+and L kind above (a circled capital I against "L"). Among 106
 common given names, the rule joins only one pair, "Ian" and "Lan", the
 false warning above.
 
@@ -1637,7 +1637,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    U+017F) against "Alfie"; "J０hn" (fullwidth digit zero U+FF10)
    against "John" — each shows `CardSameName`. "Alſie" is joined only
    by the shape key and "J０hn" only by the compatibility shape key, so
-   a build that leaves out either key fails one of them. A card "Ian" against a contact "ian", a pair that only
+   a build that leaves out either shape key fails one of these fixtures. A card "Ian" against a contact "ian", a pair that only
    the case key joins, also shows `CardSameName`. Controls: a card "Mia" against a
    contact "Max", and "Hanna" + "Rossi" against "Anna Rossi", are case
    N and show no `CardSameName`. Each pair is also checked by §5.4.1's
