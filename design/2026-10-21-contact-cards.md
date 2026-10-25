@@ -839,9 +839,13 @@ from the missing bubble and the warning:
   already chooses nothing on every row). On that row, Accept is chosen
   only by a press that starts and ends on Accept after the menu has
   opened (a tap, Enter or Space). Everywhere else, a press-drag-release
-  chooses whatever item the finger ends on, and Accept is the menu's
-  first item, near where the press began. Without this rule, a long
-  press with a slight slide could save a warned card unread. This rule
+  chooses whatever item the finger ends on. The menu is anchored to the
+  card as a message's menu is to its bubble (message-swipe §7): under
+  the card, or above it when the space below runs out; it is never
+  placed at the press point. So a
+  long press that slides from the card onto the menu can end on
+  Accept, its first item, without the person having read it. Without
+  this rule, a warned card could be saved that way unread. This rule
   is the designer's reading of §12 O3's reason (a deliberate choice of
   Accept, never one that can happen without reading), not a separate
   answer from the owner.
@@ -1628,9 +1632,12 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    your contact, Decline and Accept, by a long press, and on the
    desktop by a secondary click. Enter on each of those controls does
    that control's action and opens no menu. On Android,
-   on the case D row, a long press that slides onto Accept and lifts
-   there leaves the menu open with nothing saved. Then a tap on Accept
-   saves the card. On a case N row, the same slide and lift accepts the card.
+   on the case D row and on case E's "Anna Rossi" row, a long press
+   that slides onto Accept and lifts there leaves the menu open with
+   nothing saved. Then a tap on Accept saves the card. On a case N row,
+   the same slide and lift accepts the card. On each of these rows the
+   menu opens under the card, or above it when the row is at the
+   bottom of the screen, and never at the press point.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
    it: the Move's Undo is gone. No action and no Undo leaves a contact
