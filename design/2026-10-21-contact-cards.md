@@ -511,11 +511,12 @@ out (§11).
   chosen, and focus is on the button. The buttons stay as they were
   before the choice and stay usable; a picture chosen while another
   is being prepared replaces the one being prepared, and only the
-  last one chosen is shown. Remove photo, offered there while a saved
-  photo is shown, cancels the preparation: the picture being prepared
+  last one chosen is shown. During the preparation, Remove photo is
+  offered when a saved photo is shown, and Remove photo cancels the
+  preparation: the picture being prepared
   is dropped, nothing is shown or announced when it would have been
   ready, and Save does not wait for it; then Remove photo does what
-  the last item below says.
+  the item **Remove photo in this editor** below says.
 - When the photo is prepared, the circle shows the photo, and the
   circle's label is `CardPhotoLabel`; focus stays on the same button, which now reads
   Change photo, with Remove photo after it. `PhotoAdded` is announced
@@ -539,7 +540,8 @@ out (§11).
   Undo.
 - Whether the editor holds unsaved changes is judged against the saved
   card: a photo added and then removed before Save, on a card saved
-  with no photo, is no change, and Back closes at once.
+  with no photo, is no change, and Back closes the editor without the
+  `CardDiscardChanges` dialog.
 
 ### 5.3 Share a card
 
@@ -791,10 +793,10 @@ a local choice, the card's photo is not used: X keeps the
 photo the person chose (`CardKeepsPhoto`) or stays without one
 (`CardKeepsNoPhoto`), and `CardIncludesPhoto` is not shown (§5.4).
 When the card carries no photo and X holds a photo the person chose,
-X keeps it too, and the proposal says so with `CardKeepsPhoto`, so
-that a case S row has a line that is true of it (a card with no
-photo against X with no photo by a local choice differs in nothing,
-and shows no photo line). `CardKeepsPhoto` is never shown for a contact that has no photo,
+X keeps that photo in this case too, and the proposal says so with
+`CardKeepsPhoto`, so that a case S row shows a line that is true.
+(When the card has no photo and X has no photo by a local choice, the
+card differs in nothing, and no photo line shows.) `CardKeepsPhoto` is never shown for a contact that has no photo,
 since it says that the contact has one (rust-ui-dev-02's finding,
 OBSERVATION 01a17304, 2026-10-25). A photo is a
 "value that changes" whenever the card carries one and X's photo is not
@@ -1682,9 +1684,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    `CardSameName` ("Carol"), the right swipe accepts (§5.4.4). In case
    E, a locally edited name is unchanged after Accept. A later card with no photo
    arrives on a route of a contact whose photo came from an earlier card: the proposal is case U and shows `CardUpdatesPhotoRemoved`;
-   after Accept the contact has no photo, and Undo gives it back. The
-   same later card against a contact whose photo the person chose is
-   case S when the name matches, shows `CardKeepsPhoto` and no
+   after Accept the contact has no photo, and Undo gives it back. When the
+   name matches, the same later card, against a contact whose photo
+   the person chose, is case S: it shows `CardKeepsPhoto` and no
    `CardSame`, and Accept is not offered. A later
    card whose photo fails to decode, against a contact whose photo came
    from a card, shows `CardPhotoNotUsedRemoved` on the confirmation row and
