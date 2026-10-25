@@ -222,6 +222,7 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::ForgetCancelled(_) => "forget cancelled",
         Command::ForgetCopy(_) => "forget copy",
         Command::ForgetCard(_) => "forget card",
+        Command::ForgetContact(_) => "forget contact",
         Command::Reopen => "reopen",
         Command::RecheckStorage => "recheck storage",
         // Named only because the match is whole: the failure line is the
@@ -247,6 +248,7 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::SetOwnCard { .. } => "set own card",
         Command::RenameContact { .. } => "rename contact",
         Command::DeleteContact(_) => "delete contact",
+        Command::UndoContact { .. } => "undo contact",
         Command::DeleteRoute { .. } => "delete route",
         Command::SetContactPhoto { .. } => "set contact photo",
     }

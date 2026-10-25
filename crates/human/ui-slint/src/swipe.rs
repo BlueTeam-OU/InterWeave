@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use interweave_human_ui_model::{
-    Confirmation, ConversationKey, ItemKey, RowAction, SwipeOffer, UiText, placeholder_en,
+    Confirmation, ConversationKey, Intent, ItemKey, RowAction, SwipeOffer, UiText, placeholder_en,
 };
 use slint::ComponentHandle as _;
 
@@ -29,22 +29,46 @@ pub(crate) enum Swipeable {
     Item(ItemKey, SwipeOffer),
     /// A conversation row that may be hidden.
     Conversation(ConversationKey),
+    /// A card proposal (contact-cards design section 5.4.4): the model's
+    /// Accept and Decline for its row as drawn, each `None` where its
+    /// case withholds that way.
+    Proposal {
+        accept: Option<Intent>,
+        decline: Option<Intent>,
+    },
+}
+
+/// What a committed swipe does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Swiped {
+    /// A row action, on a message or a conversation.
+    Row(RowAction),
+    /// A proposal's Accept.
+    Accept(Intent),
+    /// A proposal's Decline, which takes its row away.
+    Decline(Intent),
 }
 
 impl Swipeable {
-    /// The action a swipe toward `side` of the screen does, if any.
-    fn toward(&self, side: Side, rtl: bool) -> Option<RowAction> {
+    /// What a swipe toward `side` of the screen does, if anything.
+    fn toward(&self, side: Side, rtl: bool) -> Option<Swiped> {
         // Toward the end of a line is right, left to right (§3).
         let toward_end = (side == Side::Right) != rtl;
         match self {
-            Self::Item(_, offer) => {
+            Self::Item(_, offer) => if toward_end {
+                offer.toward_end
+            } else {
+                offer.toward_start
+            }
+            .map(Swiped::Row),
+            Self::Conversation(_) => (!toward_end).then_some(Swiped::Row(RowAction::Hide)),
+            Self::Proposal { accept, decline } => {
                 if toward_end {
-                    offer.toward_end
+                    accept.clone().map(Swiped::Accept)
                 } else {
-                    offer.toward_start
+                    decline.clone().map(Swiped::Decline)
                 }
             }
-            Self::Conversation(_) => (!toward_end).then_some(RowAction::Hide),
         }
     }
 }
@@ -157,10 +181,14 @@ pub(crate) fn ended(shared: &Rc<RefCell<Shared>>, window: &slint::Weak<AppWindow
         window.set_swipe_offset(0.0);
         return;
     };
-    // Hide and Cancel take the row away: it carries on out and is held
-    // there until the render that removes it. Everything else slides back
-    // to rest as its result arrives (§5).
-    if matches!(action, RowAction::Hide | RowAction::Cancel) {
+    // Hide, Cancel and a proposal's Decline take the row away: it carries
+    // on out and is held there until the render that removes it.
+    // Everything else slides back to rest as its result arrives (§5); an
+    // Accept's row stays, as its confirmation (design section 5.4.2).
+    if matches!(
+        action,
+        Swiped::Row(RowAction::Hide | RowAction::Cancel) | Swiped::Decline(_)
+    ) {
         let out = if side == Side::Right {
             tracked.width
         } else {
@@ -184,9 +212,13 @@ pub(crate) fn ended(shared: &Rc<RefCell<Shared>>, window: &slint::Weak<AppWindow
     } else {
         window.set_swipe_offset(0.0);
     }
-    let input = match target {
-        Swipeable::Item(item, _) => Input::Action(item, action, By::Swipe),
-        Swipeable::Conversation(conversation) => Input::HideConversation(conversation),
+    let input = match (target, action) {
+        (Swipeable::Item(item, _), Swiped::Row(action)) => Input::Action(item, action, By::Swipe),
+        (Swipeable::Conversation(conversation), _) => Input::HideConversation(conversation),
+        (_, Swiped::Accept(intent) | Swiped::Decline(intent)) => {
+            Input::Cards(crate::cards::CardsInput::Swiped(intent))
+        }
+        (Swipeable::Proposal { .. }, Swiped::Row(_)) => return,
     };
     enqueue(shared, input);
 }
@@ -250,6 +282,8 @@ pub(crate) fn confirmation_text(confirms: Confirmation) -> &'static str {
         Confirmation::ContactSaved => placeholder_en::text(UiText::ConfirmContactSaved),
         Confirmation::ContactUpdated => placeholder_en::text(UiText::ConfirmContactUpdated),
         Confirmation::CardDeclined => placeholder_en::text(UiText::ConfirmCardDeclined),
+        Confirmation::ContactDeleted => placeholder_en::text(UiText::ConfirmContactDeleted),
+        Confirmation::PhotoRemoved => placeholder_en::text(UiText::ConfirmPhotoRemoved),
     }
 }
 
