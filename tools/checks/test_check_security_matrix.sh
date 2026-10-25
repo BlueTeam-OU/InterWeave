@@ -181,6 +181,10 @@ out="$(run "$carried" --strict)"; code="$(run_code "$carried" --strict)"
 out="$(run "$carried")"
 [[ "$out" == *"C-04 names no test, carried to Stage 19"* && "$out" != *"reported; --strict fails it"* ]] \
     && ok "  and the plain report lists it as carried, not empty" || bad "carried report: $out"
+two="$(root two "| C-04 | windows | — | $CARRY; owed: the pipe in Stage 20 (plan section 23); $CARRY | — |")"
+out="$(run "$two" --strict)"
+[[ "$out" == *"carried to Stage 19 (plan section 22), Stage 20 (plan section 23) (carried"* ]] \
+    && ok "  a row carried to two stages names both, each once" || bad "two carries: $out"
 for marker in "owed: the owner's word" "owed: the tests, in Stage 19" "owed: in Stage 19 (plan section 22)" "$CARRY; owed" "$CARRY; —" "owed: the tests in Stage 19 (plan section 22) later"; do
     dir="$(root "notcarried$((pass + fail))" "| C-04 | windows | — | $marker | — |")"
     out="$(run "$dir" --strict)"; code="$(run_code "$dir" --strict)"

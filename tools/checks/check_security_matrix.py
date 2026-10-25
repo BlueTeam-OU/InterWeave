@@ -272,8 +272,9 @@ def check(root: str, strict: bool) -> tuple[list[str], list[str], list[str], int
                 problems.append(f"{where}: {first}: {path} defines no test fn {fn} (#[test] or #[tokio::test])")
         named += tests
         if tests == 0 and all(carries):
-            to = carries[-1]
-            carried.append(f"{where}: {first} names no test, carried to Stage {to['stage']} (plan section {to['section']})")
+            # Every place the row's work goes is named, once each, in the cell's order.
+            to = dict.fromkeys(f"Stage {c['stage']} (plan section {c['section']})" for c in carries)
+            carried.append(f"{where}: {first} names no test, carried to {', '.join(to)}")
         elif tests == 0:
             empty.append(f"{where}: {first} names no test")
     if not seen:
