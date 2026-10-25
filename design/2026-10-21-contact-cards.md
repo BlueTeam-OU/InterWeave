@@ -484,8 +484,9 @@ client prepares what will be sent from the picked image:
   before preparation) on 2026-10-25: the preparation chose quality 85
   to 90 for them, and the prepared photographs were 13,123 to 24,555
   bytes (recorded in `crates/human/app-core/src/card_photo.rs` at
-  4df2fa26 on develop-qzapp/rust-ui-dev-02/feat/j54-photo-choosing,
-  which names neither the photographs nor its noise generator). So with
+  4df2fa26 on develop-qzapp/rust-ui-dev-02/feat/j54-photo-choosing;
+  `card_photo.rs` names neither the seven photographs nor the generator
+  of the noise square that it also measures, below). So with
   today's encoder a camera photograph fits far above quality 50. An
   earlier run at 4:2:0, which recorded neither the photographs nor the
   encoder, found that all 15 photographs at 256 px fit at quality 50,
@@ -506,8 +507,8 @@ client prepares what will be sent from the picked image:
   rust-ui-dev-02's record in `card_photo.rs`, also at 4:4:4 with the
   image crate, the preparation chooses quality 21 for their own noise
   square too (55,940 bytes at quality 50, 47,781 at 40 and
-  21,616 at 20). The squares do not come from one named generator, so
-  these sets of figures do not measure one picture at two
+  21,616 at 20). No record says that all the squares come from one generator, so
+  these sets of figures cannot be read as one picture measured at two
   subsamplings. So the picture keeps its pixel size (256 × 256, or
   its own smaller square), and the quality is what goes down. An image
   that still does not fit at 20 is unusable (below). JPEG always,
