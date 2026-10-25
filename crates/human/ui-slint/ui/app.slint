@@ -3213,6 +3213,10 @@ export component AppWindow inherits Window {
             return true;
         }
         // A dialog over a card page answers Back before the page does.
+        if (root.new-key-open) {
+            root.new-key-cancel();
+            return true;
+        }
         if (root.own-discard-open) {
             root.keep-editing();
             return true;

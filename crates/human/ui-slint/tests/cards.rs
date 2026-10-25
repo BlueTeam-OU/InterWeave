@@ -1144,6 +1144,27 @@ fn a_key_that_cannot_be_used_is_said_and_a_new_key_is_confirmed_then_made() {
     assert!(!view.window().get_new_key_open());
     assert_eq!(view.window().get_focus_target(), "own-key-new");
 
+    // Back is the dialog's Cancel (identity-key design 5.1): the dialog
+    // closes and the card page it stood over stays.
+    press(&view, text(UiText::KeyMakeNew));
+    let _ = intents(&mut view, &mut model);
+    let _ = model.ask_new_key();
+    model.new_key_asked(true);
+    view.render(&model);
+    settle();
+    assert!(view.window().get_new_key_open());
+    assert!(view.window().invoke_handle_back(), "Back is taken");
+    assert_eq!(intents(&mut view, &mut model), vec![Intent::CloseKeyStep]);
+    model.key_step_closed();
+    view.render(&model);
+    settle();
+    assert!(!view.window().get_new_key_open());
+    assert!(
+        shows(&view, text(UiText::KeyMakeNew)),
+        "the card page is still open"
+    );
+    assert_eq!(view.window().get_focus_target(), "own-key-new");
+
     press(&view, text(UiText::KeyMakeNew));
     let _ = intents(&mut view, &mut model);
     let _ = model.ask_new_key();
