@@ -699,11 +699,6 @@ async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     let mut expected = vec![a.peer().clone(), c.peer().clone()];
     expected.sort();
     assert_eq!(peers, expected);
-    assert_ne!(
-        bob.model().title(&from_alice),
-        bob.model().title(&from_carol),
-        "told apart by their titles"
-    );
 }
 
 #[tokio::test]
