@@ -31,7 +31,7 @@ use slint::{
 
 use crate::generated::{
     AppWindow, CardsPage, ContactListRow, ContactRouteRow, ProposalNoteRow, ProposalRow,
-    ShareAgainRow,
+    ShareAgainRow, SwipeKind,
 };
 use crate::{Input, Shared, View, enqueue};
 
@@ -45,6 +45,10 @@ pub(crate) enum CardsInput {
     /// A proposal's Accept or Decline: the model's own intent for the row
     /// as it was drawn, offered again when taken or dropped.
     Answer(Intent),
+    /// The same answer by a touch swipe (design section 5.4.4), which
+    /// leaves focus where it was unless it was inside the row (swipe spec
+    /// section 7).
+    Swiped(Intent),
     /// Contacts or the own card opened from the app's options.
     Open(Opened),
     /// The card page closed: Back, Escape, or the back arrow.
@@ -246,6 +250,8 @@ fn image(photo: &Photo) -> Image {
 /// came.
 fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     let name = isolated(&p.name);
+    let swipe = p.swipe();
+    let swipe_key = proposal_swipe_key(p.row);
     let context = match &p.accept {
         AcceptLine::Creates => text(UiText::CardWillCreate).to_owned(),
         AcceptLine::Updates(contact) => {
@@ -329,12 +335,31 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
         closes: matches!(p.accept, AcceptLine::Matches(_)),
         accept: text(p.accept_text()).into(),
         decline: text(UiText::CardDecline).into(),
+        swipe_key: swipe_key.into(),
+        end_kind: if swipe.accept {
+            SwipeKind::Accept
+        } else {
+            SwipeKind::None
+        },
+        end_label: text(p.accept_text()).into(),
+        start_kind: if swipe.decline {
+            SwipeKind::Decline
+        } else {
+            SwipeKind::None
+        },
+        start_label: text(UiText::CardDecline).into(),
         copy: text(UiText::CopyPeerId).into(),
         answered: false,
         answer: SharedString::new(),
         photo_note: SharedString::new(),
         hint: SharedString::new(),
     }
+}
+
+/// A proposal row's swipe key: by its card's row, which a re-render
+/// keeps, where its handle is its place in the list.
+fn proposal_swipe_key(row: RowId) -> String {
+    format!("p:{}", row.get())
 }
 
 /// The confirmation row an Accept left in its proposal's place (design
@@ -425,14 +450,17 @@ impl View {
     /// Take one card input: an intent for the model, or a page change.
     pub(crate) fn take_cards(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
         let window = self.window.clone_strong();
+        let by_button = matches!(input, CardsInput::Answer(_));
         match input {
-            CardsInput::Answer(intent) => {
+            CardsInput::Answer(intent) | CardsInput::Swiped(intent) => {
                 let offered = match &intent {
                     Intent::AcceptCard(row) | Intent::DeclineCard(row) => {
                         let offered = model.card_actions(*row).contains(&intent);
                         // The row's own button: its answer moves focus
                         // whatever the focus id last said (swipe spec 7).
-                        if offered {
+                        // A swipe claims nothing: focus moves only if it
+                        // was inside the row.
+                        if offered && by_button {
                             self.cards.pressed = Some(*row);
                         }
                         offered
@@ -817,6 +845,7 @@ impl View {
         );
         if shown != self.cards.proposals_shown {
             let mut answers = HashMap::new();
+            let mut swipes = HashMap::new();
             let mut handles = HashMap::new();
             let drawn: Vec<ProposalRow> = shown
                 .iter()
@@ -836,6 +865,18 @@ impl View {
                     match model.card_actions(p.row).as_slice() {
                         [accept, decline] => {
                             answers.insert(handle, (accept.clone(), decline.clone()));
+                            // Its swipes raise the same intents, each way
+                            // its case offers (design section 5.4.4).
+                            let swipe = p.swipe();
+                            if swipe.accept || swipe.decline {
+                                swipes.insert(
+                                    proposal_swipe_key(p.row),
+                                    crate::swipe::Swipeable::Proposal {
+                                        accept: swipe.accept.then(|| accept.clone()),
+                                        decline: swipe.decline.then(|| decline.clone()),
+                                    },
+                                );
+                            }
                         }
                         [only] => {
                             answers.insert(handle, (only.clone(), only.clone()));
@@ -846,7 +887,11 @@ impl View {
                 })
                 .collect();
             rows.set_vec(drawn);
-            self.shared.borrow_mut().cards.answers = answers;
+            let mut shared = self.shared.borrow_mut();
+            shared.cards.answers = answers;
+            shared.swipes.retain(|k, _| !k.starts_with("p:"));
+            shared.swipes.extend(swipes);
+            drop(shared);
             self.cards.drawn_rows = handles;
             self.cards.proposals_shown = shown;
         }

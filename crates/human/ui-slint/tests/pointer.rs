@@ -15,11 +15,13 @@
 use std::time::Duration;
 
 use i_slint_backend_testing::ElementHandle;
+use interweave_human_chat_protocol::Card;
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{Origin, Received};
 use interweave_human_core::RowId;
 use interweave_human_ui_model::{
-    ConversationKey, Intent, RuntimeHost, UiModel, UiText, placeholder_en,
+    CardOutcome, ContactRef, ContactView, ConversationKey, Intent, KeyView, Proposal,
+    ProposalContext, RouteView, RuntimeHost, UiModel, UiText, ValueChanges, placeholder_en,
 };
 use interweave_human_ui_slint::{TouchSettings, View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
@@ -494,4 +496,174 @@ fn the_focus_ring_shows_for_the_keyboard_never_for_a_tap() {
     tap(&view, message_text_at(&view, 0));
     tick(10);
     assert_eq!(rings(&view), 0, "a tap clears it");
+}
+
+/// A card from `from`, judged under `context`, its name its row's so
+/// each heading is its own.
+fn proposal(model: &mut UiModel, row: i64, from: &TransportIdentity, context: ProposalContext) {
+    model.card_received(Proposal {
+        row: RowId::from_stored(row),
+        peer: from.clone(),
+        endpoint: human(),
+        card: Card {
+            app_message_id: format!("{:032x}", 2_000 + row),
+            name: format!("Ada {row}"),
+            surname: None,
+            photo: None,
+            identity_key: [1; 32],
+            sent_at_ms: None,
+            from_endpoint: None,
+        },
+        received_at: u64::try_from(row).expect("positive"),
+        context,
+    });
+}
+
+fn judged(updates: Option<&str>, same_name: bool, changes_nothing: bool) -> ProposalContext {
+    let named = |id: &str| ContactRef {
+        contact_id: id.to_owned(),
+        name: "Ada".to_owned(),
+    };
+    ProposalContext {
+        updates: updates.map(named),
+        shares_node: Vec::new(),
+        same_name: if same_name {
+            vec![named("d")]
+        } else {
+            Vec::new()
+        },
+        key_matches: Vec::new(),
+        key: KeyView::New,
+        fingerprint: "0123456789abcdef".to_owned(),
+        changes_nothing,
+        values: ValueChanges::default(),
+    }
+}
+
+/// A card's answers among what a turn raised; showing it reads it too.
+fn answers(raised: Vec<Intent>) -> Vec<Intent> {
+    raised
+        .into_iter()
+        .filter(|i| matches!(i, Intent::AcceptCard(_) | Intent::DeclineCard(_)))
+        .collect()
+}
+
+/// The centre of proposal `index`'s heading.
+fn proposal_heading_at(view: &View, index: usize) -> (f32, f32) {
+    let heading = view
+        .window()
+        .get_proposals()
+        .row_data(index)
+        .expect("a proposal")
+        .heading;
+    let found: Vec<ElementHandle> =
+        ElementHandle::find_by_accessible_label(view.window(), heading.as_str()).collect();
+    let text = found.first().expect("the heading is drawn");
+    let (at, size) = (text.absolute_position(), text.size());
+    (at.x + size.width / 2.0, at.y + size.height / 2.0)
+}
+
+/// Contact-cards design section 5.4.4, through the toolkit's handler: a
+/// proposal's right swipe raises its Accept and its left swipe its
+/// Decline, the same intents its buttons raise; case D's right swipe
+/// raises nothing, and case S moves neither way. Which way a case offers
+/// is the model's (`ProposalItem::swipe`, its own test); this holds the
+/// view to it. Mutations: the view not registering the row's swipe; the
+/// directions swapped in `Swipeable::toward`; the message or conversation
+/// render dropping the proposals' swipe keys with its own.
+#[test]
+fn a_proposal_swipes_to_accept_and_decline_as_its_case_offers() {
+    let mut view = phone();
+    let mut model = UiModel::new();
+    let cases = [
+        ("N", judged(None, false, false), true, true),
+        ("D", judged(None, true, false), false, true),
+        ("S", judged(Some("c1"), false, true), false, false),
+    ];
+    for (n, (case, context, accepts, declines)) in (1_i64..).zip(cases) {
+        // Each case its own conversation, a message above its card.
+        let from = peer();
+        let row = RowId::from_stored(n);
+        proposal(&mut model, n, &from, context);
+        received(&mut model, 10 + n, &from, "hello");
+        view.select(direct(&from));
+        let _ = turn(&mut view, &mut model);
+        let at = proposal_heading_at(&view, 0);
+
+        drag(&view, at, 180.0);
+        let raised = answers(turn(&mut view, &mut model));
+        let accept = if accepts {
+            vec![Intent::AcceptCard(row)]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(raised, accept, "case {case}, right");
+        // The row springs back before the next touch.
+        tick(300);
+        slint::platform::update_timers_and_animations();
+        let at = proposal_heading_at(&view, 0);
+        drag(&view, at, -180.0);
+        let raised = answers(turn(&mut view, &mut model));
+        let decline = if declines {
+            vec![Intent::DeclineCard(row)]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(raised, decline, "case {case}, left");
+    }
+}
+
+/// Message-swipe section 7, which contact-cards 5.4.4 takes for the
+/// proposal row: a touch swipe leaves focus where it was. An Accept by
+/// its button sends focus to the confirmation row (tests/cards.rs); one
+/// by swipe, with focus outside the row, does not. Mutation: a swiped
+/// answer claiming focus as the button's does.
+#[test]
+fn an_accept_by_swipe_leaves_focus_where_it_was() {
+    let mut view = phone();
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    view.window().set_focus_id("composer".into());
+
+    drag(&view, proposal_heading_at(&view, 0), 180.0);
+    let raised = answers(turn(&mut view, &mut model));
+    assert_eq!(raised, vec![Intent::AcceptCard(RowId::from_stored(1))]);
+    model.card_resolved(
+        RowId::from_stored(1),
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: true,
+            photo_dropped: false,
+        },
+    );
+    model.contacts_listed(vec![ContactView {
+        contact_id: "c1".to_owned(),
+        name: "Ada 1".to_owned(),
+        name_from_card: true,
+        name_at: Some(1),
+        photo_from_card: None,
+        photo_at: None,
+        photo: None,
+        routes: vec![RouteView {
+            peer: alice.clone(),
+            endpoint: human(),
+            fingerprint: None,
+        }],
+    }]);
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_proposals().row_count(),
+        1,
+        "its confirmation"
+    );
+    tick(16);
+    slint::platform::update_timers_and_animations();
+    assert!(
+        !view.window().get_focus_target().starts_with("answer:"),
+        "focus asked for {:?}",
+        view.window().get_focus_target()
+    );
 }

@@ -2048,7 +2048,7 @@ impl View {
                 .filter(|(_, row)| !row.leaving)
                 .map(|(key, row)| (row.handle, key.clone()))
                 .collect();
-            shared.swipes.retain(|k, _| k.starts_with("m:"));
+            shared.swipes.retain(|k, _| !k.starts_with("c:"));
             for (key, row) in keys.iter().zip(&rows) {
                 if row.hide != generated::SwipeKind::None && !row.leaving {
                     shared.swipes.insert(
@@ -2333,7 +2333,7 @@ impl View {
         {
             let mut shared = self.shared.borrow_mut();
             shared.items = rendered;
-            shared.swipes.retain(|k, _| k.starts_with("c:"));
+            shared.swipes.retain(|k, _| !k.starts_with("m:"));
             shared.swipes.extend(swipes);
         }
         update_by_key(&*self.messages, &mut self.message_keys, &keys, &rows);
