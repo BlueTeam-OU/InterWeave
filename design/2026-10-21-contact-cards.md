@@ -478,30 +478,37 @@ client prepares what will be sent from the picked image:
   decoder reads every subsampling, so the choice is the encoder's.
   Today the image crate's encoder uses 4:4:4, the only subsampling it
   offers; an encoder that offers 4:2:0, if one is adopted later, would
-  use 4:2:0 (architect-cto's ruling of 2026-10-25 on rust-ui-dev-02's
-  photo-choosing branch). No recorded figure yet says that a camera
-  photograph fits at quality 50. One run, which recorded neither the
-  photographs nor the encoder, found that at 4:2:0 all 15 photographs
-  at 256 px fit at quality 50, and that the largest of them was 17,405
-  bytes. At 4:4:4, no photograph has been measured. rust-ui-dev-02's figures with the image crate will be
-  added here. The lower qualities are for a picture of fine texture or
-  noise, which at 256 px can exceed the bound at quality 50. The noise
-  is a 256 × 256 RGB square whose every channel byte is random.
-  Measured at 4:2:0 with libjpeg-turbo through Pillow, with Huffman
-  optimisation off, the square was 27,478 bytes at quality 50, 23,260
-  at 40 and 13,620 at 20; #447's review reproduced this measurement
-  byte for byte, with the square's bytes from Python's
-  `random.seed(1)`. Measured at 4:4:4 with the image crate 0.25.10,
-  with the square's bytes from xorshift64 (shifts 13, 7 and 17, seed
-  0x9E3779B97F4A7C15, each byte taken from bits 24 to 31 of the
-  state), the
-  square was 56,257 bytes at quality 50, 47,920 at 40, 24,967 at 22, 23,340 at
-  21 and 21,626 at 20, so at 4:4:4 such a picture fits only at quality
-  21 or below. The two squares come from different generators, so the
-  two sets of figures do not measure one picture at two subsamplings. So the picture
-  stays 256 × 256 pixels, and the quality is what goes down. An image
-  that still does not fit at 20 is unusable (below). JPEG always, because a lossless PNG of a
-  photograph seldom fits and has no quality to lower.
+  use 4:2:0 (architect-cto's decision 01a173ac, 2026-10-25). At 4:4:4,
+  with the image crate 0.25.10 and this preparation, rust-ui-dev-02
+  measured seven photographs (850 × 772 to 3024 × 4032) on 2026-10-25:
+  they land at quality 85 to 90, from 13,123 to 24,555 bytes (recorded
+  in `crates/human/app-core/src/card_photo.rs` at 4df2fa26 on
+  develop-qzapp/rust-ui-dev-02/feat/j54-photo-choosing). So with
+  today's encoder a camera photograph fits far above quality 50. An
+  earlier run at 4:2:0, which recorded neither the photographs nor the
+  encoder, found that all 15 photographs at 256 px fit at quality 50,
+  and that the largest of them was 17,405 bytes. The lower qualities
+  are for a picture of fine texture or noise, which at 256 px can
+  exceed the bound at quality 50. The noise is a 256 × 256 RGB square
+  whose every channel byte is random. Measured at 4:2:0 with
+  libjpeg-turbo through Pillow, with Huffman optimisation off, the
+  square was 27,478 bytes at quality 50, 23,260 at 40 and 13,620 at 20;
+  #447's review reproduced this measurement byte for byte, with the
+  square's bytes from Python's `random.seed(1)`. Measured at 4:4:4 with
+  the image crate 0.25.10, with the square's bytes from xorshift64
+  (shifts 13, 7 and 17, seed 0x9E3779B97F4A7C15, the state stepped
+  before each byte, each byte taken from bits 24 to 31 of the state,
+  in row-major RGB order), the square was 56,257 bytes at quality 50,
+  47,920 at 40, 24,967 at 22, 23,340 at 21 and 21,626 at 20, so at
+  4:4:4 such a picture fits only at quality 21 or below; rust-ui-dev-02's
+  own noise square in the same record lands at 21 too (55,940 bytes at
+  50, 47,781 at 40, 21,616 at 20). The squares come from different
+  generators, so these sets of figures do not measure one picture at
+  two subsamplings. So the picture keeps its pixel size (256 × 256, or
+  its own smaller square), and the quality is what goes down. An image
+  that still does not fit at 20 is unusable (below). JPEG always,
+  because a lossless PNG of a photograph seldom fits and has no
+  quality to lower.
   The bytes go into the card as HUMAN-CHAT.md's base64, which the
   client never re-encodes in transit;
 - the preview shows the prepared bytes, decoded, not the original, so
