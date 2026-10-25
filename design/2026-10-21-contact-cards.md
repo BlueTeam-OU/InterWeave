@@ -513,8 +513,10 @@ out (§11).
   before the choice and stay usable; a picture chosen while another
   is being prepared replaces the one being prepared, and only the
   last one chosen is shown. During the preparation, Remove photo is
-  offered when a photo is shown, whether that photo is saved or not,
-  and Remove photo cancels
+  offered whenever it was offered before the choice, that is, when a
+  photo was shown then, whether that photo is saved or not (during
+  the preparation the circle shows the progress indicator), and
+  Remove photo cancels
   the preparation: the picture being prepared
   is dropped, nothing is shown or announced when it would have been
   ready, and Save does not wait for it; then Remove photo does what
@@ -1705,7 +1707,8 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    a later card with the same name and a photo is case S: it shows
    `CardKeepsNoPhoto` and Close, and shows none of `CardSame`,
    `CardKeepsPhoto` and `CardIncludesPhoto`; after Close the contact
-   still has no photo. When a later card with another name and a photo
+   still has no photo. A later card with the same name and no photo
+   is case S too: it shows `CardSame` and no photo line. When a later card with another name and a photo
    arrives for the same contact, the proposal is case E and shows
    `CardUpdatesName` and `CardKeepsNoPhoto`, and neither
    `CardKeepsPhoto` nor `CardIncludesPhoto`; after Accept the name is
