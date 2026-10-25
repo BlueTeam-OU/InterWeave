@@ -831,10 +831,10 @@ ui_texts! {
     ConfirmCardDeclined => "Card declined",
     /// SNACKBAR, with Undo, after Delete contact (contact-cards design
     /// section 6.3): the contact and its routes are gone unless the
-    /// person takes it back. PLACEHOLDER (en), the design's wording.
+    /// person takes it back.
     ConfirmContactDeleted => "Contact deleted",
     /// SNACKBAR, with Undo, after a contact's Remove photo (section
-    /// 6.3). PLACEHOLDER (en), the design's wording.
+    /// 6.3).
     ConfirmPhotoRemoved => "Photo removed",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 heading
     KeyStateTitle => "This identity's key cannot be used",
