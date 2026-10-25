@@ -640,7 +640,7 @@ same warning as "Anna".
 | **N** the route is under no contact; no route of its PeerId is under one; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
 | **D** the route is under no contact; no route of its PeerId is under one; a contact on another PeerId has the same name | `CardSameName`, in `error`, with a warning icon: "One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept.", `{name}` being the existing contact's name as stored, so the person sees both spellings; and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
 | **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`, `CardUpdatesPhotoRemoved`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
-| **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`), and, for each value it does write, that value's change line as in case U (`CardUpdatesName`, `CardUpdatesPhoto`, `CardUpdatesPhotoRemoved`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
+| **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`), and, for each value that Accept writes, that value's change line as in case U (`CardUpdatesName`, `CardUpdatesPhoto`, `CardUpdatesPhotoRemoved`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
 | **S** the route is under X and the card changes nothing | `CardSame`: "This card matches your contact {X}." | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
 
 Every contact compared here is a contact of the identity the
@@ -801,15 +801,16 @@ from the missing bubble and the warning:
   that the store refuses, §5.4.2), focus goes to the same place as when
   the menu closes with nothing chosen;
 - on a row showing `CardSameName`, a press-drag-release onto Accept
-  chooses nothing (§4's release that ends the long press already
-  chooses nothing on every row). On that row, Accept is chosen only by
-  a press that starts and ends on it after the menu has opened (a tap,
-  Enter or Space). A press-drag-release chooses whatever item the
-  finger ends on, and Accept is the menu's first item, near where the
-  press began. Without this rule, a long press with a slight slide
-  could save a warned card unread. This rule is the designer's reading
-  of §12 O3's reason (a deliberate choice of Accept, never one that
-  can happen without reading), not a separate answer of the owner's.
+  chooses nothing (message-swipe §4's release that ends the long press
+  already chooses nothing on every row). On that row, Accept is chosen
+  only by a press that starts and ends on Accept after the menu has
+  opened (a tap, Enter or Space). Everywhere else, a press-drag-release
+  chooses whatever item the finger ends on, and Accept is the menu's
+  first item, near where the press began. Without this rule, a long
+  press with a slight slide could save a warned card unread. This rule
+  is the designer's reading of §12 O3's reason (a deliberate choice of
+  Accept, never one that can happen without reading), not a separate
+  answer from the owner.
 
 §9's focus table holds each of these.
 
@@ -1536,9 +1537,10 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    an earlier card, meets a later card with another name and no photo:
    the proposal shows `CardKeepsEdit` and `CardUpdatesPhotoRemoved`,
    and after Accept the name is unchanged and the photo is gone. The
-   same contact meets a later card with another name and a photo that
-   fails to decode: the proposal shows `CardKeepsEdit` and
-   `CardUpdatesPhoto`, and the confirmation row `CardPhotoNotUsedRemoved`.
+   same contact, as it was before that Accept, meets a later card with
+   another name and a photo that fails to decode: the proposal shows
+   `CardKeepsEdit` and `CardUpdatesPhoto`, and the confirmation row
+   shows `CardPhotoNotUsedRemoved`.
    Fixtures for D against a contact "Anna Rossi": a card "Anna" +
    "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; a name "Anna Rossi" with
    U+00A0 between the words and no surname; "Ａnna" (fullwidth) +
