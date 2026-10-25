@@ -19,8 +19,8 @@ use interweave_human_client_api::{
 };
 use interweave_human_store::identity_key::IdentityKey;
 use interweave_human_store::{
-    AcceptUndo, ContactRestored, DeletedContact, HumanStore, ReadEphemeral, RemovedPhoto, RowId,
-    StoreError,
+    AcceptUndo, ContactRestored, DeletedContact, HumanStore, PhotoAccepted, ReadEphemeral,
+    RemovedPhoto, RowId, StoreError,
 };
 use interweave_human_transport_client::{CancelledSend, TransportClient};
 use interweave_human_ui_model::{
@@ -575,6 +575,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 contact_id: accepted.contact_id,
                 created: accepted.created,
                 photo_dropped,
+                photo_removed: accepted.photo == PhotoAccepted::Removed,
             },
         });
         self.card_undo = Some(Box::new(CardUndo {

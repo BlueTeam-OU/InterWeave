@@ -15,8 +15,8 @@ use interweave_human_store::{
     OutboundDestination, ReadEphemeral, RowId, StoreError, ValueSource,
 };
 use interweave_human_ui_model::{
-    ContactRef, ContactView, IdentityView, KeyView, OwnKey, Photo, Proposal, ProposalContext,
-    RouteView, ValueChanges,
+    ContactRef, ContactView, IdentityView, KeyView, OwnKey, Photo, PhotoChange, Proposal,
+    ProposalContext, RouteView, ValueChanges,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -79,33 +79,39 @@ pub(crate) fn context(
         key,
         key_matches,
     } = standing;
+    // What Accept would do to the photo (design 5.4.1): a photo the person
+    // chose stays; any other becomes the card's, or goes when the card
+    // carries none. A photo the card carries is a change whenever it is
+    // not the one the contact holds, even one that will not decode, since
+    // what decodes is decided at Accept (5.4.2, `CardPhotoNotUsed`).
+    let card_photo = card.photo.as_ref().map(|p| p.bytes.as_slice());
+    let photo_changes = |c: &Contact| {
+        c.photo_source != Some(ValueSource::Person) && c.photo.as_deref() != card_photo
+    };
     // What Accept would leave as it is, judged as `HumanStore::accept_card`
-    // writes: a person's value stays, any other becomes the card's, the
-    // photo being the one `kept_photo` lets through, and an unrecorded
-    // key is recorded.
+    // writes: a person's value stays, any other becomes the card's, and an
+    // unrecorded key is recorded.
     let changes_nothing = matches!(key, KeyStanding::Same)
         && updates.as_ref().is_some_and(|c| {
             (c.name_source == ValueSource::Person
                 || c.display_name == card_as_accepted.display_name())
-                && (c.photo_source == Some(ValueSource::Person)
-                    || c.photo.as_deref() == kept_photo(card))
+                && !photo_changes(c)
         });
     // The values design 5.4.1 names (cases U and E): a person's name stays,
-    // any other becomes the card's; a photo the card carries replaces one
-    // the person did not choose, and a chosen one stays. Not named, since
-    // the design defines no line for it: a card with no photo it can keep
-    // takes away a card's photo the contact holds, which `accept_card`
-    // writes too (raised with ux-designer, #433 round 3 F2).
-    let card_photo = kept_photo(card);
+    // any other becomes the card's, and the photo as above.
     let values = updates.as_ref().map_or_else(ValueChanges::default, |c| {
         let name_differs = c.display_name != card_as_accepted.display_name();
         let person_name = c.name_source == ValueSource::Person;
         let person_photo = c.photo_source == Some(ValueSource::Person);
         ValueChanges {
             new_name: (name_differs && !person_name).then(|| card_as_accepted.display_name()),
-            new_photo: card_photo.is_some() && !person_photo && c.photo.as_deref() != card_photo,
             kept_name: name_differs && person_name,
-            kept_photo: card_photo.is_some() && person_photo,
+            photo: match (card_photo.is_some(), photo_changes(c)) {
+                (true, true) => PhotoChange::New,
+                (false, true) => PhotoChange::Removed,
+                (true, false) if person_photo => PhotoChange::Kept,
+                _ => PhotoChange::Unchanged,
+            },
         }
     });
     let context = ProposalContext {
