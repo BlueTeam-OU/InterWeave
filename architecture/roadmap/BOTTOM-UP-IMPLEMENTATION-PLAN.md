@@ -6607,7 +6607,6 @@ owner:
   the cache's write timing for a kill sooner after a connection, and
   who dialled beyond inference stay unproved (`…-cache-on-control.md`
   names each): p2p-network-dev-02's (j69), with row 2 through Scan.
-
 - The camera row's record does not show a second press of Scan a code
   after a refusal (where a lasting refusal names Settings), a grant and
   a real scan (#418's device check), a phone without a camera, TalkBack's
