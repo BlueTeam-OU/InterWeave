@@ -1055,3 +1055,72 @@ fn a_warning_appearing_under_a_right_drag_cancels_it() {
         vec![Intent::DeclineCard(RowId::from_stored(1))]
     );
 }
+
+/// Contact-cards design section 5.4.4 and section 9's focus table: a
+/// proposal's menu closed with nothing chosen, or by Copy `PeerId`, puts
+/// focus back on the control the key was pressed on; after a long press
+/// or a secondary click, on Copy `PeerId`. Mutation: the close always
+/// focusing Copy `PeerId`.
+#[test]
+fn a_proposals_menu_gives_focus_back_where_it_came_from() {
+    use slint::platform::Key;
+    let mut view = phone();
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let focus = |view: &View, key: &str| {
+        let window = view.window();
+        window.set_focus_target(key.into());
+        window.set_focus_seq(window.get_focus_seq() + 1);
+        tick(2);
+        assert_eq!(window.get_focus_id().as_str(), key);
+    };
+
+    focus(&view, "proposal-accept:0");
+    chord(&view, &[Key::Menu]);
+    assert_eq!(view.window().get_card_menu(), 0);
+    chord(&view, &[Key::Escape]);
+    tick(2);
+    assert_eq!(view.window().get_card_menu(), -1, "closed");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "proposal-accept:0",
+        "back on the control the key was pressed on"
+    );
+
+    chord(&view, &[Key::Backtab]);
+    assert_eq!(view.window().get_focus_id().as_str(), "proposal-decline:0");
+    chord(&view, &[Key::Shift, Key::F10]);
+    let copy = ElementHandle::find_by_element_type_name(view.window(), "MenuItem")
+        .find(|e| e.accessible_label().as_deref() == Some(placeholder_en::text(UiText::CopyPeerId)))
+        .expect("Copy PeerId's entry");
+    copy.invoke_accessible_default_action();
+    tick(2);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "proposal-decline:0",
+        "Copy leaves the row: the same place"
+    );
+
+    focus(&view, "proposal-accept:0");
+    assert_eq!(
+        hold(
+            &view,
+            proposal_heading_at(&view, 0),
+            0.0,
+            16,
+            PointerEventButton::Right
+        ),
+        0,
+        "a secondary click"
+    );
+    view.window().invoke_close_card_menu();
+    tick(2);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "proposal-copy:0",
+        "no key: the row's first control"
+    );
+}
