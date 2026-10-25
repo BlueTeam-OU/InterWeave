@@ -5735,14 +5735,16 @@ the rows do not state: every address is loopback on one host, so no
 NAT is crossed (`relay_double.rs`'s harness), and a stopped relay is a
 parked thread, not a crashed host. The keepalive rule has no ADR of
 its own: the owner's word of 2026-09-26 and the two rulings live in
-§14, and no record promotes them yet; if §14 grows a third keepalive
-rule, architect-cto promotes the three into one.
+§14, three rules in all, and no record promotes them yet; architect-cto
+promotes them into one at the latest with this stage's closing record,
+or earlier if §14 gains a fourth.
 
 **Open before the close (the same read).** Each named to its owner;
 none is the status value's, which stays on this stage.
 
 - **S12, the device rows** (S21-12, TM-25, TM-26, TM-42, TM-43, TM-47,
-  TM-48 with rust-ui-dev): the Keystore invalidation, the secure window,
+  TM-48 with rust-ui-dev, and TM-54 in rust-ui-dev's lane once #451
+  lands): the Keystore invalidation, the secure window,
   the backup exclusion, the half-restored install, user presence offline
   until authentication. §20 closed on 2026-10-22 with its
   instrumentation landed (`tests/android-e2e`, the `on_a_device_*`
@@ -5776,7 +5778,8 @@ none is the status value's, which stays on this stage.
   decided (5) carried the binding and its spoofing tests to Stage 19 on
   the owner's word of 2026-10-11, and P4 records that word as given, so
   the row's "owed: the owner's word" was stale and now records the carry
-  as clause (d) asks, its step cell naming §22 as the carry's holder. What the close still needs is a guard that reads a
+  as clause (d) asks, its step cell naming §22's carry and architect-cto
+  as its holder (§22 holds the carries by name). What the close still needs is a guard that reads a
   carried row as not empty — an `owed` item in the shape `owed: … in
   Stage NN (plan section MM)`, counted carried under `--strict` and
   labelled so in the plain report, with the grammar sentence and the
