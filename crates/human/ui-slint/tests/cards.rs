@@ -26,6 +26,7 @@ use slint::{ComponentHandle as _, Model as _};
 
 const P: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 const Q: &str = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
+const R: &str = "12D3KooWAkJJFJbqnb5JovQcRRUpVTqX2o8v2P3tg9wHSpnZmYjp";
 /// 2026-10-24 12:00 UTC.
 const NOW: u64 = 1_792_843_200_000;
 
@@ -236,6 +237,7 @@ fn a_proposal_names_the_claim_beside_the_full_peer_id_and_draws_no_image_before_
             contact_id: "c1".to_owned(),
             created: true,
             photo_dropped: false,
+            photo_removed: false,
         },
     );
     let mut ada = contact("c1", "Ada", P);
@@ -497,6 +499,7 @@ fn the_contact_page_says_where_each_value_came_from_and_a_local_edit_stands() {
             contact_id: "c1".to_owned(),
             created: false,
             photo_dropped: false,
+            photo_removed: false,
         },
     );
     model.contacts_listed(vec![edited]);
@@ -952,6 +955,7 @@ fn a_cards_answer_shows_its_snackbar_and_undo_draws_the_proposal_again() {
             contact_id: "c1".to_owned(),
             created: true,
             photo_dropped: true,
+            photo_removed: false,
         },
     );
     model.contacts_listed(vec![contact("c1", "Ada", P)]);
@@ -993,6 +997,7 @@ fn an_accept_snackbar_waits_while_focus_is_in_its_span() {
                 contact_id: "c1".to_owned(),
                 created: true,
                 photo_dropped: false,
+                photo_removed: false,
             },
         );
         model.contacts_listed(vec![contact("c1", "Ada", P)]);
@@ -1366,7 +1371,9 @@ fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
     model.contact_restored("c1", ContactChange::Deleted);
     let _ = intents(&mut view, &mut model);
     settle();
-    assert_eq!(view.window().get_focus_target().as_str(), "contact:0");
+    // Where focus is, not only where it was asked for: a row taking no
+    // focus request once left it on the back arrow.
+    assert_eq!(view.window().get_focus_id().as_str(), "contact:0");
 
     // Deleted again, then the card pages left: the snackbar closes.
     model.contacts_listed(Vec::new());
@@ -1407,7 +1414,7 @@ fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
     let _ = intents(&mut view, &mut model);
     settle();
     assert_eq!(
-        view.window().get_focus_target().as_str(),
+        view.window().get_focus_id().as_str(),
         "contact-remove-photo"
     );
 }
@@ -1432,7 +1439,7 @@ fn a_proposal_reads_the_values_accept_changes_after_its_context_line() {
             updates: Some(countess.clone()),
             values: interweave_human_ui_model::ValueChanges {
                 new_name: Some("Ada King".to_owned()),
-                new_photo: true,
+                photo: interweave_human_ui_model::PhotoChange::New,
                 ..interweave_human_ui_model::ValueChanges::default()
             },
             ..context()
@@ -1463,7 +1470,7 @@ fn a_proposal_reads_the_values_accept_changes_after_its_context_line() {
             updates: Some(countess),
             values: interweave_human_ui_model::ValueChanges {
                 kept_name: true,
-                kept_photo: true,
+                photo: interweave_human_ui_model::PhotoChange::Kept,
                 ..interweave_human_ui_model::ValueChanges::default()
             },
             ..context()
@@ -1481,4 +1488,288 @@ fn a_proposal_reads_the_values_accept_changes_after_its_context_line() {
         at + 2,
         "and the photo"
     );
+
+    // Case E with a card carrying no photo: the edit stays, and the
+    // contact's photo, from a card, goes (#435).
+    model.card_received(proposal(
+        3,
+        R,
+        card("Ada", false),
+        ProposalContext {
+            updates: Some(ContactRef {
+                contact_id: "c3".to_owned(),
+                name: "Countess".to_owned(),
+            }),
+            values: interweave_human_ui_model::ValueChanges {
+                kept_name: true,
+                photo: interweave_human_ui_model::PhotoChange::Removed,
+                ..interweave_human_ui_model::ValueChanges::default()
+            },
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, R);
+    let at = reading_index(&view, &context_line);
+    assert_eq!(reading_index(&view, &kept), at + 1, "case E, the name");
+    assert_eq!(
+        reading_index(&view, text(UiText::CardUpdatesPhotoRemoved)),
+        at + 2,
+        "and the photo that goes"
+    );
+    assert!(!shows(&view, text(UiText::CardUpdatesPhoto)));
+}
+
+/// Contact-cards design 5.4.2: an Accept whose card photo was unusable
+/// says so on the confirmation row, and says the previous photo went too
+/// when the Accept removed one. Mutation: the note ignoring
+/// `photo_removed`.
+#[test]
+fn an_unusable_photo_note_says_when_the_previous_photo_went() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    for (n, from, removed) in [(1, P, false), (2, Q, true)] {
+        model.card_received(proposal(n, from, card("Ada", true), context()));
+        let _ = shown(&mut view, &mut model, from);
+        press(&view, text(UiText::CardAccept));
+        let _ = intents(&mut view, &mut model);
+        model.card_resolved(
+            row(n),
+            CardOutcome::Accepted {
+                contact_id: format!("c{n}"),
+                created: false,
+                photo_dropped: true,
+                photo_removed: removed,
+            },
+        );
+        model.contacts_listed(vec![contact(&format!("c{n}"), "Ada", from)]);
+        view.render(&model);
+        settle();
+        let (said, not) = if removed {
+            (UiText::CardPhotoNotUsedRemoved, UiText::CardPhotoNotUsed)
+        } else {
+            (UiText::CardPhotoNotUsed, UiText::CardPhotoNotUsedRemoved)
+        };
+        assert!(shows(&view, text(said)), "removed {removed}");
+        assert!(!shows(&view, text(not)), "removed {removed}");
+    }
+}
+
+/// One key pressed and released.
+fn key(view: &View, key: slint::platform::Key) {
+    let text: slint::SharedString = key.into();
+    let window = view.window().window();
+    window.dispatch_event(slint::platform::WindowEvent::KeyPressed { text: text.clone() });
+    window.dispatch_event(slint::platform::WindowEvent::KeyReleased { text });
+}
+
+/// Contact-cards design 5.4.1 and section 9: a row showing `CardSameName`
+/// links the contact it names, "Open your contact {name}", in focus order
+/// after Copy `PeerId` and before Decline; the link opens that contact's
+/// page, and Back returns to the link in its conversation. A note that is
+/// no same-name warning has no link. Mutations: the link dropped from the
+/// note; Close not returning to it.
+#[test]
+fn a_same_name_warning_links_its_contact_and_back_returns_to_the_link() {
+    use slint::platform::Key;
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", Q), contact("c2", "Bea", R)]);
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", false),
+        ProposalContext {
+            same_name: vec![ContactRef {
+                contact_id: "c1".to_owned(),
+                name: "Ada".to_owned(),
+            }],
+            shares_node: vec![ContactRef {
+                contact_id: "c2".to_owned(),
+                name: "Bea".to_owned(),
+            }],
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, P);
+    let link = fill(text(UiText::ShowContact), &[("name", &isolated("Ada"))]);
+    assert_eq!(labelled(&view, &link).len(), 1, "the same-name note's");
+    let other = fill(text(UiText::ShowContact), &[("name", &isolated("Bea"))]);
+    assert!(!shows(&view, &other), "a shares-a-device note has none");
+
+    let window = view.window();
+    window.set_focus_target("proposal-copy:0".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    assert_eq!(window.get_focus_id(), "proposal-copy:0");
+    let order: Vec<String> = (0..3)
+        .map(|_| {
+            key(&view, Key::Tab);
+            view.window().get_focus_id().to_string()
+        })
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "proposal-contact:0:0",
+            "proposal-decline:0",
+            "proposal-accept:0"
+        ],
+        "Copy PeerId, the link, Decline, Accept"
+    );
+
+    key(&view, Key::Backtab);
+    key(&view, Key::Backtab);
+    assert_eq!(view.window().get_focus_id(), "proposal-contact:0:0");
+    key(&view, Key::Return);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::Contact
+    );
+    assert_eq!(view.window().get_contact_title(), isolated("Ada"));
+    assert_eq!(view.window().get_focus_id(), "close-cards");
+
+    key(&view, Key::Return);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None
+    );
+    assert!(shows(&view, &link), "the conversation, shown again");
+    assert_eq!(
+        view.window().get_focus_id(),
+        "proposal-contact:0:0",
+        "Back returns to the link"
+    );
+}
+
+/// Contact-cards design section 9's focus table, "contact deleted": the
+/// Contacts list's first row once the list is drawn without the deleted
+/// contact, else the page's back arrow, the empty text being no focus
+/// stop. Mutation: the focus left on the back arrow after the delete.
+#[test]
+fn a_deleted_contact_leaves_focus_on_the_lists_first_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", P), contact("c2", "Bob", Q)]);
+    view.render(&model);
+    let delete = |view: &mut View, model: &mut UiModel, name: &str, id: &str| {
+        open_contact(view, model, name);
+        press(view, text(UiText::DeleteContact));
+        let _ = intents(view, model);
+        let buttons = labelled(view, text(UiText::DeleteContact));
+        buttons[0].invoke_accessible_default_action();
+        assert_eq!(
+            intents(view, model),
+            vec![Intent::DeleteContact {
+                contact_id: id.to_owned()
+            }]
+        );
+        settle();
+    };
+
+    delete(&mut view, &mut model, "Ada", "c1");
+    assert_eq!(view.window().get_focus_id(), "close-cards", "until it goes");
+    model.contacts_listed(vec![contact("c2", "Bob", Q)]);
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "contact:0", "Bob's row");
+
+    delete(&mut view, &mut model, "Bob", "c2");
+    model.contacts_listed(Vec::new());
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "close-cards", "none left");
+}
+
+/// #440 F1: a card page left some other way than its Back -- another
+/// conversation chosen -- forgets the way back it was opened with, so a
+/// later Back from a page the app options opened is that page's own: the
+/// list shown, no old proposal link focused, no old share sheet opened.
+/// Mutations: `forget_returns` not called when a card page opens from
+/// the app options, or from a proposal's link; the share sheet's way
+/// back set before the open, which forgets it.
+#[test]
+fn a_card_page_left_another_way_forgets_its_way_back() {
+    use interweave_human_ui_model::KeyProblem;
+    use slint::platform::Key;
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.identity_shown(keyless(KeyProblem::DirUnsafe {
+        folder: "/home/ada/.local/state/interweave/default/identity-keys".to_owned(),
+    }));
+    model.contacts_listed(vec![contact("c1", "Ada", Q)]);
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", false),
+        ProposalContext {
+            same_name: vec![ContactRef {
+                contact_id: "c1".to_owned(),
+                name: "Ada".to_owned(),
+            }],
+            ..context()
+        },
+    ));
+    let back_from_contacts = |view: &mut View, model: &mut UiModel| {
+        let _ = shown(view, model, P);
+        press(view, text(UiText::AppOptions));
+        press(view, text(UiText::ContactsTitle));
+        let _ = intents(view, model);
+        settle();
+        assert_eq!(view.window().get_focus_id(), "close-cards");
+        key(view, Key::Return);
+        let _ = intents(view, model);
+        settle();
+    };
+
+    // The proposal's link, then another conversation.
+    let _ = shown(&mut view, &mut model, P);
+    let link = fill(text(UiText::ShowContact), &[("name", &isolated("Ada"))]);
+    press(&view, &link);
+    let _ = intents(&mut view, &mut model);
+    let _ = shown(&mut view, &mut model, R);
+    back_from_contacts(&mut view, &mut model);
+    assert!(view.window().get_list_shown(), "Back is the page's own");
+    assert_ne!(view.window().get_focus_id(), "proposal-contact:0:0");
+
+    // The share sheet's Open your card: its Back is to the sheet.
+    let open_card_from_share = |view: &mut View, model: &mut UiModel| {
+        let _ = shown(view, model, P);
+        press(view, text(UiText::MoreOptions));
+        press(view, text(UiText::ShareCard));
+        let _ = intents(view, model);
+        settle();
+        press(view, text(UiText::KeyOpenCard));
+        let _ = intents(view, model);
+        settle();
+    };
+    open_card_from_share(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id(), "close-cards");
+    key(&view, Key::Return);
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_share_open(), "control: back to the sheet");
+    view.window().set_share_open(false);
+
+    // Then another conversation chosen instead.
+    open_card_from_share(&mut view, &mut model);
+    let _ = shown(&mut view, &mut model, R);
+    back_from_contacts(&mut view, &mut model);
+    assert!(!view.window().get_share_open(), "no old share sheet");
+
+    // The sheet's way back left the same way, then a proposal's link:
+    // its Back is the link's alone (round 2).
+    open_card_from_share(&mut view, &mut model);
+    let _ = shown(&mut view, &mut model, R);
+    let _ = shown(&mut view, &mut model, P);
+    press(&view, &link);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    key(&view, Key::Return);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(!view.window().get_share_open(), "no old share sheet");
+    assert_eq!(view.window().get_focus_id(), "proposal-contact:0:0");
 }

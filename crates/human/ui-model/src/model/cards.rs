@@ -173,12 +173,27 @@ pub struct ProposalContext {
 pub struct ValueChanges {
     /// The name it would take, when it changes.
     pub new_name: Option<String>,
-    /// The card's photo would replace the contact's.
-    pub new_photo: bool,
     /// The card's name differs from one the person chose, which stays.
     pub kept_name: bool,
-    /// The card carries a photo, and the person's chosen one stays.
-    pub kept_photo: bool,
+    /// What becomes of the contact's photo.
+    pub photo: PhotoChange,
+}
+
+/// What Accept would do to the contact's photo (contact-cards design
+/// section 5.4.1, cases U and E): one line, or none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum PhotoChange {
+    /// Nothing changes, and nothing is said.
+    #[default]
+    Unchanged,
+    /// The card's photo would replace the contact's (`CardUpdatesPhoto`).
+    New,
+    /// The card carries none, so the contact's, which the person did not
+    /// choose, would go (`CardUpdatesPhotoRemoved`).
+    Removed,
+    /// The card carries a photo, and the person's chosen one stays
+    /// (`CardKeepsPhoto`).
+    Kept,
 }
 
 /// What became of a proposal the person answered: what the confirmation
@@ -195,6 +210,10 @@ pub enum CardOutcome {
         /// The card carried a photo that did not decode within its
         /// bound, so the contact was saved without it.
         photo_dropped: bool,
+        /// The contact's previous photo, which the person did not
+        /// choose, went with this Accept (`CardPhotoNotUsedRemoved` when
+        /// `photo_dropped` too).
+        photo_removed: bool,
     },
     /// Declined: nothing was written.
     Declined,
@@ -232,8 +251,9 @@ pub enum AcceptLine {
 /// A note a proposal shows before Accept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProposalNote {
-    /// A contact of the same name on another node.
-    SameName(String),
+    /// A contact of the same name on another node, which the note links
+    /// to (`ShowContact`, contact-cards design 5.4.1).
+    SameName(ContactRef),
     /// A contact on the same node, another identity of it.
     SharesNode(String),
     /// A contact holding the same key on another node.
@@ -530,6 +550,9 @@ pub struct CardAnswer {
     /// The card's photo did not decode and was not saved
     /// (`CardPhotoNotUsed`).
     pub photo_dropped: bool,
+    /// The contact's previous photo went too (`CardPhotoNotUsedRemoved`
+    /// in place of `CardPhotoNotUsed`).
+    pub photo_removed: bool,
     /// When the card arrived: its place in the conversation.
     pub received_at: u64,
 }
@@ -679,6 +702,7 @@ impl UiModel {
                 contact_id,
                 created,
                 photo_dropped,
+                photo_removed,
             } => {
                 self.cards.answered(CardAnswer {
                     row,
@@ -687,6 +711,7 @@ impl UiModel {
                     contact_id,
                     created,
                     photo_dropped,
+                    photo_removed,
                     received_at: proposal.received_at,
                 });
                 let confirms = if created {
@@ -961,7 +986,7 @@ impl UiModel {
                 notes.extend(
                     c.same_name
                         .iter()
-                        .map(|r| ProposalNote::SameName(r.name.clone())),
+                        .map(|r| ProposalNote::SameName(r.clone())),
                 );
                 notes.extend(
                     c.shares_node
@@ -1322,7 +1347,10 @@ mod tests {
         assert_eq!(
             shown.notes,
             vec![
-                ProposalNote::SameName("Ada Lovelace".to_owned()),
+                ProposalNote::SameName(ContactRef {
+                    contact_id: "c2".to_owned(),
+                    name: "Ada Lovelace".to_owned(),
+                }),
                 ProposalNote::SharesNode("Ada at work".to_owned())
             ]
         );
@@ -1743,6 +1771,7 @@ mod tests {
             contact_id: contact_id.to_owned(),
             created: true,
             photo_dropped: false,
+            photo_removed: false,
         }
     }
 

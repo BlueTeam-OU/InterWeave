@@ -150,8 +150,8 @@ pub struct CardStanding {
     /// Contacts holding another endpoint of the card's `PeerId`: Accept
     /// makes a contact of its own, and the proposal names these.
     pub shares_node: Vec<Contact>,
-    /// Contacts of the same display name on other `PeerIds`: the same-name
-    /// note.
+    /// Contacts on other `PeerIds` whose display name is the card's by
+    /// [`name_key`], a lookalike spelling included: the same-name note.
     pub same_name: Vec<Contact>,
     /// The key against the route's record.
     pub key: KeyStanding,
@@ -170,12 +170,25 @@ pub struct Accepted {
     pub created: bool,
     /// Whether the contact's name was the person's and stayed.
     pub name_kept: bool,
-    /// Whether the contact's photo was the person's and stayed.
-    pub photo_kept: bool,
+    /// What became of the contact's photo.
+    pub photo: PhotoAccepted,
     /// How the key stood before.
     pub key: KeyStanding,
     /// What [`HumanStore::undo_accept`] writes back.
     pub undo: AcceptUndo,
+}
+
+/// What an Accept did to the contact's photo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhotoAccepted {
+    /// The card's photo, or its absence over none, is the contact's.
+    Written,
+    /// The contact's photo was the person's and stayed.
+    Kept,
+    /// The contact held a photo that was not the person's and the card,
+    /// carrying none, took it away (contact-cards design 5.4.2:
+    /// `CardPhotoNotUsedRemoved` when the card's photo was unusable).
+    Removed,
 }
 
 /// What an Accept changed, kept by the caller for the person's Undo
@@ -370,6 +383,24 @@ pub fn direct_conversation_id(peer: &TransportIdentity, endpoint: &EndpointId) -
     format!("direct/{}/{}", peer.as_str(), endpoint.as_str())
 }
 
+/// The key two names are the same by (contact-cards design 5.4.1): NFKC,
+/// full case folding, each run of whitespace one space and the ends
+/// trimmed, then Unicode TS #39's confusable skeleton. A peer naming
+/// itself "Аnna" with a Cyrillic А, "Anna Rossi" with a no-break space or
+/// "Ａnna" in fullwidth letters meets the same warning as "Anna". The
+/// design keeps the key for comparison: a key is not a name to show or
+/// store. White space is Rust's `White_Space`,
+/// a superset of the design's Zs and tab; a card's name holds no other
+/// (HUMAN-CHAT.md refuses controls in it).
+#[must_use]
+pub fn name_key(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization as _;
+    let nfkc: String = name.nfkc().collect();
+    let folded = caseless::default_case_fold_str(&nfkc);
+    let spaced = folded.split_whitespace().collect::<Vec<_>>().join(" ");
+    unicode_security::skeleton(&spaced).collect()
+}
+
 fn new_contact_id() -> String {
     format!("{:032x}", rand::random::<u128>())
 }
@@ -519,11 +550,13 @@ impl HumanStore {
             .filter(|c| c.routes.iter().any(|r| &r.peer == card.peer))
             .cloned()
             .collect();
-        let display = card.display_name();
+        let name = name_key(&card.display_name());
         let same_name = others
             .iter()
             .filter(not_updated)
-            .filter(|c| c.display_name == display && c.routes.iter().all(|r| &r.peer != card.peer))
+            .filter(|c| {
+                name_key(&c.display_name) == name && c.routes.iter().all(|r| &r.peer != card.peer)
+            })
             .cloned()
             .collect();
         let key_matches = others
@@ -586,6 +619,7 @@ impl HumanStore {
                         })
                     },
                 )?;
+                let had_photo = before.photo.is_some();
                 let undo = AcceptUndo(UndoOf::Updated {
                     contact_id: contact_id.clone(),
                     peer: card.peer.as_str().to_owned(),
@@ -638,7 +672,13 @@ impl HumanStore {
                     contact_id,
                     created: false,
                     name_kept,
-                    photo_kept,
+                    photo: if photo_kept {
+                        PhotoAccepted::Kept
+                    } else if card.photo.is_none() && had_photo {
+                        PhotoAccepted::Removed
+                    } else {
+                        PhotoAccepted::Written
+                    },
                     key,
                     undo,
                 }
@@ -675,7 +715,7 @@ impl HumanStore {
                     contact_id,
                     created: true,
                     name_kept: false,
-                    photo_kept: false,
+                    photo: PhotoAccepted::Written,
                     key: KeyStanding::Unrecorded,
                 }
             };

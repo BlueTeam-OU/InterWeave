@@ -86,3 +86,22 @@ the deletion property) and v9 drops `avatar_ref`. Rejected: a file under
 and deletion property); keeping no photo (defers the provenance
 criterion). Propagation: the Consequences sentence; this note; the log
 row; the digest entry; STATE.md's row.
+
+### Amendment 2026-10-25 — The command-line client's record is its own README, and a route's deletion waits on Move (v)
+
+Decision 9 said the client's name, argument shape and output format
+would be "recorded in `architecture/clients/human/` when it lands".
+The client landed as `interweave-human` (#368, #369, #387, #429, by
+2026-10-24) with its record in `apps/human-cli/README.md` — every verb,
+flag, exit code and output token a script may rely on — and nothing
+under `architecture/clients/human/` names it; a reader following the
+old sentence looked in an empty place. The decision now names the
+README, and `human-client-ui.md` §13 names the verbs its criteria bind.
+Batch 4's verification (architect-cto, 2026-10-25) also found that
+`contacts route delete` refuses on every contact a person can have today:
+the store's one writer of `contact_routes` makes a contact with one route
+or updates a held one, and moving a route between contacts is plan §30
+step 2's, so the verb's success path is reachable once Move lands; the
+rule is recorded here so the limit is read as the stage's, not the
+verb's. Propagation: this note; the log row; the digest entry; plan
+§30 step 2 names Move and the route-delete control beside it.
