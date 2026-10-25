@@ -200,6 +200,135 @@ enum UndoOf {
     },
 }
 
+/// A contact the person deleted, as it was stored, kept by the caller for
+/// the person's Undo (contact-cards design section 6.3): its row and its
+/// routes' rows, every column as read, so the Undo writes back the same
+/// values and provenance. Held in memory only, like [`AcceptUndo`]: a
+/// process that ends inside the window leaves the contact deleted.
+#[derive(Clone, PartialEq)]
+pub struct DeletedContact {
+    contact_id: String,
+    contact: StoredRow,
+    routes: Vec<StoredRow>,
+}
+
+impl DeletedContact {
+    /// The deleted contact's id.
+    #[must_use]
+    pub fn contact_id(&self) -> &str {
+        &self.contact_id
+    }
+}
+
+// Names and photos are the person's: a log line says which contact only.
+impl std::fmt::Debug for DeletedContact {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeletedContact")
+            .field("contact_id", &self.contact_id)
+            .field("routes", &self.routes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// What [`HumanStore::restore_contact`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContactRestored {
+    /// The contact and its routes are back as they were.
+    Restored,
+    /// A route it held is under another contact now: nothing is written,
+    /// since one route is never under two contacts.
+    RouteTaken,
+    /// A contact of its id exists: nothing is written.
+    Exists,
+}
+
+/// A contact's photo the person removed, as it was stored, for the
+/// person's Undo (design section 6.3): the bytes, where they came from
+/// and when, and the time the removal wrote. Held in memory only.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RemovedPhoto {
+    contact_id: String,
+    photo: Vec<u8>,
+    photo_source: Option<String>,
+    photo_at: Option<i64>,
+    updated_at: i64,
+    removed_at: i64,
+}
+
+impl RemovedPhoto {
+    /// The contact whose photo it was.
+    #[must_use]
+    pub fn contact_id(&self) -> &str {
+        &self.contact_id
+    }
+}
+
+impl std::fmt::Debug for RemovedPhoto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemovedPhoto")
+            .field("contact_id", &self.contact_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// One stored row, every column as read: what an Undo writes back.
+#[derive(Debug, Clone, PartialEq)]
+struct StoredRow {
+    columns: Vec<String>,
+    values: Vec<rusqlite::types::Value>,
+}
+
+impl StoredRow {
+    /// The rows of `table` whose `key` column is `id`.
+    fn read(
+        tx: &rusqlite::Transaction<'_>,
+        table: &str,
+        key: &str,
+        id: &str,
+    ) -> rusqlite::Result<Vec<Self>> {
+        let mut stmt = tx.prepare(&format!("SELECT * FROM {table} WHERE {key} = ?1"))?;
+        let columns: Vec<String> = stmt
+            .column_names()
+            .iter()
+            .map(|c| (*c).to_owned())
+            .collect();
+        let rows = stmt.query_map(params![id], |row| {
+            (0..columns.len())
+                .map(|i| row.get::<_, rusqlite::types::Value>(i))
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })?;
+        rows.map(|values| {
+            values.map(|values| Self {
+                columns: columns.clone(),
+                values,
+            })
+        })
+        .collect()
+    }
+
+    /// Insert it into `table` as it was.
+    fn insert(&self, tx: &rusqlite::Transaction<'_>, table: &str) -> rusqlite::Result<()> {
+        let marks = vec!["?"; self.columns.len()].join(", ");
+        tx.execute(
+            &format!(
+                "INSERT INTO {table} ({}) VALUES ({marks})",
+                self.columns.join(", ")
+            ),
+            rusqlite::params_from_iter(self.values.iter()),
+        )?;
+        Ok(())
+    }
+
+    /// The text value of `column`, if it has one.
+    fn text(&self, column: &str) -> Option<&str> {
+        let i = self.columns.iter().position(|c| c == column)?;
+        match &self.values[i] {
+            rusqlite::types::Value::Text(t) => Some(t.as_str()),
+            _ => None,
+        }
+    }
+}
+
 /// A contact's values an Accept may overwrite, as stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ContactValues {
@@ -670,8 +799,25 @@ impl HumanStore {
     /// # Errors
     /// A storage error. Whether there was such a contact.
     pub fn delete_contact(&mut self, contact_id: &str) -> Result<bool, StoreError> {
-        let result = (|| -> Result<bool, StoreError> {
+        Ok(self.delete_contact_for_undo(contact_id)?.is_some())
+    }
+
+    /// [`HumanStore::delete_contact`], returning what it deleted for the
+    /// person's Undo ([`HumanStore::restore_contact`]): the rows are read
+    /// in the transaction that deletes them, so the Undo writes back what
+    /// was deleted and nothing else. `None` when there was no such
+    /// contact.
+    ///
+    /// # Errors
+    /// A storage error; nothing is deleted then.
+    pub fn delete_contact_for_undo(
+        &mut self,
+        contact_id: &str,
+    ) -> Result<Option<DeletedContact>, StoreError> {
+        let result = (|| -> Result<Option<DeletedContact>, StoreError> {
             let tx = self.conn.transaction()?;
+            let contact = StoredRow::read(&tx, "contacts", "contact_id", contact_id)?;
+            let routes = StoredRow::read(&tx, "contact_routes", "contact_id", contact_id)?;
             tx.execute(
                 "DELETE FROM contact_routes WHERE contact_id = ?1",
                 params![contact_id],
@@ -681,13 +827,139 @@ impl HumanStore {
                 params![contact_id],
             )?;
             tx.commit()?;
-            Ok(deleted == 1)
+            Ok(contact
+                .into_iter()
+                .next()
+                .filter(|_| deleted == 1)
+                .map(|contact| DeletedContact {
+                    contact_id: contact_id.to_owned(),
+                    contact,
+                    routes,
+                }))
         })();
         let deleted = result.map_err(|e| self.note_store_failure(e))?;
-        if deleted {
+        if deleted.is_some() {
             self.release_done();
         }
         Ok(deleted)
+    }
+
+    /// The person's Undo of a delete (design section 6.3): the contact
+    /// and its routes written back with the values and provenance they
+    /// had, in one transaction -- unless a route it held is under another
+    /// contact now, or a contact of its id exists, when nothing is
+    /// written.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn restore_contact(
+        &mut self,
+        deleted: &DeletedContact,
+    ) -> Result<ContactRestored, StoreError> {
+        let result = (|| -> Result<ContactRestored, StoreError> {
+            let tx = self.conn.transaction()?;
+            let exists: Option<i64> = tx
+                .query_row(
+                    "SELECT 1 FROM contacts WHERE contact_id = ?1",
+                    params![deleted.contact_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if exists.is_some() {
+                return Ok(ContactRestored::Exists);
+            }
+            for route in &deleted.routes {
+                let taken: Option<i64> = tx
+                    .query_row(
+                        "SELECT 1 FROM contact_routes WHERE peer_id = ?1 AND endpoint_id = ?2",
+                        params![route.text("peer_id"), route.text("endpoint_id")],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                if taken.is_some() {
+                    return Ok(ContactRestored::RouteTaken);
+                }
+            }
+            deleted.contact.insert(&tx, "contacts")?;
+            for route in &deleted.routes {
+                route.insert(&tx, "contact_routes")?;
+            }
+            tx.commit()?;
+            Ok(ContactRestored::Restored)
+        })();
+        result.map_err(|e| self.note_store_failure(e))
+    }
+
+    /// The person's removal of a contact's photo, as
+    /// [`HumanStore::set_contact_photo`] with no photo writes it, returning
+    /// what it removed for the person's Undo
+    /// ([`HumanStore::restore_contact_photo`]). `None` when there was no
+    /// such contact or it had no photo, and nothing is written then.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn remove_contact_photo(
+        &mut self,
+        contact_id: &str,
+        at_ms: u64,
+    ) -> Result<Option<RemovedPhoto>, StoreError> {
+        let at = sql_timestamp("at", at_ms)?;
+        let result = (|| -> Result<Option<RemovedPhoto>, StoreError> {
+            let tx = self.conn.transaction()?;
+            let before = tx
+                .query_row(
+                    "SELECT photo, photo_source, photo_at, updated_at FROM contacts
+                      WHERE contact_id = ?1 AND photo IS NOT NULL",
+                    params![contact_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                )
+                .optional()?;
+            let Some((photo, photo_source, photo_at, updated_at)) = before else {
+                return Ok(None);
+            };
+            tx.execute(
+                "UPDATE contacts SET photo = NULL, photo_source = ?2, photo_at = ?3, updated_at = ?3
+                  WHERE contact_id = ?1",
+                params![contact_id, ValueSource::Person.as_sql(), at],
+            )?;
+            tx.commit()?;
+            Ok(Some(RemovedPhoto {
+                contact_id: contact_id.to_owned(),
+                photo,
+                photo_source,
+                photo_at,
+                updated_at,
+                removed_at: at,
+            }))
+        })();
+        result.map_err(|e| self.note_store_failure(e))
+    }
+
+    /// The person's Undo of a photo removal (design section 6.3): the
+    /// bytes written back with where they came from and when -- only
+    /// while the contact still shows the removal, so an Undo never
+    /// overwrites a photo set since. Whether it was written.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn restore_contact_photo(&mut self, removed: &RemovedPhoto) -> Result<bool, StoreError> {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE contacts SET photo = ?2, photo_source = ?3, photo_at = ?4, updated_at = ?5
+                  WHERE contact_id = ?1 AND photo IS NULL AND photo_at = ?6",
+                params![
+                    removed.contact_id,
+                    removed.photo,
+                    removed.photo_source,
+                    removed.photo_at,
+                    removed.updated_at,
+                    removed.removed_at
+                ],
+            )
+            .map_err(StoreError::from)
+            .map_err(|e| self.note_store_failure(e))?;
+        Ok(changed == 1)
     }
 
     /// Delete one route of a contact, with the identity key it recorded

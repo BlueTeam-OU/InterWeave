@@ -9,7 +9,8 @@
 mod common;
 
 use interweave_human_store::{
-    AcceptedCard, HumanStore, KeyStanding, OwnCard, RouteDeleted, StoreOptions, ValueSource,
+    AcceptedCard, ContactRestored, HumanStore, KeyStanding, OwnCard, RouteDeleted, StoreOptions,
+    ValueSource,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -673,4 +674,160 @@ fn a_deleted_route_leaves_both_files_and_the_last_is_refused() {
         .expect("stays");
     assert_eq!(contact.routes.len(), 1);
     assert_eq!(contact.routes[0].identity_key, Some([1; 32]));
+}
+
+/// Contact-cards design section 6.3: Delete's Undo writes the contact
+/// and its routes back with the same values, provenance and keys, once;
+/// a contact of its id there already is refused, nothing written.
+/// Mutations: a route row not written back; the existence check dropped.
+#[test]
+fn a_deleted_contact_is_written_back_as_it_was_by_its_undo() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let ada = store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(b"jpeg"),
+                ..card(&p, &human, "Ada", 1)
+            },
+            10,
+        )
+        .expect("accepted");
+    assert!(
+        store
+            .set_contact_name(&ada.contact_id, "Countess", 20)
+            .expect("named")
+    );
+    let before = store
+        .contact(&ada.contact_id)
+        .expect("read")
+        .expect("there");
+    let deleted = store
+        .delete_contact_for_undo(&ada.contact_id)
+        .expect("deleted")
+        .expect("there was one");
+    assert!(store.contact(&ada.contact_id).expect("read").is_none());
+    assert_eq!(
+        store.restore_contact(&deleted).expect("restored"),
+        ContactRestored::Restored
+    );
+    assert_eq!(
+        store.contact(&ada.contact_id).expect("read"),
+        Some(before.clone()),
+        "name, provenance, photo, route and key as they were"
+    );
+    assert_eq!(
+        store
+            .card_standing(&card(&p, &human, "Ada", 1))
+            .expect("standing")
+            .key,
+        KeyStanding::Same,
+        "the route's key is back"
+    );
+    assert_eq!(
+        store.restore_contact(&deleted).expect("asked"),
+        ContactRestored::Exists
+    );
+    assert_eq!(store.contacts().expect("read").len(), 1, "written once");
+}
+
+/// Section 6.3: the Undo never puts one route under two contacts. A card
+/// accepted on the deleted contact's route after the delete makes its own
+/// contact, and the Undo is refused, nothing written. Mutation: the
+/// route check dropped.
+#[test]
+fn a_deleted_contacts_undo_is_refused_once_its_route_is_under_another() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let ada = store
+        .accept_card(&card(&p, &human, "Ada", 1), 10)
+        .expect("accepted");
+    let deleted = store
+        .delete_contact_for_undo(&ada.contact_id)
+        .expect("deleted")
+        .expect("there was one");
+    let again = store
+        .accept_card(&card(&p, &human, "Ada", 2), 20)
+        .expect("accepted again");
+    assert!(again.created);
+    assert_eq!(
+        store.restore_contact(&deleted).expect("asked"),
+        ContactRestored::RouteTaken
+    );
+    let contacts = store.contacts().expect("read");
+    assert_eq!(contacts.len(), 1, "nothing written");
+    assert_eq!(contacts[0].contact_id, again.contact_id);
+    assert!(
+        store.contact(&ada.contact_id).expect("read").is_none(),
+        "the deleted contact stays deleted"
+    );
+}
+
+/// Section 6.3: Remove photo marks the removal the person's, and its Undo
+/// writes the bytes back with the source and time they had -- but never
+/// over a photo the person set since. Mutations: the Undo's guard on the
+/// removal dropped; the removal not recording the source it replaced.
+#[test]
+fn a_removed_photo_is_written_back_by_its_undo_and_never_over_a_later_one() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let ada = store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(b"card jpeg"),
+                ..card(&p, &human, "Ada", 1)
+            },
+            10,
+        )
+        .expect("accepted");
+    let before = store
+        .contact(&ada.contact_id)
+        .expect("read")
+        .expect("there");
+    let removed = store
+        .remove_contact_photo(&ada.contact_id, 20)
+        .expect("removed")
+        .expect("it had one");
+    let now = store
+        .contact(&ada.contact_id)
+        .expect("read")
+        .expect("there");
+    assert_eq!(now.photo, None);
+    assert_eq!(now.photo_source, Some(ValueSource::Person), "the person's");
+    assert!(
+        store
+            .remove_contact_photo(&ada.contact_id, 21)
+            .expect("asked")
+            .is_none(),
+        "no photo, nothing removed"
+    );
+    assert!(store.restore_contact_photo(&removed).expect("restored"));
+    assert_eq!(
+        store.contact(&ada.contact_id).expect("read"),
+        Some(before),
+        "bytes, source and time as they were"
+    );
+
+    let removed = store
+        .remove_contact_photo(&ada.contact_id, 30)
+        .expect("removed")
+        .expect("it had one");
+    assert!(
+        store
+            .set_contact_photo(&ada.contact_id, Some(b"chosen"), 40)
+            .expect("chosen")
+    );
+    assert!(
+        !store.restore_contact_photo(&removed).expect("asked"),
+        "a photo set since stays"
+    );
+    assert_eq!(
+        store
+            .contact(&ada.contact_id)
+            .expect("read")
+            .expect("there")
+            .photo
+            .as_deref(),
+        Some(b"chosen".as_slice())
+    );
 }
