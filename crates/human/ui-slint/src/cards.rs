@@ -20,8 +20,8 @@ use std::rc::Rc;
 
 use interweave_human_ui_model::{
     AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, FocusTarget, Intent,
-    KeyProblem, KeyStep, KeyView, Photo, PhotoEdit, ProposalItem, ProposalNote, RowId, UiModel,
-    UiText, fill, isolated, name_problem, placeholder_en, short_peer,
+    KeyProblem, KeyStep, KeyView, Photo, PhotoChange, PhotoEdit, ProposalItem, ProposalNote, RowId,
+    UiModel, UiText, fill, isolated, name_problem, placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
@@ -274,14 +274,14 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
             .as_ref()
             .map(|name| fill(text(UiText::CardUpdatesName), &[("name", &isolated(name))])),
         values
-            .new_photo
-            .then(|| text(UiText::CardUpdatesPhoto).to_owned()),
-        values
             .kept_name
             .then(|| fill(text(UiText::CardKeepsEdit), &[("name", &isolated(contact))])),
-        values
-            .kept_photo
-            .then(|| text(UiText::CardKeepsPhoto).to_owned()),
+        match values.photo {
+            PhotoChange::Unchanged => None,
+            PhotoChange::New => Some(text(UiText::CardUpdatesPhoto).to_owned()),
+            PhotoChange::Removed => Some(text(UiText::CardUpdatesPhotoRemoved).to_owned()),
+            PhotoChange::Kept => Some(text(UiText::CardKeepsPhoto).to_owned()),
+        },
     ]
     .into_iter()
     .flatten()
@@ -374,10 +374,10 @@ fn answer_row(handle: i32, a: &CardAnswer, name: &str, hinted: bool) -> Proposal
         handle,
         answered: true,
         answer: fill(text(template), &[("name", &isolated(name))]).into(),
-        photo_note: if a.photo_dropped {
-            text(UiText::CardPhotoNotUsed).into()
-        } else {
-            SharedString::new()
+        photo_note: match (a.photo_dropped, a.photo_removed) {
+            (true, true) => text(UiText::CardPhotoNotUsedRemoved).into(),
+            (true, false) => text(UiText::CardPhotoNotUsed).into(),
+            (false, _) => SharedString::new(),
         },
         hint: if hinted {
             text(UiText::CardUndoHint).into()

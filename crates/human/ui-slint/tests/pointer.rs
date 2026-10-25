@@ -638,6 +638,7 @@ fn an_accept_by_swipe_leaves_focus_where_it_was() {
             contact_id: "c1".to_owned(),
             created: true,
             photo_dropped: false,
+            photo_removed: false,
         },
     );
     model.contacts_listed(vec![ContactView {

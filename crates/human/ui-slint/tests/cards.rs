@@ -26,6 +26,7 @@ use slint::{ComponentHandle as _, Model as _};
 
 const P: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 const Q: &str = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
+const R: &str = "12D3KooWAkJJFJbqnb5JovQcRRUpVTqX2o8v2P3tg9wHSpnZmYjp";
 /// 2026-10-24 12:00 UTC.
 const NOW: u64 = 1_792_843_200_000;
 
@@ -236,6 +237,7 @@ fn a_proposal_names_the_claim_beside_the_full_peer_id_and_draws_no_image_before_
             contact_id: "c1".to_owned(),
             created: true,
             photo_dropped: false,
+            photo_removed: false,
         },
     );
     let mut ada = contact("c1", "Ada", P);
@@ -497,6 +499,7 @@ fn the_contact_page_says_where_each_value_came_from_and_a_local_edit_stands() {
             contact_id: "c1".to_owned(),
             created: false,
             photo_dropped: false,
+            photo_removed: false,
         },
     );
     model.contacts_listed(vec![edited]);
@@ -952,6 +955,7 @@ fn a_cards_answer_shows_its_snackbar_and_undo_draws_the_proposal_again() {
             contact_id: "c1".to_owned(),
             created: true,
             photo_dropped: true,
+            photo_removed: false,
         },
     );
     model.contacts_listed(vec![contact("c1", "Ada", P)]);
@@ -993,6 +997,7 @@ fn an_accept_snackbar_waits_while_focus_is_in_its_span() {
                 contact_id: "c1".to_owned(),
                 created: true,
                 photo_dropped: false,
+                photo_removed: false,
             },
         );
         model.contacts_listed(vec![contact("c1", "Ada", P)]);
@@ -1432,7 +1437,7 @@ fn a_proposal_reads_the_values_accept_changes_after_its_context_line() {
             updates: Some(countess.clone()),
             values: interweave_human_ui_model::ValueChanges {
                 new_name: Some("Ada King".to_owned()),
-                new_photo: true,
+                photo: interweave_human_ui_model::PhotoChange::New,
                 ..interweave_human_ui_model::ValueChanges::default()
             },
             ..context()
@@ -1463,7 +1468,7 @@ fn a_proposal_reads_the_values_accept_changes_after_its_context_line() {
             updates: Some(countess),
             values: interweave_human_ui_model::ValueChanges {
                 kept_name: true,
-                kept_photo: true,
+                photo: interweave_human_ui_model::PhotoChange::Kept,
                 ..interweave_human_ui_model::ValueChanges::default()
             },
             ..context()
@@ -1481,4 +1486,68 @@ fn a_proposal_reads_the_values_accept_changes_after_its_context_line() {
         at + 2,
         "and the photo"
     );
+
+    // Case E with a card carrying no photo: the edit stays, and the
+    // contact's photo, from a card, goes (#435).
+    model.card_received(proposal(
+        3,
+        R,
+        card("Ada", false),
+        ProposalContext {
+            updates: Some(ContactRef {
+                contact_id: "c3".to_owned(),
+                name: "Countess".to_owned(),
+            }),
+            values: interweave_human_ui_model::ValueChanges {
+                kept_name: true,
+                photo: interweave_human_ui_model::PhotoChange::Removed,
+                ..interweave_human_ui_model::ValueChanges::default()
+            },
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, R);
+    let at = reading_index(&view, &context_line);
+    assert_eq!(reading_index(&view, &kept), at + 1, "case E, the name");
+    assert_eq!(
+        reading_index(&view, text(UiText::CardUpdatesPhotoRemoved)),
+        at + 2,
+        "and the photo that goes"
+    );
+    assert!(!shows(&view, text(UiText::CardUpdatesPhoto)));
+}
+
+/// Contact-cards design 5.4.2: an Accept whose card photo was unusable
+/// says so on the confirmation row, and says the previous photo went too
+/// when the Accept removed one. Mutation: the note ignoring
+/// `photo_removed`.
+#[test]
+fn an_unusable_photo_note_says_when_the_previous_photo_went() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    for (n, from, removed) in [(1, P, false), (2, Q, true)] {
+        model.card_received(proposal(n, from, card("Ada", true), context()));
+        let _ = shown(&mut view, &mut model, from);
+        press(&view, text(UiText::CardAccept));
+        let _ = intents(&mut view, &mut model);
+        model.card_resolved(
+            row(n),
+            CardOutcome::Accepted {
+                contact_id: format!("c{n}"),
+                created: false,
+                photo_dropped: true,
+                photo_removed: removed,
+            },
+        );
+        model.contacts_listed(vec![contact(&format!("c{n}"), "Ada", from)]);
+        view.render(&model);
+        settle();
+        let (said, not) = if removed {
+            (UiText::CardPhotoNotUsedRemoved, UiText::CardPhotoNotUsed)
+        } else {
+            (UiText::CardPhotoNotUsed, UiText::CardPhotoNotUsedRemoved)
+        };
+        assert!(shows(&view, text(said)), "removed {removed}");
+        assert!(!shows(&view, text(not)), "removed {removed}");
+    }
 }
