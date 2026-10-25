@@ -6,7 +6,9 @@
 # Self-test for check_android_contacts_and_backup.py. Builds throwaway
 # roots under $TMPDIR from copies of the real manifest, extraction rules
 # and app lockfile, and breaks each declaration once (plan §29 exit gate
-# (b), "the tree check, broken on purpose once per declaration"). The
+# (b), "the tree check, broken on purpose once per declaration and once
+# per allow-list failure: an extra permission, and the camera feature
+# declared required"). The
 # unbroken copy passes first, so a check that fails everything cannot
 # pass this test.
 
@@ -126,6 +128,28 @@ fails "qualified-rules-file" "xml-v31/data_extraction_rules.xml: an <include" \
 fails "provider-legacy-uri" "names content://contacts" \
     "printf 'val u = \"content://contacts/people\"\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
 
+# The permission allow-list (plan §29 step 2): an extra permission, by
+# either tag; one the list names left out; a permission defined.
+fails "allow-list-extra" "declares android.permission.READ_PHONE_STATE, which the permission allow-list does not name" \
+    "edit $M \"s.replace('<application', '<uses-permission android:name=\\\"android.permission.READ_PHONE_STATE\\\" /><application', 1)\""
+fails "allow-list-extra-sdk-23" "<uses-permission-sdk-23> declares android.permission.ACCESS_FINE_LOCATION, which the permission allow-list does not name" \
+    "edit $M \"s.replace('<application', '<uses-permission-sdk-23 android:name=\\\"android.permission.ACCESS_FINE_LOCATION\\\" /><application', 1)\""
+fails "allow-list-extra-variant" "release/AndroidManifest.xml: <uses-permission> declares android.permission.RECORD_AUDIO" \
+    "mkdir -p $APP/src/release && printf '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><uses-permission android:name=\"android.permission.RECORD_AUDIO\" /></manifest>\n' > $APP/src/release/AndroidManifest.xml"
+fails "allow-list-missing" "does not declare android.permission.USE_BIOMETRIC" \
+    "edit $M \"s.replace('<uses-permission android:name=\\\"android.permission.USE_BIOMETRIC\\\" />', '')\""
+fails "permission-defined" "<permission> defines org.interweave.human.SEND" \
+    "edit $M \"s.replace('<application', '<permission android:name=\\\"org.interweave.human.SEND\\\" /><application', 1)\""
+# The camera feature: declared required, its required left out (true),
+# not declared, and a camera feature a variant declares required.
+fails "camera-required" 'android.hardware.camera is required (android:required="true")' \
+    "edit $M \"s.replace('<uses-feature android:name=\\\"android.hardware.camera\\\" android:required=\\\"false\\\" />', '<uses-feature android:name=\\\"android.hardware.camera\\\" android:required=\\\"true\\\" />')\""
+fails "camera-required-by-default" "android.hardware.camera is required (no android:required, which means true)" \
+    "edit $M \"s.replace('<uses-feature android:name=\\\"android.hardware.camera\\\" android:required=\\\"false\\\" />', '<uses-feature android:name=\\\"android.hardware.camera\\\" />')\""
+fails "camera-feature-absent" 'no <uses-feature android:name="android.hardware.camera" android:required="false"/> beside CAMERA' \
+    "edit $M \"s.replace('<uses-feature android:name=\\\"android.hardware.camera\\\" android:required=\\\"false\\\" />', '')\""
+fails "camera-any-required-variant" "release/AndroidManifest.xml: <uses-feature> android.hardware.camera.any is required" \
+    "mkdir -p $APP/src/release && printf '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><uses-feature android:name=\"android.hardware.camera.any\" android:required=\"true\" /></manifest>\n' > $APP/src/release/AndroidManifest.xml"
 # A test source set's manifest is test tooling, not the shipped app.
 R="$TMP/androidtest"; make_root "$R"
 mkdir -p "$R/$APP/src/androidTest"

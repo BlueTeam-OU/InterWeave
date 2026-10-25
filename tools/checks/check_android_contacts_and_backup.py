@@ -4,8 +4,9 @@
 # tools/checks/check_android_contacts_and_backup.py
 #
 # >>> help
-# Does the Android client reach no address book, and leave the phone
-# through no platform backup or transfer?
+# Does the Android client reach no address book, leave the phone through
+# no platform backup or transfer, and ask no permission its records do
+# not name?
 #
 #   tools/checks/check_android_contacts_and_backup.py [--root <dir>]
 #
@@ -23,6 +24,15 @@
 #   adopts a backup agent, a platform account sync or a device-to-device
 #   transfer path"; the manifest check plan section 29 step 2 owes "pins
 #   these two declarations as well".
+#
+#   Plan section 29 step 2 (A 2026-10-22, ADR-0062 decision 8): "it pins
+#   the app's permission set as an allow-list: exactly `INTERNET`,
+#   `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`,
+#   `FOREGROUND_SERVICE_REMOTE_MESSAGING`, `POST_NOTIFICATIONS`,
+#   `USE_BIOMETRIC` and, from step 5, `CAMERA` with `<uses-feature
+#   android:name="android.hardware.camera" android:required="false"/>`
+#   beside it -- any other permission or a required camera feature fails
+#   the check by name".
 #
 # WHAT IS READ, under apps/human-android/:
 #   - every AndroidManifest.xml of a source set that can reach an APK the
@@ -43,6 +53,17 @@
 #     path ".", and no <include> anywhere;
 #   - permissions: no <uses-permission>, <uses-permission-sdk-23> or
 #     <permission> naming one of the three, in any manifest read;
+#   - the permission allow-list: every <uses-permission> and
+#     <uses-permission-sdk-23> in any manifest read names one of the
+#     seven above, each named by the main manifest, and no manifest
+#     defines a <permission> of its own;
+#   - the camera feature: the main manifest declares
+#     android.hardware.camera with android:required="false" -- the
+#     CAMERA permission alone makes the platform's store take that
+#     feature as required -- and every <uses-feature> naming a camera
+#     (android.hardware.camera*) in any manifest read says
+#     android:required="false" in so many words, the attribute's absence
+#     meaning "true";
 #   - the contacts provider: no manifest, Kotlin, Java, Gradle script,
 #     version catalog or Rust source of the Android client (the app, its
 #     Rust library, crates/human/android-platform) naming
@@ -57,9 +78,12 @@
 #
 # FAIL-CLOSED: an absent main manifest, an absent extraction-rules file,
 # a manifest that does not parse, or no lockfile read is a failure, not
-# a pass. What the check does NOT see is the desktop half of decision 6
-# (the client reads no system address book there), which no tree check
-# can pin: the desktop has no manifest.
+# a pass. What the check does NOT see: the
+# desktop half of decision 6 (the client reads no system address book
+# there), which no tree check can pin, the desktop having no manifest;
+# and a permission a library's own manifest merges into the APK, which
+# only the merged manifest, a build output, holds -- the lockfile names
+# no library that declares one today, and that is read, not checked.
 #
 # Exit codes:
 #   0  every rule holds
@@ -82,6 +106,22 @@ CONTACTS_PERMISSIONS = {
     "android.permission.GET_ACCOUNTS",
 }
 PERMISSION_TAGS = ("uses-permission", "uses-permission-sdk-23", "permission")
+USES_PERMISSION_TAGS = ("uses-permission", "uses-permission-sdk-23")
+# Plan section 29 step 2's list (A 2026-10-22): a permission enters the
+# app only through a record that names it there, and then here.
+ALLOWED_PERMISSIONS = {
+    "android.permission." + name
+    for name in (
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_REMOTE_MESSAGING",
+        "POST_NOTIFICATIONS",
+        "USE_BIOMETRIC",
+        "CAMERA",
+    )
+}
+CAMERA_FEATURE = "android.hardware.camera"
 FORBIDDEN_APPLICATION_ATTRS = ("backupAgent", "fullBackupContent", "fullBackupOnly")
 # Every domain data_extraction_rules.xml accepts, credential- and
 # device-protected: a domain left out is a directory a store or a key
@@ -142,6 +182,31 @@ def check_manifest(path: pathlib.Path, root: pathlib.Path, main: bool):
             name = el.get(A + "name", "")
             if name in CONTACTS_PERMISSIONS:
                 report(f"{rel}: <{tag}> declares {name} (ADR-0059 decision 6)")
+    declared = set()
+    for tag in USES_PERMISSION_TAGS:
+        for el in doc.iter(tag):
+            name = el.get(A + "name", "")
+            declared.add(name)
+            if name not in ALLOWED_PERMISSIONS and name not in CONTACTS_PERMISSIONS:
+                report(f"{rel}: <{tag}> declares {name}, which the permission allow-list does not name (plan section 29 step 2)")
+    for el in doc.iter("permission"):
+        report(f"{rel}: <permission> defines {el.get(A + 'name', '')}, and the app defines none (plan section 29 step 2)")
+    camera_declared = False
+    for el in doc.iter("uses-feature"):
+        name = el.get(A + "name", "")
+        if not name.startswith(CAMERA_FEATURE):
+            continue
+        required = el.get(A + "required")
+        if required != "false":
+            said = "no android:required, which means true" if required is None else f'android:required="{required}"'
+            report(f"{rel}: <uses-feature> {name} is required ({said}); a camera is never required (plan section 29 step 2)")
+        if name == CAMERA_FEATURE:
+            camera_declared = True
+    if main:
+        for name in sorted(ALLOWED_PERMISSIONS - declared):
+            report(f"{rel}: the main manifest does not declare {name}, which the permission allow-list names (plan section 29 step 2)")
+        if not camera_declared:
+            report(f'{rel}: no <uses-feature android:name="{CAMERA_FEATURE}" android:required="false"/> beside CAMERA (plan section 29 step 2)')
     apps = list(doc.iter("application"))
     for app in apps:
         for attr in FORBIDDEN_APPLICATION_ATTRS:
@@ -289,7 +354,8 @@ def finish(manifests: int = 0, scanned: int = 0) -> int:
     print(
         f"check_android_contacts_and_backup: OK — {manifests} manifest(s), the extraction rules "
         f"and {scanned} source file(s) read: no contacts permission, provider or library; "
-        f"allowBackup false; every domain excluded from cloud-backup and device-transfer."
+        f"allowBackup false; every domain excluded from cloud-backup and device-transfer; "
+        f"only the allow-listed permissions, the camera not required."
     )
     return 0
 
