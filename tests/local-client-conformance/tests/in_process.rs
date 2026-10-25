@@ -133,6 +133,21 @@ async fn broadcast_reaches_joined_sessions_only() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_losses_rise_and_never_fall() {
+    let pair = Pair::start().await;
+    let (a, b) = pair.bindings();
+    suite::session_losses_rise_and_never_fall(
+        &a,
+        &b,
+        &ChannelId::parse("general").expect("valid"),
+        common::QUEUE_BOUND,
+        suite::Overflow::Shown,
+    )
+    .await;
+    pair.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn item_7_administration_is_a_separate_authority() {
     let pair = Pair::start().await;
     let (a, _) = pair.bindings();

@@ -354,6 +354,20 @@ fn broadcast_reaches_joined_sessions_only() {
 }
 
 #[test]
+fn session_losses_rise_and_never_fall() {
+    let pair = EmbeddedPair::start();
+    let (a, b) = pair.bindings();
+    pair.run(suite::session_losses_rise_and_never_fall(
+        &a,
+        &b,
+        &ChannelId::parse("general").expect("valid"),
+        usize::try_from(QUEUE_BOUND).expect("a small bound"),
+        suite::Overflow::Shown,
+    ));
+    pair.stop();
+}
+
+#[test]
 fn item_7_administration_is_a_separate_authority() {
     let pair = EmbeddedPair::start();
     let (a, _) = pair.bindings();

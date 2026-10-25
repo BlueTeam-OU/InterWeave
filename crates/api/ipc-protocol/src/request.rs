@@ -340,6 +340,8 @@ pub enum Request {
     AdminPeersOwnAddresses,
     /// `admin.peers.add_addresses` (2.9).
     AdminPeersAddAddresses(AddressesParams),
+    /// `session.losses` (2.11).
+    SessionLosses,
 }
 
 impl Request {
@@ -366,6 +368,7 @@ impl Request {
             Self::AdminPeersListAddresses => Method::AdminPeersListAddresses,
             Self::AdminPeersOwnAddresses => Method::AdminPeersOwnAddresses,
             Self::AdminPeersAddAddresses(_) => Method::AdminPeersAddAddresses,
+            Self::SessionLosses => Method::SessionLosses,
         }
     }
 
@@ -422,6 +425,7 @@ impl Request {
                 none(params).map(|()| Self::AdminPeersOwnAddresses)?
             }
             Method::AdminPeersAddAddresses => Self::AdminPeersAddAddresses(typed(params)?),
+            Method::SessionLosses => none(params).map(|()| Self::SessionLosses)?,
         })
     }
 
@@ -441,7 +445,8 @@ impl Request {
             Self::AdminStatus
             | Self::AdminEndpointsList
             | Self::AdminPeersListAddresses
-            | Self::AdminPeersOwnAddresses => serde_json::value::to_raw_value(&EmptyParams {}),
+            | Self::AdminPeersOwnAddresses
+            | Self::SessionLosses => serde_json::value::to_raw_value(&EmptyParams {}),
             Self::AdminEndpointsRevoke(p) => serde_json::value::to_raw_value(p),
             Self::AdminEndpointsSetEnabled(p) => serde_json::value::to_raw_value(p),
             Self::AdminEndpointsSetDefault(p) => serde_json::value::to_raw_value(p),
@@ -690,7 +695,11 @@ mod tests {
             AdminCapability::Shutdown,
         ]
         .into();
-        let conn = admin(&caps);
+        // At the highest minor, so every method is a name the connection
+        // knows and the refusal is the domain's, not the version's: a
+        // data method introduced after 2.0 is one too (`session.losses`).
+        let mut conn = admin(&caps);
+        conn.version.minor = crate::IPC_MAX_MINOR;
         for method in Method::ALL {
             let admitted = frame(&json!({"type": "request", "id": "1", "method": method.as_str()}))
                 .admit(&conn);
@@ -895,6 +904,7 @@ mod tests {
             Request::AdminPeersAddAddresses(AddressesParams {
                 addresses: vec!["x".to_owned()],
             }),
+            Request::SessionLosses,
         ];
         assert_eq!(
             requests.iter().map(Request::method).collect::<Vec<_>>(),

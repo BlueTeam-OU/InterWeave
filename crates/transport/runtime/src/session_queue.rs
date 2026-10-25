@@ -19,7 +19,10 @@
 //! mesh or its peers (`LOCAL-IPC.md` §Push events).
 //!
 //! What must not happen is that the drop is silent, so [`SessionQueues::
-//! push`] answers when a bound dropped one.
+//! push`] answers when a bound dropped one, and counts it for the
+//! session in [`SessionQueues::losses`] (IPC 2.11 `session.losses`):
+//! the answer can be lost with the event that reports it, the count
+//! cannot.
 //!
 //! # Queues are opened by a join, never conjured
 //!
@@ -31,6 +34,8 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use interweave_transport_api::{ChannelId, MessageId, Payload, TransportIdentity};
+
+use crate::session_losses::LossLedger;
 
 /// One broadcast message, normalized for local delivery.
 ///
@@ -119,10 +124,16 @@ struct Queue {
     bound: usize,
 }
 
-/// Every open broadcast delivery queue on this profile.
+/// Every open broadcast delivery queue on this profile, and every live
+/// session's losses.
+///
+/// The ledger lives here, beside the queues, so the one function that
+/// queues a copy is the one that counts a lost one: no fan-out can drop
+/// a copy without the count moving.
 #[derive(Debug, Default)]
 pub struct SessionQueues {
     queues: BTreeMap<String, Queue>,
+    losses: LossLedger,
 }
 
 impl SessionQueues {
@@ -131,7 +142,20 @@ impl SessionQueues {
     pub fn new() -> Self {
         Self {
             queues: BTreeMap::new(),
+            losses: LossLedger::new(),
         }
+    }
+
+    /// Every live session's losses: what `session.losses` reads.
+    #[must_use]
+    pub fn losses(&self) -> &LossLedger {
+        &self.losses
+    }
+
+    /// The ledger, for the joins, leaves, session ends and ingress
+    /// refusals the queues do not see.
+    pub fn losses_mut(&mut self) -> &mut LossLedger {
+        &mut self.losses
     }
 
     /// Open a queue for `session`, bounded at `bound`.
@@ -213,10 +237,12 @@ impl SessionQueues {
         // queues give: a map that grew an entry per key asked for would
         // be unbounded by whatever arrives.
         let Some(queue) = self.queues.get_mut(session) else {
+            self.losses.overflowed(session);
             return Err(SessionDrop::NotOpen);
         };
         let pushed = if queue.events.len() >= queue.bound {
             queue.events.pop_front();
+            self.losses.overflowed(session);
             Pushed::DroppedOldest { bound: queue.bound }
         } else {
             Pushed::Queued

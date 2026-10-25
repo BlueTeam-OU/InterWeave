@@ -158,6 +158,21 @@ async fn broadcast_reaches_joined_sessions_only() {
 }
 
 #[tokio::test]
+async fn session_losses_rise_and_never_fall() {
+    let p = pair();
+    p.a.limit_ingress();
+    p.b.limit_ingress();
+    suite::session_losses_rise_and_never_fall(
+        &p.a,
+        &p.b,
+        &ChannelId::parse("general").expect("valid"),
+        QUEUE_BOUND,
+        suite::Overflow::Shown,
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn item_7_administration_is_a_separate_authority() {
     let p = pair();
     suite::administration_is_a_separate_authority(&p.a, &human(), &p.b_peer).await;

@@ -176,6 +176,30 @@ pub trait DataSessionBinding {
     ) -> impl Future<Output = Result<Self::Session, TransportError>> + Send;
 }
 
+/// The broadcasts one data session lost, since it opened
+/// (`session.losses`, IPC 2.11).
+///
+/// Both counts are monotonic for the session's life, and neither counts
+/// what the mesh dropped before admission (GossipSub validation, mesh,
+/// the backend's queue) or a conflicting body, so zero means none
+/// counted, never none lost. They promise different things: an
+/// overflowed broadcast was admitted and its dedup entry recorded, so
+/// within the dedup window a republish of the same id is a duplicate and
+/// `queue_overflow` is a lower bound on broadcasts lost; a refused
+/// broadcast has no dedup entry, so a republish may still arrive and
+/// each refused copy counts -- `ingress_refused` is a signal, not a
+/// count of distinct losses. No peer and no channel is named.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SessionLosses {
+    /// Copies this session's own queue dropped (its oldest, to take a
+    /// newer one) or could not queue.
+    pub queue_overflow: u64,
+    /// Copies the ingress gate refused -- over the publisher's rate, or
+    /// while draining -- on a channel this session held at the time; a
+    /// republish of a refused id may still be delivered.
+    pub ingress_refused: u64,
+}
+
 /// One open data-plane session.
 ///
 /// There is no method that yields administrative authority, and no
@@ -272,6 +296,23 @@ pub trait DataSessionPort {
         &self,
         peer: TransportIdentity,
     ) -> impl Future<Output = Result<EndpointDirectoryV1, TransportError>> + Send;
+
+    /// The broadcasts this session has lost since it opened: two
+    /// monotonic counts, never falling while the session lives, the
+    /// overflow a lower bound on losses and the refusals a signal
+    /// ([`SessionLosses`]; `session.losses`, IPC 2.11).
+    ///
+    /// The default answers `ProtocolUnsupported`, never zeros: a binding
+    /// that does not count must not report a count it did not make, and
+    /// it is what an IPC connection below 2.11 answers. Every platform
+    /// binding overrides it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `commands`, `ProtocolUnsupported` where
+    /// the binding does not count, or `BackendUnavailable`.
+    fn losses(&self) -> impl Future<Output = Result<SessionLosses, TransportError>> + Send {
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
 
     /// End the session: its lease is released at once and its joins
     /// dropped (§3: "session closure/revocation releases the lease

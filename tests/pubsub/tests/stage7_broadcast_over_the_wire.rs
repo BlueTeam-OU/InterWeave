@@ -603,10 +603,25 @@ async fn a_broadcast_flood_does_not_wedge_the_direct_path() {
     .await
     .expect("the exchange settled rather than hanging behind a broadcast flood")
     .expect("the command lands");
-    assert!(
-        answered.is_ok(),
-        "a broadcast flood must not stop the receiver answering direct: {answered:?}"
-    );
+    if answered.is_err() {
+        // WHAT EACH SIDE SAW, so a failure names its cause: this has
+        // failed about one run in three under a loaded full-workspace
+        // run (`PeerUnreachable`, the direct timeout or a lost
+        // connection) and never in 44 runs on a quiet host, so the next
+        // failure's events are the evidence (j123).
+        let mut seen = Vec::new();
+        for (side, runtime) in [("a", &mut a), ("b", &mut b)] {
+            while let Ok(Some(event)) =
+                tokio::time::timeout(Duration::from_millis(100), runtime.next_event()).await
+            {
+                seen.push(format!("{side}: {event:?}"));
+            }
+        }
+        panic!(
+            "a broadcast flood must not stop the receiver answering direct: {answered:?}\n{}",
+            seen.join("\n")
+        );
+    }
 
     // And the flood did arrive: a test where nothing was published would
     // pass this trivially.

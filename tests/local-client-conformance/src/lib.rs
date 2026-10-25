@@ -963,6 +963,197 @@ pub async fn broadcast_reaches_joined_sessions_only<B: DataSessionBinding>(
     bystander.close().await.expect("closes");
 }
 
+/// A broadcast whose id is `n`, distinct for every `n`: dedup must not
+/// swallow a publish the check counts on.
+fn numbered(n: u32) -> BroadcastMessageV1 {
+    let mut id = [0_u8; 16];
+    id[12..].copy_from_slice(&n.to_be_bytes());
+    BroadcastMessageV1 {
+        message_id: MessageId::from_bytes(id),
+        sent_at_ms: 1_786_600_000_000,
+        payload: text("counted"),
+    }
+}
+
+/// Whether a binding can show [`session_losses_rise_and_never_fall`]'s
+/// overflow phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overflow {
+    /// The session queue fills when its session does not drain.
+    Shown,
+    /// Whether the session queue fills is timing the case cannot hold, so
+    /// the phase is asserted neither way: over IPC.
+    NotAsserted,
+}
+
+/// Read `session`'s losses until `reached` holds or the patience runs
+/// out, each read no lower than the one before: a count never falls.
+/// Each read drains the session first: over IPC a response queued
+/// behind undrained events waits for them (`interweave-ipc-client`), and
+/// a drain lowers no count.
+async fn losses_until<S: DataSessionPort>(
+    session: &S,
+    floor: interweave_local_client_api::SessionLosses,
+    reached: impl Fn(&interweave_local_client_api::SessionLosses) -> bool,
+    what: &str,
+) -> interweave_local_client_api::SessionLosses {
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let mut last = floor;
+    loop {
+        take_all(session).await;
+        let now = session.losses().await.expect("losses are read");
+        assert!(
+            now.queue_overflow >= last.queue_overflow
+                && now.ingress_refused >= last.ingress_refused,
+            "a count fell: {last:?} then {now:?}"
+        );
+        last = now;
+        if reached(&now) {
+            return now;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "{what}: {now:?}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// `session.losses` (IPC 2.11) answers alike at every binding: a session
+/// that does not drain counts the copies its queue dropped, a flood past
+/// the publisher's ingress rate counts as refused for the session that
+/// held the channel, neither count ever falls -- a leave and a rejoin
+/// included -- and a session that joined nothing counts nothing (the
+/// control). Without `commands` the read is refused.
+///
+/// `queue_bound` is the receiver's broadcast queue bound. The overflow
+/// phase publishes `queue_bound + 3` within the ingress burst (32 at the
+/// runtime's per-peer default), so it overflows without being refused,
+/// and reads only once they have had time to arrive, since a read
+/// drains; the flood then publishes 64 at once, past what the bucket
+/// holds.
+///
+/// `overflow` says whether the binding can show the overflow phase at
+/// all. Over IPC it cannot -- whether the session queue fills there is
+/// timing the case cannot hold, for the reason `LOCAL-CLIENT.md` section
+/// 7 item 15 gives -- so the phase is asserted neither way there. That
+/// binding forwards the runtime's count (`tests/ipc-v2`'s wire test holds
+/// it to its schema), and the overflow itself is shown by the other three.
+/// Each phase asserts a rise, never an exact number: the mesh may lose a
+/// copy before admission, uncounted. What a republish does to each count
+/// is the runtime's `a_republished_*` tests in `broadcast_inbound`.
+pub async fn session_losses_rise_and_never_fall<B: DataSessionBinding>(
+    publisher: &B,
+    receiver: &B,
+    channel: &ChannelId,
+    queue_bound: usize,
+    overflow: Overflow,
+) {
+    let from = publisher.open(full(None)).await.expect("opens");
+    from.join(channel.clone()).await.expect("joins");
+    let joined = receiver.open(full(None)).await.expect("opens");
+    joined.join(channel.clone()).await.expect("joins");
+    let bystander = receiver.open(full(None)).await.expect("opens");
+    let events_only = receiver
+        .open(
+            SessionRequest::new("conformance", None, [DataCapability::Events]).expect("in bounds"),
+        )
+        .await
+        .expect("opens");
+    assert_eq!(
+        events_only.losses().await,
+        Err(TransportError::CapabilityDenied),
+        "the read is a command"
+    );
+
+    // The mesh forms on its own schedule: publish until one arrives,
+    // then take everything so the queue starts empty.
+    let mut n = 0_u32;
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no broadcast arrived"
+        );
+        n += 1;
+        from.broadcast(channel.clone(), numbered(n))
+            .await
+            .expect("accepted locally");
+        if !receive(&joined, Duration::from_millis(500))
+            .await
+            .is_empty()
+        {
+            break;
+        }
+    }
+    while !receive(&joined, SETTLE).await.is_empty() {}
+    let start = joined.losses().await.expect("losses are read");
+
+    // Undrained past the bound: the oldest go, and are counted. No read
+    // until they have had time to arrive, since a read drains.
+    let past_the_bound = u32::try_from(queue_bound + 3).expect("a small bound");
+    for _ in 0..past_the_bound {
+        n += 1;
+        from.broadcast(channel.clone(), numbered(n))
+            .await
+            .expect("accepted locally");
+    }
+    tokio::time::sleep(4 * SETTLE).await;
+    let overflowed = match overflow {
+        Overflow::Shown => {
+            losses_until(
+                &joined,
+                start,
+                |now| now.queue_overflow > start.queue_overflow,
+                "an undrained queue past its bound counts no overflow",
+            )
+            .await
+        }
+        Overflow::NotAsserted => {
+            losses_until(&joined, start, |_| true, "the losses are read").await
+        }
+    };
+
+    // A flood past the ingress burst: refused at the gate, counted for
+    // the session that holds the channel.
+    for _ in 0..64 {
+        n += 1;
+        from.broadcast(channel.clone(), numbered(n))
+            .await
+            .expect("accepted locally");
+    }
+    let refused = losses_until(
+        &joined,
+        overflowed,
+        |now| now.ingress_refused > overflowed.ingress_refused,
+        "a flood past the ingress rate counts no refusal",
+    )
+    .await;
+
+    // Leaving and joining again keeps the counts: they are the session's.
+    joined.leave(channel.clone()).await.expect("leaves");
+    let left = joined.losses().await.expect("losses are read");
+    assert!(
+        left.queue_overflow >= refused.queue_overflow
+            && left.ingress_refused >= refused.ingress_refused,
+        "a leave lowered a count: {refused:?} then {left:?}"
+    );
+    joined.join(channel.clone()).await.expect("joins again");
+    let rejoined = joined.losses().await.expect("losses are read");
+    assert!(
+        rejoined.queue_overflow >= left.queue_overflow
+            && rejoined.ingress_refused >= left.ingress_refused,
+        "a rejoin lowered a count: {left:?} then {rejoined:?}"
+    );
+
+    assert_eq!(
+        bystander.losses().await.expect("losses are read"),
+        interweave_local_client_api::SessionLosses::default(),
+        "a session that joined nothing lost nothing"
+    );
+    from.close().await.expect("closes");
+    joined.close().await.expect("closes");
+    bystander.close().await.expect("closes");
+    events_only.close().await.expect("closes");
+}
+
 /// An admin port opened with exactly `capabilities`.
 async fn port<B: AdminBinding>(binding: &B, capabilities: &[AdminCapability]) -> B::Admin {
     binding
