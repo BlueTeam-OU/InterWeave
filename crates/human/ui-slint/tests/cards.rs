@@ -2122,6 +2122,22 @@ fn while_a_photo_is_prepared_the_editor_stays_as_it_was_before() {
     assert!(!view.window().get_own_edit_has_photo());
 }
 
+/// A tap at `at`, in the window's logical pixels.
+fn tap_at(view: &View, at: (f32, f32)) {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let position = slint::LogicalPosition::new(at.0, at.1);
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    });
+    settle();
+}
+
 /// The own card editor open for `identity`, ready to be changed.
 fn own_editor(identity: IdentityView) -> (View, UiModel) {
     let mut view = view();
@@ -2262,6 +2278,76 @@ fn continue_editing_gives_focus_back_to_the_key_folder() {
             },
         ),
         &["own-key-path"],
+    );
+}
+
+/// The unsaved-changes dialog's other answers, beside Back: Escape and
+/// the scrim are Continue editing, and Tab stays on its two buttons.
+/// Mutations: Escape, the scrim or Continue editing's press not keeping
+/// the editor; Tab leaving the dialog.
+#[test]
+fn the_unsaved_changes_dialog_answers_escape_the_scrim_and_tab() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    let ask = |view: &mut View, model: &mut UiModel| {
+        let window = view.window();
+        window.set_focus_target("own-given".into());
+        window.set_focus_seq(window.get_focus_seq() + 1);
+        settle();
+        assert!(view.window().invoke_handle_back());
+        let _ = intents(view, model);
+        settle();
+        assert!(view.window().get_own_discard_open());
+        assert_eq!(view.window().get_focus_id(), "discard-keep");
+    };
+    let kept = |view: &View, how: &str| {
+        assert!(!view.window().get_own_discard_open(), "{how}: closed");
+        assert_eq!(
+            view.window().get_cards_page(),
+            interweave_human_ui_slint::CardsPage::OwnCard,
+            "{how}: the editor stays"
+        );
+        assert_eq!(
+            view.window().get_own_given(),
+            "Grace",
+            "{how}: nothing lost"
+        );
+        assert_eq!(
+            view.window().get_focus_id(),
+            "own-given",
+            "{how}: focus back"
+        );
+    };
+    view.window().set_own_given("Grace".into());
+
+    ask(&mut view, &mut model);
+    key(&view, slint::platform::Key::Tab);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "discard-confirm", "Tab");
+    key(&view, slint::platform::Key::Tab);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "discard-keep", "Tab again");
+    key(&view, slint::platform::Key::Backtab);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "discard-confirm", "Shift+Tab");
+    key(&view, slint::platform::Key::Escape);
+    settle();
+    kept(&view, "Escape");
+
+    ask(&mut view, &mut model);
+    tap_at(&view, (4.0, 4.0));
+    kept(&view, "the scrim");
+
+    ask(&mut view, &mut model);
+    press(&view, text(UiText::KeepEditing));
+    kept(&view, "Continue editing");
+    assert!(
+        intents(&mut view, &mut model).is_empty(),
+        "keeping raises nothing"
     );
 }
 
