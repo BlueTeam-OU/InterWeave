@@ -697,6 +697,10 @@ is shown as such before acceptance). The Accept label stays the case's.
 A contact on the same PeerId with the same name is not a lookalike
 warning: it is the same device, which case P's line already says, and
 their titles are told apart by the route label (§6.1). A photo is a
+local choice when the store records that the person, not a card,
+decided it on this device (Remove photo, §6.3, records one); every
+other photo is not, one whose source the store did not record
+included. A photo is a
 "value that changes" whenever the card carries one and X's photo is not
 a local choice, since the client cannot compare a photo it has not
 decoded (`CardUpdatesPhoto`). It is one too when the card carries no
@@ -1857,8 +1861,8 @@ and are for them to write.
 | `CardSame` | This card matches your contact {name}. | case S |
 | `CardAccepted` | You saved {name} as a contact. | confirmation row, cases N, D and P |
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
-| `CardUpdatesPhotoRemoved` | Current photo removed | cases U and E, the change when the card carries no photo and the contact's photo came from a card (§5.4.1); must say that the contact's current photo goes, not that the card's is missing |
-| `CardPhotoNotUsedRemoved` | The card's photo could not be used, so the contact no longer has a photo. | confirmation row addition in place of `CardPhotoNotUsed`, cases U and E, when the contact's previous photo came from a card (§5.4.2); must say the previous photo is gone too |
+| `CardUpdatesPhotoRemoved` | Current photo removed | cases U and E, the change when the card carries no photo and the contact's photo is not a local choice (§5.4.1); must say that the contact's current photo goes, not that the card's is missing |
+| `CardPhotoNotUsedRemoved` | The card's photo could not be used, so the contact no longer has a photo. | confirmation row addition in place of `CardPhotoNotUsed`, cases U and E, when the contact's previous photo was not a local choice (§5.4.2); must say the previous photo is gone too |
 | `CardPhotoNotUsed` | The card's photo could not be used, so the contact was saved without it. | confirmation row addition, in both cases of §5.4.2 (the photo fails to decode, or decodes larger than 256 × 256); must not say the photo was shown, since it is decoded only at Accept (language-culture-en's final English, 2026-10-24) |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo; not announced (§8 Announcements) |
 | `CardUndoHint` | You can undo this change. Undo comes after all the messages in this conversation. | accessible description of the confirmation row while the Accept's snackbar is open (§5.4.2), never shown as text; must say that the save can be undone and where the Undo is, in a phrase read after `CardAccepted` or `CardUpdated` |
