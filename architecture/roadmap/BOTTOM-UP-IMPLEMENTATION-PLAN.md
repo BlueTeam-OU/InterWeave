@@ -5745,10 +5745,17 @@ none is the status value's, which stays on this stage.
   p2p-network-dev-02's cases; the owner gives the phone. A row the phone
   does not reach by the close is a `limit` cell, re-carried in the
   closing record, as decided (0) said.
-- **S21-06's step cell** still names S6 (01) while its limit cell holds
-  decided (2)'s figures and clause (c) is met by them; whether the cell
-  names open work or should read `—` is p2p-network-dev-01's to say
-  (asked 2026-10-25).
+- **S21-06's and TM-04's step cells** still name S6 (01) while
+  S21-06's limit cell holds decided (2)'s figures and clause (c) is met
+  by them. Nothing is owed on either (p2p-network-dev-01, 2026-10-25,
+  REPLY 01a17547-1407 to QUESTION 01a17545-9d3b, read at e31760d0: the
+  limit cell's open points are stated limits, not owed work); both
+  cells move to `—` on that lane's next pull request. One item touches
+  the row's tests without being owed work: a one-off failure of
+  `hostile_routers_seat_no_stranger_and_their_poison_costs_its_address`
+  under a full workspace run, held by p2p-network-dev-01 as test
+  reliability (their j130), carried here as that and not as the row's
+  step.
 - **C-04, the Windows carry.** The row's tests cell holds only an owed
   marker, so it is empty, and `check_security_matrix.py --strict` fails
   the close on it after S12's rows are filled. Its work is not this stage's:
@@ -5756,15 +5763,20 @@ none is the status value's, which stays on this stage.
   the owner's word of 2026-10-11, and P4 records that word as given, so
   the row's "owed: the owner's word" was stale and now records the carry
   as clause (d) asks. What the close still needs is a guard that reads a
-  carried row as not empty — an `owed` item that names the section
-  carrying it — which is devex-tooling's (asked 2026-10-25); until it
-  lands, the close runs the guard without `--strict` and this record
-  names C-04 as the one row carried whole.
+  carried row as not empty — an `owed` item in the shape `owed: … in
+  Stage NN (plan section MM)`, counted carried under `--strict` and
+  labelled so in the plain report, with the grammar sentence and the
+  self-test's two cases in the same change — which devex-tooling took
+  on 2026-10-25 (REQUEST 01a17546-8198, REPLY 01a17547-31f8, their
+  j239, its own pull request under the minimum, armed on
+  architect-cto's word); until it lands, the close runs the guard
+  without `--strict` and this record names C-04 as the one row carried
+  whole.
 - **TM-52 to TM-56's step cells** name §29 step 2 (rust-ui-dev) after
   Stage 21 closed on 2026-10-25; the rendered halves landed (#407), and
   TM-54's Keystore cipher, alias retirement and invalidation are device
   rows. rust-ui-dev moves each cell to `—` or to the device row it waits
-  on (asked 2026-10-25).
+  on (asked 2026-10-25, QUESTION 01a17545-a033 to the role).
 - **Clause (f)**: `error_contract_matrix.rs` holds no `Proof::Stage(18)`
   deferral (read 2026-10-25), as decided (0) required while the stage
   ran beside Stage 17; the close re-reads it.
