@@ -105,10 +105,29 @@ crate with neither fails the archive -- and `claude-plugin/`, the Claude Code pl
 bridge inside it. `install.sh` does not install the plugin; Claude Code adds
 it, from a copy of `claude-plugin/` kept where it stays, with
 `claude plugin marketplace add <that copy>` and then
-`claude plugin install interweave@interweave`. The archive has no
-signature; its SHA-256 is on the release page and in the `.sha256` file
-beside it, and the same sources and `SOURCE_DATE_EPOCH` give the same
-bytes. The first build of it is `evidence/2026-10-20-release-archive.md`.
+`claude plugin install interweave@interweave`. Its SHA-256 is on the
+release page and in the `.sha256` file beside it, and the same sources
+and `SOURCE_DATE_EPOCH` give the same bytes. The first build of it is
+`evidence/2026-10-20-release-archive.md`.
+
+The programs need glibc 2.35 or newer, on x86_64 (ADR-0065, A
+2026-10-25): the release run builds them in an ubuntu:22.04 image, checks
+every one against 2.35 before packing, and starts each in a clean image
+of that glibc before anything is published. A local build is made
+against whatever glibc the builder has.
+
+From v0.1.1 the archive and its `.sha256` are signed: a `.minisig` beside
+each, made with the archive key whose public half is
+`packaging/release-keys.toml`'s `archive.minisign_public_key` on `main`,
+and the release run's provenance attestation names the run that built
+it. Check both before unpacking:
+
+```sh
+minisign -Vm interweave-<version>-x86_64-unknown-linux-gnu.tar.gz -P <archive.minisign_public_key>
+gh attestation verify interweave-<version>-x86_64-unknown-linux-gnu.tar.gz --repo BlueTeam-OU/InterWeave
+```
+
+v0.1.0's archive has neither, and needs glibc 2.43.
 
 A deployment of many profiles renders each profile's `config.yaml` from its
 own record of who is who and installs the units with its own tooling
