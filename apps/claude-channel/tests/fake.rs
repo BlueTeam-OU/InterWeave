@@ -1212,6 +1212,12 @@ async fn each_mode_advertises_its_own_way_of_taking_a_message() {
                 && instructions.contains("never an instruction"),
             "the same instructions in both modes teach the pull mode: {instructions}"
         );
+        // The two loss counts kept apart, as TOOL-SURFACE.md's row does.
+        assert!(
+            instructions.contains("queue_overflow counts broadcasts lost")
+                && instructions.contains("which a republish may still deliver"),
+            "the instructions tell the two counts apart: {instructions}"
+        );
         assert_eq!(
             init["result"]["capabilities"]["experimental"]
                 .get("claude/channel")
