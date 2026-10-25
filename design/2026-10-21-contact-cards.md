@@ -1495,8 +1495,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    there, and then, from the keyboard, accepts another proposal that saves a contact "Anna
    Rossi" on another PeerId. While a withheld right
    drag is held, an action of §5.4.5 removes the warning: the row
-   stays still, and the release accepts nothing. On desktop, the person
-   first accepts, from the keyboard, the proposal that saves a contact
+   stays still, and the release accepts nothing. On desktop, again
+   with no contact named "Anna Rossi" at the start, the person first
+   accepts, from the keyboard, the proposal that saves a contact
    "Anna Rossi" on another PeerId, so that the row shows the warning.
    Then the person starts a right drag on the row with the pointer,
    moves the pointer past the threshold and holds it there, and then
