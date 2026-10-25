@@ -1411,3 +1411,74 @@ fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
         "contact-remove-photo"
     );
 }
+
+/// #433 F6, contact-cards design 5.4.1 cases U and E as the row draws
+/// them: the values Accept changes and the person's edits it keeps, each
+/// a line read right after the context line. Mutation: the value lines
+/// not drawn.
+#[test]
+fn a_proposal_reads_the_values_accept_changes_after_its_context_line() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let countess = ContactRef {
+        contact_id: "c1".to_owned(),
+        name: "Countess".to_owned(),
+    };
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", true),
+        ProposalContext {
+            updates: Some(countess.clone()),
+            values: interweave_human_ui_model::ValueChanges {
+                new_name: Some("Ada King".to_owned()),
+                new_photo: true,
+                ..interweave_human_ui_model::ValueChanges::default()
+            },
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, P);
+    let context_line = fill(
+        text(UiText::CardUpdates),
+        &[("name", &isolated("Countess"))],
+    );
+    let new_name = fill(
+        text(UiText::CardUpdatesName),
+        &[("name", &isolated("Ada King"))],
+    );
+    let at = reading_index(&view, &context_line);
+    assert_eq!(reading_index(&view, &new_name), at + 1, "case U, the name");
+    assert_eq!(
+        reading_index(&view, text(UiText::CardUpdatesPhoto)),
+        at + 2,
+        "and the photo"
+    );
+
+    model.card_received(proposal(
+        2,
+        Q,
+        card("Ada", true),
+        ProposalContext {
+            updates: Some(countess),
+            values: interweave_human_ui_model::ValueChanges {
+                kept_name: true,
+                kept_photo: true,
+                ..interweave_human_ui_model::ValueChanges::default()
+            },
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, Q);
+    let kept = fill(
+        text(UiText::CardKeepsEdit),
+        &[("name", &isolated("Countess"))],
+    );
+    let at = reading_index(&view, &context_line);
+    assert_eq!(reading_index(&view, &kept), at + 1, "case E, the name");
+    assert_eq!(
+        reading_index(&view, text(UiText::CardKeepsPhoto)),
+        at + 2,
+        "and the photo"
+    );
+}
