@@ -115,6 +115,27 @@ pub(crate) struct Drawn {
     /// The saved own card as the editor's Back judges it: its name and
     /// surname, and whether the editor's photo differs from it.
     own_saved: Option<(String, Option<String>, bool)>,
+    /// A photo removed or picked in the editor that `own_saved` does not
+    /// yet show: set when it is queued, and cleared only by a render whose
+    /// model holds a photo step other than the one drawn before, with no
+    /// such input left queued. Neither the take nor the queue draining is
+    /// enough: a take can render before the model applies what it took,
+    /// and after it nothing renders until the facade answers
+    /// (`back_after_a_queued_photo_change_asks`,
+    /// `back_after_a_photo_change_taken_and_not_yet_drawn_asks`). A change
+    /// the model refuses leaves it set, so Back asks: the safe side.
+    pub(crate) own_photo_queued: bool,
+    /// The model's photo step as the last render drew it.
+    own_photo_shown: Option<OwnPhotoStep>,
+}
+
+/// Whether `input` removes or picks the editor's photo: a change Back
+/// asks about before the model has it.
+pub(crate) fn changes_own_photo(input: &Input) -> bool {
+    matches!(
+        input,
+        Input::Cards(CardsInput::RemoveOwnPhoto | CardsInput::PhotoPicked(Some(_)))
+    )
 }
 
 /// The card screens' callbacks: each becomes an input, taken as the others
@@ -139,7 +160,8 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
             return false;
         };
         let surname = surname.trim();
-        *photo_unsaved
+        shared.cards.own_photo_queued
+            || *photo_unsaved
             || given.trim() != saved_given
             || saved_surname.as_deref().unwrap_or("") != surname
     });
@@ -525,7 +547,7 @@ pub(crate) struct CardScreens {
     /// The photo the editor's circle was last given, once it was given
     /// one: redrawn whenever what it should show changes, a saved card's
     /// photo included, not only when the step does (#449 F1).
-    own_photo_drawn: Option<DrawnPhoto>,
+    own_photo_shown: Option<DrawnPhoto>,
     /// A contact deleted from its page: the list's first row takes focus
     /// once the list is drawn without it (design section 9's focus table).
     deleted: Option<String>,
@@ -614,6 +636,10 @@ impl View {
             }
             CardsInput::Open(opened) => {
                 self.cards.forget_returns();
+                // A fresh editor holds no change of its own.
+                let mut shared = self.shared.borrow_mut();
+                shared.cards.own_photo_queued = shared.inputs.iter().any(changes_own_photo);
+                drop(shared);
                 let page = match opened {
                     Opened::Contacts => CardsPage::Contacts,
                     Opened::OwnCard => CardsPage::OwnCard,
@@ -1384,13 +1410,20 @@ impl View {
         window.set_discard_title(text(UiText::CardDiscardChanges).into());
         window.set_keep_editing_label(text(UiText::KeepEditing).into());
         window.set_discard_label(text(UiText::DiscardChanges).into());
-        self.shared.borrow_mut().cards.own_saved = model.identity().map(|i| {
+        let mut shared = self.shared.borrow_mut();
+        shared.cards.own_saved = model.identity().map(|i| {
             (
                 i.given.clone(),
                 i.surname.clone(),
                 model.own_photo_unsaved(),
             )
         });
+        let step = model.own_photo().cloned();
+        if shared.cards.own_photo_shown != step {
+            shared.cards.own_photo_shown = step;
+            shared.cards.own_photo_queued = shared.inputs.iter().any(changes_own_photo);
+        }
+        drop(shared);
         window.set_add_photo_label(text(UiText::AddPhoto).into());
         window.set_change_photo_label(text(UiText::ChangePhoto).into());
         window.set_own_photo_choosable(self.photo_choosable());
@@ -1414,9 +1447,9 @@ impl View {
             }
             .into(),
         );
-        if self.cards.own_photo_drawn.as_ref().map(|d| d.0.as_ref()) != Some(shown) {
+        if self.cards.own_photo_shown.as_ref().map(|d| d.0.as_ref()) != Some(shown) {
             window.set_own_edit_photo(shown.map(image).unwrap_or_default());
-            self.cards.own_photo_drawn = Some(DrawnPhoto(shown.cloned()));
+            self.cards.own_photo_shown = Some(DrawnPhoto(shown.cloned()));
         }
         if self.cards.own_step_drawn == step {
             return None;

@@ -2122,6 +2122,125 @@ fn while_a_photo_is_prepared_the_editor_stays_as_it_was_before() {
     assert!(!view.window().get_own_edit_has_photo());
 }
 
+/// The own card editor open for `identity`, ready to be changed.
+fn own_editor(identity: IdentityView) -> (View, UiModel) {
+    let mut view = view();
+    // Phone-wide: the editor covers the list, as on the phone.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 1600.0));
+    view.photo_picker_hook(|| {});
+    let mut model = UiModel::new();
+    model.identity_shown(identity);
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard
+    );
+    (view, model)
+}
+
+fn ada(has_photo: bool, key: interweave_human_ui_model::OwnKey) -> IdentityView {
+    IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo,
+        photo: has_photo.then(photo),
+        key,
+        peer: Some(peer(Q)),
+    }
+}
+
+/// A photo removed or picked is a change from the moment it is queued,
+/// before the model takes it: Back in between asks rather than closing
+/// and dropping it. A picker cancelled is no change. Mutation: the
+/// queued mark never set.
+#[test]
+fn back_after_a_queued_photo_change_asks() {
+    let ready = || interweave_human_ui_model::OwnKey::Ready {
+        fingerprint: "0123456789abcdef".to_owned(),
+    };
+    let (view, _model) = own_editor(ada(true, ready()));
+    press(&view, text(UiText::RemovePhoto));
+    // Not taken: no turn has run since the press.
+    assert!(view.window().invoke_handle_back());
+    assert!(view.window().get_own_discard_open(), "a queued removal");
+}
+
+/// The mark outlives the take: a turn renders FIRST and takes after, and
+/// nothing renders again until the facade answers, so a Back after the
+/// take is judged against a drawing that predates the change. Only a
+/// render with the change gone from the queue -- the model holding it --
+/// clears it. Mutations: the mark cleared at the take; cleared at any
+/// render.
+#[test]
+fn back_after_a_photo_change_taken_and_not_yet_drawn_asks() {
+    let (mut view, mut model) = own_editor(ada(
+        true,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    let asks = |view: &View, when: &str| {
+        assert!(view.window().invoke_handle_back(), "{when}");
+        assert!(view.window().get_own_discard_open(), "asks {when}");
+        // Back on the dialog is Continue editing.
+        assert!(view.window().invoke_handle_back());
+        assert!(!view.window().get_own_discard_open());
+    };
+    press(&view, text(UiText::RemovePhoto));
+    // A turn's opening render, the removal still queued.
+    view.render(&model);
+    asks(&view, "after a render with the removal queued");
+    // Taken, and not drawn: as a turn leaves it until the facade answers.
+    let taken = view.take_events(&model);
+    assert!(!taken.is_empty(), "the removal was taken");
+    asks(&view, "after the take, before a render");
+    // The model holds it and a render shows it: asked for by the model.
+    for event in taken {
+        if let interweave_human_ui_slint::ViewEvent::Intent(Intent::RemoveOwnPhoto) = event {
+            model.own_photo_removed();
+        }
+    }
+    view.render(&model);
+    asks(&view, "once drawn");
+    let _ = intents(&mut view, &mut model);
+}
+
+/// The same for a photo picked and not yet taken; a picker cancelled is
+/// no change.
+#[test]
+fn back_after_a_queued_pick_asks_and_after_a_cancel_does_not() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    view.photo_picked(None);
+    assert!(view.window().invoke_handle_back());
+    assert!(
+        !view.window().get_own_discard_open(),
+        "a cancel is no change"
+    );
+    let _ = intents(&mut view, &mut model);
+    settle();
+
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    view.photo_picked(Some(vec![1, 2, 3]));
+    assert!(view.window().invoke_handle_back());
+    assert!(view.window().get_own_discard_open(), "a queued photo");
+}
+
 /// Contact-cards design 5.2 and item 11: Back on the own card's editor
 /// with unsaved changes opens `CardDiscardChanges`, focus on Continue
 /// editing; Back or Continue editing returns to the field that had focus;

@@ -501,6 +501,7 @@ impl Shared {
     fn push(&mut self, input: Input) -> Option<Rc<dyn Fn()>> {
         let closes = self.snack.as_ref().is_some_and(|s| s.closed_by(&input));
         let refused = self.refused;
+        self.cards.own_photo_queued |= cards::changes_own_photo(&input);
         let wake = self.queue(input);
         if closes
             && self.refused == refused
