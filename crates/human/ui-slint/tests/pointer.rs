@@ -638,6 +638,7 @@ fn an_accept_by_swipe_leaves_focus_where_it_was() {
             contact_id: "c1".to_owned(),
             created: true,
             photo_dropped: false,
+            photo_removed: false,
         },
     );
     model.contacts_listed(vec![ContactView {
@@ -927,5 +928,271 @@ fn a_swiped_accept_is_refused_once_the_row_is_warned() {
     assert_eq!(
         answers(turn(&mut view, &mut model)),
         vec![Intent::AcceptCard(RowId::from_stored(1))]
+    );
+}
+
+/// A finger down on `from`, held past the list's forwarding delay; each
+/// later [`Finger::to`] moves it in 10 dp steps 16 ms apart.
+struct Finger {
+    from: (f32, f32),
+    was: f32,
+}
+
+impl Finger {
+    fn down(view: &View, from: (f32, f32)) -> Self {
+        event(
+            view,
+            WindowEvent::PointerPressed {
+                position: LogicalPosition::new(from.0, from.1),
+                button: PointerEventButton::Left,
+            },
+        );
+        tick(120);
+        Self { from, was: 0.0 }
+    }
+
+    fn to(&mut self, view: &View, dx: f32) {
+        let steps = ((dx - self.was).abs() / 10.0).ceil();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        for i in 1..=steps as u32 {
+            tick(16);
+            #[allow(clippy::cast_precision_loss)]
+            let at = self.was + (dx - self.was) * (i as f32 / steps);
+            event(
+                view,
+                WindowEvent::PointerMoved {
+                    position: LogicalPosition::new(self.from.0 + at, self.from.1),
+                },
+            );
+        }
+        self.was = dx;
+    }
+
+    fn up(self, view: &View) {
+        tick(16);
+        event(
+            view,
+            WindowEvent::PointerReleased {
+                position: LogicalPosition::new(self.from.0 + self.was, self.from.1),
+                button: PointerEventButton::Left,
+            },
+        );
+        tick(16);
+    }
+}
+
+/// Contact-cards design section 5.4.4: when the same-name warning appears
+/// during a right drag on a proposal, the drag is cancelled -- the row back
+/// at rest at once, as after a release short of the threshold -- and the
+/// rest of the touch accepts nothing; a left drag goes on and declines.
+/// Mutations: `swipe::reoffered` not called by the render; the proposal
+/// rows replaced whole rather than updated in place.
+#[test]
+fn a_warning_appearing_under_a_right_drag_cancels_it() {
+    let mut view = phone();
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let judge = |model: &mut UiModel, view: &mut View, warned: bool| {
+        model.card_judged(Proposal {
+            row: RowId::from_stored(1),
+            peer: alice.clone(),
+            endpoint: human(),
+            card: Card {
+                app_message_id: format!("{:032x}", 2_001),
+                name: "Ada 1".to_owned(),
+                surname: None,
+                photo: None,
+                identity_key: [1; 32],
+                sent_at_ms: None,
+                from_endpoint: None,
+            },
+            received_at: 1,
+            context: judged(None, warned, false),
+        });
+        view.render(model);
+        tick(16);
+    };
+
+    let mut finger = Finger::down(&view, proposal_heading_at(&view, 0));
+    finger.to(&view, 60.0);
+    assert!(
+        view.window().get_swipe_offset() > 50.0,
+        "control: the row follows the finger"
+    );
+    judge(&mut model, &mut view, true);
+    assert_eq!(
+        view.window().get_swipe_offset(),
+        0.0,
+        "back at rest at once"
+    );
+    assert!(!view.window().get_swipe_tracking());
+    finger.to(&view, 220.0);
+    assert_eq!(
+        view.window().get_swipe_offset(),
+        0.0,
+        "the rest of the touch does not move it"
+    );
+    finger.up(&view);
+    assert!(
+        answers(turn(&mut view, &mut model)).is_empty(),
+        "nothing accepted"
+    );
+
+    // A left drag, the warning appearing under it: Decline is the same
+    // either way.
+    judge(&mut model, &mut view, false);
+    let mut finger = Finger::down(&view, proposal_heading_at(&view, 0));
+    finger.to(&view, -60.0);
+    judge(&mut model, &mut view, true);
+    assert!(view.window().get_swipe_offset() < -50.0, "still dragging");
+    finger.to(&view, -220.0);
+    finger.up(&view);
+    assert_eq!(
+        answers(turn(&mut view, &mut model)),
+        vec![Intent::DeclineCard(RowId::from_stored(1))]
+    );
+}
+
+/// Contact-cards design section 5.4.4 and section 9's focus table: a
+/// proposal's menu closed with nothing chosen, or by Copy `PeerId`, puts
+/// focus back on the control the key was pressed on; after a long press
+/// or a secondary click, on Copy `PeerId`. Mutation: the close always
+/// focusing Copy `PeerId`.
+#[test]
+fn a_proposals_menu_gives_focus_back_where_it_came_from() {
+    use slint::platform::Key;
+    let mut view = phone();
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let focus = |view: &View, key: &str| {
+        let window = view.window();
+        window.set_focus_target(key.into());
+        window.set_focus_seq(window.get_focus_seq() + 1);
+        tick(2);
+        assert_eq!(window.get_focus_id().as_str(), key);
+    };
+
+    focus(&view, "proposal-accept:0");
+    chord(&view, &[Key::Menu]);
+    assert_eq!(view.window().get_card_menu(), 0);
+    chord(&view, &[Key::Escape]);
+    tick(2);
+    assert_eq!(view.window().get_card_menu(), -1, "closed");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "proposal-accept:0",
+        "back on the control the key was pressed on"
+    );
+
+    chord(&view, &[Key::Backtab]);
+    assert_eq!(view.window().get_focus_id().as_str(), "proposal-decline:0");
+    chord(&view, &[Key::Shift, Key::F10]);
+    let copy = ElementHandle::find_by_element_type_name(view.window(), "MenuItem")
+        .find(|e| e.accessible_label().as_deref() == Some(placeholder_en::text(UiText::CopyPeerId)))
+        .expect("Copy PeerId's entry");
+    copy.invoke_accessible_default_action();
+    tick(2);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "proposal-decline:0",
+        "Copy leaves the row: the same place"
+    );
+
+    focus(&view, "proposal-accept:0");
+    assert_eq!(
+        hold(
+            &view,
+            proposal_heading_at(&view, 0),
+            0.0,
+            16,
+            PointerEventButton::Right
+        ),
+        0,
+        "a secondary click"
+    );
+    view.window().invoke_close_card_menu();
+    tick(2);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "proposal-copy:0",
+        "no key: the row's first control"
+    );
+}
+
+/// Contact-cards design section 5.4.4, a warned row: a long press that
+/// slides onto the menu's Accept and is released there chooses nothing,
+/// and the menu stays open; Accept is chosen by a press that starts and
+/// ends on it. What holds it is the toolkit's grab -- the press stays
+/// the card's touch area, so no menu item sees its release -- and this
+/// test is what fails if a change hands that press to the menu.
+#[test]
+fn a_warned_rows_menu_accepts_by_a_tap_never_by_the_long_press_release() {
+    let mut view = phone();
+    view.set_touch_settings(TouchSettings {
+        long_press_ms: 400,
+        ..TouchSettings::default()
+    });
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, true, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let at = proposal_heading_at(&view, 0);
+    let accept_item = |view: &View| {
+        let item = ElementHandle::find_by_element_type_name(view.window(), "MenuItem")
+            .find(|e| {
+                e.accessible_label().as_deref() == Some(placeholder_en::text(UiText::AcceptAsNew))
+            })
+            .expect("the menu's Accept, under the case's label");
+        let (p, size) = (item.absolute_position(), item.size());
+        (p.x + size.width / 2.0, p.y + size.height / 2.0)
+    };
+
+    event(
+        &view,
+        WindowEvent::PointerPressed {
+            position: LogicalPosition::new(at.0, at.1),
+            button: PointerEventButton::Left,
+        },
+    );
+    tick(120);
+    tick(400);
+    assert_eq!(view.window().get_card_menu(), 0, "held: its menu");
+    let on = accept_item(&view);
+    for f in [0.25_f32, 0.5, 0.75, 1.0] {
+        tick(16);
+        event(
+            &view,
+            WindowEvent::PointerMoved {
+                position: LogicalPosition::new(at.0 + (on.0 - at.0) * f, at.1 + (on.1 - at.1) * f),
+            },
+        );
+    }
+    tick(16);
+    event(
+        &view,
+        WindowEvent::PointerReleased {
+            position: LogicalPosition::new(on.0, on.1),
+            button: PointerEventButton::Left,
+        },
+    );
+    tick(16);
+    assert!(
+        answers(turn(&mut view, &mut model)).is_empty(),
+        "the long press's release chose nothing"
+    );
+    assert_eq!(view.window().get_card_menu(), 0, "the menu stays open");
+
+    tap(&view, accept_item(&view));
+    assert_eq!(
+        answers(turn(&mut view, &mut model)),
+        vec![Intent::AcceptCard(RowId::from_stored(1))],
+        "control: a tap on Accept"
     );
 }

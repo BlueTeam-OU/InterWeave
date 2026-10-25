@@ -236,6 +236,37 @@ pub(crate) fn cancelled(shared: &Rc<RefCell<Shared>>, window: &slint::Weak<AppWi
     }
 }
 
+/// The rows were drawn again under a touch: a direction its row no
+/// longer offers is withdrawn from the gesture (contact-cards design
+/// 5.4.4: the same-name warning appearing during a right drag on a
+/// proposal). A row moved toward it springs back to rest, as after a
+/// release short of the threshold, and nothing is done for that touch;
+/// a row gone takes every direction with it.
+pub(crate) fn reoffered(shared: &Rc<RefCell<Shared>>, window: &AppWindow) {
+    let cancelled = {
+        let mut s = shared.borrow_mut();
+        let rtl = s.touch.rtl;
+        let Some(key) = s.tracked.as_ref().map(|t| t.key.clone()) else {
+            return;
+        };
+        let target = s.swipes.get(&key).cloned();
+        let offers = |side| {
+            target
+                .as_ref()
+                .is_some_and(|t| t.toward(side, rtl).is_some())
+        };
+        let (left, right) = (offers(Side::Left), offers(Side::Right));
+        s.tracked
+            .as_mut()
+            .is_some_and(|t| t.gesture.withdraw(left, right))
+    };
+    if cancelled {
+        window.set_swipe_tracking(false);
+        window.set_swipe_armed(false);
+        window.set_swipe_offset(0.0);
+    }
+}
+
 /// The kind a direction's action is drawn as.
 pub(crate) const fn kind(action: Option<RowAction>) -> SwipeKind {
     match action {
@@ -311,16 +342,40 @@ pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>) -> bool {
     [
         "answer:",
         "proposal-copy:",
+        "proposal-contact:",
         "proposal-decline:",
         "proposal-accept:",
     ]
     .into_iter()
     .find_map(|prefix| focus.strip_prefix(prefix))
-    .and_then(|rest| rest.parse::<i32>().ok())
+    // A link's key adds its note's place after the handle.
+    .and_then(|rest| rest.split(':').next()?.parse::<i32>().ok())
     .is_some_and(|handle| handle >= row)
 }
 
 /// Keep `window` reachable from a callback without keeping it alive.
 pub(crate) fn weak(window: &AppWindow) -> slint::Weak<AppWindow> {
     window.as_weak()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::in_accept_span;
+
+    /// Contact-cards design 5.4.2: the span runs from the confirmation row
+    /// through every card row after it, a proposal's "Open your contact"
+    /// link included, whose key carries its note's place after the
+    /// handle. Mutation: the link's prefix missing, or its handle read
+    /// with the note's place attached.
+    #[test]
+    fn a_proposal_link_after_the_confirmation_row_is_in_its_span() {
+        assert!(in_accept_span("proposal-contact:3:1", Some(2)));
+        assert!(in_accept_span("proposal-contact:2:0", Some(2)));
+        assert!(
+            !in_accept_span("proposal-contact:1:0", Some(2)),
+            "before it"
+        );
+        assert!(in_accept_span("proposal-copy:3", Some(2)), "control");
+        assert!(!in_accept_span("proposal-contact:3:1", None));
+    }
 }

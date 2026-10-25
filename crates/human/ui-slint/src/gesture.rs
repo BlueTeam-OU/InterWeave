@@ -246,6 +246,26 @@ impl Gesture {
         (quick && self.offset.abs() >= FLING_MIN).then_some(side)
     }
 
+    /// The row stopped offering a direction while the finger is down
+    /// (contact-cards design 5.4.4: the same-name warning appearing): only
+    /// `left` and `right` it still offers stay. A row already moved toward
+    /// a direction it withdrew is cancelled, back at rest and never a swipe
+    /// for the rest of the touch, which is `true`; a direction offered
+    /// anew is not taken up, since the touch began without it.
+    pub(crate) fn withdraw(&mut self, left: bool, right: bool) -> bool {
+        self.left &= left;
+        self.right &= right;
+        let toward_withdrawn =
+            (self.offset > 0.0 && !self.right) || (self.offset < 0.0 && !self.left);
+        let cancelled = self.phase == Phase::Tracking && toward_withdrawn;
+        if cancelled || !(self.left || self.right) {
+            self.phase = Phase::Ignored;
+            self.offset = 0.0;
+            self.armed = false;
+        }
+        cancelled
+    }
+
     /// Whether the row is following the finger.
     #[must_use]
     pub(crate) fn tracking(&self) -> bool {
@@ -339,6 +359,47 @@ mod tests {
         let mut g = press(false, false);
         drag(&mut g, -200.0, 0.0, 10, 10);
         assert!(!g.tracking());
+    }
+
+    #[test]
+    fn a_direction_withdrawn_under_a_drag_toward_it_cancels_the_touch() {
+        let mut g = press(true, true);
+        g.moved((360.0, 100.0), 10);
+        assert!(g.release(20).is_some(), "control: armed toward the right");
+        assert!(g.withdraw(true, false), "moved toward it: cancelled");
+        assert!(!g.tracking());
+        assert_eq!(g.release(20), None, "nothing commits");
+        let step = g.moved((20.0, 100.0), 30);
+        assert_eq!(step.offset, 0.0, "nor does the rest of the touch move it");
+        assert_eq!(g.release(40), None);
+    }
+
+    #[test]
+    fn a_direction_withdrawn_under_a_drag_the_other_way_leaves_it() {
+        let mut g = press(true, true);
+        g.moved((40.0, 100.0), 10);
+        assert!(!g.withdraw(true, false), "a left drag goes on");
+        assert!(g.tracking());
+        assert_eq!(g.release(20), Some(Side::Left));
+        let step = g.moved((300.0, 100.0), 30);
+        assert_eq!(step.offset, 0.0, "and never comes back right");
+    }
+
+    #[test]
+    fn a_direction_withdrawn_before_the_drag_decides_is_never_taken() {
+        let mut g = press(true, true);
+        g.moved((204.0, 100.0), 10);
+        assert!(!g.withdraw(true, false), "nothing had moved");
+        drag(&mut g, 200.0, 0.0, 10, 10);
+        assert!(!g.tracking(), "the right drag is not taken");
+    }
+
+    #[test]
+    fn a_direction_offered_anew_under_a_touch_is_not_taken_up() {
+        let mut g = press(true, false);
+        assert!(!g.withdraw(true, true));
+        drag(&mut g, 200.0, 0.0, 10, 10);
+        assert!(!g.tracking(), "the touch began without it");
     }
 
     #[test]

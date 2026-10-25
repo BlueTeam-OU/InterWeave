@@ -64,6 +64,8 @@ export struct ShareAgainRow {
 export struct ProposalNoteRow {
     text: string,
     warning: bool,
+    // "Open your contact {name}" under a same-name warning, or empty.
+    link: string,
 }
 
 // A received card in its conversation (design section 5.4), every
@@ -2118,11 +2120,14 @@ component ProposalCard inherits Rectangle {
     callback accept();
     callback decline();
     callback copy();
+    // A note's link chosen, by the note's place.
+    callback open-contact(int);
     callback focused(string);
     // Its menu (design section 5.4.4, message-swipe section 7): a press
-    // held within the slop for the long-press time, `true` for the
-    // haptic tick, or a secondary click.
-    callback menu(bool);
+    // held within the slop for the long-press time, the first `true` for
+    // the haptic tick; a secondary click; or a key, the second `true`, on
+    // the control that has focus.
+    callback menu(bool, bool);
     in property <bool> swipe-tracking;
     in property <bool> menu-open;
     background: Palette.surface-container;
@@ -2146,7 +2151,7 @@ component ProposalCard inherits Rectangle {
     key-pressed(event) => {
         if (!root.card.answered
             && (event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift))) {
-            root.menu(false);
+            root.menu(false, true);
             // The result's own name: the card's `accept` callback shadows it.
             return EventResult.accept;
         }
@@ -2165,7 +2170,7 @@ component ProposalCard inherits Rectangle {
                 self.drifted = false;
                 FocusMode.keyboard = false;
                 if (event.button == PointerEventButton.right && !root.card.answered) {
-                    root.menu(false);
+                    root.menu(false, false);
                 }
             }
         }
@@ -2181,7 +2186,7 @@ component ProposalCard inherits Rectangle {
                 && !root.swipe-tracking && !root.card.answered;
             triggered => {
                 self.running = false;
-                root.menu(true);
+                root.menu(true, false);
             }
         }
     }
@@ -2310,14 +2315,33 @@ component ProposalCard inherits Rectangle {
             accessible-role: text;
             accessible-label: self.text;
         }
-        for note in root.card.notes: Text {
-            text: note.text;
-            font-size: Type.body-medium;
-            font-weight: note.warning ? 700 : 400;
-            wrap: word-wrap;
-            color: note.warning ? Palette.error : Palette.on-surface;
-            accessible-role: text;
-            accessible-label: self.text;
+        for note[i] in root.card.notes: VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: note.text;
+                font-size: Type.body-medium;
+                font-weight: note.warning ? 700 : 400;
+                wrap: word-wrap;
+                color: note.warning ? Palette.error : Palette.on-surface;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            // The contact the warning names, a step away (design section
+            // 5.4.1): after Copy PeerId and before Decline in focus order.
+            if note.link != "": HorizontalLayout {
+                alignment: start;
+                ActionButton {
+                    text: note.link;
+                    text-button: true;
+                    wraps: true;
+                    target: 48px;
+                    focus-key: "proposal-contact:" + root.card.handle + ":" + i;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "proposal-contact:" + root.card.handle + ":" + i;
+                    pressed => { root.open-contact(i); }
+                    focused(k) => { root.focused(k); }
+                }
+            }
         }
         Text {
             text: root.card.received;
@@ -2351,6 +2375,8 @@ component ProposalCard inherits Rectangle {
                 wraps: true;
                 target: 48px;
                 focus-key: "proposal-decline:" + root.card.handle;
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "proposal-decline:" + root.card.handle;
                 pressed => { root.decline(); }
                 focused(k) => { root.focused(k); }
             }
@@ -2381,6 +2407,13 @@ component OpenRow inherits FocusScope {
     }
     in property <string> text;
     in property <string> focus-key;
+    // A focus request, as `ActionButton` takes one: the Contacts list's
+    // first row after a delete, a contact's row after its page closes.
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
     in property <bool> has-photo;
     in property <image> photo;
     in property <string> letters;
@@ -2784,7 +2817,14 @@ export component AppWindow inherits Window {
     property <length> card-menu-y;
     property <length> card-menu-w;
     property <length> card-menu-h;
-    function open-card-menu(row: ProposalRow, x: length, y: length, w: length, h: length) {
+    // Where focus goes when the menu closes with nothing chosen, or with
+    // a choice that leaves the row (design section 5.4.4).
+    property <string> card-menu-return;
+    function open-card-menu(row: ProposalRow, x: length, y: length, w: length, h: length,
+        by-key: bool) {
+        // A key: the control it was pressed on. A long press or a
+        // secondary click: the row's first control, Copy PeerId.
+        root.card-menu-return = by-key ? root.focus-id : "proposal-copy:" + row.handle;
         root.card-menu-row = row;
         root.card-menu-x = x;
         root.card-menu-y = y;
@@ -2792,10 +2832,11 @@ export component AppWindow inherits Window {
         root.card-menu-h = h;
         root.card-menu = row.handle;
     }
-    // Closed with nothing done: focus back on the card's first control.
+    // Closed, or a choice made that leaves the row in place: focus back
+    // where the menu came from.
     public function close-card-menu() {
         if (root.card-menu < 0) { return; }
-        root.focus-target = "proposal-copy:" + root.card-menu;
+        root.focus-target = root.card-menu-return;
         root.card-menu = -1;
         root.focus-seq += 1;
     }
@@ -2940,6 +2981,9 @@ export component AppWindow inherits Window {
     in property <[ProposalRow]> proposals;
     callback proposal-accept(int);
     callback proposal-decline(int);
+    // A proposal's "Open your contact" link: the row's handle, the note's
+    // place.
+    callback proposal-open-contact(int, int);
     // What a proposal's Copy PeerId copies, set by the press. Never shown.
     in-out property <string> proposal-copy-text;
     in-out property <CardsPage> cards-page;
@@ -4694,6 +4738,8 @@ export component AppWindow inherits Window {
                             hue: row.hue;
                             rtl: root.rtl;
                             focus-key: "contact:" + row.handle;
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "contact:" + row.handle;
                             pressed => { root.contact-chosen(row.handle); }
                             focused(k) => { root.focus-id = k; }
                         }
@@ -4729,6 +4775,8 @@ export component AppWindow inherits Window {
                                         text: root.remove-photo-label;
                                         target: 48px;
                                         focus-key: "contact-remove-photo";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "contact-remove-photo";
                                         pressed => { root.contact-remove-photo(); }
                                         focused(k) => { root.focus-id = k; }
                                     }
@@ -5029,6 +5077,8 @@ export component AppWindow inherits Window {
                                     text: row.title;
                                     rtl: root.rtl;
                                     focus-key: "share-again:" + row.handle;
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "share-again:" + row.handle;
                                     pressed => { root.own-key-share-again-chosen(row.handle); }
                                     focused(k) => { root.focus-id = k; }
                                 }
@@ -5904,14 +5954,15 @@ export component AppWindow inherits Window {
                     focus-target: root.focus-target;
                     swipe-tracking: root.swipe-tracking;
                     menu-open: root.card-menu == proposal.handle;
-                    menu(haptic) => {
+                    menu(haptic, by-key) => {
                         if (haptic) { root.menu-haptic(); }
                         root.open-card-menu(proposal, proposal-row.absolute-position.x,
                             proposal-row.absolute-position.y, proposal-row.width,
-                            proposal-row.height);
+                            proposal-row.height, by-key);
                     }
                     accept => { root.proposal-accept(proposal.handle); }
                     decline => { root.proposal-decline(proposal.handle); }
+                    open-contact(note) => { root.proposal-open-contact(proposal.handle, note); }
                     copy => {
                         root.proposal-copy-text = proposal.peer;
                         proposal-copy.select-all();

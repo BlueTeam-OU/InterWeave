@@ -787,6 +787,11 @@ ui_texts! {
     /// CARD PROPOSAL, case U: the card's photo will replace the contact's.
     // PLACEHOLDER (en)
     CardUpdatesPhoto => "New photo",
+    /// CARD PROPOSAL, cases U and E: the card carries no photo, so the
+    /// contact's photo, not a local choice, goes (contact-cards
+    /// design 5.4.1). Says the current photo goes, not that the card's is
+    /// missing.
+    CardUpdatesPhotoRemoved => "Your contact's photo will be removed.",
     /// CARD PROPOSAL, case E: the person named the contact `{name}`, and
     /// that name stays.
     // PLACEHOLDER (en)
@@ -798,6 +803,10 @@ ui_texts! {
     /// CARD PROPOSAL, the same-name note: `{contact}` is a contact of this
     /// identity with the same name on another `PeerId`.
     CardSameName => "One of your contacts is named {contact} and has a different PeerId. Compare the two PeerIds before you accept.",
+    /// CARD PROPOSAL, the link beside `CardSameName`: opens that contact's
+    /// page, `{name}` the contact's name as stored (contact-cards design
+    /// 5.4.1).
+    ShowContact => "Open your contact {name}",
     /// CARD PROPOSAL: the card came from another identity of a device one
     /// of this identity's contacts is on; `{contact}` is that contact.
     CardSharesNode => "This card comes from the same device as your contact {contact}.",
@@ -818,6 +827,10 @@ ui_texts! {
     /// CARD CONFIRMATION ROW, added when the card's photo did not decode
     /// within its bound and the contact was saved without it.
     CardPhotoNotUsed => "The card's photo could not be used, so the contact was saved without it.",
+    /// CARD CONFIRMATION ROW, in place of `CardPhotoNotUsed` (cases U and
+    /// E): the card's photo did not decode within its bound, and the
+    /// contact's previous photo, not a local choice, went too.
+    CardPhotoNotUsedRemoved => "The card's photo could not be used, so the contact no longer has a photo.",
     /// CARD CONFIRMATION ROW's accessible description while its Accept's
     /// snackbar is open, never shown as text (contact-cards design
     /// 5.4.2, #416): read after `CardAccepted` or `CardUpdated`.

@@ -79,7 +79,7 @@ fn proposal_value(p: &ProposalItem, key: &ConversationKey, status: &str) -> Valu
         .notes
         .iter()
         .map(|n| match n {
-            ProposalNote::SameName(name) => json!({ "same_name": name }),
+            ProposalNote::SameName(c) => json!({ "same_name": c.name }),
             ProposalNote::SharesNode(name) => json!({ "shares_node": name }),
             ProposalNote::KeyMatches(name) => json!({ "key_matches": name }),
         })
@@ -143,7 +143,7 @@ fn proposal(p: &ProposalItem, key: &ConversationKey, status: &str, json: bool) -
     }
     for note in &p.notes {
         let (what, name) = match note {
-            ProposalNote::SameName(n) => ("a contact of the same name on another node", n),
+            ProposalNote::SameName(c) => ("a contact of the same name on another node", &c.name),
             ProposalNote::SharesNode(n) => ("a contact on the same node", n),
             ProposalNote::KeyMatches(n) => ("a contact holding the same key", n),
         };

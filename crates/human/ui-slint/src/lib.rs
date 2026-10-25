@@ -2584,6 +2584,9 @@ impl View {
                 .is_some_and(|key| model.conversation_hide_offered(key)),
         );
 
+        // The rows' offers as this render drew them, against the touch
+        // that may be dragging one (contact-cards design 5.4.4).
+        swipe::reoffered(&self.shared, window);
         let outcome = model.outcome().cloned();
         let outcome_id = outcome.as_ref().map(|o| o.id);
         // A row a committed swipe slid out stays there until the render
@@ -2766,8 +2769,20 @@ impl View {
             return false;
         };
         // Once the rows it names exist: a restored row is drawn by this
-        // render, and its controls are made after it.
-        self.focus_key(target);
+        // render, and its controls are made after it. The card pages'
+        // lists are replaced whole, so a contact's row is a control made
+        // by this render, which misses a first request.
+        if matches!(
+            focus,
+            FocusTarget::Contacts
+                | FocusTarget::Contact(_)
+                | FocusTarget::ContactPage(_)
+                | FocusTarget::ContactRemovePhoto(_)
+        ) {
+            self.focus_key_after_draw(target);
+        } else {
+            self.focus_key(target);
+        }
         true
     }
 

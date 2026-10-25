@@ -170,12 +170,25 @@ pub struct Accepted {
     pub created: bool,
     /// Whether the contact's name was the person's and stayed.
     pub name_kept: bool,
-    /// Whether the contact's photo was the person's and stayed.
-    pub photo_kept: bool,
+    /// What became of the contact's photo.
+    pub photo: PhotoAccepted,
     /// How the key stood before.
     pub key: KeyStanding,
     /// What [`HumanStore::undo_accept`] writes back.
     pub undo: AcceptUndo,
+}
+
+/// What an Accept did to the contact's photo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhotoAccepted {
+    /// The card's photo, or its absence over none, is the contact's.
+    Written,
+    /// The contact's photo was the person's and stayed.
+    Kept,
+    /// The contact held a photo that was not the person's and the card,
+    /// carrying none, took it away (contact-cards design 5.4.2:
+    /// `CardPhotoNotUsedRemoved` when the card's photo was unusable).
+    Removed,
 }
 
 /// What an Accept changed, kept by the caller for the person's Undo
@@ -606,6 +619,7 @@ impl HumanStore {
                         })
                     },
                 )?;
+                let had_photo = before.photo.is_some();
                 let undo = AcceptUndo(UndoOf::Updated {
                     contact_id: contact_id.clone(),
                     peer: card.peer.as_str().to_owned(),
@@ -658,7 +672,13 @@ impl HumanStore {
                     contact_id,
                     created: false,
                     name_kept,
-                    photo_kept,
+                    photo: if photo_kept {
+                        PhotoAccepted::Kept
+                    } else if card.photo.is_none() && had_photo {
+                        PhotoAccepted::Removed
+                    } else {
+                        PhotoAccepted::Written
+                    },
                     key,
                     undo,
                 }
@@ -695,7 +715,7 @@ impl HumanStore {
                     contact_id,
                     created: true,
                     name_kept: false,
-                    photo_kept: false,
+                    photo: PhotoAccepted::Written,
                     key: KeyStanding::Unrecorded,
                 }
             };

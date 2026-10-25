@@ -768,6 +768,7 @@ mod tests {
                 contact_id: "c1".to_owned(),
                 created: false,
                 photo_dropped: false,
+                photo_removed: false,
             },
         });
         side.apply(Update::ContactsListed(vec![ContactView {
