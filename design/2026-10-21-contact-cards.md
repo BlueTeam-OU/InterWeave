@@ -475,18 +475,19 @@ client prepares what will be sent from the picked image:
   encodes it as JPEG, always, with the encoder's chroma subsampling, at
   the highest quality from 90 down to 20 that fits 24,576 bytes
   (HUMAN-CHAT.md). Subsampling is not a rule of this design: every
-  decoder reads any of them, so it is the encoder's choice — 4:4:4 with
-  the image crate's encoder today, which offers no other, and 4:2:0 when
-  an encoder that offers it is taken (architect-cto, 2026-10-25). A
-  camera photograph fits at quality 50 or above (measured at 4:2:0: 15
-  photographs at 256 px fit at 50, the largest 17,405 bytes); the lower
-  qualities are for a picture of fine texture or noise, which at 256 px
-  can exceed the bound at 50 (measured at 4:2:0: uniform noise 27,478
-  bytes at quality 50, 23,260 at 40, 13,620 at 20; measured at 4:4:4
-  with the image crate 0.25.10 on a generated uniform-noise square:
-  56,257 bytes at 50, 47,920 at 40, 21,626 at 20, so at 4:4:4 such a
-  picture fits only at 20), so the size stays fixed and the quality
-  gives. An image that still does not fit at 20
+  decoder reads every subsampling, so the choice is the encoder's.
+  Today the image crate's encoder uses 4:4:4, the only subsampling it
+  offers; when an encoder that offers 4:2:0 is adopted, the subsampling
+  is 4:2:0 (architect-cto, 2026-10-25). At 4:2:0, a camera photograph
+  fits at quality 50 or above: 15 photographs at 256 px all fit at 50,
+  and at 50 the largest of them was 17,405 bytes. The lower qualities are for a
+  picture of fine texture or noise, which at 256 px can exceed the
+  bound at quality 50. Measured at 4:2:0, uniform noise was 27,478
+  bytes at quality 50, 23,260 at 40 and 13,620 at 20. Measured at 4:4:4
+  with the image crate 0.25.10, a generated uniform-noise square was
+  56,257 bytes at 50, 47,920 at 40 and 21,626 at 20, so at 4:4:4 such a
+  picture fits only at quality 20. So the size stays fixed, and the
+  quality is what goes down. An image that still does not fit at 20
   is unusable (below). JPEG always, because a lossless PNG of a
   photograph seldom fits and has no quality to lower.
   The bytes go into the card as HUMAN-CHAT.md's base64, which the
