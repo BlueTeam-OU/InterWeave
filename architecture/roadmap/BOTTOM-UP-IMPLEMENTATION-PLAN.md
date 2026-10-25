@@ -6380,9 +6380,10 @@ word of 2026-10-25 — given on the arming of the pull request that lands
 this record, which is its approval on record, as §28's was; the
 direction was the owner's "complete stage 21" of 2026-10-24 — having
 run beside Stages 17, 18 and 19 from 2026-10-21, on the steps above in
-order, each in its lane's pull requests, the stage's six decisions
-(ADR-0059, ADR-0060, ADR-0061, ADR-0062, ADR-0063, ADR-0065) all
-Accepted before the close: step 1, the card on the wire (rust-ui-dev:
+order, each in its lane's pull requests, the stage's five decisions
+(ADR-0059, ADR-0060, ADR-0061, ADR-0062, ADR-0063) all Accepted before
+the close, ADR-0064 (the end-to-end layer above them) Proposed and not
+this stage's: step 1, the card on the wire (rust-ui-dev:
 the parser and its three-way answer, the fixture vectors frozen on #343
 ahead of it, the identity key and signature of ADR-0063 on #344); step
 2, the proposal and the acceptance (the manifest and dependency check,
@@ -6402,11 +6403,17 @@ the add, Show and Scan screens, the camera module `CodeCamera.kt`;
 ux-designer: the two flows in `design/2026-10-22-add-a-peer.md`, #405).
 The exit gate: (a) steps 1–5 are on `main` with CI green at the merge
 of the last gate item (#436, 08ad14be); (b) each case by a named test
-at the lowest layer that proves it, the store's in
-`crates/human/store/tests/contacts.rs` and `at_rest.rs`, the
-application's in `crates/human/app-core/tests/cards.rs`, the facade's
-in `crates/human/transport-client/tests/facade.rs`, the two clients'
-end to end in `tests/desktop-e2e/tests/human_cli.rs` and `human_app/`:
+at the lowest layer that proves it — the store's in
+`crates/human/store/tests/` (`contacts.rs`, `at_rest.rs`,
+`released_content_encrypted.rs`), the wire's in
+`crates/human/chat-protocol/tests/`, the application's in
+`crates/human/app-core/tests/` (`cards.rs`, `card_photo.rs`), the
+facade's in `crates/human/transport-client/tests/facade.rs`, the
+models' and the views' in `crates/human/ui-model/tests/` and
+`crates/human/ui-slint/tests/`, the Android platform's in
+`crates/human/android-platform/tests/service.rs`, the command line's
+beside its source under `apps/human-cli/src/`, and the two clients' end
+to end in `tests/desktop-e2e/tests/human_cli.rs` and `human_app/`:
 the valid card by
 `a_valid_card_accepted_creates_the_contact_and_names_the_conversation`;
 the unknown kind or over-bound card by
@@ -6468,8 +6475,12 @@ declarations and the permission allow-list by
 `check_android_contacts_and_backup.py`, its self-test breaking it once
 per declaration and once per allow-list failure (`allow-list-extra`,
 `camera-required`; #436); no plaintext at rest by
-`no_plaintext_after_an_unclean_close_of_the_encrypted_store` (the
-content in the write-ahead log, a control asserting it) and
+`a_new_store_is_encrypted_from_its_first_page_under_a_new_key` after a
+clean close (a contact, its peer and the messages filled, the store
+dropped, the files searched for each and for the SQLite header) and by
+`no_plaintext_after_an_unclean_close_of_the_encrypted_store` after an
+unclean one (the content in the write-ahead log, a control asserting
+it), with the deletion property's
 `released_content_is_absent_from_every_decrypted_page_after_a_clean_close`;
 the missing key by
 `a_store_whose_key_is_lost_is_discarded_and_recreated_on_the_persons_word`
@@ -6489,8 +6500,9 @@ plaintext at 500 and 2000 kept, at schema v7 and v8, no single round
 above x1.93, a cold open of 5–8 ms; on the Pixel 9a every operation
 within x1.58 at 500 and 2000 kept at v7 and v8, two rounds of 36 above
 x2 at v7 and none above x1.85 at v8, a cold open of 42–54 ms against
-the one-second bound, the deletion property holding on the device's
-encrypted file; and the walk was quadratic whatever the engine, 23.8 s
+the one-second bound (that it read from the medium rests on
+`posix_fadvise(DONTNEED)`, not measured on f2fs), the deletion property
+holding on the device's encrypted file; and the walk was quadratic whatever the engine, 23.8 s
 on the desktop and 10.8 s on the device at the 20 000-row stress row
 under SQLCipher, 146 ms and 127 ms once schema v8 indexed
 `(received_at, row_id)` on both inbound tables — the stage's one store
@@ -6508,9 +6520,13 @@ name made visible by the PeerId beside every proposal and the same-name
 note rather than prevented, the photo decoded only after Accept, and no
 address book read, by the manifest check; over the store's content-free
 columns, each named for what it holds: `read_pairs`, where a message
-came from and the id its sender gave it, at most 4096 rows and no text;
-`conversation_index`, whom a conversation is with, which identity it
-speaks as, when it was last active and when its card was last shared;
+came from, the id its sender gave it and when the pair was written, at
+most 4096 rows and no text; `conversation_index`, whom a conversation
+is with (a peer and its endpoint, or a channel), which identity it
+speaks as, its title — user-set, or the contact's display name, so the
+one column of the set that holds a name, and only one the contact row
+holds already — when it was last active and when its card was last
+shared;
 `contact_routes.last_seen`, when a route last reached; and the
 contacts' `name_source`, `name_at`, `photo_source` and `photo_at`,
 whether a name or a photo came from a card or from the person, and
@@ -6519,7 +6535,8 @@ backup (`allowBackup="false"`, every domain excluded), and all are
 ciphertext at rest under the platform-sealed key since step 3; what
 each discloses, to whoever holds the open store, is when and with whom
 the person talked, which the conversation list shows in any case. The
-review accepts every one as it stands, with one rule: no column of
+review accepts every one as it stands, the title included for the
+reason given, with one rule: no column of
 this set, and no derivative of one, reaches the wire, a backup, a log
 or an export without a record that names it; (e) the added address by
 `an_added_address_is_dialled_and_survives_a_restart_with_no_provider_authored`
@@ -6559,13 +6576,16 @@ from the shipped window's pixels (#436); the removal by
 the listing by the same `transportctl` case and the command line's
 `a_peer_added_by_address_is_listed_refused_by_class_and_removed`; and
 the two phone rows: an address added on the Pixel 9a for the A40
-dialled and surviving a restart, 4 of 4
+dialled and surviving a restart, 4 of 4 at 96c2a52b
 (`tests/android-e2e/runs/2026-10-24-pixel-9a-a40-wifi-added-address.md`,
-#417), its cache-on variants 12 of 12 and the reboot in its second
+#417: runs 5–8; runs 2 and 4 before it failed on the cases' design,
+1 and 3 were not run), its cache-on variants 12 of 12 and the reboot in its second
 run, 193.86 s, the first stopped at the harness's 1200 s wait for the
 phone's new address (`…-cache-on.md`, `…-reboot.md`, #421); two
 fresh phones on one LAN connecting after each trusted the other's
-PeerId and not before, 3 of 3 (`…-fresh-pair.md`, #417), "connect" read
+PeerId and not before, 3 of 3 at cc64aa55 (`…-fresh-pair.md`, #417:
+5 of 6 across the file, run 2 failing on the case's design), "connect"
+read
 as an admitted connection carrying a message (A 2026-10-24). The
 status value does not move: Stage 18 stays the lowest open stage.
 
@@ -6579,13 +6599,15 @@ owner:
   when it runs, never a condition of this close.
 - The cache-on row's "neither" control (`…-cache-on.md`) measured
   nothing in #421's three runs — B was not listening in A's window —
-  and was re-run live on both phones on 2026-10-25, 12 of 12 with B
-  listening through the window; that run file is p2p-network-dev-02's
-  to land (j69), owed to `main` at this close.
+  so the four variants are owed a re-run on the phones at bf114692 or
+  later, the driver that holds B listening through the window:
+  p2p-network-dev-02's (j69), its run file in their #448, open at this
+  record.
 - The camera row's record does not show a second press of Scan a code
   after a refusal (where a lasting refusal names Settings), a grant and
   a real scan (#418's device check), a phone without a camera, TalkBack's
-  reading, or the Pixel's API 37 (the record names each).
+  reading, or the Pixel's API 37 (the record names each): rust-ui-dev's,
+  the next camera device record.
 - The same-name rule: design 5.4.1 (#438) decides one name by three
   keys (case, shape, compatibility shape; any match), the store's
   `name_key` computes the case key alone and the ui-model's titles
@@ -6593,24 +6615,40 @@ owner:
   three-key rule (A 2026-10-25), the store and the titles are
   rust-ui-dev-02's gap (j60 and after).
 - `contact_routes.local_endpoint_id`, the composite key and the
-  backfill are Stage 22's (STATE.md, A 2026-10-25); every row is the
-  one `human` identity's.
+  backfill are Stage 22's (STATE.md, A 2026-10-25; plan §30 Activate,
+  rust-ui-dev's with the store); every row is the one `human`
+  identity's.
 - Acceptance 10's superseded cases need a hold-the-call hook
   (rust-ui-dev-01's j157); #428 covers the read-back.
 - The allow-list reads the source manifests; a permission a library's
-  manifest merges in is visible only in the merged manifest (#436).
+  manifest merges in is visible only in the merged manifest (#436):
+  rust-ui-dev's, the check's authors, with devex-tooling for its
+  wiring.
 - The hostile-code case does not drive a window's scan: Open an image…
   is the portal's dialog, so the code reaches the facade through the
-  binding the scan controls call (#436).
+  binding the scan controls call (#436): rust-ui-dev's, if a window's
+  scan is ever driven.
 - No boot start of the app by product rule, so "survives a reboot" is
-  the app relaunched by hand after the reboot (`…-reboot.md`).
-- The two-identity card case is §30's gate; A's claude identity is
-  unkeyed (#437's desktop-e2e limit).
-- The no-reach notice: a ui-model test only; not on a device.
+  the app started again after the reboot — by the test's
+  instrumentation; a start from the launcher was not run
+  (`…-reboot.md`). Not owed: the product rule.
+- The two-identity card case is §30's gate, rust-ui-dev's; A's claude
+  identity is unkeyed (#437's desktop-e2e limit).
+- The no-reach notice: a ui-model test only; not on a device —
+  rust-ui-dev-01's, with the next device record.
 - The fresh-pair row's one-sided step in the other direction (B
   trusting first) was not run; which side dialled in its step 3, and
-  from which source, is not told apart (the peer cache was on).
-- The release: v0.1.0 cut, its run failed at the APK signing (§22).
+  from which source, is not told apart (the peer cache was on):
+  p2p-network-dev-02's (j69).
+- SPIKE-011's items not established and carried to step 3 (SPIKES.md):
+  the Keystore sealing of the store key on a real Keystore, and the
+  rewrite and the key file on a device, have no device record — the
+  invalidated-key case runs against a fake Keystore, and the phone rows
+  open the encrypted store under the real Keystore on both phones
+  without asserting it — rust-ui-dev's, a device row; the
+  system-libcrypto build is not pinned, the workspace selecting
+  `bundled-sqlcipher-vendored-openssl` — rust-ui-dev's, when a build
+  needs it.
 
 ## 30. Stage 22 — several user identities in one client
 
