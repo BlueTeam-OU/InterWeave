@@ -656,11 +656,12 @@ differ, because a capital I looks like a small l and a small i does
 not. A match on any one key is enough for the warning, because a missed
 lookalike lets a peer pass as a contact, while an extra warning costs
 the person one comparison of PeerIds. The rule warns on every pair
-that the case key alone warns on. The shape key is made both without
-and with NFKC because each form catches lookalikes the other misses.
+that the case key alone warns on. There are two shape keys, one without
+NFKC and one with it, because each catches lookalikes that the other
+misses.
 NFKC rewrites some lookalikes before `skeleton` sees them: long "ſ"
 becomes "s", so "Alſie" would be compared as "Alsie"; the shape key
-reads it as written. Other characters look Latin only after NFKC: a
+reads "Alſie" as written. Other characters look Latin only after NFKC: a
 circled capital I "Ⓘ" becomes "I", and a fullwidth digit zero becomes
 "0", whose skeleton is "O"; the compatibility shape key catches those. The rule is not transitive: "Ian" is
 the same name as "ian" and as "lan", but "ian" and "lan" are not the
@@ -668,8 +669,8 @@ same name. Nothing here needs the rule to be transitive, because the
 warning and
 §6.1's titles compare one pair of names at a time.
 
-The shape keys' cost is a few false warnings. A shape key folds
-after `skeleton`, so it joins a capital I, which `skeleton` turns into a
+The cost of the shape keys is a few false warnings. Each shape key
+folds after `skeleton`, so each joins a capital I, which `skeleton` turns into a
 small l, with a capital L, which the fold turns into a small l. "Ian"
 and "Lan" are the same name
 by this rule though they do not look alike. Such a warning costs the
@@ -692,7 +693,7 @@ alone missed 949 of them. The first fix proposed for this gap
 missed 435, among them "ꓟax" against "Max" (a small m's skeleton is
 "rn") and "Βob" against "Bob". The rule above misses 17, each a pair
 that `skeleton` itself does not join (such as "ȧ" and "å"). Without
-the compatibility shape key it would also miss 45 pairs of a
+the compatibility shape key, the rule would also miss 45 pairs of a
 compatibility character against a Latin form, found by checking every
 code point that NFKC changes (such as "Ⓘ" against "L", and the
 fullwidth digit zero against "O"). Among 106
@@ -879,10 +880,11 @@ from the missing bubble and the warning:
   card, as message-swipe §7 anchors a message's menu to its bubble. It
   opens under the card when it fits in the visible area there; else
   above the card when it fits there; else over the card, at the top of
-  the visible area (this happens with a card taller than the visible
-  area less the menu, as at a large text size). The visible area is the
+  the visible area (this happens with a card whose height is more
+  than the visible area's height minus the menu's height, as at a
+  large text size). The visible area is the
   window inside the system bars; the menu may cover the app bar or the
-  composer. Its place depends on the card alone, never on
+  composer. The menu's place depends on the card alone, never on
   where the press was made. So a
   long press that slides from the card onto the menu can end on
   Accept, the menu's first item, before the person has read the card. Without
