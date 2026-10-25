@@ -1254,17 +1254,20 @@ fn a_proposal_row_is_as_tall_as_what_it_says() {
     }
 }
 
-/// A proposal fits a phone-wide window with its longest Accept label,
-/// "Accept as a new contact" (case D): nothing of the card reaches past
-/// the window, so the list never scrolls sideways under a swipe. Copy
-/// `PeerId` sat on the action line once and pushed it 23 px past its row.
-/// Mutation: Copy `PeerId` back on the action line.
-#[test]
-fn a_proposal_fits_a_phone_with_its_longest_accept() {
+/// Its case D card as a phone draws it, with its longest Accept label,
+/// "Accept as a new contact": the window `width` wide, text at `font`
+/// px when given (Android's 200 % is 28). Every edge is checked against
+/// the window and the card, and the answers against each other.
+fn case_d_at(width: f32, font: Option<f32>) {
     let mut view = view();
+    if let Some(px) = font {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(px)));
+    }
     view.window()
         .window()
-        .set_size(slint::LogicalSize::new(390.0, 800.0));
+        .set_size(slint::LogicalSize::new(width, 2400.0));
     let mut model = UiModel::new();
     model.card_received(proposal(
         1,
@@ -1283,13 +1286,42 @@ fn a_proposal_fits_a_phone_with_its_longest_accept() {
     let cards: Vec<ElementHandle> =
         ElementHandle::find_by_element_type_name(view.window(), "ProposalCard").collect();
     let (at, size) = (cards[0].absolute_position(), cards[0].size());
+    let card = (at.x, at.y, at.x + size.width, at.y + size.height);
     assert!(
-        at.x >= 0.0 && at.x + size.width <= 390.0,
-        "the card at {at:?}, {size:?}, inside 390 px"
+        card.0 >= 0.0 && card.2 <= width,
+        "the card at {card:?}, inside {width} px"
     );
+    let decline = bounds(&view, text(UiText::CardDecline));
     let accept = bounds(&view, text(UiText::AcceptAsNew));
+    for (label, b) in [("Decline", decline), ("Accept", accept)] {
+        assert!(
+            b.0 >= card.0 && b.2 <= card.2 && b.1 >= card.1 && b.3 <= card.3,
+            "{label} at {b:?} inside the card at {card:?}"
+        );
+    }
+    assert!(decline.3 <= accept.1, "Decline on a line above Accept");
     assert!(
-        accept.2 <= at.x + size.width && accept.3 <= at.y + size.height,
-        "Accept at {accept:?} inside the card"
+        (decline.0 - accept.0).abs() < 0.5 && (decline.2 - accept.2).abs() < 0.5,
+        "each the column's full width: {decline:?} {accept:?}"
     );
+}
+
+/// A proposal's answers are one per line, each the full width of the
+/// card's column, Decline first: a case D card fits a phone with its
+/// longest Accept (ux-designer's answer of 2026-10-25 to design section
+/// 8, provisional until the contact-cards revision). Copy `PeerId` sat on
+/// the action line once and pushed it 23 px past its row. Mutations:
+/// Copy `PeerId` back on the action line; the answers on one line.
+#[test]
+fn a_proposal_fits_a_phone_with_its_longest_accept() {
+    case_d_at(390.0, None);
+}
+
+/// The same at 320 px with 200 % text, where "Accept as a new contact"
+/// no longer fits one line and wraps inside its button. Mutation:
+/// Accept's label not wrapping (`wraps` off), which sets the card wider
+/// than the window.
+#[test]
+fn a_proposal_fits_a_narrow_window_with_large_text() {
+    case_d_at(320.0, Some(28.0));
 }

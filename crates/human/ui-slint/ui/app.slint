@@ -561,10 +561,15 @@ component ActionButton inherits FocusScope {
     // section 7's Delete stored data).
     in property <bool> danger;
     in property <color> ink: Palette.primary;
+    // A button the full width of its column whose label wraps inside it,
+    // centred, rather than set its width (contact-cards design section
+    // 5.4's actions, one per line at every width and text scale).
+    in property <bool> wraps;
     min-height: root.target;
     // Never narrower than its label: squeezed beside a wrapping text, the
     // label ran out of the button (seen in the rendered window).
-    min-width: max(root.target, label.preferred-width + (root.filled || root.tonal ? 48px : 16px));
+    min-width: root.wraps ? root.target
+        : max(root.target, label.preferred-width + (root.filled || root.tonal ? 48px : 16px));
     Rectangle {
         border-width: root.text-button || root.filled || root.tonal ? 0px : 1px;
         border-color: root.on-notice ? Palette.notice-text
@@ -575,9 +580,13 @@ component ActionButton inherits FocusScope {
         HorizontalLayout {
             padding-left: root.filled || root.tonal ? 24px : 8px;
             padding-right: root.filled || root.tonal ? 24px : 8px;
+            padding-top: root.wraps ? 12px : 0px;
+            padding-bottom: root.wraps ? 12px : 0px;
             // The caption is the button's label already: not a second node.
             label := Text {
                 text: root.text;
+                wrap: root.wraps ? word-wrap : no-wrap;
+                horizontal-alignment: root.wraps ? center : left;
                 font-size: root.text-button || root.filled || root.tonal ? Type.label-large : Type.body-medium;
                 font-weight: root.text-button || root.filled || root.tonal ? 500 : 400;
                 color: root.filled ? (root.danger ? Palette.on-error : Palette.on-primary)
@@ -2302,18 +2311,20 @@ component ProposalCard inherits Rectangle {
             accessible-role: text;
             accessible-label: self.text;
         }
-        // One line, which never wraps: a layout choosing lines by width
-        // would read the window's, a binding loop on Slint 1.18. Decline
-        // and the longest Accept fit a phone at 100 % text (tests/cards.rs,
-        // `a_proposal_fits_a_phone_with_its_longest_accept`); at 200 % they
-        // do not, though design section 8 asks them to wrap -- an open
-        // question to ux-designer.
-        HorizontalLayout {
-            alignment: end;
+        // One per line at every width and text scale, Decline first and
+        // Accept, filled, at the card's end; a label longer than the column
+        // wraps inside its full-width button (ux-designer, 2026-10-25,
+        // provisional until contact-cards' revision): a layout choosing
+        // lines by width would read the window's, a binding loop on Slint
+        // 1.18, and a translated Accept may not fit one line at 100 %
+        // (tests/cards.rs,
+        // `a_proposal_fits_a_phone_with_its_longest_accept`).
+        VerticalLayout {
             spacing: 8px;
             if !root.card.closes: ActionButton {
                 text: root.card.decline;
                 text-button: true;
+                wraps: true;
                 target: 48px;
                 focus-key: "proposal-decline:" + root.card.handle;
                 pressed => { root.decline(); }
@@ -2323,6 +2334,7 @@ component ProposalCard inherits Rectangle {
                 text: root.card.accept;
                 detail: root.card.full-name;
                 filled: true;
+                wraps: true;
                 target: 48px;
                 focus-key: "proposal-accept:" + root.card.handle;
                 focus-seq: root.focus-seq;
