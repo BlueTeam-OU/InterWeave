@@ -981,8 +981,8 @@ fn numbered(n: u32) -> BroadcastMessageV1 {
 pub enum Overflow {
     /// The session queue fills when its session does not drain.
     Shown,
-    /// What lies past the session queue holds more than one ingress
-    /// burst, so the queue never fills: over IPC.
+    /// What lies past the session queue takes more than one ingress
+    /// burst, so this case cannot fill the queue: over IPC.
     PastThePipeline,
 }
 
@@ -1031,12 +1031,16 @@ async fn losses_until<S: DataSessionPort>(
 /// holds.
 ///
 /// `overflow` says whether the binding can show the overflow phase at
-/// all. Over IPC it cannot: the server pumps the session queue into the
-/// event lane, the client's buffer and the socket, whose share is bounded
-/// in bytes and on a Linux host held all of 28 copies of 40 KiB --
-/// deeper than one ingress burst, so the session queue never fills. That
-/// binding forwards the runtime's count (`tests/ipc-v2`'s wire test holds
-/// it to its schema), and the overflow itself is shown by the other three.
+/// all. Over IPC it cannot: the server pumps the session queue into its
+/// event lane as it goes, and the client buffers what arrives up to the
+/// lease's `event_queue` -- for a session holding no endpoint lease, as
+/// the case's do, `DEFAULT_EVENT_QUEUE`, 256 events (`interweave-ipc-
+/// client`'s `receive_buffer`) -- so the pipeline takes more than the
+/// runtime's per-peer ingress burst of 32 can send, and this case cannot
+/// fill the session queue there. A publisher sustained past the burst
+/// still can. That binding forwards the runtime's count (`tests/ipc-v2`'s
+/// wire test holds it to its schema), and the overflow itself is shown by
+/// the other three.
 /// Each phase asserts a rise, never an exact number: the mesh may lose a
 /// copy before admission, uncounted. What a republish does to each count
 /// is the runtime's `a_republished_*` tests in `broadcast_inbound`.
