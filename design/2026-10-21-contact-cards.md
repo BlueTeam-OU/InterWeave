@@ -1498,9 +1498,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    stays still, and the release accepts nothing. On desktop, the person
    first accepts, from the keyboard, the proposal that saves a contact
    "Anna Rossi" on another PeerId, so that the row shows the warning.
-   Then the person drags the row right with the pointer, the pointer
-   past the threshold, holds it there, and then chooses, from the
-   keyboard, the Undo of that Accept. A left drag held past the
+   Then the person starts a right drag on the row with the pointer,
+   moves the pointer past the threshold and holds it there, and then
+   chooses, from the keyboard, the Undo of that Accept. A left drag held past the
    threshold while the warning appears or disappears still declines on
    release.
 8. Delete contact Carol, then accept a card on one of Carol's routes
