@@ -827,3 +827,52 @@ fn a_proposals_menu_closes_when_its_row_moves() {
     let _ = turn(&mut view, &mut model);
     assert_eq!(view.window().get_card_menu(), -1, "its row moved: closed");
 }
+
+/// Keys pressed and released in order, then released in reverse.
+fn chord(view: &View, keys: &[slint::platform::Key]) {
+    let window = view.window().window();
+    let texts: Vec<slint::SharedString> = keys.iter().map(|k| (*k).into()).collect();
+    for text in &texts {
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+    }
+    for text in texts.iter().rev() {
+        window.dispatch_event(WindowEvent::KeyReleased { text: text.clone() });
+    }
+    tick(2);
+}
+
+/// #433 F3, contact-cards design section 5.4.4 with message-swipe
+/// section 7: the proposal's menu opens from the keyboard -- the Menu key
+/// or Shift+F10 on any of the card's controls -- and a key the card does
+/// not take opens nothing. Mutation: the card's key handler dropped.
+#[test]
+fn a_proposals_menu_opens_from_the_keyboard() {
+    use slint::platform::Key;
+    let mut view = phone();
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let focus_accept = |view: &View| {
+        let window = view.window();
+        window.set_focus_target("proposal-accept:0".into());
+        window.set_focus_seq(window.get_focus_seq() + 1);
+        tick(2);
+        assert_eq!(window.get_focus_id().as_str(), "proposal-accept:0");
+    };
+    focus_accept(&view);
+    chord(&view, &[Key::Tab]);
+    assert_eq!(
+        view.window().get_card_menu(),
+        -1,
+        "control: Tab opens nothing"
+    );
+    focus_accept(&view);
+    chord(&view, &[Key::Menu]);
+    assert_eq!(view.window().get_card_menu(), 0, "the Menu key");
+    view.window().invoke_close_card_menu();
+    focus_accept(&view);
+    chord(&view, &[Key::Shift, Key::F10]);
+    assert_eq!(view.window().get_card_menu(), 0, "Shift+F10");
+}
