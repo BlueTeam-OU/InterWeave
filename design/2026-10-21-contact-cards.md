@@ -664,19 +664,22 @@ same name. Nothing here needs the rule to be transitive, because the
 warning and
 §6.1's titles compare one pair of names at a time.
 
-Its cost is a few false warnings: the shape key folds after
-`skeleton`, so a capital I, which `skeleton` makes a small l, meets a
-capital L, which the fold makes one. "Ian" and "Lan" are the same name
+The shape key's cost is a few false warnings. The shape key folds
+after `skeleton`, so it joins a capital I, which `skeleton` turns into a
+small l, with a capital L, which the fold turns into a small l. "Ian"
+and "Lan" are the same name
 by this rule though they do not look alike. Such a warning costs the
 person one comparison of PeerIds, and the contact is still saved on
 Accept.
 
 Evidence (`confusables.txt` of Unicode 16.0.0, SHA-256 95bd0aad…8611;
 the script, its input and the name list are on PR #438). A pair is a
-source character of the file whose prototype has at least one letter
-and only code points below U+0250 or combining marks, against each
-distinct form among its prototype as listed, in lower case, in upper
-case and with the first letter capital: 3,765 pairs. The case key
+source character of the file against one form of its prototype. A
+source character counts when its prototype has at least one letter
+and is made only of code points that are below U+0250 or are
+combining marks. Its forms are the distinct ones among four: the
+prototype as listed, in lower case, in upper case, and with its first
+letter capital. That gives 3,765 pairs. The case key
 alone missed 949 of them. The first fix proposed for this gap
 (rust-ui-dev-02's observation), fold, then `skeleton`, then fold,
 missed 435, among them "ꓟax" against "Max" (a small m's skeleton is
@@ -865,8 +868,8 @@ from the missing bubble and the warning:
   card, as message-swipe §7 anchors a message's menu to its bubble. It
   opens under the card when it fits in the visible area there; else
   above the card when it fits there; else over the card, at the top of
-  the visible area (a tall card at a large text size, or one scrolled
-  partly out of view). Its place depends on the card alone, never on
+  the visible area (this happens with a tall card at a large text
+  size, or with a card scrolled partly out of view). Its place depends on the card alone, never on
   where the press was made. So a
   long press that slides from the card onto the menu can end on
   Accept, the menu's first item, before the person has read the card. Without
@@ -1665,7 +1668,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    menu opens under the card when there is room below it, above the
    card when there is not, and over the card at the top of the visible
    area when there is room on neither side (a case D card at 200 %
-   text). In each of the three, two long presses at different points
+   text). In each of the three places, two long presses at different points
    of the card open the menu at the same place.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
