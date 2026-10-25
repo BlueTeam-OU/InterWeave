@@ -2132,7 +2132,7 @@ async fn a_later_card_with_no_photo_removes_a_cards_photo_until_undone() {
 /// Contact-cards design 5.4.2 and item 7: a later card whose photo does
 /// not decode within its bound is a new photo before Accept, since what
 /// decodes is decided at Accept; the confirmation then says the contact's
-/// previous photo went too when it came from a card, and only that the
+/// previous photo went too when it was not a local choice, and only that the
 /// card's was not used when there was none. Mutations: `photo_changes` judged
 /// on the decoded photo (no prior photo: case S, no Accept); the store's
 /// `PhotoAccepted::Removed` never chosen.

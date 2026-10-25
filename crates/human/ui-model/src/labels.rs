@@ -788,7 +788,7 @@ ui_texts! {
     // PLACEHOLDER (en)
     CardUpdatesPhoto => "New photo",
     /// CARD PROPOSAL, cases U and E: the card carries no photo, so the
-    /// contact's photo, which came from a card, goes (contact-cards
+    /// contact's photo, not a local choice, goes (contact-cards
     /// design 5.4.1). Says the current photo goes, not that the card's is
     /// missing.
     // PLACEHOLDER (en)
@@ -831,7 +831,7 @@ ui_texts! {
     CardPhotoNotUsed => "The card's photo could not be used, so the contact was saved without it.",
     /// CARD CONFIRMATION ROW, in place of `CardPhotoNotUsed` (cases U and
     /// E): the card's photo did not decode within its bound, and the
-    /// contact's previous photo, which came from a card, went too.
+    /// contact's previous photo, not a local choice, went too.
     // PLACEHOLDER (en)
     CardPhotoNotUsedRemoved => "The card's photo could not be used, so the contact no longer has a photo.",
     /// CARD CONFIRMATION ROW's accessible description while its Accept's
