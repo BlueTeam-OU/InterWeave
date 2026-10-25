@@ -90,9 +90,12 @@ pub(crate) fn context(
                 && (c.photo_source == Some(ValueSource::Person)
                     || c.photo.as_deref() == kept_photo(card))
         });
-    // Value by value, as `accept_card` writes (cases U and E): a person's
-    // name stays, any other becomes the card's; a photo the card carries
-    // replaces one the person did not choose, and a chosen one stays.
+    // The values design 5.4.1 names (cases U and E): a person's name stays,
+    // any other becomes the card's; a photo the card carries replaces one
+    // the person did not choose, and a chosen one stays. Not named, since
+    // the design defines no line for it: a card with no photo it can keep
+    // takes away a card's photo the contact holds, which `accept_card`
+    // writes too (raised with ux-designer, #433 round 3 F2).
     let card_photo = kept_photo(card);
     let values = updates.as_ref().map_or_else(ValueChanges::default, |c| {
         let name_differs = c.display_name != card_as_accepted.display_name();
