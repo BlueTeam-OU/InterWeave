@@ -105,6 +105,52 @@ with any other key fails. The workflow's tag check runs from the tagged
 commit's own copy, so the environment's protection -- only `v*` tags,
 and a required reviewer -- is what an edited copy cannot get past.
 
+### Making the key and the environment, once
+
+Nothing hands the key over: before the first release it does not
+exist, and the owner makes it, in the owner's own account and never an
+agent's (an agent login's home is readable by every session of that
+agent). It is kept for good, backed up with its passwords: Android
+installs an update only over an APK signed by the same key, so a lost
+key means no later release installs over the ones already on phones.
+A release whose `release` environment is still empty fails at step 5
+with `the release environment has no INTERWEAVE_RELEASE_KEYSTORE_BASE64`
+and publishes nothing.
+
+1. Make the keystore (`keytool` ships with any JDK; on Fedora,
+   `java-21-openjdk-headless`), and answer its prompts:
+
+   ```sh
+   keytool -genkeypair -v -keystore interweave-release.jks -alias interweave \
+       -keyalg RSA -keysize 4096 -validity 10000
+   ```
+
+2. Encode it, and copy the one line it holds to the clipboard rather
+   than the terminal (`wl-copy` on Wayland):
+
+   ```sh
+   base64 -w0 interweave-release.jks > keystore.b64
+   xclip -selection clipboard < keystore.b64
+   ```
+
+3. In the repository's Settings → Environments → `release`, add the
+   environment secrets: `INTERWEAVE_RELEASE_KEYSTORE_BASE64` (the
+   clipboard), `INTERWEAVE_RELEASE_KEY_ALIAS` (`interweave` above),
+   `INTERWEAVE_RELEASE_KEYSTORE_PASS`, and `INTERWEAVE_RELEASE_KEY_PASS`
+   only if the key's password differs. Leave
+   `INTERWEAVE_RELEASE_CERT_SHA256` unset. Then remove `keystore.b64`;
+   keep the `.jks`.
+4. On the same page, the environment variable
+   `INTERWEAVE_RELEASE_FIRST` = `true`; under deployment branches and
+   tags, only the tag pattern `v*`; and the owner as a required
+   reviewer.
+5. Run the release: a new tag, or "Re-run failed jobs" on a run that
+   failed at step 5, approved as the reviewer.
+6. The signing job's log prints `cert_sha256 <hex>`. Record that value
+   as the secret `INTERWEAVE_RELEASE_CERT_SHA256` and delete the
+   variable `INTERWEAVE_RELEASE_FIRST`: from then on a run signed with
+   any other key fails.
+
 ## What this does not prove
 
 - The prebuilt Skia is the same bytes on every run, not reviewed bytes
