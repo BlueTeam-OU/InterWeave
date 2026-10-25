@@ -639,8 +639,8 @@ same warning as "Anna".
 | **P** the route is under no contact; another route of the same PeerId is under contact X | `CardSharesDevice`: "This card comes from the same device as your contact {X}." (or `CardSharesDeviceMany`, naming X and the number of other contacts on that PeerId) and, under it, `CardSharesDeviceNote`: a device can hold several identities; you can save this one as a contact of its own | **Accept as a new contact** (`AcceptAsNew`) | creates a contact {name [surname]}, its photo, and the route; X is unchanged, and never gains a second route of one PeerId (ADR-0059 d. 4 (ii), ADR-0061 d. 4) |
 | **N** the route is under no contact; no route of its PeerId is under one; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
 | **D** the route is under no contact; no route of its PeerId is under one; a contact on another PeerId has the same name | `CardSameName`, in `error`, with a warning icon: "One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept.", `{name}` being the existing contact's name as stored, so the person sees both spellings; and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
-| **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
-| **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
+| **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`, `CardUpdatesPhotoRemoved`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
+| **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`), and, for each value that Accept writes, that value's change line as in case U (`CardUpdatesName`, `CardUpdatesPhoto`, `CardUpdatesPhotoRemoved`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
 | **S** the route is under X and the card changes nothing | `CardSame`: "This card matches your contact {X}." | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
 
 Every contact compared here is a contact of the identity the
@@ -665,7 +665,13 @@ warning: it is the same device, which case P's line already says, and
 their titles are told apart by the route label (§6.1). A photo is a
 "value that changes" whenever the card carries one and X's photo is not
 a local choice, since the client cannot compare a photo it has not
-decoded.
+decoded (`CardUpdatesPhoto`). It is one too when the card carries no
+photo and X holds a photo that is not a local choice: Accept writes the
+card's photo or its absence, so X's photo is removed, and the proposal says so before Accept, with `CardUpdatesPhotoRemoved`.
+The later card has no photo, and the person sees a removal before
+Accept, as they see a new photo (rust-ui-dev-02's finding on
+#433, QUESTION 01a171a0, 2026-10-25). If the card has no photo, and X has no photo or has a photo that the
+person chose, no photo changes.
 
 #### 5.4.2 Accept
 
@@ -708,7 +714,11 @@ while the Accept's snackbar is open:
 A photo that fails to decode, or decodes larger than 256 × 256, is
 discarded and the contact is saved without it (HUMAN-CHAT.md);
 `CardPhotoNotUsed` is added to the confirmation row. The accept is not
-refused for a photo.
+refused for a photo. In cases U and E, when X held a photo that was
+not a local choice, that photo is removed too, because the card's unusable photo is saved
+as no photo. The row then says `CardPhotoNotUsedRemoved`
+in place of `CardPhotoNotUsed`, and the snackbar's Undo gives the old
+photo back, as it gives back every other value.
 
 A store refusal (degraded store): nothing is written, the proposal stays,
 and the app's existing `StorageDegraded` notice explains; Accept stays
@@ -734,8 +744,11 @@ right swipe is withheld.** It is withheld in case D, and in cases P, U and E
 when Accept would write a name that clashes with a contact on another
 PeerId (§5.4.1). These are the owner's answers: §12 O1 for case D, and
 O2 for cases P, U and E. The row does not move to the right and shows
-no accept reveal. Only the button, with its case label, saves the
-card. The reason is that a swipe can happen without reading. If an
+no accept reveal. On such a row, only a deliberate choice of
+Accept with its case label saves the card: the button, the menu's
+Accept item (below) or the screen reader's custom action (§8), never a
+swipe. This is the owner's answer, §12 O3. The reason is that a swipe can happen without reading, while
+each of the three names what Accept will do before it is chosen. If an
 accidental swipe saves a stranger under an existing contact's name, or
 renames a contact to that name, that is the impersonation ADR-0059
 makes visible, and Undo helps only a person who noticed. Whether the
@@ -758,11 +771,48 @@ Android review F2, a row at rest shows no buttons and puts its actions
 in a menu. A proposal shows Accept and Decline at rest, because
 it exists to be answered: a claim whose answer is hidden in a menu reads
 as a message, and the case's label (§5.4.1) is what tells the person what
-Accept will do before they do it. The row also has §7's menu (long
-press, or Enter on the focused row), holding the same actions the row shows
-with the case's labels — Accept and Decline, or in case S Close alone —
-then Copy PeerId; it has no Show source, since a
-card has no markdown source to show.
+Accept will do before they do it. The row also has §7's menu.
+The menu holds the actions that the row shows, with the case's labels:
+Accept and Decline, or in case S, only Close. Copy PeerId comes after
+them. A row that shows `CardSameName` has the same menu, because only
+the right swipe is withheld there. The menu has no Show source, because
+a card has no markdown source to show. The menu opens with a long press
+on the row, on the desktop by a secondary click on the row, or by §7's
+Menu key or Shift+F10 while focus is on any control that the row has
+(Copy PeerId, Open your contact, Decline, Accept or Close). It does not open with Enter: unlike a message row, whose bubble is its focus stop, the
+proposal has no focus stop of its own, and Enter on each of its
+controls is that control's action. A focus stop for the
+card would add one more focus stop to every proposal, and that stop would
+only repeat what the visible buttons already do (rust-ui-dev-02's finding while building the menu,
+QUESTION 01a1718c, 2026-10-25). For the same reason, no accessible
+default action opens the menu: each of the row's controls keeps its own default action, and
+a screen reader reaches the menu's actions as the row's custom actions
+(§8). Once open, the menu behaves as §7's and §4's (focus on its first
+item; Escape, Back or a touch outside closes it; a press released on
+the item it started on chooses it), with three differences that follow
+from the missing bubble and the warning:
+
+- when the menu closes with nothing chosen, focus goes to one of two
+  places. If a key opened the menu, focus goes back to the control
+  where that key was pressed. If a key did not open it (a long press or
+  a secondary click did), focus goes to the row's first control, Copy
+  PeerId;
+- when a chosen item leaves the row in place (Copy PeerId, or an Accept
+  that the store refuses, §5.4.2), focus goes to the same place as when
+  the menu closes with nothing chosen;
+- on a row showing `CardSameName`, a press-drag-release onto Accept
+  chooses nothing (message-swipe §4's release that ends the long press
+  already chooses nothing on every row). On that row, Accept is chosen
+  only by a press that starts and ends on Accept after the menu has
+  opened (a tap, Enter or Space). Everywhere else, a press-drag-release
+  chooses whatever item the finger ends on, and Accept is the menu's
+  first item, near where the press began. Without this rule, a long
+  press with a slight slide could save a warned card unread. This rule
+  is the designer's reading of §12 O3's reason (a deliberate choice of
+  Accept, never one that can happen without reading), not a separate
+  answer from the owner.
+
+§9's focus table holds each of these.
 
 **Two differences from message-swipe §6 and §7 for Accept, on
 purpose.** Accept's result is not announced through the live region,
@@ -1308,10 +1358,12 @@ accessibility tree) are checked now.
   Accept (its case label) as controls. The PeerId is read character by
   character only on request (the platform's own); the label says what
   it is. The row's custom actions (Android) are Accept and Decline with
-  the case labels, as the swipe spec's §7 does for its rows.
+  the case labels, as message-swipe §7 sets for its rows. Accept is also a custom action on a row that shows `CardSameName`
+  (§5.4.4, §12 O3). In case
+  S, the only custom action is Close, as in the row's menu.
 - Confirmation row (§5.4.2): one focusable group, read as
   `CardAccepted` or `CardUpdated` (with the name as saved), then
-  `CardPhotoNotUsed` when it shows, then, while the Accept's snackbar
+  `CardPhotoNotUsed` or `CardPhotoNotUsedRemoved` when one shows, then, while the Accept's snackbar
   is open, `CardUndoHint` as its description.
 - Own card row: "You shared your card", the name, status, time.
 - Share sheet: title, the "as {identity}" line when shown, then the
@@ -1336,8 +1388,8 @@ contact card"), never with the name; Decline, photo removed,
 contact deleted, a Move, Make default and a switch announce their
 snackbar text; Accept announces nothing of its own. Focus moves to the confirmation
 row (§9 item 1's focus table), and the screen reader reads that row:
-`CardAccepted` or `CardUpdated`, and `CardPhotoNotUsed` when it
-shows. So the person hears the result once, and does not hear it again
+`CardAccepted` or `CardUpdated`, and `CardPhotoNotUsed` or
+`CardPhotoNotUsedRemoved` when one shows. So the person hears the result once, and does not hear it again
 as "Contact saved" or "Contact updated". The snackbar with its Undo is
 shown without an announcement and is reached last in the reading order
 (language-culture-en's observation 01a16df9, 2026-10-24); the transition of §5.7.5 announces `SwitchingTo`; the
@@ -1427,11 +1479,14 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | the share sheet opens | Share, else Add your name | keyboard |
    | the sheet closes after Share | the control that opened it; the header title when that was the empty conversation's offer | keyboard |
    | the sheet cancelled | what opened it (overflow button or the offer's button) | keyboard |
-   | Accept (button or swipe) | the confirmation row (focusable), read once with `CardUndoHint`: no live announcement of `ConfirmContactSaved` or `ConfirmContactUpdated` follows (§8 Announcements); the snackbar's timeout waits while focus is between the row and the snackbar, for at most 2 minutes (§5.4.2) | keyboard: with three or more rows after the confirmation row, wait past 6 s on the row, then move one stop at a time, more than 6 s apart, to Undo, and Undo is still reached; move focus to something before the row, then back to the row within 6 s, wait past 6 s, and Undo is still reached; pointer Accept with no further input: the snackbar closes by 2 minutes; desktop screen reader: in a case N and a case U accept, the row is read with `CardUndoHint` and neither "Contact saved" nor "Contact updated" follows; TalkBack blocked (§8); swipe with TalkBack cannot occur |
-   | Decline, by button or by keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
+   | Accept (button, menu item, custom action or swipe) | the confirmation row (focusable), read once with `CardUndoHint`: no live announcement of `ConfirmContactSaved` or `ConfirmContactUpdated` follows (§8 Announcements); the snackbar's timeout waits while focus is between the row and the snackbar, for at most 2 minutes (§5.4.2) | keyboard: with three or more rows after the confirmation row, wait past 6 s on the row, then move one stop at a time, more than 6 s apart, to Undo, and Undo is still reached; move focus to something before the row, then back to the row within 6 s, wait past 6 s, and Undo is still reached; pointer Accept with no further input: the snackbar closes by 2 minutes; desktop screen reader: in a case N and a case U accept, the row is read with `CardUndoHint` and neither "Contact saved" nor "Contact updated" follows; TalkBack blocked (§8); swipe with TalkBack cannot occur |
+   | Decline, by button, menu item or keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
    | Decline by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set elsewhere first, then a swipe |
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
    | case S Close | as Decline | keyboard |
+   | the proposal's menu opens (Menu key or Shift+F10 on a row control, long press, secondary click) | its first item | keyboard: Menu key and Shift+F10 from each of Copy PeerId, Open your contact (a warned row), Decline, Accept, and Close (case S); long press (Android) and secondary click (desktop) |
+   | the proposal's menu closes with nothing chosen (Escape, Back, outside) | the control where the key that opened it was pressed; after a long press or secondary click, Copy PeerId | keyboard: opened from Accept, Escape returns focus to Accept; after a secondary click, Escape puts focus on Copy PeerId |
+   | a menu item that leaves the row in place: Copy PeerId, or Accept refused by a degraded store | as the row above | keyboard: Shift+F10 on Decline, choose Copy PeerId, focus on Decline; with the store degraded, Shift+F10 on Accept, choose Accept, focus on Accept |
    | snackbar appears (except after Accept, above) | stays where it was; the snackbar is reachable last in order | keyboard |
    | Open your contact {name} on a row showing `CardSameName`, or a shares-a-device link | the contact page title; Back returns to the control that opened it | keyboard |
    | contact deleted | the Contacts list's first row, else its empty text | keyboard |
@@ -1470,7 +1525,22 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    row, shows no accept reveal and does not accept, and the store is
    unchanged; a left swipe declines. On the case P fixture without
    `CardSameName` ("Carol"), the right swipe accepts (§5.4.4). In case
-   E, a locally edited name is unchanged after Accept.
+   E, a locally edited name is unchanged after Accept. A later card with no photo
+   arrives on a route of a contact whose photo came from an earlier card: the proposal is case U and shows `CardUpdatesPhotoRemoved`;
+   after Accept the contact has no photo, and Undo gives it back. The
+   same later card against a contact whose photo the person chose is
+   case S when the name matches, and Accept is not offered. A later
+   card whose photo fails to decode, against a contact whose photo came
+   from a card, shows `CardPhotoNotUsedRemoved` on the confirmation row and
+   leaves no photo; against a contact with none, `CardPhotoNotUsed`.
+   Case E: a contact the person named themselves, whose photo came from
+   an earlier card, meets a later card with another name and no photo:
+   the proposal shows `CardKeepsEdit` and `CardUpdatesPhotoRemoved`,
+   and after Accept the name is unchanged and the photo is gone. The
+   same contact, as it was before that Accept, meets a later card with
+   another name and a photo that fails to decode: the proposal shows
+   `CardKeepsEdit` and `CardUpdatesPhoto`, and the confirmation row
+   shows `CardPhotoNotUsedRemoved`.
    Fixtures for D against a contact "Anna Rossi": a card "Anna" +
    "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; a name "Anna Rossi" with
    U+00A0 between the words and no surname; "Ａnna" (fullwidth) +
@@ -1503,7 +1573,20 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    moves the pointer past the threshold and holds it there, and then
    chooses, from the keyboard, the Undo of that Accept. A left drag held past the
    threshold while the warning appears or disappears still declines on
-   release.
+   release. The right swipe is withheld on the case D row and on case
+   E's "Anna Rossi" row. On each of them, the menu holds Accept with
+   the case label ("Accept as a new contact" for case D, "Update
+   contact" for case E), Decline and Copy PeerId. Choosing that
+   Accept saves the card exactly as the button does, with the same
+   confirmation row and snackbar. The row's Accept custom action on
+   Android does the same (TalkBack blocked, §8). The menu opens by the
+   Menu key and by Shift+F10 with focus on each of Copy PeerId, Open
+   your contact, Decline and Accept, by a long press, and on the
+   desktop by a secondary click. Enter on each of those controls does
+   that control's action and opens no menu. On Android,
+   on the case D row, a long press that slides onto Accept and lifts
+   there leaves the menu open with nothing saved. Then a tap on Accept
+   saves the card. On a case N row, the same slide and lift accepts the card.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
    it: the Move's Undo is gone. No action and no Undo leaves a contact
@@ -1717,12 +1800,14 @@ and are for them to write.
 | `CardSameName` | One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept. | case D, and cases P, U and E when Accept would write a name that clashes with a contact on another PeerId (§5.4.1); `{name}` the other contact's name; must name both facts |
 | `ShowContact` | Open your contact {name} | the link beside `CardSameName`: case D, and cases P, U and E when `CardSameName` shows |
 | `CardUpdates` | If you accept, your contact {name} is updated. | case U |
-| `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | case U, the changes |
+| `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | cases U and E, the changes written |
 | `CardKeepsEdit` | You named this contact {name} yourself. That name stays. | case E, name |
 | `CardKeepsPhoto` | You chose this contact's photo yourself. That photo stays. | case E, photo |
 | `CardSame` | This card matches your contact {name}. | case S |
 | `CardAccepted` | You saved {name} as a contact. | confirmation row, cases N, D and P |
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
+| `CardUpdatesPhotoRemoved` | Current photo removed | cases U and E, the change when the card carries no photo and the contact's photo came from a card (§5.4.1); must say that the contact's current photo goes, not that the card's is missing |
+| `CardPhotoNotUsedRemoved` | The card's photo could not be used, so the contact no longer has a photo. | confirmation row addition in place of `CardPhotoNotUsed`, cases U and E, when the contact's previous photo came from a card (§5.4.2); must say the previous photo is gone too |
 | `CardPhotoNotUsed` | The card's photo could not be used, so the contact was saved without it. | confirmation row addition, in both cases of §5.4.2 (the photo fails to decode, or decodes larger than 256 × 256); must not say the photo was shown, since it is decoded only at Accept (language-culture-en's final English, 2026-10-24) |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo; not announced (§8 Announcements) |
 | `CardUndoHint` | You can undo this change. Undo comes after all the messages in this conversation. | accessible description of the confirmation row while the Accept's snackbar is open (§5.4.2), never shown as text; must say that the save can be undone and where the Undo is, in a phrase read after `CardAccepted` or `CardUpdated` |
@@ -1891,6 +1976,15 @@ For the owner:
   judged when the swipe starts. **Answered 2026-10-25**, the owner, who
   chose "Whenever warned" over "Case D only": withheld whenever the row
   shows `CardSameName` (§5.4.4); a row without it keeps the swipe.
+- **O3** — on a row showing `CardSameName`, should the proposal's menu
+  and the screen reader's custom action keep Accept, under the case's
+  label, or should only the button save the card, as O1's question
+  had worded it before the row had a menu? Proposed: keep them, since
+  choosing "Accept as a new contact" from a menu is as deliberate as
+  the button and only a swipe can happen without reading.
+  **Answered 2026-10-25**, the owner, who chose "Keep menu + TalkBack"
+  over "Button only": the menu's Accept and the custom action stay on
+  a warned row (§5.4.4, §8).
 
 For architect-cto, asked with this revision (the shape of ADR-0061
 decision 9 and the records around it; the note is built on the reading
