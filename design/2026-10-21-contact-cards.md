@@ -510,27 +510,29 @@ out (§11).
   a separate stop. The start is not announced: the person has just
   chosen, and focus is on the button. The buttons stay as they were
   before the choice and stay usable; a picture chosen while another
-  is being prepared replaces it, and only the last one is shown.
-- When the photo is prepared, the circle shows it and its label is
-  `CardPhotoLabel`; focus stays on the same button, which now reads
+  is being prepared replaces the one being prepared, and only the
+  last one chosen is shown.
+- When the photo is prepared, the circle shows the photo, and the
+  circle's label is `CardPhotoLabel`; focus stays on the same button, which now reads
   Change photo, with Remove photo after it. `PhotoAdded` is announced
-  once through the live region, because the result changes the page
-  where focus is not (WCAG 2.2 SC 4.1.3, status messages).
+  once through the live region, because the result changes a part of
+  the page that does not have focus (WCAG 2.2 SC 4.1.3, status messages).
 - When the picture cannot be used, `PhotoUnusable` shows under the
   circle and is announced once through the live region; focus stays
   on the button, so the person can choose another at once. The line
   is read after the circle in the reading order and is not a stop of
   its own. It goes when another picture is chosen or the photo is
   removed.
-- **Remove photo in this editor is an unsaved change**, as a chosen
-  photo is: nothing is written until Save, so there is no snackbar
-  and no Undo. The way back is Back's `CardDiscardChanges` dialog, or
-  choosing a photo again. The circle shows the initials, its label
+- **Remove photo in this editor is an unsaved change**, like a chosen
+  photo: nothing is written until Save, so there is no snackbar
+  and no Undo. To undo the removal, the person uses the `CardDiscardChanges` dialog
+  that Back opens, or chooses a photo again. The circle shows the initials, its label
   becomes `CardPhotoNone`, and focus goes to Add a photo, which
   replaces Change photo and Remove photo; nothing is announced,
   since the button that takes focus says there is no photo. The
   contact page's Remove photo (§6.3) is different: that page has no
-  Save, so it removes at once with an Undo.
+  Save, so Remove photo there removes the photo at once, with an
+  Undo.
 
 ### 5.3 Share a card
 
@@ -622,8 +624,9 @@ never looks like a message the app wrote:
   on Details;
 - `CardIncludesPhoto` when the card carries one that Accept would
   write: it includes a photo, shown after you accept. It is not shown
-  when the contact's photo, or its having none, is a local choice
-  (§5.4.1), since the person never sees that photo; the kept line
+  when the contact's photo is a local choice, or the contact has no
+  photo by a local choice (§5.4.1), since the person never sees the
+  card's photo; the kept line (`CardKeepsPhoto` or `CardKeepsNoPhoto`)
   says so instead;
 - **PeerId** (a label of its own, `CardPeerIdLabel`, beside the app's
   existing `OwnPeerId`) and the
@@ -775,9 +778,9 @@ decided it on this device (Remove photo, §6.3, records one). Every
 other photo is not a local choice, including one whose source the
 store did not record. The absence of a photo is a local choice too
 when the person made it: Remove photo leaves the contact with no photo
-and records that the person decided it, so the person's choice is no
-photo. When the card carries a photo and X's photo, or its having
-none, is a local choice, the card's photo is not used: X keeps the
+and records that the person chose to have no photo. When the card
+carries a photo, and X's photo is a local choice or X has no photo by
+a local choice, the card's photo is not used: X keeps the
 photo the person chose (`CardKeepsPhoto`) or stays without one
 (`CardKeepsNoPhoto`), and `CardIncludesPhoto` is not shown (§5.4).
 `CardKeepsPhoto` is never shown for a contact that has no photo,
@@ -1336,8 +1339,8 @@ subtitle while two or more are held, overflow with **Delete contact**
   the picker lists the identity in front's contacts only.
 
 **Remove photo**: at once, snackbar `ConfirmPhotoRemoved` with Undo
-(writes the bytes back). Removing makes having no photo a local choice,
-so a later card's photo is not used and the proposal says
+(writes the bytes back). After Remove photo, the contact has no photo by a local
+choice, so a later card's photo is not used and the proposal says
 `CardKeepsNoPhoto` (case E, or case S when nothing else changes,
 §5.4.1).
 
@@ -1519,7 +1522,7 @@ accessibility tree) are checked now.
 arriving in the shown conversation is announced as `AnnounceCard` ("New
 contact card"), never with the name; Decline, photo removed,
 contact deleted, a Move, Make default and a switch announce their
-snackbar text (photo removed being the contact page's, §6.3; the
+snackbar text (the photo removed snackbar shows on the contact page only, §6.3; the
 editor's Remove photo announces nothing, §5.2); in the card editor,
 a prepared photo announces `PhotoAdded` and an unusable one
 `PhotoUnusable`, and the start of preparing announces nothing (§5.2); Accept announces nothing of its own. Focus moves to the confirmation
@@ -1599,7 +1602,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | a card saved | the identity's row in the list, else the control that opened the page (the sheet's Edit your card or Add your name) | keyboard |
    | a card's Save with an invalid field | the first invalid field | keyboard |
    | the editor's Photo Picker or file dialog closes, a picture chosen or cancelled (§5.2) | the button that opened it (Add a photo, or Change photo) | keyboard on desktop: open the file dialog from Add a photo, cancel it, focus on Add a photo; choose a picture, focus on the same button |
-   | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while preparing, then `CardPhotoLabel`; TalkBack blocked (§8) |
+   | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while the picture is being prepared, then `CardPhotoLabel`; TalkBack blocked (§8) |
    | the editor's picture unusable | stays on that button; `PhotoUnusable` announced once | keyboard, choosing a file named `.png` that holds no image; desktop screen reader: heard once; TalkBack blocked (§8) |
    | the editor's Remove photo | Add a photo | keyboard |
    | unsaved-changes dialog opens / closes on Continue editing (also when a switch asked it) | Continue editing / the field that had focus | keyboard |
@@ -1683,10 +1686,10 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    shows `CardPhotoNotUsedRemoved`.
    After Remove photo (§6.3) on a contact whose name came from a card,
    a later card with the same name and a photo is case S: it shows
-   `CardKeepsNoPhoto` and Close, and shows neither `CardSame`,
-   `CardKeepsPhoto` nor `CardIncludesPhoto`; Close leaves the contact
-   with no photo. The same contact meets a later card with another
-   name and a photo: the proposal is case E and shows
+   `CardKeepsNoPhoto` and Close, and shows none of `CardSame`,
+   `CardKeepsPhoto` and `CardIncludesPhoto`; after Close the contact
+   still has no photo. When a later card with another name and a photo
+   arrives for the same contact, the proposal is case E and shows
    `CardUpdatesName` and `CardKeepsNoPhoto`, and neither
    `CardKeepsPhoto` nor `CardIncludesPhoto`; after Accept the name is
    the card's and the contact still has no photo. Control: the same
@@ -1947,8 +1950,8 @@ and are for them to write.
 | `CardDiscardChanges` | Discard your changes? | unsaved-changes dialog |
 | `KeepEditing` / `DiscardChanges` | Continue editing / Discard | its actions |
 | `PhotoUnusable` | This photo cannot be used. Choose another one. | editor, under the circle; announced once (§5.2) |
-| `CardPhotoPreparing` | Preparing the photo… | new text, proposal; the editor's photo circle, accessible label while a chosen picture is prepared (§5.2); must say the photo is not ready yet |
-| `PhotoAdded` | Photo added | new text, proposal; announced once in the editor when a chosen picture is prepared (§5.2); must not say it is saved or sent, since that happens only on Save and Share |
+| `CardPhotoPreparing` | Preparing the photo… | new text, proposal; the editor's photo circle, accessible label while a chosen picture is being prepared (§5.2); must say the photo is not ready yet |
+| `PhotoAdded` | Photo ready | new text, proposal; announced once in the editor when a chosen picture has been prepared (§5.2); must not say it is saved or sent, since that happens only on Save and Share |
 | `ShareCard` | Share a card | conversation overflow, empty-conversation offer |
 | `ShareCardTitle` | Share your card with {title} | share sheet title |
 | `ShareCardPreview` | What {title} will see | share sheet preview heading |
@@ -1960,7 +1963,7 @@ and are for them to write.
 | `ShareCardTooLarge` | This card is too large to send in this conversation. | share sheet, nothing fits |
 | `ShareCardOffer` | Let {title} see your name instead of a PeerId. | empty conversation |
 | `CardProposal` | This peer says they are {name} | proposal heading; must keep "says": a claim, not a fact |
-| `CardIncludesPhoto` | This card has a photo. You see it after you accept. | proposal, when Accept would write the card's photo; not shown when the contact's photo, or its having none, is a local choice (§5.4) |
+| `CardIncludesPhoto` | This card has a photo. You see it after you accept. | proposal, when Accept would write the card's photo; not shown when the contact's photo is a local choice, or the contact has no photo by a local choice (§5.4) |
 | `CardPeerIdLabel` | PeerId | proposal, above the PeerId |
 | `CopyPeerId` | Copy PeerId | existing (#313) |
 | `CardGoesAtClose` | If you do not accept this card, it is removed when InterWeave stops. | proposal; Android's "closes" includes the system ending the app: language-culture to find the word that is true there |
@@ -1978,7 +1981,7 @@ and are for them to write.
 | `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | cases U and E, the changes written |
 | `CardKeepsEdit` | You named this contact {name} yourself. That name stays. | case E, name |
 | `CardKeepsPhoto` | You chose this contact's photo yourself. That photo stays. | cases E and S, when the card carries a photo and the contact holds a photo the person chose (§5.4.1); never for a contact with no photo |
-| `CardKeepsNoPhoto` | You removed this contact's photo yourself. The photo on this card is not used. | new text, proposal; cases E and S, when the card carries a photo and the person removed the contact's photo (§5.4.1, §6.3); must say that the contact stays without a photo by the person's own choice and that the card's photo is not used, and must not name a photo the contact has |
+| `CardKeepsNoPhoto` | You removed this contact's photo yourself. The contact stays without a photo, and the photo on this card is not used. | new text, proposal; cases E and S, when the card carries a photo and the person removed the contact's photo (§5.4.1, §6.3); must say that the contact stays without a photo by the person's own choice and that the card's photo is not used, and must not name a photo the contact has |
 | `CardSame` | This card matches your contact {name}. | case S, only when the card's name and photo are the contact's; must not show when the card differs in a value the person chose |
 | `CardAccepted` | You saved {name} as a contact. | confirmation row, cases N, D and P |
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
