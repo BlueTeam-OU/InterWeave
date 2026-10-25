@@ -508,7 +508,7 @@ pub(crate) struct CardScreens {
     /// The photo the editor's circle was last given, once it was given
     /// one: redrawn whenever what it should show changes, a saved card's
     /// photo included, not only when the step does (#449 F1).
-    own_photo_drawn: Option<Option<Photo>>,
+    own_photo_drawn: Option<DrawnPhoto>,
     /// A contact deleted from its page: the list's first row takes focus
     /// once the list is drawn without it (design section 9's focus table).
     deleted: Option<String>,
@@ -1385,9 +1385,9 @@ impl View {
             }
             .into(),
         );
-        if self.cards.own_photo_drawn.as_ref().map(Option::as_ref) != Some(shown) {
+        if self.cards.own_photo_drawn.as_ref().map(|d| d.0.as_ref()) != Some(shown) {
             window.set_own_edit_photo(shown.map(image).unwrap_or_default());
-            self.cards.own_photo_drawn = Some(shown.cloned());
+            self.cards.own_photo_drawn = Some(DrawnPhoto(shown.cloned()));
         }
         if self.cards.own_step_drawn == step {
             return None;
@@ -1528,13 +1528,28 @@ fn route_title(
 }
 
 /// The photo the own card's editor shows: the chosen one once prepared,
-/// none once removed, else the card's as saved.
+/// none once removed; while a choice is prepared or after it proved
+/// unusable, what it showed before that choice (design 5.2: the buttons
+/// stay as they were; #449 F2); else the card's as saved.
 fn edit_photo(model: &UiModel) -> Option<&Photo> {
+    let saved = model.identity().and_then(|i| i.photo.as_ref());
     match model.own_photo() {
-        Some(OwnPhotoStep::Prepared(photo)) => Some(photo),
-        Some(OwnPhotoStep::Removed) => None,
-        Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) | None => {
-            model.identity().and_then(|i| i.photo.as_ref())
+        Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) => {
+            shown_by(model.own_photo_before(), saved)
         }
+        step => shown_by(step, saved),
     }
 }
+
+/// What a step shows: its prepared photo, none once removed, else the
+/// card's as saved.
+fn shown_by<'a>(step: Option<&'a OwnPhotoStep>, saved: Option<&'a Photo>) -> Option<&'a Photo> {
+    match step {
+        Some(OwnPhotoStep::Prepared(photo)) => Some(photo),
+        Some(OwnPhotoStep::Removed) => None,
+        Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) | None => saved,
+    }
+}
+
+/// The photo the editor's circle was given: a photo, or none.
+struct DrawnPhoto(Option<Photo>);

@@ -1845,14 +1845,14 @@ fn the_editor_chooses_a_photo_through_the_platforms_picker() {
     );
     settle();
     assert_eq!(view.window().get_focus_id(), "own-choose-photo");
-    model.own_photo_chosen();
+    let first = model.own_photo_chosen();
     view.render(&model);
     settle();
     assert!(shows(&view, text(UiText::CardPhotoPreparing)));
     assert!(view.window().get_own_photo_preparing());
     assert!(announced(&view).is_empty(), "the start is not announced");
 
-    model.own_photo_prepared(Some(photo()));
+    model.own_photo_prepared(first, Some(photo()));
     view.render(&model);
     settle();
     assert!(shows(&view, text(UiText::CardPhotoLabel)));
@@ -1865,9 +1865,9 @@ fn the_editor_chooses_a_photo_through_the_platforms_picker() {
     press(&view, text(UiText::ChangePhoto));
     view.photo_picked(Some(vec![9]));
     let _ = intents(&mut view, &mut model);
-    model.own_photo_chosen();
+    let second = model.own_photo_chosen();
     view.render(&model);
-    model.own_photo_prepared(None);
+    model.own_photo_prepared(second, None);
     view.render(&model);
     settle();
     assert!(shows(&view, text(UiText::PhotoUnusable)));
@@ -1988,4 +1988,59 @@ fn the_editor_draws_the_saved_photo_and_follows_a_new_one() {
     model.identity_shown(identity(Some(other)));
     view.render(&model);
     assert_eq!(drawn(&view), (8, 8), "the card's new photo");
+}
+
+/// #449 F2, design 5.2: while a choice is prepared the buttons and circle
+/// stay as they were before it -- Change photo and Remove photo over a
+/// photo prepared earlier, Add a photo and no Remove photo after a
+/// removal -- and an unusable choice leaves them so. Mutation: the circle
+/// following the saved card while a choice is prepared.
+#[test]
+fn while_a_photo_is_prepared_the_editor_stays_as_it_was_before() {
+    let mut view = view();
+    view.photo_picker_hook(|| {});
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: false,
+        photo: None,
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        peer: Some(peer(Q)),
+    });
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    let first = model.own_photo_chosen();
+    model.own_photo_prepared(first, Some(photo()));
+    view.render(&model);
+
+    let _second = model.own_photo_chosen();
+    view.render(&model);
+    assert!(
+        shows(&view, text(UiText::ChangePhoto)),
+        "as before the choice"
+    );
+    assert!(shows(&view, text(UiText::RemovePhoto)));
+    assert!(view.window().get_own_edit_has_photo(), "the earlier photo");
+    let third = model.own_photo_chosen();
+    model.own_photo_prepared(third, None);
+    view.render(&model);
+    assert!(shows(&view, text(UiText::PhotoUnusable)));
+    assert!(shows(&view, text(UiText::ChangePhoto)), "still as before");
+
+    model.own_photo_removed();
+    let _fourth = model.own_photo_chosen();
+    view.render(&model);
+    assert!(
+        shows(&view, text(UiText::AddPhoto)),
+        "the removal stays shown"
+    );
+    assert!(!shows(&view, text(UiText::RemovePhoto)));
+    assert!(!view.window().get_own_edit_has_photo());
 }
