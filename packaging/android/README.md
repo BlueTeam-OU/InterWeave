@@ -103,7 +103,69 @@ only. The owner records the fingerprint as the
 `INTERWEAVE_RELEASE_CERT_SHA256` secret, and every later run that signs
 with any other key fails. The workflow's tag check runs from the tagged
 commit's own copy, so the environment's protection -- only `v*` tags,
-and a required reviewer -- is what an edited copy cannot get past.
+and a required reviewer -- is what an edited copy has to get past, and
+it holds only as far as the reviewer checks the commit before approving
+(step 5 below).
+
+### Making the key and the environment, once
+
+Nothing hands the key over: before the first release it does not
+exist, and the owner makes it, in the owner's own account and never an
+agent's (an agent login's home is readable by every session of that
+agent). It is kept for good, backed up with its passwords: Android
+installs an update only over an APK signed by the same key, so a lost
+key means no later release installs over the ones already on phones.
+A release whose `release` environment is still empty fails at step 5
+with `the release environment has no INTERWEAVE_RELEASE_KEYSTORE_BASE64`
+and publishes nothing.
+
+Run steps 1 and 2 outside any checkout. They write one file, the
+`.jks`, which `.gitignore` covers in case.
+
+1. Make the keystore (`keytool` ships with any JDK; on Fedora,
+   `java-21-openjdk-headless`), and answer its prompts:
+
+   ```sh
+   keytool -genkeypair -v -keystore interweave-release.jks -alias interweave \
+       -keyalg RSA -keysize 4096 -validity 10000
+   ```
+
+2. Encode it straight to the clipboard, never to a file or the
+   terminal (`wl-copy` on Wayland, `xclip -selection clipboard` on X11;
+   neither is installed by default on Fedora: `wl-clipboard`, `xclip`):
+
+   ```sh
+   base64 -w0 interweave-release.jks | wl-copy
+   ```
+
+3. In the repository's Settings → Environments → `release` (New
+   environment, if no release has run yet), add the environment
+   secrets: `INTERWEAVE_RELEASE_KEYSTORE_BASE64` (the clipboard),
+   `INTERWEAVE_RELEASE_KEY_ALIAS` (`interweave` above),
+   `INTERWEAVE_RELEASE_KEYSTORE_PASS`, and `INTERWEAVE_RELEASE_KEY_PASS`
+   only if the key's password differs. Leave
+   `INTERWEAVE_RELEASE_CERT_SHA256` unset. Keep the `.jks`.
+4. On the same page, the environment variable
+   `INTERWEAVE_RELEASE_FIRST` = `true`; under deployment branches and
+   tags, only the tag pattern `v*`; the owner as a required reviewer;
+   and "Allow administrators to bypass configured protection rules"
+   unticked.
+5. Run the release: a new tag, or "Re-run failed jobs" on a run that
+   failed at step 5 within 7 days (the built APK and archive are kept
+   that long; a later re-run fails at their download, and a new tag
+   needs the version and `versionCode` raised first, step 1 above).
+   **Approving is the key's only guard**, so check before you approve.
+   The agents here push and tag as the owner's own GitHub account, so
+   neither the `v*` rule nor the reviewer tells an agent's tag from the
+   owner's, and the run's workflow is the tagged commit's own copy.
+   Approve only when the commit the approval page names is on `main`
+   (`git fetch && git merge-base --is-ancestor <sha> origin/main`
+   exits 0): then its workflow and scripts are main's, reviewed, and
+   not an edited copy.
+6. The signing job's log prints `cert_sha256 <hex>`. Record that value
+   as the secret `INTERWEAVE_RELEASE_CERT_SHA256` and delete the
+   variable `INTERWEAVE_RELEASE_FIRST`: from then on a run signed with
+   any other key fails.
 
 ## What this does not prove
 
