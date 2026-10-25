@@ -804,8 +804,8 @@ from the missing bubble and the warning:
   chooses nothing, even over Accept, and a press-drag-release onto
   Accept chooses nothing. On that row, Accept is chosen only by a press that
   starts and ends on it after the menu has opened (a tap, Enter or
-  Space). Accept is the menu's first item, and a long press ends under
-  the finger. Without this rule, a long press with a slight slide could
+  Space). Accept is the menu's first item, and the menu opens where
+  the finger already is. Without this rule, a long press with a slight slide could
   save a warned card unread, which §12 O1–O3 do not allow.
 
 §9's focus table holds each of these.
