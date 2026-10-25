@@ -6,9 +6,11 @@
 # Self-test for release_publish.sh, with gh mocked on PATH to record its
 # arguments: a pre-release passes --prerelease and --latest=false, a
 # release passes neither; both pass --verify-tag, the title, the page and
-# the six files; a prerelease value other than true or false is refused
-# before gh runs, printed quoted; a failing gh fails the step; a missing
-# argument is a usage error.
+# the eight files, the archive's two minisign signatures among them; a
+# missing file -- a signature, say -- is refused before gh runs; a
+# prerelease value other than true or false is refused before gh runs,
+# printed quoted; a failing gh fails the step; a missing argument is a
+# usage error.
 #
 # Exit codes:
 #   0  all assertions passed
@@ -39,7 +41,11 @@ chmod +x "$SANDBOX/bin/gh"
 V=0.4.0-rc.1
 for f in "interweave-$V-arm64-v8a.apk" "interweave-$V-arm64-v8a.apk.sha256" \
          "interweave-$V-x86_64-unknown-linux-gnu.tar.gz" "interweave-$V-x86_64-unknown-linux-gnu.tar.gz.sha256" \
-         THIRD-PARTY-NOTICES-android.md THIRD-PARTY-NOTICES-android.md.sha256; do
+         "interweave-$V-x86_64-unknown-linux-gnu.tar.gz.minisig" "interweave-$V-x86_64-unknown-linux-gnu.tar.gz.sha256.minisig" \
+         THIRD-PARTY-NOTICES-android.md THIRD-PARTY-NOTICES-android.md.sha256 \
+         "interweave-0.4.0-arm64-v8a.apk" "interweave-0.4.0-arm64-v8a.apk.sha256" \
+         "interweave-0.4.0-x86_64-unknown-linux-gnu.tar.gz" "interweave-0.4.0-x86_64-unknown-linux-gnu.tar.gz.sha256" \
+         "interweave-0.4.0-x86_64-unknown-linux-gnu.tar.gz.minisig" "interweave-0.4.0-x86_64-unknown-linux-gnu.tar.gz.sha256.minisig"; do
     : > "$SANDBOX/in/$f"
 done
 : > "$SANDBOX/page.md"
@@ -58,9 +64,11 @@ expected="$(printf '%s\n' release create "v$V" --verify-tag --prerelease --lates
     --notes-file "$SANDBOX/page.md" \
     "$SANDBOX/in/interweave-$V-arm64-v8a.apk" "$SANDBOX/in/interweave-$V-arm64-v8a.apk.sha256" \
     "$SANDBOX/in/interweave-$V-x86_64-unknown-linux-gnu.tar.gz" "$SANDBOX/in/interweave-$V-x86_64-unknown-linux-gnu.tar.gz.sha256" \
+    "$SANDBOX/in/interweave-$V-x86_64-unknown-linux-gnu.tar.gz.minisig" \
+    "$SANDBOX/in/interweave-$V-x86_64-unknown-linux-gnu.tar.gz.sha256.minisig" \
     "$SANDBOX/in/THIRD-PARTY-NOTICES-android.md" "$SANDBOX/in/THIRD-PARTY-NOTICES-android.md.sha256")"
 [[ "$(cat "$GH_ARGV")" == "$expected" ]] \
-    && pass "the whole command: the tag verified, the title, the page and the six files" \
+    && pass "the whole command: the tag verified, the title, the page and the eight files" \
     || fail "the command differs" "$(diff <(printf '%s\n' "$expected") "$GH_ARGV")"
 
 run v0.4.0 0.4.0 false "$SANDBOX/page.md" "$SANDBOX/in"; status=$?
@@ -79,6 +87,16 @@ for value in maybe True '' $'true\n::warning::x'; do
         fail "prerelease $(printf '%q' "$value"): exit $status" "$(cat "$SANDBOX/out")"
     fi
 done
+
+sig="$SANDBOX/in/interweave-$V-x86_64-unknown-linux-gnu.tar.gz.minisig"
+mv "$sig" "$sig.away"
+run "v$V" "$V" true "$SANDBOX/page.md" "$SANDBOX/in"; status=$?
+if [[ $status == 1 ]] && [[ ! -e "$GH_ARGV" ]] && grep -qF "no $sig to publish" "$SANDBOX/out"; then
+    pass "a missing archive signature is refused before gh runs"
+else
+    fail "a missing archive signature: exit $status" "$(cat "$SANDBOX/out" "$GH_ARGV" 2>/dev/null)"
+fi
+mv "$sig.away" "$sig"
 
 GH_EXIT=1 run "v$V" "$V" true "$SANDBOX/page.md" "$SANDBOX/in"; status=$?
 [[ $status != 0 ]] && pass "a failing gh fails the step" || fail "a failing gh: exit $status"

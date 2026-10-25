@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# The keys a release is held to (.github/workflows/release.yml). Only
+# public halves are here; each private half is the owner's alone, made in
+# the owner's own account (packaging/android/README.md, "The release
+# keys"). A change to this file is a reviewed diff on main: the sign job
+# reads it from main's tip, never from the tag's commit, so an edited
+# copy on a tag changes nothing it checks.
+#
+# An empty value fails the release closed: with no tag key pinned, every
+# tag is refused at the tag job (tools/ci/release_verify_tag.sh); with no
+# archive key, the sign job refuses to publish an archive it cannot check
+# (tools/ci/release_sign_archive.sh). tools/ci/release_keys.py reads and
+# checks the shapes.
+
+[tag]
+# The tag key's primary-key fingerprint: 40 hex digits, no spaces.
+fingerprint = ""
+# Its public key, ASCII-armoured (`gpg --armor --export <fingerprint>`),
+# holding that one key and no other.
+public_key = ""
+
+[archive]
+# The minisign public key that signs the Linux archive: the second line
+# of the .pub file `minisign -G` writes, RW followed by 54 characters.
+minisign_public_key = ""
