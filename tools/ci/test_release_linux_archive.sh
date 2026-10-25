@@ -12,7 +12,9 @@
 # sandbox home -- the positive control that the layout is the one the
 # script expects -- with systemctl a stub that finds no user manager, so
 # the test never touches the account's real one. Two builds from the same
-# inputs must be the same bytes.
+# inputs must be the same bytes. --glibc-floor hands the floor and every
+# staged program to the checker before the tar, and its refusal leaves no
+# archive.
 #
 # Exit codes:
 #   0  all assertions passed
@@ -258,6 +260,37 @@ refused() {
     elif ! grep -qF -- "$needle" "$SANDBOX/err"; then fail "$what: refused without saying $needle" "$(cat "$SANDBOX/err")"
     else pass "$what: refused, no archive"; fi
 }
+echo "release_linux_archive.sh --glibc-floor:"
+# The checker is a stand-in recording what it was handed (the real one is
+# test_check_glibc_floor.sh's): the floor and every staged program, the
+# four and the plugin's bridge, before the tar.
+GCHECK="$SANDBOX/gcheck"
+printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "$GCHECK_ARGS"\nexit "${GCHECK_EXIT:-0}"\n' > "$GCHECK"
+chmod +x "$GCHECK"
+export GCHECK_ARGS="$SANDBOX/gcheck-args"
+rm -f "$GCHECK_ARGS"
+if RELEASE_GLIBC_CHECK="$GCHECK" build --glibc-floor 2.35 "$V" "$OUT"; then
+    staged="$(sed "s|.*/$NAME/||" "$GCHECK_ARGS" 2>/dev/null)"
+    want="$(printf '%s\n' 2.35 bin/transport-daemon bin/transportctl bin/human-desktop bin/interweave-human \
+        claude-plugin/interweave/bin/claude-channel)"
+    [[ "$staged" == "$want" ]] \
+        && pass "the floor and every staged program are checked, the bridge included" \
+        || fail "the checker was handed something else" "$(diff <(printf '%s\n' "$want") <(printf '%s\n' "$staged"))"
+    [[ -f "$A" ]] && pass "a passing check builds the archive" || fail "a passing check left no archive"
+else
+    fail "a passing glibc check refused the archive" "$(cat "$SANDBOX/err")"
+fi
+rm -f "$GCHECK_ARGS"
+build "$V" "$OUT" && [[ ! -e "$GCHECK_ARGS" ]] && pass "control: without --glibc-floor no checker runs" \
+    || fail "a build without --glibc-floor ran the checker"
+GCHECK_EXIT=1 RELEASE_GLIBC_CHECK="$GCHECK" \
+    refused "a program above the floor" "needs a glibc above the floor 2.35" --glibc-floor 2.35 "$V" "$OUT"
+for bad in 2 2.x 2.35.1 ''; do
+    rc=0
+    build --glibc-floor "$bad" "$V" "$OUT" || rc=$?
+    (( rc == 2 )) && pass "--glibc-floor '$bad' is usage (2)" || fail "--glibc-floor '$bad' exited $rc, not 2"
+done
+
 # The last write fails, after the archive and its hash are moved: an
 # `mv` on PATH that refuses the values file. Nothing of the run is left.
 STUB="$SANDBOX/stub"

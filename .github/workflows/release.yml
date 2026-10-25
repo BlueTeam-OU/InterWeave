@@ -20,7 +20,10 @@
 #            (tools/ci/release_tag.sh, release_verify_tag.sh and their
 #            self-tests)
 #   apk      steps 2-4 and 7: the unsigned APK and the notices; no secrets
-#   linux    step 6; no secrets
+#   linux    step 6, in the glibc floor's image (ubuntu:22.04, glibc
+#            2.35), every program held to the floor; no secrets
+#   linux-run every program of the archive started in a clean image of
+#            the floor; no secrets
 #   sign     step 5, once every check job above has passed: the tag
 #            checked again with main's verifier and pin, then the release
 #            environment's secrets, a read-only token, and nothing run but
@@ -31,8 +34,8 @@
 # Steps 2-7 are run in the README's order within a job; the page that
 # consumes them is filled only once every one has finished.
 #
-# A DRY RUN is a workflow_dispatch on main with a version: tag and linux
-# run, at that version and the dispatched commit, and the archive is the
+# A DRY RUN is a workflow_dispatch on main with a version: tag, linux and
+# linux-run run, at that version and the dispatched commit, and the archive is the
 # run's artifact. The version is held to the tag rule, the workspace's
 # included, so it is the one in main's Cargo.toml. apk, sign and publish do not run, so a dry run reads no
 # secret, holds no write token and publishes nothing; it is how a host
@@ -239,10 +242,10 @@ jobs:
 
   sign:
     name: release apk signing
-    # After every check job, linux included: a run refused at any check
-    # (the Linux archive's notices, say) leaves no signed APK, not even as
-    # a run artifact.
-    needs: [tag, apk, linux]
+    # After every check job, linux and linux-run included: a run refused
+    # at any check (the Linux archive's notices, or a program that does not
+    # start at the floor) leaves no signed APK, not even as a run artifact.
+    needs: [tag, apk, linux, linux-run]
     # Never on a dry run: the job that reads the key runs only for a tag.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -366,44 +369,115 @@ jobs:
           retention-days: 1
 
   linux:
-    name: release archive (x86_64-unknown-linux-gnu)
+    name: release archive (x86_64-unknown-linux-gnu, glibc 2.35)
     needs: tag
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The archive's glibc floor, 2.35 on x86_64 (ADR-0065 A 2026-10-25):
+    # built in that glibc's own image, so what the programs link against
+    # is what the floor has, never the runner's newer one (v0.1.0's
+    # human-desktop needed GLIBC_2.43 from ubuntu-latest). The image is
+    # pinned by its index digest, and is linux-run's too; a new floor is
+    # a new image here and there and GLIBC_FLOOR, together.
+    container:
+      image: ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956
+    timeout-minutes: 90
     env:
       CARGO_INCREMENTAL: "0"
+      GLIBC_FLOOR: "2.35"
     steps:
+      # Before the checkout, which takes a git clone only when git is
+      # there; the archive script reads the commit time with git. jammy's
+      # python3 is 3.10 and the release scripts read TOML with tomllib, so
+      # its python3.11 is python3. No -dev headers: fontconfig and the
+      # display libraries are loaded at run time, not linked.
+      - name: The build image's packages, and its glibc is the floor
+        run: |
+          apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
+            build-essential ca-certificates curl git python3.11
+          ln -sf /usr/bin/python3.11 /usr/local/bin/python3
+          got="$(getconf GNU_LIBC_VERSION)"
+          [ "$got" = "glibc $GLIBC_FLOOR" ] \
+            || { echo "::error::the build image has $got, not the floor glibc $GLIBC_FLOOR"; exit 1; }
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # The container runs as root over a checkout the runner's user owns,
+      # which git otherwise refuses to read.
+      - name: git reads the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # rustup itself at the pin the Android hosts use, its SHA-256
+      # checked; then the toolchain rust-toolchain.toml names.
       - name: Install the pinned toolchain
-        run: rustup show active-toolchain || rustup toolchain install
+        run: |
+          pins=tools/host/android/android-toolchain.pins
+          v="$(sed -n 's/^RUSTUP_VERSION=//p' "$pins")"
+          sha="$(sed -n 's/^RUSTUP_INIT_SHA256=//p' "$pins")"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/rustup-init" \
+            "https://static.rust-lang.org/rustup/archive/$v/x86_64-unknown-linux-gnu/rustup-init"
+          echo "$sha  $RUNNER_TEMP/rustup-init" | sha256sum --check --strict
+          chmod +x "$RUNNER_TEMP/rustup-init"
+          "$RUNNER_TEMP/rustup-init" -y --no-modify-path --default-toolchain none --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" toolchain install
 
       # Step 6. The archive script also writes the archive's
       # THIRD-PARTY-NOTICES.md: it runs tools/ci/release_notices.py over
       # `cargo tree --locked` of the packages it ships and `cargo
       # metadata --locked`, and a failure there fails this step with no
       # archive left behind. Not a step of its own: the notices are a file
-      # inside the archive, built from the archive's own scratch.
+      # inside the archive, built from the archive's own scratch. Every
+      # staged program is held to the floor (check_glibc_floor.py) before
+      # the tar. The output is under the workspace: in a container job the
+      # runner.temp context names the host's path, not the container's.
       - name: The Linux archive
         env:
           VERSION: ${{ needs.tag.outputs.version }}
-        run: bash tools/ci/release_linux_archive.sh "$VERSION" "$RUNNER_TEMP/out"
+        run: bash tools/ci/release_linux_archive.sh --glibc-floor "$GLIBC_FLOOR" "$VERSION" release-out
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux
           path: |
-            ${{ runner.temp }}/out/interweave-*-x86_64-unknown-linux-gnu.tar.gz
-            ${{ runner.temp }}/out/interweave-*-x86_64-unknown-linux-gnu.tar.gz.sha256
-            ${{ runner.temp }}/out/linux-values.json
+            release-out/interweave-*-x86_64-unknown-linux-gnu.tar.gz
+            release-out/interweave-*-x86_64-unknown-linux-gnu.tar.gz.sha256
+            release-out/linux-values.json
           if-no-files-found: error
           retention-days: 7
 
+  linux-run:
+    name: release archive runs at glibc 2.35
+    needs: [tag, linux]
+    runs-on: ubuntu-latest
+    # The floor image again, clean: nothing installed, so a program that
+    # starts here needs no more than the floor and the base image give.
+    container:
+      image: ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ needs.tag.outputs.version }}
+    steps:
+      # No git in the image: the checkout downloads the commit's files.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux
+          path: release-in
+
+      # Every program started with LD_BIND_NOW=1: what check_glibc_floor.py
+      # does not read (libgcc_s, libstdc++) fails here before main.
+      - name: Every program runs
+        run: bash tools/ci/release_linux_run.sh "release-in/interweave-$VERSION-x86_64-unknown-linux-gnu.tar.gz"
+
   publish:
     name: publish the release
-    needs: [tag, apk, sign, linux]
+    needs: [tag, apk, sign, linux, linux-run]
     # Never on a dry run, which publishes nothing.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
