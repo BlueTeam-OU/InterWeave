@@ -2134,7 +2134,14 @@ async fn a_later_card_with_no_photo_removes_a_cards_photo_until_undone() {
         AcceptLine::Matches("Ada".to_owned()),
         "case S: the person's photo stays and nothing changes"
     );
-    assert_eq!(again.values, ValueChanges::default());
+    assert_eq!(
+        again.values,
+        ValueChanges {
+            photo: PhotoChange::Kept,
+            ..ValueChanges::default()
+        },
+        "and the proposal says that photo stays (#443)"
+    );
 }
 
 /// Contact-cards design 5.4.2 and item 7: a later card whose photo does
@@ -2469,4 +2476,112 @@ async fn an_editors_remove_drops_a_photo_being_prepared_and_save_removes_the_car
         Some((64, 64)),
         "the removed 80 x 80 is not the facade side's to save"
     );
+}
+
+/// Contact-cards design item 7 as #443 left it: after Remove photo on a
+/// contact whose name came from a card, a later card with the same name
+/// and a photo is case S keeping no photo, and Close leaves the contact
+/// without one; the same name and no photo is case S with no photo line;
+/// another name with a photo updates the name and keeps no photo. The
+/// control: the same card against the contact before Remove photo is case
+/// U with a new photo. Mutations: `KeptNone` never chosen; a card photo
+/// judged against the contact's when it is not a local choice.
+#[tokio::test]
+async fn after_remove_photo_a_later_cards_photo_is_not_used() {
+    use interweave_human_ui_model::{PhotoChange, ValueChanges};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let from_alice = direct(a.peer());
+    let first = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Chosen(png(64, 64))),
+        1,
+    )
+    .await;
+    bob.will(Intent::AcceptCard(first.row));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+
+    // The control: the same card again, the photo a card's: an update.
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(6).await;
+    alice.pump(7).await;
+    bob.pump(8).await;
+    let control = bob.model().proposals(&from_alice)[0].clone();
+    assert_eq!(control.accept, AcceptLine::Updates("Ada".to_owned()));
+    assert_eq!(
+        control.values.photo,
+        PhotoChange::New,
+        "never compared undecoded"
+    );
+    bob.will(Intent::DeclineCard(control.row));
+    bob.pump(9).await;
+
+    bob.will(Intent::SetContactPhoto {
+        contact_id: contact_id.clone(),
+        photo: PhotoEdit::Remove,
+    });
+    bob.pump(10).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(11).await;
+    alice.pump(12).await;
+    bob.pump(13).await;
+    let same = bob.model().proposals(&from_alice)[0].clone();
+    assert_eq!(same.accept, AcceptLine::Matches("Ada".to_owned()), "case S");
+    assert_eq!(
+        same.values,
+        ValueChanges {
+            photo: PhotoChange::KeptNone,
+            ..ValueChanges::default()
+        }
+    );
+    bob.will(Intent::DeclineCard(same.row));
+    bob.pump(14).await;
+    assert!(
+        bob.model().contacts()[0].photo.is_none(),
+        "still without one"
+    );
+
+    let no_photo = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Remove),
+        20,
+    )
+    .await;
+    assert_eq!(no_photo.accept, AcceptLine::Matches("Ada".to_owned()));
+    assert_eq!(no_photo.values, ValueChanges::default(), "no photo line");
+    bob.will(Intent::DeclineCard(no_photo.row));
+    bob.pump(25).await;
+
+    let renamed = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada King", None, PhotoEdit::Chosen(png(64, 64))),
+        30,
+    )
+    .await;
+    assert_eq!(
+        renamed.values,
+        ValueChanges {
+            new_name: Some("Ada King".to_owned()),
+            photo: PhotoChange::KeptNone,
+            ..ValueChanges::default()
+        }
+    );
+    bob.will(Intent::AcceptCard(renamed.row));
+    bob.pump(35).await;
+    let contact = bob.model().contacts()[0].clone();
+    assert_eq!(contact.name, "Ada King");
+    assert!(contact.photo.is_none(), "the card's photo not used");
 }
