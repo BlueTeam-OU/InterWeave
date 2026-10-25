@@ -5736,8 +5736,9 @@ NAT is crossed (`relay_double.rs`'s harness), and a stopped relay is a
 parked thread, not a crashed host. The keepalive rule has no ADR of
 its own: the owner's word of 2026-09-26 and the two rulings live in
 §14, three rules in all, and no record promotes them yet; architect-cto
-promotes them into one at the latest with this stage's closing record,
-or earlier if §14 gains a fourth.
+promotes them into one ADR, with its digest entry and README row, at
+the latest with this stage's closing record, or earlier if §14 gains a
+fourth (the open list below carries it).
 
 **Open before the close (the same read).** Each named to its owner;
 none is the status value's, which stays on this stage.
@@ -5812,7 +5813,8 @@ none is the status value's, which stays on this stage.
   Stage 17.
 - **The closing record itself**: on the owner's word, the `Met.` block
   in §28's shape, the status to Stage 19's value since §20 has closed,
-  and the three prose status sites with it.
+  the three prose status sites with it, and, unless done earlier, the
+  keepalive rules' promotion from §14 into one ADR (architect-cto).
 
 ## 22. Stage 19 — packaging, migration, and release
 
