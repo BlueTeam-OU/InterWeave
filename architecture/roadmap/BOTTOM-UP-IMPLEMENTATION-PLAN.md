@@ -6609,12 +6609,13 @@ owner:
   names each): p2p-network-dev-02's (j69), with row 2 through Scan.
 - What the phone rows share, as their files list it: every case ran by
   the app's instrumentation in a fresh process, no window shown and
-  the network service unbound (`…-fresh-pair.md`; `E2eCase.kt` starts
-  no Activity and no service); every file names a relayed path, the
-  app in the background, IPv6 and a LAN that isolates its clients as
-  not run; row 1 and its cache-on variants add DCUtR and AutoNAT,
-  dozing, a change of network and the app's graceful stop (their
-  restart is the platform's force-stop) and, with the reboot row,
+  the network service not started (`…-fresh-pair.md`; `E2eCase.kt`
+  starts no Activity and no service); every file names a relayed
+  path, the app in the background, IPv6 and a LAN that isolates its
+  clients as not run; row 1's file adds DCUtR and AutoNAT and dozing;
+  it and its cache-on variants add a change of network and the app's
+  graceful stop (their restart is the platform's force-stop) and, with
+  the reboot row,
   assert the connection only, never a message (`…-added-address.md`,
   `…-cache-on.md`, `…-cache-on-control.md`, `…-reboot.md`).
   p2p-network-dev-02's, carried here until a Stage 18 matrix row
