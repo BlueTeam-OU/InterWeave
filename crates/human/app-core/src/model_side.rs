@@ -224,7 +224,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             }
             Update::ContactUndoWithdrawn(hold) => self.model.contact_undo_withdrawn(hold),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
-            Update::OwnPhotoPrepared(photo) => self.model.own_photo_prepared(photo),
+            Update::OwnPhotoPrepared { seq, photo } => self.model.own_photo_prepared(seq, photo),
             Update::NewKeyAsked { pending } => self.model.new_key_asked(pending),
             Update::KeyMade {
                 identity,
@@ -615,18 +615,18 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             }
             Intent::ShareCard(key) => Command::ShareCard(key),
             Intent::ChooseOwnPhoto(chosen) => {
-                self.model.own_photo_chosen();
-                Command::PrepareOwnPhoto(chosen)
+                let seq = self.model.own_photo_chosen();
+                Command::PrepareOwnPhoto { chosen, seq }
             }
             Intent::ForgetOwnPhoto => {
                 self.model.own_photo_forgotten();
                 Command::ForgetOwnPhoto
             }
-            // The facade side lets go of a photo it holds or prepares: the
-            // removal is the model's until Save writes it.
+            // The facade side lets go of a photo it holds or prepares, and
+            // holds the removal for a Save to write.
             Intent::RemoveOwnPhoto => {
                 self.model.own_photo_removed();
-                Command::ForgetOwnPhoto
+                Command::RemoveOwnPhoto
             }
             Intent::SetOwnCard {
                 name,
