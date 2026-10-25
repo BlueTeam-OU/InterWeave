@@ -809,8 +809,6 @@ fn client_config(
     }
 }
 
-/// The screen a store refusal shows in place of the chats (ADR-0060
-/// decision 6), or none for any other refusal.
 /// What a refused start answers of the store, or `None` for a runtime
 /// refused network access: the Service then starts the network-denied
 /// posture, whose answer is the start's.
