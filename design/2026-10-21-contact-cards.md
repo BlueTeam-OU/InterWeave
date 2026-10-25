@@ -478,14 +478,14 @@ client prepares what will be sent from the picked image:
   decoder reads every subsampling, so the choice is the encoder's.
   Today the image crate's encoder uses 4:4:4, the only subsampling it
   offers; an encoder that offers 4:2:0, if one is adopted later, would
-  use 4:2:0 (architect-cto's decision 01a173ac, 2026-10-25). At 4:4:4,
+  use 4:2:0 (architect-cto's DECISION 01a173ac, 2026-10-25). At 4:4:4,
   with the image crate 0.25.10 and this preparation, rust-ui-dev-02
   measured seven photographs (from 850 × 772 to 3024 × 4032 pixels
   before preparation) on 2026-10-25: the preparation chose quality 85
   to 90 for them, and the prepared photographs were 13,123 to 24,555
-  bytes (recorded
-  in `crates/human/app-core/src/card_photo.rs` at 4df2fa26 on
-  develop-qzapp/rust-ui-dev-02/feat/j54-photo-choosing). So with
+  bytes (recorded in `crates/human/app-core/src/card_photo.rs` at
+  4df2fa26 on develop-qzapp/rust-ui-dev-02/feat/j54-photo-choosing,
+  which names neither the photographs nor its noise generator). So with
   today's encoder a camera photograph fits far above quality 50. An
   earlier run at 4:2:0, which recorded neither the photographs nor the
   encoder, found that all 15 photographs at 256 px fit at quality 50,
@@ -506,9 +506,9 @@ client prepares what will be sent from the picked image:
   rust-ui-dev-02's record in `card_photo.rs`, also at 4:4:4 with the
   image crate, the preparation chooses quality 21 for their own noise
   square too (55,940 bytes at quality 50, 47,781 at 40 and
-  21,616 at 20). The squares come from different
-  generators, so these sets of figures do not measure one picture at
-  two subsamplings. So the picture keeps its pixel size (256 × 256, or
+  21,616 at 20). The squares do not come from one named generator, so
+  these sets of figures do not measure one picture at two
+  subsamplings. So the picture keeps its pixel size (256 × 256, or
   its own smaller square), and the quality is what goes down. An image
   that still does not fit at 20 is unusable (below). JPEG always,
   because a lossless PNG of a photograph seldom fits and has no
