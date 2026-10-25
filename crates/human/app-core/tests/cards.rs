@@ -23,8 +23,8 @@ use interweave_human_store::{
 };
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
-    AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, ProposalItem, ProposalNote, Table,
-    UiModel, UiText, ViewEvent,
+    AcceptLine, ContactRef, ConversationKey, Intent, KeyView, PhotoEdit, ProposalItem,
+    ProposalNote, Table, UiModel, UiText, ViewEvent,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_config::TrustBoundary;
@@ -684,7 +684,10 @@ async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     assert_eq!(second.accept, AcceptLine::Creates, "never an update");
     assert_eq!(
         second.notes,
-        vec![ProposalNote::SameName("Ada Lovelace".to_owned())],
+        vec![ProposalNote::SameName(ContactRef {
+            contact_id: bob.model().contacts()[0].contact_id.clone(),
+            name: "Ada Lovelace".to_owned(),
+        })],
         "the contact it shares a name with, in the contact's spelling"
     );
     assert_eq!(second.accept_text(), UiText::AcceptAsNew, "case D");
