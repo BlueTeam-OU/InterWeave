@@ -23,8 +23,8 @@ use interweave_human_store::{
 };
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
-    AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, ProposalItem, Table, UiModel, UiText,
-    ViewEvent,
+    AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, ProposalItem, ProposalNote, Table,
+    UiModel, UiText, ViewEvent,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_config::TrustBoundary;
@@ -608,6 +608,78 @@ async fn share_without_a_key_sends_nothing() {
     let store = HumanStore::open_profile(&pa.paths, &FilesystemCustody, StoreOptions::default())
         .expect("reopen");
     assert!(store.pending_outbound().expect("read").is_empty());
+}
+
+/// Plan §29 (b), ADR-0059 decision 4: two cards of one name from two
+/// `PeerId`s are two proposals, and Accept never merges them. The note
+/// names a contact (design 5.4.1, case D), so it appears on the second
+/// once the first is a contact, and not before.
+#[tokio::test]
+async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
+    // The fake joins two nodes at a time, so Bob's one profile is opened on
+    // one node of each pair in turn; a card is verified on its sender's
+    // route, which is all either receipt depends on.
+    let (a, b1) = FakeNetwork::pair(node(), node());
+    let (c, b2) = FakeNetwork::pair(node(), node());
+    let (pa, pc, pb) = (profile(), profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b1, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b1).await;
+    Box::pin(bob.facade.close()).await;
+    drop(bob);
+    let mut carol = Root::new(facade(&c, &pc, Some(key_of(&pc))));
+    let mut bob = Root::new(facade(&b2, &pb, None));
+    carol.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut carol, &mut bob, &b2).await;
+
+    let (from_alice, from_carol) = (direct(a.peer()), direct(c.peer()));
+    let first = bob.model().proposals(&from_alice);
+    let second = bob.model().proposals(&from_carol);
+    assert_eq!((first.len(), second.len()), (1, 1), "{:?}", bob.updates);
+    let (first, second) = (first[0].clone(), second[0].clone());
+    assert_ne!(first.row, second.row, "two proposals, not one");
+    assert_eq!(first.name, second.name, "of one name");
+    assert_eq!((&first.peer, &second.peer), (a.peer(), c.peer()));
+    assert_ne!(first.fingerprint, second.fingerprint);
+    for p in [&first, &second] {
+        assert_eq!(p.accept, AcceptLine::Creates, "{p:?}");
+        assert!(p.notes.is_empty(), "no contact to name yet: {p:?}");
+    }
+    assert!(bob.model().contacts().is_empty(), "nothing before Accept");
+
+    bob.will(Intent::AcceptCard(first.row));
+    bob.pump(5).await;
+    let second = bob.model().proposals(&from_carol)[0].clone();
+    assert_eq!(second.accept, AcceptLine::Creates, "never an update");
+    assert_eq!(
+        second.notes,
+        vec![ProposalNote::SameName("Ada Lovelace".to_owned())],
+        "the contact it shares a name with, before its Accept"
+    );
+    bob.will(Intent::AcceptCard(second.row));
+    bob.pump(6).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    let contacts = bob.model().contacts();
+    assert_eq!(contacts.len(), 2, "two contacts, never merged");
+    let mut peers: Vec<_> = contacts
+        .iter()
+        .map(|k| {
+            assert_eq!(k.routes.len(), 1, "{k:?}");
+            k.routes[0].peer.clone()
+        })
+        .collect();
+    peers.sort();
+    let mut expected = vec![a.peer().clone(), c.peer().clone()];
+    expected.sort();
+    assert_eq!(peers, expected);
+    assert_ne!(
+        bob.model().title(&from_alice),
+        bob.model().title(&from_carol),
+        "told apart by their titles"
+    );
 }
 
 #[tokio::test]
