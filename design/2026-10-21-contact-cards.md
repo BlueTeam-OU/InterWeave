@@ -472,14 +472,21 @@ client prepares what will be sent from the picked image:
   it over transport base64 encoded", read as one fixed size and
   confirmed; until then this scaled to at most 256 and stepped down to
   192 and 128 px.) It lays any transparency over plain white and
-  encodes it as JPEG, always, with 4:2:0 chroma subsampling, at the
-  highest quality from 90 down to 20 that fits 24,576 bytes
-  (HUMAN-CHAT.md). A camera photograph fits at quality 50 or above (15
-photographs measured at 256 px fit at 50, the largest 17,405 bytes); the
-  lower qualities are for a picture of fine texture or noise, which at
-  256 px can exceed the bound at 50 (measured: uniform noise 27,478
-  bytes at quality 50, 23,260 at 40, 13,620 at 20), so the size stays
-  fixed and the quality gives. An image that still does not fit at 20
+  encodes it as JPEG, always, with the encoder's chroma subsampling, at
+  the highest quality from 90 down to 20 that fits 24,576 bytes
+  (HUMAN-CHAT.md). Subsampling is not a rule of this design: every
+  decoder reads any of them, so it is the encoder's choice — 4:4:4 with
+  the image crate's encoder today, which offers no other, and 4:2:0 when
+  an encoder that offers it is taken (architect-cto, 2026-10-25). A
+  camera photograph fits at quality 50 or above (measured at 4:2:0: 15
+  photographs at 256 px fit at 50, the largest 17,405 bytes); the lower
+  qualities are for a picture of fine texture or noise, which at 256 px
+  can exceed the bound at 50 (measured at 4:2:0: uniform noise 27,478
+  bytes at quality 50, 23,260 at 40, 13,620 at 20; measured at 4:4:4
+  with the image crate 0.25.10 on a generated uniform-noise square:
+  56,257 bytes at 50, 47,920 at 40, 21,626 at 20, so at 4:4:4 such a
+  picture fits only at 20), so the size stays fixed and the quality
+  gives. An image that still does not fit at 20
   is unusable (below). JPEG always, because a lossless PNG of a
   photograph seldom fits and has no quality to lower.
   The bytes go into the card as HUMAN-CHAT.md's base64, which the
