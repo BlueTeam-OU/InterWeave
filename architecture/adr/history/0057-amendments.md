@@ -61,4 +61,5 @@ notices as `THIRD-PARTY-NOTICES-android.md`, and the one `cargo deny`
 invocation that judges both targets was green on 71961578, the commit
 the tag was cut on. The sentence now says both are met and where the
 evidence is, so a reader does not take the first release as still
-ahead. Propagation: this note; the log row; the digest entry.
+ahead. Propagation: decision 3 and the Consequences sentence on what
+`deny.toml` had to cover; this note; the log row; the digest entry.

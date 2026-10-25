@@ -98,4 +98,4 @@ APK page's `THIRD-PARTY-NOTICES-android.md` written by the tool (plan
 §22). The rule itself is unchanged — a crate whose notice cannot be
 derived still refuses the artifact — so the sentence loses its
 "until" and names the release that ran under it. Propagation: this
-note; the log row; the digest entry.
+note; decision 6; the log row; the digest entry; the README row.
