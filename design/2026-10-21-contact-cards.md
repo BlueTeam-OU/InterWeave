@@ -1353,7 +1353,8 @@ accessibility tree) are checked now.
   character only on request (the platform's own); the label says what
   it is. The row's custom actions (Android) are Accept and Decline with
   the case labels, as the swipe spec's §7 does for its rows, Accept
-  included on a row showing `CardSameName` (§5.4.4, §12 O3).
+  included on a row showing `CardSameName` (§5.4.4, §12 O3); in case
+  S, Close alone, as its menu holds.
 - Confirmation row (§5.4.2): one focusable group, read as
   `CardAccepted` or `CardUpdated` (with the name as saved), then
   `CardPhotoNotUsed` when it shows, then, while the Accept's snackbar
