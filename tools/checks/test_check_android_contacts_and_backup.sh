@@ -174,8 +174,14 @@ fails "camera-api-legacy-open" "names Camera.open" \
     "printf 'import android.hardware.*\\nval c = Camera.open()\\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
 fails "camera-api-native" "names camera/NdkCamera" \
     "mkdir -p apps/human-android/android/app/src/main/cpp && printf '#include <camera/NdkCameraManager.h>\\n' > apps/human-android/android/app/src/main/cpp/scan.cpp"
-fails "camera-scan-unreadable" "Plain.kt: not readable as UTF-8" \
+fails "camera-scan-unreadable" "Plain.kt: not readable (UnicodeDecodeError); the camera APIs" \
     "printf '\\xff\\xfe// CameraManager\\n' > $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "camera-root-missing" "crates/human/android-platform: missing; the camera APIs were not checked there" \
+    "rm -r crates/human/android-platform"
+fails "contacts-root-missing" "apps/human-android/src: missing; the contacts provider and libraries were not checked there" \
+    "rm -r apps/human-android/src"
+fails "contacts-scan-unreadable" "lib.rs: not readable (UnicodeDecodeError); the contacts provider" \
+    "printf '\\xff\\xfe// ContactsContract\\n' > crates/human/android-platform/src/lib.rs"
 fails "scan-module-missing" "0 Scan module(s) CodeCamera.kt found" \
     "rm $MAIN/kotlin/org/interweave/human/CodeCamera.kt"
 

@@ -71,7 +71,7 @@
 #     the camera features by name) in the Kotlin, Java, Rust, C/C++,
 #     Gradle and resource sources of apps/human-android and of
 #     crates/human/android-platform, read raw, a source not readable as
-#     UTF-8 failing:
+#     UTF-8 or a root that is absent failing:
 #     anywhere in the Scan module, CodeCamera.kt; in MainActivity.kt only
 #     its use of the module -- the CAMERA permission asked and the
 #     camera feature asked of the package manager -- and nowhere else
@@ -89,8 +89,9 @@
 #     artifact contains "contact" (any case).
 #
 # FAIL-CLOSED: an absent main manifest, an absent extraction-rules file,
-# a manifest that does not parse, no lockfile read, or no Scan module
-# found is a failure, not a pass. What the check does NOT see: the
+# a manifest that does not parse, no lockfile read, no Scan module
+# found, a source root that is absent, or a source that cannot be read
+# is a failure, not a pass. What the check does NOT see: the
 # desktop half of decision 6 (the client reads no system address book
 # there), which no tree check can pin, the desktop having no manifest;
 # and a permission a library's own manifest merges into the APK, which
@@ -296,6 +297,9 @@ def check_extraction_rules(path: pathlib.Path, root: pathlib.Path, required: boo
 def check_camera_apis(bases: list[pathlib.Path], root: pathlib.Path) -> None:
     """The camera APIs in the Scan module alone (plan section 29 step 2)."""
     modules = 0
+    for base in bases:
+        if not base.is_dir():
+            report(f"{base.relative_to(root)}: missing; the camera APIs were not checked there")
     paths = [p for base in bases for p in walk(base) if not (set(p.relative_to(base).parts) & TEST_SOURCE_SETS)]
     for path in paths:
         if path.name == "AndroidManifest.xml" or path.suffix not in CAMERA_SUFFIXES:
@@ -304,7 +308,7 @@ def check_camera_apis(bases: list[pathlib.Path], root: pathlib.Path) -> None:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError) as e:
             # A source that cannot be read was not checked: fail closed.
-            report(f"{path.relative_to(root)}: not readable as UTF-8 ({e.__class__.__name__}); the camera APIs were not checked in it")
+            report(f"{path.relative_to(root)}: not readable ({e.__class__.__name__}); the camera APIs were not checked in it")
             continue
         if path.name == SCAN_MODULE:
             modules += 1
@@ -377,6 +381,8 @@ def main(argv: list[str]) -> int:
     lockfiles = 0
     raw_roots = [android, app / "src", root / "crates" / "human" / "android-platform"]
     for base in raw_roots:
+        if not base.is_dir():
+            report(f"{base.relative_to(root)}: missing; the contacts provider and libraries were not checked there")
         for path in walk(base):
             parts = set(path.relative_to(base).parts)
             if parts & TEST_SOURCE_SETS:
@@ -385,7 +391,9 @@ def main(argv: list[str]) -> int:
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
+            except (UnicodeDecodeError, OSError) as e:
+                # A source that cannot be read was not checked: fail closed.
+                report(f"{path.relative_to(root)}: not readable ({e.__class__.__name__}); the contacts provider and libraries were not checked in it")
                 continue
             scanned += 1
             rel = path.relative_to(root)
