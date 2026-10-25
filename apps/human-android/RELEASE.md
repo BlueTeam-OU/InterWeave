@@ -20,7 +20,11 @@ and under which licences, is `STORE-CHECK.md`.
 
 ## Signing
 
-**Proposed, for the owner to confirm with Stage 19:**
+**Confirmed** (ADR-0066, 2026-10-25, the release's signatures): the
+scheme, the one key and what the page shows of it are what `v0.1.0`'s run
+signed with on 2026-10-25; where the key lives is
+`packaging/android/README.md`, "The signing key"; the tag's and the
+Linux archive's signatures are ADR-0066's.
 
 - **Scheme.** APK Signature Scheme v2 and v3 (`apksigner`), no v1 JAR
   signature: the app's minimum SDK is 30, and v3 lets a later key
@@ -30,8 +34,9 @@ and under which licences, is `STORE-CHECK.md`.
   every install: a person would have to uninstall, which deletes the
   app's data, the identity's record included.
 - **Where it is kept: never in the repository**, nor in a CI log or an
-  artifact. It lives in the project's encrypted secrets store, readable
-  by the release run alone, with an offline backup the owner holds. The
+  artifact. It lives in the `release` environment of the release run,
+  read by its signing job alone; keeping the key backed up is the owner's
+  instruction in `packaging/android/README.md`. The
   debug key each developer's build uses is not it, and a debug build is
   never published.
 - **What the page shows of it:** the signing certificate's SHA-256
@@ -39,9 +44,11 @@ and under which licences, is `STORE-CHECK.md`.
   --print-certs` prints it (lowercase hex, no colons), so a person can
   check a download against it as well as against its file hash.
 
-Creating the key and wiring the release run's Gradle signing config
-(read from the run's environment, never from a committed file) are
-Stage 19's.
+The key was made by the owner before the first release, and the run
+signs the unsigned APK Gradle builds with `apksigner` through
+`tools/ci/release_android_apk.sh`, the key read from the run's
+environment and never from a committed file; no Gradle signing config
+exists (`packaging/android/README.md`, "The signing key").
 
 ## The release page
 
@@ -65,8 +72,10 @@ APK it carries what ADR-0057 decision 1 names:
   among them, which the release run fills from the licence files of the
   sources it built: the template carries none of those texts itself.
 
-For the Linux archive it carries the file, its SHA-256 (the archive is
-not signed), what it contains, and the install and update notes; the
+For the Linux archive it carries the file, its SHA-256, its minisign
+signature's public key and verify command (ADR-0066: the `.minisig` is
+an asset beside the archive), what it contains, and the install and
+update notes; the
 archive's name and contents are packaging/linux's, a proposal until that
 lands, and the run fills `{linux_archive}`, `{linux_archive_url}` and
 `{linux_sha256}`.

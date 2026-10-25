@@ -63,3 +63,20 @@ the tag was cut on. The sentence now says both are met and where the
 evidence is, so a reader does not take the first release as still
 ahead. Propagation: decision 3 and the Consequences sentence on what
 `deny.toml` had to cover; this note; the log row; the digest entry.
+
+### Amendment 2026-10-25 — The release's signatures are ADR-0066's
+
+**Trigger.** The first release's review (2026-10-25): the Linux archive
+had no signature, so its SHA-256 on the page it is downloaded from was
+its only check, and the release run never asked whether the tag was
+signed while every agent tags as the owner's GitHub account. ADR-0066
+decides the tag signature, the archive's minisign signature, the pin on
+`main` and the fail-closed run.
+
+**Ruled.** Nothing of this record's decisions changes. Security
+implications gains a sentence naming ADR-0066 for what the release's
+integrity rests on beyond the APK's own key and hash, and says what is
+unchanged: the Android key's custody, and the environment's required
+reviewer as the guard of the secrets. Propagation: Security
+implications; this note; the log row; the digest entry's Security
+line.
