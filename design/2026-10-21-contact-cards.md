@@ -1490,16 +1490,16 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    drag is held past the threshold and not yet released, an action of
    §5.4.5 adds the warning to the row: the row returns to rest, and
    the later release accepts nothing. On desktop, with no contact
-   named "Anna Rossi", the test drags the row of a card naming itself
-   "Anna Rossi" with the pointer and holds it, while the person, using
-   the keyboard, accepts another proposal that saves a contact "Anna
+   named "Anna Rossi", the person drags the row of a card naming itself
+   "Anna Rossi" with the pointer and holds it, and meanwhile, from the
+   keyboard, accepts another proposal that saves a contact "Anna
    Rossi" on another PeerId. While a withheld right
    drag is held, an action of §5.4.5 removes the warning: the row
-   stays still, and the release accepts nothing. On desktop, the test
-   first accepts the other proposal from the keyboard, so that the row
-   shows the warning; then it drags the row right with the pointer and
-   holds it, while the person chooses, from the keyboard, the Undo of
-   the other proposal's Accept. A left drag held past the threshold while
+   stays still, and the release accepts nothing. On desktop, the person
+   first accepts, from the keyboard, the proposal that saves a contact
+   "Anna Rossi" on another PeerId, so that the row shows the warning.
+   Then the person drags the row right with the pointer, holds it, and
+   chooses, from the keyboard, the Undo of that Accept. A left drag held past the threshold while
    the warning appears or disappears still declines on release.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
