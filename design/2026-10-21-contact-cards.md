@@ -484,7 +484,7 @@ client prepares what will be sent from the picked image:
   before preparation) on 2026-10-25: the preparation chose quality 85
   to 90 for them, and the prepared photographs were 13,123 to 24,555
   bytes (recorded in `crates/human/app-core/src/card_photo.rs` at
-  4df2fa26 on develop-qzapp/rust-ui-dev-02/feat/j54-photo-choosing;
+  4df2fa26, which #449 brought to main;
   `card_photo.rs` names neither the seven photographs nor the generator
   of the noise square that it also measures, below). So with
   today's encoder a camera photograph fits far above quality 50. An
