@@ -48,17 +48,17 @@ for f in "${fns[@]}"; do echo "void $f(void){}"; done > "$SANDBOX/libc.c"
 cc -shared -nostdlib -fPIC -Wl,-soname,libc.so.6 -Wl,--version-script="$SANDBOX/libc.map" \
     -o "$SANDBOX/libc.so.6" "$SANDBOX/libc.c" || { echo "test_check_glibc_floor: the stub libc did not link" >&2; exit 1; }
 
-# obj <name> [weak] <fn>...: a shared object calling each <fn> of the stub.
+# obj <name> <fn>... [weak <fn>...]: a shared object calling each <fn>
+# of the stub, those after `weak` through a weak reference.
 obj() {
     local name="$1"; shift
-    local attr=""
-    if [[ "${1-}" == weak ]]; then attr="__attribute__((weak)) "; shift; fi
-    {
-        for f in "$@"; do echo "${attr}void $f(void);"; done
-        echo "void use(void) {"
-        for f in "$@"; do echo "  $f();"; done
-        echo "}"
-    } > "$SANDBOX/$name.c"
+    local attr="" decls="" calls=""
+    for f in "$@"; do
+        if [[ "$f" == weak ]]; then attr="__attribute__((weak)) "; continue; fi
+        decls+="${attr}void $f(void);"$'\n'
+        calls+="  $f();"$'\n'
+    done
+    printf '%svoid use(void) {\n%s}\n' "$decls" "$calls" > "$SANDBOX/$name.c"
     cc -shared -nostdlib -fPIC -o "$SANDBOX/$name" "$SANDBOX/$name.c" "$SANDBOX/libc.so.6" \
         || { echo "test_check_glibc_floor: $name did not link" >&2; exit 1; }
 }
@@ -67,7 +67,12 @@ obj floor.so v_2_2_5 v_2_35
 obj relr.so v_relr
 obj private.so v_private
 obj unknown.so v_unknown
-obj weak.so weak v_2_43
+# A strong reference beside the weak one, as a real program has: a
+# toolchain that links with --as-needed (Ubuntu's gcc does by default)
+# drops a library only weak references use, and the weak one is then
+# left unversioned -- Rust's std reaches pidfd_spawnp weakly from a
+# binary that needs libc for everything else.
+obj weak.so v_2_2_5 weak v_2_43
 obj none.so
 
 # The fixtures are what the test says they are: readelf, not the script,
