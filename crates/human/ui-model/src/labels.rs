@@ -804,6 +804,11 @@ ui_texts! {
     /// CARD PROPOSAL, the same-name note: `{contact}` is a contact of this
     /// identity with the same name on another `PeerId`.
     CardSameName => "One of your contacts is named {contact} and has a different PeerId. Compare the two PeerIds before you accept.",
+    /// CARD PROPOSAL, the link beside `CardSameName`: opens that contact's
+    /// page, `{name}` the contact's name as stored (contact-cards design
+    /// 5.4.1).
+    // PLACEHOLDER (en)
+    ShowContact => "Open your contact {name}",
     /// CARD PROPOSAL: the card came from another identity of a device one
     /// of this identity's contacts is on; `{contact}` is that contact.
     CardSharesNode => "This card comes from the same device as your contact {contact}.",

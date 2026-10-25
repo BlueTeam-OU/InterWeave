@@ -251,8 +251,9 @@ pub enum AcceptLine {
 /// A note a proposal shows before Accept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProposalNote {
-    /// A contact of the same name on another node.
-    SameName(String),
+    /// A contact of the same name on another node, which the note links
+    /// to (`ShowContact`, contact-cards design 5.4.1).
+    SameName(ContactRef),
     /// A contact on the same node, another identity of it.
     SharesNode(String),
     /// A contact holding the same key on another node.
@@ -985,7 +986,7 @@ impl UiModel {
                 notes.extend(
                     c.same_name
                         .iter()
-                        .map(|r| ProposalNote::SameName(r.name.clone())),
+                        .map(|r| ProposalNote::SameName(r.clone())),
                 );
                 notes.extend(
                     c.shares_node
@@ -1346,7 +1347,10 @@ mod tests {
         assert_eq!(
             shown.notes,
             vec![
-                ProposalNote::SameName("Ada Lovelace".to_owned()),
+                ProposalNote::SameName(ContactRef {
+                    contact_id: "c2".to_owned(),
+                    name: "Ada Lovelace".to_owned(),
+                }),
                 ProposalNote::SharesNode("Ada at work".to_owned())
             ]
         );
