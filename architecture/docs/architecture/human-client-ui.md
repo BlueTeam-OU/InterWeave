@@ -218,7 +218,7 @@ Contacts, cards and the store's discard (A 2026-10-21, ADR-0059, ADR-0060; A 202
 - Discard and recreate of the store leaves every identity's key and fingerprint unchanged (ADR-0063 decision 2; STATE.md);
 - restoring the node from its phrase on fresh state gives each identity a new key, not the old one, and the recovery flow said so before it took the phrase (ADR-0063 decision 1; §9);
 - Remove of an added identity deletes its key file and alias with the rest, the confirmation names the key, and to a counterparty that had accepted the removed identity's card a later identity on that label is a key change (ADR-0063 decision 2; ADR-0061 decision 7);
-- the command-line client shows an identity's fingerprint (`identity show`) and a contact's (`contact show`), and decides a key change only with a flag named for it, as the discard has its confirmation flag (ADR-0063 decision 6; §13's discard criterion);
+- the command-line client shows an identity's fingerprint (`identity show`) and a contact's routes' (`contacts show`), and decides a key change only with a flag named for it, as the discard has its confirmation flag (ADR-0063 decision 6; §13's discard criterion);
 - every action of this section has a non-gesture control and an accessibility-tree label.
 
 ## 14. Android availability-policy diagnostic
