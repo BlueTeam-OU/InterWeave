@@ -362,6 +362,7 @@ fn session_losses_rise_and_never_fall() {
         &b,
         &ChannelId::parse("general").expect("valid"),
         usize::try_from(QUEUE_BOUND).expect("a small bound"),
+        suite::Overflow::Shown,
     ));
     pair.stop();
 }

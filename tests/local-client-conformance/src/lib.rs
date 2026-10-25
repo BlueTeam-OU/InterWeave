@@ -975,8 +975,22 @@ fn numbered(n: u32) -> BroadcastMessageV1 {
     }
 }
 
+/// Whether a binding can show [`session_losses_rise_and_never_fall`]'s
+/// overflow phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overflow {
+    /// The session queue fills when its session does not drain.
+    Shown,
+    /// What lies past the session queue holds more than one ingress
+    /// burst, so the queue never fills: over IPC.
+    PastThePipeline,
+}
+
 /// Read `session`'s losses until `reached` holds or the patience runs
 /// out, each read no lower than the one before: a count never falls.
+/// Each read drains the session first: over IPC a response queued
+/// behind undrained events waits for them (`interweave-ipc-client`), and
+/// a drain lowers no count.
 async fn losses_until<S: DataSessionPort>(
     session: &S,
     floor: interweave_local_client_api::SessionLosses,
@@ -986,6 +1000,7 @@ async fn losses_until<S: DataSessionPort>(
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut last = floor;
     loop {
+        take_all(session).await;
         let now = session.losses().await.expect("losses are read");
         assert!(
             now.queue_overflow >= last.queue_overflow
@@ -1010,8 +1025,18 @@ async fn losses_until<S: DataSessionPort>(
 ///
 /// `queue_bound` is the receiver's broadcast queue bound. The overflow
 /// phase publishes `queue_bound + 3` within the ingress burst (32 at the
-/// runtime's per-peer default), so it overflows without being refused;
-/// the flood then publishes 64 at once, past what the bucket holds.
+/// runtime's per-peer default), so it overflows without being refused,
+/// and reads only once they have had time to arrive, since a read
+/// drains; the flood then publishes 64 at once, past what the bucket
+/// holds.
+///
+/// `overflow` says whether the binding can show the overflow phase at
+/// all. Over IPC it cannot: the server pumps the session queue into the
+/// event lane, the client's buffer and the socket, whose share is bounded
+/// in bytes and on a Linux host held all of 28 copies of 40 KiB --
+/// deeper than one ingress burst, so the session queue never fills. That
+/// binding forwards the runtime's count (`tests/ipc-v2`'s wire test holds
+/// it to its schema), and the overflow itself is shown by the other three.
 /// Each phase asserts a rise, never an exact number: the mesh may lose a
 /// copy before admission, uncounted. What a republish does to each count
 /// is the runtime's `a_republished_*` tests in `broadcast_inbound`.
@@ -1020,6 +1045,7 @@ pub async fn session_losses_rise_and_never_fall<B: DataSessionBinding>(
     receiver: &B,
     channel: &ChannelId,
     queue_bound: usize,
+    overflow: Overflow,
 ) {
     let from = publisher.open(full(None)).await.expect("opens");
     from.join(channel.clone()).await.expect("joins");
@@ -1061,21 +1087,30 @@ pub async fn session_losses_rise_and_never_fall<B: DataSessionBinding>(
     while !receive(&joined, SETTLE).await.is_empty() {}
     let start = joined.losses().await.expect("losses are read");
 
-    // Undrained past the bound: the oldest go, and are counted.
-    let overflow = u32::try_from(queue_bound + 3).expect("a small bound");
-    for _ in 0..overflow {
+    // Undrained past the bound: the oldest go, and are counted. No read
+    // until they have had time to arrive, since a read drains.
+    let past_the_bound = u32::try_from(queue_bound + 3).expect("a small bound");
+    for _ in 0..past_the_bound {
         n += 1;
         from.broadcast(channel.clone(), numbered(n))
             .await
             .expect("accepted locally");
     }
-    let overflowed = losses_until(
-        &joined,
-        start,
-        |now| now.queue_overflow > start.queue_overflow,
-        "an undrained queue past its bound counts no overflow",
-    )
-    .await;
+    tokio::time::sleep(4 * SETTLE).await;
+    let overflowed = match overflow {
+        Overflow::Shown => {
+            losses_until(
+                &joined,
+                start,
+                |now| now.queue_overflow > start.queue_overflow,
+                "an undrained queue past its bound counts no overflow",
+            )
+            .await
+        }
+        Overflow::PastThePipeline => {
+            losses_until(&joined, start, |_| true, "the losses are read").await
+        }
+    };
 
     // A flood past the ingress burst: refused at the gate, counted for
     // the session that holds the channel.

@@ -179,6 +179,14 @@ impl FakeNode {
         lock(&self.0.state).authored = entries;
     }
 
+    /// Refuse the other node's broadcasts past the runtime's per-peer
+    /// ingress default from now, counting each refusal as
+    /// `ingress_refused` for the sessions holding its channel, as the
+    /// runtime's gate does. Off by default.
+    pub fn limit_ingress(&self) {
+        lock(&self.0.state).ingress = Some(Bucket::new());
+    }
+
     /// The runtime has stopped: every call from now answers
     /// `BackendUnavailable`.
     pub fn stop(&self) {
@@ -474,8 +482,10 @@ struct State {
     last_writes: BTreeMap<String, u64>,
     /// The ingress gate's bucket for the pair's other node, the only
     /// publisher a fake node has: the runtime's per-peer default, a burst
-    /// of 32 refilled at 120 a minute.
-    ingress: Bucket,
+    /// of 32 refilled at 120 a minute. `None` unless
+    /// [`FakeNode::limit_ingress`] asked for it: a consumer's test that
+    /// publishes past the burst is not testing the gate.
+    ingress: Option<Bucket>,
 }
 
 /// A token bucket at the runtime's per-peer broadcast defaults.
@@ -537,7 +547,7 @@ impl Node {
                 ended: BTreeSet::new(),
                 authored: Vec::new(),
                 added: Vec::new(),
-                ingress: Bucket::new(),
+                ingress: None,
                 last_writes: BTreeMap::new(),
             }),
             injected: Mutex::new(VecDeque::new()),
@@ -675,7 +685,7 @@ impl Node {
         if !state.trusted.contains(source_peer) {
             return;
         }
-        if !state.ingress.take() {
+        if state.ingress.as_mut().is_some_and(|bucket| !bucket.take()) {
             for queues in state.sessions.values_mut() {
                 if queues.joins.contains(channel) {
                     queues.losses.ingress_refused += 1;
