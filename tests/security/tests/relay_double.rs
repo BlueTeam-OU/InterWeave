@@ -20,23 +20,25 @@
 //! - a relay that stops with a circuit open -- its process stopped, its
 //!   sockets open, nothing forwarded and nothing closed: a send through
 //!   it is answered `PeerUnreachable` at the direct protocol's timeout,
-//!   and the end holding a reservation there finds the relay gone by
-//!   its keepalive and is told the circuit's peer is gone.
+//!   the end holding a reservation there loses it by its keepalive, and
+//!   BOTH ends are told the circuit's peer is gone, by the keepalive
+//!   every relayed connection carries end to end
+//!   (`transport/libp2p/CONNECTIVITY.md` section 14, A 2026-10-25);
+//! - a relay that refuses the keepalive's ping: the reservation it
+//!   grants is lost at once, says why, and is asked again at its ladder
+//!   step with the same answer (the same amendment).
 //!
 //! Each negative has its positive beside it in the same run: the
 //! honest relay that is reserved on, or dialled through, once the
 //! misbehaving one has been given up, and the send the circuit carried
 //! before its relay stopped.
 //!
-//! What is NOT proved, and why (`tests/SECURITY-MATRIX.md` S21-07):
-//! the DIALLING end of a circuit through a stopped relay is not told --
-//! it holds no reservation there, so nothing pings that relay from it,
-//! and the peer stays `Connected` (two minutes in the test, which pins
-//! it as a limit; five in one measured run); and a relay that does not
-//! speak ping is not found stopped by either end, since the keepalive
-//! keeps such a relay rather than closing it
-//! (`crates/transport/libp2p/tests/relay_keepalive.rs`; measured once
-//! here for five minutes, not a test).
+//! Before that amendment the stopped-relay run measured two limits: the
+//! dialling end, holding no reservation on the relay, was not told
+//! (not in two minutes, five in one run), and a relay that did not
+//! speak ping was found stopped by neither end. Both are now this
+//! file's tests.
+//!
 //! Every address is loopback, so nothing here speaks for a NAT.
 
 #![allow(clippy::expect_used, clippy::panic)]
@@ -168,10 +170,16 @@ async fn bound<B: NetworkBehaviour>(swarm: &mut libp2p::Swarm<B>) -> Multiaddr {
     }
 }
 
-/// libp2p's relay server, honest and with its defaults, driven by a
-/// task of its own.
+/// libp2p's relay server, honest and with its defaults, answering the
+/// keepalive's pings as this project's relays do, driven by a task of
+/// its own.
 async fn honest_relay(keys: identity::Keypair) -> Multiaddr {
-    let mut swarm = relay_swarm(keys, false);
+    honest_relay_speaking(keys, true).await
+}
+
+/// The same, answering ping or not.
+async fn honest_relay_speaking(keys: identity::Keypair, speaks_ping: bool) -> Multiaddr {
+    let mut swarm = relay_swarm(keys, speaks_ping);
     let address = bound(&mut swarm).await;
     swarm.add_external_address(address.clone());
     tokio::spawn(async move {
@@ -985,7 +993,7 @@ async fn stop_the_relay_under_a_circuit(speaks_ping: bool, horizon: Duration) ->
 const KEEPALIVE_CLOSES_WITHIN: Duration = Duration::from_secs(90);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_relay_that_stops_under_a_circuit_bounds_the_send_and_is_found_by_the_reserving_end() {
+async fn a_relay_that_stops_under_a_circuit_bounds_the_send_and_is_found_by_both_ends() {
     let after = stop_the_relay_under_a_circuit(true, Duration::from_secs(120)).await;
 
     // THE SEND THROUGH THE STOPPED RELAY is answered, and by the direct
@@ -997,23 +1005,83 @@ async fn a_relay_that_stops_under_a_circuit_bounds_the_send_and_is_found_by_the_
             && took <= DIRECT_TIMEOUT + Duration::from_secs(5),
         "the send is ended by DIRECT_TIMEOUT ({DIRECT_TIMEOUT:?}): {after:?}"
     );
-    // THE RESERVING END pings its relay, so it finds the relay gone:
-    // the reservation is lost and the circuit's peer disconnected.
+    // THE RESERVING END pings its relay, so it loses the reservation.
     let lost = after.reservation_lost.expect("the reservation is lost");
-    let told = after
-        .target_told
-        .expect("the target is told the source is gone");
     assert!(
-        lost <= KEEPALIVE_CLOSES_WITHIN && told <= KEEPALIVE_CLOSES_WITHIN,
+        lost <= KEEPALIVE_CLOSES_WITHIN,
         "within the keepalive's bound: {after:?}"
     );
-    // LIMIT, measured: the DIALLING end holds no reservation on the
-    // relay, so the keepalive does not ping it there, and nothing tells
-    // it the circuit is dead -- the peer stays `Connected` and each send
-    // costs a DIRECT_TIMEOUT. `tests/SECURITY-MATRIX.md` S21-07 carries
-    // it; when this fails, the limit was closed and the row says so.
-    assert_eq!(
-        after.source_told, None,
-        "the dialling end is not told within two minutes (S21-07's limit): {after:?}"
+    // AND BOTH ENDS are told the circuit's peer is gone: the relayed
+    // connection is pinged end to end, so the DIALLING end, which holds
+    // no reservation there, finds the dead path too.
+    let target_told = after
+        .target_told
+        .expect("the target is told the source is gone");
+    let source_told = after
+        .source_told
+        .expect("the source is told the target is gone");
+    assert!(
+        target_told <= KEEPALIVE_CLOSES_WITHIN && source_told <= KEEPALIVE_CLOSES_WITHIN,
+        "within the keepalive's bound at both ends: {after:?}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_relay_that_refuses_the_keepalive_loses_each_reservation_and_says_why() {
+    let relay_keys = identity::Keypair::generate_ed25519();
+    let relay_peer = identity_of(&relay_keys);
+    let relay_addr = honest_relay_speaking(relay_keys, false).await;
+    let mut subject = SwarmRuntime::start(
+        &ProfileIdentity::generate(),
+        SubstrateConfig {
+            relay_client: Some(one_reservation(vec![static_relay(
+                &relay_peer,
+                &relay_addr,
+            )])),
+            ..SubstrateConfig::default()
+        },
+        trust(&[], &[&relay_peer]),
+    )
+    .expect("the subject starts");
+    // Granted and then lost for the refusal, twice: the relay stays
+    // configured and is asked again at its ladder step (5 s, up to 5 s
+    // of jitter), with the same answer.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(40);
+    let (mut granted, mut refused) = (0_usize, 0_usize);
+    let mut seen = Vec::new();
+    while refused < 2 {
+        let event = tokio::time::timeout_at(deadline, subject.next_event())
+            .await
+            .unwrap_or_else(|elapsed| {
+                panic!("not refused twice ({elapsed}): {granted} granted, saw {seen:#?}")
+            })
+            .expect("the subject is alive");
+        if let SwarmEvent::RelayReservationChanged {
+            relay,
+            outcome,
+            detail,
+            ..
+        } = &event
+            && *relay == relay_peer
+        {
+            match outcome {
+                RelayReservationOutcome::Accepted => granted += 1,
+                RelayReservationOutcome::Lost | RelayReservationOutcome::Failed => {
+                    assert!(
+                        detail
+                            .as_deref()
+                            .is_some_and(|d| d.contains("refuses the keepalive")),
+                        "the loss says the relay refuses the keepalive: {event:?}"
+                    );
+                    refused += 1;
+                }
+                _ => {}
+            }
+        }
+        seen.push(event);
+    }
+    // THE CONTROL that it was the keepalive and not a relay that would
+    // not reserve: each loss followed a grant.
+    assert!(granted >= 2, "each refusal followed a grant: {seen:#?}");
+    subject.shutdown().await.expect("shuts down");
 }
