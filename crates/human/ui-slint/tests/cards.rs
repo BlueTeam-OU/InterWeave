@@ -1241,6 +1241,62 @@ fn the_share_sheet_says_the_key_cannot_be_used_and_opens_the_card_page() {
     assert!(shows(&view, text(UiText::TryAgain)));
 }
 
+/// The unsaved-changes dialog's two actions are one per line, each the
+/// width of its title's column, Close without saving first, as the
+/// proposal's: at 320 px with 200 % text the two labels cannot sit side
+/// by side, and the longer one wraps inside its button. Mutations: the
+/// actions back on one line; Close without saving not wrapping.
+#[test]
+fn the_unsaved_changes_dialog_fits_a_narrow_window_with_large_text() {
+    let width = 320.0;
+    let mut view = view();
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(width, 2400.0));
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: false,
+        photo: None,
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        peer: Some(peer(Q)),
+    });
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    view.window().set_own_given("Grace".into());
+    assert!(view.window().invoke_handle_back());
+    settle();
+    assert!(view.window().get_own_discard_open());
+
+    let title = bounds(&view, text(UiText::CardDiscardChanges));
+    let close = bounds(&view, text(UiText::DiscardChanges));
+    let keep = bounds(&view, text(UiText::KeepEditing));
+    for (label, b) in [("title", title), ("Close", close), ("Continue", keep)] {
+        assert!(
+            b.0 >= 0.0 && b.2 <= width,
+            "{label} at {b:?}, inside {width} px"
+        );
+    }
+    assert!(close.3 <= keep.1, "Close without saving on a line above");
+    for (label, b) in [("Close", close), ("Continue", keep)] {
+        assert!(
+            (b.0 - title.0).abs() < 0.5 && (b.2 - title.2).abs() < 0.5,
+            "{label} the column's full width: {b:?}, the title {title:?}"
+        );
+    }
+}
+
 /// The bounds of the one element labelled `label`.
 fn bounds(view: &View, label: &str) -> (f32, f32, f32, f32) {
     let found = labelled(view, label);

@@ -6858,13 +6858,19 @@ export component AppWindow inherits Window {
                     accessible-role: text;
                     accessible-label: self.text;
                 }
-                HorizontalLayout {
-                    alignment: end;
+                // One action a line, the full width, as the proposal's
+                // (contact-cards 5.4): "Close without saving" does not fit
+                // beside Continue editing on a phone, and Slint 1.18
+                // cannot choose a layout from a label's width
+                // (tests/cards.rs,
+                // `the_unsaved_changes_dialog_fits_a_narrow_window_with_large_text`).
+                VerticalLayout {
                     spacing: 8px;
                     discard-confirm := ActionButton {
                         text: root.discard-label;
                         detail: root.discard-title;
                         text-button: true;
+                        wraps: true;
                         target: 48px;
                         focus-key: "discard-confirm";
                         pressed => { root.discard-changes(); }
@@ -6873,6 +6879,7 @@ export component AppWindow inherits Window {
                     discard-keep := ActionButton {
                         text: root.keep-editing-label;
                         filled: true;
+                        wraps: true;
                         target: 48px;
                         focus-key: "discard-keep";
                         pressed => { root.keep-editing(); }
