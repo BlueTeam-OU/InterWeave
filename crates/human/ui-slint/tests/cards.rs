@@ -1226,11 +1226,16 @@ fn bounds(view: &View, label: &str) -> (f32, f32, f32, f32) {
 /// inside the card's fill, so the card is drawn behind them and the list
 /// reaches its end. Its children were all conditional once, which pass no
 /// size up, and the card was drawn 0 px tall with its text spilling below
-/// it. Mutation: the card's body layout taken away, its branches the
-/// card's own children again.
+/// it; then, its size implicit, measured before its lines wrapped, and a
+/// phone drew Accept under it. Mutations: the card's body layout taken
+/// away; its two height bindings taken away.
 #[test]
 fn a_proposal_row_is_as_tall_as_what_it_says() {
     let mut view = view();
+    // Phone-wide, where its lines wrap most.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
     let mut model = UiModel::new();
     model.card_received(proposal(1, P, card("Ada", false), context()));
     let _ = shown(&mut view, &mut model, P);

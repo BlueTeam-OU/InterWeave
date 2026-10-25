@@ -2101,7 +2101,12 @@ component ProposalCard inherits Rectangle {
     border-color: Palette.outline-variant;
     // Its size is this layout's: a conditional child passes none to the
     // card, which would be drawn 0 px tall, its text spilling past the
-    // list's end (tests/cards.rs, `a_proposal_row_is_as_tall_as_what_it_says`).
+    // list's end; and bound to it, since left implicit it was measured
+    // before its lines wrapped at the card's width, and a phone drew the
+    // actions under the card (tests/cards.rs,
+    // `a_proposal_row_is_as_tall_as_what_it_says`).
+    min-height: body.min-height;
+    preferred-height: body.preferred-height;
     body := VerticalLayout {
     if root.card.answered: VerticalLayout {
         padding: 16px;
