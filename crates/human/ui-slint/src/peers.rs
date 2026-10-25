@@ -233,7 +233,7 @@ pub(crate) struct PeerLists {
     row_handles: crate::Handles<String>,
     blocks: Rc<VecModel<PeerTrustBlock>>,
     block_keys: Vec<TransportIdentity>,
-    block_handles: crate::Handles<TransportIdentity>,
+    pub(crate) block_handles: crate::Handles<TransportIdentity>,
     /// The focus request last carried out, by the model's count.
     focus_seen: u64,
     /// The key that request was sent as, and whether `PeerRowGoneAfterAct`

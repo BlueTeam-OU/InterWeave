@@ -2432,6 +2432,10 @@ export component AppWindow inherits Window {
     // In-out so Rust can clear a stale "undo": nothing reports the Undo
     // losing focus when its snackbar goes.
     in-out property <string> focus-id;
+    // Each change of it, for a debug build's trace (src/trace.rs); bound
+    // by Rust only under the `ui-trace` feature.
+    callback focus-moved(string);
+    changed focus-id => { root.focus-moved(self.focus-id); }
 
     // The one row a swipe moves ("m:" and an item's handle, "c:" and a
     // conversation's), how far, whether it is armed, and whether it

@@ -47,6 +47,8 @@ mod refusal;
 mod scan_images;
 mod store_screen;
 mod swipe;
+#[cfg(feature = "ui-trace")]
+mod trace;
 
 pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
 pub use identity::{
@@ -820,6 +822,9 @@ pub struct View {
     pressed: HashSet<ItemKey>,
     /// The model's last snackbar closing this view acted on.
     undo_closed_seen: Option<u64>,
+    /// Where the trace goes and what it last said was shown.
+    #[cfg(feature = "ui-trace")]
+    trace: Option<trace::Tracer>,
     /// Where a message's shown time comes from.
     clock: clock::Clock,
     /// The monotonic time a leaving row closes by: `Instant::now`, or a
@@ -1090,7 +1095,50 @@ impl View {
             accept_timer: slint::Timer::default(),
             pressed: HashSet::new(),
             undo_closed_seen: None,
+            #[cfg(feature = "ui-trace")]
+            trace: None,
         })
+    }
+
+    /// Write what the window shows to `sink` from now on, a line per
+    /// change: the page, where focus is, and the Peers steps' outcomes,
+    /// in kinds only (`trace.rs`). For a driver that steps the app by key
+    /// events; the debug APK turns it on, the release build has none.
+    #[cfg(feature = "ui-trace")]
+    pub fn on_trace(&mut self, sink: impl Fn(&str) + 'static) {
+        let sink: Rc<dyn Fn(&str)> = Rc::new(sink);
+        let to = Rc::clone(&sink);
+        self.window
+            .on_focus_moved(move |id| to(&trace::focus_line(&id)));
+        self.trace = Some(trace::Tracer::new(sink));
+    }
+
+    /// What this render showed, to the trace if one is on.
+    #[cfg(feature = "ui-trace")]
+    fn trace_render(&mut self, model: &UiModel) {
+        if self.trace.is_none() {
+            return;
+        }
+        let window = &self.window;
+        let page = match self.page {
+            Page::Conversation if self.shown.is_some() && window.get_pane_shown() => "conversation",
+            Page::Conversation => "conversations",
+            Page::Trust => "trust",
+            Page::Cards => "cards",
+            Page::Peers if window.get_viewfinder_open() => "peers-scan",
+            Page::Peers if window.get_peers_show_open() => "peers-show",
+            Page::Peers if window.get_peers_add_open() && window.get_add_step_one() => "peers-add",
+            Page::Peers if window.get_peers_add_open() => "peers-add-trust",
+            Page::Peers => "peers",
+        };
+        let menu = window.get_menu_open();
+        let handles = &mut self.peer_lists.block_handles;
+        let now = trace::shown(page, menu, model.peers(), model.trust_settings(), |p| {
+            handles.of(p)
+        });
+        if let Some(tracer) = self.trace.as_mut() {
+            tracer.render(now);
+        }
     }
 
     /// The window, to show it or to inspect its tree.
@@ -1897,6 +1945,8 @@ impl View {
         if let Some(said) = said {
             self.announce(said);
         }
+        #[cfg(feature = "ui-trace")]
+        self.trace_render(model);
         if let Some(key) = self.on_screen() {
             let unread = model
                 .conversations()
