@@ -1124,3 +1124,75 @@ fn a_proposals_menu_gives_focus_back_where_it_came_from() {
         "no key: the row's first control"
     );
 }
+
+/// Contact-cards design section 5.4.4, a warned row: a long press that
+/// slides onto the menu's Accept and is released there chooses nothing,
+/// and the menu stays open; Accept is chosen by a press that starts and
+/// ends on it. What holds it is the toolkit's grab -- the press stays
+/// the card's touch area, so no menu item sees its release -- and this
+/// test is what fails if a change hands that press to the menu.
+#[test]
+fn a_warned_rows_menu_accepts_by_a_tap_never_by_the_long_press_release() {
+    let mut view = phone();
+    view.set_touch_settings(TouchSettings {
+        long_press_ms: 400,
+        ..TouchSettings::default()
+    });
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, true, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let at = proposal_heading_at(&view, 0);
+    let accept_item = |view: &View| {
+        let item = ElementHandle::find_by_element_type_name(view.window(), "MenuItem")
+            .find(|e| {
+                e.accessible_label().as_deref() == Some(placeholder_en::text(UiText::AcceptAsNew))
+            })
+            .expect("the menu's Accept, under the case's label");
+        let (p, size) = (item.absolute_position(), item.size());
+        (p.x + size.width / 2.0, p.y + size.height / 2.0)
+    };
+
+    event(
+        &view,
+        WindowEvent::PointerPressed {
+            position: LogicalPosition::new(at.0, at.1),
+            button: PointerEventButton::Left,
+        },
+    );
+    tick(120);
+    tick(400);
+    assert_eq!(view.window().get_card_menu(), 0, "held: its menu");
+    let on = accept_item(&view);
+    for f in [0.25_f32, 0.5, 0.75, 1.0] {
+        tick(16);
+        event(
+            &view,
+            WindowEvent::PointerMoved {
+                position: LogicalPosition::new(at.0 + (on.0 - at.0) * f, at.1 + (on.1 - at.1) * f),
+            },
+        );
+    }
+    tick(16);
+    event(
+        &view,
+        WindowEvent::PointerReleased {
+            position: LogicalPosition::new(on.0, on.1),
+            button: PointerEventButton::Left,
+        },
+    );
+    tick(16);
+    assert!(
+        answers(turn(&mut view, &mut model)).is_empty(),
+        "the long press's release chose nothing"
+    );
+    assert_eq!(view.window().get_card_menu(), 0, "the menu stays open");
+
+    tap(&view, accept_item(&view));
+    assert_eq!(
+        answers(turn(&mut view, &mut model)),
+        vec![Intent::AcceptCard(RowId::from_stored(1))],
+        "control: a tap on Accept"
+    );
+}
