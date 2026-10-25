@@ -611,9 +611,10 @@ async fn share_without_a_key_sends_nothing() {
 }
 
 /// Plan §29 (b), ADR-0059 decision 4: two cards of one name from two
-/// `PeerId`s are two proposals, and Accept never merges them. The note
-/// names a contact (design 5.4.1, case D), so it appears on the second
-/// once the first is a contact, and not before.
+/// `PeerId`s -- the second a lookalike spelling, the same name by design
+/// 5.4.1's key -- are two proposals, and Accept never merges them. The
+/// note names a contact (case D), in the contact's spelling, so it appears
+/// on the second once the first is a contact, and not before.
 #[tokio::test]
 async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     // The fake joins two nodes at a time, so Bob's one profile is opened on
@@ -633,7 +634,24 @@ async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     let mut bob = Root::new(facade(&b2, &pb, None));
     carol.pump(0).await;
     bob.pump(0).await;
-    shared(&mut carol, &mut bob, &b2).await;
+    // Carol's name is Alice's with a Cyrillic A: the same name by design
+    // 5.4.1's key, spelled otherwise, so the note can show whose spelling
+    // it names.
+    carol.will(Intent::SetOwnCard {
+        name: "\u{410}da".to_owned(),
+        surname: Some("Lovelace".to_owned()),
+        photo: PhotoEdit::Keep,
+    });
+    carol.pump(1).await;
+    carol.will(
+        carol
+            .model()
+            .share_card(&direct(b2.peer()))
+            .expect("offered"),
+    );
+    carol.pump(2).await;
+    carol.pump(3).await;
+    bob.pump(4).await;
 
     let (from_alice, from_carol) = (direct(a.peer()), direct(c.peer()));
     let first = bob.model().proposals(&from_alice);
@@ -641,12 +659,17 @@ async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     assert_eq!((first.len(), second.len()), (1, 1), "{:?}", bob.updates);
     let (first, second) = (first[0].clone(), second[0].clone());
     assert_ne!(first.row, second.row, "two proposals, not one");
-    assert_eq!(first.name, second.name, "of one name");
+    assert_eq!(
+        (first.name.as_str(), second.name.as_str()),
+        ("Ada Lovelace", "\u{410}da Lovelace"),
+        "each as its card spells it"
+    );
     assert_eq!((&first.peer, &second.peer), (a.peer(), c.peer()));
     assert_ne!(first.fingerprint, second.fingerprint);
     for p in [&first, &second] {
         assert_eq!(p.accept, AcceptLine::Creates, "{p:?}");
         assert!(p.notes.is_empty(), "no contact to name yet: {p:?}");
+        assert_eq!(p.accept_text(), UiText::CardAccept, "case N: {p:?}");
     }
     assert!(bob.model().contacts().is_empty(), "nothing before Accept");
 
@@ -657,8 +680,9 @@ async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     assert_eq!(
         second.notes,
         vec![ProposalNote::SameName("Ada Lovelace".to_owned())],
-        "the contact it shares a name with, before its Accept"
+        "the contact it shares a name with, in the contact's spelling"
     );
+    assert_eq!(second.accept_text(), UiText::AcceptAsNew, "case D");
     bob.will(Intent::AcceptCard(second.row));
     bob.pump(6).await;
     assert!(bob.failed().is_empty(), "{:?}", bob.failed());
