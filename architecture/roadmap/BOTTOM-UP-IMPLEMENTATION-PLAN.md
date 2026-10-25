@@ -6523,10 +6523,11 @@ columns, each named for what it holds: `read_pairs`, where a message
 came from, the id its sender gave it and when the pair was written, at
 most 4096 rows and no text; `conversation_index`, whom a conversation
 is with (a peer and its endpoint, or a channel), which identity it
-speaks as, its title — user-set, or the contact's display name, so the
-one column of the set that holds a name, and only one the contact row
-holds already — when it was last active and when its card was last
-shared;
+speaks as, its title — the contact's display name, which the contact
+row holds already, or one the person set, a name they chose; the one
+column of the set that holds a name, and one no code writes today, so
+a writer of it falls under the rule below — when it was last active
+and when its card was last shared;
 `contact_routes.last_seen`, when a route last reached; and the
 contacts' `name_source`, `name_at`, `photo_source` and `photo_at`,
 whether a name or a photo came from a card or from the person, and
@@ -6535,8 +6536,8 @@ backup (`allowBackup="false"`, every domain excluded), and all are
 ciphertext at rest under the platform-sealed key since step 3; what
 each discloses, to whoever holds the open store, is when and with whom
 the person talked, which the conversation list shows in any case. The
-review accepts every one as it stands, the title included for the
-reason given, with one rule: no column of
+review accepts every one as it stands, the title included on both of
+its readings, with one rule: no column of
 this set, and no derivative of one, reaches the wire, a backup, a log
 or an export without a record that names it; (e) the added address by
 `an_added_address_is_dialled_and_survives_a_restart_with_no_provider_authored`
@@ -6579,7 +6580,8 @@ the two phone rows: an address added on the Pixel 9a for the A40
 dialled and surviving a restart, 4 of 4 at 96c2a52b
 (`tests/android-e2e/runs/2026-10-24-pixel-9a-a40-wifi-added-address.md`,
 #417: runs 5–8; runs 2 and 4 before it failed on the cases' design,
-1 and 3 were not run), its cache-on variants 12 of 12 and the reboot in its second
+1 and 3 were not run), its cache-on variants' 12 runs passed with the
+three "neither" runs no control (carried below) and the reboot in its second
 run, 193.86 s, the first stopped at the harness's 1200 s wait for the
 phone's new address (`…-cache-on.md`, `…-reboot.md`, #421); two
 fresh phones on one LAN connecting after each trusted the other's
@@ -6644,8 +6646,9 @@ owner:
   the Keystore sealing of the store key on a real Keystore, and the
   rewrite and the key file on a device, have no device record — the
   invalidated-key case runs against a fake Keystore, and the phone rows
-  open the encrypted store under the real Keystore on both phones
-  without asserting it — rust-ui-dev's, a device row; the
+  open the encrypted store under the real Keystore on both phones (#377
+  is in each build they ran) without asserting it — rust-ui-dev's, a
+  device row; the
   system-libcrypto build is not pinned, the workspace selecting
   `bundled-sqlcipher-vendored-openssl` — rust-ui-dev's, when a build
   needs it.
