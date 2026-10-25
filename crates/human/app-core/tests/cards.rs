@@ -1869,3 +1869,69 @@ async fn a_delete_after_a_photo_removal_on_one_contact_keeps_its_undo() {
         "back as the delete found it"
     );
 }
+
+/// #433 F6, contact-cards design 5.4.1 cases U and E for the photo: a
+/// later card with a photo, the contact's photo not the person's, names
+/// the new photo; once the person chose their own, the same card says
+/// that photo stays and changes none. Mutations: `new_photo` or
+/// `kept_photo` constant false.
+#[tokio::test]
+async fn a_later_cards_photo_is_named_as_new_or_as_the_persons_kept() {
+    use interweave_human_ui_model::ValueChanges;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let first = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Keep),
+        1,
+    )
+    .await;
+    bob.will(Intent::AcceptCard(first.row));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+
+    let with_photo = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Chosen(png(400, 300))),
+        10,
+    )
+    .await;
+    assert_eq!(
+        with_photo.values,
+        ValueChanges {
+            new_photo: true,
+            ..ValueChanges::default()
+        },
+        "case U: the card's photo would replace the contact's"
+    );
+    bob.will(Intent::DeclineCard(with_photo.row));
+    bob.pump(15).await;
+
+    bob.will(Intent::SetContactPhoto {
+        contact_id,
+        photo: PhotoEdit::Chosen(png(64, 64)),
+    });
+    bob.pump(16).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(20).await;
+    alice.pump(21).await;
+    bob.pump(22).await;
+    let again = bob.model().proposals(&direct(a.peer()));
+    assert_eq!(
+        again.last().expect("a proposal").values,
+        ValueChanges {
+            kept_photo: true,
+            ..ValueChanges::default()
+        },
+        "case E: the person's photo stays"
+    );
+}
