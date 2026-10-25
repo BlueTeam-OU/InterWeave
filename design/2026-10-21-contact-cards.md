@@ -622,17 +622,87 @@ and one Accept label.
 **Same name.** What is compared is the name the card would give the
 contact — its `name`, then a space and its `surname` when it has one
 (ADR-0059 d. 3's `display_name`) — against each contact's
-`display_name`. Both sides are reduced to a key: NFKC, then full case
-folding, then every run of whitespace (any `Zs` character, a no-break
-space included, and tabs) collapsed to one space and trimmed, then the
-confusable skeleton of Unicode TS #39 (§4, `skeleton`). Two names are
-the same when their keys are equal. The key decides only whether the
-warning shows and whether titles carry the PeerId (§6.1); it is never
-displayed and never stored in place of the name. The reason is the
-threat ADR-0059 makes visible: a peer naming itself "Аnna" with a
-Cyrillic А, "Anna Rossi" with a no-break space or "Ａnna" in fullwidth
-letters — each allowed by HUMAN-CHAT.md's name rules — must meet the
-same warning as "Anna".
+`display_name`. Three keys are made from each name. Here `skeleton` is
+the confusable skeleton of Unicode TS #39 (TS #39's §4), "fold" is full
+case folding, and "spaces" means every run of whitespace (any `Zs`
+character, a no-break space included, and tabs) collapsed to one space
+and trimmed:
+
+- the **case key**: NFKC, then spaces, then fold, then `skeleton`;
+- the **shape key**: spaces, then `skeleton`, then fold, then
+  `skeleton` again;
+- the **compatibility shape key**: NFKC, then the shape key's steps.
+
+Two names are the same when their case keys are equal, **or** their
+shape keys are equal, **or** their compatibility shape keys are equal.
+Each key is compared only with the same key of the other name. The keys decide only whether the warning shows
+and whether titles carry the PeerId (§6.1); they are never displayed
+and never stored in place of the name. The reason is the threat
+ADR-0059 makes visible: a peer naming itself "Аnna" with a Cyrillic А,
+"Anna Rossi" with a no-break space, "Ａnna" in fullwidth letters,
+"Βob" with a Greek capital Beta, "ꓮda" with a Lisu letter or "Alſie"
+with a long s — each allowed by HUMAN-CHAT.md's name rules — must meet
+the same warning as "Anna", "Anna Rossi", "Bob", "Ada" or "Alfie".
+
+Why these keys. TS #39's prototypes are case-sensitive: a capital
+lookalike maps to a capital Latin letter (Greek "Β" and Lisu "ꓮ" to
+"B" and "A"). Folding first turns such a letter into one that no
+longer looks Latin (Greek "Β" folds to "β"), or leaves the letter as it
+is, so that its prototype is still a capital (Lisu "ꓮ" has no case).
+So the case key misses them; the shape key reads the name as written
+and catches them. The shape key alone would miss what the case key
+catches: "Ian" and "ian" differ only in case, yet their shape keys
+differ, because a capital I looks like a small l and a small i does
+not. A match on any one key is enough for the warning, because a missed
+lookalike lets a peer pass as a contact, while an extra warning costs
+the person one comparison of PeerIds. The rule warns on every pair
+that the case key alone warns on. There are two shape keys, one without
+NFKC and one with it, because each catches lookalikes that the other
+misses.
+NFKC rewrites some lookalikes before `skeleton` sees them: long "ſ"
+becomes "s", so "Alſie" would be compared as "Alsie"; the shape key
+reads "Alſie" as written, and `skeleton` maps "ſ" to "f". Other characters look Latin only after NFKC: a fullwidth digit zero
+becomes "0", whose skeleton is "O", so only the compatibility shape
+key joins "J０hn" and "John". The rule is not transitive: "Ian" is
+the same name as "ian" and as "lan", but "ian" and "lan" are not the
+same name. Nothing here needs the rule to be transitive, because the
+warning and
+§6.1's titles compare one pair of names at a time.
+
+The cost of the shape keys is a few false warnings. Each shape key
+folds after `skeleton`, so each joins a capital I, which `skeleton` turns into a
+small l, with a capital L, which the fold turns into a small l. "Ian"
+and "Lan" are the same name
+by this rule though they do not look alike. Such a warning costs the
+person one comparison of PeerIds, and the contact is still saved on
+Accept.
+
+Evidence (`confusables.txt` of Unicode 16.0.0, SHA-256
+95bd0aad6dced5ebc63436f459c06ab21a8d107cd842fb57f5c3a1e91bca8611; the
+script and its name list are in PR #438's comment
+https://github.com/BlueTeam-OU/InterWeave/pull/438#issuecomment-6395097730,
+and the script prints every figure below). A pair is a
+source character of the file against one form of its prototype. A
+source character counts when its prototype has at least one letter
+and is made only of code points that are below U+0250 or are
+combining marks. Its forms are the distinct ones among four: the
+prototype as listed, in lower case, in upper case, and with its first
+letter capital. That gives 3,765 pairs. The case key
+alone missed 949 of them. The first fix proposed for this gap
+(rust-ui-dev-02's observation), fold, then `skeleton`, then fold,
+missed 435, among them "ꓟax" against "Max" (a small m's skeleton is
+"rn") and "Βob" against "Bob". The rule above misses 17, each a pair
+that `skeleton` itself does not join (such as "ȧ" and "å"). Without
+the compatibility shape key, the rule would also miss 45 pairs of a
+compatibility character against a Latin form, found by comparing every
+code point that NFKC changes with the Latin forms of that code point's
+compatibility shape key. In 15 of them the character's NFKC form looks
+like the Latin form with its case as written (the fullwidth digit zero
+against "O", a circled number twenty against "2O"); the other 30 join
+only after the fold, and some of the 30 are false warnings of the I
+and L kind above (a circled capital I against "L"). Among 106
+common given names, the rule joins only one pair, "Ian" and "Lan", the
+false warning above.
 
 | case | context line | Accept label | Accept does |
 |---|---|---|---|
@@ -655,14 +725,18 @@ is already under X updates X rather than creating a contact, since X is
 that identity of that peer; but X being that identity says nothing about
 whether it is naming itself as someone else. So **whenever Accept would
 write a name** — in case P, and in cases U and E when the name changes
-and is not a local edit — and that name has the same key as a contact on
-another PeerId, `CardSameName` is shown too, in `error`, above the
+and is not a local edit — and that name is the same name, by the rule
+above, as the name of a contact on another PeerId, `CardSameName` is shown too, in `error`, above the
 case's own line, naming that contact, with its Open your contact link
 (ADR-0059 Security implications: a second contact with an existing name
 is shown as such before acceptance). The Accept label stays the case's.
 A contact on the same PeerId with the same name is not a lookalike
 warning: it is the same device, which case P's line already says, and
 their titles are told apart by the route label (§6.1). A photo is a
+local choice when the store records that the person, not a card,
+decided it on this device (Remove photo, §6.3, records one). Every
+other photo is not a local choice, including one whose source the
+store did not record. A photo is a
 "value that changes" whenever the card carries one and X's photo is not
 a local choice, since the client cannot compare a photo it has not
 decoded (`CardUpdatesPhoto`). It is one too when the card carries no
@@ -804,10 +878,21 @@ from the missing bubble and the warning:
   chooses nothing (message-swipe §4's release that ends the long press
   already chooses nothing on every row). On that row, Accept is chosen
   only by a press that starts and ends on Accept after the menu has
-  opened (a tap, Enter or Space). Everywhere else, a press-drag-release
-  chooses whatever item the finger ends on, and Accept is the menu's
-  first item, near where the press began. Without this rule, a long
-  press with a slight slide could save a warned card unread. This rule
+  opened (a tap, Enter or Space). Onto any other item of that row's
+  menu, and onto any item on every other row, a press-drag-release
+  chooses the item the finger ends on. The menu is anchored to the
+  card, as message-swipe §7 anchors a message's menu to its bubble. It
+  opens under the card when it fits in the visible area there; else
+  above the card when it fits there; else over the card, at the top of
+  the visible area (when neither the space below the card nor the
+  space above it holds the menu, as with a tall card at a large text
+  size). The visible area is the
+  window inside the system bars; the menu may cover the app bar or the
+  composer. The menu's place depends on the card alone, never on
+  where the press was made. So a
+  long press that slides from the card onto the menu can end on
+  Accept, the menu's first item, before the person has read the card. Without
+  this rule, a warned card could be saved that way unread. This rule
   is the designer's reading of §12 O3's reason (a deliberate choice of
   Accept, never one that can happen without reading), not a separate
   answer from the owner.
@@ -1086,7 +1171,7 @@ none is specified here (§11).
   different routes exist, the title is `DirectTitle` with the name in
   `{peer}`.
 - **Two contacts with the same name** (of the identity in front, by
-  §5.4.1's key, so a lookalike spelling counts): each title carries
+  §5.4.1's rule, so a lookalike spelling counts): each title carries
   what tells it apart from every other contact of that name, both when
   both are needed (`human-client-ui.md` §4, §13):
   - another contact of that name on **another PeerId** → the short
@@ -1544,7 +1629,20 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    Fixtures for D against a contact "Anna Rossi": a card "Anna" +
    "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; a name "Anna Rossi" with
    U+00A0 between the words and no surname; "Ａnna" (fullwidth) +
-   "Rossi" — each shows `CardSameName`. A card from a second endpoint
+   "Rossi" — each shows `CardSameName`. Fixtures for D that the case key does
+   not join, each card against a contact of the plain name, on
+   another PeerId: "ꓮda" (Lisu U+A4EE) against "Ada"; "Ꭰave"
+   (Cherokee U+13A0) against "Dave"; "ꓟax" (Lisu U+A4DF) against
+   "Max"; "Βob" (Greek U+0392) against "Bob"; "Alſie" (long s,
+   U+017F) against "Alfie"; "J０hn" (fullwidth digit zero U+FF10)
+   against "John" — each shows `CardSameName`. "Alſie" is joined only
+   by the shape key and "J０hn" only by the compatibility shape key, so
+   a build that leaves out either shape key fails one of these fixtures. A card "Ian" against a contact "ian", a pair that only
+   the case key joins, also shows `CardSameName`. Controls: a card "Mia" against a
+   contact "Max", and "Hanna" + "Rossi" against "Anna Rossi", are case
+   N and show no `CardSameName`. Each pair is also checked by §5.4.1's
+   three keys directly, as a unit test of the store's comparison
+   (rust-ui-dev). A card from a second endpoint
    of contact Carol's PeerId is case P: Accept leaves two contacts, each
    holding one route, Carol unchanged, and each contact page naming the
    other as sharing its device. A card naming itself "Anna Rossi" from
@@ -1584,9 +1682,15 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    your contact, Decline and Accept, by a long press, and on the
    desktop by a secondary click. Enter on each of those controls does
    that control's action and opens no menu. On Android,
-   on the case D row, a long press that slides onto Accept and lifts
-   there leaves the menu open with nothing saved. Then a tap on Accept
-   saves the card. On a case N row, the same slide and lift accepts the card.
+   on the case D row and on case E's "Anna Rossi" row, a long press
+   that slides onto Accept and lifts there leaves the menu open with
+   nothing saved. Then a tap on Accept saves the card. On a case N row,
+   the same slide and lift accepts the card. On each of these rows the
+   menu opens under the card when there is room below it, above the
+   card when there is not, and over the card at the top of the visible
+   area when there is room on neither side (a case D card at 200 %
+   text). In each of the three places, two long presses at different points
+   of the card open the menu at the same place.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
    it: the Move's Undo is gone. No action and no Undo leaves a contact
@@ -1806,8 +1910,8 @@ and are for them to write.
 | `CardSame` | This card matches your contact {name}. | case S |
 | `CardAccepted` | You saved {name} as a contact. | confirmation row, cases N, D and P |
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
-| `CardUpdatesPhotoRemoved` | Current photo removed | cases U and E, the change when the card carries no photo and the contact's photo came from a card (§5.4.1); must say that the contact's current photo goes, not that the card's is missing |
-| `CardPhotoNotUsedRemoved` | The card's photo could not be used, so the contact no longer has a photo. | confirmation row addition in place of `CardPhotoNotUsed`, cases U and E, when the contact's previous photo came from a card (§5.4.2); must say the previous photo is gone too |
+| `CardUpdatesPhotoRemoved` | Current photo removed | cases U and E, the change when the card carries no photo and the contact's photo is not a local choice (§5.4.1); must say that the contact's current photo goes, not that the card's is missing |
+| `CardPhotoNotUsedRemoved` | The card's photo could not be used, so the contact no longer has a photo. | confirmation row addition in place of `CardPhotoNotUsed`, cases U and E, when the contact's previous photo was not a local choice (§5.4.2); must say the previous photo is gone too |
 | `CardPhotoNotUsed` | The card's photo could not be used, so the contact was saved without it. | confirmation row addition, in both cases of §5.4.2 (the photo fails to decode, or decodes larger than 256 × 256); must not say the photo was shown, since it is decoded only at Accept (language-culture-en's final English, 2026-10-24) |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo; not announced (§8 Announcements) |
 | `CardUndoHint` | You can undo this change. Undo comes after all the messages in this conversation. | accessible description of the confirmation row while the Accept's snackbar is open (§5.4.2), never shown as text; must say that the save can be undone and where the Undo is, in a phrase read after `CardAccepted` or `CardUpdated` |
