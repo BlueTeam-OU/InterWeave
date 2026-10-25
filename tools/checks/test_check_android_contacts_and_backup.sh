@@ -6,7 +6,10 @@
 # Self-test for check_android_contacts_and_backup.py. Builds throwaway
 # roots under $TMPDIR from copies of the real manifest, extraction rules
 # and app lockfile, and breaks each declaration once (plan §29 exit gate
-# (b), "the tree check, broken on purpose once per declaration"). The
+# (b), "the tree check, broken on purpose once per declaration and once
+# per allow-list failure: an extra permission, and the camera feature
+# declared required"), and the camera APIs once outside the Scan module
+# (exit gate (e)). The
 # unbroken copy passes first, so a check that fails everything cannot
 # pass this test.
 
@@ -40,6 +43,9 @@ make_root() {
     cp "$REAL/$MAIN/res/xml/data_extraction_rules.xml" "$r/$MAIN/res/xml/data_extraction_rules.xml"
     cp "$REAL/$APP/gradle.lockfile" "$r/$APP/gradle.lockfile"
     printf 'package org.interweave.human\nclass Plain\n' > "$r/$MAIN/kotlin/org/interweave/human/Plain.kt"
+    # The Scan module and its one caller, as they are: the control passes
+    # with their real camera uses.
+    cp "$REAL/$MAIN/kotlin/org/interweave/human/CodeCamera.kt" "$REAL/$MAIN/kotlin/org/interweave/human/MainActivity.kt" "$r/$MAIN/kotlin/org/interweave/human/"
     printf '// SPDX-License-Identifier: Apache-2.0\npub fn plain() {}\n' > "$r/crates/human/android-platform/src/lib.rs"
 }
 
@@ -125,6 +131,59 @@ fails "qualified-rules-file" "xml-v31/data_extraction_rules.xml: an <include" \
     "mkdir -p $MAIN/res/xml-v31 && cp $X $MAIN/res/xml-v31/data_extraction_rules.xml && edit $MAIN/res/xml-v31/data_extraction_rules.xml \"s.replace('<cloud-backup>', '<cloud-backup><include domain=\\\"file\\\" path=\\\".\\\" />')\""
 fails "provider-legacy-uri" "names content://contacts" \
     "printf 'val u = \"content://contacts/people\"\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+
+# The permission allow-list (plan §29 step 2): an extra permission, by
+# either tag; one the list names left out; a permission defined.
+fails "allow-list-extra" "declares android.permission.READ_PHONE_STATE, which the permission allow-list does not name" \
+    "edit $M \"s.replace('<application', '<uses-permission android:name=\\\"android.permission.READ_PHONE_STATE\\\" /><application', 1)\""
+fails "allow-list-extra-sdk-23" "<uses-permission-sdk-23> declares android.permission.ACCESS_FINE_LOCATION, which the permission allow-list does not name" \
+    "edit $M \"s.replace('<application', '<uses-permission-sdk-23 android:name=\\\"android.permission.ACCESS_FINE_LOCATION\\\" /><application', 1)\""
+fails "allow-list-extra-variant" "release/AndroidManifest.xml: <uses-permission> declares android.permission.RECORD_AUDIO" \
+    "mkdir -p $APP/src/release && printf '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><uses-permission android:name=\"android.permission.RECORD_AUDIO\" /></manifest>\n' > $APP/src/release/AndroidManifest.xml"
+fails "allow-list-missing" "does not declare android.permission.USE_BIOMETRIC" \
+    "edit $M \"s.replace('<uses-permission android:name=\\\"android.permission.USE_BIOMETRIC\\\" />', '')\""
+fails "permission-defined" "<permission> defines org.interweave.human.SEND" \
+    "edit $M \"s.replace('<application', '<permission android:name=\\\"org.interweave.human.SEND\\\" /><application', 1)\""
+# The camera feature: declared required, its required left out (true),
+# not declared, and a camera feature a variant declares required.
+fails "camera-required" 'android.hardware.camera is required (android:required="true")' \
+    "edit $M \"s.replace('<uses-feature android:name=\\\"android.hardware.camera\\\" android:required=\\\"false\\\" />', '<uses-feature android:name=\\\"android.hardware.camera\\\" android:required=\\\"true\\\" />')\""
+fails "camera-required-by-default" "android.hardware.camera is required (no android:required, which means true)" \
+    "edit $M \"s.replace('<uses-feature android:name=\\\"android.hardware.camera\\\" android:required=\\\"false\\\" />', '<uses-feature android:name=\\\"android.hardware.camera\\\" />')\""
+fails "camera-feature-absent" 'no <uses-feature android:name="android.hardware.camera" android:required="false"/> beside CAMERA' \
+    "edit $M \"s.replace('<uses-feature android:name=\\\"android.hardware.camera\\\" android:required=\\\"false\\\" />', '')\""
+fails "camera-any-required-variant" "release/AndroidManifest.xml: <uses-feature> android.hardware.camera.any is required" \
+    "mkdir -p $APP/src/release && printf '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><uses-feature android:name=\"android.hardware.camera.any\" android:required=\"true\" /></manifest>\n' > $APP/src/release/AndroidManifest.xml"
+# The camera APIs outside the Scan module: another Kotlin file, the
+# Activity beyond its use of the module, the Rust library, a dependency.
+fails "camera-api-kotlin" "Plain.kt:3: names android.hardware.camera2, a camera API outside the Scan module CodeCamera.kt" \
+    "printf 'import android.hardware.camera2.CameraManager\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "camera-api-activity" "MainActivity.kt:1: names CameraManager, a camera API outside the Scan module" \
+    "edit $MAIN/kotlin/org/interweave/human/MainActivity.kt \"'// CameraManager\\n' + s\""
+fails "camera-api-rust" "apps/human-android/src/lib.rs:2: names ACameraManager_create" \
+    "printf '// SPDX-License-Identifier: Apache-2.0\nfn open() { ACameraManager_create(); }\n' > apps/human-android/src/lib.rs"
+fails "camera-api-gradle" "names androidx.camera, a camera API outside the Scan module" \
+    "printf 'dependencies { implementation(\"androidx.camera:camera-core:1.4.0\") }\n' > $APP/build.gradle.kts"
+fails "camera-api-capture-intent" "names ACTION_IMAGE_CAPTURE" \
+    "printf 'val i = android.provider.MediaStore.ACTION_IMAGE_CAPTURE\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "camera-api-platform-crate" "crates/human/android-platform/src/lib.rs:3: names CameraManager" \
+    "printf '// CameraManager\\n' >> crates/human/android-platform/src/lib.rs"
+fails "camera-api-service-by-name" 'names getSystemService("camera"' \
+    "printf 'val m = getSystemService(\"camera\")\\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "camera-api-legacy-open" "names Camera.open" \
+    "printf 'import android.hardware.*\\nval c = Camera.open()\\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "camera-api-native" "names camera/NdkCamera" \
+    "mkdir -p apps/human-android/android/app/src/main/cpp && printf '#include <camera/NdkCameraManager.h>\\n' > apps/human-android/android/app/src/main/cpp/scan.cpp"
+fails "camera-scan-unreadable" "Plain.kt: not readable (UnicodeDecodeError); the camera APIs" \
+    "printf '\\xff\\xfe// CameraManager\\n' > $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "camera-root-missing" "crates/human/android-platform: missing; the camera APIs were not checked there" \
+    "rm -r crates/human/android-platform"
+fails "contacts-root-missing" "apps/human-android/src: missing; the contacts provider and libraries were not checked there" \
+    "rm -r apps/human-android/src"
+fails "contacts-scan-unreadable" "lib.rs: not readable (UnicodeDecodeError); the contacts provider" \
+    "printf '\\xff\\xfe// ContactsContract\\n' > crates/human/android-platform/src/lib.rs"
+fails "scan-module-missing" "0 Scan module(s) CodeCamera.kt found" \
+    "rm $MAIN/kotlin/org/interweave/human/CodeCamera.kt"
 
 # A test source set's manifest is test tooling, not the shipped app.
 R="$TMP/androidtest"; make_root "$R"
