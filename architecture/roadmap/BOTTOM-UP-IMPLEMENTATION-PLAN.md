@@ -6581,7 +6581,10 @@ dialled and surviving a restart, 4 of 4 at 96c2a52b
 (`tests/android-e2e/runs/2026-10-24-pixel-9a-a40-wifi-added-address.md`,
 #417: runs 5–8; runs 2 and 4 before it failed on the cases' design,
 1 and 3 were not run), its cache-on variants' 12 runs passed with the
-three "neither" runs no control (carried below) and the reboot in its second
+three "neither" runs no control (`…-cache-on.md`, #421) and then 12 of
+12 again at 8f978966 with the control live, B listening through A's
+15 s window and A unconnected at every poll
+(`…-cache-on-control.md`, #448), and the reboot in its second
 run, 193.86 s, the first stopped at the harness's 1200 s wait for the
 phone's new address (`…-cache-on.md`, `…-reboot.md`, #421); two
 fresh phones on one LAN connecting after each trusted the other's
@@ -6599,12 +6602,12 @@ owner:
   through the real Scan is p2p-network-dev-02's (j69), on the owner's
   word to clear both phones; its run file is that carry's evidence
   when it runs, never a condition of this close.
-- The cache-on row's "neither" control (`…-cache-on.md`) measured
-  nothing in #421's three runs — B was not listening in A's window —
-  so the four variants are owed a re-run on the phones at bf114692 or
-  later, the driver that holds B listening through the window:
-  p2p-network-dev-02's (j69), its run file in their #448, open at this
-  record.
+- The cache-on control measured nothing else dialling B after the
+  restart for the shipped profile with Kademlia off; with Kademlia on,
+  the cache's write timing for a kill sooner after a connection, and
+  who dialled beyond inference stay unproved (`…-cache-on-control.md`
+  names each): p2p-network-dev-02's (j69), with row 2 through Scan.
+
 - The camera row's record does not show a second press of Scan a code
   after a refusal (where a lasting refusal names Settings), a grant and
   a real scan (#418's device check), a phone without a camera, TalkBack's
