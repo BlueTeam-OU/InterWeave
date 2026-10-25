@@ -791,8 +791,7 @@ ui_texts! {
     /// contact's photo, not a local choice, goes (contact-cards
     /// design 5.4.1). Says the current photo goes, not that the card's is
     /// missing.
-    // PLACEHOLDER (en)
-    CardUpdatesPhotoRemoved => "Current photo removed",
+    CardUpdatesPhotoRemoved => "Your contact's photo will be removed.",
     /// CARD PROPOSAL, case E: the person named the contact `{name}`, and
     /// that name stays.
     // PLACEHOLDER (en)
@@ -807,7 +806,6 @@ ui_texts! {
     /// CARD PROPOSAL, the link beside `CardSameName`: opens that contact's
     /// page, `{name}` the contact's name as stored (contact-cards design
     /// 5.4.1).
-    // PLACEHOLDER (en)
     ShowContact => "Open your contact {name}",
     /// CARD PROPOSAL: the card came from another identity of a device one
     /// of this identity's contacts is on; `{contact}` is that contact.
@@ -832,7 +830,6 @@ ui_texts! {
     /// CARD CONFIRMATION ROW, in place of `CardPhotoNotUsed` (cases U and
     /// E): the card's photo did not decode within its bound, and the
     /// contact's previous photo, not a local choice, went too.
-    // PLACEHOLDER (en)
     CardPhotoNotUsedRemoved => "The card's photo could not be used, so the contact no longer has a photo.",
     /// CARD CONFIRMATION ROW's accessible description while its Accept's
     /// snackbar is open, never shown as text (contact-cards design
