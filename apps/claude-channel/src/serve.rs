@@ -661,6 +661,10 @@ impl<B: DataSessionBinding> Bridge<B> {
                 return Ok(());
             }
         };
+        // `since` is this instant, before the re-joins' round trips: what
+        // they count is the session's too
+        // (`since_is_the_open_not_the_end_of_the_rejoins`).
+        let opened_ms = (self.env.now_ms)();
         self.local_peer = Some(session.session().local_peer().clone());
         if self.config.delivery == Delivery::Pull && self.pull.is_none() {
             self.pull = Some(Pull {
@@ -746,7 +750,7 @@ impl<B: DataSessionBinding> Bridge<B> {
         self.session = Some(session);
         self.last_open_error = None;
         self.opened_at = Instant::now();
-        self.opened_ms = (self.env.now_ms)();
+        self.opened_ms = opened_ms;
         let leased = self.state.lease_held().is_some();
         self.env.log.write(&Line::Opened { leased });
         if let Some((_, epoch)) = self.state.lease_held() {
@@ -1168,8 +1172,9 @@ impl<B: DataSessionBinding> Bridge<B> {
     }
 
     /// The current session's `session.losses`, its events taken and
-    /// written while the read waits (over IPC the answer queues behind
-    /// them, LOCAL-IPC.md §session.losses), or why it is not read.
+    /// written while the read waits (over IPC a response waits behind
+    /// undrained events, LOCAL-IPC.md §Disconnect/reconnect and optional
+    /// keepalive), or why it is not read.
     async fn losses<W: AsyncWrite + Unpin>(
         &mut self,
         out: &mut W,
@@ -1201,7 +1206,8 @@ impl<B: DataSessionBinding> Bridge<B> {
             gaps,
         };
         // A read changes nothing, so a cancel as the queue fills costs
-        // only this answer.
+        // only this answer
+        // (`a_losses_read_in_flight_when_the_queue_fills_is_cancelled`).
         Ok(match drive(session, session.losses(), &mut emit).await? {
             Some(Ok(losses)) => Ok(losses),
             Some(Err(e)) => Err(LossUnread::Error(e)),
@@ -1263,7 +1269,8 @@ impl<B: DataSessionBinding> Bridge<B> {
                 .map(|(reason, count)| (reason.as_str().to_owned(), Value::from(count)))
                 .collect::<serde_json::Map<String, Value>>(),
             "log": self.env.log.status(),
-            // Never a zero for a count not read: an unread pair says why.
+            // Never a zero for a count not read: an unread pair says why
+            // (`unread_losses_say_why_and_are_never_zeros`).
             "broadcast_loss": match losses {
                 Ok(losses) => json!({
                     "queue_overflow": losses.queue_overflow,

@@ -99,6 +99,11 @@ struct Record {
     /// `losses` answers `ProtocolUnsupported`, as the IPC client does on
     /// a connection below 2.11.
     losses_unsupported: AtomicBool,
+    /// `losses` never answers, recorded `losses cancelled` when dropped.
+    hold_losses: AtomicBool,
+    /// A join moves the bridge's clock here first, as a slow round trip
+    /// would: the bridge's clock and the instant.
+    clock_on_join: Mutex<Option<(Arc<AtomicU64>, u64)>>,
 }
 
 /// Records `<call> cancelled` when a held call is dropped unanswered.
@@ -166,6 +171,9 @@ impl DataSessionPort for RecordedSession {
     }
     async fn join(&self, channel: ChannelId) -> Result<(), TransportError> {
         self.record.call("join");
+        if let Some((clock, at)) = self.record.clock_on_join.lock().expect("lock").as_ref() {
+            clock.store(*at, Ordering::SeqCst);
+        }
         self.record.down()?;
         if self.record.hold_join.load(Ordering::SeqCst) {
             let _cancelled = Cancelled(Arc::clone(&self.record), "join");
@@ -263,6 +271,10 @@ impl DataSessionPort for RecordedSession {
     async fn losses(&self) -> Result<SessionLosses, TransportError> {
         self.record.call("losses");
         self.record.down()?;
+        if self.record.hold_losses.load(Ordering::SeqCst) {
+            let _cancelled = Cancelled(Arc::clone(&self.record), "losses");
+            std::future::pending::<()>().await;
+        }
         if self.record.losses_unsupported.load(Ordering::SeqCst) {
             return Err(TransportError::ProtocolUnsupported);
         }
@@ -2431,5 +2443,73 @@ async fn unread_losses_say_why_and_are_never_zeros() {
     assert_eq!(
         w.status().await["broadcast_loss"],
         json!({"unavailable": "no_session"})
+    );
+}
+
+/// A losses read in flight when the pull queue fills is cancelled, as any
+/// call is (`drive`), and `status` says `pull_queue_full` rather than
+/// waiting behind the drain or reporting a count it did not read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_losses_read_in_flight_when_the_queue_fills_is_cancelled() {
+    let mut w = World::start_pull().await;
+    fill(&mut w, 15).await;
+    w.record.hold_losses.store(true, Ordering::SeqCst);
+    w.record.hold_ready.store(true, Ordering::SeqCst);
+    w.next_id += 1;
+    let id = w.next_id;
+    let line = json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+        "params": {"name": "status", "arguments": {}}});
+    w.host_in
+        .write_all(format!("{line}\n").as_bytes())
+        .await
+        .expect("written");
+    let asked = w.record.calls().iter().filter(|c| *c == "losses").count();
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while w.record.calls().iter().filter(|c| *c == "losses").count() == asked {
+        assert!(tokio::time::Instant::now() < deadline, "never asked");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    w.peer_sends("last").await;
+    w.record.hold_ready.store(false, Ordering::SeqCst);
+    let answer = w.line().await;
+    assert_eq!(answer["id"], json!(id), "{answer}");
+    let status: Value = serde_json::from_str(
+        answer["result"]["content"][0]["text"]
+            .as_str()
+            .expect("a tool result"),
+    )
+    .expect("status is JSON");
+    assert_eq!(
+        status["broadcast_loss"],
+        json!({"unavailable": "pull_queue_full"}),
+        "{status}"
+    );
+    assert_eq!(status["pull_queue"]["depth"], json!(16), "{status}");
+    assert!(
+        w.record.calls().iter().any(|c| c == "losses cancelled"),
+        "the read was dropped: {:?}",
+        w.record.calls()
+    );
+}
+
+/// `since` is the instant the session opened, taken before the re-joins'
+/// round trips, which count into the same session: a re-join that takes
+/// two seconds does not move it.
+#[tokio::test]
+async fn since_is_the_open_not_the_end_of_the_rejoins() {
+    let mut w = World::start().await;
+    w.tool("join", json!({"channel": "general"})).await;
+    *w.record.clock_on_join.lock().expect("lock") = Some((Arc::clone(&w.clock), NOW_MS + 9_000));
+    away_and_back(&mut w, NOW_MS + 5_000, NOW_MS + 7_000).await;
+    let status = w.status().await;
+    assert_eq!(
+        status["joined_channels"],
+        json!(["general"]),
+        "re-joined: {status}"
+    );
+    assert_eq!(
+        status["broadcast_loss"],
+        loss(0, 0, NOW_MS + 7_000),
+        "{status}"
     );
 }

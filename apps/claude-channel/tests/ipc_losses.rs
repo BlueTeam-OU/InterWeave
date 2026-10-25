@@ -4,9 +4,9 @@
 //! daemon on a Unix socket that speaks the frames byte for byte
 //! (TOOL-SURFACE.md §status, A 2026-10-25). On a 2.11 connection the
 //! bridge sends `session.losses` with no params and drains what the
-//! daemon pushes ahead of the answer, as LOCAL-IPC.md says the answer
-//! waits behind them; on a connection below 2.11 nothing is sent and the
-//! status says why.
+//! daemon pushes ahead of the answer, which waits behind them
+//! (LOCAL-IPC.md §Disconnect/reconnect and optional keepalive); on a
+//! connection below 2.11 nothing is sent and the status says why.
 //!
 //! What this does not prove: a real daemon's counting, which is
 //! `tests/desktop-e2e`'s and the runtime's own tests'.
