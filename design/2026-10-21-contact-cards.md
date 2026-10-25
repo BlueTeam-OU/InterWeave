@@ -495,8 +495,8 @@ photographs measured at 256 px fit at 50, the largest 17,405 bytes); the
   and shows `PhotoUnusable` under the circle.
 
 Preparing can take a moment on a phone: the circle shows a progress
-indicator, and Save waits for it, unless Remove photo drops it
-(below). Choosing the crop is deliberately left
+indicator, and Save waits for the preparation to end, unless Remove
+photo cancels the preparation (below). Choosing the crop is deliberately left
 out (§11).
 
 **Focus and speech in the photo step** (rust-ui-dev-02's QUESTION
@@ -513,7 +513,8 @@ out (§11).
   before the choice and stay usable; a picture chosen while another
   is being prepared replaces the one being prepared, and only the
   last one chosen is shown. During the preparation, Remove photo is
-  offered when a photo is shown, saved or not, and Remove photo cancels
+  offered when a photo is shown, whether that photo is saved or not,
+  and Remove photo cancels
   the preparation: the picture being prepared
   is dropped, nothing is shown or announced when it would have been
   ready, and Save does not wait for it; then Remove photo does what
@@ -1618,7 +1619,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | the editor's Photo Picker or file dialog closes, a picture chosen or cancelled (§5.2) | the button that opened it (Add a photo, or Change photo) | keyboard on desktop: open the file dialog from Add a photo, cancel it, focus on Add a photo; choose a picture, focus on the same button. Keyboard on Android: open the Photo Picker from Add a photo, press Back (`adb shell input keyevent KEYCODE_BACK`), focus on Add a photo; choose a picture, focus on the same button |
    | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while the picture is being prepared, then `CardPhotoLabel`; TalkBack blocked (§8) |
    | the editor's picture unusable | stays on that button; `PhotoUnusable` announced once | keyboard, choosing a file named `.png` that holds no image; desktop screen reader: heard once; TalkBack blocked (§8) |
-   | the editor's Remove photo, also while a picture is being prepared (§5.2) | Add a photo; nothing is announced, also when the dropped picture would have been ready | keyboard; on a card with a saved photo, choose a large picture and press Remove photo before it is ready: focus on Add a photo, the circle shows the initials, and Save leaves the card with no photo; the same on a card saved with no photo, after a first picture is prepared and Change photo chooses a second |
+   | the editor's Remove photo, also while a picture is being prepared (§5.2) | Add a photo; nothing is announced, also when the dropped picture would have been ready | keyboard; on a card with a saved photo, choose a large picture and press Remove photo before it is ready: focus on Add a photo, the circle shows the initials, and Save leaves the card with no photo; the same steps and results on a card saved with no photo, after a first picture is prepared and the person chooses a second one with Change photo |
    | unsaved-changes dialog opens / closes on Continue editing (also when a switch asked it) | Continue editing / the field that had focus | keyboard |
    | an identity added | its new row in the list | keyboard |
    | Add an identity at the bound | `IdentityLimit` | keyboard |
