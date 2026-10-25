@@ -1441,7 +1441,9 @@ impl SwarmRuntime {
         };
         let relay_hop_counters = relay_server_driver::hop_counter_handle(&relay_server_toggle);
         // THE KEEPALIVE toward relay control peers (section 14 item 5),
-        // with either relay role: switched per relay by the relay driver
+        // and on every relayed connection end to end whatever the
+        // switches say (A 2026-10-25), with either relay role: switched
+        // per relay by the relay driver
         // as this profile's reservations move (`relay_driver::sync`), and
         // per holder by the server-event arm below as this relay's
         // reservations move (`relay_reserved`, `set_reserved`).
@@ -2099,7 +2101,10 @@ impl SwarmRuntime {
                             // failure, beside the adapter's own retry.
                             // The adapter re-dials what it dialled;
                             // this walks past it. ONLY the adapter's
-                            // own targets: every other peer's retry --
+                            // own targets, and below the relay
+                            // driver's infrastructure-only relays,
+                            // which its ladder re-asks: every other
+                            // peer's retry --
                             // a revoked one, or one demoted to
                             // infrastructure that nobody re-dials --
                             // still goes to the gate and is refused
