@@ -2157,6 +2157,114 @@ fn ada(has_photo: bool, key: interweave_human_ui_model::OwnKey) -> IdentityView 
     }
 }
 
+/// Design 5.2's focus table: Continue editing gives focus back to the
+/// field that had it, for EVERY control the editor offers -- each reached
+/// by Tab from the given name, through the photo, the key and Save. Save,
+/// Remove photo and the key's folder once took no focus request, and
+/// focus went nowhere. Mutation: any one of them losing its request.
+fn focus_comes_back_everywhere(key_state: interweave_human_ui_model::OwnKey, expect: &[&str]) {
+    let mut seen = Vec::new();
+    {
+        let (mut view, mut model) = own_editor(ada(true, key_state));
+        let window = view.window();
+        window.set_own_given("Grace".into());
+        window.set_focus_target("own-given".into());
+        window.set_focus_seq(window.get_focus_seq() + 1);
+        settle();
+        let mut here = Vec::new();
+        for _ in 0..40 {
+            let at = view.window().get_focus_id().to_string();
+            if here.contains(&at) {
+                break;
+            }
+            assert!(view.window().invoke_handle_back(), "Back at {at}");
+            let _ = intents(&mut view, &mut model);
+            settle();
+            assert!(view.window().get_own_discard_open(), "asked at {at}");
+            assert_eq!(view.window().get_focus_id(), "discard-keep", "at {at}");
+            press(&view, text(UiText::KeepEditing));
+            let _ = intents(&mut view, &mut model);
+            settle();
+            assert!(!view.window().get_own_discard_open());
+            assert_eq!(view.window().get_focus_id(), at.as_str(), "focus back");
+            here.push(at);
+            key(&view, slint::platform::Key::Tab);
+            settle();
+        }
+        seen.extend(here);
+    }
+    for control in expect {
+        assert!(
+            seen.iter().any(|s| s == control),
+            "{control} reached by Tab: {seen:?}"
+        );
+    }
+}
+
+#[test]
+fn continue_editing_gives_focus_back_to_each_control() {
+    focus_comes_back_everywhere(
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        &["own-given", "own-surname", "own-remove-photo", "own-save"],
+    );
+}
+
+/// On a wide window the list stands beside the editor: Back with focus
+/// there, then Continue editing, puts focus on the editor's first field,
+/// where the change is. Mutation: the return taken as it was.
+#[test]
+fn continue_editing_from_beside_the_editor_goes_to_its_first_field() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1200.0, 1600.0));
+    view.render(&model);
+    settle();
+    view.window().set_own_given("Grace".into());
+    view.window().set_focus_target("own-given".into());
+    view.window()
+        .set_focus_seq(view.window().get_focus_seq() + 1);
+    settle();
+    let mut outside = None;
+    for _ in 0..40 {
+        key(&view, slint::platform::Key::Tab);
+        settle();
+        let at = view.window().get_focus_id().to_string();
+        if !at.starts_with("own-") && at != "close-cards" {
+            outside = Some(at);
+            break;
+        }
+    }
+    let outside = outside.expect("Tab reaches the list beside the editor");
+    assert!(view.window().invoke_handle_back());
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(view.window().get_own_discard_open(), "asked from {outside}");
+    press(&view, text(UiText::KeepEditing));
+    settle();
+    assert_eq!(view.window().get_focus_id(), "own-given", "from {outside}");
+}
+
+/// The same with the key's folder shown, a field of its own.
+#[test]
+fn continue_editing_gives_focus_back_to_the_key_folder() {
+    focus_comes_back_everywhere(
+        interweave_human_ui_model::OwnKey::Unusable(
+            interweave_human_ui_model::KeyProblem::DirUnsafe {
+                folder: "/home/ada/.local/share/interweave/keys".to_owned(),
+            },
+        ),
+        &["own-key-path"],
+    );
+}
+
 /// A photo removed or picked is a change from the moment it is queued,
 /// before the model takes it: Back in between asks rather than closing
 /// and dropping it. A picker cancelled is no change. Mutation: the

@@ -2027,6 +2027,13 @@ component PathField {
     in property <string> path;
     in property <string> code-font;
     in property <string> focus-key;
+    // A focus request lands on the field (a dialog closing over it gives
+    // focus back, `continue_editing_gives_focus_back_to_each_control`).
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { input.focus(); }
+    }
     callback focused(string);
     VerticalLayout {
         spacing: 2px;
@@ -3148,7 +3155,12 @@ export component AppWindow inherits Window {
     function close-cards-page() {
         if (root.cards-page == CardsPage.own-card && !root.own-discard-open
             && root.own-card-unsaved(root.own-given, root.own-surname)) {
-            root.own-discard-return = root.focus-id;
+            // Back to the editor's control that had focus -- each takes a
+            // focus request -- else, focus beside the editor on a wide
+            // window, to its first field
+            // (`continue_editing_gives_focus_back_to_each_control`).
+            root.own-discard-return = root.focus-id == "close-cards"
+                || root.focus-id.starts-with("own-") ? root.focus-id : "own-given";
             root.own-discard-open = true;
             return;
         }
@@ -5100,6 +5112,8 @@ export component AppWindow inherits Window {
                                         wraps: true;
                                         target: 48px;
                                         focus-key: "own-remove-photo";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "own-remove-photo";
                                         pressed => { root.own-card-remove-photo(); }
                                         focused(k) => { root.focus-id = k; }
                                     }
@@ -5151,6 +5165,8 @@ export component AppWindow inherits Window {
                                 filled: true;
                                 target: 48px;
                                 focus-key: "own-save";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "own-save";
                                 pressed => { root.own-card-save(); }
                                 focused(k) => { root.focus-id = k; }
                             }
@@ -5249,6 +5265,8 @@ export component AppWindow inherits Window {
                                 path: root.own-key-path;
                                 code-font: root.code-font;
                                 focus-key: "own-key-path";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "own-key-path";
                                 focused(k) => { root.focus-id = k; }
                             }
                             Text {
