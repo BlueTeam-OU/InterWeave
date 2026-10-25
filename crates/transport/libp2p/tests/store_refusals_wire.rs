@@ -116,6 +116,10 @@ async fn a_peers_advertised_loopback_is_refused_and_the_refusal_is_readable_outs
 struct BareRelay {
     identify: libp2p::identify::Behaviour,
     relay: libp2p::relay::Behaviour,
+    /// Answers the keepalive's pings, as this project's relays do: a
+    /// relay that refuses ping is closed (`transport/libp2p/
+    /// CONNECTIVITY.md` section 14, A 2026-10-25).
+    ping: libp2p::ping::Behaviour,
 }
 
 /// A bare relay that ADVERTISES hop: listening on `ip` and on loopback,
@@ -148,6 +152,7 @@ async fn advertising_relay(ip: std::net::Ipv4Addr) -> (TransportIdentity, Multia
                 k.public().to_peer_id(),
                 libp2p::relay::Config::default(),
             ),
+            ping: libp2p::ping::Behaviour::new(libp2p::ping::Config::new()),
         })
         .expect("behaviour")
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))

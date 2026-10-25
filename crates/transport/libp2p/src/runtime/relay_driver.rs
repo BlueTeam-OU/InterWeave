@@ -286,6 +286,13 @@ pub fn build_behaviour(
 struct Listening {
     relay: TransportIdentity,
     through: Multiaddr,
+    /// The keepalive closed this listener's relay for refusing ping
+    /// (`relay_keepalive::KeepaliveEvent::Refused`), so its close says
+    /// why. Held on the listener rather than by relay so that it leaves
+    /// with the listener on every path -- its close, an abandonment, a
+    /// forgotten relay -- and a refusal arriving after the close finds
+    /// no listener and marks nothing.
+    refused_keepalive: bool,
 }
 
 /// What the driver holds beside the manager: the listener each ask
@@ -346,6 +353,14 @@ impl RelayState {
     #[must_use]
     pub(crate) fn circuits(&self) -> Vec<String> {
         self.manager.advertised()
+    }
+
+    /// Whether `peer` is a relay this driver reserves on, static or
+    /// learned -- the peers the reconnect scheduler leaves to its ladder
+    /// while they are infrastructure-only.
+    #[must_use]
+    pub(crate) fn is_relay(&self, peer: &TransportIdentity) -> bool {
+        self.manager.state(peer).is_some()
     }
 
     /// Reservations held and wanted, `(active, target)`: the status
@@ -569,11 +584,26 @@ pub(super) fn handle_relay(
         {
             RelayHandled::Consumed
         }
+        Libp2pSwarmEvent::Behaviour(SubstrateBehaviourEvent::RelayKeepalive(
+            crate::relay_keepalive::KeepaliveEvent::Refused { peer },
+        )) => {
+            if let Ok(relay) = TransportIdentity::parse(peer.to_base58())
+                && let Some(id) = state.by_relay.get(&relay)
+                && let Some(listening) = state.listeners.get_mut(id)
+            {
+                listening.refused_keepalive = true;
+            }
+            RelayHandled::Consumed
+        }
         Libp2pSwarmEvent::NewListenAddr {
             listener_id,
             address,
         } if state.listeners.contains_key(&listener_id) => {
-            let relay = state.listeners[&listener_id].relay.clone();
+            let Some(listening) = state.listeners.get_mut(&listener_id) else {
+                return RelayHandled::Consumed;
+            };
+            listening.refused_keepalive = false;
+            let relay = listening.relay.clone();
             accepted(state, &relay, &address, now_ms, out);
             sync(state, swarm, now_ms, out);
             RelayHandled::Consumed
@@ -583,11 +613,29 @@ pub(super) fn handle_relay(
             reason,
             ..
         } if state.listeners.contains_key(&listener_id) => {
-            if let Some(Listening { relay, through }) = state.listeners.remove(&listener_id) {
+            if let Some(Listening {
+                relay,
+                through,
+                refused_keepalive: refused,
+            }) = state.listeners.remove(&listener_id)
+            {
                 state.by_relay.remove(&relay);
+                // THE WHOLE CHAIN: the crate's error displays only
+                // "Failed to get Reservation." and keeps why -- a request
+                // that timed out, an answer that did not decode, a
+                // refusal -- as its source, so a stalled relay and a
+                // garbling one read the same without it.
                 let detail = Some(match reason {
+                    // The keepalive closed the connection: the relay
+                    // refuses ping (`CONNECTIVITY.md` §14, A 2026-10-25).
+                    _ if refused => {
+                        format!("the relay refuses the keepalive (ping) (asked through {through})")
+                    }
                     Ok(()) => format!("the listener closed (asked through {through})"),
-                    Err(e) => format!("{e} (asked through {through})"),
+                    Err(e) => format!(
+                        "{} (asked through {through})",
+                        super::commands::error_chain(&e)
+                    ),
                 });
                 closed(state, &relay, detail, now_ms, out);
                 sync(state, swarm, now_ms, out);
@@ -751,6 +799,7 @@ fn listen(
                 Listening {
                     relay: relay.clone(),
                     through,
+                    refused_keepalive: false,
                 },
             );
             state.by_relay.insert(relay.clone(), id);
@@ -1398,6 +1447,77 @@ mod tests {
             &mut out,
         );
         assert!(matches!(handled, RelayHandled::Passed(_)));
+    }
+
+    #[tokio::test]
+    async fn a_keepalive_refusal_names_the_close_of_its_own_listener_and_no_later_one() {
+        // The refusal is the listener's, not the relay's: a refusal that
+        // arrives once its listener is gone marks nothing, so the
+        // relay's next ask closes with its own reason.
+        let relay = ident(R1);
+        let trust = trusting(&relay);
+        let mut swarm = swarm_with_relay_client(&trust);
+        let mut state = RelayState::new(&one_static(R1, &format!("/ip4/127.0.0.1/tcp/1/p2p/{R1}")))
+            .expect("valid");
+        let peer: PeerId = R1.parse().expect("a PeerId");
+        let refused = || {
+            Libp2pSwarmEvent::Behaviour(SubstrateBehaviourEvent::RelayKeepalive(
+                crate::relay_keepalive::KeepaliveEvent::Refused { peer },
+            ))
+        };
+        let closed = |listener_id, reason| Libp2pSwarmEvent::ListenerClosed {
+            listener_id,
+            addresses: vec![],
+            reason,
+        };
+        let mut out = Vec::new();
+        reconcile(&mut state, &mut swarm, &trust, 0, &mut out);
+        let first = *state.listeners.keys().next().expect("a listener");
+        // THE CONTROL: refused while its listener stands, the close says so.
+        let _ = handle_relay(refused(), &mut swarm, &mut state, &trust, 1, &mut out);
+        out.clear();
+        let _ = handle_relay(
+            closed(first, Err(std::io::Error::other("the connection closed"))),
+            &mut swarm,
+            &mut state,
+            &trust,
+            2,
+            &mut out,
+        );
+        let detail = |out: &[SwarmEvent]| {
+            outcomes(out)
+                .into_iter()
+                .find_map(|(_, detail)| detail)
+                .expect("a detail")
+        };
+        assert!(
+            detail(&out).contains("refuses the keepalive"),
+            "{:?}",
+            outcomes(&out)
+        );
+        // A second connection's refusal, after the close: nothing holds it.
+        let _ = handle_relay(refused(), &mut swarm, &mut state, &trust, 3, &mut out);
+        // The next ask, past any backoff, fails for its own reason.
+        reconcile(&mut state, &mut swarm, &trust, 1_000_000_000, &mut out);
+        let second = *state.listeners.keys().next().expect("asked again");
+        assert_ne!(second, first);
+        out.clear();
+        let _ = handle_relay(
+            closed(
+                second,
+                Err(std::io::Error::other("the reservation timed out")),
+            ),
+            &mut swarm,
+            &mut state,
+            &trust,
+            1_000_000_001,
+            &mut out,
+        );
+        let detail = detail(&out);
+        assert!(
+            detail.contains("the reservation timed out") && !detail.contains("keepalive"),
+            "{detail}"
+        );
     }
 
     #[tokio::test]

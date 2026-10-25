@@ -1144,3 +1144,103 @@ async fn an_addition_inside_the_gates_floor_leaves_the_relay_ladder_alone() {
     );
     subject.shutdown().await.expect("shutdown");
 }
+
+/// What a subject reserving on one static relay that is DOWN -- bound
+/// and dropped, so nothing listens there -- reports in its first 45 s:
+/// past the gate's 30 s retry delay after the first failed ask, with
+/// room for the scheduler's tick.
+async fn while_the_relay_is_down(
+    trust: impl FnOnce(&TransportIdentity) -> TrustSources,
+) -> (TransportIdentity, Vec<SwarmEvent>) {
+    let relay_keys = identity::Keypair::generate_ed25519();
+    let relay_peer = identity_of(&relay_keys);
+    let relay_addr = bound(&mut relay_server(relay_keys)).await;
+    let mut relay_settings = settings(
+        vec![StaticRelay {
+            peer: relay_peer.clone(),
+            address: format!("{relay_addr}/p2p/{}", relay_peer.as_str()),
+        }],
+        false,
+    );
+    relay_settings.reservations.retry_min_ms = 5_000;
+    relay_settings.reservations.retry_max_ms = 600_000;
+    let mut subject = SwarmRuntime::start(
+        &ProfileIdentity::generate(),
+        SubstrateConfig {
+            relay_client: Some(relay_settings),
+            ..SubstrateConfig::default()
+        },
+        trust(&relay_peer),
+    )
+    .expect("the runtime starts");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
+    let mut seen = Vec::new();
+    while let Ok(Some(event)) = tokio::time::timeout_at(deadline, subject.next_event()).await {
+        seen.push(event);
+    }
+    subject.shutdown().await.expect("shutdown");
+    (relay_peer, seen)
+}
+
+fn failed_asks(seen: &[SwarmEvent], relay: &TransportIdentity) -> usize {
+    seen.iter()
+        .filter(|e| matches!(e, SwarmEvent::RelayReservationChanged { relay: r, outcome: RelayReservationOutcome::Failed, .. } if r == relay))
+        .count()
+}
+
+/// Whether the reconnect scheduler dialled `peer`: its dial is the one
+/// whose failure schedules a retry under an origin that is not the
+/// relay driver's, or whose refusal it reports as a scheduled retry.
+fn scheduler_dialled(seen: &[SwarmEvent], peer: &TransportIdentity) -> bool {
+    seen.iter().any(|e| match e {
+        SwarmEvent::RetryScheduled {
+            peer: p, origin, ..
+        } => p == peer && *origin != DialOrigin::RelayReservation,
+        SwarmEvent::DialFailed {
+            peer: Some(p),
+            detail,
+            ..
+        } => p == peer && detail.starts_with("scheduled retry"),
+        _ => false,
+    })
+}
+
+/// A FAILED RESERVATION DIAL IS THE RELAY LADDER'S TO RETRY. The gate
+/// schedules a reconnect for every failed dial, but the reconnect
+/// scheduler dials under its own origin, which the gate refuses for an
+/// infrastructure-only peer: before this was fixed, every failed ask was
+/// followed 30 s later by a `DialFailed` "scheduled retry:
+/// Policy(NotAuthorizedForDataPlane)" for a relay nobody had asked to
+/// reach as a data-plane peer (measured in `tests/security`'s
+/// stopped-relay run). The ladder asking the down relay again is the
+/// control that it is retried at all.
+#[tokio::test]
+async fn a_failed_reservation_dial_is_retried_by_the_relay_ladder_and_not_by_the_reconnect_scheduler()
+ {
+    let (relay, seen) = while_the_relay_is_down(|r| infrastructure_only(&[r])).await;
+    assert!(
+        !scheduler_dialled(&seen, &relay),
+        "the reconnect scheduler left the infrastructure-only relay alone: {seen:#?}"
+    );
+    assert!(
+        failed_asks(&seen, &relay) >= 2,
+        "the control: the relay ladder asked the down relay again: {seen:#?}"
+    );
+}
+
+/// THE COUNTERPART: a relay that is ALSO a data-plane peer is the
+/// reconnect scheduler's to reconnect, so its failed dial is retried by
+/// the scheduler as well as by the ladder -- the exemption above is the
+/// infrastructure-only class's, not every relay's.
+#[tokio::test]
+async fn a_relay_that_is_also_a_data_plane_peer_is_still_retried_by_the_reconnect_scheduler() {
+    let (relay, seen) = while_the_relay_is_down(|r| data_plane(&[r])).await;
+    assert!(
+        scheduler_dialled(&seen, &relay),
+        "the reconnect scheduler retried the data-plane relay: {seen:#?}"
+    );
+    assert!(
+        failed_asks(&seen, &relay) >= 1,
+        "it was reserved on: {seen:#?}"
+    );
+}
