@@ -320,6 +320,12 @@ pub struct RelayState {
     /// Where the learned-relay hook files what it admitted and refused.
     stores: crate::store_refusals::StoreRefusals,
     last_standing: Option<(Standing, usize, usize, usize, usize, usize)>,
+    /// Relays whose connection the keepalive closed because they refuse
+    /// ping (`relay_keepalive::KeepaliveEvent::Refused`), so the close
+    /// of their listener says why. Only relays this driver knows enter;
+    /// each leaves on that close or on the relay's next acceptance, so
+    /// bounded by the manager's candidates.
+    refused_keepalive: HashSet<TransportIdentity>,
 }
 
 impl RelayState {
@@ -390,6 +396,7 @@ impl RelayState {
             own_listeners: Vec::new(),
             stores: crate::store_refusals::StoreRefusals::new(),
             last_standing: None,
+            refused_keepalive: HashSet::new(),
         })
     }
 
@@ -577,11 +584,22 @@ pub(super) fn handle_relay(
         {
             RelayHandled::Consumed
         }
+        Libp2pSwarmEvent::Behaviour(SubstrateBehaviourEvent::RelayKeepalive(
+            crate::relay_keepalive::KeepaliveEvent::Refused { peer },
+        )) => {
+            if let Ok(relay) = TransportIdentity::parse(peer.to_base58())
+                && state.is_relay(&relay)
+            {
+                state.refused_keepalive.insert(relay);
+            }
+            RelayHandled::Consumed
+        }
         Libp2pSwarmEvent::NewListenAddr {
             listener_id,
             address,
         } if state.listeners.contains_key(&listener_id) => {
             let relay = state.listeners[&listener_id].relay.clone();
+            state.refused_keepalive.remove(&relay);
             accepted(state, &relay, &address, now_ms, out);
             sync(state, swarm, now_ms, out);
             RelayHandled::Consumed
@@ -598,7 +616,13 @@ pub(super) fn handle_relay(
                 // that timed out, an answer that did not decode, a
                 // refusal -- as its source, so a stalled relay and a
                 // garbling one read the same without it.
+                let refused = state.refused_keepalive.remove(&relay);
                 let detail = Some(match reason {
+                    // The keepalive closed the connection: the relay
+                    // refuses ping (`CONNECTIVITY.md` §14, A 2026-10-25).
+                    _ if refused => {
+                        format!("the relay refuses the keepalive (ping) (asked through {through})")
+                    }
                     Ok(()) => format!("the listener closed (asked through {through})"),
                     Err(e) => format!(
                         "{} (asked through {through})",

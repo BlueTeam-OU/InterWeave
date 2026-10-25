@@ -16,7 +16,10 @@
 //!   that goes silent with both sockets open, the shape of a NAT
 //!   rebinding or a carrier drop, which raises no event at either end
 //!   -- has its connection CLOSED by the client, counted as missed;
-//! - a relay that does not speak ping is kept: not a dead path.
+//! - a relay control peer that refuses ping is a missed liveness: its
+//!   connection is closed and the refusal reported once by name
+//!   (`transport/libp2p/CONNECTIVITY.md` section 14, A 2026-10-25;
+//!   before it, such a relay was kept, and could never be found dead).
 
 #![allow(clippy::expect_used, clippy::panic)]
 
@@ -27,7 +30,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::StreamExt as _;
-use interweave_transport_libp2p::relay_keepalive::{KeepaliveCounters, RelayKeepalive};
+use interweave_transport_libp2p::relay_keepalive::{
+    KeepaliveCounters, KeepaliveEvent, RelayKeepalive,
+};
 use libp2p::swarm::{SwarmEvent, dummy};
 use libp2p::{Multiaddr, PeerId, Swarm, ping};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -108,6 +113,8 @@ async fn proxy(target: std::net::SocketAddr, silent: Arc<AtomicBool>) -> Multiad
 struct Seen {
     established: usize,
     closed: usize,
+    /// Refusals the keepalive reported, by peer.
+    refused: Vec<PeerId>,
 }
 
 /// Drive the client, and the relay when `relay` is given, for `window`
@@ -137,6 +144,7 @@ async fn drive<R: libp2p::swarm::NetworkBehaviour>(
             event = client.select_next_some() => match event {
                 SwarmEvent::ConnectionEstablished { .. } => seen.established += 1,
                 SwarmEvent::ConnectionClosed { .. } => seen.closed += 1,
+                SwarmEvent::Behaviour(KeepaliveEvent::Refused { peer }) => seen.refused.push(peer),
                 _ => {}
             },
             () = relay_next => {}
@@ -294,7 +302,7 @@ async fn answering_pings_does_not_keep_an_idle_connection_open() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_relay_that_does_not_speak_ping_is_kept() {
+async fn a_control_peer_that_refuses_ping_is_closed_and_reported() {
     let mut relay = swarm(dummy::Behaviour);
     let mut client = swarm(keepalive());
     let relay_peer: PeerId = *relay.local_peer_id();
@@ -309,18 +317,8 @@ async fn a_relay_that_does_not_speak_ping_is_kept() {
         |s, _| s.established == 1,
     )
     .await;
-    client
-        .behaviour_mut()
-        .set_relays(HashSet::from([relay_peer]));
-    drive(
-        &mut client,
-        Some(&mut relay),
-        &mut seen,
-        Duration::from_secs(10),
-        |_, c| c.unsupported == 1,
-    )
-    .await;
-    // Ten intervals more: nothing missed, nothing closed.
+    // THE CONTROL: not a control peer yet, so nothing pings it and its
+    // refusal is never asked -- ten intervals, nothing closed.
     drive(
         &mut client,
         Some(&mut relay),
@@ -329,8 +327,31 @@ async fn a_relay_that_does_not_speak_ping_is_kept() {
         |_, _| false,
     )
     .await;
+    assert_eq!(seen.closed, 0, "kept while it is no control peer: {seen:?}");
+    assert_eq!(client.behaviour().counters().unsupported, 0);
+
+    // SWITCHED ON: the first ping is refused, and that is a missed
+    // liveness -- closed, and said once by name.
+    client
+        .behaviour_mut()
+        .set_relays(HashSet::from([relay_peer]));
+    drive(
+        &mut client,
+        Some(&mut relay),
+        &mut seen,
+        Duration::from_secs(10),
+        |s, _| s.closed == 1 && !s.refused.is_empty(),
+    )
+    .await;
     let counts = client.behaviour().counters();
     assert_eq!(counts.unsupported, 1, "{counts:?}");
-    assert_eq!(counts.missed, 0, "{counts:?}");
-    assert_eq!(seen.closed, 0, "kept: {seen:?}");
+    assert_eq!(
+        seen.closed, 1,
+        "closed for the refusal: {seen:?} {counts:?}"
+    );
+    assert_eq!(
+        seen.refused,
+        vec![relay_peer],
+        "reported once, by peer: {seen:?}"
+    );
 }
