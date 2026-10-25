@@ -31,7 +31,7 @@ phones' logcat is not committed, because it carries other apps' lines.
 | Addresses | A is `192.168.100.54/24` on `wlan0` (it was `.52` in the earlier file; the Pixel's address has moved on each boot), and B is `192.168.100.6/24`. Each listens on its wildcard at the port the run chose. This host, a VM behind its host's NAT, carries only adb. |
 | Profiles | As in the earlier file: A has the peer cache ON and Kademlia off; B has both off and holds no address for A. |
 | Link | Phone to phone over the LAN. `adb reverse --list` was empty on both phones before and after each run, and the test asserts that. |
-| Command | As in the earlier file, under the `pixel-9a` and `samsung-a40` leases, on this account's own adb server port. The first run's time includes building the test crates. |
+| Command | As in the earlier file, under the `pixel-9a` and `samsung-a40` leases, on this account's own adb server port. The test crates were built after run 1's start time and before the test ran; its 41.32 s is libtest's own time and excludes the build, which shows only in the gap before run 2. |
 
 ## Results
 
@@ -53,7 +53,8 @@ phones' logcat is not committed, because it carries other apps' lines.
 What the earlier file says of the first start, the add, the cache file
 on disk after the force-stop, and the cache alone and the overlay alone
 each sufficing held again in all twelve runs, read from the same
-lines. What this file adds is the control:
+lines. A connected to B 1015–1526 ms after the add (within 1.0–1.6 s,
+the range the earlier file's runs also span). What this file adds is the control:
 
 - **Neither: A stayed unconnected, with B listening.** In runs 4, 8
   and 12, with B's added address removed from A's overlay and A's
