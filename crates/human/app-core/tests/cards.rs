@@ -2410,3 +2410,63 @@ async fn a_save_while_the_photo_is_prepared_waits_for_it() {
     assert_eq!(identity.given, "Ada Lovelace", "the name saved");
     assert!(identity.photo.is_some(), "and the card's photo kept");
 }
+
+/// Design 5.2 as #443 proposes it: Remove photo in the editor is an
+/// unsaved change that drops a photo being prepared; Save then removes
+/// the card's photo, and the dropped preparation changes nothing after.
+/// Mutation: RemoveOwnPhoto leaving the facade side's preparation for a
+/// later Save to take.
+#[tokio::test]
+async fn an_editors_remove_drops_a_photo_being_prepared_and_save_removes_the_cards() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will(Intent::ChooseOwnPhoto(png(64, 64)));
+    prepared(&mut alice, 1).await;
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(600).await;
+    assert!(
+        alice.model().identity().is_some_and(|i| i.photo.is_some()),
+        "the setup"
+    );
+
+    alice.will_all(vec![
+        Intent::ChooseOwnPhoto(png(80, 80)),
+        Intent::RemoveOwnPhoto,
+    ]);
+    alice.pump(601).await;
+    assert_eq!(alice.model().own_photo_edit(), PhotoEdit::Remove);
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(602).await;
+    for t in 603..700 {
+        alice.pump(t).await;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    assert!(
+        alice.model().identity().is_some_and(|i| i.photo.is_none()),
+        "removed, and the dropped photo never came back"
+    );
+    assert_eq!(alice.model().own_photo(), None);
+
+    // A prepared photo removed in the editor is let go on the facade side
+    // too: a Save naming a prepared photo then finds none, and the card's
+    // stays as it was.
+    alice.will(Intent::ChooseOwnPhoto(png(64, 64)));
+    prepared(&mut alice, 701).await;
+    alice.will(set_own(alice.model().own_photo_edit()));
+    alice.pump(1300).await;
+    alice.will(Intent::ChooseOwnPhoto(png(80, 80)));
+    prepared(&mut alice, 1301).await;
+    alice.will(Intent::RemoveOwnPhoto);
+    alice.pump(1900).await;
+    alice.will(set_own(PhotoEdit::Prepared));
+    alice.pump(1901).await;
+    let kept = alice.model().identity().and_then(|i| i.photo.clone());
+    assert_eq!(
+        kept.map(|p| (p.width, p.height)),
+        Some((64, 64)),
+        "the removed 80 x 80 is not the facade side's to save"
+    );
+}

@@ -622,6 +622,12 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 self.model.own_photo_forgotten();
                 Command::ForgetOwnPhoto
             }
+            // The facade side lets go of a photo it holds or prepares: the
+            // removal is the model's until Save writes it.
+            Intent::RemoveOwnPhoto => {
+                self.model.own_photo_removed();
+                Command::ForgetOwnPhoto
+            }
             Intent::SetOwnCard {
                 name,
                 surname,
