@@ -742,10 +742,13 @@ makes visible, and Undo helps only a person who noticed. Whether the
 swipe is withheld is decided by what the row shows when the drag
 starts, after any recomputation of §5.4.5. So a row never accepts by
 swipe while it shows the warning, and never refuses the swipe without
-the warning. If a recomputation during the drag changes whether the
-row shows the warning, the drag is cancelled: the row returns to rest
-as on a release below the threshold, and nothing is accepted or
-declined. The left
+the warning. If the warning appears during a right drag, the drag is
+cancelled: the row returns to rest as it does after a release below
+the threshold, and nothing is accepted. If the warning goes during a
+right drag that started withheld, the row stays still until the
+release, which accepts nothing. A left drag is not affected by the
+warning in either direction, since Decline is the same with or
+without it. The left
 swipe still declines. In case S neither direction moves (Close is not a
 swipe action). The buttons are
 the non-gesture equivalent, always present.
@@ -1301,7 +1304,7 @@ accessibility tree) are checked now.
 - Proposal (§5.4): one group, read as heading (the claim, with the full
   name), "includes a photo", "PeerId" and the PeerId, the context line,
   the "goes at close" line, time and status; then Copy PeerId, Open
-  your contact {name} when the row shows `CardSameName`, Decline,
+  your contact {name} (when the row shows `CardSameName`), Decline,
   Accept (its case label) as controls. The PeerId is read character by
   character only on request (the platform's own); the label says what
   it is. The row's custom actions (Android) are Accept and Decline with
@@ -1478,14 +1481,18 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    a new route of Carol's PeerId (case P), and one from Carol's own route
    (case U), each show `CardSameName` naming the "Anna Rossi" on another
    PeerId before Accept; a card naming itself "Carol" on another route
-   of Carol's PeerId shows case P's line and no `CardSameName`. A card
-   naming itself "Anna Rossi" from the route of a contact Dan, whose
-   photo the person chose locally (case E: the name changes, the
-   photo stays) shows `CardSameName` and `CardKeepsPhoto`, and its
-   right swipe is withheld. With a drag held past the threshold and
-   not released, a change that adds or removes the warning on the row
-   (a desktop: a second window renames the clashing contact) returns
-   the row to rest, and the release accepts nothing.
+   of Carol's PeerId shows case P's line and no `CardSameName`. A
+   contact named Dan has a photo the person chose locally. A card
+   naming itself "Anna Rossi" from Dan's route is case E: the name
+   changes and the photo stays. It shows `CardSameName` and
+   `CardKeepsPhoto`, and its right swipe is withheld. While a right
+   drag is held past the threshold and not yet released, a change adds
+   the warning to the row (on desktop, for example, a second window
+   renames a contact to the card's name): the row returns to rest, and
+   the later release accepts nothing. While a withheld right drag is
+   held, a change removes the warning: the row stays still, and the
+   release accepts nothing. A left drag held past the threshold while
+   the warning comes or goes still declines on release.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
    it: the Move's Undo is gone. No action and no Undo leaves a contact
@@ -1544,7 +1551,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     Decline above Accept (Close alone in case S); a wrapped label
     shows whole inside its button, each button at least 48 dp high;
     keyboard focus moves in this order: Copy PeerId, Open your contact
-    {name} when the row shows `CardSameName`, Decline, Accept
+    {name} (when the row shows `CardSameName`), Decline, Accept
     (in case S: Copy PeerId, Close).
 18. §8's contrast table measured, every row at or above its threshold,
     in both schemes.
@@ -1697,7 +1704,7 @@ and are for them to write.
 | `CardPhotoLabel` | Photo for this card | editor photo circle, accessible label |
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
 | `CardSameName` | One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept. | case D, and cases P, U and E when Accept would write a name that clashes with a contact on another PeerId (§5.4.1); `{name}` the other contact's name; must name both facts |
-| `ShowContact` | Open your contact {name} | the link beside `CardSameName`: case D, and cases P, U and E when it shows |
+| `ShowContact` | Open your contact {name} | the link beside `CardSameName`: case D, and cases P, U and E when `CardSameName` shows |
 | `CardUpdates` | If you accept, your contact {name} is updated. | case U |
 | `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | case U, the changes |
 | `CardKeepsEdit` | You named this contact {name} yourself. That name stays. | case E, name |
