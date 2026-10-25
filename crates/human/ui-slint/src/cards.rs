@@ -479,6 +479,19 @@ pub(crate) struct CardScreens {
     deleted: Option<String>,
 }
 
+impl CardScreens {
+    /// The ways back a card page was opened with -- to a proposal's link,
+    /// to a share sheet -- forgotten when a card page is opened afresh,
+    /// which is how every later Back starts: a page left some other way
+    /// (another conversation chosen) keeps them only until then, and a
+    /// later Back is that page's own (#440 F1).
+    fn forget_returns(&mut self) {
+        self.return_to_link = None;
+        self.focus_link = None;
+        self.return_to_share = None;
+    }
+}
+
 impl View {
     /// Take one card input: an intent for the model, or a page change.
     pub(crate) fn take_cards(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
@@ -542,10 +555,13 @@ impl View {
                 }
             }
             CardsInput::OpenCardFromShare => {
+                let raised = self.take_cards(model, CardsInput::Open(Opened::OwnCard));
+                // After the open, which forgets every earlier way back.
                 self.cards.return_to_share = self.shown.clone();
-                return self.take_cards(model, CardsInput::Open(Opened::OwnCard));
+                return raised;
             }
             CardsInput::Open(opened) => {
+                self.cards.forget_returns();
                 let page = match opened {
                     Opened::Contacts => CardsPage::Contacts,
                     Opened::OwnCard => CardsPage::OwnCard,

@@ -1683,3 +1683,78 @@ fn a_deleted_contact_leaves_focus_on_the_lists_first_row() {
     settle();
     assert_eq!(view.window().get_focus_id(), "close-cards", "none left");
 }
+
+/// #440 F1: a card page left some other way than its Back -- another
+/// conversation chosen -- forgets the way back it was opened with, so a
+/// later Back from a page the app options opened is that page's own: the
+/// list shown, no old proposal link focused, no old share sheet opened.
+/// Mutations: `forget_returns` not called when a card page opens; the
+/// share sheet's way back set before the open, which forgets it.
+#[test]
+fn a_card_page_left_another_way_forgets_its_way_back() {
+    use interweave_human_ui_model::KeyProblem;
+    use slint::platform::Key;
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.identity_shown(keyless(KeyProblem::DirUnsafe {
+        folder: "/home/ada/.local/state/interweave/default/identity-keys".to_owned(),
+    }));
+    model.contacts_listed(vec![contact("c1", "Ada", Q)]);
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", false),
+        ProposalContext {
+            same_name: vec![ContactRef {
+                contact_id: "c1".to_owned(),
+                name: "Ada".to_owned(),
+            }],
+            ..context()
+        },
+    ));
+    let back_from_contacts = |view: &mut View, model: &mut UiModel| {
+        let _ = shown(view, model, P);
+        press(view, text(UiText::AppOptions));
+        press(view, text(UiText::ContactsTitle));
+        let _ = intents(view, model);
+        settle();
+        assert_eq!(view.window().get_focus_id(), "close-cards");
+        key(view, Key::Return);
+        let _ = intents(view, model);
+        settle();
+    };
+
+    // The proposal's link, then another conversation.
+    let _ = shown(&mut view, &mut model, P);
+    let link = fill(text(UiText::ShowContact), &[("name", &isolated("Ada"))]);
+    press(&view, &link);
+    let _ = intents(&mut view, &mut model);
+    let _ = shown(&mut view, &mut model, R);
+    back_from_contacts(&mut view, &mut model);
+    assert!(view.window().get_list_shown(), "Back is the page's own");
+    assert_ne!(view.window().get_focus_id(), "proposal-contact:0:0");
+
+    // The share sheet's Open your card: its Back is to the sheet.
+    let open_card_from_share = |view: &mut View, model: &mut UiModel| {
+        let _ = shown(view, model, P);
+        press(view, text(UiText::MoreOptions));
+        press(view, text(UiText::ShareCard));
+        let _ = intents(view, model);
+        settle();
+        press(view, text(UiText::KeyOpenCard));
+        let _ = intents(view, model);
+        settle();
+    };
+    open_card_from_share(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id(), "close-cards");
+    key(&view, Key::Return);
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_share_open(), "control: back to the sheet");
+    view.window().set_share_open(false);
+
+    // Then another conversation chosen instead.
+    open_card_from_share(&mut view, &mut model);
+    let _ = shown(&mut view, &mut model, R);
+    back_from_contacts(&mut view, &mut model);
+    assert!(!view.window().get_share_open(), "no old share sheet");
+}
