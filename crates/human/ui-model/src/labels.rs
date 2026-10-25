@@ -787,6 +787,12 @@ ui_texts! {
     /// CARD PROPOSAL, case U: the card's photo will replace the contact's.
     // PLACEHOLDER (en)
     CardUpdatesPhoto => "New photo",
+    /// CARD PROPOSAL, cases U and E: the card carries no photo, so the
+    /// contact's photo, which came from a card, goes (contact-cards
+    /// design 5.4.1). Says the current photo goes, not that the card's is
+    /// missing.
+    // PLACEHOLDER (en)
+    CardUpdatesPhotoRemoved => "Current photo removed",
     /// CARD PROPOSAL, case E: the person named the contact `{name}`, and
     /// that name stays.
     // PLACEHOLDER (en)
@@ -818,6 +824,11 @@ ui_texts! {
     /// CARD CONFIRMATION ROW, added when the card's photo did not decode
     /// within its bound and the contact was saved without it.
     CardPhotoNotUsed => "The card's photo could not be used, so the contact was saved without it.",
+    /// CARD CONFIRMATION ROW, in place of `CardPhotoNotUsed` (cases U and
+    /// E): the card's photo did not decode within its bound, and the
+    /// contact's previous photo, which came from a card, went too.
+    // PLACEHOLDER (en)
+    CardPhotoNotUsedRemoved => "The card's photo could not be used, so the contact no longer has a photo.",
     /// CARD CONFIRMATION ROW's accessible description while its Accept's
     /// snackbar is open, never shown as text (contact-cards design
     /// 5.4.2, #416): read after `CardAccepted` or `CardUpdated`.
