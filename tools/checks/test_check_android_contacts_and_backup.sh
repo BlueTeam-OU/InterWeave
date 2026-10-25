@@ -166,6 +166,16 @@ fails "camera-api-gradle" "names androidx.camera, a camera API outside the Scan 
     "printf 'dependencies { implementation(\"androidx.camera:camera-core:1.4.0\") }\n' > $APP/build.gradle.kts"
 fails "camera-api-capture-intent" "names ACTION_IMAGE_CAPTURE" \
     "printf 'val i = android.provider.MediaStore.ACTION_IMAGE_CAPTURE\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "camera-api-platform-crate" "crates/human/android-platform/src/lib.rs:3: names CameraManager" \
+    "printf '// CameraManager\\n' >> crates/human/android-platform/src/lib.rs"
+fails "camera-api-service-by-name" 'names getSystemService("camera"' \
+    "printf 'val m = getSystemService(\"camera\")\\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "camera-api-legacy-open" "names Camera.open" \
+    "printf 'import android.hardware.*\\nval c = Camera.open()\\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+fails "camera-api-native" "names camera/NdkCamera" \
+    "mkdir -p apps/human-android/android/app/src/main/cpp && printf '#include <camera/NdkCameraManager.h>\\n' > apps/human-android/android/app/src/main/cpp/scan.cpp"
+fails "camera-scan-unreadable" "Plain.kt: not readable as UTF-8" \
+    "printf '\\xff\\xfe// CameraManager\\n' > $MAIN/kotlin/org/interweave/human/Plain.kt"
 fails "scan-module-missing" "0 Scan module(s) CodeCamera.kt found" \
     "rm $MAIN/kotlin/org/interweave/human/CodeCamera.kt"
 

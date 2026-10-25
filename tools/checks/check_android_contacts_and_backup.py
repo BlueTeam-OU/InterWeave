@@ -65,10 +65,13 @@
 #     (android.hardware.camera*) in any manifest read says
 #     android:required="false" in so many words, the attribute's absence
 #     meaning "true";
-#   - the camera APIs (camera2, the legacy Camera, CameraX, the NDK's
-#     ACamera*, the camera service, the capture intents, the CAMERA
-#     permission and the camera features by name) in the Kotlin, Java,
-#     Rust, Gradle and resource sources of apps/human-android, read raw:
+#   - the camera APIs (camera2, the legacy Camera and Camera.open,
+#     CameraX, the NDK's ACamera* and its header, the camera service by
+#     constant or by name, the capture intents, the CAMERA permission and
+#     the camera features by name) in the Kotlin, Java, Rust, C/C++,
+#     Gradle and resource sources of apps/human-android and of
+#     crates/human/android-platform, read raw, a source not readable as
+#     UTF-8 failing:
 #     anywhere in the Scan module, CodeCamera.kt; in MainActivity.kt only
 #     its use of the module -- the CAMERA permission asked and the
 #     camera feature asked of the package manager -- and nowhere else
@@ -140,7 +143,11 @@ CAMERA_API = re.compile(
     r"|\bACamera\w*|\bACTION_IMAGE_CAPTURE\w*|\bACTION_VIDEO_CAPTURE\b"
     r"|\bINTENT_ACTION_STILL_IMAGE_CAMERA\w*|\bINTENT_ACTION_VIDEO_CAMERA\b"
     r"|permission\.CAMERA\b|\bFEATURE_CAMERA\w*|android\.hardware\.camera\b[\w.]*"
+    r"|\bCamera\.open\b|getSystemService\(\s*\"camera\"|camera/NdkCamera"
 )
+# The sources the camera scan reads: what the app and its platform crate
+# are built from, native code included.
+CAMERA_SUFFIXES = {".kt", ".java", ".rs", ".kts", ".gradle", ".toml", ".xml", ".lockfile", ".c", ".cc", ".cpp", ".h"}
 SCAN_MODULE = "CodeCamera.kt"
 # MainActivity's use of the Scan module, and nothing else of the camera.
 SCAN_CALLER = "MainActivity.kt"
@@ -286,18 +293,18 @@ def check_extraction_rules(path: pathlib.Path, root: pathlib.Path, required: boo
             report(f"{rel}: <{section}> does not exclude the domain(s) {', '.join(missing)} at path \".\" (ADR-0060 decision 8)")
 
 
-def check_camera_apis(app: pathlib.Path, root: pathlib.Path) -> None:
+def check_camera_apis(bases: list[pathlib.Path], root: pathlib.Path) -> None:
     """The camera APIs in the Scan module alone (plan section 29 step 2)."""
     modules = 0
-    for path in walk(app):
-        rel_parts = set(path.relative_to(app).parts)
-        if rel_parts & TEST_SOURCE_SETS or path.name == "AndroidManifest.xml":
-            continue
-        if path.suffix not in {".kt", ".java", ".rs", ".kts", ".gradle", ".toml", ".xml", ".lockfile"}:
+    paths = [p for base in bases for p in walk(base) if not (set(p.relative_to(base).parts) & TEST_SOURCE_SETS)]
+    for path in paths:
+        if path.name == "AndroidManifest.xml" or path.suffix not in CAMERA_SUFFIXES:
             continue
         try:
             text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+        except (UnicodeDecodeError, OSError) as e:
+            # A source that cannot be read was not checked: fail closed.
+            report(f"{path.relative_to(root)}: not readable as UTF-8 ({e.__class__.__name__}); the camera APIs were not checked in it")
             continue
         if path.name == SCAN_MODULE:
             modules += 1
@@ -309,7 +316,7 @@ def check_camera_apis(app: pathlib.Path, root: pathlib.Path) -> None:
                     continue
                 report(f"{rel}:{i}: names {m.group(0)}, a camera API outside the Scan module {SCAN_MODULE} (plan section 29 step 2)")
     if modules != 1:
-        report(f"{app.relative_to(root)}: {modules} Scan module(s) {SCAN_MODULE} found, not one; the camera APIs were not held to it")
+        report(f"{bases[0].relative_to(root)}: {modules} Scan module(s) {SCAN_MODULE} found, not one; the camera APIs were not held to it")
 
 
 def main(argv: list[str]) -> int:
@@ -362,7 +369,7 @@ def main(argv: list[str]) -> int:
             for x in dirs:
                 check_extraction_rules(x / rules, root, d.name == "main" and x.name == "xml")
 
-    check_camera_apis(app, root)
+    check_camera_apis([app, root / "crates" / "human" / "android-platform"], root)
 
     # Raw scans: a provider name anywhere the Android client is built from,
     # and a contacts coordinate anywhere the Gradle dependency list is.
