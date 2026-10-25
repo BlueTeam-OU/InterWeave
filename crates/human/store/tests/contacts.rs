@@ -10,7 +10,7 @@ mod common;
 
 use interweave_human_store::{
     AcceptedCard, ContactRestored, HumanStore, KeyStanding, OwnCard, RouteDeleted, StoreOptions,
-    ValueSource,
+    ValueSource, name_key,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -165,6 +165,55 @@ fn two_same_name_cards_from_two_peer_ids_are_two_contacts_and_each_names_the_oth
     let second = store.accept_card(&from_q, 20).expect("from Q");
     assert!(second.created, "a second contact, never a merge");
     assert_eq!(store.contacts().expect("read").len(), 2);
+}
+
+/// Contact-cards design 5.4.1's key: each spelling the design names is
+/// the same name as "Anna", and a different name is not.
+#[test]
+fn a_lookalike_spelling_is_the_same_name_and_another_name_is_not() {
+    let anna = name_key("Anna Rossi");
+    for (why, spelling) in [
+        ("a Cyrillic A", "\u{410}nna Rossi"),
+        ("a no-break space", "Anna\u{a0}Rossi"),
+        ("fullwidth letters", "\u{ff21}nna Rossi"),
+        (
+            "a circled letter, one only NFKC unifies",
+            "\u{24b6}nna Rossi",
+        ),
+        ("a mathematical bold letter", "\u{1d400}nna Rossi"),
+        ("another case", "anna ROSSI"),
+        ("runs of white space and its ends", " Anna \t  Rossi "),
+    ] {
+        assert_eq!(name_key(spelling), anna, "{why}");
+    }
+    assert_ne!(name_key("Anne Rossi"), anna, "the control: another name");
+    assert_eq!(
+        name_key("\u{ff8a}\u{ff85}"),
+        name_key("\u{30cf}\u{30ca}"),
+        "halfwidth katakana"
+    );
+}
+
+#[test]
+fn a_lookalike_name_on_another_peer_id_is_named_as_the_same_name() {
+    let (_dir, mut store) = store();
+    let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
+    store
+        .accept_card(&card(&p, &human, "Ada", 1), 10)
+        .expect("from P");
+    let lookalike = store
+        .card_standing(&card(&q, &human, "\u{410}da", 2))
+        .expect("standing");
+    assert_eq!(
+        lookalike.same_name.len(),
+        1,
+        "a Cyrillic A is the same name"
+    );
+    assert_eq!(lookalike.same_name[0].display_name, "Ada", "as stored");
+    let other = store
+        .card_standing(&card(&q, &human, "Ida", 2))
+        .expect("standing");
+    assert!(other.same_name.is_empty(), "the control: another name");
 }
 
 #[test]

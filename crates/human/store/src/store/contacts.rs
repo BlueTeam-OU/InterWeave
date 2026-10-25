@@ -150,8 +150,8 @@ pub struct CardStanding {
     /// Contacts holding another endpoint of the card's `PeerId`: Accept
     /// makes a contact of its own, and the proposal names these.
     pub shares_node: Vec<Contact>,
-    /// Contacts of the same display name on other `PeerIds`: the same-name
-    /// note.
+    /// Contacts on other `PeerIds` whose display name is the card's by
+    /// [`name_key`], a lookalike spelling included: the same-name note.
     pub same_name: Vec<Contact>,
     /// The key against the route's record.
     pub key: KeyStanding,
@@ -370,6 +370,24 @@ pub fn direct_conversation_id(peer: &TransportIdentity, endpoint: &EndpointId) -
     format!("direct/{}/{}", peer.as_str(), endpoint.as_str())
 }
 
+/// The key two names are the same by (contact-cards design 5.4.1): NFKC,
+/// full case folding, each run of whitespace one space and the ends
+/// trimmed, then Unicode TS #39's confusable skeleton. A peer naming
+/// itself "Аnna" with a Cyrillic А, "Anna Rossi" with a no-break space or
+/// "Ａnna" in fullwidth letters meets the same warning as "Anna". The
+/// design keeps the key for comparison: a key is not a name to show or
+/// store. White space is Rust's `White_Space`,
+/// a superset of the design's Zs and tab; a card's name holds no other
+/// (HUMAN-CHAT.md refuses controls in it).
+#[must_use]
+pub fn name_key(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization as _;
+    let nfkc: String = name.nfkc().collect();
+    let folded = caseless::default_case_fold_str(&nfkc);
+    let spaced = folded.split_whitespace().collect::<Vec<_>>().join(" ");
+    unicode_security::skeleton(&spaced).collect()
+}
+
 fn new_contact_id() -> String {
     format!("{:032x}", rand::random::<u128>())
 }
@@ -519,11 +537,13 @@ impl HumanStore {
             .filter(|c| c.routes.iter().any(|r| &r.peer == card.peer))
             .cloned()
             .collect();
-        let display = card.display_name();
+        let name = name_key(&card.display_name());
         let same_name = others
             .iter()
             .filter(not_updated)
-            .filter(|c| c.display_name == display && c.routes.iter().all(|r| &r.peer != card.peer))
+            .filter(|c| {
+                name_key(&c.display_name) == name && c.routes.iter().all(|r| &r.peer != card.peer)
+            })
             .cloned()
             .collect();
         let key_matches = others
