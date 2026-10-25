@@ -64,5 +64,7 @@ a retry first for a cipher refusal, and nothing kept aside. The
 alternative of keeping a refused file beside the live one was refused
 as a second secret at rest with no reader. Propagation: decision 1;
 this note; the log row; the digest entry; `human-client-ui.md` §13's
-bullets 31 and 33 read with it; the design note ux-designer-01 writes.
+bullets 31 and 33 read with it; `design/2026-10-24-identity-key.md`
+(#411), whose §5.3 states the gap's outcome for an identity that
+never shared.
 
