@@ -1644,3 +1644,42 @@ fn a_same_name_warning_links_its_contact_and_back_returns_to_the_link() {
         "Back returns to the link"
     );
 }
+
+/// Contact-cards design section 9's focus table, "contact deleted": the
+/// Contacts list's first row once the list is drawn without the deleted
+/// contact, else the page's back arrow, the empty text being no focus
+/// stop. Mutation: the focus left on the back arrow after the delete.
+#[test]
+fn a_deleted_contact_leaves_focus_on_the_lists_first_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", P), contact("c2", "Bob", Q)]);
+    view.render(&model);
+    let delete = |view: &mut View, model: &mut UiModel, name: &str, id: &str| {
+        open_contact(view, model, name);
+        press(view, text(UiText::DeleteContact));
+        let _ = intents(view, model);
+        let buttons = labelled(view, text(UiText::DeleteContact));
+        buttons[0].invoke_accessible_default_action();
+        assert_eq!(
+            intents(view, model),
+            vec![Intent::DeleteContact {
+                contact_id: id.to_owned()
+            }]
+        );
+        settle();
+    };
+
+    delete(&mut view, &mut model, "Ada", "c1");
+    assert_eq!(view.window().get_focus_id(), "close-cards", "until it goes");
+    model.contacts_listed(vec![contact("c2", "Bob", Q)]);
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "contact:0", "Bob's row");
+
+    delete(&mut view, &mut model, "Bob", "c2");
+    model.contacts_listed(Vec::new());
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "close-cards", "none left");
+}

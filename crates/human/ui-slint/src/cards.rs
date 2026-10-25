@@ -474,6 +474,9 @@ pub(crate) struct CardScreens {
     return_to_link: Option<(ConversationKey, RowId, i32)>,
     /// That link, focused once its conversation draws it again.
     focus_link: Option<(RowId, i32)>,
+    /// A contact deleted from its page: the list's first row takes focus
+    /// once the list is drawn without it (design section 9's focus table).
+    deleted: Option<String>,
 }
 
 impl View {
@@ -633,7 +636,10 @@ impl View {
                     self.cards.page = Some(CardsPage::Contacts);
                     self.cards.contact = None;
                     window.set_cards_page(CardsPage::Contacts);
+                    // Until the list is drawn without it, the page's back
+                    // arrow; then its first row.
                     self.focus_key_after_draw("close-cards".to_owned());
+                    self.cards.deleted = Some(id);
                     return vec![intent];
                 }
             }
@@ -1110,6 +1116,18 @@ impl View {
             rows.set_vec(drawn);
             self.shared.borrow_mut().cards.contacts = ids;
             self.cards.contacts_shown = contacts;
+        }
+        // A deleted contact gone from the list: focus on its first row,
+        // else its back arrow (the empty text is no focus stop). A delete
+        // the store refused leaves it listed, and focus where it is.
+        if self.cards.page != Some(CardsPage::Contacts) {
+            self.cards.deleted = None;
+        } else if let Some(id) = self.cards.deleted.take() {
+            if self.cards.contacts_shown.iter().any(|c| c.contact_id == id) {
+                self.cards.deleted = Some(id);
+            } else if let Some(key) = self.contact_focus(&FocusTarget::Contacts) {
+                self.focus_key_after_draw(key);
+            }
         }
         window.set_contact_rows(ModelRc::from(rows));
     }
