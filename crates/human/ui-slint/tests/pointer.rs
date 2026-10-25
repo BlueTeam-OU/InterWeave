@@ -791,3 +791,39 @@ fn a_proposals_menu_opens_by_long_press_and_holds_its_cases_answers() {
         [text(UiText::Close), text(UiText::CopyPeerId)]
     );
 }
+
+/// #433 F2 (message-swipe section 7): a proposal's open menu closes once
+/// its row moves -- an earlier card gone, which renumbers the rows under
+/// it -- so no entry acts on the card now at its place; a card added
+/// after it leaves it open. Mutation: the rebuild not closing the menu.
+#[test]
+fn a_proposals_menu_closes_when_its_row_moves() {
+    let mut view = phone();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 1600.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    proposal(&mut model, 2, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let at = proposal_heading_at(&view, 1);
+    assert_eq!(
+        hold(&view, at, 0.0, 16, PointerEventButton::Right),
+        1,
+        "its menu"
+    );
+
+    proposal(&mut model, 3, &alice, judged(None, false, false));
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_card_menu(),
+        1,
+        "a card after it: still open"
+    );
+
+    model.card_gone(RowId::from_stored(1));
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(view.window().get_card_menu(), -1, "its row moved: closed");
+}

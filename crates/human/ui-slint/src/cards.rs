@@ -917,6 +917,30 @@ impl View {
                     proposal_row(handle, p, &self.received(p.received_at))
                 })
                 .collect();
+            // A proposal's open menu shows the answers its row had: a row
+            // changed, moved or gone closes it (message-swipe section 7),
+            // so no entry acts on another card at its place (#433 F2).
+            let menu = window.get_card_menu();
+            if menu >= 0 {
+                let was = usize::try_from(menu)
+                    .ok()
+                    .and_then(|i| self.cards.proposals_shown.get(i));
+                let now = usize::try_from(menu).ok().and_then(|i| shown.get(i));
+                if was != now {
+                    window.set_card_menu(-1);
+                    // Still drawn elsewhere or changed: focus on its first
+                    // control. Gone: the removal's rule decides.
+                    let row = was.map(Entry::place).map(|(_, row)| row);
+                    let found = row
+                        .and_then(|row| shown.iter().enumerate().find(|(_, e)| e.place().1 == row));
+                    if let Some((at, entry)) = found {
+                        self.focus_key_after_draw(match entry {
+                            Entry::Proposal(_) => format!("proposal-copy:{at}"),
+                            Entry::Answer(..) => format!("answer:{at}"),
+                        });
+                    }
+                }
+            }
             rows.set_vec(drawn);
             let mut shared = self.shared.borrow_mut();
             shared.cards.answers = answers;
