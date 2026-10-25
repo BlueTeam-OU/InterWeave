@@ -2269,10 +2269,14 @@ component ProposalCard inherits Rectangle {
                 accessible-role: text;
                 accessible-label: self.text;
             }
+            // Wrapping as the PeerId does: unwrapped in the code font at
+            // 200 % it set the card wider than a 320 px window (seen
+            // rendered).
             Text {
                 text: root.card.fingerprint;
                 font-family: root.code-font;
                 font-size: Type.body-medium;
+                wrap: char-wrap;
                 color: Palette.on-surface;
                 accessible-role: text;
                 accessible-label: self.text;
