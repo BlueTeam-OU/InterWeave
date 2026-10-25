@@ -1575,3 +1575,363 @@ async fn a_route_is_deleted_and_its_contact_keeps_the_other() {
         }]
     );
 }
+
+/// Contact-cards design 5.4.1 cases U and E, through the loop: a later
+/// card with a new name proposes that name for the contact; once the
+/// person names the contact themselves, the same card says that name stays
+/// and proposes none.
+#[tokio::test]
+async fn a_later_card_names_the_values_it_changes_and_the_edit_it_keeps() {
+    use interweave_human_ui_model::ValueChanges;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let first = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::AcceptCard(first));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+
+    let share_again = |alice: &mut Root, name: &str| {
+        alice.will(Intent::SetOwnCard {
+            name: name.to_owned(),
+            surname: None,
+            photo: PhotoEdit::Keep,
+        });
+    };
+    share_again(&mut alice, "Ada King");
+    alice.pump(6).await;
+    alice.will(
+        alice
+            .model()
+            .share_card(&direct(b.peer()))
+            .expect("offered"),
+    );
+    alice.pump(7).await;
+    alice.pump(8).await;
+    bob.pump(9).await;
+    let proposal = bob.model().proposals(&from_alice)[0].clone();
+    assert_eq!(
+        proposal.values,
+        ValueChanges {
+            new_name: Some("Ada King".to_owned()),
+            ..ValueChanges::default()
+        },
+        "case U: the new name named"
+    );
+    bob.will(Intent::DeclineCard(proposal.row));
+    bob.pump(10).await;
+
+    bob.will(Intent::RenameContact {
+        contact_id,
+        name: "Countess".to_owned(),
+    });
+    bob.pump(11).await;
+    alice.will(
+        alice
+            .model()
+            .share_card(&direct(b.peer()))
+            .expect("offered"),
+    );
+    alice.pump(12).await;
+    alice.pump(13).await;
+    bob.pump(14).await;
+    let proposal = bob
+        .model()
+        .proposals(&from_alice)
+        .last()
+        .expect("a proposal")
+        .clone();
+    assert_eq!(
+        proposal.values,
+        ValueChanges {
+            kept_name: true,
+            ..ValueChanges::default()
+        },
+        "case E: the person's name stays, no new name proposed"
+    );
+}
+
+impl Root {
+    /// The hold of the last contact change the facade side answered.
+    fn last_hold(&self) -> u64 {
+        self.updates
+            .iter()
+            .rev()
+            .find_map(|u| match u {
+                Update::ContactChanged { hold, .. } => Some(*hold),
+                _ => None,
+            })
+            .expect("a contact change")
+    }
+
+    /// The snackbar's Undo, pressed.
+    fn undo_snackbar(&mut self) {
+        let id = self.model().snackbar().expect("a snackbar").id;
+        self.model
+            .surface_mut()
+            .batches
+            .push_back(vec![ViewEvent::Undo(id)]);
+    }
+
+    /// The snackbar closed by its timeout.
+    fn close_snackbar(&mut self) {
+        let id = self.model().snackbar().expect("a snackbar").id;
+        self.model
+            .surface_mut()
+            .batches
+            .push_back(vec![ViewEvent::SnackbarClosed(id)]);
+    }
+}
+
+/// Contact-cards design section 6.3 through the loop: Delete contact
+/// opens its snackbar and its Undo writes the contact back as it was; one
+/// whose snackbar closed is let go, and an Undo then is refused; an Accept
+/// that puts the deleted contact's route under a new contact withdraws
+/// its Undo. Mutations: the facade not holding the delete; `ForgetContact`
+/// keeping it; the Accept not withdrawing it.
+#[tokio::test]
+async fn a_deleted_contact_comes_back_by_its_undo_until_its_route_is_taken() {
+    use interweave_human_ui_model::{Confirmation, ContactChange};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let first = bob.model().proposals(&direct(a.peer()))[0].row;
+    bob.will(Intent::AcceptCard(first));
+    bob.pump(5).await;
+    let before = bob.model().contacts()[0].clone();
+    let delete = Intent::DeleteContact {
+        contact_id: before.contact_id.clone(),
+    };
+
+    bob.will(delete.clone());
+    bob.pump(6).await;
+    assert!(bob.model().contacts().is_empty(), "deleted");
+    let snack = bob.model().snackbar().expect("its snackbar");
+    assert_eq!(snack.confirms, Confirmation::ContactDeleted);
+    bob.undo_snackbar();
+    bob.pump(7).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    assert_eq!(
+        bob.model().contacts(),
+        std::slice::from_ref(&before),
+        "as it was"
+    );
+
+    // Deleted again and held, then a card on its route accepted: the
+    // Undo is withdrawn, and refused if asked.
+    bob.will(delete.clone());
+    bob.pump(8).await;
+    let held = bob.last_hold();
+    // An Undo of `contact_id`'s delete under the last hold handed out.
+    let undo = |bob: &Root, contact_id: &str| Command::UndoContact {
+        contact_id: contact_id.to_owned(),
+        change: ContactChange::Deleted,
+        hold: bob.last_hold(),
+    };
+    let shown = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Keep),
+        10,
+    )
+    .await;
+    bob.will(Intent::AcceptCard(shown.row));
+    bob.pump(20).await;
+    assert!(
+        bob.updates.contains(&Update::ContactUndoWithdrawn(held)),
+        "withdrawn"
+    );
+    let asked_for = undo(&bob, &before.contact_id);
+    let asked = bob.facade.execute(asked_for.clone(), 21).await;
+    assert!(
+        asked.contains(&Update::Failed {
+            command: asked_for,
+            why: Failure::NoSuchRow,
+        }),
+        "{asked:?}"
+    );
+
+    // The new contact deleted, its snackbar closed: let go, and an Undo
+    // asked then is refused.
+    let now = bob.model().contacts()[0].contact_id.clone();
+    bob.will(Intent::DeleteContact {
+        contact_id: now.clone(),
+    });
+    bob.pump(22).await;
+    bob.close_snackbar();
+    bob.pump(23).await;
+    let asked_for = undo(&bob, &now);
+    let asked = bob.facade.execute(asked_for.clone(), 24).await;
+    assert!(
+        asked.contains(&Update::Failed {
+            command: asked_for,
+            why: Failure::NoSuchRow,
+        }),
+        "{asked:?}"
+    );
+}
+
+/// Section 6.3: Remove photo opens its snackbar, and its Undo writes the
+/// card's photo back with where it came from. Mutation: the removal not
+/// held for its Undo.
+#[tokio::test]
+async fn a_removed_contact_photo_comes_back_by_its_undo() {
+    use interweave_human_ui_model::Confirmation;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let shown = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Chosen(png(400, 300))),
+        1,
+    )
+    .await;
+    bob.will(Intent::AcceptCard(shown.row));
+    bob.pump(5).await;
+    let before = bob.model().contacts()[0].clone();
+    assert!(before.photo.is_some(), "the setup: a card's photo");
+
+    bob.will(Intent::SetContactPhoto {
+        contact_id: before.contact_id.clone(),
+        photo: PhotoEdit::Remove,
+    });
+    bob.pump(6).await;
+    assert!(bob.model().contacts()[0].photo.is_none(), "removed");
+    assert_eq!(
+        bob.model().snackbar().map(|s| s.confirms),
+        Some(Confirmation::PhotoRemoved)
+    );
+    bob.undo_snackbar();
+    bob.pump(7).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    assert_eq!(
+        bob.model().contacts(),
+        [before],
+        "photo, source and time back"
+    );
+}
+
+/// #433 F1 through the loop: Remove photo, then Delete contact on the
+/// same contact; the first snackbar's release lets go of its own hold
+/// only, so the delete's Undo writes the contact back. Mutation: the
+/// facade side's release by the contact's id.
+#[tokio::test]
+async fn a_delete_after_a_photo_removal_on_one_contact_keeps_its_undo() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let shown = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Chosen(png(400, 300))),
+        1,
+    )
+    .await;
+    bob.will(Intent::AcceptCard(shown.row));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+    bob.will(Intent::SetContactPhoto {
+        contact_id: contact_id.clone(),
+        photo: PhotoEdit::Remove,
+    });
+    bob.pump(6).await;
+    let without_photo = bob.model().contacts()[0].clone();
+    bob.will(Intent::DeleteContact {
+        contact_id: contact_id.clone(),
+    });
+    bob.pump(7).await;
+    assert!(bob.model().contacts().is_empty(), "deleted");
+    bob.undo_snackbar();
+    bob.pump(8).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    assert_eq!(
+        bob.model().contacts(),
+        std::slice::from_ref(&without_photo),
+        "back as the delete found it"
+    );
+}
+
+/// #433 F6, contact-cards design 5.4.1 cases U and E for the photo: a
+/// later card with a photo, the contact's photo not the person's, names
+/// the new photo; once the person chose their own, the same card says
+/// that photo stays and changes none. Mutations: `new_photo` or
+/// `kept_photo` constant false.
+#[tokio::test]
+async fn a_later_cards_photo_is_named_as_new_or_as_the_persons_kept() {
+    use interweave_human_ui_model::ValueChanges;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let first = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Keep),
+        1,
+    )
+    .await;
+    bob.will(Intent::AcceptCard(first.row));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+
+    let with_photo = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Chosen(png(400, 300))),
+        10,
+    )
+    .await;
+    assert_eq!(
+        with_photo.values,
+        ValueChanges {
+            new_photo: true,
+            ..ValueChanges::default()
+        },
+        "case U: the card's photo would replace the contact's"
+    );
+    bob.will(Intent::DeclineCard(with_photo.row));
+    bob.pump(15).await;
+
+    bob.will(Intent::SetContactPhoto {
+        contact_id,
+        photo: PhotoEdit::Chosen(png(64, 64)),
+    });
+    bob.pump(16).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(20).await;
+    alice.pump(21).await;
+    bob.pump(22).await;
+    let again = bob.model().proposals(&direct(a.peer()));
+    assert_eq!(
+        again.last().expect("a proposal").values,
+        ValueChanges {
+            kept_photo: true,
+            ..ValueChanges::default()
+        },
+        "case E: the person's photo stays"
+    );
+}

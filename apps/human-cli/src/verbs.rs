@@ -205,9 +205,10 @@ const fn command_name(command: &Command) -> &'static str {
         Command::Retry(_) => "retry",
         Command::Cancel(_) => "cancel",
         Command::Restore(_) => "restore",
-        Command::ForgetCancelled(_) | Command::ForgetCopy(_) | Command::ForgetCard(_) => {
-            "releasing a held copy"
-        }
+        Command::ForgetCancelled(_)
+        | Command::ForgetCopy(_)
+        | Command::ForgetCard(_)
+        | Command::ForgetContact(_) => "releasing a held copy",
         Command::Reopen => "reopen",
         Command::RecheckStorage => "re-checking storage",
         Command::ReadTrust => "reading trust",
@@ -226,6 +227,7 @@ const fn command_name(command: &Command) -> &'static str {
         Command::SetOwnCard { .. } => "editing the own card",
         Command::RenameContact { .. } => "renaming a contact",
         Command::DeleteContact(_) => "deleting a contact",
+        Command::UndoContact { .. } => "undoing a contact's change",
         Command::DeleteRoute { .. } => "deleting a route",
         Command::SetContactPhoto { .. } => "setting a contact's photo",
     }

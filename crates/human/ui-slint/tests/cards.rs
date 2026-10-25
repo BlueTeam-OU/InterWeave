@@ -139,6 +139,7 @@ fn context() -> ProposalContext {
         key: KeyView::New,
         fingerprint: "0123456789abcdef".to_owned(),
         changes_nothing: false,
+        values: interweave_human_ui_model::ValueChanges::default(),
     }
 }
 
@@ -288,8 +289,8 @@ fn accepts_label_and_context_say_what_it_will_do_and_decline_answers_its_row() {
     assert!(shows(
         &view,
         &fill(
-            text(UiText::CardWillUpdate),
-            &[("contact", &isolated("Countess"))]
+            text(UiText::CardUpdates),
+            &[("name", &isolated("Countess"))]
         )
     ));
     assert!(shows(
@@ -336,6 +337,7 @@ fn a_card_that_changes_nothing_offers_close_alone_and_says_when_it_came() {
             }),
             key: KeyView::Same,
             changes_nothing: true,
+            values: interweave_human_ui_model::ValueChanges::default(),
             ..context()
         },
     ));
@@ -1210,4 +1212,273 @@ fn the_share_sheet_says_the_key_cannot_be_used_and_opens_the_card_page() {
     assert!(shows(&view, text(UiText::KeyStateTitle)), "the card page");
     assert!(!shows(&view, text(UiText::KeyMakeNew)), "no new key there");
     assert!(shows(&view, text(UiText::TryAgain)));
+}
+
+/// The bounds of the one element labelled `label`.
+fn bounds(view: &View, label: &str) -> (f32, f32, f32, f32) {
+    let found = labelled(view, label);
+    assert_eq!(found.len(), 1, "one {label:?}");
+    let (at, size) = (found[0].absolute_position(), found[0].size());
+    (at.x, at.y, at.x + size.width, at.y + size.height)
+}
+
+/// A proposal's row holds what it says: its heading and its Accept lie
+/// inside the card's fill, so the card is drawn behind them and the list
+/// reaches its end. Its children were all conditional once, which pass no
+/// size up, and the card was drawn 0 px tall with its text spilling below
+/// it; then, its size implicit, measured before its lines wrapped, and a
+/// phone drew Accept under it. Mutations: the card's body layout taken
+/// away; its two height bindings taken away.
+#[test]
+fn a_proposal_row_is_as_tall_as_what_it_says() {
+    let mut view = view();
+    // Phone-wide, where its lines wrap most.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    model.card_received(proposal(1, P, card("Ada", false), context()));
+    let _ = shown(&mut view, &mut model, P);
+    let cards: Vec<ElementHandle> =
+        ElementHandle::find_by_element_type_name(view.window(), "ProposalCard").collect();
+    assert_eq!(cards.len(), 1, "one card");
+    let (at, size) = (cards[0].absolute_position(), cards[0].size());
+    let card = (at.x, at.y, at.x + size.width, at.y + size.height);
+    let heading = fill(text(UiText::CardProposal), &[("name", &isolated("Ada"))]);
+    for label in [heading.as_str(), text(UiText::CardAccept)] {
+        let inner = bounds(&view, label);
+        assert!(
+            inner.1 >= card.1 && inner.3 <= card.3,
+            "{label:?} at {inner:?} inside the card at {card:?}"
+        );
+    }
+}
+
+/// Its case D card as a phone draws it, with its longest Accept label,
+/// "Accept as a new contact": the window `width` wide, text at `font`
+/// px when given (Android's 200 % is 28). Every edge is checked against
+/// the window and the card, and the answers against each other.
+fn case_d_at(width: f32, font: Option<f32>) {
+    let mut view = view();
+    if let Some(px) = font {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(px)));
+    }
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(width, 2400.0));
+    let mut model = UiModel::new();
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", false),
+        ProposalContext {
+            same_name: vec![ContactRef {
+                contact_id: "c2".to_owned(),
+                name: "Ada".to_owned(),
+            }],
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, P);
+    assert!(shows(&view, text(UiText::AcceptAsNew)), "case D");
+    let cards: Vec<ElementHandle> =
+        ElementHandle::find_by_element_type_name(view.window(), "ProposalCard").collect();
+    let (at, size) = (cards[0].absolute_position(), cards[0].size());
+    let card = (at.x, at.y, at.x + size.width, at.y + size.height);
+    assert!(
+        card.0 >= 0.0 && card.2 <= width,
+        "the card at {card:?}, inside {width} px"
+    );
+    let decline = bounds(&view, text(UiText::CardDecline));
+    let accept = bounds(&view, text(UiText::AcceptAsNew));
+    for (label, b) in [("Decline", decline), ("Accept", accept)] {
+        assert!(
+            b.0 >= card.0 && b.2 <= card.2 && b.1 >= card.1 && b.3 <= card.3,
+            "{label} at {b:?} inside the card at {card:?}"
+        );
+    }
+    assert!(decline.3 <= accept.1, "Decline on a line above Accept");
+    assert!(
+        (decline.0 - accept.0).abs() < 0.5 && (decline.2 - accept.2).abs() < 0.5,
+        "each the column's full width: {decline:?} {accept:?}"
+    );
+}
+
+/// A proposal's answers are one per line, each the full width of the
+/// card's column, Decline first: a case D card fits a phone with its
+/// longest Accept (ux-designer's answer of 2026-10-25 to design section
+/// 8, provisional until the contact-cards revision). Copy `PeerId` sat on
+/// the action line once and pushed it 23 px past its row. Mutations:
+/// Copy `PeerId` back on the action line; the answers on one line.
+#[test]
+fn a_proposal_fits_a_phone_with_its_longest_accept() {
+    case_d_at(390.0, None);
+}
+
+/// The same at 320 px with 200 % text, where "Accept as a new contact"
+/// no longer fits one line and wraps inside its button. Mutation:
+/// Accept's label not wrapping (`wraps` off), which sets the card wider
+/// than the window.
+#[test]
+fn a_proposal_fits_a_narrow_window_with_large_text() {
+    case_d_at(320.0, Some(28.0));
+}
+
+/// Contact-cards design section 6.3 on the card pages: Delete contact's
+/// snackbar shows on the Contacts list with its Undo, which raises the
+/// Undo and, once the contact is back, sends focus to its row; leaving
+/// the card pages closes it. Remove photo's shows on the contact's page,
+/// and its Undo sends focus back to Remove photo. Mutations: leaving not
+/// closing it; the restored focus not mapped, to the row or to Remove
+/// photo.
+#[test]
+fn a_contacts_delete_and_photo_removal_show_their_undo_on_the_card_pages() {
+    use interweave_human_ui_model::ContactChange;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let ada = ContactView {
+        photo: Some(photo()),
+        photo_from_card: Some(true),
+        photo_at: Some(NOW),
+        ..contact("c1", "Ada", P)
+    };
+    model.contacts_listed(vec![ada.clone()]);
+    view.render(&model);
+    open_contact(&mut view, &mut model, "Ada");
+
+    // As the facade answers a Delete: the list, then the change.
+    model.contacts_listed(Vec::new());
+    model.contact_changed("c1".to_owned(), ContactChange::Deleted, 1);
+    let _ = intents(&mut view, &mut model);
+    assert!(shows(&view, text(UiText::ConfirmContactDeleted)));
+    press(&view, text(UiText::Undo));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::UndoContact {
+            contact_id: "c1".to_owned(),
+            change: ContactChange::Deleted,
+            hold: 1,
+        }]
+    );
+    model.contacts_listed(vec![ada.clone()]);
+    model.contact_restored("c1", ContactChange::Deleted);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(view.window().get_focus_target().as_str(), "contact:0");
+
+    // Deleted again, then the card pages left: the snackbar closes.
+    model.contacts_listed(Vec::new());
+    model.contact_changed("c1".to_owned(), ContactChange::Deleted, 2);
+    let _ = intents(&mut view, &mut model);
+    assert!(shows(&view, text(UiText::ConfirmContactDeleted)));
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    let _ = intents(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "closed by leaving");
+    assert_eq!(model.take_released().contacts, vec![2]);
+    assert!(!shows(&view, text(UiText::ConfirmContactDeleted)));
+
+    // Remove photo, on the contact's page.
+    model.contacts_listed(vec![ada.clone()]);
+    view.render(&model);
+    open_contact(&mut view, &mut model, "Ada");
+    press(&view, text(UiText::RemovePhoto));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::SetContactPhoto {
+            contact_id: "c1".to_owned(),
+            photo: PhotoEdit::Remove,
+        }]
+    );
+    model.contacts_listed(vec![ContactView {
+        photo: None,
+        photo_from_card: Some(false),
+        ..ada.clone()
+    }]);
+    model.contact_changed("c1".to_owned(), ContactChange::PhotoRemoved, 3);
+    let _ = intents(&mut view, &mut model);
+    assert!(shows(&view, text(UiText::ConfirmPhotoRemoved)));
+    press(&view, text(UiText::Undo));
+    let _ = intents(&mut view, &mut model);
+    model.contacts_listed(vec![ada]);
+    model.contact_restored("c1", ContactChange::PhotoRemoved);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_target().as_str(),
+        "contact-remove-photo"
+    );
+}
+
+/// #433 F6, contact-cards design 5.4.1 cases U and E as the row draws
+/// them: the values Accept changes and the person's edits it keeps, each
+/// a line read right after the context line. Mutation: the value lines
+/// not drawn.
+#[test]
+fn a_proposal_reads_the_values_accept_changes_after_its_context_line() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let countess = ContactRef {
+        contact_id: "c1".to_owned(),
+        name: "Countess".to_owned(),
+    };
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada", true),
+        ProposalContext {
+            updates: Some(countess.clone()),
+            values: interweave_human_ui_model::ValueChanges {
+                new_name: Some("Ada King".to_owned()),
+                new_photo: true,
+                ..interweave_human_ui_model::ValueChanges::default()
+            },
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, P);
+    let context_line = fill(
+        text(UiText::CardUpdates),
+        &[("name", &isolated("Countess"))],
+    );
+    let new_name = fill(
+        text(UiText::CardUpdatesName),
+        &[("name", &isolated("Ada King"))],
+    );
+    let at = reading_index(&view, &context_line);
+    assert_eq!(reading_index(&view, &new_name), at + 1, "case U, the name");
+    assert_eq!(
+        reading_index(&view, text(UiText::CardUpdatesPhoto)),
+        at + 2,
+        "and the photo"
+    );
+
+    model.card_received(proposal(
+        2,
+        Q,
+        card("Ada", true),
+        ProposalContext {
+            updates: Some(countess),
+            values: interweave_human_ui_model::ValueChanges {
+                kept_name: true,
+                kept_photo: true,
+                ..interweave_human_ui_model::ValueChanges::default()
+            },
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, Q);
+    let kept = fill(
+        text(UiText::CardKeepsEdit),
+        &[("name", &isolated("Countess"))],
+    );
+    let at = reading_index(&view, &context_line);
+    assert_eq!(reading_index(&view, &kept), at + 1, "case E, the name");
+    assert_eq!(
+        reading_index(&view, text(UiText::CardKeepsPhoto)),
+        at + 2,
+        "and the photo"
+    );
 }

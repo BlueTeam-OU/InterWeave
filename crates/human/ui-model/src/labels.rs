@@ -776,9 +776,25 @@ ui_texts! {
     /// card's route.
     CardWillCreate => "If you accept, a new contact is saved.",
     /// CARD PROPOSAL, Accept's context line when a contact holds the
-    /// route: `{contact}` is that contact's name. The person's own edits
-    /// stay, and the line says so.
-    CardWillUpdate => "If you accept, your contact {contact} is updated. If you chose a name or photo yourself, it does not change.",
+    /// route (contact-cards design 5.4.1, cases U and E): `{name}` is that
+    /// contact's name. The values that change and the edits that stay
+    /// follow it, a line each.
+    // PLACEHOLDER (en)
+    CardUpdates => "If you accept, your contact {name} is updated.",
+    /// CARD PROPOSAL, case U: the name the contact will take, `{name}`.
+    // PLACEHOLDER (en)
+    CardUpdatesName => "New name: {name}",
+    /// CARD PROPOSAL, case U: the card's photo will replace the contact's.
+    // PLACEHOLDER (en)
+    CardUpdatesPhoto => "New photo",
+    /// CARD PROPOSAL, case E: the person named the contact `{name}`, and
+    /// that name stays.
+    // PLACEHOLDER (en)
+    CardKeepsEdit => "You named this contact {name} yourself. That name stays.",
+    /// CARD PROPOSAL, case E: the person chose the contact's photo, and
+    /// it stays.
+    // PLACEHOLDER (en)
+    CardKeepsPhoto => "You chose this contact's photo yourself. That photo stays.",
     /// CARD PROPOSAL, the same-name note: `{contact}` is a contact of this
     /// identity with the same name on another `PeerId`.
     CardSameName => "One of your contacts is named {contact} and has a different PeerId. Compare the two PeerIds before you accept.",
@@ -813,6 +829,13 @@ ui_texts! {
     /// SNACKBAR, with Undo, after a Decline: the proposal is gone from
     /// the session unless the person takes it back.
     ConfirmCardDeclined => "Card declined",
+    /// SNACKBAR, with Undo, after Delete contact (contact-cards design
+    /// section 6.3): the contact and its routes are gone unless the
+    /// person takes it back.
+    ConfirmContactDeleted => "Contact deleted",
+    /// SNACKBAR, with Undo, after a contact's Remove photo (section
+    /// 6.3).
+    ConfirmPhotoRemoved => "Photo removed",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 heading
     KeyStateTitle => "This identity's key cannot be used",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): Android, invalidated or gone; must not claim a cause the client cannot know

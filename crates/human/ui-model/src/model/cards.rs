@@ -162,6 +162,23 @@ pub struct ProposalContext {
     /// of its values is the person's or already the card's. The proposal
     /// then offers Close alone.
     pub changes_nothing: bool,
+    /// Which of the contact's values Accept would change and which of the
+    /// person's own it keeps (cases U and E); empty with no contact.
+    pub values: ValueChanges,
+}
+
+/// What Accept would do to the contact holding the card's route, value by
+/// value (contact-cards design section 5.4.1, cases U and E).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct ValueChanges {
+    /// The name it would take, when it changes.
+    pub new_name: Option<String>,
+    /// The card's photo would replace the contact's.
+    pub new_photo: bool,
+    /// The card's name differs from one the person chose, which stays.
+    pub kept_name: bool,
+    /// The card carries a photo, and the person's chosen one stays.
+    pub kept_photo: bool,
 }
 
 /// What became of a proposal the person answered: what the confirmation
@@ -244,6 +261,8 @@ pub struct ProposalItem {
     pub accept: AcceptLine,
     /// The notes to show before Accept.
     pub notes: Vec<ProposalNote>,
+    /// Which values Accept changes and which edits it keeps.
+    pub values: ValueChanges,
     /// When it arrived.
     pub received_at: u64,
 }
@@ -269,6 +288,41 @@ impl ProposalItem {
             AcceptLine::Creates => UiText::CardAccept,
         }
     }
+
+    /// Which ways the proposal's row swipes (contact-cards design section
+    /// 5.4.4): toward the line's end Accept, toward its start Decline.
+    /// Case S moves neither way, since Close is no swipe action. A row
+    /// that shows `CardSameName` -- case D, and P, U or E when Accept
+    /// would write a clashing name -- never accepts by swipe (the owner's
+    /// O2, "whenever warned"): a swipe can happen without reading, and a
+    /// stranger saved under a contact's name by a stray thumb is the
+    /// impersonation ADR-0059 makes visible. Its Accept button, or its
+    /// menu's Accept, saves it: each pressed on purpose, beside the
+    /// warning (`a_proposal_swipes_both_ways_but_never_accepts_when_warned_or_moves_in_s`).
+    /// Judged on what the row shows now, so a row judged again after a
+    /// change (5.4.5) swipes as it then reads.
+    #[must_use]
+    pub fn swipe(&self) -> CardSwipe {
+        let closes = matches!(self.accept, AcceptLine::Matches(_));
+        let warned = self
+            .notes
+            .iter()
+            .any(|n| matches!(n, ProposalNote::SameName(_)));
+        CardSwipe {
+            accept: !closes && !warned,
+            decline: !closes,
+        }
+    }
+}
+
+/// Which ways a proposal's row swipes, named by the direction of reading
+/// as [`super::swipe::SwipeOffer`] is: the view mirrors them right to left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CardSwipe {
+    /// Toward the line's end: Accept, under the label of its case.
+    pub accept: bool,
+    /// Toward the line's start: Decline.
+    pub decline: bool,
 }
 
 /// One route of a contact, for its page.
@@ -933,6 +987,7 @@ impl UiModel {
                         Some(u) => AcceptLine::Updates(u.name.clone()),
                     },
                     notes,
+                    values: c.values.clone(),
                     received_at: p.received_at,
                 }
             })
@@ -1126,6 +1181,7 @@ mod tests {
             key: KeyView::New,
             fingerprint: "0123456789abcdef".to_owned(),
             changes_nothing: false,
+            values: ValueChanges::default(),
         }
     }
 
@@ -1480,6 +1536,7 @@ mod tests {
         model.read(row(1));
         let changed = ProposalContext {
             changes_nothing: true,
+            values: ValueChanges::default(),
             updates: Some(ContactRef {
                 contact_id: "c1".to_owned(),
                 name: "Ada".to_owned(),
@@ -1556,6 +1613,7 @@ mod tests {
             ProposalContext {
                 updates: Some(near("u")),
                 changes_nothing: true,
+                values: ValueChanges::default(),
                 ..context()
             },
         ));
@@ -1569,6 +1627,94 @@ mod tests {
             vec![Intent::DeclineCard(row(5))],
             "Close alone, which declines"
         );
+    }
+
+    // Section 5.4.4's swipes by case, from the same contexts the labels
+    // are judged on: no Accept swipe wherever CardSameName shows (O2), the
+    // same cases without it keeping theirs. Mutations: `closes` not
+    // withholding Decline (case S moves); `warned` dropped (a warned row
+    // accepts by swipe).
+    #[test]
+    fn a_proposal_swipes_both_ways_but_never_accepts_when_warned_or_moves_in_s() {
+        let near = |kind: &str| ContactRef {
+            contact_id: kind.to_owned(),
+            name: "Ada".to_owned(),
+        };
+        let both = CardSwipe {
+            accept: true,
+            decline: true,
+        };
+        let cases = [
+            ("N", context(), both),
+            (
+                "D",
+                ProposalContext {
+                    same_name: vec![near("d")],
+                    ..context()
+                },
+                CardSwipe {
+                    accept: false,
+                    decline: true,
+                },
+            ),
+            (
+                "P",
+                ProposalContext {
+                    shares_node: vec![near("p")],
+                    ..context()
+                },
+                both,
+            ),
+            (
+                "P, warned",
+                ProposalContext {
+                    shares_node: vec![near("p")],
+                    same_name: vec![near("d")],
+                    ..context()
+                },
+                CardSwipe {
+                    accept: false,
+                    decline: true,
+                },
+            ),
+            (
+                "U",
+                ProposalContext {
+                    updates: Some(near("u")),
+                    ..context()
+                },
+                both,
+            ),
+            (
+                "U, warned",
+                ProposalContext {
+                    updates: Some(near("u")),
+                    same_name: vec![near("d")],
+                    ..context()
+                },
+                CardSwipe {
+                    accept: false,
+                    decline: true,
+                },
+            ),
+            (
+                "S",
+                ProposalContext {
+                    updates: Some(near("u")),
+                    changes_nothing: true,
+                    values: ValueChanges::default(),
+                    ..context()
+                },
+                CardSwipe::default(),
+            ),
+        ];
+        for (n, (case, judged, swipe)) in cases.into_iter().enumerate() {
+            let mut model = UiModel::new();
+            let at = i64::try_from(n).expect("small");
+            model.card_received(proposal(at + 1, Q, "Ada", judged));
+            let shown = model.proposals(&direct(Q, "human"));
+            assert_eq!(shown[0].swipe(), swipe, "case {case}");
+        }
     }
 
     #[test]
@@ -1889,5 +2035,100 @@ mod tests {
         let held = model.identity().expect("held");
         assert_eq!(held.name, "Ada", "the card as it was");
         assert_eq!(held.key.fingerprint(), Some("fedcba9876543210"));
+    }
+
+    // Contact-cards design section 6.3: Delete contact and Remove photo
+    // each open a snackbar on the card pages with an Undo the facade side
+    // carries out; its answer restores and is announced, a refusal or a
+    // close lets go of what it held, and focus goes by the focus table.
+    // Mutations: the snackbar not naming its contact; a close not
+    // releasing it; a refused Undo leaving it awaited.
+    #[test]
+    fn a_contacts_delete_and_photo_removal_offer_an_undo_that_restores() {
+        use super::super::swipe::ContactChange;
+        let mut model = UiModel::new();
+        model.contact_changed("c1".to_owned(), ContactChange::Deleted, 1);
+        let snack = model.snackbar().expect("up");
+        assert_eq!(snack.confirms, Confirmation::ContactDeleted);
+        assert_eq!(snack.contact.as_deref(), Some("c1"));
+        assert_eq!(snack.conversation, None);
+        assert!(snack.undo);
+        assert_eq!(
+            model.outcome().and_then(|o| o.announce),
+            Some(crate::Announce::Confirmed(Confirmation::ContactDeleted)),
+            "announced (section 8)"
+        );
+        assert_eq!(
+            model.undo(snack.id),
+            Some(Intent::UndoContact {
+                contact_id: "c1".to_owned(),
+                change: ContactChange::Deleted,
+                hold: 1,
+            })
+        );
+        assert!(model.snackbar().is_none());
+        model.contact_restored("c1", ContactChange::Deleted);
+        let outcome = model.outcome().expect("restored");
+        assert_eq!(outcome.announce, Some(crate::Announce::Restored));
+        assert_eq!(outcome.focus, Some(FocusTarget::Contact("c1".to_owned())));
+        assert!(model.take_released().is_empty(), "the Undo used it");
+
+        // A refused Undo: the removal stands, its hold let go.
+        model.contact_changed("c2".to_owned(), ContactChange::PhotoRemoved, 2);
+        let snack = model.snackbar().expect("up");
+        assert_eq!(snack.confirms, Confirmation::PhotoRemoved);
+        let undo = model.undo(snack.id).expect("raised");
+        model.intent_refused(&undo);
+        assert_eq!(model.take_released().contacts, vec![2]);
+        assert_eq!(
+            model.outcome().and_then(|o| o.focus.clone()),
+            Some(FocusTarget::ContactPage("c2".to_owned()))
+        );
+        model.contact_restored("c2", ContactChange::PhotoRemoved);
+        assert_ne!(
+            model.outcome().and_then(|o| o.announce),
+            Some(crate::Announce::Restored),
+            "nothing awaited any more"
+        );
+
+        // Closed with no Undo: let go, focus on the list if it held it.
+        model.contact_changed("c3".to_owned(), ContactChange::Deleted, 3);
+        let id = model.snackbar().expect("up").id;
+        model.snackbar_closed(id);
+        assert_eq!(model.take_released().contacts, vec![3]);
+        assert_eq!(
+            model.undo_closed().map(|u| u.focus.clone()),
+            Some(FocusTarget::Contacts)
+        );
+
+        // Withdrawn: another hold's withdrawal closes nothing.
+        model.contact_changed("c4".to_owned(), ContactChange::Deleted, 4);
+        model.contact_undo_withdrawn(5);
+        assert!(model.snackbar().is_some());
+        model.contact_undo_withdrawn(4);
+        assert!(model.snackbar().is_none());
+        assert_eq!(model.take_released().contacts, vec![4]);
+    }
+
+    // #433 F1: two changes of one contact in a row -- Remove photo, then
+    // Delete -- release the first change's hold alone, and the second's
+    // Undo names its own. Mutation: a release by the contact's id, which
+    // let the facade side drop the newer hold.
+    #[test]
+    fn a_contacts_second_change_releases_the_first_hold_and_keeps_its_own() {
+        use super::super::swipe::ContactChange;
+        let mut model = UiModel::new();
+        model.contact_changed("c1".to_owned(), ContactChange::PhotoRemoved, 7);
+        model.contact_changed("c1".to_owned(), ContactChange::Deleted, 8);
+        assert_eq!(model.take_released().contacts, vec![7], "the replaced one");
+        let id = model.snackbar().expect("up").id;
+        assert_eq!(
+            model.undo(id),
+            Some(Intent::UndoContact {
+                contact_id: "c1".to_owned(),
+                change: ContactChange::Deleted,
+                hold: 8,
+            })
+        );
     }
 }

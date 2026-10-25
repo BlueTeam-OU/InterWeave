@@ -31,8 +31,8 @@ pub(crate) mod cards;
 mod swipe;
 
 pub use swipe::{
-    Announce, Confirmation, FocusTarget, Outcome, Released, RowAction, Snackbar, SwipeOffer,
-    UndoClosed,
+    Announce, Confirmation, ContactChange, FocusTarget, Outcome, Released, RowAction, Snackbar,
+    SwipeOffer, UndoClosed,
 };
 
 /// How many items the model holds that the store no longer does --
@@ -400,6 +400,19 @@ pub enum Intent {
     /// Take back the Accept or Decline of this proposal: only the open
     /// snackbar's Undo makes one ([`UiModel::undo`]).
     UndoCard(RowId),
+    /// Take back the delete of this contact, or the removal of its
+    /// photo: only the open snackbar's Undo makes one ([`UiModel::undo`]),
+    /// and the facade side writes back what it held for it.
+    UndoContact {
+        /// The contact.
+        contact_id: String,
+        /// What is taken back.
+        change: swipe::ContactChange,
+        /// The facade side's hold for this change: one per change, so
+        /// a release or an Undo names this change and no other of the
+        /// same contact.
+        hold: u64,
+    },
     /// Send this conversation's identity's own card to its route. Only
     /// [`UiModel::share_card`] makes one, for a direct conversation.
     ShareCard(ConversationKey),

@@ -19,9 +19,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use interweave_human_ui_model::{
-    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, Intent, KeyProblem,
-    KeyStep, KeyView, Photo, PhotoEdit, ProposalItem, ProposalNote, RowId, UiModel, UiText, fill,
-    isolated, name_problem, placeholder_en, short_peer,
+    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, FocusTarget, Intent,
+    KeyProblem, KeyStep, KeyView, Photo, PhotoEdit, ProposalItem, ProposalNote, RowId, UiModel,
+    UiText, fill, isolated, name_problem, placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
@@ -31,7 +31,7 @@ use slint::{
 
 use crate::generated::{
     AppWindow, CardsPage, ContactListRow, ContactRouteRow, ProposalNoteRow, ProposalRow,
-    ShareAgainRow,
+    ShareAgainRow, SwipeKind,
 };
 use crate::{Input, Shared, View, enqueue};
 
@@ -45,6 +45,10 @@ pub(crate) enum CardsInput {
     /// A proposal's Accept or Decline: the model's own intent for the row
     /// as it was drawn, offered again when taken or dropped.
     Answer(Intent),
+    /// The same answer by a touch swipe (design section 5.4.4), which
+    /// leaves focus where it was unless it was inside the row (swipe spec
+    /// section 7).
+    Swiped(Intent),
     /// Contacts or the own card opened from the app's options.
     Open(Opened),
     /// The card page closed: Back, Escape, or the back arrow.
@@ -246,20 +250,47 @@ fn image(photo: &Photo) -> Image {
 /// came.
 fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     let name = isolated(&p.name);
+    let swipe = p.swipe();
+    let swipe_key = proposal_swipe_key(p.row);
     let context = match &p.accept {
         AcceptLine::Creates => text(UiText::CardWillCreate).to_owned(),
-        AcceptLine::Updates(contact) => fill(
-            text(UiText::CardWillUpdate),
-            &[("contact", &isolated(contact))],
-        ),
+        AcceptLine::Updates(contact) => {
+            fill(text(UiText::CardUpdates), &[("name", &isolated(contact))])
+        }
         AcceptLine::Matches(contact) => {
             fill(text(UiText::CardSame), &[("contact", &isolated(contact))])
         }
     };
-    let notes: Vec<ProposalNoteRow> = p
-        .notes
-        .iter()
-        .map(|n| {
+    // What Accept changes and which of the person's edits it keeps, right
+    // after the context line (design section 5.4.1, cases U and E).
+    let contact = match &p.accept {
+        AcceptLine::Updates(c) | AcceptLine::Matches(c) => c.as_str(),
+        AcceptLine::Creates => "",
+    };
+    let values = &p.values;
+    let value_lines = [
+        values
+            .new_name
+            .as_ref()
+            .map(|name| fill(text(UiText::CardUpdatesName), &[("name", &isolated(name))])),
+        values
+            .new_photo
+            .then(|| text(UiText::CardUpdatesPhoto).to_owned()),
+        values
+            .kept_name
+            .then(|| fill(text(UiText::CardKeepsEdit), &[("name", &isolated(contact))])),
+        values
+            .kept_photo
+            .then(|| text(UiText::CardKeepsPhoto).to_owned()),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|line| ProposalNoteRow {
+        text: line.into(),
+        warning: false,
+    });
+    let notes: Vec<ProposalNoteRow> = value_lines
+        .chain(p.notes.iter().map(|n| {
             let (template, contact, warning) = match n {
                 ProposalNote::SameName(c) => (UiText::CardSameName, c, true),
                 ProposalNote::SharesNode(c) => (UiText::CardSharesNode, c, false),
@@ -269,7 +300,7 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
                 text: fill(text(template), &[("contact", &isolated(contact))]).into(),
                 warning,
             }
-        })
+        }))
         .collect();
     let key_change = match &p.key {
         KeyView::Changed { recorded } => fill(
@@ -304,12 +335,31 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
         closes: matches!(p.accept, AcceptLine::Matches(_)),
         accept: text(p.accept_text()).into(),
         decline: text(UiText::CardDecline).into(),
+        swipe_key: swipe_key.into(),
+        end_kind: if swipe.accept {
+            SwipeKind::Accept
+        } else {
+            SwipeKind::None
+        },
+        end_label: text(p.accept_text()).into(),
+        start_kind: if swipe.decline {
+            SwipeKind::Decline
+        } else {
+            SwipeKind::None
+        },
+        start_label: text(UiText::CardDecline).into(),
         copy: text(UiText::CopyPeerId).into(),
         answered: false,
         answer: SharedString::new(),
         photo_note: SharedString::new(),
         hint: SharedString::new(),
     }
+}
+
+/// A proposal row's swipe key: by its card's row, which a re-render
+/// keeps, where its handle is its place in the list.
+fn proposal_swipe_key(row: RowId) -> String {
+    format!("p:{}", row.get())
 }
 
 /// The confirmation row an Accept left in its proposal's place (design
@@ -400,14 +450,37 @@ impl View {
     /// Take one card input: an intent for the model, or a page change.
     pub(crate) fn take_cards(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
         let window = self.window.clone_strong();
+        let by_button = matches!(input, CardsInput::Answer(_));
         match input {
-            CardsInput::Answer(intent) => {
+            CardsInput::Answer(intent) | CardsInput::Swiped(intent) => {
                 let offered = match &intent {
                     Intent::AcceptCard(row) | Intent::DeclineCard(row) => {
-                        let offered = model.card_actions(*row).contains(&intent);
+                        // A swipe is judged again here, on the row as the
+                        // model holds it now: a card judged again into the
+                        // same-name warning since the finger lifted accepts
+                        // nothing (design section 5.4.4, #433 round 3 F1;
+                        // `a_swiped_accept_is_refused_once_the_row_is_warned`).
+                        let swipe_allows = by_button
+                            || self
+                                .shown
+                                .as_ref()
+                                .and_then(|key| {
+                                    model.proposals(key).into_iter().find(|p| p.row == *row)
+                                })
+                                .is_some_and(|p| {
+                                    let swipe = p.swipe();
+                                    if matches!(intent, Intent::AcceptCard(_)) {
+                                        swipe.accept
+                                    } else {
+                                        swipe.decline
+                                    }
+                                });
+                        let offered = swipe_allows && model.card_actions(*row).contains(&intent);
                         // The row's own button: its answer moves focus
                         // whatever the focus id last said (swipe spec 7).
-                        if offered {
+                        // A swipe claims nothing: focus moves only if it
+                        // was inside the row.
+                        if offered && by_button {
                             self.cards.pressed = Some(*row);
                         }
                         offered
@@ -565,6 +638,37 @@ impl View {
         self.cards.contact = None;
         window.set_cards_page(CardsPage::None);
         window.set_contact_confirming_delete(false);
+    }
+
+    /// The focus key a contact's focus target names on the card page
+    /// drawn, if it is drawn: the Contacts list's first row, else the
+    /// page's back arrow, its empty text and its title being no focus
+    /// stop; a contact's row; a contact page's back arrow; its Remove
+    /// photo.
+    pub(crate) fn contact_focus(&self, focus: &FocusTarget) -> Option<String> {
+        let shared = self.shared.borrow();
+        let drawn = &shared.cards;
+        let page = self.cards.page;
+        match focus {
+            FocusTarget::Contacts => (page == Some(CardsPage::Contacts)).then(|| {
+                drawn
+                    .contacts
+                    .keys()
+                    .min()
+                    .map_or_else(|| "close-cards".to_owned(), |h| format!("contact:{h}"))
+            }),
+            FocusTarget::Contact(id) => (page == Some(CardsPage::Contacts))
+                .then(|| drawn.contacts.iter().find(|(_, c)| *c == id))
+                .flatten()
+                .map(|(h, _)| format!("contact:{h}")),
+            FocusTarget::ContactPage(id) => (page == Some(CardsPage::Contact)
+                && self.cards.contact.as_ref() == Some(id))
+            .then(|| "close-cards".to_owned()),
+            FocusTarget::ContactRemovePhoto(id) => (page == Some(CardsPage::Contact)
+                && self.cards.contact.as_ref() == Some(id))
+            .then(|| "contact-remove-photo".to_owned()),
+            _ => None,
+        }
     }
 
     /// Draw the card screens from `model`.
@@ -792,6 +896,7 @@ impl View {
         );
         if shown != self.cards.proposals_shown {
             let mut answers = HashMap::new();
+            let mut swipes = HashMap::new();
             let mut handles = HashMap::new();
             let drawn: Vec<ProposalRow> = shown
                 .iter()
@@ -811,6 +916,18 @@ impl View {
                     match model.card_actions(p.row).as_slice() {
                         [accept, decline] => {
                             answers.insert(handle, (accept.clone(), decline.clone()));
+                            // Its swipes raise the same intents, each way
+                            // its case offers (design section 5.4.4).
+                            let swipe = p.swipe();
+                            if swipe.accept || swipe.decline {
+                                swipes.insert(
+                                    proposal_swipe_key(p.row),
+                                    crate::swipe::Swipeable::Proposal {
+                                        accept: swipe.accept.then(|| accept.clone()),
+                                        decline: swipe.decline.then(|| decline.clone()),
+                                    },
+                                );
+                            }
                         }
                         [only] => {
                             answers.insert(handle, (only.clone(), only.clone()));
@@ -820,8 +937,36 @@ impl View {
                     proposal_row(handle, p, &self.received(p.received_at))
                 })
                 .collect();
+            // A proposal's open menu shows the answers its row had: a row
+            // changed, moved or gone closes it (message-swipe section 7),
+            // so no entry acts on another card at its place (#433 F2).
+            let menu = window.get_card_menu();
+            if menu >= 0 {
+                let was = usize::try_from(menu)
+                    .ok()
+                    .and_then(|i| self.cards.proposals_shown.get(i));
+                let now = usize::try_from(menu).ok().and_then(|i| shown.get(i));
+                if was != now {
+                    window.set_card_menu(-1);
+                    // Still drawn elsewhere or changed: focus on its first
+                    // control. Gone: the removal's rule decides.
+                    let row = was.map(Entry::place).map(|(_, row)| row);
+                    let found = row
+                        .and_then(|row| shown.iter().enumerate().find(|(_, e)| e.place().1 == row));
+                    if let Some((at, entry)) = found {
+                        self.focus_key_after_draw(match entry {
+                            Entry::Proposal(_) => format!("proposal-copy:{at}"),
+                            Entry::Answer(..) => format!("answer:{at}"),
+                        });
+                    }
+                }
+            }
             rows.set_vec(drawn);
-            self.shared.borrow_mut().cards.answers = answers;
+            let mut shared = self.shared.borrow_mut();
+            shared.cards.answers = answers;
+            shared.swipes.retain(|k, _| !k.starts_with("p:"));
+            shared.swipes.extend(swipes);
+            drop(shared);
             self.cards.drawn_rows = handles;
             self.cards.proposals_shown = shown;
         }
