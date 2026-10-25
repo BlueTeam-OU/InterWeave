@@ -124,8 +124,10 @@ pub enum PhotoEdit {
 
 /// What a new photo choice falls back to, as the model shows it: the
 /// facade side keeps a prepared photo as the fallback only when its number
-/// is the one named here (#449 F4), so the two sides never disagree on what
-/// the editor showed.
+/// is the one named here, found under any answer the model has not taken
+/// yet, so a Save writes what the editor showed (#449 F4; app-core's
+/// `a_choices_fallback_is_what_the_model_showed` and
+/// `a_basis_finds_its_photo_under_an_answer_not_taken`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PhotoBasis {
     /// The saved card's photo, or none.
