@@ -932,7 +932,14 @@ impl HumanStore {
                 removed_at: at,
             }))
         })();
-        result.map_err(|e| self.note_store_failure(e))
+        let removed = result.map_err(|e| self.note_store_failure(e))?;
+        if removed.is_some() {
+            // The removed bytes leave the log as a deleted contact's do
+            // (`a_removed_photo_leaves_both_files_before_the_call_returns`);
+            // what the Undo needs is the caller's, in memory.
+            self.release_done();
+        }
+        Ok(removed)
     }
 
     /// The person's Undo of a photo removal (design section 6.3): the

@@ -831,3 +831,45 @@ fn a_removed_photo_is_written_back_by_its_undo_and_never_over_a_later_one() {
         Some(b"chosen".as_slice())
     );
 }
+
+/// A contact's removed photo leaves both store files as a deleted
+/// contact does, before the removal returns; what its Undo writes back is
+/// the caller's, in memory. Mutation: the release dropped.
+#[test]
+fn a_removed_photo_leaves_both_files_before_the_call_returns() {
+    const GONE: &[u8] = b"Zebulon-photo-marker";
+    const STAYS: &str = "Quentin-kept-marker";
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let wal = path.with_extension("sqlite3-wal");
+    let holds = |p: &std::path::Path, what: &[u8]| {
+        std::fs::read(p).is_ok_and(|bytes| bytes.windows(what.len()).any(|w| w == what))
+    };
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let (p, human) = (peer(P), endpoint("human"));
+    let ada = store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(GONE),
+                ..card(&p, &human, STAYS, 1)
+            },
+            10,
+        )
+        .expect("accepted");
+    drop(store);
+    assert!(holds(&path, GONE), "the setup: the photo reached the file");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let removed = store
+        .remove_contact_photo(&ada.contact_id, 20)
+        .expect("removed");
+    assert!(removed.is_some());
+    assert!(
+        !holds(&path, GONE) && !holds(&wal, GONE),
+        "the removed photo left both files"
+    );
+    assert!(
+        holds(&path, STAYS.as_bytes()) || holds(&wal, STAYS.as_bytes()),
+        "the control: the search sees the contact's name"
+    );
+    drop(store);
+}
