@@ -734,8 +734,11 @@ right swipe is withheld.** It is withheld in case D, and in cases P, U and E
 when Accept would write a name that clashes with a contact on another
 PeerId (§5.4.1). These are the owner's answers: §12 O1 for case D, and
 O2 for cases P, U and E. The row does not move to the right and shows
-no accept reveal. Only the button, with its case label, saves the
-card. The reason is that a swipe can happen without reading. If an
+no accept reveal. Only a deliberate choice of Accept under its case
+label saves the card: the button, the menu's item (below) or the
+screen reader's custom action (§8), never a swipe; the owner's answer,
+§12 O3. The reason is that a swipe can happen without reading, while
+each of the three names what Accept will do before it is chosen. If an
 accidental swipe saves a stranger under an existing contact's name, or
 renames a contact to that name, that is the impersonation ADR-0059
 makes visible, and Undo helps only a person who noticed. Whether the
@@ -758,11 +761,24 @@ Android review F2, a row at rest shows no buttons and puts its actions
 in a menu. A proposal shows Accept and Decline at rest, because
 it exists to be answered: a claim whose answer is hidden in a menu reads
 as a message, and the case's label (§5.4.1) is what tells the person what
-Accept will do before they do it. The row also has §7's menu (long
-press, or Enter on the focused row), holding the same actions the row shows
-with the case's labels — Accept and Decline, or in case S Close alone —
-then Copy PeerId; it has no Show source, since a
-card has no markdown source to show.
+Accept will do before they do it. The row also has §7's menu, holding
+the same actions the row shows with the case's labels — Accept and
+Decline, or in case S Close alone — then Copy PeerId, on a row showing
+`CardSameName` too (only the swipe is withheld there); it has no Show
+source, since a card has no markdown source to show. It opens by long
+press on the row, by a secondary click on the row on the desktop, or by
+§7's Menu key or Shift+F10 while focus is on any of the row's controls
+(Copy PeerId, Open your contact, Decline, Accept or Close). Not by
+Enter: unlike a message row, whose bubble is its focus stop, the
+proposal has no focus stop of its own, and Enter on each of its
+controls is that control's action. A focus stop for the
+card would add a Tab stop per proposal only to repeat what the visible
+buttons already do (rust-ui-dev-02's finding while building the menu,
+QUESTION 01a1718c, 2026-10-25). The menu opens and closes as §7 says,
+with one difference that follows from the missing bubble: when it
+closes with nothing chosen, focus goes back to the control it was
+opened from by key, or, opened by long press or secondary click, to the
+row's first control, Copy PeerId (§9's focus table).
 
 **Two differences from message-swipe §6 and §7 for Accept, on
 purpose.** Accept's result is not announced through the live region,
@@ -1308,7 +1324,8 @@ accessibility tree) are checked now.
   Accept (its case label) as controls. The PeerId is read character by
   character only on request (the platform's own); the label says what
   it is. The row's custom actions (Android) are Accept and Decline with
-  the case labels, as the swipe spec's §7 does for its rows.
+  the case labels, as the swipe spec's §7 does for its rows, Accept
+  included on a row showing `CardSameName` (§5.4.4, §12 O3).
 - Confirmation row (§5.4.2): one focusable group, read as
   `CardAccepted` or `CardUpdated` (with the name as saved), then
   `CardPhotoNotUsed` when it shows, then, while the Accept's snackbar
@@ -1427,11 +1444,13 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | the share sheet opens | Share, else Add your name | keyboard |
    | the sheet closes after Share | the control that opened it; the header title when that was the empty conversation's offer | keyboard |
    | the sheet cancelled | what opened it (overflow button or the offer's button) | keyboard |
-   | Accept (button or swipe) | the confirmation row (focusable), read once with `CardUndoHint`: no live announcement of `ConfirmContactSaved` or `ConfirmContactUpdated` follows (§8 Announcements); the snackbar's timeout waits while focus is between the row and the snackbar, for at most 2 minutes (§5.4.2) | keyboard: with three or more rows after the confirmation row, wait past 6 s on the row, then move one stop at a time, more than 6 s apart, to Undo, and Undo is still reached; move focus to something before the row, then back to the row within 6 s, wait past 6 s, and Undo is still reached; pointer Accept with no further input: the snackbar closes by 2 minutes; desktop screen reader: in a case N and a case U accept, the row is read with `CardUndoHint` and neither "Contact saved" nor "Contact updated" follows; TalkBack blocked (§8); swipe with TalkBack cannot occur |
-   | Decline, by button or by keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
+   | Accept (button, menu item, custom action or swipe) | the confirmation row (focusable), read once with `CardUndoHint`: no live announcement of `ConfirmContactSaved` or `ConfirmContactUpdated` follows (§8 Announcements); the snackbar's timeout waits while focus is between the row and the snackbar, for at most 2 minutes (§5.4.2) | keyboard: with three or more rows after the confirmation row, wait past 6 s on the row, then move one stop at a time, more than 6 s apart, to Undo, and Undo is still reached; move focus to something before the row, then back to the row within 6 s, wait past 6 s, and Undo is still reached; pointer Accept with no further input: the snackbar closes by 2 minutes; desktop screen reader: in a case N and a case U accept, the row is read with `CardUndoHint` and neither "Contact saved" nor "Contact updated" follows; TalkBack blocked (§8); swipe with TalkBack cannot occur |
+   | Decline, by button, menu item or keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
    | Decline by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set elsewhere first, then a swipe |
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
    | case S Close | as Decline | keyboard |
+   | the proposal's menu opens (Menu key or Shift+F10 on a row control, long press, secondary click) | its first item | keyboard: from each of Copy PeerId, Decline and Accept |
+   | the proposal's menu closes with nothing chosen (Escape, Back, outside) | the control it was opened from by key; after a long press or secondary click, Copy PeerId | keyboard: opened from Accept, Escape returns to Accept; secondary click then Escape, Copy PeerId |
    | snackbar appears (except after Accept, above) | stays where it was; the snackbar is reachable last in order | keyboard |
    | Open your contact {name} on a row showing `CardSameName`, or a shares-a-device link | the contact page title; Back returns to the control that opened it | keyboard |
    | contact deleted | the Contacts list's first row, else its empty text | keyboard |
@@ -1503,7 +1522,16 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    moves the pointer past the threshold and holds it there, and then
    chooses, from the keyboard, the Undo of that Accept. A left drag held past the
    threshold while the warning appears or disappears still declines on
-   release.
+   release. On the case D row and on case E's "Anna Rossi" row, whose
+   right swipe is withheld, the menu holds Accept under the case label
+   ("Accept as a new contact", "Update contact") beside Decline and
+   Copy PeerId; choosing that Accept saves the card exactly as the
+   button does, with the same confirmation row and snackbar, and so
+   does the row's Accept custom action on Android (TalkBack blocked,
+   §8). The menu opens by the Menu key and by Shift+F10 with focus on
+   each of Copy PeerId, Open your contact, Decline and Accept, by long
+   press, and on the desktop by secondary click; Enter on each of those
+   controls does that control's action and opens no menu.
 8. Delete contact Carol, then accept a card on one of Carol's routes
    (case N): Delete's Undo is gone. Move a route, then accept a card on
    it: the Move's Undo is gone. No action and no Undo leaves a contact
@@ -1891,6 +1919,15 @@ For the owner:
   judged when the swipe starts. **Answered 2026-10-25**, the owner, who
   chose "Whenever warned" over "Case D only": withheld whenever the row
   shows `CardSameName` (§5.4.4); a row without it keeps the swipe.
+- **O3** — on a row showing `CardSameName`, should the proposal's menu
+  and the screen reader's custom action keep Accept, under the case's
+  label, or should only the button save the card, as O1's question
+  had worded it before the row had a menu? Proposed: keep them, since
+  choosing "Accept as a new contact" from a menu is as deliberate as
+  the button and only a swipe can happen without reading.
+  **Answered 2026-10-25**, the owner, who chose "Keep menu + TalkBack"
+  over "Button only": the menu's Accept and the custom action stay on
+  a warned row (§5.4.4, §8).
 
 For architect-cto, asked with this revision (the shape of ADR-0061
 decision 9 and the records around it; the note is built on the reading
