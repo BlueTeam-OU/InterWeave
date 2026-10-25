@@ -975,15 +975,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 .map(|r| r == ContactRestored::Restored),
             ContactUndo::Photo(removed) => store.restore_contact_photo(removed),
         };
+        // A refusal and a storage error alike write nothing, and the change
+        // stands: the snackbar closed when its Undo was pressed, and what
+        // was held goes with the taken hold (the model's refusal path).
         match restored {
             Ok(true) => {}
             Ok(false) => return Err(Failure::Refused),
-            Err(e) => {
-                // A storage error writes nothing: the Undo is still the
-                // person's to try while its snackbar is up.
-                self.contact_undo = Some(taken);
-                return Err(store_failure(&e));
-            }
+            Err(e) => return Err(store_failure(&e)),
         }
         updates.push(contacts_update(self.client.store_mut()));
         updates.push(Update::ContactRestored {
