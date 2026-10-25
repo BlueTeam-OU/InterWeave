@@ -1256,3 +1256,189 @@ async fn a_photo_set_from_a_file_reaches_the_contact_and_the_key_stays_in_its_fi
         );
     }
 }
+
+/// Each `HumanChatV2` card in what one direction of an IPC connection
+/// carried, as its text: the payloads [`ipc_plain`] decodes, kept apart.
+fn ipc_cards(stream: &[u8]) -> Vec<String> {
+    use base64::Engine as _;
+    fn cards(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                if let (Some(Value::String(media)), Some(Value::String(bytes))) =
+                    (map.get("media_type"), map.get("bytes"))
+                    && let Ok(info) = interweave_human_chat_protocol::parse_media_type(media)
+                {
+                    let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                        .decode(bytes.trim_end_matches('='))
+                        .expect("a payload's bytes are base64url");
+                    let text =
+                        interweave_human_chat_protocol::decode_envelope_bytes(&raw, info.encoding)
+                            .expect("a HumanChatV2 payload decodes");
+                    if interweave_human_chat_protocol::is_card(&text) {
+                        out.push(text);
+                    }
+                }
+                map.values().for_each(|v| cards(v, out));
+            }
+            Value::Array(list) => list.iter().for_each(|v| cards(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    let mut rest = stream;
+    while rest.len() >= 4 {
+        let len = u32::from_be_bytes(rest[..4].try_into().expect("four bytes")) as usize;
+        let Some(body) = rest.get(4..4 + len) else {
+            break;
+        };
+        if let Ok(value) = serde_json::from_slice::<Value>(body) {
+            cards(&value, &mut out);
+        }
+        rest = &rest[4 + len..];
+    }
+    out
+}
+
+/// Plan section 29's exit gate (b): A's card shared into two conversations
+/// with B, at B's `human` and at B's `claude` -- two identities of one
+/// node, which the fake cannot hold apart (app-core's `cards.rs`) -- is
+/// A's `human` identity's card each time, read back where it arrived:
+/// from that route, verifying on it and on no other identity of A's node,
+/// with A's own card's name and key. And every card A's client handed its
+/// daemon over IPC verifies as that identity's and no other. The tap's
+/// control: it read both shares. A's other identity, `claude`, holds no
+/// key here, so "no other" is shown by the signature, which binds the
+/// route it was made for (two identities each with a key are section 30's).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_each_time() {
+    use interweave_human_chat_protocol::{CardRoute, Classified, classify};
+    use interweave_human_store::identity_key::{self, FilesystemCustody};
+    use interweave_local_client_api::{
+        DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionEvent, SessionRequest,
+    };
+    use interweave_transport_api::EndpointId;
+
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let (human_id, claude_id) = (
+        EndpointId::parse("human").expect("valid"),
+        EndpointId::parse("claude").expect("valid"),
+    );
+    let out = human(&a, &["card", "set", "Ada", "Lovelace"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let key = identity_key::open(&a.paths, &human_id, &FilesystemCustody)
+        .expect("opens")
+        .expect("made with the card");
+
+    // B's two identities, each held by a session of the kind its entry
+    // admits, so what arrives at each is read as the daemon handed it over.
+    let binding = b.binding();
+    let open = |kind: &str, endpoint: &EndpointId| {
+        binding.open(
+            SessionRequest::new(
+                kind,
+                Some(endpoint.clone()),
+                [DataCapability::Commands, DataCapability::Events],
+            )
+            .expect("bounds"),
+        )
+    };
+    let at_human = open("human-client", &human_id).await.expect("B's human");
+    let at_claude = open("claude-channel", &claude_id)
+        .await
+        .expect("B's claude");
+
+    let tap = Tap::start(&a);
+    let mut arrived = Vec::new();
+    for (to, session) in [(&human_id, &at_human), (&claude_id, &at_claude)] {
+        let conversation = format!("{}/{}", b_peer.as_str(), to.as_str());
+        let deadline = Instant::now() + PATIENCE;
+        loop {
+            let out = tap.human(
+                &a,
+                &["--wait", "3000", "card", "share", &conversation, "--json"],
+            );
+            if code(&out) == Some(0) {
+                break;
+            }
+            assert_eq!(code(&out), Some(6), "{}", said(&out));
+            let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+            assert_eq!(code(&tap.human(&a, &["cancel", &id])), Some(0));
+            assert!(Instant::now() < deadline, "never accepted: {}", said(&out));
+        }
+        let deadline = Instant::now() + PATIENCE;
+        let direct = loop {
+            let got = session.events(usize::MAX).await.expect("B's events");
+            if let Some(d) = got.into_iter().find_map(|e| match e {
+                SessionEvent::Direct(d) => Some(d),
+                _ => None,
+            }) {
+                break d;
+            }
+            assert!(Instant::now() < deadline, "{conversation}: nothing arrived");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        assert_eq!(&direct.destination_endpoint, to, "{conversation}");
+        arrived.push((conversation, direct));
+    }
+
+    let as_identity = |text: &str, endpoint: &EndpointId| {
+        classify(
+            text,
+            CardRoute {
+                source_peer: &a_peer,
+                source_endpoint: endpoint,
+            },
+        )
+    };
+    for (conversation, direct) in &arrived {
+        assert_eq!(direct.source_peer, a_peer, "{conversation}");
+        assert_eq!(
+            direct.source_endpoint, human_id,
+            "{conversation}: from the identity A's client holds"
+        );
+        let media = direct.payload.media_type().expect("a media type");
+        let info =
+            interweave_human_chat_protocol::parse_media_type(media.as_str()).expect("HumanChatV2");
+        let text = interweave_human_chat_protocol::decode_envelope_bytes(
+            direct.payload.bytes(),
+            info.encoding,
+        )
+        .expect("decodes");
+        let Classified::Card(card) = as_identity(&text, &human_id) else {
+            panic!("{conversation}: not A's human card: {text}");
+        };
+        assert_eq!(card.name, "Ada", "{conversation}");
+        assert_eq!(card.surname.as_deref(), Some("Lovelace"), "{conversation}");
+        assert_eq!(
+            card.identity_key,
+            key.public_key(),
+            "{conversation}: its key"
+        );
+        assert!(
+            matches!(as_identity(&text, &claude_id), Classified::MalformedCard(_)),
+            "{conversation}: it would not pass as A's other identity's"
+        );
+    }
+
+    let sent: Vec<String> = tap.seen().iter().flat_map(|s| ipc_cards(s)).collect();
+    tap.stop();
+    assert!(
+        sent.len() >= 2,
+        "the control: the tap read both shares, {sent:?}"
+    );
+    for text in &sent {
+        assert!(
+            matches!(as_identity(text, &human_id), Classified::Card(_)),
+            "a card A's client sent is not its human identity's: {text}"
+        );
+        let envelope: Value = serde_json::from_str(text).expect("JSON");
+        assert!(
+            envelope
+                .get("from_endpoint")
+                .is_none_or(|e| e == human_id.as_str()),
+            "a card names another identity: {text}"
+        );
+    }
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
