@@ -3,9 +3,14 @@
 //! A card's photo, at both ends (HUMAN-CHAT.md §Contact card, ADR-0059
 //! decision 5, plan §29 step 2).
 //!
-//! **The sender** re-encodes the photo a person chooses: decoded within
-//! bounds, turned the way its orientation says, scaled to fit 256 × 256,
-//! and written again as a new JPEG at the size the card allows. A new
+//! **The sender** re-encodes the photo a person chooses (contact-cards
+//! design 5.2, "The photo"): decoded within bounds, turned the way its
+//! orientation says, cropped to its largest centred square and scaled to
+//! exactly 256 × 256 (a smaller square keeps its size, never enlarged),
+//! laid over white where it is transparent, and written again as a new
+//! JPEG at the highest quality from 90 down to 20 that the card allows.
+//! The `image` crate's encoder writes every component at full resolution
+//! (4:4:4), not the design's 4:2:0, which costs quality at the bound. A new
 //! encoding carries the pixels and nothing else — no EXIF, XMP or GPS
 //! block, no embedded thumbnail, no text chunk, no file name — because
 //! nothing of the original file but its pixels reaches the encoder.
@@ -32,8 +37,8 @@ pub const MAX_CARD_PHOTO_SIDE: u32 = 256;
 pub const MAX_CHOSEN_SIDE: u32 = 16_384;
 /// What a decode may allocate, the decoded image included.
 const MAX_CHOSEN_ALLOC: u64 = 256 * 1024 * 1024;
-/// JPEG qualities tried in turn until the photo fits the card.
-const QUALITIES: [u8; 6] = [85, 75, 65, 55, 45, 35];
+/// The JPEG qualities tried, highest first, until the photo fits.
+const QUALITIES: std::ops::RangeInclusive<u8> = 20..=90;
 
 /// The re-encoded photo, ready for a card: always `image/jpeg`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,14 +75,38 @@ pub fn prepare_photo(chosen: &[u8]) -> Result<PreparedPhoto, PhotoError> {
     limits.max_image_height = Some(MAX_CHOSEN_SIDE);
     limits.max_alloc = Some(MAX_CHOSEN_ALLOC);
     let image = decode(chosen, limits, true)?;
-    let image = if image.width() > MAX_CARD_PHOTO_SIDE || image.height() > MAX_CARD_PHOTO_SIDE {
-        image.thumbnail(MAX_CARD_PHOTO_SIDE, MAX_CARD_PHOTO_SIDE)
+    let side = image.width().min(image.height());
+    let square = image.crop_imm(
+        (image.width() - side) / 2,
+        (image.height() - side) / 2,
+        side,
+        side,
+    );
+    let square = if side > MAX_CARD_PHOTO_SIDE {
+        square.resize_exact(
+            MAX_CARD_PHOTO_SIDE,
+            MAX_CARD_PHOTO_SIDE,
+            image::imageops::FilterType::Triangle,
+        )
     } else {
-        image
+        square
     };
-    // JPEG has no alpha; what is transparent is flattened.
-    let rgb = DynamicImage::ImageRgb8(image.to_rgb8());
-    for quality in QUALITIES {
+    // JPEG has no alpha: what is transparent is laid over white.
+    let rgba = square.to_rgba8();
+    let rgb = DynamicImage::ImageRgb8(image::RgbImage::from_fn(
+        rgba.width(),
+        rgba.height(),
+        |column, row| {
+            let [red, green, blue, alpha] = rgba.get_pixel(column, row).0;
+            let alpha = u16::from(alpha);
+            let over = |channel: u8| {
+                u8::try_from((u16::from(channel) * alpha + 255 * (255 - alpha)) / 255)
+                    .unwrap_or(u8::MAX)
+            };
+            image::Rgb([over(red), over(green), over(blue)])
+        },
+    ));
+    for quality in QUALITIES.rev() {
         let mut bytes = Vec::new();
         rgb.write_with_encoder(JpegEncoder::new_with_quality(&mut bytes, quality))
             .map_err(|_| PhotoError::Unreadable)?;
