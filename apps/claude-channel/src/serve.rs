@@ -43,7 +43,7 @@ use interweave_claude_channel_core::{
 use interweave_local_client_api::Generation;
 use interweave_local_client_api::{
     DataCapability, DataSessionBinding, DataSessionPort, LocalSessionEvent, SessionEvent,
-    SessionRequest,
+    SessionLosses, SessionRequest,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, ConnectivitySummary, DirectDestination, EndpointId, Health,
@@ -311,6 +311,10 @@ struct Bridge<B: DataSessionBinding> {
     /// has stayed up a whole ceiling, so a daemon that accepts and closes
     /// is not retried at the first delay forever.
     opened_at: Instant,
+    /// The same instant on the wall clock: `status.broadcast_loss.since`,
+    /// since the counts are the current session's and start again at a
+    /// reconnect.
+    opened_ms: u64,
     health: Option<(Health, Option<ConnectivitySummary>)>,
     /// Pull mode's queue, made at the first session with its granted
     /// event queue as the bound, and kept across reconnects so what the
@@ -350,6 +354,7 @@ where
         attempt: 0,
         reconnect_at: Instant::now(),
         opened_at: Instant::now(),
+        opened_ms: 0,
         health: None,
         pull: None,
         gaps: Gaps::default(),
@@ -517,6 +522,31 @@ fn dropped(error: &ConvertError) -> &'static str {
         }
         ConvertError::Token(_) => {
             "an inbound message was dropped: the entropy repeated a live reply token"
+        }
+    }
+}
+
+/// Why `status.broadcast_loss` carries no counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LossUnread {
+    /// No session: the daemon is away or refused the endpoint.
+    NoSession,
+    /// Pull mode paused, or paused while the read was in flight.
+    PullQueueFull,
+    /// The session answered an error: `ProtocolUnsupported` from a
+    /// daemon below IPC 2.11, the session's end otherwise.
+    Error(TransportError),
+}
+
+impl LossUnread {
+    fn class(self) -> String {
+        match self {
+            Self::NoSession => "no_session".to_owned(),
+            Self::PullQueueFull => "pull_queue_full".to_owned(),
+            // The IPC client's own answer below 2.11, named for the reader.
+            Self::Error(TransportError::ProtocolUnsupported) => "protocol_unsupported".to_owned(),
+            // The class as `last_connect_error` and `rejoin_refused` print it.
+            Self::Error(e) => format!("{e:?}"),
         }
     }
 }
@@ -716,6 +746,7 @@ impl<B: DataSessionBinding> Bridge<B> {
         self.session = Some(session);
         self.last_open_error = None;
         self.opened_at = Instant::now();
+        self.opened_ms = (self.env.now_ms)();
         let leased = self.state.lease_held().is_some();
         self.env.log.write(&Line::Opened { leased });
         if let Some((_, epoch)) = self.state.lease_held() {
@@ -869,7 +900,10 @@ impl<B: DataSessionBinding> Bridge<B> {
         // The route a reply resolves to, decided before any call.
         let call = match call {
             ToolCall::Identity => return Ok(Some(Ok(self.identity()))),
-            ToolCall::Status => return Ok(Some(Ok(self.status()))),
+            ToolCall::Status => {
+                let losses = self.losses(out).await?;
+                return Ok(Some(Ok(self.status(losses))));
+            }
             // From the queue, with or without a session: what was taken
             // before the daemon went away is still the host's.
             ToolCall::Receive { max } => return Ok(Some(Ok(self.receive(max)))),
@@ -1133,7 +1167,49 @@ impl<B: DataSessionBinding> Bridge<B> {
         .to_string()
     }
 
-    fn status(&mut self) -> String {
+    /// The current session's `session.losses`, its events taken and
+    /// written while the read waits (over IPC the answer queues behind
+    /// them, LOCAL-IPC.md §session.losses), or why it is not read.
+    async fn losses<W: AsyncWrite + Unpin>(
+        &mut self,
+        out: &mut W,
+    ) -> std::io::Result<Result<SessionLosses, LossUnread>> {
+        // Paused, the answer would wait behind events the bridge is not
+        // taking: not asked, as a send is not
+        // (`a_paused_status_does_not_ask_for_losses`).
+        if self.paused() {
+            return Ok(Err(LossUnread::PullQueueFull));
+        }
+        let Self {
+            session,
+            state,
+            env,
+            health,
+            pull,
+            gaps,
+            ..
+        } = self;
+        let Some(session) = session.as_ref() else {
+            return Ok(Err(LossUnread::NoSession));
+        };
+        let mut emit = Emit {
+            state,
+            env,
+            health,
+            out,
+            pull: pull.as_mut(),
+            gaps,
+        };
+        // A read changes nothing, so a cancel as the queue fills costs
+        // only this answer.
+        Ok(match drive(session, session.losses(), &mut emit).await? {
+            Some(Ok(losses)) => Ok(losses),
+            Some(Err(e)) => Err(LossUnread::Error(e)),
+            None => Err(LossUnread::PullQueueFull),
+        })
+    }
+
+    fn status(&mut self, losses: Result<SessionLosses, LossUnread>) -> String {
         let now = (self.env.now_ms)();
         let (lease_state, epoch) = match (self.session.is_some(), self.state.lease()) {
             (_, Some((_, epoch))) => ("held", Some(epoch.as_str().to_owned())),
@@ -1187,6 +1263,15 @@ impl<B: DataSessionBinding> Bridge<B> {
                 .map(|(reason, count)| (reason.as_str().to_owned(), Value::from(count)))
                 .collect::<serde_json::Map<String, Value>>(),
             "log": self.env.log.status(),
+            // Never a zero for a count not read: an unread pair says why.
+            "broadcast_loss": match losses {
+                Ok(losses) => json!({
+                    "queue_overflow": losses.queue_overflow,
+                    "ingress_refused": losses.ingress_refused,
+                    "since": rfc3339_utc(self.opened_ms),
+                }),
+                Err(unread) => json!({"unavailable": unread.class()}),
+            },
         });
         // Absent while the lease has never been lost and regained.
         if let Some(gap) = &self.gaps.gap {

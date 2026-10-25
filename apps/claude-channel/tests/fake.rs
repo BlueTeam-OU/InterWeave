@@ -17,7 +17,7 @@ use std::time::Duration;
 use interweave_claude_channel::serve::{Config, Env, serve};
 use interweave_local_client_api::{
     DataCapability, DataSessionBinding, DataSessionPort, LocalDataSession, SessionEvent,
-    SessionRequest,
+    SessionLosses, SessionRequest,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode, FakeSession};
 use interweave_profile_identity::ProfileIdentity;
@@ -96,6 +96,9 @@ struct Record {
     hold_ready: AtomicBool,
     /// How many times the bridge has asked `ready`.
     readies: AtomicU64,
+    /// `losses` answers `ProtocolUnsupported`, as the IPC client does on
+    /// a connection below 2.11.
+    losses_unsupported: AtomicBool,
 }
 
 /// Records `<call> cancelled` when a held call is dropped unanswered.
@@ -256,6 +259,14 @@ impl DataSessionPort for RecordedSession {
                 return woke;
             }
         }
+    }
+    async fn losses(&self) -> Result<SessionLosses, TransportError> {
+        self.record.call("losses");
+        self.record.down()?;
+        if self.record.losses_unsupported.load(Ordering::SeqCst) {
+            return Err(TransportError::ProtocolUnsupported);
+        }
+        self.inner.losses().await
     }
     async fn query_endpoints(
         &self,
@@ -461,6 +472,28 @@ impl World {
                 "never reached {depth}"
             );
             tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    /// The peer publishes `n` broadcasts on `general`, each its own id.
+    async fn peer_broadcasts(&self, first: u8, n: u8) {
+        for i in first..first + n {
+            self.peer
+                .broadcast(
+                    general(),
+                    BroadcastMessageV1 {
+                        message_id: MessageId::from_bytes([i; 16]),
+                        sent_at_ms: 0,
+                        payload: Payload::new(
+                            None,
+                            format!("b{i:03}").into_bytes(),
+                            MAX_PAYLOAD_BYTES,
+                        )
+                        .expect("payload"),
+                    },
+                )
+                .await
+                .expect("accepted");
         }
     }
 
@@ -717,9 +750,15 @@ async fn no_administrative_request_leaves_the_bridge() {
     }
     let calls = w.record.calls();
     assert!(
-        calls
-            .iter()
-            .all(|c| ["open", "join", "leave", "broadcast", "send_direct"].contains(&c.as_str())),
+        calls.iter().all(|c| [
+            "open",
+            "join",
+            "leave",
+            "broadcast",
+            "send_direct",
+            "losses"
+        ]
+        .contains(&c.as_str())),
         "{calls:?}"
     );
     assert!(
@@ -2272,4 +2311,119 @@ async fn a_48_kib_text_payload_stays_utf8() {
         );
         assert_eq!(event["content"], json!(text), "{delivery:?}");
     }
+}
+
+/// `status.broadcast_loss` as TOOL-SURFACE.md §status gives it: the
+/// open session's two counts under the wire's names and when it opened.
+fn loss(queue_overflow: u64, ingress_refused: u64, since_ms: u64) -> Value {
+    json!({
+        "queue_overflow": queue_overflow,
+        "ingress_refused": ingress_refused,
+        "since": interweave_claude_channel_core::rfc3339_utc(since_ms).expect("an instant"),
+    })
+}
+
+/// The ingress gate's refusals on a channel the bridge joined reach
+/// `status.broadcast_loss.ingress_refused`, kept apart from the overflow
+/// count, and a later read never lowers them (A 2026-10-25). The
+/// control: before the gate is on, the pair reads zero.
+#[tokio::test]
+async fn status_reads_the_sessions_ingress_refusals_and_never_lowers_them() {
+    let mut w = World::start().await;
+    w.tool("join", json!({"channel": "general"})).await;
+    w.peer.join(general()).await.expect("peer joins");
+    assert_eq!(w.status().await["broadcast_loss"], loss(0, 0, NOW_MS));
+    w.a.limit_ingress();
+    // Past the bucket's burst of 32: at least the last eight are refused.
+    // One at a time, a status round trip between, so the bridge drains
+    // as they come and its session queue of 16 never fills.
+    for i in 0..40 {
+        w.peer_broadcasts(i, 1).await;
+        let _ = w.status().await;
+    }
+    let first = w.status().await["broadcast_loss"].clone();
+    let refused = first["ingress_refused"].as_u64().expect("a count");
+    assert!(refused >= 8, "{first}");
+    assert_eq!(
+        first["queue_overflow"],
+        json!(0),
+        "refusals are not overflow: {first}"
+    );
+    w.peer_broadcasts(40, 8).await;
+    let later = w.status().await["broadcast_loss"].clone();
+    assert!(
+        later["ingress_refused"].as_u64().expect("a count") >= refused,
+        "never lower: {first} then {later}"
+    );
+    assert!(w.record.calls().contains(&"losses".to_owned()));
+}
+
+/// The session's own queue dropping its oldest is `queue_overflow`. In
+/// pull mode a paused bridge does not ask -- the answer would wait behind
+/// events it is not taking -- and says why rather than reporting zeros;
+/// once a take lifts the pause the overflow is read. A reconnect is a new
+/// session: its counts start at zero and `since` moves to its open.
+#[tokio::test]
+async fn a_paused_status_does_not_ask_for_losses() {
+    let mut w = World::start_pull().await;
+    w.tool("join", json!({"channel": "general"})).await;
+    w.peer.join(general()).await.expect("peer joins");
+    // Sixteen fill the bridge's queue and pause it; sixteen more fill
+    // the session's queue of 16 behind it; the last four push out the
+    // session's oldest, one each.
+    w.peer_broadcasts(0, 16).await;
+    w.wait_depth(16).await;
+    w.peer_broadcasts(16, 20).await;
+    let asked = w.record.calls().iter().filter(|c| *c == "losses").count();
+    let status = w.status().await;
+    assert_eq!(status["pull_queue"]["paused"], json!(true), "{status}");
+    assert_eq!(
+        status["broadcast_loss"],
+        json!({"unavailable": "pull_queue_full"})
+    );
+    assert_eq!(
+        w.record.calls().iter().filter(|c| *c == "losses").count(),
+        asked,
+        "not asked while paused"
+    );
+    // Two takes of 16: the bridge's queue, then the session's held 16.
+    w.receive(Some(16)).await;
+    w.wait_depth(16).await;
+    w.receive(Some(16)).await;
+    assert_eq!(w.status().await["broadcast_loss"], loss(4, 0, NOW_MS));
+
+    away_and_back(&mut w, NOW_MS + 5_000, NOW_MS + 7_000).await;
+    assert_eq!(
+        w.status().await["broadcast_loss"],
+        loss(0, 0, NOW_MS + 7_000),
+        "a new session's counts, from its own open"
+    );
+}
+
+/// Counts that cannot be read are never reported as zeros: a daemon
+/// below IPC 2.11 is `protocol_unsupported`, no session `no_session`.
+#[tokio::test]
+async fn unread_losses_say_why_and_are_never_zeros() {
+    let mut w = World::start().await;
+    w.record.losses_unsupported.store(true, Ordering::SeqCst);
+    assert_eq!(
+        w.status().await["broadcast_loss"],
+        json!({"unavailable": "protocol_unsupported"})
+    );
+    w.record.losses_unsupported.store(false, Ordering::SeqCst);
+    assert_eq!(
+        w.status().await["broadcast_loss"],
+        loss(0, 0, NOW_MS),
+        "the control"
+    );
+    w.record.down.store(true, Ordering::SeqCst);
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while w.status().await["endpoint_lease_state"] != json!("daemon unavailable") {
+        assert!(tokio::time::Instant::now() < deadline, "never saw it go");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        w.status().await["broadcast_loss"],
+        json!({"unavailable": "no_session"})
+    );
 }
