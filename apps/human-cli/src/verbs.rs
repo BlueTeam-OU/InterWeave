@@ -210,7 +210,8 @@ const fn command_name(command: &Command) -> &'static str {
         | Command::ForgetCard(_)
         | Command::ForgetContact(_)
         | Command::ForgetOwnPhoto => "releasing a held copy",
-        Command::PrepareOwnPhoto(_) => "preparing the card's photo",
+        Command::PrepareOwnPhoto { .. } => "preparing the card's photo",
+        Command::RemoveOwnPhoto => "removing the card's photo",
         Command::Reopen => "reopen",
         Command::RecheckStorage => "re-checking storage",
         Command::ReadTrust => "reading trust",
