@@ -65,8 +65,8 @@ prints, and the host asserts only in the cache-alone variant:
   not connected for 3 s before the add, with B listening: the control
   that nothing else dials B. Earlier runs' added addresses for B were
   removed first, as in row 1.
-- **The add.** As in row 1: A connected to B within 1.0–1.3 s of the
-  add, and held it 5 s. B, holding no address for A, saw the
+- **The add.** As in row 1 (1.0–1.5 s there): A connected to B
+  1015–1529 ms after the add, and held it 5 s. B, holding no address for A, saw the
   connection, and then saw A leave when the host force-stopped A.
 - **What survived the force-stop on disk.** With A force-stopped and no
   runtime up, A's cache file was present and named B in all twelve
@@ -89,8 +89,9 @@ prints, and the host asserts only in the cache-alone variant:
   What does stand in for one here is narrower: before each add, A read
   B unconnected for 3 s with B listening (above). The driver at
   `bf114692` runs B's `await_peer` with an `apart` window through the
-  control and fails if B's case ends first; the four variants are owed
-  a re-run on the phones at that commit or later.
+  control and fails if B's case ends first. The four variants were
+  re-run on the phones at `8f978966`, which holds it, on 2026-10-25:
+  `2026-10-25-pixel-9a-a40-wifi-added-address-cache-on-control.md`.
 - **Both kept.** A connected again in 255–509 ms. Which source "was"
   the dial has no answer here, because the two do not dial separately.
   Discovery merges providers by address, so both sources support one

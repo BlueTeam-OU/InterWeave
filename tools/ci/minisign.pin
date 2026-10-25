@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# The minisign the release run signs and verifies the Linux archive with
+# (packaging/release-keys.toml's archive key), read by
+# tools/ci/minisign_install.sh.
+#
+# One line: <version> <SHA-256> of the asset minisign-<version>-linux.tar.gz
+# on jedisct1/minisign's release tagged with the version; the script
+# installs its minisign-linux/x86_64/minisign, a static executable.
+#
+# Recorded 2026-10-25 for 0.12: the SHA-256 is of the file as downloaded,
+# and the file's .minisig verified with the author's published key
+# RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3. A bump
+# fetches the new asset, checks the same, and renews this line.
+0.12 9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73
