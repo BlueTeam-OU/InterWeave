@@ -291,21 +291,23 @@ impl ProposalItem {
 
     /// Which ways the proposal's row swipes (contact-cards design section
     /// 5.4.4): toward the line's end Accept, toward its start Decline.
-    /// Case S moves neither way, since Close is no swipe action; case D
-    /// never accepts by swipe, since a swipe can happen without reading
-    /// and a stranger saved under a contact's name by a stray thumb is
-    /// the impersonation ADR-0059 makes visible -- only its button saves
-    /// it. Case D is tested after P, as the design orders them: a card
-    /// sharing a contact's device is P whatever its name.
+    /// Case S moves neither way, since Close is no swipe action. A row
+    /// that shows `CardSameName` -- case D, and P, U or E when Accept
+    /// would write a clashing name -- never accepts by swipe (the owner's
+    /// O2, "whenever warned"): a swipe can happen without reading, and a
+    /// stranger saved under a contact's name by a stray thumb is the
+    /// impersonation ADR-0059 makes visible; only its button saves it.
+    /// Judged on what the row shows now, so a row judged again after a
+    /// change (5.4.5) swipes as it then reads.
     #[must_use]
     pub fn swipe(&self) -> CardSwipe {
         let closes = matches!(self.accept, AcceptLine::Matches(_));
-        let has = |f: fn(&ProposalNote) -> bool| self.notes.iter().any(f);
-        let case_d = matches!(self.accept, AcceptLine::Creates)
-            && has(|n| matches!(n, ProposalNote::SameName(_)))
-            && !has(|n| matches!(n, ProposalNote::SharesNode(_)));
+        let warned = self
+            .notes
+            .iter()
+            .any(|n| matches!(n, ProposalNote::SameName(_)));
         CardSwipe {
-            accept: !closes && !case_d,
+            accept: !closes && !warned,
             decline: !closes,
         }
     }
@@ -1626,11 +1628,12 @@ mod tests {
     }
 
     // Section 5.4.4's swipes by case, from the same contexts the labels
-    // are judged on. Mutations: `case_d` not checking SharesNode (case P
-    // loses its swipe); `closes` not withholding Decline (case S moves);
-    // `case_d` dropped (case D accepts by swipe).
+    // are judged on: no Accept swipe wherever CardSameName shows (O2), the
+    // same cases without it keeping theirs. Mutations: `closes` not
+    // withholding Decline (case S moves); `warned` dropped (a warned row
+    // accepts by swipe).
     #[test]
-    fn a_proposal_swipes_both_ways_but_never_accepts_in_case_d_or_moves_in_s() {
+    fn a_proposal_swipes_both_ways_but_never_accepts_when_warned_or_moves_in_s() {
         let near = |kind: &str| ContactRef {
             contact_id: kind.to_owned(),
             name: "Ada".to_owned(),
@@ -1653,22 +1656,44 @@ mod tests {
                 },
             ),
             (
-                "P, a same name beside it",
+                "P",
                 ProposalContext {
                     shares_node: vec![near("p")],
-                    same_name: vec![near("d")],
                     ..context()
                 },
                 both,
             ),
             (
-                "U, a same name beside it",
+                "P, warned",
+                ProposalContext {
+                    shares_node: vec![near("p")],
+                    same_name: vec![near("d")],
+                    ..context()
+                },
+                CardSwipe {
+                    accept: false,
+                    decline: true,
+                },
+            ),
+            (
+                "U",
+                ProposalContext {
+                    updates: Some(near("u")),
+                    ..context()
+                },
+                both,
+            ),
+            (
+                "U, warned",
                 ProposalContext {
                     updates: Some(near("u")),
                     same_name: vec![near("d")],
                     ..context()
                 },
-                both,
+                CardSwipe {
+                    accept: false,
+                    decline: true,
+                },
             ),
             (
                 "S",

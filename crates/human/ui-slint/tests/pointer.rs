@@ -565,8 +565,9 @@ fn proposal_heading_at(view: &View, index: usize) -> (f32, f32) {
 
 /// Contact-cards design section 5.4.4, through the toolkit's handler: a
 /// proposal's right swipe raises its Accept and its left swipe its
-/// Decline, the same intents its buttons raise; case D's right swipe
-/// raises nothing, and case S moves neither way. Which way a case offers
+/// Decline, the same intents its buttons raise; a row warned of a
+/// clashing name (case D here) raises nothing to the right, and case S
+/// moves neither way. Which way a case offers
 /// is the model's (`ProposalItem::swipe`, its own test); this holds the
 /// view to it. Mutations: the view not registering the row's swipe; the
 /// directions swapped in `Swipeable::toward`; the message or conversation
