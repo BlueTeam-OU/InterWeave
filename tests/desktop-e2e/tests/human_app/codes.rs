@@ -1,26 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! Plan §29 (e)'s hostile-code case against a real daemon, and what the
+//! Plan §29 (e)'s two code cases against a real daemon, and what the
 //! daemon holds afterwards read over its own admin port.
 //!
-//! **A hostile code adds its addresses and nothing else.** The text a
-//! hostile party's code decodes to, for a peer nobody trusts, handed to
-//! the client as both shells hand a scan's text over
-//! (`PeersInput::Scanned`), through the client's own root halves --
-//! `app-core`'s model side and facade side over the human client's
-//! facade, on the daemon's IPC sockets: the daemon's address list gains
-//! exactly the code's lines, its trust set is unchanged, and no trust
-//! change was asked of it, by command or on the admin socket. The
-//! controls that each read is live: the trust set read before holds B,
-//! the list afterwards holds the code's lines, and the tap saw the add.
-//! The window is not in this case: the desktop withholds Paste an image
-//! (#409 F1) and Open an image… is the XDG portal's dialog, which this
-//! display has no backend for; what an image decodes to is `ui-slint`'s
-//! (`code.rs`).
+//! - **A hostile code adds its addresses and nothing else.** The text a
+//!   hostile party's code decodes to, for a peer nobody trusts, handed to
+//!   the client as both shells hand a scan's text over
+//!   (`PeersInput::Scanned`), through the client's own root halves --
+//!   `app-core`'s model side and facade side over the human client's
+//!   facade, on the daemon's IPC sockets: the daemon's address list gains
+//!   exactly the code's lines, its trust set is unchanged, and no trust
+//!   change was asked of it, by command or on the admin socket. The
+//!   controls that each read is live: the trust set read before holds B,
+//!   the list afterwards holds the code's lines, and the tap saw the add.
+//!   The window is not in this case: the desktop withholds Paste an image
+//!   (#409 F1) and Open an image… is the XDG portal's dialog, which this
+//!   display has no backend for; what an image decodes to is `ui-slint`'s
+//!   (`code.rs`, the Show test's read back).
+//! - **The shown code is this node's addresses and `PeerId` and nothing
+//!   else.** Show my address's code in the shipped window, read from the
+//!   window's pixels as a phone's camera reads a screen, decodes to
+//!   exactly the lines the daemon answers for its own addresses, each
+//!   ending in its `PeerId`, none loopback, unspecified or link-local. The
+//!   control: the daemon listens on this host's private address, so the
+//!   list is not empty.
 //!
 //! What this does not prove: the camera's path on Android (the same
 //! model input takes its text; `ui-model`'s `peers.rs` holds a scan's
-//! refusals).
+//! refusals), or that the daemon's floor refuses every class -- its own
+//! tests do, and here the classes are only those this host's interfaces
+//! offer.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -30,16 +39,25 @@ use std::time::{Duration, Instant};
 use interweave_human_app_core::{Command, FacadeSide, ModelSide, Opener, Surface, Update};
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
-use interweave_human_ui_model::{PeersInput, ScanControl, UiModel, ViewEvent};
+use interweave_human_ui_model::{
+    PeersInput, ScanControl, UiModel, UiText, ViewEvent, fill, placeholder_en,
+};
 use interweave_ipc_client::IpcBinding;
 use interweave_local_client_api::{
     AddressSource, AdminBinding as _, AdminCapability, AdminPort as _, BootstrapAddress,
 };
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
 
+use crate::a11y::{Bus, Element};
 use crate::common::{Home, PATIENCE, human};
 use crate::daemon_link::{Tap, asked};
+use crate::display;
+use crate::harness::{self as app, until_lease};
 use crate::world::two_daemons;
+
+fn text(key: UiText) -> &'static str {
+    placeholder_en::text(key)
+}
 
 /// What the daemon's trust policy allows, as strings, in its order.
 async fn allowed(home: &Home) -> Vec<String> {
@@ -221,4 +239,98 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
         !methods.contains("admin.trust.set"),
         "no trust change asked: {methods:?}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shown_code_reads_back_as_this_nodes_own_addresses_and_peer_id_alone() {
+    let _focus = display::exclusive().await;
+    let world = two_daemons().await;
+    let own = world
+        .a
+        .binding()
+        .admin([AdminCapability::Peers].into())
+        .await
+        .expect("an admin port")
+        .own_addresses()
+        .await
+        .expect("this node's own addresses");
+    assert_eq!(own.peer, world.a_peer);
+    let lines: Vec<String> = own.addresses.iter().map(|r| r.address.clone()).collect();
+    assert!(
+        !lines.is_empty(),
+        "the control: A listens on a private address"
+    );
+
+    let bus = Bus::connect().await;
+    let mut client = app::start(&world.a);
+    until_lease(&world.a.binding(), true, &client).await;
+    let window = bus.window_of(client.child.id(), || client.log()).await;
+    display::focus(client.child.id(), || client.log()).await;
+    let log = || client.log();
+    let press = |name: &'static str| move |e: &Element| e.name == name && e.actions == ["click"];
+    for (what, name) in [
+        ("the app's options", text(UiText::AppOptions)),
+        ("the app's Peers entry", text(UiText::PeersTitle)),
+        ("Show my address", text(UiText::ShowMyAddress)),
+    ] {
+        let control = window.until(what, press(name), log).await;
+        window.activate(&control, "click").await;
+    }
+    let label = if lines.len() == 1 {
+        text(UiText::QrLabelOne).to_owned()
+    } else {
+        fill(
+            text(UiText::QrLabelOther),
+            &[("n", &lines.len().to_string())],
+        )
+    };
+    window
+        .until("the code, labelled", |e: &Element| e.name == label, log)
+        .await;
+
+    // Read as a camera reads the screen: the window's pixels, until a
+    // frame holds the code (the label is set in the render that draws it,
+    // and the frame reaches the display a moment later).
+    let pid = client.child.id();
+    let deadline = Instant::now() + PATIENCE;
+    let read = loop {
+        let (width, height, luma) = display::luma_of(pid);
+        let mut prepared =
+            rqrr::PreparedImage::prepare_from_greyscale(width, height, |x, y| luma[y * width + x]);
+        let decoded: Vec<String> = prepared
+            .detect_grids()
+            .into_iter()
+            .filter_map(|grid| grid.decode().ok().map(|(_, text)| text))
+            .collect();
+        if !decoded.is_empty() {
+            break decoded;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no code in the window's pixels ({width}x{height}):\n{}",
+            client.log()
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+    assert_eq!(read.len(), 1, "one code on the screen: {read:?}");
+    let shown: Vec<&str> = read[0].lines().collect();
+    assert_eq!(
+        shown, lines,
+        "exactly the daemon's own addresses, in its order"
+    );
+    let suffix = format!("/p2p/{}", world.a_peer.as_str());
+    for line in &shown {
+        assert!(line.ends_with(&suffix), "{line} names this node's PeerId");
+        for refused in [
+            "/ip4/127.",
+            "/ip4/0.0.0.0/",
+            "/ip4/169.254.",
+            "/ip6/::1/",
+            "/ip6/::/",
+            "/ip6/fe80",
+        ] {
+            assert!(!line.starts_with(refused), "{line} is of a refused class");
+        }
+    }
+    assert!(client.terminate().success(), "{}", client.log());
 }

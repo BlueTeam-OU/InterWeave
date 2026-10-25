@@ -72,3 +72,56 @@ fn window_of(conn: &RustConnection, root: Window, wm_pid: u32, pid: u32) -> Opti
         viewable && owner == Some(pid)
     })
 }
+
+/// What the viewable top-level window of process `pid` shows, as a
+/// person sees it: its width, its height and its pixels' luma, row by
+/// row. The test display's visual is a 24-bit true-colour one, in which
+/// a pixel is four bytes, blue first.
+pub(crate) fn luma_of(pid: u32) -> (usize, usize, Vec<u8>) {
+    use x11rb::protocol::xproto::ImageFormat;
+    let (conn, screen) = x11rb::connect(None).expect("the test display answers");
+    let root = conn.setup().roots[screen].root;
+    let wm_pid = conn
+        .intern_atom(false, b"_NET_WM_PID")
+        .expect("an atom request")
+        .reply()
+        .expect("the _NET_WM_PID atom")
+        .atom;
+    let window = window_of(&conn, root, wm_pid, pid).expect("the client's window");
+    let geometry = conn
+        .get_geometry(window)
+        .expect("a geometry request")
+        .reply()
+        .expect("the window's geometry");
+    let image = conn
+        .get_image(
+            ImageFormat::Z_PIXMAP,
+            window,
+            0,
+            0,
+            geometry.width,
+            geometry.height,
+            !0,
+        )
+        .expect("an image request")
+        .reply()
+        .expect("the window's pixels");
+    let (width, height) = (usize::from(geometry.width), usize::from(geometry.height));
+    assert_eq!(
+        image.data.len(),
+        width * height * 4,
+        "four bytes a pixel at depth {}",
+        image.depth
+    );
+    let luma = image
+        .data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&[b, g, r, _]| {
+            let (b, g, r) = (u32::from(b), u32::from(g), u32::from(r));
+            u8::try_from((299 * r + 587 * g + 114 * b) / 1000).unwrap_or(u8::MAX)
+        })
+        .collect();
+    (width, height, luma)
+}

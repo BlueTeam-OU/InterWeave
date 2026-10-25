@@ -3414,6 +3414,7 @@ dependencies = [
  "interweave-transport-api",
  "jsonschema",
  "libp2p",
+ "rqrr",
  "rusqlite",
  "serde_json",
  "tempfile",
