@@ -49,3 +49,16 @@ libraries' notices stay in the body. The template's sentence is
 rust-ui-dev-02's and language-culture-en's; the upload is
 devex-tooling's `release.yml`. Propagation: decision 5; this note; the
 log row; the digest entry.
+
+### Amendment 2026-10-25 — The first release met decision 3's two owed items
+
+Decision 3 closed with "What is owed, and by whom: the Skia notice set
+... and `cargo deny --target aarch64-linux-android check licenses`
+green before the first release". The first release, v0.1.0, was
+published on 2026-10-25 (run 40179792207, second attempt; plan §22):
+its page carries the Skia and skcms notices inline and the crates'
+notices as `THIRD-PARTY-NOTICES-android.md`, and the one `cargo deny`
+invocation that judges both targets was green on 71961578, the commit
+the tag was cut on. The sentence now says both are met and where the
+evidence is, so a reader does not take the first release as still
+ahead. Propagation: this note; the log row; the digest entry.
