@@ -6,14 +6,14 @@
 //! blocks until the person answers and a large image takes a moment to
 //! read; the result goes back as the [`PeersInput`] the model takes.
 //!
-//! A file is held to [`crate::code`]'s bounds before it is decoded: its
-//! bytes, its sides and the decoder's allocation. The clipboard's image
-//! is not read at all: the clipboard crate decodes an image whole, under
-//! no bound of this client's, before handing it over, so a small image
-//! with huge declared sides could take hundreds of MiB (#409 F1). A
-//! Paste press ends as a cancelled scan, whatever the window offers,
-//! until the clipboard's encoded bytes can be read and taken through
-//! [`crate::code::read_image`].
+//! A file, and on Linux the clipboard's image, is held to
+//! [`crate::code`]'s bounds before it is decoded: its bytes, its sides and
+//! the decoder's allocation. The clipboard's image is read as its encoded
+//! bytes (`clipboard.rs`), not through the toolkit's clipboard crate,
+//! which decodes an image whole under no bound of this client's (#409
+//! F1): that crate is in the graph through the toolkit's backend, and
+//! Paste does not call it. Elsewhere a Paste press ends as a cancelled
+//! scan, and the desktop does not offer the control.
 
 use std::io::Read as _;
 use std::sync::{Arc, Mutex};
@@ -32,7 +32,11 @@ pub(crate) fn read(
 ) {
     let read = move || match control {
         ScanControl::OpenImage => from_file(&filter),
-        ScanControl::PasteImage | ScanControl::Camera => PeersInput::ScannerClosed,
+        #[cfg(target_os = "linux")]
+        ScanControl::PasteImage => from_clipboard(crate::clipboard::read()),
+        #[cfg(not(target_os = "linux"))]
+        ScanControl::PasteImage => PeersInput::ScannerClosed,
+        ScanControl::Camera => PeersInput::ScannerClosed,
     };
     // Whoever takes `done` first calls it: the thread with its result, or
     // this function when no thread could be made, ending the scan as a
@@ -76,6 +80,20 @@ fn from_file(filter: &str) -> PeersInput {
     code::read_image(&bytes).map_or(PeersInput::ImageUnreadable, found)
 }
 
+/// What a paste says (§5.5): an image's bytes decoded as a file's are;
+/// no image, or a clipboard that could not be read at all, each its own
+/// line; an image offered that could not be had is an image unreadable.
+#[cfg(target_os = "linux")]
+fn from_clipboard(pasted: crate::clipboard::Pasted) -> PeersInput {
+    use crate::clipboard::Pasted;
+    match pasted {
+        Pasted::Image(bytes) => code::read_image(&bytes).map_or(PeersInput::ImageUnreadable, found),
+        Pasted::NoImage => PeersInput::ClipboardNoImage,
+        Pasted::Unreadable => PeersInput::ClipboardUnreadable,
+        Pasted::ImageUnread => PeersInput::ImageUnreadable,
+    }
+}
+
 fn found(read: CodeRead) -> PeersInput {
     match read {
         CodeRead::Text(text) => PeersInput::Scanned(text),
@@ -105,16 +123,46 @@ pub(crate) fn photo_file(filter: &str) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
-    use std::time::Duration;
-
     use super::*;
 
-    /// A Paste press reads no clipboard and ends as a cancelled scan,
-    /// whatever the window offers (#409 F1): the clipboard crate's
-    /// decode is unbounded, so the reader must not reach it.
+    /// A paste's bytes are a file's: a code reads, anything else is an
+    /// image unreadable; no image, and a clipboard unread, each say their
+    /// own line, never one for the other (§5.5).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_paste_says_what_the_clipboard_gave() {
+        use crate::clipboard::Pasted;
+        let lines = vec!["/ip4/192.168.1.20/tcp/4001/p2p/peer".to_owned()];
+        assert_eq!(
+            from_clipboard(Pasted::Image(code::png_for(&lines))),
+            PeersInput::Scanned(lines.join("\n"))
+        );
+        assert_eq!(
+            from_clipboard(Pasted::Image(b"not an image".to_vec())),
+            PeersInput::ImageUnreadable
+        );
+        assert_eq!(
+            from_clipboard(Pasted::NoImage),
+            PeersInput::ClipboardNoImage
+        );
+        assert_eq!(
+            from_clipboard(Pasted::Unreadable),
+            PeersInput::ClipboardUnreadable
+        );
+        assert_eq!(
+            from_clipboard(Pasted::ImageUnread),
+            PeersInput::ImageUnreadable
+        );
+    }
+
+    /// Elsewhere a Paste press reads no clipboard and ends as a cancelled
+    /// scan: the toolkit's clipboard crate decodes unbounded, so the
+    /// reader must not reach it (#409 F1).
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn a_paste_press_reads_no_clipboard_and_ends_cancelled() {
+        use std::sync::mpsc;
+        use std::time::Duration;
         let (tx, rx) = mpsc::channel();
         read(ScanControl::PasteImage, String::new(), move |input| {
             let _ = tx.send(input);

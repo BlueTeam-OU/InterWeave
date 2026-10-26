@@ -50,12 +50,40 @@ pub enum ToView {
     /// The store could not be listed for this view: what it holds stays
     /// unshown until the view attaches again. A class, never content.
     ListingFailed,
-    /// The service did not start because of the message store (ADR-0060
-    /// decision 6): the screen the view shows in place of the chats --
-    /// recovery mode, or the key the platform invalidated -- or `None`
-    /// once a start opened the store. Sent at an attach and at every
-    /// change.
-    StoreRefused(Option<StoreRefusal>),
+    /// A start's answer as the message store saw it (ADR-0060 decision
+    /// 6), with the hub's count of answers so far: sent at every answer,
+    /// and at an attach once a start has answered. The count is the
+    /// hub's, so a view attached again still tells an answer that came
+    /// after a discard from one before it (#377 review r3, risk 1).
+    Store(StoreAnswer, StoreGeneration),
+}
+
+/// What a start's answer says of the message store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreAnswer {
+    /// The store opened.
+    Opened,
+    /// The store refused: the screen the view shows in place of the chats.
+    Refused(StoreRefusal),
+    /// The start was refused for a reason no store screen shows -- the
+    /// identity, the runtime, the profile, the endpoint -- so nothing says
+    /// the store opened (#377 review r3, pre-existing).
+    OtherRefusal,
+}
+
+/// How many start answers the hub has said: an answer said later counts
+/// higher. A discard reads it under the start lock, so an answer counted
+/// past the discard's is a start's that came after it (#377 review r3,
+/// risk 2).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct StoreGeneration(u64);
+
+impl StoreGeneration {
+    /// The count, for a decision that compares two.
+    #[must_use]
+    pub const fn count(self) -> u64 {
+        self.0
+    }
 }
 
 struct Viewer {
@@ -94,8 +122,9 @@ struct Slot {
     /// Whether the person must authenticate before anything runs, as the
     /// Activity last said.
     authentication: bool,
-    /// The store's refusal of the last start, if it refused.
-    store: Option<StoreRefusal>,
+    /// The last start's answer, if one answered, and the answers so far.
+    store: Option<StoreAnswer>,
+    generation: StoreGeneration,
 }
 
 impl Default for Slot {
@@ -106,6 +135,7 @@ impl Default for Slot {
             network: true,
             authentication: false,
             store: None,
+            generation: StoreGeneration::default(),
         }
     }
 }
@@ -173,7 +203,9 @@ impl Hub {
         viewer.send(ToView::Running(slot.running));
         viewer.send(ToView::NetworkAccess(slot.network));
         viewer.send(ToView::AuthenticationNeeded(slot.authentication));
-        viewer.send(ToView::StoreRefused(slot.store));
+        if let Some(answer) = slot.store {
+            viewer.send(ToView::Store(answer, slot.generation));
+        }
         slot.viewer = Some(viewer);
         ViewLink {
             from,
@@ -267,23 +299,27 @@ impl Hub {
         }
     }
 
-    /// What the store's refusal of the last start was, or `None` once a
-    /// start opened it: said to the attached view, and to each later one.
-    /// EVERY REFUSAL IS SAID, an unchanged one included: each answers a
-    /// start, and a view that asked for a restart learns from it that the
-    /// restart was refused again (#377 review F3). An unchanged `None` is
-    /// not repeated.
-    pub(crate) fn set_store_refused(&self, screen: Option<StoreRefusal>) {
+    /// A start's answer: said to the attached view, and to each later
+    /// one. EVERY ANSWER IS SAID AND COUNTED, an unchanged one included:
+    /// each answers a start, and a view that asked for a restart learns
+    /// from it how the restart went (#377 review F3). The caller says it
+    /// under the start lock (`ServiceHost`), so the count orders answers
+    /// against a discard.
+    pub(crate) fn set_store_answer(&self, answer: StoreAnswer) {
         let mut slot = self.slot();
-        if slot.store.is_none() && screen.is_none() {
-            return;
-        }
-        slot.store = screen;
+        slot.store = Some(answer);
+        slot.generation = StoreGeneration(slot.generation.0 + 1);
+        let generation = slot.generation;
         if let Some(viewer) = slot.viewer.as_ref()
-            && !viewer.send(ToView::StoreRefused(screen))
+            && !viewer.send(ToView::Store(answer, generation))
         {
             slot.viewer = None;
         }
+    }
+
+    /// The start answers said so far.
+    pub(crate) fn store_generation(&self) -> StoreGeneration {
+        self.slot().generation
     }
 
     /// Whether the attached view, if any, still waits for its listing
@@ -390,8 +426,7 @@ mod tests {
             [
                 ToView::Running(false),
                 ToView::NetworkAccess(true),
-                ToView::AuthenticationNeeded(false),
-                ToView::StoreRefused(None)
+                ToView::AuthenticationNeeded(false)
             ]
         ));
         assert!(!hub.wants_listing(), "nothing to list while none runs");
@@ -472,8 +507,7 @@ mod tests {
             [
                 ToView::Running(false),
                 ToView::NetworkAccess(false),
-                ToView::AuthenticationNeeded(false),
-                ToView::StoreRefused(None)
+                ToView::AuthenticationNeeded(false)
             ]
         ));
     }
@@ -499,8 +533,7 @@ mod tests {
             [
                 ToView::Running(false),
                 ToView::NetworkAccess(true),
-                ToView::AuthenticationNeeded(true),
-                ToView::StoreRefused(None)
+                ToView::AuthenticationNeeded(true)
             ]
         ));
     }
@@ -518,8 +551,7 @@ mod tests {
             [
                 ToView::Running(false),
                 ToView::NetworkAccess(true),
-                ToView::AuthenticationNeeded(false),
-                ToView::StoreRefused(None)
+                ToView::AuthenticationNeeded(false)
             ]
         ));
         assert!(!second.lost());
@@ -595,26 +627,49 @@ mod tests {
         assert!(!hub.command(Command::Reopen));
     }
 
-    /// Every refused start is said, an unchanged refusal included: a view
-    /// that asked for a restart learns it was refused again; an unchanged
-    /// `None` is not repeated (#377 review F3).
+    /// Every answer is said and counted, an unchanged one included: a
+    /// view that asked for a restart learns it was refused again (#377
+    /// review F3); and a view attached later hears the last answer with
+    /// the hub's count, never a count of its own from zero (#377 review
+    /// r3, risk 1).
     #[test]
-    fn a_refusal_is_said_at_every_start_and_an_opened_store_once() {
+    fn every_answer_is_said_with_the_hubs_count_and_an_attach_hears_the_last() {
         let hub = Hub::new();
         let (_, wake) = counting();
         let mut link = hub.attach(wake);
         let _ = link.take();
-        let refusals = |link: &mut ViewLink| {
+        let answers = |link: &mut ViewLink| {
             link.take()
-                .iter()
-                .filter(|m| matches!(m, ToView::StoreRefused(_)))
-                .count()
+                .into_iter()
+                .filter_map(|m| match m {
+                    ToView::Store(answer, generation) => Some((answer, generation.0)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
         };
-        hub.set_store_refused(Some(StoreRefusal::KeyLost));
-        hub.set_store_refused(Some(StoreRefusal::KeyLost));
-        assert_eq!(refusals(&mut link), 2, "each refused start");
-        hub.set_store_refused(None);
-        hub.set_store_refused(None);
-        assert_eq!(refusals(&mut link), 1, "the store opened, said once");
+        let key_lost = StoreAnswer::Refused(StoreRefusal::KeyLost);
+        hub.set_store_answer(key_lost);
+        hub.set_store_answer(key_lost);
+        assert_eq!(answers(&mut link), [(key_lost, 1), (key_lost, 2)]);
+        hub.set_store_answer(StoreAnswer::OtherRefusal);
+        hub.set_store_answer(StoreAnswer::Opened);
+        hub.set_store_answer(StoreAnswer::Opened);
+        assert_eq!(
+            answers(&mut link),
+            [
+                (StoreAnswer::OtherRefusal, 3),
+                (StoreAnswer::Opened, 4),
+                (StoreAnswer::Opened, 5)
+            ]
+        );
+        assert_eq!(hub.store_generation(), StoreGeneration(5));
+
+        let (_, wake) = counting();
+        let mut again = hub.attach(wake);
+        assert_eq!(
+            answers(&mut again),
+            [(StoreAnswer::Opened, 5)],
+            "the last answer, at the hub's count"
+        );
     }
 }

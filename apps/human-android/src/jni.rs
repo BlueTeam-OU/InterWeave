@@ -230,13 +230,21 @@ fn store_cipher(env: &mut Env<'_>) -> Result<StoreKeystore, jint> {
         })
 }
 
+/// A refusal before the host was reached, said to the view as every
+/// start's answer is: a store screen waiting on this start learns it was
+/// refused (#377 review r3).
+fn refused_early(code: jint) -> jint {
+    ServiceHost::global().refused_before_start();
+    code
+}
+
 fn start_without_network(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     let cipher = match store_cipher(env) {
         Ok(cipher) => cipher,
-        Err(code) => return code,
+        Err(code) => return refused_early(code),
     };
     if let Err(code) = provision(app_data_dir) {
-        return code;
+        return refused_early(code);
     }
     let host = ServiceHost::global();
     let dir = std::path::Path::new(app_data_dir);
@@ -265,15 +273,15 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     // The profile first: a first run's identity is provisioned under the
     // unlock policy it configures.
     if let Err(code) = provision(app_data_dir) {
-        return code;
+        return refused_early(code);
     }
     let identity = match identity(env, app_data_dir) {
         Ok(identity) => identity,
-        Err(code) => return code,
+        Err(code) => return refused_early(code),
     };
     let store_cipher = match store_cipher(env) {
         Ok(cipher) => cipher,
-        Err(code) => return code,
+        Err(code) => return refused_early(code),
     };
     let host = ServiceHost::global();
     let dir = std::path::PathBuf::from(app_data_dir);

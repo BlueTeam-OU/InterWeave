@@ -256,6 +256,14 @@ rqrr = { version = "0.11.0", default-features = false }
 # The desktop's Open an image…: the platform's file dialog, through the
 # XDG desktop portal on Linux (no GTK), MIT.
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+# The desktop's Paste an image on Linux (`clipboard.rs`): the clipboard's
+# encoded image read as bytes, within bounds, through Wayland's
+# data-control protocol or the X server, and the non-blocking wait that
+# holds the read to its deadline. All three are in the graph already,
+# through the toolkit's winit backend and its clipboard crate.
+wl-clipboard-rs = { version = "0.9.4", default-features = false }
+x11rb = { version = "0.13.2", default-features = false }
+rustix = { version = "1.1.5", default-features = false, features = ["std", "event"] }
 # The reference views (plan §17 (8)), admitted under the Slint Royalty-free
 # licence by the owner's decision of 2026-10-01 (deny.toml carries the
 # per-crate exceptions). The toolkit only: no windowing backend and no
