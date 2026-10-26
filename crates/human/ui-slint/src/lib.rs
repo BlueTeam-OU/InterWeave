@@ -2401,6 +2401,8 @@ impl View {
         let mut kept: Option<usize> = None;
         for (i, key) in keys.iter().enumerate() {
             if leaving.contains(key) {
+                // A leaving row holds no card, whatever its last copy held.
+                rows[i].cards_after = 0;
                 continue;
             }
             let Some(item) = by_key.get(key) else {
@@ -2414,17 +2416,24 @@ impl View {
                 if let Some(before) = kept {
                     rows[before].cards_after += i32::try_from(next - first).unwrap_or(i32::MAX);
                 }
-                if i == 0 || kept == Some(i - 1) {
-                    let card_day = self.clock.local(cards[next - 1]).day;
-                    let day = self.clock.local(item.local_at).day;
-                    rows[i].day = if card_day == day {
-                        SharedString::new()
-                    } else {
-                        clock::day_text(day).into()
-                    };
-                    rows[i].gap = 8.0;
-                    rows[i].show_author = channel && item.direction == Direction::Inbound;
+                // Only leaving rows stand between the kept row and this
+                // one, and the cards moved up past them head the day now:
+                // none of them hands its separator over, so one is read for
+                // the day throughout
+                // (`a_card_that_moves_up_takes_its_days_separator_from_a_leaving_row`).
+                let start = kept.map_or(0, |k| k + 1);
+                for row in &mut rows[start..i] {
+                    row.hand_over = false;
                 }
+                let card_day = self.clock.local(cards[next - 1]).day;
+                let day = self.clock.local(item.local_at).day;
+                rows[i].day = if card_day == day {
+                    SharedString::new()
+                } else {
+                    clock::day_text(day).into()
+                };
+                rows[i].gap = 8.0;
+                rows[i].show_author = channel && item.direction == Direction::Inbound;
             }
             times.push((rows[i].handle, item.local_at));
             kept = Some(i);

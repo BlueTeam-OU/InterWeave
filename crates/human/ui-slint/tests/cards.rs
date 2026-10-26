@@ -954,6 +954,39 @@ fn the_own_initials_keep_the_identitys_hue() {
     );
 }
 
+/// A message heading a day leaves while a card of that day follows it:
+/// the card moves up under the message before, heads the day itself, and
+/// the leaving row no longer hands the day's separator over -- one
+/// separator is read for the day throughout (swipe spec section 5).
+/// Mutation: the leaving row keeping its hand-over.
+#[test]
+fn a_card_that_moves_up_takes_its_days_separator_from_a_leaving_row() {
+    let mut model = UiModel::new();
+    model.received(message(10, "yesterday's message", NOW - DAY));
+    model.received(message(11, "the message hidden", NOW - 3 * MINUTE));
+    model.received(message(12, "the message after", NOW));
+    for n in [10, 11, 12] {
+        model.read(row(n));
+    }
+    model.card_received(Proposal {
+        received_at: NOW - 2 * MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    let mut view = conversation(&mut model);
+    assert_eq!(labelled(&view, text(UiText::Today)).len(), 1, "control");
+    let hidden = model.messages(&direct(P))[1].key;
+    model.hide(hidden);
+    view.render(&model);
+    for frame in 0..20 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        assert_eq!(
+            labelled(&view, text(UiText::Today)).len(),
+            1,
+            "frame {frame}: one separator read for today"
+        );
+    }
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {
