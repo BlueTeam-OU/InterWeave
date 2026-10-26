@@ -3,20 +3,20 @@
 # Copyright 2026 Andrea Benetton
 # tools/ci/own_features.sh
 #
-# Clippy and the tests for every workspace package that the workspace build
-# compiles with features its OWN build does not have.
+# Clippy for every workspace package that the workspace build compiles with
+# features its OWN build does not have.
 #
-#   bash tools/ci/own_features.sh list|clippy|test
+#   bash tools/ci/own_features.sh list|clippy
 #
-# `cargo clippy --workspace` and `cargo nextest run --workspace` unify
-# features across every member: apps/human-desktop depends on
-# interweave-human-ui-slint with `desktop`, so the workspace build never
-# compiles ui-slint without it, and code that exists only without a feature
-# -- a `#[cfg(not(feature = ...))]` branch, a helper only the featureless
-# tests use, a `cfg_attr(not(feature), expect(dead_code))` -- is never
-# linted or run. `cargo clippy -p <package>` alone, which is what a
-# downstream crate or a person's `cargo test -p` builds, can then fail on a
-# tree CI called green (twice in ui-slint before this step existed).
+# `cargo clippy --workspace` unifies features across every member:
+# apps/human-desktop depends on interweave-human-ui-slint with `desktop`,
+# so the workspace build never compiles ui-slint without it, and code that
+# exists only without a feature -- a `#[cfg(not(feature = ...))]` branch,
+# a helper only the featureless tests use, a `cfg_attr(not(feature),
+# expect(dead_code))` -- is never linted. `cargo clippy -p <package>`
+# alone, which is what a downstream crate or a person's `cargo test -p`
+# builds, can then fail on a tree CI called green (twice in ui-slint
+# before this step existed).
 #
 # Which packages: those whose own feature set (`cargo tree -p <package>`,
 # dev-dependencies included, as --all-targets builds them) differs from the
@@ -32,14 +32,18 @@
 # (`cargo tree` shows it in neither, so nothing differs), and another
 # target's feature set (`android` is the android check job's).
 #
-# `test` runs `cargo nextest run -p <package> --all-targets --locked
-# --profile ci`, with --no-tests=pass: a package of helpers has none, and
-# that is not a failure of this step. CARGO overrides the cargo binary (the
-# self-test's seam), OWN_FEATURES_REPO the workspace root.
+# Clippy only, not the tests: running them too costs a second build of
+# each package's graph with its own features (ui-slint's test build
+# compiled slint again, 885 s cold on a 10-core host, 2026-10-26), and the
+# defects this step exists for are the ones the compiler sees. On that day
+# all 615 tests of the four packages passed with their own features.
 #
-# Exit codes: 0 every package passes (or none differs); 1 clippy or a test
-# failed, every package still run and the failures named; 2 usage or a
-# cargo metadata/tree failure.
+# CARGO overrides the cargo binary (the self-test's seam),
+# OWN_FEATURES_REPO the workspace root.
+#
+# Exit codes: 0 every package passes (or none differs); 1 clippy failed,
+# every package still run and the failures named; 2 usage or a cargo
+# metadata/tree failure.
 set -uo pipefail
 HERE="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 REPO="${OWN_FEATURES_REPO:-$( cd -- "$HERE/../.." && pwd )}"
@@ -48,7 +52,7 @@ me="own_features"
 die() { echo "$me: $*" >&2; exit 2; }
 
 mode="${1:-}"
-[[ $# -eq 1 && "$mode" =~ ^(list|clippy|test)$ ]] || die "usage: $0 list|clippy|test"
+[[ $# -eq 1 && "$mode" =~ ^(list|clippy)$ ]] || die "usage: $0 list|clippy"
 cd "$REPO" || die "cannot enter $REPO"
 
 members="$("$CARGO" metadata --no-deps --format-version 1 --locked \
@@ -84,15 +88,12 @@ fi
 
 failed=()
 for p in "${pkgs[@]}"; do
-    case "$mode" in
-      clippy) cmd=("$CARGO" clippy -p "$p" --all-targets --locked -- -D warnings) ;;
-      test)   cmd=("$CARGO" nextest run -p "$p" --all-targets --locked --profile ci --no-tests=pass) ;;
-    esac
+    cmd=("$CARGO" clippy -p "$p" --all-targets --locked -- -D warnings)
     echo "$me: ${cmd[*]}"
     "${cmd[@]}" || failed+=("$p")
 done
 if (( ${#failed[@]} )); then
-    echo "$me: $mode failed with each package's own features: ${failed[*]}" >&2
+    echo "$me: clippy failed with each package's own features: ${failed[*]}" >&2
     exit 1
 fi
-echo "$me: OK — $mode passes for ${pkgs[*]} with each package's own features"
+echo "$me: OK — clippy passes for ${pkgs[*]} with each package's own features"

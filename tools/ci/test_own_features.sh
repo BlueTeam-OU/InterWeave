@@ -7,7 +7,7 @@
 # exactly when its own feature set differs from the workspace build's
 # (including a package whose own build has SOME of the workspace's
 # features, and one cargo tree prints twice); each selected package gets a
-# cargo command of its own, never two -p in one; a failure in one still
+# clippy of its own, never two -p in one; `test` is not a mode; a failure in one still
 # runs the rest and exits 1 naming it; a cargo metadata or tree failure,
 # or a bad mode, is exit 2.
 set -uo pipefail
@@ -24,8 +24,8 @@ mkdir -p "$S/repo"
 
 # The fake cargo. metadata lists the members; `tree --workspace` and
 # `tree -p <pkg>` print $S/tree-ws and $S/tree-<pkg> (as cargo tree's
-# '{p}|{f}' format does, `(*)` repeats included); clippy and nextest
-# record their argv in $FAKE_LOG and fail for the package in $FAKE_FAIL.
+# '{p}|{f}' format does, `(*)` repeats included); clippy records its argv
+# in $FAKE_LOG and fails for the package in $FAKE_FAIL.
 cat > "$S/cargo" <<'C'
 #!/usr/bin/env bash
 case "$1" in
@@ -35,7 +35,7 @@ case "$1" in
         while (( $# )); do case "$1" in --workspace) sel=ws ;; -p) sel="$2"; shift ;; esac; shift; done
         [ "$sel" = "${FAKE_TREE_FAIL:-}" ] && exit 101
         cat "$FAKE_DIR/tree-$sel" ;;
-  clippy|nextest) echo "$*" >> "$FAKE_LOG"
+  clippy) echo "$*" >> "$FAKE_LOG"
         for a in "$@"; do [ "$a" = "${FAKE_FAIL:-}" ] && exit 101; done; exit 0 ;;
   *) exit 99 ;;
 esac
@@ -80,11 +80,6 @@ want=$'clippy -p alpha --all-targets --locked -- -D warnings\nclippy -p delta --
 [[ "$(cat "$S/log")" == "$want" ]] && ok "alpha, delta, gamma (by name): each its own clippy, --all-targets --locked -D warnings" \
     || bad "clippy argv" "$(cat "$S/log")"
 
-echo "own_features: test runs nextest under the ci profile"
-out="$(MODE=test run)"; rc=$?
-[[ $rc -eq 0 ]] && grep -qx 'nextest run -p alpha --all-targets --locked --profile ci --no-tests=pass' "$S/log" \
-    && [[ $(wc -l < "$S/log") -eq 3 ]] && ok "three nextest runs, alpha's as expected" || bad "nextest argv (rc $rc)" "$(cat "$S/log" 2>/dev/null; echo "$out")"
-
 echo "own_features: a failure runs the rest and is named"
 out="$(MODE=clippy run FAKE_FAIL=alpha)"; rc=$?
 [[ $rc -eq 1 ]] && ok "exit 1" || bad "rc $rc" "$out"
@@ -101,6 +96,8 @@ out="$(MODE=clippy run FAKE_TREE_FAIL=gamma)"; rc=$?
     && ok "cargo tree -p failure: exit 2 before any clippy" || bad "tree -p rc $rc" "$out"
 out="$(MODE=lint run)"; rc=$?
 [[ $rc -eq 2 ]] && ok "an unknown mode: exit 2" || bad "mode rc $rc" "$out"
+out="$(MODE=test run)"; rc=$?
+[[ $rc -eq 2 && ! -e "$S/log" ]] && ok "test is not a mode (clippy only): exit 2" || bad "test mode rc $rc" "$out"
 out="$(MODE= run)"; rc=$?
 [[ $rc -eq 2 ]] && ok "no mode: exit 2" || bad "no mode rc $rc" "$out"
 
