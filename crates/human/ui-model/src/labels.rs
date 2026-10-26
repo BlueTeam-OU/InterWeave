@@ -1282,7 +1282,6 @@ ui_texts! {
     /// Show, in the code's place when the lines are more than one code
     /// holds (add-a-peer §5.4, §9): why there is no code, and what to do
     /// instead. Read after the warning; not a stop of its own.
-    // PLACEHOLDER (en)
     ShowTooManyForCode => "This device has more addresses than one code can hold. Choose Copy all addresses, then send them to the other person in another way, for example by email.",
     /// The code's accessible label, one address.
     QrLabelOne => "Code with 1 address. The same address is listed below as text.",
