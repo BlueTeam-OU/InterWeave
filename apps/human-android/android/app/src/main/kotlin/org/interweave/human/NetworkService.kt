@@ -168,69 +168,37 @@ class NetworkService : Service() {
     }
 
     /**
-     * Each network's addresses as it reports them, whether it is a local
-     * network, and its loss. Every call comes on the one network thread,
-     * so the maps need no lock.
+     * Each network's addresses and transports as it reports them, and its
+     * loss. What the transports mean is android-platform's to decide.
      */
     private class Networks : ConnectivityManager.NetworkCallback() {
-        /** Each network's last link, reported again when [local] moves. */
-        private val links = HashMap<Long, LinkProperties>()
-
-        /** Each network's last classification, from its capabilities. */
-        private val local = HashMap<Long, Boolean>()
-
         // The platform calls this after onAvailable, before the first
         // onLinkPropertiesChanged, and again whenever the capabilities
-        // change; the transport is what decides, and it is reported again
-        // only when the classification moves.
+        // change.
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-            val handle = network.networkHandle
-            val now = isLocal(capabilities)
-            if (local.put(handle, now) == now) return
-            links[handle]?.let { report(handle, it, now) }
+            Native.networkTransports(
+                network.networkHandle,
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+                // Named from API 35; no older phone has one.
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM &&
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_SATELLITE),
+            )
         }
 
         // The platform calls this right after the first
         // onCapabilitiesChanged, and on every change of the network's
         // addresses: the whole set each time.
         override fun onLinkPropertiesChanged(network: Network, link: LinkProperties) {
-            val handle = network.networkHandle
-            links[handle] = link
-            // Not yet classified counts as local (`Link`'s default): the
-            // rule holds back only what the platform says lies on no local
-            // network.
-            report(handle, link, local[handle] ?: true)
-        }
-
-        private fun report(handle: Long, link: LinkProperties, isLocal: Boolean) {
             Native.networkLink(
-                handle,
+                network.networkHandle,
                 wire(link.linkAddresses.map { it.address }),
                 wire(link.dnsServers),
                 // The platform names a host in strict mode; opportunistic
                 // mode has none.
                 if (link.isPrivateDnsActive) link.privateDnsServerName else null,
-                isLocal,
             )
         }
-
-        /**
-         * Whether a network is a local one (ADR-0052 rule 10, A 2026-10-26):
-         * a carrier's network is not -- cellular, and satellite where the
-         * SDK names it (API 35) -- since the carrier assigns a leaf address
-         * the person is not on; every other transport is, a VPN even over
-         * a carrier's network, since its peers reach its private address.
-         * A VPN reports its underlying transports beside its own, so VPN
-         * is asked first.
-         */
-        private fun isLocal(capabilities: NetworkCapabilities): Boolean =
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-                !(capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
-                    satellite(capabilities))
-
-        private fun satellite(capabilities: NetworkCapabilities): Boolean =
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM &&
-                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_SATELLITE)
 
         /** Each address its length, then its bytes (`addresses_from_wire`). */
         private fun wire(addresses: List<InetAddress>): ByteArray {
@@ -244,8 +212,6 @@ class NetworkService : Service() {
         }
 
         override fun onLost(network: Network) {
-            links.remove(network.networkHandle)
-            local.remove(network.networkHandle)
             Native.networkLost(network.networkHandle)
         }
     }
