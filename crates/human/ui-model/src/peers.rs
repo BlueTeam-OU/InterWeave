@@ -140,7 +140,8 @@ pub enum AddNote {
     /// Paste an image found no image on the clipboard.
     ClipboardNoImage,
     /// Paste an image could not read the clipboard at all, so what it
-    /// holds is not known: never "no image" nor an image unreadable.
+    /// holds is not known: never "no image" nor an image unreadable
+    /// (`a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit`).
     ClipboardUnreadable,
     /// The camera permission refused: type or paste instead.
     CameraDenied,

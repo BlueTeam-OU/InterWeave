@@ -9,9 +9,9 @@
 //! A file, and on Linux the clipboard's image, is held to
 //! [`crate::code`]'s bounds before it is decoded: its bytes, its sides and
 //! the decoder's allocation. The clipboard's image is read as its encoded
-//! bytes (`clipboard.rs`), never through the toolkit's clipboard crate,
+//! bytes (`clipboard.rs`), not through the toolkit's clipboard crate,
 //! which decodes an image whole under no bound of this client's (#409
-//! F1). Elsewhere a Paste press ends as a cancelled scan, and the desktop
+//! F1) and which this crate does not depend on. Elsewhere a Paste press ends as a cancelled scan, and the desktop
 //! does not offer the control.
 
 use std::io::Read as _;

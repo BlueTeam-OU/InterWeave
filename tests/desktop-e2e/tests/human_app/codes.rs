@@ -23,6 +23,15 @@
 //!   the trust set unchanged. The control: the list before holds none of
 //!   them. Open an image… is not driven: it is the XDG portal's dialog,
 //!   which this display has no backend for.
+//! - **A hostile clipboard owner is given up at the deadline.** An owner
+//!   that never answers says `ClipboardUnreadable`; one that announces an
+//!   image in incremental chunks and keeps sending bytes says
+//!   `ImageUnreadable`. Each within the client's five-second deadline and
+//!   a margin, the page still usable: the next paste is read. What this
+//!   does not prove: an owner that out-paces the client so its queue never
+//!   runs dry, which this display's scheduling does not produce; the
+//!   deadline's check before every queued event is `ui-slint`'s unit test
+//!   (`a_queue_that_never_runs_dry_is_given_up_at_the_deadline`).
 //! - **The shown code is this node's addresses and `PeerId` and nothing
 //!   else.** Show my address's code in the shipped window, read from the
 //!   window's pixels as a phone's camera reads a screen, decodes to
@@ -430,7 +439,10 @@ async fn a_code_image_pasted_in_the_window_adds_its_addresses_and_nothing_else()
         .await;
 
     // Text only: no image, said under the scan controls; nothing added.
-    let words = clipboard::Owner::hold("text/plain", lines.join("\n").into_bytes());
+    let words = clipboard::Owner::hold(
+        "text/plain",
+        clipboard::Holding::Whole(lines.join("\n").into_bytes()),
+    );
     window.activate(&paste, "click").await;
     window
         .until(
@@ -443,7 +455,10 @@ async fn a_code_image_pasted_in_the_window_adds_its_addresses_and_nothing_else()
     assert_eq!(addresses(&world.a).await, before, "text pastes no add");
 
     // The code's image: added at once, as one add.
-    let _image = clipboard::Owner::hold("image/png", code_png(&lines.join("\n")));
+    let _image = clipboard::Owner::hold(
+        "image/png",
+        clipboard::Holding::Whole(code_png(&lines.join("\n"))),
+    );
     window.activate(&paste, "click").await;
     let deadline = Instant::now() + PATIENCE;
     let after = loop {
@@ -466,5 +481,77 @@ async fn a_code_image_pasted_in_the_window_adds_its_addresses_and_nothing_else()
     }));
     assert_eq!(after, want, "its addresses and nothing else");
     assert_eq!(allowed(&world.a).await, trusted, "the trust set unchanged");
+    assert!(client.terminate().success(), "{}", client.log());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hostile_clipboard_owner_is_given_up_at_the_deadline() {
+    // The client's deadline is five seconds from the press. The margin is
+    // the window's render and the screen reader's read of the line, on a
+    // loaded host; an owner not given up runs to the byte bound, minutes
+    // at a byte a round trip, so the margin cannot hide that.
+    const IN_TIME: Duration = Duration::from_secs(25);
+    let _focus = display::exclusive().await;
+    let world = two_daemons().await;
+    let bus = Bus::connect().await;
+    let mut client = app::start(&world.a);
+    until_lease(&world.a.binding(), true, &client).await;
+    let window = bus.window_of(client.child.id(), || client.log()).await;
+    display::focus(client.child.id(), || client.log()).await;
+    let log = || client.log();
+    let press = |name: &'static str| move |e: &Element| e.name == name && e.actions == ["click"];
+    for (what, name) in [
+        ("the app's options", text(UiText::AppOptions)),
+        ("the app's Peers entry", text(UiText::PeersTitle)),
+        ("Add an address", text(UiText::AddAddress)),
+    ] {
+        let control = window.until(what, press(name), log).await;
+        window.activate(&control, "click").await;
+    }
+    let paste = window
+        .until("Paste an image", press(text(UiText::PasteCodeImage)), log)
+        .await;
+
+    for (holding, what, line) in [
+        (
+            clipboard::Holding::Silent,
+            "an owner that never answers",
+            text(UiText::ClipboardUnreadable),
+        ),
+        (
+            clipboard::Holding::Endless,
+            "an owner that keeps sending",
+            text(UiText::ImageUnreadable),
+        ),
+    ] {
+        let owner = clipboard::Owner::hold("image/png", holding);
+        let start = Instant::now();
+        window.activate(&paste, "click").await;
+        window.until(what, |e: &Element| e.name == line, log).await;
+        let took = start.elapsed();
+        assert!(took < IN_TIME, "{what}: given up after {took:?}");
+        drop(owner);
+    }
+
+    // The page is still usable: the next paste is read.
+    let lines = [format!(
+        "/ip4/10.0.0.9/tcp/4001/p2p/{}",
+        world.b_peer.as_str()
+    )];
+    let before = addresses(&world.a).await;
+    let _image = clipboard::Owner::hold(
+        "image/png",
+        clipboard::Holding::Whole(code_png(&lines.join("\n"))),
+    );
+    window.activate(&paste, "click").await;
+    let deadline = Instant::now() + PATIENCE;
+    while addresses(&world.a).await.len() <= before.len() {
+        assert!(
+            Instant::now() < deadline,
+            "the paste after the hostile owners was never added\n{}",
+            client.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     assert!(client.terminate().success(), "{}", client.log());
 }

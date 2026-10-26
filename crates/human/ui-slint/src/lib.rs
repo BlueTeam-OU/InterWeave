@@ -1148,8 +1148,10 @@ impl View {
     /// pasting the text does all a scan does. The images' reader is
     /// compiled only with the `desktop` feature; without it an image scan
     /// ends at once as a cancelled one. The clipboard's image is offered
-    /// apart, since only Linux reads it within bounds (`clipboard.rs`);
-    /// elsewhere a Paste press ends as a cancelled scan (#409 F1).
+    /// apart, since Linux alone reads it within bounds (`clipboard.rs`;
+    /// desktop-e2e `a_hostile_clipboard_owner_is_given_up_at_the_deadline`);
+    /// elsewhere a Paste press ends as a cancelled scan (#409 F1;
+    /// `a_paste_press_reads_no_clipboard_and_ends_cancelled`).
     pub fn offer_scans(&self, camera: bool, files: bool, clipboard: bool) {
         self.window.set_scan_camera(camera);
         self.window.set_scan_images(files);

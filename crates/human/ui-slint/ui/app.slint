@@ -2759,7 +2759,8 @@ export component AppWindow inherits Window {
     in property <bool> scan-camera;
     in property <bool> scan-images;
     // Paste an image, offered apart from the image file: only where the
-    // clipboard is read within the file's bounds (#409 F1).
+    // clipboard is read within the file's bounds (#409 F1; desktop-e2e
+    // a_hostile_clipboard_owner_is_given_up_at_the_deadline).
     in property <bool> scan-paste;
     // The camera's viewfinder (add-a-peer section 5.5), over everything
     // while a camera scan is open: the frames as they come, the square

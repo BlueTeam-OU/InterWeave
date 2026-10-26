@@ -45,7 +45,7 @@ pub(crate) enum Follow {
 /// A finished discard waits for the restart: a turn before the restart
 /// answers keeps the finished flow -- and with it the notice Chats shows
 /// next -- and only an answer counted past the discard's ends it (#377
-/// review F3). Then, as on any start (contact-cards spec section 7.3,
+/// review F3; `a_turn_before_the_restart_answers_keeps_the_finished_flow`). Then, as on any start (contact-cards spec section 7.3,
 /// Done), an opened store and a start refused elsewhere both leave for
 /// Chats with the notice, and a store refusal starts its screen over.
 /// Before a discard, a start refused elsewhere keeps the screen: nothing

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 //! The test display's clipboard, owned as another program owns it when
-//! the person copies something there: this module's own X client, which
+//! the person copies something there: this module's own X client. It
 //! answers a request for the list of what it holds and for the one type
-//! it holds, and nothing else. So a case needs no clipboard tool on the
-//! host, and the client reads what a desktop program would offer it.
+//! it holds, and nothing else -- or, as a hostile program would, never
+//! answers, or answers an image in incremental chunks and keeps sending
+//! them. So a case needs no clipboard tool on the host, and the
+//! client reads what a desktop program would offer it.
 //!
 //! The display has one clipboard: a case that owns it holds
 //! [`crate::display::exclusive`] for its run.
@@ -17,11 +19,24 @@ use std::time::Duration;
 use x11rb::connection::Connection as _;
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{
-    AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, SELECTION_NOTIFY_EVENT,
-    SelectionNotifyEvent, WindowClass,
+    Atom, AtomEnum, ChangeWindowAttributesAux, ConnectionExt as _, CreateWindowAux, EventMask,
+    PropMode, Property, SELECTION_NOTIFY_EVENT, SelectionNotifyEvent, SelectionRequestEvent,
+    WindowClass,
 };
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
+
+/// How the owner answers a request for what it holds.
+pub(crate) enum Holding {
+    /// `bytes` of the type, in one property.
+    Whole(Vec<u8>),
+    /// No request answered, not even for the list of what it holds: the
+    /// requester cannot learn whether there is an image.
+    Silent,
+    /// An image announced as incremental, then one byte after another,
+    /// never ending.
+    Endless,
+}
 
 /// The clipboard, owned until this is dropped.
 pub(crate) struct Owner {
@@ -30,10 +45,10 @@ pub(crate) struct Owner {
 }
 
 impl Owner {
-    /// Own the clipboard on `$DISPLAY`, holding `bytes` as `kind` (a MIME
-    /// type such as `image/png`); the ownership is the server's before
-    /// this returns. Kept small: answered in one property, not in chunks.
-    pub(crate) fn hold(kind: &str, bytes: Vec<u8>) -> Self {
+    /// Own the clipboard on `$DISPLAY`, offering `kind` (a MIME type such
+    /// as `image/png`) and answering as `holding` says; the ownership is
+    /// the server's before this returns.
+    pub(crate) fn hold(kind: &str, holding: Holding) -> Self {
         let (conn, screen) = RustConnection::connect(None).expect("the test display answers");
         let atom = |name: &[u8]| {
             conn.intern_atom(false, name)
@@ -43,8 +58,11 @@ impl Owner {
                 .atom
         };
         let clipboard = atom(b"CLIPBOARD");
-        let targets = atom(b"TARGETS");
-        let held = atom(kind.as_bytes());
+        let atoms = Atoms {
+            targets: atom(b"TARGETS"),
+            incr: atom(b"INCR"),
+            held: atom(kind.as_bytes()),
+        };
         let root = conn.setup().roots[screen].root;
         let window = conn.generate_id().expect("an id");
         conn.create_window(
@@ -81,38 +99,132 @@ impl Owner {
                     std::thread::sleep(Duration::from_millis(10));
                     continue;
                 };
-                let answered = if r.target == targets {
-                    conn.change_property32(
-                        PropMode::REPLACE,
-                        r.requestor,
-                        r.property,
-                        AtomEnum::ATOM,
-                        &[targets, held],
-                    )
-                    .is_ok()
-                } else if r.target == held {
-                    conn.change_property8(PropMode::REPLACE, r.requestor, r.property, held, &bytes)
-                        .is_ok()
-                } else {
-                    false
-                };
-                let notify = SelectionNotifyEvent {
-                    response_type: SELECTION_NOTIFY_EVENT,
-                    sequence: 0,
-                    time: r.time,
-                    requestor: r.requestor,
-                    selection: r.selection,
-                    target: r.target,
-                    property: if answered { r.property } else { x11rb::NONE },
-                };
-                let _ = conn.send_event(false, r.requestor, EventMask::NO_EVENT, notify);
-                let _ = conn.flush();
+                if matches!(holding, Holding::Silent) {
+                    continue;
+                }
+                if r.target == atoms.targets {
+                    let ok = conn
+                        .change_property32(
+                            PropMode::REPLACE,
+                            r.requestor,
+                            r.property,
+                            AtomEnum::ATOM,
+                            &[atoms.targets, atoms.held],
+                        )
+                        .is_ok();
+                    notify(&conn, &r, ok);
+                    continue;
+                }
+                if r.target != atoms.held {
+                    notify(&conn, &r, false);
+                    continue;
+                }
+                match &holding {
+                    Holding::Whole(bytes) => {
+                        let ok = conn
+                            .change_property8(
+                                PropMode::REPLACE,
+                                r.requestor,
+                                r.property,
+                                atoms.held,
+                                bytes,
+                            )
+                            .is_ok();
+                        notify(&conn, &r, ok);
+                    }
+                    Holding::Silent => unreachable!("answered nothing above"),
+                    Holding::Endless => endless(&conn, &atoms, &r, &stopped),
+                }
             }
         });
         Self {
             stop,
             thread: Some(thread),
         }
+    }
+}
+
+struct Atoms {
+    targets: Atom,
+    incr: Atom,
+    held: Atom,
+}
+
+/// Tell the requester its request is answered, or refused.
+fn notify(conn: &RustConnection, r: &SelectionRequestEvent, answered: bool) {
+    let event = SelectionNotifyEvent {
+        response_type: SELECTION_NOTIFY_EVENT,
+        sequence: 0,
+        time: r.time,
+        requestor: r.requestor,
+        selection: r.selection,
+        target: r.target,
+        property: if answered { r.property } else { x11rb::NONE },
+    };
+    let _ = conn.send_event(false, r.requestor, EventMask::NO_EVENT, event);
+    let _ = conn.flush();
+}
+
+/// The incremental transfer, never ended: announced, then once the
+/// requester has taken the announcement, a byte appended after another,
+/// so that the requester always has another to take, until the case
+/// stops it.
+fn endless(conn: &RustConnection, atoms: &Atoms, r: &SelectionRequestEvent, stop: &AtomicBool) {
+    let watched = conn.change_window_attributes(
+        r.requestor,
+        &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+    );
+    let announced = conn.change_property32(
+        PropMode::REPLACE,
+        r.requestor,
+        r.property,
+        atoms.incr,
+        &[1_000_000],
+    );
+    if watched.is_err() || announced.is_err() {
+        return;
+    }
+    notify(conn, r, true);
+    // The transfer starts when the requester deletes the announcement.
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return;
+        }
+        match conn.poll_for_event() {
+            Ok(Some(Event::PropertyNotify(e)))
+                if e.window == r.requestor
+                    && e.atom == r.property
+                    && e.state == Property::DELETE =>
+            {
+                break;
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => std::thread::sleep(Duration::from_millis(1)),
+            Err(_) => return,
+        }
+    }
+    // One append a request, each sent at once. Whether the requester finds
+    // a byte at every read is the server's scheduling: measured on Xvfb,
+    // it drains the property within a few bytes and ends there, so this
+    // proves the transfer ends in time, not the deadline's check against
+    // a queue that never runs dry (`next_before`'s unit test holds that).
+    while !stop.load(Ordering::Relaxed) {
+        if conn
+            .change_property8(
+                PropMode::APPEND,
+                r.requestor,
+                r.property,
+                atoms.held,
+                &[0x89],
+            )
+            .is_err()
+            || conn.flush().is_err()
+        {
+            return;
+        }
+        // Drain what the server sends back, so this client's own queue
+        // does not grow while the requester's does.
+        while let Ok(Some(_)) = conn.poll_for_event() {}
     }
 }
 
