@@ -28,9 +28,18 @@
 # Each package is its own cargo invocation: two `-p` in one command unify
 # their features again.
 #
-# Not covered here: a feature that no build turns on, own or workspace
-# (`cargo tree` shows it in neither, so nothing differs), and another
-# target's feature set (`android` is the android check job's).
+# Not covered here:
+#   - a feature that no build turns on, own or workspace (`cargo tree`
+#     shows it in neither, so nothing differs);
+#   - a package whose own features are the workspace's but which uses a
+#     DEPENDENCY's feature that only another member turns on: its own
+#     build lacks the feature and fails, and it is not selected, since
+#     only members' sets are compared. Comparing every package of a
+#     member's graph instead selects 56 of the 57 members (2026-10-26:
+#     shared dependencies are unified as well), a second workspace
+#     clippy;
+#   - another target's feature set (`android` is the android check
+#     job's, a `cargo check` without clippy).
 #
 # Clippy only, not the tests: running them too costs a second build of
 # each package's graph with its own features (ui-slint's test build
