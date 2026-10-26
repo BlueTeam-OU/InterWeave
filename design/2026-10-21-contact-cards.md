@@ -1714,7 +1714,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    |---|---|---|
    | Your identities / Your card / Contacts opened from the menu, or Your identities from the switcher | the page title (focusable heading) | keyboard |
    | Trust opened from the menu | its title (look spec §5) | keyboard |
-   | a conversation opened by Close without saving in the card editor's unsaved-changes dialog: a row picked in the list, or a notification of the identity in front (§5.2) | the conversation's header title, never the composer (the reason message-swipe §7 gives); a conversation opened any other way is outside this spec | keyboard: on a wide window, with a name changed in the card editor, pick a conversation row, then Close without saving: focus on the header title, the on-screen keyboard closed; with a name changed, open a notification of the identity in front by keyboard, then Close without saving: the same |
+   | a conversation opened by Close without saving in the card editor's unsaved-changes dialog: a row picked in the list, or a notification of the identity in front (§5.2) | the conversation's header title, never the composer (the reason message-swipe §7 gives); a conversation opened any other way is outside this spec (§11) | keyboard: on a wide window, with a name changed in the card editor, pick a conversation row, then Close without saving: focus on the header title, the on-screen keyboard closed; with a name changed, open a notification of the identity in front by keyboard, then Close without saving: the same |
    | a card saved | the identity's row in the list, else the control that opened the page (the sheet's Edit your card or Add your name) | keyboard |
    | a card's Save with an invalid field | the first invalid field | keyboard |
    | the editor's Photo Picker or file dialog closes, a picture chosen or cancelled (§5.2) | the button that opened it (Add a photo, or Change photo) | keyboard on desktop: open the file dialog from Add a photo, cancel it, focus on Add a photo; choose a picture, focus on the same button. Keyboard on Android: open the Photo Picker from Add a photo, press Back (`adb shell input keyevent KEYCODE_BACK`), focus on Add a photo; choose a picture, focus on the same button |
@@ -2266,6 +2266,11 @@ Existing keys reused unchanged: `AppOptions` (look spec §9; the Chats
   raise with a platform constraint.
 - **An inline reply from a notification**: not specified; if it comes,
   its field names the identity it replies as (§5.7.5).
+- **Focus when a conversation opens** from the list, or by a
+  notification of the identity in front, outside the card editor's
+  unsaved-changes dialog: not specified here (item 1's table specifies
+  it only after Close without saving); it belongs to the conversation's
+  own design.
 - **Starting a conversation with a PeerId no contact or conversation
   holds**: plan §18 carry 11's own flow, not designed here. A contact
   starts from a conversation and may outlive it; for its routes, §6.3's
