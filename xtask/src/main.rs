@@ -314,6 +314,7 @@ fn clippy_task() -> Task {
             "clippy",
             "--workspace",
             "--all-targets",
+            "--locked",
             "--",
             "-D",
             "warnings",
@@ -656,5 +657,27 @@ mod tests {
         let args = clippy_task().args;
         let denied = args.windows(2).any(|w| w == ["-D", "warnings"]);
         assert!(denied, "clippy is not run with -D warnings: {args:?}");
+    }
+
+    /// The local clippy is CI's `Clippy` step, arguments and all, read from
+    /// the workflow: without `--locked` a stale lockfile is rewritten and
+    /// linted locally where CI refuses it.
+    #[test]
+    fn the_clippy_task_is_ci_s_clippy_step() {
+        let root = repo_root().expect("the xtask package has a parent directory");
+        let workflow =
+            fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("ci.yml is readable");
+        let step = workflow
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("run: cargo clippy "))
+            .expect("CI runs cargo clippy");
+        let ci: Vec<&str> = std::iter::once("clippy")
+            .chain(step.split_whitespace())
+            .collect();
+        assert_eq!(
+            clippy_task().args,
+            ci,
+            "xtask's clippy arguments are not CI's"
+        );
     }
 }
