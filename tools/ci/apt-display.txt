@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# The rust job's display, session bus and AT-SPI (ci.yml), installed by
+# tools/ci/apt_install.sh. The packages, not this file's text, key the
+# job's .deb cache: a comment or a reordering keeps it.
+xvfb
+dbus-daemon
+libglib2.0-bin
+at-spi2-core
+libx11-6
+libx11-xcb1
+libxcursor1
+libxi6
+libxrandr2
+libxkbcommon0
+libxkbcommon-x11-0
+libfontconfig1
+fonts-dejavu-core

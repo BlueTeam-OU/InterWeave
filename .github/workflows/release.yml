@@ -393,9 +393,16 @@ jobs:
       # there; the archive script reads the commit time with git. jammy's
       # python3 is 3.10 and the release scripts read TOML with tomllib, so
       # its python3.11 is python3. No -dev headers: fontconfig and the
-      # display libraries are loaded at run time, not linked.
+      # display libraries are loaded at run time, not linked. apt's
+      # retries and timeouts are `tools/ci/apt_install.sh conf`'s lines,
+      # written into the job's own container since the script is not
+      # checked out yet (test_apt_install.sh fails when they differ); no
+      # .deb cache, since a tag's run restores only what main saved and
+      # nothing on main installs this image's packages.
       - name: The build image's packages, and its glibc is the floor
         run: |
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
+            > /etc/apt/apt.conf.d/80-ci-retries
           apt-get update -q
           DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
             build-essential ca-certificates curl git python3.11
