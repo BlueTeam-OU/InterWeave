@@ -788,6 +788,7 @@ impl View {
         let fits = self.peer_lists.show_drawn.as_ref().is_some_and(|(_, f)| *f);
         window.set_show_code_shown(true);
         window.set_show_code_drawn(fits);
+        window.set_show_too_many(text(UiText::ShowTooManyForCode).into());
         let label = if lines.len() == 1 {
             text(UiText::QrLabelOne).to_owned()
         } else {

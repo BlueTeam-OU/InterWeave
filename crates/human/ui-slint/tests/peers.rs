@@ -2448,6 +2448,7 @@ fn show_draws_a_code_that_reads_back_as_its_lines() {
     let w = view.window();
     assert!(w.get_show_code_shown());
     assert!(w.get_show_code_drawn());
+    assert!(labelled(&view, text(UiText::ShowTooManyForCode)).is_empty());
     let label = text(UiText::QrLabelOther).replace("{n}", "2");
     assert_eq!(
         labelled(&view, &label).len(),
@@ -2481,8 +2482,9 @@ fn show_draws_a_code_that_reads_back_as_its_lines() {
 }
 
 /// Sixteen lines past what any code holds (version 40-L, 2953 bytes) draw
-/// no image and announce no code, while the lines and the `PeerId` still
-/// show (#409 r3 F2).
+/// no image and announce no code, `ShowTooManyForCode` standing in its
+/// place, while the lines and the `PeerId` still show (#409 r3 F2;
+/// add-a-peer §5.4).
 #[test]
 fn show_announces_no_code_for_lines_no_code_holds() {
     use interweave_human_client_api::ShowAddresses;
@@ -2515,6 +2517,11 @@ fn show_announces_no_code_for_lines_no_code_holds() {
     assert!(!w.get_show_code_drawn(), "no code is drawn");
     let label = text(UiText::QrLabelOther).replace("{n}", "16");
     assert!(labelled(&view, &label).is_empty(), "no code is announced");
+    assert_eq!(
+        labelled(&view, text(UiText::ShowTooManyForCode)).len(),
+        1,
+        "why there is no code, in its place"
+    );
     assert_eq!(w.get_show_lines().as_str(), lines.join("\n"));
     assert_eq!(w.get_show_peer().as_str(), me.as_str());
 }

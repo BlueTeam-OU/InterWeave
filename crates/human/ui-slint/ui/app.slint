@@ -2731,6 +2731,8 @@ export component AppWindow inherits Window {
     // False when the lines are more than any code holds: then no image,
     // and nothing announced as a code, while the lines still show.
     in property <bool> show-code-drawn;
+    // Said in the code's place when no code is drawn (add-a-peer 5.4).
+    in property <string> show-too-many;
     in property <image> show-code;
     in property <string> show-code-label;
     in property <string> show-lines;
@@ -4113,6 +4115,17 @@ export component AppWindow inherits Window {
                             accessible-role: image;
                             accessible-label: root.show-code-label;
                         }
+                    }
+                    // No code holds the lines: why, and what to do instead, in
+                    // the code's place; read after the warning, no stop.
+                    if root.peers-show-open && root.show-code-shown && !root.show-code-drawn: Text {
+                        text: root.show-too-many;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        min-width: 0;
+                        accessible-role: text;
+                        accessible-label: self.text;
                     }
                     // The same lines as text, selectable, in the code font,
                     // broken at any character, never cut.
