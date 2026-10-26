@@ -411,13 +411,17 @@ pub struct NetworkView {
     /// setting refuses (architect-cto's ruling, `GZCoord` 01a13bb7).
     pub private_dns: Option<String>,
     /// The members of `addresses` the platform classifies as lying on NO
-    /// LOCAL NETWORK: on Android every address of a cellular network
+    /// LOCAL NETWORK: on Android every address of a carrier's network,
+    /// cellular or satellite, that no local network also has
     /// (`CONNECTIVITY.md` §14, A 2026-10-26; ADR-0052 rule 10). The
     /// classification of an address and nothing else: never the
-    /// transport, a network id or a carrier fact. Empty -- the default,
-    /// and the desktop, which has no view -- classifies nothing, and
-    /// every private listener counts as local, as before the rule. An
-    /// entry absent from `addresses` names nothing.
+    /// transport, a network id or a carrier fact. The runtime acts on
+    /// its private-range members alone: not advertised by Identify, not
+    /// offered to DCUtR, not shown, no own private listener for rule 3
+    /// (`NetworkSet::offers`); a global one is AutoNAT's. Empty -- the
+    /// default, and the desktop, which has no view -- classifies
+    /// nothing, and every private listener counts as local, as before
+    /// the rule. An entry absent from `addresses` names nothing.
     pub off_local_network: Vec<std::net::IpAddr>,
 }
 
