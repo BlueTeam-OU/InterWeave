@@ -2401,8 +2401,14 @@ async fn a_listener_on_an_ip_the_view_removed_is_not_offered() {
 /// CONNECT carried no address. The subject listens on this host's private
 /// address, which it offers to the crate; then the platform's view
 /// removes `departs`, if any, before the circuit is dialled -- the
-/// listener's own IP, or another the first view named.
-async fn connect_outcome(ip: Ipv4Addr, departs: Option<Ipv4Addr>) -> Result<(), String> {
+/// listener's own IP, or another the first view named -- and the view
+/// that removes it classifies `off_local` as on no local network
+/// (ADR-0052 rule 10).
+async fn connect_outcome(
+    ip: Ipv4Addr,
+    departs: Option<Ipv4Addr>,
+    off_local: &[Ipv4Addr],
+) -> Result<(), String> {
     let Reserved {
         mut relay,
         relay_peer,
@@ -2438,13 +2444,16 @@ async fn connect_outcome(ip: Ipv4Addr, departs: Option<Ipv4Addr>) -> Result<(), 
         let named = [ip, OTHER_IP];
         subject.network_changed(NetworkView::new(named.iter().map(|&a| a.into()).collect()));
         until_network_changed(&mut subject).await;
-        subject.network_changed(NetworkView::new(
-            named
-                .iter()
-                .filter(|&&a| a != gone)
-                .map(|&a| a.into())
-                .collect(),
-        ));
+        subject.network_changed(
+            NetworkView::new(
+                named
+                    .iter()
+                    .filter(|&&a| a != gone)
+                    .map(|&a| a.into())
+                    .collect(),
+            )
+            .with_off_local_network(off_local.iter().map(|&a| a.into()).collect()),
+        );
         until_network_changed(&mut subject).await;
         drain(&mut subject, Duration::from_secs(2)).await;
     }
@@ -2500,15 +2509,38 @@ const OTHER_IP: Ipv4Addr = Ipv4Addr::new(10, 255, 0, 3);
 #[tokio::test]
 async fn a_departed_address_is_not_sent_in_a_later_connect() {
     let ip = interweave_test_support::net::require_private_interface_v4();
-    connect_outcome(ip, None)
+    connect_outcome(ip, None, &[])
         .await
         .expect("the control: the held private candidate is sent and the punch lands");
-    connect_outcome(ip, Some(OTHER_IP))
+    connect_outcome(ip, Some(OTHER_IP), &[])
         .await
         .expect("after another IP left, the held candidate reaches the rebuilt crate");
-    let detail = connect_outcome(ip, Some(ip))
+    let detail = connect_outcome(ip, Some(ip), &[])
         .await
         .expect_err("the departed candidate is not sent, so nothing can be punched");
+    assert_eq!(
+        detail, "Failed to hole-punch connection: Inbound stream error: Protocol error",
+        "the subject's CONNECT carried no address"
+    );
+}
+
+/// ADR-0052 rule 10 at the CONNECT: a private listener offered to the
+/// crate before the platform classified its address as on no local
+/// network -- Android's start, where the wildcard listener reports the
+/// carrier's address before the first view -- is not sent once the view
+/// classifies it, though it stays bound and held. The crate is built
+/// again, since nothing else empties its cache. THE CONTROL is the same
+/// two views with nothing classified: the held candidate is sent and the
+/// punch lands.
+#[tokio::test]
+async fn a_private_address_on_no_local_network_is_not_sent_in_a_connect() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    connect_outcome(ip, Some(OTHER_IP), &[])
+        .await
+        .expect("the control: unclassified, the private candidate is sent");
+    let detail = connect_outcome(ip, Some(OTHER_IP), &[ip])
+        .await
+        .expect_err("classified, the candidate is not sent, so nothing can be punched");
     assert_eq!(
         detail, "Failed to hole-punch connection: Inbound stream error: Protocol error",
         "the subject's CONNECT carried no address"
