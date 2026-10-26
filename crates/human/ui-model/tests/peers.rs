@@ -4843,6 +4843,23 @@ fn an_image_scan_that_adds_nothing_returns_to_its_control() {
     assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::Camera)));
 }
 
+/// A scan press while a scan is open changes nothing: the dialog's
+/// result, its line and focus stay with the control that opened it, and
+/// no line of the open scan is cleared (§5.5, §8; #409 r3 F4).
+#[test]
+fn a_scan_press_while_a_scan_is_open_changes_nothing() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::OpenImage));
+    assert!(m.peers().scan_open());
+    assert!(input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage)).is_empty());
+    assert!(m.peers().scan_open(), "the open scan is still the one");
+    assert!(input(&mut m, PeersInput::ImageNoCode).is_empty());
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::ImageNoCode));
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::OpenImage)));
+}
+
 /// A scanned add on its way waits with focus on Add, which reads as
 /// waiting (§5.3, §8).
 #[test]

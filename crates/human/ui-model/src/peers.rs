@@ -1243,6 +1243,13 @@ impl Peers {
         let Some(page) = self.page.as_mut() else {
             return;
         };
+        // A press while a scan is open starts no reader, so it changes
+        // nothing: the open scan's result and focus stay with the control
+        // that started it (§5.5, §8; #409 r3 F4). The desktop's file
+        // dialog leaves the window live, so Paste can be pressed under it.
+        if page.scanning {
+            return;
+        }
         page.scan_from = Some(control);
         // A scan's own line goes at the next scan press (§5.5).
         if page.note.as_ref().is_some_and(AddNote::is_scan_line) {
