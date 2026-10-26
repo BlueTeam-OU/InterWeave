@@ -1032,6 +1032,49 @@ fn a_card_before_a_leaving_row_leaves_its_hand_over_alone() {
     );
 }
 
+/// Two rows leave together with a card between them: it moved up past
+/// the first, not the second, which keeps handing its day's separator over,
+/// and the message after them draws none meanwhile. Mutation: the hand-over
+/// taken from every leaving row once a card passed the first.
+#[test]
+fn a_card_between_two_leaving_rows_takes_no_hand_over_from_the_later() {
+    let mut model = UiModel::new();
+    model.received(message(10, "yesterday's first", NOW - DAY - 10 * MINUTE));
+    model.received(message(11, "yesterday's hidden", NOW - DAY - 5 * MINUTE));
+    model.received(message(12, "today's hidden", NOW - 3 * MINUTE));
+    model.received(message(13, "the message after", NOW));
+    for n in [10, 11, 12, 13] {
+        model.read(row(n));
+    }
+    model.card_received(Proposal {
+        received_at: NOW - DAY,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    let mut view = conversation(&mut model);
+    let keys: Vec<_> = model.messages(&direct(P)).iter().map(|m| m.key).collect();
+    model.hide(keys[1]);
+    model.hide(keys[2]);
+    view.render(&model);
+    let rows = view.window().get_messages();
+    let today = text(UiText::Today);
+    let drawn: Vec<(bool, bool, String)> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .map(|r| (r.leaving, r.hand_over, r.day.to_string()))
+        .collect();
+    assert!(
+        drawn
+            .iter()
+            .any(|(leaving, hand_over, day)| *leaving && *hand_over && day == today),
+        "the later leaving row still hands today over: {drawn:?}"
+    );
+    assert!(
+        drawn
+            .iter()
+            .all(|(leaving, _, day)| *leaving || day != today),
+        "no kept row draws today of its own meanwhile: {drawn:?}"
+    );
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {

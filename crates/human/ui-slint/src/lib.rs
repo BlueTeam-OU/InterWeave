@@ -2417,27 +2417,31 @@ impl View {
                     rows[before].cards_after += i32::try_from(next - first).unwrap_or(i32::MAX);
                 }
                 // Only leaving rows stand between the kept row and this
-                // one. Cards that arrived after one of them moved up past
-                // it and head its day now, so none of them hands its
-                // separator over and this message is judged against the
-                // last card
-                // (`a_card_that_moves_up_takes_its_days_separator_from_a_leaving_row`).
-                // Cards that came before them all moved past nothing: the
-                // leaving rows' hand-over and this message's placement
-                // stand (`a_card_before_a_leaving_row_leaves_its_hand_over_alone`).
+                // one. A card that arrived after one of them moved up past
+                // it: that row gives its separator's hand-over up, the card
+                // heading the day now
+                // (`a_card_that_moves_up_takes_its_days_separator_from_a_leaving_row`);
+                // a row the cards never passed keeps it
+                // (`a_card_before_a_leaving_row_leaves_its_hand_over_alone`,
+                // `a_card_between_two_leaving_rows_takes_no_hand_over_from_the_later`).
+                // This message is judged against the last card only when
+                // that card arrived after every leaving row, so stands
+                // right above it.
+                let last_card = cards[next - 1];
+                let left_at = |key: &ItemKey| self.shown_items.get(key).map(|left| left.local_at);
                 let start = kept.map_or(0, |k| k + 1);
-                let moved_past = keys[start..i].first().is_none_or(|first_leaving| {
-                    self.shown_items
-                        .get(first_leaving)
-                        .is_none_or(|left| cards[next - 1] >= left.local_at)
-                });
-                if !moved_past {
+                for (row, key) in rows[start..i].iter_mut().zip(&keys[start..i]) {
+                    if left_at(key).is_none_or(|at| last_card >= at) {
+                        row.hand_over = false;
+                    }
+                }
+                let next_to_it = keys[start..i]
+                    .last()
+                    .is_none_or(|key| left_at(key).is_none_or(|at| last_card >= at));
+                if !next_to_it {
                     times.push((rows[i].handle, item.local_at));
                     kept = Some(i);
                     continue;
-                }
-                for row in &mut rows[start..i] {
-                    row.hand_over = false;
                 }
                 let card_day = self.clock.local(cards[next - 1]).day;
                 let day = self.clock.local(item.local_at).day;
