@@ -2266,14 +2266,16 @@ Existing keys reused unchanged: `AppOptions` (look spec §9; the Chats
   raise with a platform constraint.
 - **An inline reply from a notification**: not specified; if it comes,
   its field names the identity it replies as (§5.7.5).
-- **Focus when a conversation opens** any way other than those item
-  1's table names (Close without saving in the card editor's
-  unsaved-changes dialog, a notification of another identity, the
-  share sheet closing on an empty conversation's offer): from the list,
-  by a notification of the identity in front, or by §6.3's Open
-  conversation on a contact's route row. Not specified here; it belongs
-  to the conversation's own design, and §6.3's Open conversation
-  follows whatever that design says for a conversation opened.
+- **Focus when a conversation opens in another way.** Item 1's table
+  names where focus goes when a conversation opens by Close without
+  saving in the card editor's unsaved-changes dialog, by a notification
+  of another identity, or by the share sheet closing on an empty
+  conversation's offer. The other ways a conversation opens are: from
+  the list, by a notification of the identity in front, and by §6.3's
+  Open conversation on a contact's route row. Where focus goes for
+  these three ways is not specified here. It belongs to the conversation's own
+  design, and §6.3's Open conversation follows whatever that design
+  says for an opened conversation.
 - **Starting a conversation with a PeerId no contact or conversation
   holds**: plan §18 carry 11's own flow, not designed here. A contact
   starts from a conversation and may outlive it; for its routes, §6.3's
