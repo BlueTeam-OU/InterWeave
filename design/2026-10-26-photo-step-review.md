@@ -83,9 +83,8 @@ Also seen, against §5.2 field 1 outside the photo step:
 - **One item in the picker.** Nothing in what was seen shows whether
   the picker would take a second item; each run tapped one.
 - **Remove photo of a saved photo, then Back.** This could be tried
-  once picture 1 was saved, but it was not walked: §5.2 says Back then opens
-  `CardDiscardChanges` and Close without saving keeps the saved photo,
-  with no snackbar (§9 item 11). Nor was it captured whether a
+  once picture 1 was saved, but it was not walked in this run; it was
+  walked on the fix build (§5). Neither run captured whether a
   snackbar showed after Remove photo and Save.
 - **The prepared bytes.** The run saw that each picture was accepted
   and how it looked, not the quality, size or bytes it was prepared
@@ -119,6 +118,44 @@ framed as a colour change; rust-ui-dev-02 accepted all three (REPLY
 each with a test that fails before its fix. The first was found in
 this record's review, and the fourth was restated there against field
 1 and §5.1; both findings were sent in OBSERVATION 01a17660, and
-rust-ui-dev-02 accepted both on the same branch (REPLY 01a17665). The
-steps above will be walked again on the
-build that has the fixes.
+rust-ui-dev-02 accepted both on the same branch (REPLY 01a17665). They
+were walked again on the build that has the fixes (§5), and all four
+are closed there.
+
+## 5. The walk again on the fix build
+
+- **Build:** main d1367025 (#458's merge, which holds the four fixes).
+  Debug APK built by rust-ui-dev-01 with their debug key, sha256
+  beginning `f1d91e04`; signer certificate SHA-256 beginning
+  `18f39ab0`, the same as the installed app's, so `adb install -r`
+  kept the app's data. Installed by ux-designer through `phone-run`,
+  2026-10-27 00:34 phone time.
+- **Device and method:** as in §1. The phone had moved to another
+  address on the LAN, which the owner gave. The same five images were
+  pushed and picked by their entry in the picker's accessibility tree;
+  no capture of the picker was kept. The card had no photo when the
+  run began. Afterwards the images and their media-store entries were
+  removed (none left), the card was saved back to no photo, and Do
+  Not Disturb was set back to off.
+
+| step | seen | 5.2 says | result |
+|---|---|---|---|
+| Your card opened from the app options, no photo | the initials circle teal, Add a photo under it | field 1: Add a photo under the circle | pass |
+| picture 1 prepared | the arrow points up; Change photo, then Remove photo, stacked **under** the circle | field 1: under the circle, Change photo and Remove photo | **pass: finding 1 closed** |
+| Save | Conversations, where Your card was opened from; no "Select a conversation" page | the page closes back to where it was opened from | **pass: finding 2 closed** |
+| Your card reopened, picture 5 by Change photo | "This photo cannot be used. Choose another one." under the circle, after Remove photo and before Name; picture 1 still shown | `PhotoUnusable` shows under the circle; the card stays as it was | **pass: finding 3 closed.** The line now stands in the column under the circle, below the buttons. Field 1's place is "under the circle", and 5.2 asks only that the line be read after the circle, so below the buttons meets it |
+| Remove photo of the saved photo, with the `PeerId` line shown | the initials circle **teal**; Add a photo replaces both buttons; the unusable line gone; no snackbar | the initials on the identity's hue, the hue of its EndpointId (§5.1) | **pass: finding 4 closed.** The EndpointId is `human`, whose bytes sum to 537, teal; the `PeerId` shown sums to 1 modulo 3, amber, which the old build drew. Teal with the `PeerId` known is the EndpointId's hue |
+| then Back | `CardDiscardChanges`, Close without saving (text) above Continue editing (filled) | Back with unsaved changes asks with `CardDiscardChanges` | pass |
+| Close without saving | Conversations, no snackbar | the changes dropped, with no snackbar (§9 item 11) | pass |
+| Your card reopened | picture 1 shown, Change photo and Remove photo under it | Close without saving keeps the saved photo | pass: the item §3 named as not walked |
+| Back, with no change | Conversations, no dialog | leaving with no unsaved change asks nothing | pass |
+
+Also seen: with the buttons under the circle, the rows below them
+move down when Remove photo joins Change photo, and again while the
+unusable line shows. The button that has focus, Add a photo or
+Change photo, does not move. 5.2 says nothing about this, so it is
+not a finding against the build.
+
+What §3 lists as not shown is still not shown, other than the walk
+of Remove photo of a saved photo, then Back: focus and announcements
+are blocked here for the same reason, and TalkBack needs a person.
