@@ -95,7 +95,7 @@ export struct ProposalRow {
     notes: [ProposalNoteRow],
     // It goes when InterWeave stops unless accepted.
     goes: string,
-    // When it came: the row is drawn after the messages, not at its time.
+    // When it came.
     received: string,
     // The card changes nothing (case S): Close alone, in Accept's place.
     closes: bool,
@@ -5739,7 +5739,6 @@ export component AppWindow inherits Window {
                         proposal-copy.clear-selection();
                     }
                     focused(k) => { root.focus-id = k; }
-                
                 }
             }
             for row[index] in root.messages: row-box := Rectangle {
@@ -6243,15 +6242,11 @@ export component AppWindow inherits Window {
                                 proposal-copy.clear-selection();
                             }
                             focused(k) => { root.focus-id = k; }
-                        
                         }
                     }
                 }
             }
             }
-            // The conversation's card proposals, after its messages: each a
-            // row of its own (design section 5.4).
-
             }
             }
             }
