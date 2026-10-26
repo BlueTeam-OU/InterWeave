@@ -7,6 +7,7 @@
 //! platform.
 
 use crate::model::ConversationKey;
+use interweave_transport_api::EndpointId;
 
 /// Which colour pair an avatar takes (section 5.1). The values are the
 /// view's; this names the pick.
@@ -18,6 +19,28 @@ pub enum AvatarHue {
     Amber,
     /// The navy pair, and every channel's.
     Navy,
+}
+
+impl AvatarHue {
+    /// The pair an id's canonical text picks: the sum of its UTF-8 bytes
+    /// modulo 3, in section 5.1's order -- teal, amber, navy.
+    fn of_text(id: &str) -> Self {
+        let sum: u64 = id.bytes().map(u64::from).sum();
+        match sum % 3 {
+            0 => Self::Teal,
+            1 => Self::Amber,
+            _ => Self::Navy,
+        }
+    }
+
+    /// The hue of one of this device's identities: its `EndpointId`'s,
+    /// by the same rule, so two identities of one `PeerId` do not look
+    /// alike, and the hue is known before the `PeerId` is (contact-cards
+    /// design 5.1 and 5.2 field 1).
+    #[must_use]
+    pub fn of_identity(endpoint: &EndpointId) -> Self {
+        Self::of_text(endpoint.as_str())
+    }
 }
 
 /// A conversation's avatar: decoration beside the name, never a trust
@@ -51,13 +74,10 @@ impl Avatar {
                 let id = peer.as_str();
                 let chars: Vec<char> = id.chars().collect();
                 let letters = chars[chars.len().saturating_sub(2)..].iter().collect();
-                let sum: u64 = id.bytes().map(u64::from).sum();
-                let hue = match sum % 3 {
-                    0 => AvatarHue::Teal,
-                    1 => AvatarHue::Amber,
-                    _ => AvatarHue::Navy,
-                };
-                Self { letters, hue }
+                Self {
+                    letters,
+                    hue: AvatarHue::of_text(id),
+                }
             }
         }
     }
@@ -192,7 +212,21 @@ fn civil(day: i64) -> (i32, u8, u8) {
 
 #[cfg(test)]
 mod tests {
-    use super::civil;
+    use super::{AvatarHue, civil};
+    use interweave_transport_api::EndpointId;
+
+    /// Contact-cards design 5.1: an identity's hue is its `EndpointId`'s,
+    /// by section 5.1's rule over the id's text -- so "human" (bytes
+    /// summing to 537), "work" (451) and "home" (425) take the three
+    /// pairs in order, whatever `PeerId` holds them. Mutation: the hue
+    /// taken from anything but the `EndpointId`'s text.
+    #[test]
+    fn an_identitys_hue_is_its_endpoint_ids() {
+        let of = |id: &str| AvatarHue::of_identity(&EndpointId::parse(id).expect("an endpoint"));
+        assert_eq!(of("human"), AvatarHue::Teal);
+        assert_eq!(of("work"), AvatarHue::Amber);
+        assert_eq!(of("home"), AvatarHue::Navy);
+    }
 
     #[test]
     fn civil_dates_around_known_days() {
