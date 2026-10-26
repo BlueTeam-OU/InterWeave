@@ -1080,6 +1080,26 @@ impl UiModel {
         self.cards.own_photo_before.as_ref()
     }
 
+    /// Whether the editor's photo differs from the saved card's, as design
+    /// 5.2 judges unsaved changes: a removal over a card with no photo, or
+    /// an unusable choice over what the card already shows, is none.
+    #[must_use]
+    pub fn own_photo_unsaved(&self) -> bool {
+        let saved = self.identity().is_some_and(|i| i.has_photo);
+        let shows = |step: Option<&OwnPhotoStep>| match step {
+            Some(OwnPhotoStep::Prepared(_)) => true,
+            Some(OwnPhotoStep::Removed) => saved,
+            Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) | None => false,
+        };
+        match self.own_photo() {
+            None => false,
+            // A photo on its way is a change whatever it comes to.
+            Some(OwnPhotoStep::Preparing) => true,
+            Some(OwnPhotoStep::Unusable) => shows(self.own_photo_before()),
+            step => shows(step),
+        }
+    }
+
     /// What Save does to the photo: no photo after Remove; the facade
     /// side's own while a choice is held -- the prepared one, or, while it
     /// is prepared or when it is unusable, what the editor showed before
@@ -2390,5 +2410,51 @@ mod tests {
         model.own_photo_prepared(fifth, Some(photo(5)));
         assert_eq!(model.own_photo(), None, "a late answer changes nothing");
         assert_eq!(model.own_photo_before(), None);
+    }
+
+    /// Design 5.2: unsaved changes are judged against the saved card. A
+    /// photo prepared or on its way is one; a removal is one only over a
+    /// card with a photo; an unusable choice is one only if what the editor
+    /// showed before it was. Mutation: a removal counted whatever the card
+    /// holds.
+    #[test]
+    fn the_editors_photo_is_unsaved_only_when_it_differs_from_the_card() {
+        let photo = Photo {
+            width: 2,
+            height: 2,
+            rgba: vec![1; 16],
+        };
+        let identity = |has_photo: bool| IdentityView {
+            endpoint: EndpointId::parse("human").expect("an endpoint"),
+            name: "Ada".to_owned(),
+            given: "Ada".to_owned(),
+            surname: None,
+            has_photo,
+            photo: has_photo.then(|| photo.clone()),
+            key: OwnKey::Ready {
+                fingerprint: "0123456789abcdef".to_owned(),
+            },
+            peer: None,
+        };
+        let mut model = UiModel::new();
+        model.identity_shown(identity(false));
+        assert!(!model.own_photo_unsaved(), "nothing chosen");
+        model.own_photo_removed();
+        assert!(!model.own_photo_unsaved(), "no photo removed from no photo");
+        let seq = model.own_photo_chosen();
+        assert!(model.own_photo_unsaved(), "one on its way");
+        model.own_photo_prepared(seq, None);
+        assert!(!model.own_photo_unsaved(), "unusable over the card's none");
+        let seq = model.own_photo_chosen();
+        model.own_photo_prepared(seq, Some(photo.clone()));
+        assert!(model.own_photo_unsaved(), "a prepared one");
+
+        model.own_photo_forgotten();
+        model.identity_shown(identity(true));
+        model.own_photo_removed();
+        assert!(model.own_photo_unsaved(), "the card's photo removed");
+        let seq = model.own_photo_chosen();
+        model.own_photo_prepared(seq, None);
+        assert!(model.own_photo_unsaved(), "unusable over a removal");
     }
 }

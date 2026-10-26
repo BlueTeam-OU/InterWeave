@@ -984,6 +984,13 @@ ui_texts! {
     /// A contact's page and the own card: remove the photo.
     // PLACEHOLDER (en)
     RemovePhoto => "Remove photo",
+    /// The own card's editor: Back with unsaved changes asks this
+    /// (contact-cards design 5.2).
+    CardDiscardChanges => "Close without saving your changes?",
+    /// Its action that stays in the editor, focused when it opens.
+    KeepEditing => "Continue editing",
+    /// Its action that leaves the editor without saving.
+    DiscardChanges => "Close without saving",
     /// The own card's editor, under the circle with no photo: choose one
     /// (contact-cards design 5.2).
     AddPhoto => "Add a photo",
