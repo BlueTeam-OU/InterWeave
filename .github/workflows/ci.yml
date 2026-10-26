@@ -232,13 +232,38 @@ jobs:
       # and the font stack open at run time. The runtime list is
       # provisional until rust-ui-dev's batch 4 brings the backend and
       # names its own (relay 01a10030, D1).
-      - name: Install the display, the session bus and AT-SPI (desktop client)
+      #
+      # The packages are tools/ci/apt-display.txt, installed by
+      # tools/ci/apt_install.sh with apt's retries and timeouts raised, and
+      # their .debs cached, keyed on the packages, the image's release and
+      # the week (the script's --help): the azure mirror served this step
+      # at 20 kB/s for 3.4 minutes on 2026-10-26 (median 0.1), and gzapp's
+      # copy of it for 22.9. Restored everywhere, saved only from main, as
+      # the cargo cache is and for its reason.
+      - name: The apt cache's key
+        id: apt-key
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends \
-            xvfb dbus-daemon libglib2.0-bin at-spi2-core \
-            libx11-6 libx11-xcb1 libxcursor1 libxi6 libxrandr2 \
-            libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 fonts-dejavu-core
+          key="$(bash tools/ci/apt_install.sh key tools/ci/apt-display.txt)"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "prefix=${key%-*-W*}-" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the display packages' .debs
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/apt-debs
+          key: ${{ steps.apt-key.outputs.key }}
+          restore-keys: ${{ steps.apt-key.outputs.prefix }}
+
+      - name: Install the display, the session bus and AT-SPI (desktop client)
+        run: bash tools/ci/apt_install.sh install --cache "$RUNNER_TEMP/apt-debs" tools/ci/apt-display.txt
+
+      - name: Save the display packages' .debs (main only)
+        if: github.event_name == 'push' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/apt-debs
+          key: ${{ steps.apt-key.outputs.key }}
 
       # testing.md §Compatibility fixtures: the upgrade matrix's "previous
       # build" axis is production builds, each built from its own commit
