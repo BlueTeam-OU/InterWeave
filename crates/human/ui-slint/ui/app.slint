@@ -3175,6 +3175,9 @@ export component AppWindow inherits Window {
     callback open-contacts();
     callback open-own-card();
     callback close-cards();
+    // The card pages closed on the way to another page (Close without
+    // saving after a pick or a menu item): without their way back.
+    callback close-cards-onward();
     callback contact-chosen(int);
     // A contact's page.
     in property <string> contact-title;
@@ -3365,7 +3368,15 @@ export component AppWindow inherits Window {
     // way taken goes on.
     function discard-changes() {
         root.own-discard-open = false;
-        root.leave-cards-page();
+        if (root.own-discard-then == 0) {
+            root.leave-cards-page();
+            return;
+        }
+        // Another page opens: the editor's way back -- to a share sheet,
+        // to a proposal's link -- is Back's alone
+        // (`closing_without_saving_after_a_pick_opens_no_share_sheet`).
+        root.cards-left();
+        root.close-cards-onward();
         if (root.own-discard-then == 1) {
             root.go-to-conversation(root.own-discard-then-handle);
         } else if (root.own-discard-then == 2) {

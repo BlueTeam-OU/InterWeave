@@ -53,6 +53,9 @@ pub(crate) enum CardsInput {
     Open(Opened),
     /// The card page closed: Back, Escape, or the back arrow.
     Close,
+    /// The card page closed on the way to another page: as `Close`,
+    /// without its way back.
+    CloseOnward,
     /// A contact opened from the list, by its id.
     Contact(String),
     /// A proposal's "Open your contact" link: the row's handle and the
@@ -148,6 +151,7 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     window.on_open_contacts(on(shared, CardsInput::Open(Opened::Contacts)));
     window.on_open_own_card(on(shared, CardsInput::Open(Opened::OwnCard)));
     window.on_close_cards(on(shared, CardsInput::Close));
+    window.on_close_cards_onward(on(shared, CardsInput::CloseOnward));
     window.on_own_card_remove_photo(on(shared, CardsInput::RemoveOwnPhoto));
     window.on_own_card_choose_photo(on(shared, CardsInput::ChoosePhoto));
     // Unsaved, as Save would write it: names trimmed, an empty surname
@@ -679,7 +683,10 @@ impl View {
                     return vec![Intent::ForgetOwnPhoto];
                 }
             }
-            CardsInput::Close => {
+            input @ (CardsInput::Close | CardsInput::CloseOnward) => {
+                if matches!(input, CardsInput::CloseOnward) {
+                    self.cards.forget_returns();
+                }
                 let own = self.cards.page == Some(CardsPage::OwnCard);
                 self.close_cards(&window);
                 self.return_from_cards(&window);

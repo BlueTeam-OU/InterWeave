@@ -1263,6 +1263,64 @@ fn escape_on_a_card_page_is_its_back() {
     );
 }
 
+/// #463 F1: an editor the share sheet opened, left by Close without saving
+/// after a conversation was picked beside it, opens that conversation and
+/// nothing else -- the way back to the sheet is Back's alone. Mutation:
+/// Close without saving taking the editor's way back.
+#[test]
+fn closing_without_saving_after_a_pick_opens_no_share_sheet() {
+    use interweave_human_ui_model::KeyProblem;
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1200.0, 1600.0));
+    let mut model = UiModel::new();
+    model.identity_shown(keyless(KeyProblem::DirUnsafe {
+        folder: "/home/ada/.local/state/interweave/default/identity-keys".to_owned(),
+    }));
+    model.received(message(10, "from the first", NOW - 2 * MINUTE));
+    model.received(interweave_human_client_api::Received {
+        origin: interweave_human_client_api::Origin::Direct {
+            peer: peer(R),
+            endpoint: human(),
+        },
+        ..message(11, "from the second", NOW - MINUTE)
+    });
+    let _ = shown(&mut view, &mut model, P);
+    press(&view, text(UiText::MoreOptions));
+    press(&view, text(UiText::ShareCard));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    press(&view, text(UiText::KeyOpenCard));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard,
+        "control: the editor, from the sheet"
+    );
+    view.window().set_own_given("Grace".into());
+    let rows = view.window().get_conversations();
+    let second = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .find(|r| r.title.as_str() != view.window().get_header_title().as_str())
+        .expect("the other conversation")
+        .title
+        .to_string();
+    labelled(&view, &second)[0].invoke_accessible_default_action();
+    settle();
+    assert!(view.window().get_own_discard_open(), "asked");
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_header_title().as_str(),
+        second,
+        "the conversation picked"
+    );
+    assert!(!view.window().get_share_open(), "no share sheet over it");
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {
