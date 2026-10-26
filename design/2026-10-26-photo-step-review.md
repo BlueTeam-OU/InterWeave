@@ -118,5 +118,6 @@ framed as a colour change; rust-ui-dev-02 took all three (REPLY
 01a17644) on develop-qzapp/rust-ui-dev-02/feat/j54-proposal-in-time,
 each with a test that fails before its fix. The first, and the fourth
 restated against field 1 and §5.1, were found in this record's review
-and sent afterwards. The steps above will be walked again on the
+and sent in OBSERVATION 01a17660; rust-ui-dev-02 took both on the same
+branch (REPLY 01a17665). The steps above will be walked again on the
 build that has the fixes.
