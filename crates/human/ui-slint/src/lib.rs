@@ -1125,21 +1125,11 @@ impl View {
             if let WindowEvent::Focused(now) = event {
                 focused(*now);
             }
-            // Minimised: the desktop's background, where Show is never left
-            // on screen (add-a-peer §5.4). Asked of the window itself at
-            // each change that may come with it -- focus lost, a resize, an
-            // occlusion -- since no event says it on every platform, and
-            // occlusion alone is not it: X11 and macOS report a window only
-            // covered as occluded, and the person switches away to paste
-            // the address (#409 C2). Wayland never says a window is
-            // minimised, and a session lock is not reported to the window:
-            // both are known limits.
-            if matches!(
-                event,
-                WindowEvent::Focused(false) | WindowEvent::Resized(_) | WindowEvent::Occluded(_)
-            ) && window.with_winit_window(winit::window::Window::is_minimized)
-                == Some(Some(true))
-            {
+            if minimised_closes_show(event, || {
+                window
+                    .with_winit_window(winit::window::Window::is_minimized)
+                    .flatten()
+            }) {
                 enqueue(&shared, Input::Peers(PeersInput::CloseShow));
             }
             EventResult::Propagate
@@ -3676,6 +3666,27 @@ fn full_id(key: &ConversationKey) -> String {
     }
 }
 
+/// Whether `event` closes Show: the window minimised, the desktop's
+/// background, where Show is never left on screen (add-a-peer §5.4).
+/// `minimised` asks the window itself, at each change that may come with
+/// it -- focus lost, a resize, an occlusion -- since no event says it on
+/// every platform; and occlusion alone is not it: X11 and macOS report a
+/// window only covered as occluded, and the person switches away to paste
+/// the address (#409 C2). Wayland never says a window is minimised (the
+/// answer is `None`), and a session lock is not reported to the window:
+/// both are known limits. `minimised_closes_show_only_when_minimised`.
+#[cfg(feature = "desktop")]
+fn minimised_closes_show(
+    event: &slint::winit_030::winit::event::WindowEvent,
+    minimised: impl FnOnce() -> Option<bool>,
+) -> bool {
+    use slint::winit_030::winit::event::WindowEvent;
+    matches!(
+        event,
+        WindowEvent::Focused(false) | WindowEvent::Resized(_) | WindowEvent::Occluded(_)
+    ) && minimised() == Some(true)
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -3784,5 +3795,39 @@ mod tests {
         assert_eq!(inserts("abcd", "acd").0, 0, "a removal moves nothing");
         assert_eq!(inserts("abcd", "abxcd").0, 1, "an insertion is one");
         assert_eq!(inserts("abcd", "dcba").0, 3, "a reversal is still correct");
+    }
+
+    /// Show closes when the window says it is minimised, at focus lost, a
+    /// resize or an occlusion; never when it is only covered or the answer
+    /// is unknown (Wayland), and never at another event (#409 r3 F3).
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn minimised_closes_show_only_when_minimised() {
+        use slint::winit_030::winit::dpi::PhysicalSize;
+        use slint::winit_030::winit::event::WindowEvent;
+        let events = [
+            WindowEvent::Focused(false),
+            WindowEvent::Resized(PhysicalSize::new(0, 0)),
+            WindowEvent::Occluded(true),
+        ];
+        for event in &events {
+            assert!(
+                super::minimised_closes_show(event, || Some(true)),
+                "{event:?}"
+            );
+            assert!(
+                !super::minimised_closes_show(event, || Some(false)),
+                "{event:?}"
+            );
+            assert!(!super::minimised_closes_show(event, || None), "{event:?}");
+        }
+        assert!(!super::minimised_closes_show(
+            &WindowEvent::Focused(true),
+            || Some(true)
+        ));
+        assert!(!super::minimised_closes_show(
+            &WindowEvent::CloseRequested,
+            || Some(true)
+        ));
     }
 }
