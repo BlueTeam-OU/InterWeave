@@ -524,7 +524,9 @@ impl libp2p::request_response::Codec for RawResponder {
 /// what refuses them.
 ///
 /// Proves ENDPOINTS.md ">32 entries, invalid `EndpointId` grammar, or
-/// duplicates are `ProtocolViolation`".
+/// duplicates are `ProtocolViolation`", and, with an empty frame queued
+/// after the three, that a response stream ending with no bytes is
+/// `PeerUnreachable` (the same section, A 2026-10-26).
 #[tokio::test]
 async fn a_hostile_directory_response_is_a_protocol_violation() {
     use interweave_transport_libp2p::endpoints_codec::ENDPOINTS_PROTOCOL;
@@ -683,7 +685,6 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
     );
 }
 
-/// The largest legal directory crosses the wire: 32 advertised, leased,
 /// The largest legal directory crosses the wire: 32 advertised, leased,
 /// admissible endpoints at the 64-byte label ceiling. The codec's frozen
 /// bytes are unit-tested; this proves the whole path carries them.
