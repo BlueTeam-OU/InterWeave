@@ -1079,7 +1079,7 @@ fn rows_are_newest_added_first_then_configured_in_their_states() {
 }
 
 /// At the bound, or with the list off, Add an address opens nothing and
-/// says why under itself.
+/// says why under itself; the list off when it is both.
 #[test]
 fn add_an_address_opens_nothing_at_the_bound_or_with_the_list_off() {
     let me = peer();
@@ -1094,8 +1094,17 @@ fn add_an_address_opens_nothing_at_the_bound_or_with_the_list_off() {
         dialled: false,
         ..added(&peer())
     };
-    let mut m = opened(&me, &[], &[off]);
+    let mut m = opened(&me, &[], std::slice::from_ref(&off));
     let _ = input(&mut m, PeersInput::OpenAdd);
+    assert_eq!(m.peers().add_note(), Some(Refusal::ListOff));
+
+    // Both: off, since no removal mends it (§5.2).
+    let both: Vec<PeerAddress> = std::iter::once(off)
+        .chain((0..63).map(|_| added(&peer())))
+        .collect();
+    let mut m = opened(&me, &[], &both);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    assert!(!m.peers().add_open());
     assert_eq!(m.peers().add_note(), Some(Refusal::ListOff));
 }
 
@@ -4843,6 +4852,23 @@ fn an_image_scan_that_adds_nothing_returns_to_its_control() {
     assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::Camera)));
 }
 
+/// A scan press while a scan is open changes nothing: the dialog's
+/// result, its line and focus stay with the control that opened it, and
+/// no line of the open scan is cleared (§5.5, §8; #409 r3 F4).
+#[test]
+fn a_scan_press_while_a_scan_is_open_changes_nothing() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::OpenImage));
+    assert!(m.peers().scan_open());
+    assert!(input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage)).is_empty());
+    assert!(m.peers().scan_open(), "the open scan is still the one");
+    assert!(input(&mut m, PeersInput::ImageNoCode).is_empty());
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::ImageNoCode));
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::OpenImage)));
+}
+
 /// A scanned add on its way waits with focus on Add, which reads as
 /// waiting (§5.3, §8).
 #[test]
@@ -4974,7 +5000,7 @@ fn show_says_no_address_and_each_failure_by_what_is_true() {
 }
 
 /// Each scan line says what went wrong with the image -- unreadable, no
-/// image on the clipboard -- focus on the control used, and goes at the
+/// image on the clipboard, a clipboard unreadable -- focus on the control used, and goes at the
 /// next scan press or an edit of the field (§5.5, §8).
 #[test]
 fn a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit() {
@@ -4991,6 +5017,11 @@ fn a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit() {
             ScanControl::PasteImage,
             PeersInput::ClipboardNoImage,
             AddNote::ClipboardNoImage,
+        ),
+        (
+            ScanControl::PasteImage,
+            PeersInput::ClipboardUnreadable,
+            AddNote::ClipboardUnreadable,
         ),
     ] {
         let _ = input(&mut m, PeersInput::ScanPressed(control));

@@ -46,6 +46,13 @@ image = { workspace = true }
 # The desktop's image scan (`scan_images.rs`), under `desktop`.
 rfd = { workspace = true, optional = true }
 
+# The desktop's Paste an image (`clipboard.rs`), under `desktop`, on Linux
+# only: elsewhere Paste an image is not offered.
+[target.'cfg(target_os = "linux")'.dependencies]
+wl-clipboard-rs = { workspace = true, optional = true }
+x11rb = { workspace = true, optional = true }
+rustix = { workspace = true, optional = true }
+
 [features]
 # The desktop window (plan section 18 (14), the owner's decision of
 # 2026-10-04): winit with the software renderer and the platform
@@ -54,8 +61,12 @@ rfd = { workspace = true, optional = true }
 # app turns it on. `unstable-winit-030` is the only public way to observe
 # the window's focus (WinitWindowAccessor), which a read is gated on.
 desktop = [
-    # The image scan's file dialog (`scan_images.rs`).
+    # The image scan's file dialog (`scan_images.rs`), and on Linux the
+    # clipboard's image (`clipboard.rs`).
     "dep:rfd",
+    "dep:wl-clipboard-rs",
+    "dep:x11rb",
+    "dep:rustix",
     "slint/backend-winit",
     "slint/renderer-software",
     # The swipe icons are paths (ui/app.slint SwipeIcon), which the

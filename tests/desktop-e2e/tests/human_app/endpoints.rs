@@ -64,6 +64,13 @@ async fn human_and_claude_share_one_peer_id_under_different_endpoint_ids() {
     let from_claude = envelope(2, "from a Claude session");
     let deadline = tokio::time::Instant::now() + PATIENCE;
     while !peer.got(&from_claude.app_message_id) {
+        // Asked before the attempt, never after it: the attempt that
+        // delivers must end the loop, not fail it.
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "B never got the Claude session's message\n{}",
+            world.logs()
+        );
         // Retried until B's endpoint is reachable; one id, so B's dedup
         // folds the copies.
         let _ = session
@@ -77,11 +84,6 @@ async fn human_and_claude_share_one_peer_id_under_different_endpoint_ids() {
             )
             .await;
         peer.step().await;
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "B never got the Claude session's message\n{}",
-            world.logs()
-        );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     peer.until(

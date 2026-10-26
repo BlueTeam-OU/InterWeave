@@ -51,8 +51,9 @@ pub enum ImageUnread {
 /// smoothing. Error correction is M -- about 15 % of the code may be lost
 /// and still read, enough for a smudged screen -- or, for a list too long
 /// for M, L, so sixteen circuit routes still fit; the higher levels make a
-/// short list's code denser for no reading a phone needs. `None` only for
-/// text no code holds, which the model's sixteen lines never are.
+/// short list's code denser for no reading a phone needs. `None` for
+/// text no code holds: sixteen lines can, past version 40-L's 2953 bytes,
+/// and the view then draws the lines alone.
 #[must_use]
 pub fn drawn(lines: &[String]) -> Option<Image> {
     let text = lines.join("\n");
@@ -173,6 +174,28 @@ fn luma_over_white(red: u8, green: u8, blue: u8, alpha: u8) -> u8 {
     let luma = (299 * red + 587 * green + 114 * blue) / 1000;
     let over = (luma * alpha + 255 * (255 - alpha)) / 255;
     u8::try_from(over).unwrap_or(u8::MAX)
+}
+
+/// A PNG of the code for `lines`, four pixels a module, as a screenshot
+/// of Show would be: what the scan tests give a reader. Only the
+/// clipboard's tests read one, which build where the clipboard is read;
+/// a caller elsewhere leaves the `expect` below unfulfilled, a warning
+/// clippy's `-D warnings` refuses.
+#[cfg(test)]
+#[cfg_attr(not(all(feature = "desktop", target_os = "linux")), expect(dead_code))]
+pub(crate) fn png_for(lines: &[String]) -> Vec<u8> {
+    const SCALE: u32 = 4;
+    let code = drawn(lines).expect("fits").to_rgba8().expect("pixels");
+    let (w, h) = (code.width(), code.height());
+    let scaled = image::RgbaImage::from_fn(w * SCALE, h * SCALE, |x, y| {
+        let p = code.as_slice()[((y / SCALE) * w + x / SCALE) as usize];
+        image::Rgba([p.r, p.g, p.b, p.a])
+    });
+    let mut png = Vec::new();
+    scaled
+        .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("encoded");
+    png
 }
 
 #[cfg(test)]
