@@ -1079,7 +1079,7 @@ fn rows_are_newest_added_first_then_configured_in_their_states() {
 }
 
 /// At the bound, or with the list off, Add an address opens nothing and
-/// says why under itself.
+/// says why under itself; the list off when it is both.
 #[test]
 fn add_an_address_opens_nothing_at_the_bound_or_with_the_list_off() {
     let me = peer();
@@ -1094,8 +1094,17 @@ fn add_an_address_opens_nothing_at_the_bound_or_with_the_list_off() {
         dialled: false,
         ..added(&peer())
     };
-    let mut m = opened(&me, &[], &[off]);
+    let mut m = opened(&me, &[], std::slice::from_ref(&off));
     let _ = input(&mut m, PeersInput::OpenAdd);
+    assert_eq!(m.peers().add_note(), Some(Refusal::ListOff));
+
+    // Both: off, since no removal mends it (§5.2).
+    let both: Vec<PeerAddress> = std::iter::once(off)
+        .chain((0..63).map(|_| added(&peer())))
+        .collect();
+    let mut m = opened(&me, &[], &both);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    assert!(!m.peers().add_open());
     assert_eq!(m.peers().add_note(), Some(Refusal::ListOff));
 }
 
