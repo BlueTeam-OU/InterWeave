@@ -258,9 +258,9 @@ pub(crate) struct PeerLists {
     /// The snackbar last drawn, by the model's count, and the one timed.
     snack_seen: u64,
     snack_timed: u64,
-    /// The lines Show's code was last drawn for: drawn again only when
-    /// they change.
-    show_drawn: Option<Vec<String>>,
+    /// The lines Show's code was last drawn for, and whether a code holds
+    /// them: drawn again only when they change.
+    show_drawn: Option<(Vec<String>, bool)>,
     /// The platform's secure flag for Show, where it has one.
     pub(crate) show_guard: Option<ShowGuard>,
     /// The platform's camera, asked to start (`true`) or stop, where it
@@ -777,13 +777,17 @@ impl View {
             self.peer_lists.show_drawn = None;
             return;
         };
-        if self.peer_lists.show_drawn.as_ref() != Some(lines) {
-            // A code that does not fit is no code: the lines still show.
-            let image = crate::code::drawn(lines).unwrap_or_default();
-            window.set_show_code(image);
-            self.peer_lists.show_drawn = Some(lines.clone());
+        if self.peer_lists.show_drawn.as_ref().map(|(l, _)| l) != Some(lines) {
+            // A code that does not fit is no code: no image and nothing
+            // announced as one, while the lines still show (#409 r3 F2).
+            let image = crate::code::drawn(lines);
+            let fits = image.is_some();
+            window.set_show_code(image.unwrap_or_default());
+            self.peer_lists.show_drawn = Some((lines.clone(), fits));
         }
+        let fits = self.peer_lists.show_drawn.as_ref().is_some_and(|(_, f)| *f);
         window.set_show_code_shown(true);
+        window.set_show_code_drawn(fits);
         let label = if lines.len() == 1 {
             text(UiText::QrLabelOne).to_owned()
         } else {

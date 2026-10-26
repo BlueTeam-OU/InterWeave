@@ -51,8 +51,9 @@ pub enum ImageUnread {
 /// smoothing. Error correction is M -- about 15 % of the code may be lost
 /// and still read, enough for a smudged screen -- or, for a list too long
 /// for M, L, so sixteen circuit routes still fit; the higher levels make a
-/// short list's code denser for no reading a phone needs. `None` only for
-/// text no code holds, which the model's sixteen lines never are.
+/// short list's code denser for no reading a phone needs. `None` for
+/// text no code holds: sixteen lines can, past version 40-L's 2953 bytes,
+/// and the view then draws the lines alone.
 #[must_use]
 pub fn drawn(lines: &[String]) -> Option<Image> {
     let text = lines.join("\n");

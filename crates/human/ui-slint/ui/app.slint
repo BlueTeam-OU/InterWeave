@@ -2721,6 +2721,9 @@ export component AppWindow inherits Window {
     in property <string> show-my-address-label;
     in property <string> show-warning;
     in property <bool> show-code-shown;
+    // False when the lines are more than any code holds: then no image,
+    // and nothing announced as a code, while the lines still show.
+    in property <bool> show-code-drawn;
     in property <image> show-code;
     in property <string> show-code-label;
     in property <string> show-lines;
@@ -4044,7 +4047,7 @@ export component AppWindow inherits Window {
                     // themes, never themed, at least 240 px a side and not
                     // scaled by the font; one item labelled with how many
                     // lines it holds, the lines themselves listed below.
-                    if root.peers-show-open && root.show-code-shown: HorizontalLayout {
+                    if root.peers-show-open && root.show-code-shown && root.show-code-drawn: HorizontalLayout {
                         alignment: center;
                         Image {
                             source: root.show-code;

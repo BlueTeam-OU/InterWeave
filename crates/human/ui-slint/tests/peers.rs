@@ -2447,6 +2447,7 @@ fn show_draws_a_code_that_reads_back_as_its_lines() {
     view.render(&model);
     let w = view.window();
     assert!(w.get_show_code_shown());
+    assert!(w.get_show_code_drawn());
     let label = text(UiText::QrLabelOther).replace("{n}", "2");
     assert_eq!(
         labelled(&view, &label).len(),
@@ -2477,6 +2478,45 @@ fn show_draws_a_code_that_reads_back_as_its_lines() {
     slint::platform::update_timers_and_animations();
     assert!(!view.window().get_peers_show_open());
     assert_eq!(view.window().get_focus_target().as_str(), "show-my-address");
+}
+
+/// Sixteen lines past what any code holds (version 40-L, 2953 bytes) draw
+/// no image and announce no code, while the lines and the `PeerId` still
+/// show (#409 r3 F2).
+#[test]
+fn show_announces_no_code_for_lines_no_code_holds() {
+    use interweave_human_client_api::ShowAddresses;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::ShowMyAddress));
+    let _ = intents(&mut view, &mut model);
+    // Circuit routes through IPv6 relays in full form, as a device with
+    // several relays lists them: about 190 bytes each.
+    let lines: Vec<String> = (0..16)
+        .map(|i| {
+            format!(
+                "/ip6/2001:0db8:0000:0000:0000:0000:0000:{i:04x}/udp/4001/quic-v1/p2p/{relay}/p2p-circuit/p2p/{me}",
+                relay = me.as_str(),
+                me = me.as_str(),
+            )
+        })
+        .collect();
+    assert!(lines.join("\n").len() > 2953, "past version 40-L");
+    model.own_addresses_read(Ok(ShowAddresses {
+        peer: me.clone(),
+        addresses: lines.clone(),
+        truncated: false,
+    }));
+    view.render(&model);
+    let w = view.window();
+    assert!(w.get_show_code_shown());
+    assert!(!w.get_show_code_drawn(), "no code is drawn");
+    let label = text(UiText::QrLabelOther).replace("{n}", "16");
+    assert!(labelled(&view, &label).is_empty(), "no code is announced");
+    assert_eq!(w.get_show_lines().as_str(), lines.join("\n"));
+    assert_eq!(w.get_show_peer().as_str(), me.as_str());
 }
 
 /// No address is said with what to do and no reason, never as a failure; a
