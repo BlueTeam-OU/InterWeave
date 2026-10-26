@@ -3397,6 +3397,9 @@ export component AppWindow inherits Window {
         } else if (root.own-discard-then == 4) {
             root.go-to-contacts();
         } else if (root.own-discard-then == 5) {
+            // Its conversation's pane, on a phone, as each `go-to-` shows
+            // its page's (`a_share_again_row_with_a_change_asks_first`).
+            root.list-shown = false;
             root.own-key-share-again-chosen(root.own-discard-then-handle);
         }
     }

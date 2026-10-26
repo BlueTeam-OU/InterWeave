@@ -1452,6 +1452,11 @@ fn a_share_again_row_with_a_change_asks_first() {
         view.window().get_share_open(),
         "the share sheet, as the row asked"
     );
+    // On a phone, over its conversation, not the list (#463 F5).
+    assert!(
+        view.window().get_pane_shown(),
+        "the conversation's pane shown"
+    );
 }
 
 /// Close without saving goes on to the page asked: Trust from the app
