@@ -4990,16 +4990,17 @@ export component AppWindow inherits Window {
         }
         // The card pages (design sections 5.2 and 6), in the conversation's
         // place: the back arrow and the page's title, then the page. On the
-        // desktop, Escape that no control inside used is the page's Back,
-        // as the back arrow is (design section 4;
-        // `escape_on_a_card_page_is_its_back`).
+        // desktop, Escape that no control inside used is Back itself (design
+        // section 4: they do the same), so what Back answers first -- a
+        // confirmation over the page -- Escape answers first too
+        // (`escape_on_a_card_page_is_its_back`,
+        // `escape_on_a_contacts_delete_confirmation_cancels_it`).
         if root.cards-page != CardsPage.none: FocusScope {
             visible: root.pane-shown;
             focus-on-click: false;
             focus-on-tab-navigation: false;
             key-pressed(event) => {
-                if (event.text == Key.Escape) {
-                    root.close-cards-page();
+                if (event.text == Key.Escape && root.handle-back()) {
                     return accept;
                 }
                 reject

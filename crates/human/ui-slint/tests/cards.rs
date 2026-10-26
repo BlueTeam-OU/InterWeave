@@ -1321,6 +1321,34 @@ fn closing_without_saving_after_a_pick_opens_no_share_sheet() {
     assert!(!view.window().get_share_open(), "no share sheet over it");
 }
 
+/// #463 F3: Escape and Back do the same on the card pages (design
+/// section 4): with Delete contact's confirmation showing, Escape cancels
+/// it and the contact's page stays, as Back does. Mutation: Escape closing
+/// the page whatever is open over it.
+#[test]
+fn escape_on_a_contacts_delete_confirmation_cancels_it() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", P)]);
+    view.render(&model);
+    open_contact(&mut view, &mut model, "Ada");
+    press(&view, text(UiText::DeleteContact));
+    settle();
+    assert!(
+        view.window().get_contact_confirming_delete(),
+        "control: asked"
+    );
+    key(&view, slint::platform::Key::Escape);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(!view.window().get_contact_confirming_delete(), "cancelled");
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::Contact,
+        "the contact's page stays"
+    );
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {
