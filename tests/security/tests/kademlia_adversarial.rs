@@ -801,8 +801,13 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
     let subject_libp2p = peer_id(&subject_peer);
     let mut keys = far_keys(&subject_libp2p, BUCKET + NEWCOMERS + OBSERVED + 1).into_iter();
 
-    // OBSERVED: trusted, listening, serving Kademlia, and known to the
-    // subject only through what the newcomers answer its walks.
+    // OBSERVED: trusted, listening, serving Kademlia, and never dialled
+    // or told to the subject by the test: it learns them from its walks'
+    // answers. The newcomers name them; an honest router may come to
+    // name them too, since these routers run libp2p-kad's defaults
+    // (insertion on connect, the automatic bootstrap) and are told the
+    // newcomers. Who names them does not matter to the bound below, which
+    // is that an observation offered under a full bucket takes no seat.
     let mut observed = Vec::new();
     for k in keys.by_ref().take(OBSERVED) {
         observed.push(hostile_router_as(k, ip, Vec::new()).await);
