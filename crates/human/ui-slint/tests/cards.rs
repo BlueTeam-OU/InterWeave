@@ -884,6 +884,40 @@ fn saving_your_card_closes_it_back_to_the_list() {
     assert_eq!(view.window().get_focus_id(), "app-options");
 }
 
+/// Contact-cards design 5.2 field 1: the photo buttons stand under the
+/// circle, and what could not be used under them -- seen on the Pixel in
+/// a column beside the circle (ux-designer's review of #449). Mutation:
+/// the buttons beside the circle again.
+#[test]
+fn the_photo_buttons_and_the_unusable_line_stand_under_the_circle() {
+    let (mut view, mut model) = own_editor(ada(
+        true,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    // A picked image that cannot be used, as the root runs it.
+    view.photo_picked(Some(vec![1, 2, 3]));
+    for event in view.take_events(&model) {
+        if let ViewEvent::Intent(Intent::ChooseOwnPhoto(_)) = event {
+            let seq = model.own_photo_chosen();
+            model.own_photo_prepared(seq, None);
+        }
+    }
+    view.render(&model);
+    settle();
+    let circle = bounds(&view, text(UiText::CardPhotoLabel));
+    let change = bounds(&view, text(UiText::ChangePhoto));
+    let remove = bounds(&view, text(UiText::RemovePhoto));
+    let unusable = bounds(&view, text(UiText::PhotoUnusable));
+    assert!(circle.3 <= change.1, "Change photo under the circle");
+    assert!(change.3 <= remove.1, "Remove photo under Change photo");
+    assert!(
+        remove.3 <= unusable.1,
+        "the unusable line under the buttons"
+    );
+}
+
 /// Contact-cards design 5.2 field 1 and 5.1: the own initials are on the
 /// identity's hue, its `EndpointId`'s, known from the start -- so the circle
 /// keeps its colour when the `PeerId` becomes known (seen on the Pixel: teal

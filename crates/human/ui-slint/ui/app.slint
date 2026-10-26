@@ -5200,44 +5200,48 @@ export component AppWindow inherits Window {
                     // The own card: what a share sends, edited here.
                     if root.cards-page == CardsPage.own-card: VerticalLayout {
                         spacing: 12px;
-                        HorizontalLayout {
-                            spacing: 16px;
-                            Rectangle {
-                                width: 96px;
-                                height: 96px;
-                                accessible-role: image;
-                                accessible-label: root.own-circle-label;
-                                PhotoCircle {
-                                    size: 96px;
-                                    has-photo: root.own-edit-has-photo;
-                                    photo: root.own-edit-photo;
-                                    letters: root.own-letters;
-                                    hue: root.own-hue;
-                                }
-                                // Preparing: the circle dimmed under the
-                                // ring, so the two read as one state rather
-                                // than a spinner over the initials (seen
-                                // rendered).
-                                if root.own-photo-preparing: Rectangle {
+                        // Field 1 (design 5.2): the circle, and under it its
+                        // buttons, one a line, then what could not be used.
+                        VerticalLayout {
+                            spacing: 8px;
+                            HorizontalLayout {
+                                alignment: start;
+                                Rectangle {
                                     width: 96px;
                                     height: 96px;
-                                    border-radius: 48px;
-                                    background: Palette.surface.with-alpha(0.7);
-                                }
-                                if root.own-photo-preparing: ProgressRing {
-                                    size: 64px;
-                                    reduced-motion: root.reduced-motion;
+                                    accessible-role: image;
+                                    accessible-label: root.own-circle-label;
+                                    PhotoCircle {
+                                        size: 96px;
+                                        has-photo: root.own-edit-has-photo;
+                                        photo: root.own-edit-photo;
+                                        letters: root.own-letters;
+                                        hue: root.own-hue;
+                                    }
+                                    // Preparing: the circle dimmed under the
+                                    // ring, so the two read as one state rather
+                                    // than a spinner over the initials (seen
+                                    // rendered).
+                                    if root.own-photo-preparing: Rectangle {
+                                        width: 96px;
+                                        height: 96px;
+                                        border-radius: 48px;
+                                        background: Palette.surface.with-alpha(0.7);
+                                    }
+                                    if root.own-photo-preparing: ProgressRing {
+                                        size: 64px;
+                                        reduced-motion: root.reduced-motion;
+                                    }
                                 }
                             }
                             VerticalLayout {
-                                alignment: center;
                                 spacing: 8px;
-                                horizontal-stretch: 1;
                                 // No picker in this build: where a photo is
                                 // chosen instead.
                                 if !root.own-photo-choosable: Text {
                                     text: root.own-photo-note;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                     font-size: Type.body-medium;
                                     color: Palette.on-surface-variant;
                                     accessible-role: text;
@@ -5276,6 +5280,7 @@ export component AppWindow inherits Window {
                                 if root.own-photo-unusable != "": Text {
                                     text: root.own-photo-unusable;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                     font-size: Type.body-medium;
                                     color: Palette.error;
                                     accessible-role: text;
