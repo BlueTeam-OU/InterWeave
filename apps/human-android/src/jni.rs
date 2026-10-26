@@ -544,8 +544,9 @@ fn network(report: NetworkReport) {
 /// resolver or host.
 fn said(told: Told) -> String {
     format!(
-        "{} addresses, {} resolvers, strict Private DNS {}",
+        "{} addresses ({} on no local network), {} resolvers, strict Private DNS {}",
         told.addresses,
+        told.off_local_network,
         told.dns_servers
             .map_or_else(|| "unobserved".to_owned(), |n| n.to_string()),
         if told.strict_private_dns { "on" } else { "off" }
