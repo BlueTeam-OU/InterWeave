@@ -601,8 +601,14 @@ mod tests {
             ["tools/ci/own_features.sh", step],
             "xtask's own-features run is not CI's"
         );
-        let ci = workflow.find("run: cargo clippy --workspace");
-        let own = workflow.find("run: bash tools/ci/own_features.sh");
+        // Positions, not Options: `None < Some(_)`, so comparing the finds
+        // directly passed with the workspace clippy step gone.
+        let ci = workflow
+            .find("run: cargo clippy --workspace")
+            .expect("CI runs the workspace clippy");
+        let own = workflow
+            .find("run: bash tools/ci/own_features.sh")
+            .expect("CI runs tools/ci/own_features.sh");
         assert!(
             ci < own,
             "CI's own-features clippy is not after the workspace clippy"
