@@ -492,9 +492,9 @@ async fn a_hostile_clipboard_owner_is_given_up_at_the_deadline() {
     // at a byte a round trip, so the margin cannot hide that.
     const IN_TIME: Duration = Duration::from_secs(25);
     // ui-slint's code::MAX_IMAGE_BYTES, which no dependency of this suite
-    // exports. Were it lowered by 4 bytes or more, or raised by a chunk
-    // (128 KiB) or more, the count below fails and says so; a smaller
-    // change passes, since the client's reads are in 4-byte units.
+    // exports. A change of it fails the count below and says so, unless it
+    // lowers the bound by at most 4 bytes or raises it by at most 128 KiB
+    // less 5: the client asks in 4-byte units, rounded up.
     const BOUND: usize = 32 * 1024 * 1024;
     let _focus = display::exclusive().await;
     let world = two_daemons().await;

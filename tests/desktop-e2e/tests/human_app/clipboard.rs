@@ -38,7 +38,8 @@ pub(crate) enum Holding {
     Endless,
     /// An image of `total` bytes sent incrementally as the protocol asks,
     /// a chunk each time the requester takes the last one, announced as
-    /// far smaller; [`Owner::taken`] counts what the requester took.
+    /// far smaller; [`Owner::taken_when_gone`] counts what the requester
+    /// took, once its window is destroyed.
     Chunked { total: usize },
 }
 
