@@ -316,9 +316,74 @@ in the list, else to the control that opened the page. No snackbar: the
 row, or the sheet's preview, is the confirmation. A card has no Delete
 of its own: it is the identity's, and goes only with the identity.
 
-Back with unsaved changes: a dialog `CardDiscardChanges`, actions
-**Continue editing** (`KeepEditing`, default focus) and **Discard**
-(`DiscardChanges`). Back with no change closes at once.
+**Leaving with unsaved changes.** While the editor holds unsaved
+changes, every way of leaving it opens one dialog first,
+`CardDiscardChanges`, whichever control was used (rust-ui-dev-02's
+QUESTION 01a1757e, 2026-10-26). Whether a change is unsaved is judged
+as the last item of the photo step says (below). A way of leaving is
+any control that closes the editor or puts another page in its place,
+and the rule holds for a control added later too, with two exceptions.
+A valid Save closes the editor and saves the changes, so it asks
+nothing. Remove this identity opens only its own dialog: that dialog
+already lists the card among what is removed (below), so a second dialog
+would ask about the same loss twice. Today the ways of leaving
+are:
+
+- Back (Android), Escape (desktop) and the page's back arrow;
+- an identity switch (§5.7.3);
+- a notification's conversation opening over the editor, on either
+  layout;
+- Add another identity, an item of the editor's overflow menu when
+  the person holds one identity; it opens the add form, another
+  editor (§5.1);
+- on a wide layout, where the conversation list and the switch stay
+  beside the editor (§4, §5.7.3): a conversation picked in the list, a
+  page opened from the app options (Trust, Contacts or Your
+  identities), and the switcher's Your identities button. With one
+  identity, Your card in the app options opens this same editor (§4),
+  so choosing it leaves nothing: the editor stays as it is, with
+  its changes, nothing is asked, and focus goes to the page title, as
+  when the page opens.
+
+The dialog asks about the loss of changes in the same way, whatever
+causes it. A change lost without warning, because the person picked a
+row beside the editor, is the slip that heuristic 5, error prevention,
+asks a design to prevent. The actions are **Close without saving**
+(`DiscardChanges`, text button) and **Continue editing** (`KeepEditing`, filled, default
+focus), stacked as the proposal's are, for the same reasons (§5.4):
+each on a line of its own, the full width of the dialog, Close without
+saving above Continue editing, at every width and text scale
+(rust-ui-dev-02's INFO 01a17517 on #453, built this way). Enter, with the
+initial focus, chooses Continue editing. Escape, Back and a tap outside
+the dialog also choose Continue editing, so pressing Back a second time
+never drops the changes.
+
+- **Close without saving** drops the changes, and the action that
+  opened the dialog continues: Back closes the editor, the identity
+  switch takes place, the picked conversation or page opens. Focus then goes
+  where that action puts it with no unsaved change: after Back, where
+  a saved card's page puts it (the identity's row in the list, else
+  the control that opened the page, item 1's table); after a switch,
+  as §5.7.3 says; on the opened page, as its own row in item 1's
+  table says.
+- **Continue editing** closes the dialog and changes nothing: the
+  editor keeps its changes, and the list's selection stays where it
+  was before the pick. Focus goes back to the control that had focus
+  when the dialog opened: an editor field, or the back arrow when it
+  was used; the switch; the picked row. If that control no longer exists, as with an item of a
+  menu that has closed, focus goes to the control that opened the
+  menu: the app options button.
+
+The dialog has no body line and no Save. The title says what Close
+without saving does, so the person knows what happens to the changes
+(a question from language-culture-en's cold read, OBSERVATION
+01a17503). Save stays in the editor, because Save can find an invalid
+field, whose error belongs under that field (above), where a dialog
+cannot show it. With no unsaved change, each of these ways of leaving
+acts at once. Closing the desktop window or quitting the app, and the
+system ending the app in the background, are not ways of leaving the
+editor in this rule; what happens to unsaved changes then is not
+specified (§11).
 
 **Two rules every action on an identity keeps**, on both platforms: when
 there is a default, it is an identity that is turned on, so peer-only
@@ -484,7 +549,7 @@ client prepares what will be sent from the picked image:
   before preparation) on 2026-10-25: the preparation chose quality 85
   to 90 for them, and the prepared photographs were 13,123 to 24,555
   bytes (recorded in `crates/human/app-core/src/card_photo.rs` at
-  4df2fa26 on develop-qzapp/rust-ui-dev-02/feat/j54-photo-choosing;
+  4df2fa26, which #449 brought to main;
   `card_photo.rs` names neither the seven photographs nor the generator
   of the noise square that it also measures, below). So with
   today's encoder a camera photograph fits far above quality 50. An
@@ -1158,7 +1223,7 @@ mark moves. On a narrow layout those pages cover Chats, so the switcher
 is reached only from Chats; a sheet or a dialog covers the switch on
 either layout. **An unsaved card edit** (an identity's page with changes,
 §5.2) is asked about before any switch: `CardDiscardChanges` opens
-first; Discard lets the switch go on, and Continue editing cancels it,
+first; Close without saving lets the switch go on, and Continue editing cancels it,
 leaving everything as it was — for a notification's switch too, whose
 conversation the person then finds in Chats once they switch. What
 the person had in hand stays with its
@@ -1647,14 +1712,16 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
 
    | case | focus goes to | check |
    |---|---|---|
-   | Your identities / Your card / Contacts opened from the menu | the page title (focusable heading) | keyboard |
+   | Your identities / Your card / Contacts opened from the menu, or Your identities from the switcher | the page title (focusable heading) | keyboard |
+   | Trust opened from the menu | its title (look spec §5) | keyboard |
+   | a conversation opened by Close without saving in the card editor's unsaved-changes dialog: a row picked in the list, or a notification of the identity in front (§5.2) | the conversation's header title, never the composer (the reason message-swipe §7 gives); a conversation opened any other way is outside this spec (§11) | keyboard: on a wide window, with a name changed in the card editor, pick a conversation row, then Close without saving: focus on the header title, the on-screen keyboard closed; with a name changed, open a notification of the identity in front by keyboard, then Close without saving: the same |
    | a card saved | the identity's row in the list, else the control that opened the page (the sheet's Edit your card or Add your name) | keyboard |
    | a card's Save with an invalid field | the first invalid field | keyboard |
    | the editor's Photo Picker or file dialog closes, a picture chosen or cancelled (§5.2) | the button that opened it (Add a photo, or Change photo) | keyboard on desktop: open the file dialog from Add a photo, cancel it, focus on Add a photo; choose a picture, focus on the same button. Keyboard on Android: open the Photo Picker from Add a photo, press Back (`adb shell input keyevent KEYCODE_BACK`), focus on Add a photo; choose a picture, focus on the same button |
    | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while the picture is being prepared, then `CardPhotoLabel`; TalkBack blocked (§8) |
    | the editor's picture unusable | stays on that button; `PhotoUnusable` announced once | keyboard, choosing a file named `.png` that holds no image; desktop screen reader: heard once; TalkBack blocked (§8) |
    | the editor's Remove photo, also while a picture is being prepared (§5.2) | Add a photo; nothing is announced, also when the dropped picture would have been ready | keyboard; on a card with a saved photo, choose a large picture and press Remove photo before it is ready: focus on Add a photo, the circle shows the initials, and Save leaves the card with no photo; the same steps and results on a card saved with no photo, after a first picture is prepared and the person chooses a second one with Change photo |
-   | unsaved-changes dialog opens / closes on Continue editing (also when a switch asked it) | Continue editing / the field that had focus | keyboard |
+   | unsaved-changes dialog opens / closes on Continue editing (whichever control asked it, §5.2) | Continue editing / the control that had focus when it opened (an editor field, or the back arrow when it was used; the switch; the picked row), else the app options button when a menu item asked; on Close without saving, wherever the action that asked would put focus if there were no unsaved change (§5.2) | keyboard: from an editor field press Escape (desktop) or Back; on a wide window move focus to a conversation row and press Enter; open the app options and choose Contacts; each time Continue editing returns focus as this row says and the editor keeps its change; then the same three with Close without saving: after Back, focus on the identity's row or the control that opened the editor; after the picked row, on the conversation's header title; after Contacts, on its page title |
    | an identity added | its new row in the list | keyboard |
    | Add an identity at the bound | `IdentityLimit` | keyboard |
    | Make default, and its Undo | stays on the overflow button | keyboard |
@@ -1837,7 +1904,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     arrives with its marker in the corner where a viewer that honours the
     tag shows it. In the card editor, Remove photo writes nothing: with
     a saved photo, Remove photo then Back shows `CardDiscardChanges`,
-    and Discard leaves the saved photo; Remove photo then Save leaves
+    and Close without saving leaves the saved photo; Remove photo then Save leaves
     the card with no photo; no snackbar shows in either.
 12. A card too large for a low-limit profile is offered "Share without
     the photo" and nothing is sent before the person presses it.
@@ -1939,6 +2006,27 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     forms, without the word "identity"; it deletes nothing,
     lists the identity as off, leaves it in front if it was, refuses
     messages to it while off, and its Undo and Turn on bring it back.
+26. **Every way off the card editor with unsaved changes asks**
+    (§5.2). With a name changed and not saved, each of these opens
+    `CardDiscardChanges`, its two actions stacked, Close without saving
+    above Continue editing, each the dialog's full width at 100 % and
+    200 % text on a 360 dp phone: Back; Escape on the desktop; an
+    identity switch; a notification's conversation; and on a wide
+    window, a conversation picked in the list, Trust, Contacts and
+    Your identities from the app options and the switcher's Your
+    identities; and, with one identity, Add another identity in the
+    editor's overflow (with one identity, Your card
+    from the app options keeps the editor open with the change and asks
+    nothing). For each, Continue editing
+    leaves the editor open with the changed name, the list's selection
+    as it was, and focus as item 1's table says; Escape and Back on the
+    dialog do the same; Close without saving opens what was asked, focus
+    as item 1's table says for it, and the card reopened shows the saved name. With no
+    change, each opens what was asked at once, with no dialog. A valid
+    Save with the change closes the editor with no `CardDiscardChanges`;
+    on an added identity with the change, Remove this identity opens
+    only its own dialog, and its Cancel returns to the editor with the
+    change still there.
 
 ### 9.1 `human-client-ui.md` §13 criteria
 
@@ -1999,8 +2087,8 @@ and are for them to write.
 | `CardNameTooLong` | Use 64 characters or fewer. | field error; "characters" for scalar values |
 | `CardNameBadCharacters` | Remove line breaks and invisible characters. | field error for Cc/Cf/separators |
 | `CharCount` | {n} / 64 | field counter |
-| `CardDiscardChanges` | Discard your changes? | unsaved-changes dialog |
-| `KeepEditing` / `DiscardChanges` | Continue editing / Discard | its actions |
+| `CardDiscardChanges` | Close without saving your changes? | unsaved-changes dialog |
+| `KeepEditing` / `DiscardChanges` | Continue editing / Close without saving | its actions; stacked, Close without saving above (§5.2) |
 | `PhotoUnusable` | This photo cannot be used. Choose another one. | editor, under the circle; announced once (§5.2) |
 | `CardPhotoPreparing` | Preparing the photo… | new text, proposal; the editor's photo circle, accessible label while a chosen picture is being prepared (§5.2); must say the photo is not ready yet |
 | `PhotoAdded` | Photo ready | new text, proposal; announced once in the editor when a chosen picture has been prepared (§5.2); must not say it is saved or sent, since that happens only on Save and Share |
@@ -2171,8 +2259,23 @@ Existing keys reused unchanged: `AppOptions` (look spec §9; the Chats
 - **A shortcut that switches identity** (a key, a gesture on the
   switch): left out on purpose, since a switch made without looking is
   the failure §5.7 exists to prevent.
+- **Unsaved card edits when the app itself ends**: closing the desktop
+  window, quitting the app, or the system ending it in the background
+  with the card editor holding unsaved changes is not specified (§5.2):
+  whether it asks, or what the build keeps, is open for rust-ui-dev to
+  raise with a platform constraint.
 - **An inline reply from a notification**: not specified; if it comes,
   its field names the identity it replies as (§5.7.5).
+- **Focus when a conversation opens in another way.** Item 1's table
+  names where focus goes when a conversation opens by Close without
+  saving in the card editor's unsaved-changes dialog, by a notification
+  of another identity, or by the share sheet closing on an empty
+  conversation's offer. The other ways a conversation opens are: from
+  the list, by a notification of the identity in front, and by §6.3's
+  Open conversation on a contact's route row. Where focus goes for
+  these three ways is not specified here. It belongs to the conversation's own
+  design, and §6.3's Open conversation follows whatever that design
+  says for an opened conversation.
 - **Starting a conversation with a PeerId no contact or conversation
   holds**: plan §18 carry 11's own flow, not designed here. A contact
   starts from a conversation and may outlive it; for its routes, §6.3's
