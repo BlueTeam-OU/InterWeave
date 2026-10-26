@@ -940,6 +940,14 @@ async fn a_response_never_written_is_unreachable_not_a_violation() {
         TransportError::PeerUnreachable,
         "a dropped response channel: the peer answered nothing"
     );
+}
+
+/// The same, reached by the responder's own request timeout firing
+/// before the sender's: the route a loaded receiver takes, kept apart so
+/// that a regression on it fails on its own rather than behind the
+/// dropped-channel case.
+#[tokio::test]
+async fn a_responder_timing_out_first_is_unreachable_not_a_violation() {
     assert_eq!(
         what_the_sender_reads(Answer::OwnTimeout(Duration::from_millis(300))).await,
         TransportError::PeerUnreachable,
