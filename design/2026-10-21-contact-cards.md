@@ -316,10 +316,12 @@ in the list, else to the control that opened the page. No snackbar: the
 row, or the sheet's preview, is the confirmation. A card has no Delete
 of its own: it is the identity's, and goes only with the identity.
 
-**Leaving with unsaved changes.** Every way off the editor asks first
-while it holds unsaved changes (judged as the last item of the photo
-step says, below), with one dialog, `CardDiscardChanges`, whichever
-control asked (rust-ui-dev-02's QUESTION 01a1757e, 2026-10-26):
+**Leaving with unsaved changes.** While the editor holds unsaved
+changes, every way of leaving it opens one dialog first,
+`CardDiscardChanges`, whichever control was used (rust-ui-dev-02's
+QUESTION 01a1757e, 2026-10-26). Whether a change is unsaved is judged
+as the last item of the photo step says (below). The ways of leaving
+are:
 
 - Back (Android), Escape (desktop) and the page's back arrow;
 - an identity switch (§5.7.3);
@@ -329,32 +331,34 @@ control asked (rust-ui-dev-02's QUESTION 01a1757e, 2026-10-26):
   editor (§4): a conversation picked in the list, and a page opened
   from the app options (Trust, Contacts, Your identities or Your card).
 
-The same loss is asked about the same way whatever causes it; a
-change lost without a word because the person picked a row beside the
-editor is the slip that heuristic 5, error prevention, asks a design
-to catch. The actions are **Close without saving** (`DiscardChanges`,
-text button) and **Continue editing** (`KeepEditing`, filled, default
+The dialog asks about the loss of changes in the same way, whatever
+causes it. A change lost without warning, because the person picked a
+row beside the editor, is the slip that heuristic 5, error prevention,
+asks a design to prevent. The actions are **Close without saving**
+(`DiscardChanges`, text button) and **Continue editing** (`KeepEditing`, filled, default
 focus), stacked as the proposal's are, for the same reasons (§5.4):
 each on a line of its own, the full width of the dialog, Close without
 saving above Continue editing, at every width and text scale
 (rust-ui-dev-02's INFO 01a17517 on #453, built so).
 
-- **Close without saving** drops the changes and lets what asked go
-  on: Back closes the editor, the switch switches, the picked
-  conversation or page opens.
+- **Close without saving** drops the changes, and the action that
+  opened the dialog continues: Back closes the editor, the switch
+  switches, the picked conversation or page opens.
 - **Continue editing** closes the dialog and changes nothing: the
   editor keeps its changes, and the list's selection stays where it
   was before the pick. Focus goes back to the control that had focus
   when the dialog opened: an editor field after Back, the switch, the
-  picked row. If that control is gone, as a closed menu's item is,
-  focus goes to the control that opened it, the app options button.
+  picked row. If that control no longer exists, as with an item of a
+  menu that has closed, focus goes to the control that opened the
+  menu: the app options button.
 
 The dialog has no body line and no Save. The title says what Close
 without saving does, so the person knows what happens to the changes
 (a question from language-culture-en's cold read, OBSERVATION
-01a17503). Save stays the editor's because it can find an invalid
+01a17503). Save stays in the editor, because Save can find an invalid
 field, whose error belongs under that field (above), where a dialog
-cannot show it. With no unsaved change, each of these goes on at once.
+cannot show it. With no unsaved change, each of these ways of leaving
+acts at once.
 What the build keeps of unsaved changes when the system ends the app
 in the background is not specified here.
 
