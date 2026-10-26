@@ -2654,6 +2654,10 @@ fn a_scan_line_is_drawn_under_the_controls_and_said_once() {
     for (given, words) in [
         (PeersInput::ImageUnreadable, text(UiText::ImageUnreadable)),
         (PeersInput::ClipboardNoImage, text(UiText::ClipboardNoImage)),
+        (
+            PeersInput::ClipboardUnreadable,
+            text(UiText::ClipboardUnreadable),
+        ),
     ] {
         let _ = model.peers_input(PeersInput::ScanPressed(ScanControl::PasteImage));
         view.render(&model);

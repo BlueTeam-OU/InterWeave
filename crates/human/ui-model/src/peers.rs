@@ -139,6 +139,9 @@ pub enum AddNote {
     ImageUnreadable,
     /// Paste an image found no image on the clipboard.
     ClipboardNoImage,
+    /// Paste an image could not read the clipboard at all, so what it
+    /// holds is not known: never "no image" nor an image unreadable.
+    ClipboardUnreadable,
     /// The camera permission refused: type or paste instead.
     CameraDenied,
     /// The camera permission refused for good: Open settings to allow it.
@@ -200,6 +203,7 @@ impl AddNote {
                 | Self::NotAddress
                 | Self::ImageUnreadable
                 | Self::ClipboardNoImage
+                | Self::ClipboardUnreadable
                 | Self::CameraDenied
                 | Self::CameraDeniedSettings
         )
@@ -630,6 +634,9 @@ pub enum PeersInput {
     ImageUnreadable,
     /// Paste an image found no image on the clipboard.
     ClipboardNoImage,
+    /// Paste an image could not read the clipboard at all: held by another
+    /// program, not offered to the app, or the read failed (§5.5).
+    ClipboardUnreadable,
     /// The camera permission was refused at Scan a code; `for_good` when
     /// the platform will not ask again, so only Settings can allow it.
     CameraDenied {
@@ -1032,6 +1039,10 @@ impl Peers {
             }
             PeersInput::ClipboardNoImage => {
                 self.scan_ended(Some(AddNote::ClipboardNoImage));
+                Vec::new()
+            }
+            PeersInput::ClipboardUnreadable => {
+                self.scan_ended(Some(AddNote::ClipboardUnreadable));
                 Vec::new()
             }
             PeersInput::CameraDenied { for_good } => {

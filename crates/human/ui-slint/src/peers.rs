@@ -1129,6 +1129,7 @@ fn note_text(host: RuntimeHost, note: &AddNote) -> String {
         AddNote::NotAddress => text(UiText::ScanNotAddress).to_owned(),
         AddNote::ImageUnreadable => text(UiText::ImageUnreadable).to_owned(),
         AddNote::ClipboardNoImage => text(UiText::ClipboardNoImage).to_owned(),
+        AddNote::ClipboardUnreadable => text(UiText::ClipboardUnreadable).to_owned(),
         AddNote::CameraDenied => text(UiText::CameraDenied).to_owned(),
         AddNote::CameraDeniedSettings => text(UiText::CameraDeniedSettings).to_owned(),
         AddNote::Refused { line, why } if why.names_line() => fill(

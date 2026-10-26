@@ -5000,7 +5000,7 @@ fn show_says_no_address_and_each_failure_by_what_is_true() {
 }
 
 /// Each scan line says what went wrong with the image -- unreadable, no
-/// image on the clipboard -- focus on the control used, and goes at the
+/// image on the clipboard, a clipboard unreadable -- focus on the control used, and goes at the
 /// next scan press or an edit of the field (§5.5, §8).
 #[test]
 fn a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit() {
@@ -5017,6 +5017,11 @@ fn a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit() {
             ScanControl::PasteImage,
             PeersInput::ClipboardNoImage,
             AddNote::ClipboardNoImage,
+        ),
+        (
+            ScanControl::PasteImage,
+            PeersInput::ClipboardUnreadable,
+            AddNote::ClipboardUnreadable,
         ),
     ] {
         let _ = input(&mut m, PeersInput::ScanPressed(control));

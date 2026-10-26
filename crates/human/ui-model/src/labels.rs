@@ -1262,6 +1262,13 @@ ui_texts! {
     ImageUnreadable => "This image could not be opened. Try another image of the other person's code.",
     /// Desktop, under the scan controls: Paste an image found no image.
     ClipboardNoImage => "There is no image on the clipboard. Copy an image of the other person's code, then choose Paste an image.",
+    /// Desktop, under the scan controls: Paste an image could not read the
+    /// clipboard at all (held by another program, not offered, a read
+    /// error), so what it holds is not known: never says there is no image
+    /// or that an image could not be opened; says what to do (add-a-peer
+    /// §5.5, §9).
+    // PLACEHOLDER (en)
+    ClipboardUnreadable => "InterWeave could not read the clipboard. Choose Paste an image to try again, or choose Open an image… to use an image file instead.",
     /// Show, first, before the code: what showing discloses.
     ShowWarning => "Anyone who sees this screen can learn this device's addresses and its PeerId.",
     /// The code's accessible label, one address.
