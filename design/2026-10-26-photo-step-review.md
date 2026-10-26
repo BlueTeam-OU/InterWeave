@@ -47,7 +47,7 @@ The five images:
 | picture 1 chosen, 0.3 s later | the circle dimmed under a progress ring; Add a photo still shown, and unchanged | the circle shows a progress indicator; the buttons stay as they were | pass |
 | picture 1 prepared | the arrow points up; Change photo and Remove photo beside the circle | turned upright by its orientation; Change photo, with Remove photo after it | pass |
 | picture 2 by Change photo | a black ring and blue square on white | transparency laid over plain white | pass |
-| picture 3 | the noise shows | fits at a quality from 90 down to 20 | pass |
+| picture 3 | the noise shows, with no `PhotoUnusable` | prepared and shown, since it fits at some quality from 90 down to 20; an image that fits at none is unusable | pass: accepted; the quality it was prepared at was not read (§3) |
 | picture 5 | "This photo cannot be used. Choose another one."; picture 3 still shown | `PhotoUnusable` shows **under the circle**; the card stays as it was | **mismatch: the line is in the right-hand column, under the buttons** |
 | Change photo, then Back in the picker | nothing changes; the unusable line stays | a cancel changes nothing; the line goes when another picture is chosen or the photo is removed | pass |
 | Remove photo | the initials, Add a photo; the line gone | the circle shows the initials, Add a photo replaces both buttons | pass |
@@ -55,7 +55,7 @@ The five images:
 | picture 4, then Back | `CardDiscardChanges` ("Close without saving your changes?"); Close without saving (text) above Continue editing (filled), each the dialog's width | the dialog, its actions stacked, Close without saving above Continue editing | pass |
 | Back on the dialog | the dialog closes; picture 4 still in the editor | Back on the dialog is Continue editing | pass |
 | Back, then Close without saving; reopen Your card | Conversations; reopened, no photo | the changes dropped; the saved card unchanged | pass |
-| picture 1, Save | a page titled "Select a conversation" with a back arrow and nothing else; one more Back reaches Conversations | the page closes back to where it was opened from (the Chats screen) | **mismatch: after Save, the empty-pane placeholder shows** |
+| picture 1, Save (the Chats screen 5.2 names is the screen titled Conversations) | a page titled "Select a conversation" with a back arrow and nothing else; one more Back reaches Conversations | the page closes back to where it was opened from (the Chats screen) | **mismatch: after Save, the empty-pane placeholder shows** |
 | Your card reopened | picture 1 shown | Save writes the photo | pass |
 | Remove photo, Save | no photo on reopening | the removal written on Save | pass |
 
@@ -74,6 +74,10 @@ Also seen, outside 5.2's photo step:
   does. It is not against 5.2, so it is not raised as a finding.
 
 ## 3. What this run could not show
+
+- **The prepared bytes.** The run saw that each picture was accepted
+  and how it looks, not the quality, size or bytes it was prepared
+  at; those are §9 item 11's test on captured bytes.
 
 - **Focus and announcements.** The app draws through Slint, which
   gives Android no accessibility tree (`uiautomator` sees one node).
