@@ -322,7 +322,11 @@ changes, every way of leaving it opens one dialog first,
 QUESTION 01a1757e, 2026-10-26). Whether a change is unsaved is judged
 as the last item of the photo step says (below). A way of leaving is
 any control that closes the editor or puts another page in its place,
-and the rule holds for a control added later too. Today the ways of leaving
+and the rule holds for a control added later too, with two exceptions.
+A valid Save closes the editor but keeps the changes, so it asks
+nothing. Remove this identity asks nothing more: its own dialog
+already lists the card among what goes (below), so a second dialog
+would ask about the same loss twice. Today the ways of leaving
 are:
 
 - Back (Android), Escape (desktop) and the page's back arrow;
@@ -1710,7 +1714,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    |---|---|---|
    | Your identities / Your card / Contacts opened from the menu, or Your identities from the switcher | the page title (focusable heading) | keyboard |
    | Trust opened from the menu | its title (look spec §5) | keyboard |
-   | a conversation opened from the list, or by a notification of the identity in front | the conversation's header title, never the composer (message-swipe §7) | keyboard: on a wide window, from a card editor's dialog, Close without saving after a picked row |
+   | a conversation opened by Close without saving in the card editor's unsaved-changes dialog: a row picked in the list, or a notification of the identity in front (§5.2) | the conversation's header title, never the composer (the reason message-swipe §7 gives); a conversation opened any other way is outside this spec | keyboard: on a wide window, with a name changed in the card editor, pick a conversation row, then Close without saving: focus on the header title, the keyboard closed; with a name changed, open a notification of the identity in front by keyboard, then Close without saving: the same |
    | a card saved | the identity's row in the list, else the control that opened the page (the sheet's Edit your card or Add your name) | keyboard |
    | a card's Save with an invalid field | the first invalid field | keyboard |
    | the editor's Photo Picker or file dialog closes, a picture chosen or cancelled (§5.2) | the button that opened it (Add a photo, or Change photo) | keyboard on desktop: open the file dialog from Add a photo, cancel it, focus on Add a photo; choose a picture, focus on the same button. Keyboard on Android: open the Photo Picker from Add a photo, press Back (`adb shell input keyevent KEYCODE_BACK`), focus on Add a photo; choose a picture, focus on the same button |
@@ -2018,7 +2022,11 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     as it was, and focus as item 1's table says; Escape and Back on the
     dialog do the same; Close without saving opens what was asked, focus
     as item 1's table says for it, and the card reopened shows the saved name. With no
-    change, each opens what was asked at once, with no dialog.
+    change, each opens what was asked at once, with no dialog. A valid
+    Save with the change closes the editor with no `CardDiscardChanges`;
+    on an added identity with the change, Remove this identity opens
+    only its own dialog, and its Cancel returns to the editor with the
+    change still there.
 
 ### 9.1 `human-client-ui.md` §13 criteria
 
