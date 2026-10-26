@@ -50,6 +50,7 @@ const CHUNK: usize = 128 * 1024;
 pub(crate) struct Owner {
     stop: Arc<AtomicBool>,
     taken: Arc<AtomicUsize>,
+    gone: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -101,6 +102,8 @@ impl Owner {
         let stopped = Arc::clone(&stop);
         let taken = Arc::new(AtomicUsize::new(0));
         let counted = Arc::clone(&taken);
+        let gone = Arc::new(AtomicBool::new(false));
+        let seen_gone = Arc::clone(&gone);
         let thread = std::thread::spawn(move || {
             while !stopped.load(Ordering::Relaxed) {
                 let Ok(event) = conn.poll_for_event() else {
@@ -146,7 +149,7 @@ impl Owner {
                     Holding::Silent => unreachable!("answered nothing above"),
                     Holding::Endless => endless(&conn, &atoms, &r, &stopped),
                     Holding::Chunked { total } => {
-                        chunked(&conn, &atoms, &r, *total, &stopped, &counted);
+                        chunked(&conn, &atoms, &r, *total, &stopped, &counted, &seen_gone);
                     }
                 }
             }
@@ -154,6 +157,7 @@ impl Owner {
         Self {
             stop,
             taken,
+            gone,
             thread: Some(thread),
         }
     }
@@ -244,17 +248,34 @@ fn endless(conn: &RustConnection, atoms: &Atoms, r: &SelectionRequestEvent, stop
 }
 
 impl Owner {
-    /// The bytes of a [`Holding::Chunked`] image the requester has taken:
-    /// each chunk counts once the requester deletes it to ask for the
-    /// next, or for the end.
-    pub(crate) fn taken(&self) -> usize {
-        self.taken.load(Ordering::Relaxed)
+    /// The bytes of a [`Holding::Chunked`] image the requester took, once
+    /// its read is over: each chunk counts once the requester deletes it,
+    /// and the count is read only after the owner has seen the requester's
+    /// window destroyed, which the server reports after every deletion the
+    /// requester made of that window's property, so no deletion is still
+    /// on its way to the count.
+    pub(crate) async fn taken_when_gone(&self) -> usize {
+        let deadline = std::time::Instant::now() + crate::common::PATIENCE;
+        while !self.gone.load(Ordering::Acquire) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the requester's window was never destroyed"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        self.taken.load(Ordering::Acquire)
     }
 }
 
 /// Wait for the requester to delete the transfer's property, the
-/// protocol's ask for the next chunk; `false` when the case stops first.
-fn deleted(conn: &RustConnection, r: &SelectionRequestEvent, stop: &AtomicBool) -> bool {
+/// protocol's ask for the next chunk; `false` when the case stops first,
+/// or when the requester's window is destroyed, which sets `gone`.
+fn deleted(
+    conn: &RustConnection,
+    r: &SelectionRequestEvent,
+    stop: &AtomicBool,
+    gone: &AtomicBool,
+) -> bool {
     loop {
         if stop.load(Ordering::Relaxed) {
             return false;
@@ -266,6 +287,10 @@ fn deleted(conn: &RustConnection, r: &SelectionRequestEvent, stop: &AtomicBool) 
                     && e.state == Property::DELETE =>
             {
                 return true;
+            }
+            Ok(Some(Event::DestroyNotify(e))) if e.window == r.requestor => {
+                gone.store(true, Ordering::Release);
+                return false;
             }
             Ok(Some(_)) => {}
             Ok(None) => std::thread::sleep(Duration::from_millis(1)),
@@ -284,10 +309,12 @@ fn chunked(
     total: usize,
     stop: &AtomicBool,
     taken: &AtomicUsize,
+    gone: &AtomicBool,
 ) {
     let watched = conn.change_window_attributes(
         r.requestor,
-        &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+        &ChangeWindowAttributesAux::new()
+            .event_mask(EventMask::PROPERTY_CHANGE | EventMask::STRUCTURE_NOTIFY),
     );
     let announced = conn.change_property32(
         PropMode::REPLACE,
@@ -302,9 +329,9 @@ fn chunked(
     notify(conn, r, true);
     let chunk = vec![0x89; CHUNK];
     let mut sent = 0;
-    while deleted(conn, r, stop) {
+    while deleted(conn, r, stop, gone) {
         // The deletion that asks for this chunk took the one before it.
-        taken.store(sent, Ordering::Relaxed);
+        taken.store(sent, Ordering::Release);
         let n = CHUNK.min(total - sent);
         if conn
             .change_property8(
