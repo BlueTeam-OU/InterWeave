@@ -12,7 +12,7 @@
 //! [`crate::display::exclusive`] for its run.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -36,11 +36,20 @@ pub(crate) enum Holding {
     /// An image announced as incremental, then one byte after another,
     /// never ending.
     Endless,
+    /// An image of `total` bytes sent incrementally as the protocol asks,
+    /// a chunk each time the requester takes the last one, announced as
+    /// far smaller; [`Owner::taken`] counts what the requester took.
+    Chunked { total: usize },
 }
+
+/// The incremental chunk [`Holding::Chunked`] sends, well inside one
+/// request without the big-requests extension.
+const CHUNK: usize = 128 * 1024;
 
 /// The clipboard, owned until this is dropped.
 pub(crate) struct Owner {
     stop: Arc<AtomicBool>,
+    taken: Arc<AtomicUsize>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -90,6 +99,8 @@ impl Owner {
         assert_eq!(owner, window, "the clipboard is this case's");
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = Arc::clone(&stop);
+        let taken = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&taken);
         let thread = std::thread::spawn(move || {
             while !stopped.load(Ordering::Relaxed) {
                 let Ok(event) = conn.poll_for_event() else {
@@ -134,11 +145,15 @@ impl Owner {
                     }
                     Holding::Silent => unreachable!("answered nothing above"),
                     Holding::Endless => endless(&conn, &atoms, &r, &stopped),
+                    Holding::Chunked { total } => {
+                        chunked(&conn, &atoms, &r, *total, &stopped, &counted);
+                    }
                 }
             }
         });
         Self {
             stop,
+            taken,
             thread: Some(thread),
         }
     }
@@ -225,6 +240,89 @@ fn endless(conn: &RustConnection, atoms: &Atoms, r: &SelectionRequestEvent, stop
         // Drain what the server sends back, so this client's own queue
         // does not grow while the requester's does.
         while let Ok(Some(_)) = conn.poll_for_event() {}
+    }
+}
+
+impl Owner {
+    /// The bytes of a [`Holding::Chunked`] image the requester has taken:
+    /// each chunk counts once the requester deletes it to ask for the
+    /// next, or for the end.
+    pub(crate) fn taken(&self) -> usize {
+        self.taken.load(Ordering::Relaxed)
+    }
+}
+
+/// Wait for the requester to delete the transfer's property, the
+/// protocol's ask for the next chunk; `false` when the case stops first.
+fn deleted(conn: &RustConnection, r: &SelectionRequestEvent, stop: &AtomicBool) -> bool {
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return false;
+        }
+        match conn.poll_for_event() {
+            Ok(Some(Event::PropertyNotify(e)))
+                if e.window == r.requestor
+                    && e.atom == r.property
+                    && e.state == Property::DELETE =>
+            {
+                return true;
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => std::thread::sleep(Duration::from_millis(1)),
+            Err(_) => return false,
+        }
+    }
+}
+
+/// The incremental transfer as the protocol has it: announced at 1000
+/// bytes, then a chunk each time the requester deletes the last, then an
+/// empty chunk to end it, counting each chunk taken into `taken`.
+fn chunked(
+    conn: &RustConnection,
+    atoms: &Atoms,
+    r: &SelectionRequestEvent,
+    total: usize,
+    stop: &AtomicBool,
+    taken: &AtomicUsize,
+) {
+    let watched = conn.change_window_attributes(
+        r.requestor,
+        &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+    );
+    let announced = conn.change_property32(
+        PropMode::REPLACE,
+        r.requestor,
+        r.property,
+        atoms.incr,
+        &[1000],
+    );
+    if watched.is_err() || announced.is_err() {
+        return;
+    }
+    notify(conn, r, true);
+    let chunk = vec![0x89; CHUNK];
+    let mut sent = 0;
+    while deleted(conn, r, stop) {
+        // The deletion that asks for this chunk took the one before it.
+        taken.store(sent, Ordering::Relaxed);
+        let n = CHUNK.min(total - sent);
+        if conn
+            .change_property8(
+                PropMode::REPLACE,
+                r.requestor,
+                r.property,
+                atoms.held,
+                &chunk[..n],
+            )
+            .is_err()
+            || conn.flush().is_err()
+        {
+            return;
+        }
+        if n == 0 {
+            return;
+        }
+        sent += n;
     }
 }
 

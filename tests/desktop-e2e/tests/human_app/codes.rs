@@ -491,6 +491,9 @@ async fn a_hostile_clipboard_owner_is_given_up_at_the_deadline() {
     // loaded host; an owner not given up runs to the byte bound, minutes
     // at a byte a round trip, so the margin cannot hide that.
     const IN_TIME: Duration = Duration::from_secs(25);
+    // ui-slint's code::MAX_IMAGE_BYTES, which no dependency of this suite
+    // exports; were it raised, the case's 2x image would still pass it.
+    const BOUND: usize = 32 * 1024 * 1024;
     let _focus = display::exclusive().await;
     let world = two_daemons().await;
     let bus = Bus::connect().await;
@@ -526,12 +529,52 @@ async fn a_hostile_clipboard_owner_is_given_up_at_the_deadline() {
     ] {
         let owner = clipboard::Owner::hold("image/png", holding);
         let start = Instant::now();
-        window.activate(&paste, "click").await;
-        window.until(what, |e: &Element| e.name == line, log).await;
+        paste_until_said(&window, &paste, what, line, log).await;
         let took = start.elapsed();
         assert!(took < IN_TIME, "{what}: given up after {took:?}");
         drop(owner);
     }
+
+    // Text only between the two lines alike, so each press is seen to
+    // end with its own.
+    let words = clipboard::Owner::hold(
+        "text/plain",
+        clipboard::Holding::Whole(b"not an image".to_vec()),
+    );
+    paste_until_said(
+        &window,
+        &paste,
+        "text only",
+        text(UiText::ClipboardNoImage),
+        log,
+    )
+    .await;
+    drop(words);
+
+    // An image past the byte bound, sent incrementally as the protocol
+    // asks: refused, and the client stops taking chunks at the bound.
+    // What it says cannot show the bound (an image past it is refused by
+    // the decoder too); what it took from the owner can.
+    let big = clipboard::Owner::hold(
+        "image/png",
+        clipboard::Holding::Chunked { total: 2 * BOUND },
+    );
+    paste_until_said(
+        &window,
+        &paste,
+        "an image past the bound",
+        text(UiText::ImageUnreadable),
+        log,
+    )
+    .await;
+    // Up to the bound, then no further chunk: within one chunk of it.
+    let took = big.taken();
+    assert!(
+        took + 128 * 1024 >= BOUND && took <= BOUND + 128 * 1024,
+        "took {took} bytes of {}",
+        2 * BOUND
+    );
+    drop(big);
 
     // The page is still usable: the next paste is read.
     let lines = [format!(
@@ -554,4 +597,25 @@ async fn a_hostile_clipboard_owner_is_given_up_at_the_deadline() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(client.terminate().success(), "{}", client.log());
+}
+
+/// Press Paste an image and wait for its scan to end saying `line`. A
+/// press while a scan is open changes nothing, so the next press waits
+/// for this; and `line` must not be showing already, or a line a scan
+/// before left would pass for this one's.
+async fn paste_until_said(
+    window: &crate::a11y::Window<'_>,
+    paste: &Element,
+    what: &str,
+    line: &str,
+    log: impl Fn() -> String + Copy,
+) {
+    let tree = window.read().await;
+    assert!(
+        !tree.iter().any(|e| e.name == line),
+        "{what}: its line shows before the press\n{}",
+        crate::a11y::describe(&tree)
+    );
+    window.activate(paste, "click").await;
+    window.until(what, |e: &Element| e.name == line, log).await;
 }

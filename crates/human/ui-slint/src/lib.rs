@@ -1151,7 +1151,8 @@ impl View {
     /// apart, since Linux alone reads it within bounds (`clipboard.rs`;
     /// desktop-e2e `a_hostile_clipboard_owner_is_given_up_at_the_deadline`);
     /// elsewhere a Paste press ends as a cancelled scan (#409 F1;
-    /// `a_paste_press_reads_no_clipboard_and_ends_cancelled`).
+    /// `a_paste_press_reads_no_clipboard_and_ends_cancelled`, which
+    /// compiles only off Linux, so a Linux-only CI does not run it).
     pub fn offer_scans(&self, camera: bool, files: bool, clipboard: bool) {
         self.window.set_scan_camera(camera);
         self.window.set_scan_images(files);
