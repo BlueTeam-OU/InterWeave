@@ -71,7 +71,7 @@ Also seen, against §5.2 field 1 outside the photo step:
   gives the editor's hue as teal (`map_or(0, ..)`) while the own
   `PeerId` is not known, and otherwise `Avatar::of`'s hue, which
   `crates/human/ui-model/src/look.rs` takes from the `PeerId` alone.
-  So neither colour is the EndpointId's hue, and the circle changes
+  So neither colour is taken from the EndpointId, and the circle changes
   colour once the `PeerId` is known.
 - **The rows below the photo move.** The Name field sits about 20 px
   lower while two buttons stand beside the circle than while one
@@ -87,12 +87,10 @@ Also seen, against §5.2 field 1 outside the photo step:
   `CardDiscardChanges` and Close without saving keeps the saved photo,
   with no snackbar (§9 item 11). Nor was it captured whether a
   snackbar showed after Remove photo and Save.
-
 - **The prepared bytes.** The run saw that each picture was accepted
   and how it looks, not the quality, size or bytes it was prepared
   at, nor the bytes a share would send; those are §9 item 11's test
   on captured bytes.
-
 - **Focus and announcements.** The app draws through Slint, which
   gives Android no accessibility tree (`uiautomator` sees one node).
   So where focus lands after the picker closes, after Remove photo
