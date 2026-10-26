@@ -11,8 +11,9 @@
 //! the decoder's allocation. The clipboard's image is read as its encoded
 //! bytes (`clipboard.rs`), not through the toolkit's clipboard crate,
 //! which decodes an image whole under no bound of this client's (#409
-//! F1) and which this crate does not depend on. Elsewhere a Paste press ends as a cancelled scan, and the desktop
-//! does not offer the control.
+//! F1): that crate is in the graph through the toolkit's backend, and
+//! Paste does not call it. Elsewhere a Paste press ends as a cancelled
+//! scan, and the desktop does not offer the control.
 
 use std::io::Read as _;
 use std::sync::{Arc, Mutex};
