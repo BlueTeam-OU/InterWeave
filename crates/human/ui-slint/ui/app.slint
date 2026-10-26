@@ -73,6 +73,11 @@ export struct ProposalNoteRow {
 // photo is not decoded, and the row says only that there is one.
 export struct ProposalRow {
     handle: int,
+    // The handle of the message it follows, or -1 before them all: its
+    // place in time among the messages.
+    after: int,
+    // The day separator above it; empty for none.
+    day: string,
     // "This peer says they are {name}", the name isolated.
     heading: string,
     // The full name, for Accept's accessible description.
@@ -90,7 +95,7 @@ export struct ProposalRow {
     notes: [ProposalNoteRow],
     // It goes when InterWeave stops unless accepted.
     goes: string,
-    // When it came: the row is drawn after the messages, not at its time.
+    // When it came.
     received: string,
     // The card changes nothing (case S): Close alone, in Accept's place.
     closes: bool,
@@ -224,6 +229,10 @@ export struct MessageRow {
     // A leaving row whose day separator the next row takes over once it is
     // gone: its gap and separator stay while only its item closes.
     hand-over: bool,
+    // How many card proposals follow it, before the next message: each
+    // drawn below its item (contact-cards design 5.4, at its place in
+    // time).
+    cards-after: int,
     // The source as received, shown on the person's request: always
     // viewable, however it rendered (HUMAN-CHAT.md).
     source: string,
@@ -2171,6 +2180,13 @@ component ProposalCard inherits Rectangle {
     // `a_proposal_row_is_as_tall_as_what_it_says`).
     min-height: body.min-height;
     preferred-height: body.preferred-height;
+    // Every wrapped line in it takes its own height at the width it is
+    // drawn as its minimum (`min-height: self.preferred-height`): through
+    // the conditional and repeated layouts it sits in, Slint measured a
+    // wrapped Text a line or two short, and the card came out shorter
+    // than what it draws -- its end under the next message, or Accept
+    // outside it (`a_card_between_messages_is_whole_at_a_phones_width`,
+    // `a_proposal_fits_a_narrow_window_with_large_text`).
     // The menu from the keyboard (#433 F3): the Menu key or Shift+F10
     // on any of the card's controls, which pass them up here. The card is
     // no focus stop of its own, so Enter stays the focused control's.
@@ -2236,6 +2252,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.photo-note;
             font-size: Type.body-medium;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2255,6 +2272,7 @@ component ProposalCard inherits Rectangle {
                 text: root.card.heading;
                 font-size: Type.title-medium;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
                 color: Palette.on-surface;
                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 accessible-role: text;
@@ -2265,6 +2283,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.photo-line;
             font-size: Type.body-medium;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2274,6 +2293,7 @@ component ProposalCard inherits Rectangle {
             font-size: Type.body-medium;
             font-weight: 700;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.error;
             accessible-role: text;
             accessible-label: self.text;
@@ -2293,6 +2313,7 @@ component ProposalCard inherits Rectangle {
                 font-family: root.code-font;
                 font-size: Type.body-medium;
                 wrap: char-wrap;
+                min-height: self.preferred-height;
                 color: Palette.on-surface;
                 accessible-role: text;
                 accessible-label: self.text;
@@ -2331,6 +2352,7 @@ component ProposalCard inherits Rectangle {
                 font-family: root.code-font;
                 font-size: Type.body-medium;
                 wrap: char-wrap;
+                min-height: self.preferred-height;
                 color: Palette.on-surface;
                 accessible-role: text;
                 accessible-label: self.text;
@@ -2340,6 +2362,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.context;
             font-size: Type.body-medium;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface;
             accessible-role: text;
             accessible-label: self.text;
@@ -2351,6 +2374,7 @@ component ProposalCard inherits Rectangle {
                 font-size: Type.body-medium;
                 font-weight: note.warning ? 700 : 400;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
                 color: note.warning ? Palette.error : Palette.on-surface;
                 accessible-role: text;
                 accessible-label: self.text;
@@ -2376,6 +2400,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.received;
             font-size: Type.body-small;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2384,6 +2409,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.goes;
             font-size: Type.body-small;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2496,6 +2522,125 @@ component OpenRow inherits FocusScope {
         height: root.height + 10px;
         shown: root.has-focus;
     }
+}
+
+// A received card's row in a conversation (contact-cards design section
+// 5.4): its card, swiped Accept and Decline, and its menu. Placed among the
+// messages at its place in time, so the AppWindow draws it in more than one
+// place.
+component ProposalEntry inherits Rectangle {
+    in property <ProposalRow> proposal;
+    in property <string> swipe-key;
+    in property <length> swipe-offset;
+    in property <bool> swipe-armed;
+    in property <bool> swipe-tracking;
+    in property <bool> reduced-motion;
+    in property <bool> rtl;
+    in property <string> code-font;
+    in property <int> focus-seq;
+    in property <string> focus-target;
+    in property <int> card-menu;
+    in property <length> window-width;
+    callback swipe-moved(string, length, length, length, length, length, length);
+    callback swipe-ended(string);
+    callback swipe-cancelled(string);
+    callback menu-haptic();
+    callback open-menu(ProposalRow, length, length, length, length, bool);
+    callback proposal-accept(int);
+    callback proposal-decline(int);
+    callback proposal-open-contact(int, int);
+    callback copy-peer(string);
+    callback focused(string);
+    // The space a day separator takes above the card.
+    property <length> day-space: root.proposal.day != "" ? day-measure.preferred-height + 4px : 0px;
+    day-measure := Text {
+        text: root.proposal.day;
+        font-size: Type.body-small;
+        visible: false;
+        accessible-role: none;
+    }
+    // A day change, as a message's: before the card it heads, drawn in
+    // the space the card's layout leaves above it.
+    if root.proposal.day != "": Text {
+        x: 0;
+        y: 8px;
+        width: parent.width;
+        height: day-measure.preferred-height;
+        text: root.proposal.day;
+        font-size: Type.body-small;
+        color: Palette.on-surface-variant;
+        horizontal-alignment: center;
+        accessible-role: text;
+        accessible-label: self.text;
+    }
+                VerticalLayout {
+                padding-top: 8px + root.day-space;
+                proposal-row := Rectangle {
+                property <string> swipe-key: root.proposal.swipe-key;
+                property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
+                animate offset {
+                    duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
+                    easing: ease-out;
+                }
+                clip: true;
+                border-radius: 12px;
+                // Accept toward the line's end, Decline toward its start
+                // (design section 5.4.4), mirrored right to left; a way
+                // the case withholds does not move.
+                SwipeGestureHandler {
+                    enabled: root.proposal.end-kind != SwipeKind.none || root.proposal.start-kind != SwipeKind.none;
+                    handle-swipe-right: root.rtl ? root.proposal.start-kind != SwipeKind.none : root.proposal.end-kind != SwipeKind.none;
+                    handle-swipe-left: root.rtl ? root.proposal.end-kind != SwipeKind.none : root.proposal.start-kind != SwipeKind.none;
+                    moved => {
+                        root.swipe-moved(proposal-row.swipe-key,
+                            self.absolute-position.x + self.pressed-position.x,
+                            self.absolute-position.y + self.pressed-position.y,
+                            self.absolute-position.x + self.current-position.x,
+                            self.absolute-position.y + self.current-position.y,
+                            self.width, root.window-width);
+                    }
+                    swiped => { root.swipe-ended(proposal-row.swipe-key); }
+                    cancelled => { root.swipe-cancelled(proposal-row.swipe-key); }
+                    if proposal-row.offset != 0px: SwipeReveal {
+                        property <bool> toward-end: (proposal-row.offset > 0px) != root.rtl;
+                        kind: self.toward-end ? root.proposal.end-kind : root.proposal.start-kind;
+                        label: self.toward-end ? root.proposal.end-label : root.proposal.start-label;
+                        armed: root.swipe-armed;
+                        at-left: proposal-row.offset > 0px;
+                        reduced-motion: root.reduced-motion;
+                        border-radius: 12px;
+                    }
+                    // Moved by its padding, as a message row is, so the
+                    // card keeps its width.
+                    HorizontalLayout {
+                        padding-left: proposal-row.offset;
+                        padding-right: -proposal-row.offset;
+                ProposalCard {
+                    card: root.proposal;
+                    code-font: root.code-font;
+                    rtl: root.rtl;
+                    focus-seq: root.focus-seq;
+                    focus-target: root.focus-target;
+                    swipe-tracking: root.swipe-tracking;
+                    menu-open: root.card-menu == root.proposal.handle;
+                    menu(haptic, by-key) => {
+                        if (haptic) { root.menu-haptic(); }
+                        root.open-menu(root.proposal, proposal-row.absolute-position.x,
+                            proposal-row.absolute-position.y, proposal-row.width,
+                            proposal-row.height, by-key);
+                    }
+                    accept => { root.proposal-accept(root.proposal.handle); }
+                    decline => { root.proposal-decline(root.proposal.handle); }
+                    open-contact(note) => { root.proposal-open-contact(root.proposal.handle, note); }
+                    copy => {
+                        root.copy-peer(root.proposal.peer);
+                    }
+                    focused(k) => { root.focused(k); }
+                }
+                    }
+                }
+                }
+                }
 }
 
 export component AppWindow inherits Window {
@@ -3176,9 +3321,15 @@ export component AppWindow inherits Window {
         root.leave-cards-page();
     }
     function leave-cards-page() {
+        root.cards-left();
+        root.close-cards();
+    }
+    // The card pages left, by Back or by a valid Save: the list again on a
+    // phone, and focus back on the app options button that opened them
+    // (contact-cards design 5.2; `saving_your_card_closes_it_back_to_the_list`).
+    public function cards-left() {
         root.contact-confirming-delete = false;
         root.list-shown = true;
-        root.close-cards();
         root.chats-menu-closed-seq += 1;
     }
     // The unsaved-changes dialog closed on Continue editing: focus where
@@ -5067,44 +5218,48 @@ export component AppWindow inherits Window {
                     // The own card: what a share sends, edited here.
                     if root.cards-page == CardsPage.own-card: VerticalLayout {
                         spacing: 12px;
-                        HorizontalLayout {
-                            spacing: 16px;
-                            Rectangle {
-                                width: 96px;
-                                height: 96px;
-                                accessible-role: image;
-                                accessible-label: root.own-circle-label;
-                                PhotoCircle {
-                                    size: 96px;
-                                    has-photo: root.own-edit-has-photo;
-                                    photo: root.own-edit-photo;
-                                    letters: root.own-letters;
-                                    hue: root.own-hue;
-                                }
-                                // Preparing: the circle dimmed under the
-                                // ring, so the two read as one state rather
-                                // than a spinner over the initials (seen
-                                // rendered).
-                                if root.own-photo-preparing: Rectangle {
+                        // Field 1 (design 5.2): the circle, and under it its
+                        // buttons, one a line, then what could not be used.
+                        VerticalLayout {
+                            spacing: 8px;
+                            HorizontalLayout {
+                                alignment: start;
+                                Rectangle {
                                     width: 96px;
                                     height: 96px;
-                                    border-radius: 48px;
-                                    background: Palette.surface.with-alpha(0.7);
-                                }
-                                if root.own-photo-preparing: ProgressRing {
-                                    size: 64px;
-                                    reduced-motion: root.reduced-motion;
+                                    accessible-role: image;
+                                    accessible-label: root.own-circle-label;
+                                    PhotoCircle {
+                                        size: 96px;
+                                        has-photo: root.own-edit-has-photo;
+                                        photo: root.own-edit-photo;
+                                        letters: root.own-letters;
+                                        hue: root.own-hue;
+                                    }
+                                    // Preparing: the circle dimmed under the
+                                    // ring, so the two read as one state rather
+                                    // than a spinner over the initials (seen
+                                    // rendered).
+                                    if root.own-photo-preparing: Rectangle {
+                                        width: 96px;
+                                        height: 96px;
+                                        border-radius: 48px;
+                                        background: Palette.surface.with-alpha(0.7);
+                                    }
+                                    if root.own-photo-preparing: ProgressRing {
+                                        size: 64px;
+                                        reduced-motion: root.reduced-motion;
+                                    }
                                 }
                             }
                             VerticalLayout {
-                                alignment: center;
                                 spacing: 8px;
-                                horizontal-stretch: 1;
                                 // No picker in this build: where a photo is
                                 // chosen instead.
                                 if !root.own-photo-choosable: Text {
                                     text: root.own-photo-note;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                     font-size: Type.body-medium;
                                     color: Palette.on-surface-variant;
                                     accessible-role: text;
@@ -5143,6 +5298,7 @@ export component AppWindow inherits Window {
                                 if root.own-photo-unusable != "": Text {
                                     text: root.own-photo-unusable;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                     font-size: Type.body-medium;
                                     color: Palette.error;
                                     accessible-role: text;
@@ -5595,6 +5751,40 @@ export component AppWindow inherits Window {
             // only its item closes (swipe spec section 5;
             // tests/look.rs, `a_leaving_message_closes_its_space_without_a_jump`).
             // Clipped so it hides what it covered.
+            // The card proposals that arrived before the first message
+            // (contact-cards design 5.4: each at its place in time); the
+            // others follow the message they came after.
+            for proposal in root.proposals: VerticalLayout {
+                if proposal.after < 0: ProposalEntry {
+                    proposal: proposal;
+                    swipe-key: root.swipe-key;
+                    swipe-offset: root.swipe-offset;
+                    swipe-armed: root.swipe-armed;
+                    swipe-tracking: root.swipe-tracking;
+                    reduced-motion: root.reduced-motion;
+                    rtl: root.rtl;
+                    code-font: root.code-font;
+                    focus-seq: root.focus-seq;
+                    focus-target: root.focus-target;
+                    card-menu: root.card-menu;
+                    window-width: root.width;
+                    swipe-moved(k, x0, y0, x1, y1, w, ww) => { root.swipe-moved(k, x0, y0, x1, y1, w, ww); }
+                    swipe-ended(k) => { root.swipe-ended(k); }
+                    swipe-cancelled(k) => { root.swipe-cancelled(k); }
+                    menu-haptic => { root.menu-haptic(); }
+                    open-menu(row, x, y, w, h, by-key) => { root.open-card-menu(row, x, y, w, h, by-key); }
+                    proposal-accept(h) => { root.proposal-accept(h); }
+                    proposal-decline(h) => { root.proposal-decline(h); }
+                    proposal-open-contact(h, n) => { root.proposal-open-contact(h, n); }
+                    copy-peer(text) => {
+                        root.proposal-copy-text = text;
+                        proposal-copy.select-all();
+                        proposal-copy.copy();
+                        proposal-copy.clear-selection();
+                    }
+                    focused(k) => { root.focus-id = k; }
+                }
+            }
             for row[index] in root.messages: row-box := Rectangle {
 
                 // Clipped only while it closes: a clipped row is skipped when
@@ -6063,80 +6253,43 @@ export component AppWindow inherits Window {
                         shown: item.has-focus;
                     }
                 }
+                // The card proposals that arrived after it, before the next
+                // message: in one layout, so a row without any keeps its
+                // spacing.
+                if row.cards-after > 0: VerticalLayout {
+                    for proposal in root.proposals: VerticalLayout {
+                        if proposal.after == row.handle: ProposalEntry {
+                            proposal: proposal;
+                            swipe-key: root.swipe-key;
+                            swipe-offset: root.swipe-offset;
+                            swipe-armed: root.swipe-armed;
+                            swipe-tracking: root.swipe-tracking;
+                            reduced-motion: root.reduced-motion;
+                            rtl: root.rtl;
+                            code-font: root.code-font;
+                            focus-seq: root.focus-seq;
+                            focus-target: root.focus-target;
+                            card-menu: root.card-menu;
+                            window-width: root.width;
+                            swipe-moved(k, x0, y0, x1, y1, w, ww) => { root.swipe-moved(k, x0, y0, x1, y1, w, ww); }
+                            swipe-ended(k) => { root.swipe-ended(k); }
+                            swipe-cancelled(k) => { root.swipe-cancelled(k); }
+                            menu-haptic => { root.menu-haptic(); }
+                            open-menu(row, x, y, w, h, by-key) => { root.open-card-menu(row, x, y, w, h, by-key); }
+                            proposal-accept(h) => { root.proposal-accept(h); }
+                            proposal-decline(h) => { root.proposal-decline(h); }
+                            proposal-open-contact(h, n) => { root.proposal-open-contact(h, n); }
+                            copy-peer(text) => {
+                                root.proposal-copy-text = text;
+                                proposal-copy.select-all();
+                                proposal-copy.copy();
+                                proposal-copy.clear-selection();
+                            }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                }
             }
-            }
-            // The conversation's card proposals, after its messages: each a
-            // row of its own (design section 5.4).
-            for proposal in root.proposals: VerticalLayout {
-                padding-top: 8px;
-                proposal-row := Rectangle {
-                property <string> swipe-key: proposal.swipe-key;
-                property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
-                animate offset {
-                    duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
-                    easing: ease-out;
-                }
-                clip: true;
-                border-radius: 12px;
-                // Accept toward the line's end, Decline toward its start
-                // (design section 5.4.4), mirrored right to left; a way
-                // the case withholds does not move.
-                SwipeGestureHandler {
-                    enabled: proposal.end-kind != SwipeKind.none || proposal.start-kind != SwipeKind.none;
-                    handle-swipe-right: root.rtl ? proposal.start-kind != SwipeKind.none : proposal.end-kind != SwipeKind.none;
-                    handle-swipe-left: root.rtl ? proposal.end-kind != SwipeKind.none : proposal.start-kind != SwipeKind.none;
-                    moved => {
-                        root.swipe-moved(proposal-row.swipe-key,
-                            self.absolute-position.x + self.pressed-position.x,
-                            self.absolute-position.y + self.pressed-position.y,
-                            self.absolute-position.x + self.current-position.x,
-                            self.absolute-position.y + self.current-position.y,
-                            self.width, root.width);
-                    }
-                    swiped => { root.swipe-ended(proposal-row.swipe-key); }
-                    cancelled => { root.swipe-cancelled(proposal-row.swipe-key); }
-                    if proposal-row.offset != 0px: SwipeReveal {
-                        property <bool> toward-end: (proposal-row.offset > 0px) != root.rtl;
-                        kind: self.toward-end ? proposal.end-kind : proposal.start-kind;
-                        label: self.toward-end ? proposal.end-label : proposal.start-label;
-                        armed: root.swipe-armed;
-                        at-left: proposal-row.offset > 0px;
-                        reduced-motion: root.reduced-motion;
-                        border-radius: 12px;
-                    }
-                    // Moved by its padding, as a message row is, so the
-                    // card keeps its width.
-                    HorizontalLayout {
-                        padding-left: proposal-row.offset;
-                        padding-right: -proposal-row.offset;
-                ProposalCard {
-                    card: proposal;
-                    code-font: root.code-font;
-                    rtl: root.rtl;
-                    focus-seq: root.focus-seq;
-                    focus-target: root.focus-target;
-                    swipe-tracking: root.swipe-tracking;
-                    menu-open: root.card-menu == proposal.handle;
-                    menu(haptic, by-key) => {
-                        if (haptic) { root.menu-haptic(); }
-                        root.open-card-menu(proposal, proposal-row.absolute-position.x,
-                            proposal-row.absolute-position.y, proposal-row.width,
-                            proposal-row.height, by-key);
-                    }
-                    accept => { root.proposal-accept(proposal.handle); }
-                    decline => { root.proposal-decline(proposal.handle); }
-                    open-contact(note) => { root.proposal-open-contact(proposal.handle, note); }
-                    copy => {
-                        root.proposal-copy-text = proposal.peer;
-                        proposal-copy.select-all();
-                        proposal-copy.copy();
-                        proposal-copy.clear-selection();
-                    }
-                    focused(k) => { root.focus-id = k; }
-                }
-                    }
-                }
-                }
             }
             }
             }

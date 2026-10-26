@@ -286,6 +286,9 @@ fn accepts_label_and_context_say_what_it_will_do_and_decline_answers_its_row() {
         },
     ));
     let _ = shown(&mut view, &mut model, P);
+    // A frame on: the list keeps its end in view once its content's
+    // height has changed, which a read before it would miss.
+    settle();
     assert!(shows(&view, text(UiText::UpdateContact)));
     assert!(!shows(&view, text(UiText::CardAccept)));
     assert!(shows(
@@ -322,7 +325,7 @@ fn received_noon() -> String {
 // changes nothing says it matches the contact, offers Close alone in
 // Accept's place, says nothing of being removed at close, and Close
 // answers as Decline. The row says when the card came, as every proposal
-// does, since it is drawn after the messages. Mutations: Decline drawn
+// does. Mutations: Decline drawn
 // beside Close; Close raising Accept; the received line not drawn.
 #[test]
 fn a_card_that_changes_nothing_offers_close_alone_and_says_when_it_came() {
@@ -576,6 +579,502 @@ fn every_received_name_is_drawn_isolated() {
     );
 }
 
+const MINUTE: u64 = 60_000;
+const DAY: u64 = 86_400_000;
+
+/// A text message from `P`, arrived at `at`.
+fn message(n: i64, text: &str, at: u64) -> interweave_human_client_api::Received {
+    interweave_human_client_api::Received {
+        row: row(n),
+        origin: interweave_human_client_api::Origin::Direct {
+            peer: peer(P),
+            endpoint: human(),
+        },
+        envelope: interweave_human_chat_protocol::HumanChatV2 {
+            v: 2,
+            kind: interweave_human_chat_protocol::MessageKind::Text,
+            app_message_id: format!("{n:032x}"),
+            text: text.to_owned(),
+            reply_to: None,
+            sent_at_ms: None,
+            from_endpoint: None,
+        },
+        received_at: at,
+    }
+}
+
+/// The top of what in the conversation pane says `part` -- a message's
+/// item and its body both do -- leaving out the list's preview of the same
+/// message, beside it on a wide window.
+fn top_of(view: &View, part: &str) -> f32 {
+    // The pane's left edge: the card's, less its margin.
+    let pane = ElementHandle::find_by_element_type_name(view.window(), "ProposalCard")
+        .next()
+        .expect("a card")
+        .absolute_position()
+        .x
+        - 16.0;
+    let found: Vec<ElementHandle> = i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .find_all()
+        .into_iter()
+        .filter(|e| e.absolute_position().x > pane)
+        .filter(|e| e.accessible_label().is_some_and(|l| l.contains(part)))
+        .collect();
+    found
+        .iter()
+        .map(|e| e.absolute_position().y)
+        .reduce(f32::min)
+        .unwrap_or_else(|| panic!("something saying {part:?}"))
+}
+
+/// The top of the conversation's one proposal card.
+fn card_top(view: &View) -> f32 {
+    let cards: Vec<ElementHandle> =
+        ElementHandle::find_by_element_type_name(view.window(), "ProposalCard").collect();
+    assert_eq!(cards.len(), 1, "one card drawn");
+    cards[0].absolute_position().y
+}
+
+/// The conversation with `P`, shown in a window tall enough for it all.
+fn conversation(model: &mut UiModel) -> View {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(900.0, 2400.0));
+    let _ = shown(&mut view, model, P);
+    settle();
+    view
+}
+
+/// Contact-cards design 5.4: a received card is a row of its own "at its
+/// place in time" -- between the messages it arrived between, not after
+/// them all -- and on the day it shares with them it draws no separator
+/// of its own. Mutation: every card after the last message.
+#[test]
+fn a_card_is_drawn_between_the_messages_it_arrived_between() {
+    let mut model = UiModel::new();
+    model.received(message(10, "the message before", NOW - 2 * MINUTE));
+    model.card_received(Proposal {
+        received_at: NOW - MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    model.received(message(11, "the message after", NOW));
+    let view = conversation(&mut model);
+    let card = card_top(&view);
+    assert!(
+        top_of(&view, "the message before") < card,
+        "after the first"
+    );
+    assert!(
+        card < top_of(&view, "the message after"),
+        "before the second"
+    );
+    assert_eq!(
+        labelled(&view, text(UiText::Today)).len(),
+        1,
+        "one day, one separator"
+    );
+}
+
+/// At a phone's width, where the card's lines wrap, a card drawn after a
+/// message is whole: its row as tall as the card, so nothing of it is
+/// clipped, and the next message below its end. Seen rendered under Xvfb:
+/// the card's end, below Accept, cut off and the next bubble against it.
+/// Mutation: the card's row measured without its card.
+#[test]
+fn a_card_between_messages_is_whole_at_a_phones_width() {
+    let mut model = UiModel::new();
+    model.received(message(10, "the message before", NOW - 2 * MINUTE));
+    model.card_received(Proposal {
+        received_at: NOW - MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    model.received(message(11, "the message after", NOW));
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(420.0, 2400.0));
+    let _ = shown(&mut view, &mut model, P);
+    settle();
+    let card = ElementHandle::find_by_element_type_name(view.window(), "ProposalCard")
+        .next()
+        .expect("a card");
+    let entry = ElementHandle::find_by_element_type_name(view.window(), "ProposalEntry")
+        .next()
+        .expect("its row");
+    let card_end = card.absolute_position().y + card.size().height;
+    let entry_end = entry.absolute_position().y + entry.size().height;
+    assert!(
+        card_end <= entry_end + 0.5,
+        "the card ends at {card_end}, its row at {entry_end}"
+    );
+    assert!(
+        card_end <= top_of(&view, "the message after"),
+        "the next message below the card's end"
+    );
+    let accept = bounds(&view, text(UiText::CardAccept));
+    assert!(accept.3 < card_end, "Accept inside the card");
+}
+
+/// The same for a card answered, its confirmation row with the photo
+/// note, at 320 px with 200 % text where the note wraps: the row is whole
+/// and the next message below it. Mutation: the answered content a
+/// conditional layout of the card's again.
+#[test]
+fn an_answered_card_between_messages_is_whole_with_large_text() {
+    let mut model = UiModel::new();
+    model.received(message(10, "the message before", NOW - 2 * MINUTE));
+    model.card_received(Proposal {
+        received_at: NOW - MINUTE,
+        ..proposal(1, P, card("Ada", true), context())
+    });
+    model.received(message(11, "the message after", NOW));
+    let mut view = view();
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(320.0, 4000.0));
+    let _ = shown(&mut view, &mut model, P);
+    press(&view, text(UiText::CardAccept));
+    let _ = intents(&mut view, &mut model);
+    model.card_resolved(
+        row(1),
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: true,
+            photo_dropped: true,
+            photo_removed: false,
+        },
+    );
+    model.contacts_listed(vec![contact("c1", "Ada", P)]);
+    view.render(&model);
+    settle();
+    assert!(
+        shows(&view, text(UiText::CardPhotoNotUsed)),
+        "the note drawn"
+    );
+    let card = ElementHandle::find_by_element_type_name(view.window(), "ProposalCard")
+        .next()
+        .expect("the answered card");
+    let card_end = card.absolute_position().y + card.size().height;
+    let note = bounds(&view, text(UiText::CardPhotoNotUsed));
+    assert!(
+        note.3 < card_end,
+        "the note inside the card: {note:?}, {card_end}"
+    );
+    assert!(
+        card_end <= top_of(&view, "the message after"),
+        "the next message below the card's end"
+    );
+}
+
+/// A card that opens a day heads it: the day separator is drawn above the
+/// card, and the message after it, on that day too, draws none. Mutations:
+/// the card drawing no separator; the message after it keeping its own.
+#[test]
+fn a_card_on_a_new_day_heads_it_and_the_message_after_it_does_not() {
+    let mut model = UiModel::new();
+    model.received(message(10, "yesterday's message", NOW - DAY));
+    model.card_received(Proposal {
+        received_at: NOW - 2 * MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    model.received(message(11, "today's message", NOW));
+    let view = conversation(&mut model);
+    assert_eq!(labelled(&view, text(UiText::Yesterday)).len(), 1);
+    let today = labelled(&view, text(UiText::Today));
+    assert_eq!(today.len(), 1, "one separator for today");
+    let today = today[0].absolute_position().y;
+    let card = card_top(&view);
+    assert!(top_of(&view, "yesterday's message") < today);
+    assert!(today < card + 40.0 && card < top_of(&view, "today's message"));
+    let proposal_heading = top_of(&view, "This peer says they are");
+    assert!(today < proposal_heading, "the separator above the card");
+}
+
+/// A card that arrived before every message is drawn above them, and the
+/// first message, on its day, draws no separator. Mutation: the cards
+/// before the first message dropped.
+#[test]
+fn a_card_before_every_message_is_drawn_above_them() {
+    let mut model = UiModel::new();
+    model.card_received(Proposal {
+        received_at: NOW - 2 * MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    model.received(message(10, "the first message", NOW));
+    let view = conversation(&mut model);
+    assert!(card_top(&view) < top_of(&view, "the first message"));
+    assert_eq!(
+        labelled(&view, text(UiText::Today)).len(),
+        1,
+        "one separator"
+    );
+}
+
+/// A message leaving -- hidden, its space closing -- holds no card: the
+/// card that followed it is drawn after the message before it, and stays
+/// in view while the row closes rather than closing with it. Mutation: a
+/// leaving row holding the cards that follow it.
+#[test]
+fn a_card_after_a_leaving_message_stays_while_the_row_closes() {
+    let mut model = UiModel::new();
+    model.received(message(10, "the message that stays", NOW - 3 * MINUTE));
+    model.received(message(11, "the message hidden", NOW - 2 * MINUTE));
+    for n in [10, 11] {
+        model.read(row(n));
+    }
+    model.card_received(Proposal {
+        received_at: NOW - MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    let mut view = conversation(&mut model);
+    let hidden = model.messages(&direct(P))[1].key;
+    model.hide(hidden);
+    view.render(&model);
+    for frame in 0..20 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        let cards: Vec<ElementHandle> =
+            ElementHandle::find_by_element_type_name(view.window(), "ProposalCard").collect();
+        assert_eq!(cards.len(), 1, "frame {frame}: the card is drawn");
+        assert!(
+            top_of(&view, "the message that stays") < cards[0].absolute_position().y,
+            "frame {frame}: after the message before it"
+        );
+    }
+}
+
+/// Contact-cards design 5.2: a valid Save closes Your card back to where
+/// it was opened from -- on a phone, from the app options, the Chats list,
+/// with focus back on the app options button -- as Back does. Seen on the
+/// Pixel: a page titled "Select a conversation" with nothing on it.
+/// Mutation: Save closing the page without showing the list.
+#[test]
+fn saving_your_card_closes_it_back_to_the_list() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    assert!(
+        !view.window().get_list_shown(),
+        "control: the page covers the list"
+    );
+    view.window().set_own_given("Augusta".into());
+    press(&view, text(UiText::Save));
+    let raised = intents(&mut view, &mut model);
+    settle();
+    assert!(
+        raised
+            .iter()
+            .any(|i| matches!(i, Intent::SetOwnCard { name, .. } if name == "Augusta")),
+        "saved: {raised:?}"
+    );
+    // The page left as Back leaves it: its key step closed too.
+    assert!(raised.contains(&Intent::CloseKeyStep), "{raised:?}");
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None
+    );
+    assert!(
+        view.window().get_list_shown(),
+        "the Chats list, not an empty page"
+    );
+    assert_eq!(view.window().get_focus_id(), "app-options");
+}
+
+/// Contact-cards design 5.2 field 1: the photo buttons stand under the
+/// circle, and what could not be used under them -- seen on the Pixel in
+/// a column beside the circle (ux-designer's review of #449). Mutation:
+/// the buttons beside the circle again.
+#[test]
+fn the_photo_buttons_and_the_unusable_line_stand_under_the_circle() {
+    let (mut view, mut model) = own_editor(ada(
+        true,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    // A picked image that cannot be used, as the root runs it.
+    view.photo_picked(Some(vec![1, 2, 3]));
+    for event in view.take_events(&model) {
+        if let ViewEvent::Intent(Intent::ChooseOwnPhoto(_)) = event {
+            let seq = model.own_photo_chosen();
+            model.own_photo_prepared(seq, None);
+        }
+    }
+    view.render(&model);
+    settle();
+    let circle = bounds(&view, text(UiText::CardPhotoLabel));
+    let change = bounds(&view, text(UiText::ChangePhoto));
+    let remove = bounds(&view, text(UiText::RemovePhoto));
+    let unusable = bounds(&view, text(UiText::PhotoUnusable));
+    assert!(circle.3 <= change.1, "Change photo under the circle");
+    assert!(change.3 <= remove.1, "Remove photo under Change photo");
+    assert!(
+        remove.3 <= unusable.1,
+        "the unusable line under the buttons"
+    );
+}
+
+/// Contact-cards design 5.2 field 1 and 5.1: the own initials are on the
+/// identity's hue, its `EndpointId`'s, known from the start -- so the circle
+/// keeps its colour when the `PeerId` becomes known (seen on the Pixel: teal
+/// before the first Save, amber after). Mutation: the hue taken from the
+/// `PeerId`, teal while it is unknown.
+#[test]
+fn the_own_initials_keep_the_identitys_hue() {
+    let work = EndpointId::parse("work").expect("an endpoint");
+    let identity = |peer_known: bool| IdentityView {
+        endpoint: work.clone(),
+        peer: peer_known.then(|| peer(Q)),
+        ..ada(
+            false,
+            interweave_human_ui_model::OwnKey::Ready {
+                fingerprint: "0123456789abcdef".to_owned(),
+            },
+        )
+    };
+    let (mut view, mut model) = own_editor(identity(false));
+    let before = view.window().get_own_hue();
+    model.identity_shown(identity(true));
+    view.render(&model);
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_own_hue(),
+        before,
+        "unchanged once the PeerId is known"
+    );
+    // "work" picks amber by section 5.1's rule; teal is what an unknown
+    // PeerId gave.
+    assert_ne!(
+        before, 0,
+        "the identity's own hue, not teal for want of a PeerId"
+    );
+}
+
+/// A message heading a day leaves while a card of that day follows it:
+/// the card moves up under the message before, heads the day itself, and
+/// the leaving row no longer hands the day's separator over -- one
+/// separator is read for the day throughout (swipe spec section 5).
+/// Mutation: the leaving row keeping its hand-over.
+#[test]
+fn a_card_that_moves_up_takes_its_days_separator_from_a_leaving_row() {
+    let mut model = UiModel::new();
+    model.received(message(10, "yesterday's message", NOW - DAY));
+    model.received(message(11, "the message hidden", NOW - 3 * MINUTE));
+    model.received(message(12, "the message after", NOW));
+    for n in [10, 11, 12] {
+        model.read(row(n));
+    }
+    model.card_received(Proposal {
+        received_at: NOW - 2 * MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    let mut view = conversation(&mut model);
+    assert_eq!(labelled(&view, text(UiText::Today)).len(), 1, "control");
+    let hidden = model.messages(&direct(P))[1].key;
+    model.hide(hidden);
+    view.render(&model);
+    for frame in 0..20 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        assert_eq!(
+            labelled(&view, text(UiText::Today)).len(),
+            1,
+            "frame {frame}: one separator read for today"
+        );
+    }
+}
+
+/// The other order: the card came BEFORE the leaving message, so it moves
+/// past nothing and heads no day of the leaving row's. The leaving row
+/// keeps handing its separator over, and the message after it draws none
+/// of its own while it closes -- one separator shows for the day and
+/// changes hands where it stands (swipe spec section 5). Mutation: the
+/// hand-over dropped whenever a card precedes the next message.
+#[test]
+fn a_card_before_a_leaving_row_leaves_its_hand_over_alone() {
+    let mut model = UiModel::new();
+    model.received(message(10, "yesterday's message", NOW - DAY));
+    model.received(message(11, "the message hidden", NOW - 3 * MINUTE));
+    model.received(message(12, "the message after", NOW));
+    for n in [10, 11, 12] {
+        model.read(row(n));
+    }
+    model.card_received(Proposal {
+        received_at: NOW - DAY + MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    let mut view = conversation(&mut model);
+    let hidden = model.messages(&direct(P))[1].key;
+    model.hide(hidden);
+    view.render(&model);
+    let rows = view.window().get_messages();
+    let today = text(UiText::Today);
+    let drawn: Vec<(bool, bool, String)> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .map(|r| (r.leaving, r.hand_over, r.day.to_string()))
+        .collect();
+    assert!(
+        drawn
+            .iter()
+            .any(|(leaving, hand_over, day)| *leaving && *hand_over && day == today),
+        "the leaving row hands today over: {drawn:?}"
+    );
+    assert!(
+        drawn
+            .iter()
+            .all(|(leaving, _, day)| *leaving || day != today),
+        "no kept row draws today of its own meanwhile: {drawn:?}"
+    );
+}
+
+/// Two rows leave together with a card between them: it moved up past
+/// the first, not the second, which keeps handing its day's separator over,
+/// and the message after them draws none meanwhile. Mutation: the hand-over
+/// taken from every leaving row once a card passed the first.
+#[test]
+fn a_card_between_two_leaving_rows_takes_no_hand_over_from_the_later() {
+    let mut model = UiModel::new();
+    model.received(message(10, "yesterday's first", NOW - DAY - 10 * MINUTE));
+    model.received(message(11, "yesterday's hidden", NOW - DAY - 5 * MINUTE));
+    model.received(message(12, "today's hidden", NOW - 3 * MINUTE));
+    model.received(message(13, "the message after", NOW));
+    for n in [10, 11, 12, 13] {
+        model.read(row(n));
+    }
+    model.card_received(Proposal {
+        received_at: NOW - DAY,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    let mut view = conversation(&mut model);
+    let keys: Vec<_> = model.messages(&direct(P)).iter().map(|m| m.key).collect();
+    model.hide(keys[1]);
+    model.hide(keys[2]);
+    view.render(&model);
+    let rows = view.window().get_messages();
+    let today = text(UiText::Today);
+    let drawn: Vec<(bool, bool, String)> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .map(|r| (r.leaving, r.hand_over, r.day.to_string()))
+        .collect();
+    assert!(
+        drawn
+            .iter()
+            .any(|(leaving, hand_over, day)| *leaving && *hand_over && day == today),
+        "the later leaving row still hands today over: {drawn:?}"
+    );
+    assert!(
+        drawn
+            .iter()
+            .all(|(leaving, _, day)| *leaving || day != today),
+        "no kept row draws today of its own meanwhile: {drawn:?}"
+    );
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {
@@ -795,11 +1294,14 @@ fn the_own_card_refuses_an_empty_name_in_place_and_saves_a_valid_one() {
     press(&view, text(UiText::Save));
     assert_eq!(
         intents(&mut view, &mut model),
-        vec![Intent::SetOwnCard {
-            name: "Ada".to_owned(),
-            surname: Some("Lovelace".to_owned()),
-            photo: PhotoEdit::Remove,
-        }],
+        vec![
+            Intent::SetOwnCard {
+                name: "Ada".to_owned(),
+                surname: Some("Lovelace".to_owned()),
+                photo: PhotoEdit::Remove,
+            },
+            Intent::CloseKeyStep,
+        ],
         "the names and the removal, written together"
     );
 }
@@ -1050,6 +1552,62 @@ fn an_accept_snackbar_waits_while_focus_is_in_its_span() {
     step(&clock, std::time::Duration::from_secs(121));
     let _ = intents(&mut view, &mut model);
     assert!(model.snackbar().is_none(), "closed by two minutes");
+}
+
+/// The span's "any message ... after it", drawn: the card stands between
+/// two messages, and after its Accept focus on the message after it keeps
+/// the snackbar waiting, while focus on the message before it lets the
+/// full time run. Mutation: the drawn order not kept for the span.
+#[test]
+fn an_accept_snackbar_waits_on_a_message_after_its_row_and_not_before() {
+    let clock = std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now()));
+    let mut model = UiModel::new();
+    model.received(message(10, "the message before", NOW - 3 * MINUTE));
+    model.card_received(Proposal {
+        received_at: NOW - 2 * MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    model.received(message(11, "the message after", NOW));
+    let mut view = conversation(&mut model);
+    let c = std::rc::Rc::clone(&clock);
+    view.set_monotonic(move || c.get());
+    press(&view, text(UiText::CardAccept));
+    let _ = intents(&mut view, &mut model);
+    model.card_resolved(
+        row(1),
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: true,
+            photo_dropped: false,
+            photo_removed: false,
+        },
+    );
+    model.contacts_listed(vec![contact("c1", "Ada", P)]);
+    view.render(&model);
+    settle();
+    let messages = view.window().get_messages();
+    let handle = |i: usize| messages.row_data(i).expect("a message").handle;
+    let (before, after) = (handle(0), handle(1));
+
+    // Two polls, as for the message before: the first would start the
+    // full time, the second would close on it.
+    view.window().set_focus_id(format!("item:{after}").into());
+    step(&clock, std::time::Duration::from_millis(100));
+    step(&clock, std::time::Duration::from_secs(7));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        model.snackbar().is_some(),
+        "waits on the message after the row"
+    );
+
+    view.window().set_focus_id(format!("item:{before}").into());
+    step(&clock, std::time::Duration::from_millis(100));
+    step(&clock, std::time::Duration::from_secs(7));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        model.snackbar().is_none(),
+        "the full time ran on the message before it"
+    );
 }
 
 fn keyless(problem: interweave_human_ui_model::KeyProblem) -> IdentityView {
@@ -1829,6 +2387,14 @@ fn a_card_page_left_another_way_forgets_its_way_back() {
     key(&view, Key::Return);
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_share_open(), "control: back to the sheet");
+    view.window().set_share_open(false);
+
+    // A valid Save returns there too, as Back does (design 5.2). Mutation:
+    // Save closing the page without its way back.
+    open_card_from_share(&mut view, &mut model);
+    press(&view, text(UiText::Save));
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_share_open(), "saved, back to the sheet");
     view.window().set_share_open(false);
 
     // Then another conversation chosen instead.
