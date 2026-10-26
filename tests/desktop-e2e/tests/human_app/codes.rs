@@ -238,16 +238,18 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
     // three passes running, so a command the answer leads to is made
     // before what the daemon holds is read.
     let mut quiet = 0;
+    // The deadline is asked before each pass, never after one: the pass
+    // that settles it must end the loop, not fail it.
     while quiet < 3 {
+        assert!(
+            Instant::now() < deadline,
+            "the model side never settled after the add: {commands:?}"
+        );
         if pump(&mut model, &mut facade, &mut commands, start).await {
             quiet = 0;
         } else {
             quiet += 1;
         }
-        assert!(
-            Instant::now() < deadline,
-            "the model side never settled after the add: {commands:?}"
-        );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let after = addresses(&world.a).await;
