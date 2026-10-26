@@ -672,20 +672,7 @@ impl View {
             CardsInput::Close => {
                 let own = self.cards.page == Some(CardsPage::OwnCard);
                 self.close_cards(&window);
-                // Back from a contact a proposal's link opened: to that
-                // link, in its conversation (design section 9).
-                if let Some((key, row, note)) = self.cards.return_to_link.take()
-                    && self.shown.as_ref() == Some(&key)
-                {
-                    window.set_list_shown(false);
-                    self.cards.focus_link = Some((row, note));
-                }
-                // Back from the card page to the share sheet that opened it.
-                if let Some(key) = self.cards.return_to_share.take()
-                    && self.shown.as_ref() == Some(&key)
-                {
-                    window.set_share_open(true);
-                }
+                self.return_from_cards(&window);
                 if own {
                     // A photo chosen or removed and not saved goes with
                     // the editor.
@@ -782,7 +769,11 @@ impl View {
                 if model.identity().is_none() {
                     return Vec::new();
                 }
+                // Closed back to where it was opened from, as Back closes
+                // it (design 5.2).
+                window.invoke_cards_left();
                 self.close_cards(&window);
+                self.return_from_cards(&window);
                 return vec![Intent::SetOwnCard {
                     name: given,
                     surname: (!surname.is_empty()).then_some(surname),
@@ -888,6 +879,23 @@ impl View {
         self.cards.contact_error.clear();
         window.set_cards_page(CardsPage::Contact);
         self.focus_key_after_draw("close-cards".to_owned());
+    }
+
+    /// Where the card pages return to once closed: a contact a proposal's
+    /// link opened goes back to that link, in its conversation, and a card
+    /// page the share sheet opened to that sheet (design sections 5.3, 9).
+    fn return_from_cards(&mut self, window: &AppWindow) {
+        if let Some((key, row, note)) = self.cards.return_to_link.take()
+            && self.shown.as_ref() == Some(&key)
+        {
+            window.set_list_shown(false);
+            self.cards.focus_link = Some((row, note));
+        }
+        if let Some(key) = self.cards.return_to_share.take()
+            && self.shown.as_ref() == Some(&key)
+        {
+            window.set_share_open(true);
+        }
     }
 
     fn close_cards(&mut self, window: &AppWindow) {

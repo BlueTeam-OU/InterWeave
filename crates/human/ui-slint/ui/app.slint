@@ -3314,9 +3314,15 @@ export component AppWindow inherits Window {
         root.leave-cards-page();
     }
     function leave-cards-page() {
+        root.cards-left();
+        root.close-cards();
+    }
+    // The card pages left, by Back or by a valid Save: the list again on a
+    // phone, and focus back on the app options button that opened them
+    // (contact-cards design 5.2; `saving_your_card_closes_it_back_to_the_list`).
+    public function cards-left() {
         root.contact-confirming-delete = false;
         root.list-shown = true;
-        root.close-cards();
         root.chats-menu-closed-seq += 1;
     }
     // The unsaved-changes dialog closed on Continue editing: focus where

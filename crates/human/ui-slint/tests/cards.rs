@@ -846,6 +846,44 @@ fn a_card_after_a_leaving_message_stays_while_the_row_closes() {
     }
 }
 
+/// Contact-cards design 5.2: a valid Save closes Your card back to where
+/// it was opened from -- on a phone, from the app options, the Chats list,
+/// with focus back on the app options button -- as Back does. Seen on the
+/// Pixel: a page titled "Select a conversation" with nothing on it.
+/// Mutation: Save closing the page without showing the list.
+#[test]
+fn saving_your_card_closes_it_back_to_the_list() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    assert!(
+        !view.window().get_list_shown(),
+        "control: the page covers the list"
+    );
+    view.window().set_own_given("Augusta".into());
+    press(&view, text(UiText::Save));
+    let raised = intents(&mut view, &mut model);
+    settle();
+    assert!(
+        raised
+            .iter()
+            .any(|i| matches!(i, Intent::SetOwnCard { name, .. } if name == "Augusta")),
+        "saved: {raised:?}"
+    );
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None
+    );
+    assert!(
+        view.window().get_list_shown(),
+        "the Chats list, not an empty page"
+    );
+    assert_eq!(view.window().get_focus_id(), "app-options");
+}
+
 /// Contact-cards design 5.2 field 1 and 5.1: the own initials are on the
 /// identity's hue, its `EndpointId`'s, known from the start -- so the circle
 /// keeps its colour when the `PeerId` becomes known (seen on the Pixel: teal
@@ -2191,6 +2229,14 @@ fn a_card_page_left_another_way_forgets_its_way_back() {
     key(&view, Key::Return);
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_share_open(), "control: back to the sheet");
+    view.window().set_share_open(false);
+
+    // A valid Save returns there too, as Back does (design 5.2). Mutation:
+    // Save closing the page without its way back.
+    open_card_from_share(&mut view, &mut model);
+    press(&view, text(UiText::Save));
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_share_open(), "saved, back to the sheet");
     view.window().set_share_open(false);
 
     // Then another conversation chosen instead.
