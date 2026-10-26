@@ -989,6 +989,49 @@ fn a_card_that_moves_up_takes_its_days_separator_from_a_leaving_row() {
     }
 }
 
+/// The other order: the card came BEFORE the leaving message, so it moves
+/// past nothing and heads no day of the leaving row's. The leaving row
+/// keeps handing its separator over, and the message after it draws none
+/// of its own while it closes -- one separator shows for the day and
+/// changes hands where it stands (swipe spec section 5). Mutation: the
+/// hand-over dropped whenever a card precedes the next message.
+#[test]
+fn a_card_before_a_leaving_row_leaves_its_hand_over_alone() {
+    let mut model = UiModel::new();
+    model.received(message(10, "yesterday's message", NOW - DAY));
+    model.received(message(11, "the message hidden", NOW - 3 * MINUTE));
+    model.received(message(12, "the message after", NOW));
+    for n in [10, 11, 12] {
+        model.read(row(n));
+    }
+    model.card_received(Proposal {
+        received_at: NOW - DAY + MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    let mut view = conversation(&mut model);
+    let hidden = model.messages(&direct(P))[1].key;
+    model.hide(hidden);
+    view.render(&model);
+    let rows = view.window().get_messages();
+    let today = text(UiText::Today);
+    let drawn: Vec<(bool, bool, String)> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .map(|r| (r.leaving, r.hand_over, r.day.to_string()))
+        .collect();
+    assert!(
+        drawn
+            .iter()
+            .any(|(leaving, hand_over, day)| *leaving && *hand_over && day == today),
+        "the leaving row hands today over: {drawn:?}"
+    );
+    assert!(
+        drawn
+            .iter()
+            .all(|(leaving, _, day)| *leaving || day != today),
+        "no kept row draws today of its own meanwhile: {drawn:?}"
+    );
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {

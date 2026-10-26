@@ -2417,11 +2417,25 @@ impl View {
                     rows[before].cards_after += i32::try_from(next - first).unwrap_or(i32::MAX);
                 }
                 // Only leaving rows stand between the kept row and this
-                // one, and the cards moved up past them head the day now:
-                // none of them hands its separator over, so one is read for
-                // the day throughout
+                // one. Cards that arrived after one of them moved up past
+                // it and head its day now, so none of them hands its
+                // separator over and this message is judged against the
+                // last card
                 // (`a_card_that_moves_up_takes_its_days_separator_from_a_leaving_row`).
+                // Cards that came before them all moved past nothing: the
+                // leaving rows' hand-over and this message's placement
+                // stand (`a_card_before_a_leaving_row_leaves_its_hand_over_alone`).
                 let start = kept.map_or(0, |k| k + 1);
+                let moved_past = keys[start..i].first().is_none_or(|first_leaving| {
+                    self.shown_items
+                        .get(first_leaving)
+                        .is_none_or(|left| cards[next - 1] >= left.local_at)
+                });
+                if !moved_past {
+                    times.push((rows[i].handle, item.local_at));
+                    kept = Some(i);
+                    continue;
+                }
                 for row in &mut rows[start..i] {
                     row.hand_over = false;
                 }
