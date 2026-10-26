@@ -322,21 +322,22 @@ changes, every way of leaving it opens one dialog first,
 QUESTION 01a1757e, 2026-10-26). Whether a change is unsaved is judged
 as the last item of the photo step says (below). A way of leaving is
 any control that closes the editor or puts another page in its place,
-and the rule holds for one added later too. Today the ways of leaving
+and the rule holds for a control added later too. Today the ways of leaving
 are:
 
 - Back (Android), Escape (desktop) and the page's back arrow;
 - an identity switch (§5.7.3);
 - a notification's conversation opening over the editor, on either
   layout;
-- Add another identity in the editor's overflow (one identity held),
-  which opens the add form, another editor (§5.1);
+- Add another identity, an item of the editor's overflow menu when
+  the person holds one identity; it opens the add form, another
+  editor (§5.1);
 - on a wide layout, where the conversation list and the switch stay
   beside the editor (§4, §5.7.3): a conversation picked in the list, a
   page opened from the app options (Trust, Contacts or Your
   identities), and the switcher's Your identities button. With one
-  identity the menu's Your card opens this same editor (§4), so
-  choosing it there leaves nothing: the editor stays as it is, with
+  identity, Your card in the app options opens this same editor (§4),
+  so choosing it leaves nothing: the editor stays as it is, with
   its changes, nothing is asked, and focus goes to the page title, as
   when the page opens.
 
@@ -348,14 +349,14 @@ asks a design to prevent. The actions are **Close without saving**
 focus), stacked as the proposal's are, for the same reasons (§5.4):
 each on a line of its own, the full width of the dialog, Close without
 saving above Continue editing, at every width and text scale
-(rust-ui-dev-02's INFO 01a17517 on #453, built so). Enter on the
-initial focus is Continue editing; Escape, Back and a tap outside the
-dialog are Continue editing too, so a second Back never drops the
-changes.
+(rust-ui-dev-02's INFO 01a17517 on #453, built this way). Enter, with the
+initial focus, chooses Continue editing. Escape, Back and a tap outside
+the dialog also choose Continue editing, so pressing Back a second time
+never drops the changes.
 
 - **Close without saving** drops the changes, and the action that
-  opened the dialog continues: Back closes the editor, the switch
-  switches, the picked conversation or page opens. Focus then goes
+  opened the dialog continues: Back closes the editor, the identity
+  switch takes place, the picked conversation or page opens. Focus then goes
   where that action puts it with no unsaved change: after Back, where
   a saved card's page puts it (the identity's row in the list, else
   the control that opened the page, item 1's table); after a switch,
@@ -377,8 +378,8 @@ field, whose error belongs under that field (above), where a dialog
 cannot show it. With no unsaved change, each of these ways of leaving
 acts at once. Closing the desktop window or quitting the app, and the
 system ending the app in the background, are not ways of leaving the
-editor in this rule; what happens to unsaved changes then is left out
-(§11).
+editor in this rule; what happens to unsaved changes then is not
+specified (§11).
 
 **Two rules every action on an identity keeps**, on both platforms: when
 there is a default, it is an identity that is turned on, so peer-only
@@ -1716,7 +1717,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while the picture is being prepared, then `CardPhotoLabel`; TalkBack blocked (§8) |
    | the editor's picture unusable | stays on that button; `PhotoUnusable` announced once | keyboard, choosing a file named `.png` that holds no image; desktop screen reader: heard once; TalkBack blocked (§8) |
    | the editor's Remove photo, also while a picture is being prepared (§5.2) | Add a photo; nothing is announced, also when the dropped picture would have been ready | keyboard; on a card with a saved photo, choose a large picture and press Remove photo before it is ready: focus on Add a photo, the circle shows the initials, and Save leaves the card with no photo; the same steps and results on a card saved with no photo, after a first picture is prepared and the person chooses a second one with Change photo |
-   | unsaved-changes dialog opens / closes on Continue editing (whichever control asked it, §5.2) | Continue editing / the control that had focus when it opened (an editor field, or the back arrow when it was used; the switch; the picked row), else the app options button when a menu item asked; on Close without saving, where the action that asked puts it with no unsaved change (§5.2) | keyboard: from an editor field press Escape (desktop) or Back; on a wide window move focus to a conversation row and press Enter; open the app options and choose Contacts; each time Continue editing returns focus as this row says and the editor keeps its change; then the same three with Close without saving: after Back, focus on the identity's row or the control that opened the editor; after the picked row, on the conversation's header title; after Contacts, on its page title |
+   | unsaved-changes dialog opens / closes on Continue editing (whichever control asked it, §5.2) | Continue editing / the control that had focus when it opened (an editor field, or the back arrow when it was used; the switch; the picked row), else the app options button when a menu item asked; on Close without saving, wherever the action that asked would put focus if there were no unsaved change (§5.2) | keyboard: from an editor field press Escape (desktop) or Back; on a wide window move focus to a conversation row and press Enter; open the app options and choose Contacts; each time Continue editing returns focus as this row says and the editor keeps its change; then the same three with Close without saving: after Back, focus on the identity's row or the control that opened the editor; after the picked row, on the conversation's header title; after Contacts, on its page title |
    | an identity added | its new row in the list | keyboard |
    | Add an identity at the bound | `IdentityLimit` | keyboard |
    | Make default, and its Undo | stays on the overflow button | keyboard |
