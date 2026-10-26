@@ -40,9 +40,10 @@
 #          installed from without a download; afterwards it drops what the
 #          mirror no longer offers (autoclean), removes apt's partial/ and
 #          lock, and gives <dir> to the calling user, so actions/cache can
-#          read it. Under that <dir> apt may note that it downloads
-#          unsandboxed (its _apt user cannot reach a runner's home): a
-#          notice, not a failure.
+#          read it. Under that <dir> apt warns that it downloads
+#          unsandboxed ("W: Download is performed unsandboxed as root",
+#          its _apt user cannot reach a runner's home; measured on the
+#          hosted runner, 2026-10-26): a warning, and the install goes on.
 #          As root (a job's container) apt runs directly, otherwise under
 #          `sudo -n`.
 #
