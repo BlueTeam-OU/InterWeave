@@ -774,11 +774,16 @@ impl View {
                 window.invoke_cards_left();
                 self.close_cards(&window);
                 self.return_from_cards(&window);
-                return vec![Intent::SetOwnCard {
-                    name: given,
-                    surname: (!surname.is_empty()).then_some(surname),
-                    photo: model.own_photo_edit(),
-                }];
+                // Its key step closes with the page, as on Back; the photo
+                // chosen goes with the save itself.
+                return vec![
+                    Intent::SetOwnCard {
+                        name: given,
+                        surname: (!surname.is_empty()).then_some(surname),
+                        photo: model.own_photo_edit(),
+                    },
+                    Intent::CloseKeyStep,
+                ];
             }
             photo @ (CardsInput::RemoveOwnPhoto
             | CardsInput::ChoosePhoto

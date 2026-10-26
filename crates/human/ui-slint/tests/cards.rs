@@ -873,6 +873,8 @@ fn saving_your_card_closes_it_back_to_the_list() {
             .any(|i| matches!(i, Intent::SetOwnCard { name, .. } if name == "Augusta")),
         "saved: {raised:?}"
     );
+    // The page left as Back leaves it: its key step closed too.
+    assert!(raised.contains(&Intent::CloseKeyStep), "{raised:?}");
     assert_eq!(
         view.window().get_cards_page(),
         interweave_human_ui_slint::CardsPage::None
@@ -1206,11 +1208,14 @@ fn the_own_card_refuses_an_empty_name_in_place_and_saves_a_valid_one() {
     press(&view, text(UiText::Save));
     assert_eq!(
         intents(&mut view, &mut model),
-        vec![Intent::SetOwnCard {
-            name: "Ada".to_owned(),
-            surname: Some("Lovelace".to_owned()),
-            photo: PhotoEdit::Remove,
-        }],
+        vec![
+            Intent::SetOwnCard {
+                name: "Ada".to_owned(),
+                surname: Some("Lovelace".to_owned()),
+                photo: PhotoEdit::Remove,
+            },
+            Intent::CloseKeyStep,
+        ],
         "the names and the removal, written together"
     );
 }
