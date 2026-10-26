@@ -365,10 +365,15 @@ pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>, order: &Order
         "proposal-contact:",
         "proposal-decline:",
         "proposal-accept:",
+        "card-menu-accept:",
+        "card-menu-decline:",
+        "card-menu-copy:",
     ]) {
         return handle >= row;
     }
-    let Some(message) = handle_after(&["item:", "link:", "source:"]) else {
+    // Every control of a message: its item, a link in it, and its
+    // menu's actions and Show source.
+    let Some(message) = handle_after(&["item:", "link:", "action:", "source:"]) else {
         return false;
     };
     let Some(&follows) = usize::try_from(row)
@@ -416,6 +421,16 @@ mod tests {
             "control"
         );
         assert!(!in_accept_span("proposal-contact:3:1", None, &order));
+        // A card's menu items are the card's controls.
+        assert!(
+            in_accept_span("card-menu-accept:3", Some(2), &order),
+            "its menu"
+        );
+        assert!(in_accept_span("card-menu-copy:2", Some(2), &order));
+        assert!(
+            !in_accept_span("card-menu-decline:1", Some(2), &order),
+            "before it"
+        );
     }
 
     /// The span's "any message ... after it": the confirmation row drawn
@@ -432,6 +447,15 @@ mod tests {
         assert!(in_accept_span("item:12", Some(1), &order));
         assert!(in_accept_span("link:13:0", Some(1), &order));
         assert!(in_accept_span("source:12", Some(1), &order));
+        // Its menu's actions too, as its Show source is.
+        assert!(
+            in_accept_span("action:12:0", Some(1), &order),
+            "a menu action"
+        );
+        assert!(
+            !in_accept_span("action:11:0", Some(1), &order),
+            "one before it"
+        );
         assert!(
             !in_accept_span("item:11", Some(1), &order),
             "the one before it"
