@@ -320,19 +320,25 @@ of its own: it is the identity's, and goes only with the identity.
 changes, every way of leaving it opens one dialog first,
 `CardDiscardChanges`, whichever control was used (rust-ui-dev-02's
 QUESTION 01a1757e, 2026-10-26). Whether a change is unsaved is judged
-as the last item of the photo step says (below). The ways of leaving
+as the last item of the photo step says (below). A way of leaving is
+any control that closes the editor or puts another page in its place,
+and the rule holds for one added later too. Today the ways of leaving
 are:
 
 - Back (Android), Escape (desktop) and the page's back arrow;
 - an identity switch (§5.7.3);
 - a notification's conversation opening over the editor, on either
   layout;
-- on a wide layout, where the conversation list stays beside the
-  editor (§4): a conversation picked in the list, and a page opened
-  from the app options (Trust, Contacts or Your identities). With one
+- Add another identity in the editor's overflow (one identity held),
+  which opens the add form, another editor (§5.1);
+- on a wide layout, where the conversation list and the switch stay
+  beside the editor (§4, §5.7.3): a conversation picked in the list, a
+  page opened from the app options (Trust, Contacts or Your
+  identities), and the switcher's Your identities button. With one
   identity the menu's Your card opens this same editor (§4), so
   choosing it there leaves nothing: the editor stays as it is, with
-  its changes, and nothing is asked.
+  its changes, nothing is asked, and focus goes to the page title, as
+  when the page opens.
 
 The dialog asks about the loss of changes in the same way, whatever
 causes it. A change lost without warning, because the person picked a
@@ -342,7 +348,10 @@ asks a design to prevent. The actions are **Close without saving**
 focus), stacked as the proposal's are, for the same reasons (§5.4):
 each on a line of its own, the full width of the dialog, Close without
 saving above Continue editing, at every width and text scale
-(rust-ui-dev-02's INFO 01a17517 on #453, built so).
+(rust-ui-dev-02's INFO 01a17517 on #453, built so). Enter on the
+initial focus is Continue editing; Escape, Back and a tap outside the
+dialog are Continue editing too, so a second Back never drops the
+changes.
 
 - **Close without saving** drops the changes, and the action that
   opened the dialog continues: Back closes the editor, the switch
@@ -366,9 +375,10 @@ without saving does, so the person knows what happens to the changes
 01a17503). Save stays in the editor, because Save can find an invalid
 field, whose error belongs under that field (above), where a dialog
 cannot show it. With no unsaved change, each of these ways of leaving
-acts at once.
-What the build keeps of unsaved changes when the system ends the app
-in the background is not specified here.
+acts at once. Closing the desktop window or quitting the app, and the
+system ending the app in the background, are not ways of leaving the
+editor in this rule; what happens to unsaved changes then is left out
+(§11).
 
 **Two rules every action on an identity keeps**, on both platforms: when
 there is a default, it is an identity that is turned on, so peer-only
@@ -1697,14 +1707,16 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
 
    | case | focus goes to | check |
    |---|---|---|
-   | Your identities / Your card / Contacts opened from the menu | the page title (focusable heading) | keyboard |
+   | Your identities / Your card / Contacts opened from the menu, or Your identities from the switcher | the page title (focusable heading) | keyboard |
+   | Trust opened from the menu | its title (look spec §5) | keyboard |
+   | a conversation opened from the list, or by a notification of the identity in front | the conversation's header title, never the composer (message-swipe §7) | keyboard: on a wide window, from a card editor's dialog, Close without saving after a picked row |
    | a card saved | the identity's row in the list, else the control that opened the page (the sheet's Edit your card or Add your name) | keyboard |
    | a card's Save with an invalid field | the first invalid field | keyboard |
    | the editor's Photo Picker or file dialog closes, a picture chosen or cancelled (§5.2) | the button that opened it (Add a photo, or Change photo) | keyboard on desktop: open the file dialog from Add a photo, cancel it, focus on Add a photo; choose a picture, focus on the same button. Keyboard on Android: open the Photo Picker from Add a photo, press Back (`adb shell input keyevent KEYCODE_BACK`), focus on Add a photo; choose a picture, focus on the same button |
    | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while the picture is being prepared, then `CardPhotoLabel`; TalkBack blocked (§8) |
    | the editor's picture unusable | stays on that button; `PhotoUnusable` announced once | keyboard, choosing a file named `.png` that holds no image; desktop screen reader: heard once; TalkBack blocked (§8) |
    | the editor's Remove photo, also while a picture is being prepared (§5.2) | Add a photo; nothing is announced, also when the dropped picture would have been ready | keyboard; on a card with a saved photo, choose a large picture and press Remove photo before it is ready: focus on Add a photo, the circle shows the initials, and Save leaves the card with no photo; the same steps and results on a card saved with no photo, after a first picture is prepared and the person chooses a second one with Change photo |
-   | unsaved-changes dialog opens / closes on Continue editing (whichever control asked it, §5.2) | Continue editing / the control that had focus when it opened (an editor field, or the back arrow when it was used; the switch; the picked row), else the app options button when a menu item asked; on Close without saving, where the action that asked puts it with no unsaved change (§5.2) | keyboard: from an editor field press Escape (desktop) or Back; on a wide window move focus to a conversation row and press Enter; open the app options and choose Contacts; each time Continue editing returns focus as this row says and the editor keeps its change |
+   | unsaved-changes dialog opens / closes on Continue editing (whichever control asked it, §5.2) | Continue editing / the control that had focus when it opened (an editor field, or the back arrow when it was used; the switch; the picked row), else the app options button when a menu item asked; on Close without saving, where the action that asked puts it with no unsaved change (§5.2) | keyboard: from an editor field press Escape (desktop) or Back; on a wide window move focus to a conversation row and press Enter; open the app options and choose Contacts; each time Continue editing returns focus as this row says and the editor keeps its change; then the same three with Close without saving: after Back, focus on the identity's row or the control that opened the editor; after the picked row, on the conversation's header title; after Contacts, on its page title |
    | an identity added | its new row in the list | keyboard |
    | Add an identity at the bound | `IdentityLimit` | keyboard |
    | Make default, and its Undo | stays on the overflow button | keyboard |
@@ -1995,13 +2007,16 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     above Continue editing, each the dialog's full width at 100 % and
     200 % text on a 360 dp phone: Back; Escape on the desktop; an
     identity switch; a notification's conversation; and on a wide
-    window, a conversation picked in the list and Trust, Contacts and
-    Your identities from the app options (with one identity, Your card
+    window, a conversation picked in the list, Trust, Contacts and
+    Your identities from the app options and the switcher's Your
+    identities; and, with one identity, Add another identity in the
+    editor's overflow (with one identity, Your card
     from the app options keeps the editor open with the change and asks
     nothing). For each, Continue editing
     leaves the editor open with the changed name, the list's selection
-    as it was, and focus as item 1's table says; Close without saving opens
-    what was asked, and the card reopened shows the saved name. With no
+    as it was, and focus as item 1's table says; Escape and Back on the
+    dialog do the same; Close without saving opens what was asked, focus
+    as item 1's table says for it, and the card reopened shows the saved name. With no
     change, each opens what was asked at once, with no dialog.
 
 ### 9.1 `human-client-ui.md` §13 criteria
@@ -2235,6 +2250,11 @@ Existing keys reused unchanged: `AppOptions` (look spec §9; the Chats
 - **A shortcut that switches identity** (a key, a gesture on the
   switch): left out on purpose, since a switch made without looking is
   the failure §5.7 exists to prevent.
+- **Unsaved card edits when the app itself ends**: closing the desktop
+  window, quitting the app, or the system ending it in the background
+  with the card editor holding unsaved changes is not specified (§5.2):
+  whether it asks, or what the build keeps, is open for rust-ui-dev to
+  raise with a platform constraint.
 - **An inline reply from a notification**: not specified; if it comes,
   its field names the identity it replies as (§5.7.5).
 - **Starting a conversation with a PeerId no contact or conversation
