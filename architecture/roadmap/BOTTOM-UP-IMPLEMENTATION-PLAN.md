@@ -5247,13 +5247,19 @@ tunnel (`tests/wifi.rs`; `runs/2026-10-22-pixel-9a-api37-wifi.md`, the
 Pixel 9a at API 37, p2p-network-dev-02 at architect-cto's request, three
 passing runs on 2026-10-22 after one that found no daemon binary): with
 no `adb reverse`, the desktop daemon dialled the phone's Wi-Fi address
-given it by `admin.peers.add_address`, the control before the add not
-connected, and a message crossed that one TCP connection each way with
-the route reading `direct` on both sides; the run file names what it
-does not prove — the phone dialling the desktop (the host is behind
-NAT), anything relayed, DCUtR or AutoNAT over the radio, a change of
-network, IPv6 — and `tests/pairing.rs`'s phone-to-phone rows are §29's
-(e), recorded there; of
+given it by `admin.peers.add_address` (the dial inferred from the
+control, the add and the host's TCP table, not observed itself), the
+control before the add not connected, and the `paths` case's message
+crossed that one TCP connection each way with the route reading
+`direct` on both sides; the run file's "What this run does not prove"
+lists the phone dialling the desktop (the host is behind NAT), a
+relayed path, DCUtR or AutoNAT over the radio, a scanned code or the
+client's screens, HumanChatV2 over Wi-Fi (rust-ui-dev's `human_chat`
+on this mode is run separately), a change of network, the phone in the
+background or dozing, more than one LAN, a LAN that isolates its
+clients, IPv6, and the phone's runtime outside its instrumentation; and
+`tests/pairing.rs`'s phone-to-phone rows are §29's (e), recorded there;
+of
 `tests/interoperability`'s three items the independent codecs and the
 upgrade matrices are proved there, and the desktop ↔ Android platform
 matrix comparing the decoded envelope fields is RE-CARRIED to Stage 18
