@@ -391,6 +391,8 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     };
     ProposalRow {
         handle,
+        after: -1,
+        day: SharedString::new(),
         heading: fill(text(UiText::CardProposal), &[("name", &name)]).into(),
         full_name: name.into(),
         // Only when Accept would write the card's photo: a local choice
@@ -456,6 +458,8 @@ fn answer_row(handle: i32, a: &CardAnswer, name: &str, hinted: bool) -> Proposal
     };
     ProposalRow {
         handle,
+        after: -1,
+        day: SharedString::new(),
         answered: true,
         answer: fill(text(template), &[("name", &isolated(name))]).into(),
         photo_note: match (a.photo_dropped, a.photo_removed) {
@@ -483,6 +487,12 @@ enum Entry {
     Answer(CardAnswer, String, bool),
 }
 
+/// The message each drawn card row follows, by its handle, for the reading
+/// order an Accept's snackbar's span is judged in.
+fn shared_after(shared: &RefCell<crate::Shared>, places: &[(i32, String)]) {
+    shared.borrow_mut().order.card_after = places.iter().map(|(after, _)| *after).collect();
+}
+
 impl Entry {
     fn place(&self) -> (u64, RowId) {
         match self {
@@ -500,6 +510,9 @@ pub(crate) struct CardScreens {
     pub(crate) page: Option<CardsPage>,
     contact: Option<String>,
     proposals_shown: Vec<Entry>,
+    /// Where each drawn card row sits among the messages: the message it
+    /// follows and its day separator, as last drawn.
+    proposal_places: Vec<(i32, String)>,
     proposals: Option<Rc<VecModel<ProposalRow>>>,
     /// Each drawn row's card and whether it is a confirmation row, in the
     /// order drawn: the rows are updated in place by it, so a touch on a
@@ -659,20 +672,7 @@ impl View {
             CardsInput::Close => {
                 let own = self.cards.page == Some(CardsPage::OwnCard);
                 self.close_cards(&window);
-                // Back from a contact a proposal's link opened: to that
-                // link, in its conversation (design section 9).
-                if let Some((key, row, note)) = self.cards.return_to_link.take()
-                    && self.shown.as_ref() == Some(&key)
-                {
-                    window.set_list_shown(false);
-                    self.cards.focus_link = Some((row, note));
-                }
-                // Back from the card page to the share sheet that opened it.
-                if let Some(key) = self.cards.return_to_share.take()
-                    && self.shown.as_ref() == Some(&key)
-                {
-                    window.set_share_open(true);
-                }
+                self.return_from_cards(&window);
                 if own {
                     // A photo chosen or removed and not saved goes with
                     // the editor.
@@ -769,12 +769,21 @@ impl View {
                 if model.identity().is_none() {
                     return Vec::new();
                 }
+                // Closed back to where it was opened from, as Back closes
+                // it (design 5.2).
+                window.invoke_cards_left();
                 self.close_cards(&window);
-                return vec![Intent::SetOwnCard {
-                    name: given,
-                    surname: (!surname.is_empty()).then_some(surname),
-                    photo: model.own_photo_edit(),
-                }];
+                self.return_from_cards(&window);
+                // Its key step closes with the page, as on Back; the photo
+                // chosen goes with the save itself.
+                return vec![
+                    Intent::SetOwnCard {
+                        name: given,
+                        surname: (!surname.is_empty()).then_some(surname),
+                        photo: model.own_photo_edit(),
+                    },
+                    Intent::CloseKeyStep,
+                ];
             }
             photo @ (CardsInput::RemoveOwnPhoto
             | CardsInput::ChoosePhoto
@@ -875,6 +884,23 @@ impl View {
         self.cards.contact_error.clear();
         window.set_cards_page(CardsPage::Contact);
         self.focus_key_after_draw("close-cards".to_owned());
+    }
+
+    /// Where the card pages return to once closed: a contact a proposal's
+    /// link opened goes back to that link, in its conversation, and a card
+    /// page the share sheet opened to that sheet (design sections 5.3, 9).
+    fn return_from_cards(&mut self, window: &AppWindow) {
+        if let Some((key, row, note)) = self.cards.return_to_link.take()
+            && self.shown.as_ref() == Some(&key)
+        {
+            window.set_list_shown(false);
+            self.cards.focus_link = Some((row, note));
+        }
+        if let Some(key) = self.cards.return_to_share.take()
+            && self.shown.as_ref() == Some(&key)
+        {
+            window.set_share_open(true);
+        }
     }
 
     fn close_cards(&mut self, window: &AppWindow) {
@@ -1114,7 +1140,9 @@ impl View {
         )
     }
 
-    fn render_proposals(&mut self, model: &UiModel, window: &AppWindow) {
+    /// The shown conversation's card rows -- its proposals and the
+    /// answers to them -- in the order drawn: by when each card arrived.
+    fn card_entries(&self, model: &UiModel) -> Vec<Entry> {
         // The card whose Accept's snackbar is open, with its Undo.
         let undo_open_for = model
             .snackbar()
@@ -1137,12 +1165,53 @@ impl View {
             _ => Vec::new(),
         };
         shown.sort_by_key(Entry::place);
+        shown
+    }
+
+    /// When each of the shown conversation's card rows arrived, in order.
+    pub(crate) fn card_times(&self, model: &UiModel) -> Vec<u64> {
+        self.card_entries(model)
+            .iter()
+            .map(|e| e.place().0)
+            .collect()
+    }
+
+    /// Where each card row sits among the messages as drawn (design 5.4:
+    /// at its place in time): after the last message that arrived no
+    /// later than it, else before them all (-1), with a day separator
+    /// when its day differs from the row drawn just before it. The same
+    /// rule `render_messages` counts cards by.
+    fn card_places(&self, shown: &[Entry]) -> Vec<(i32, String)> {
+        let mut out = Vec::with_capacity(shown.len());
+        let mut previous: Option<(i32, u64)> = None;
+        for entry in shown {
+            let at = entry.place().0;
+            let message = self.message_times.iter().rev().find(|(_, m)| *m <= at);
+            let after = message.map_or(-1, |(handle, _)| *handle);
+            let before = match previous {
+                Some((slot, time)) if slot == after => Some(time),
+                _ => message.map(|(_, m)| *m),
+            };
+            let day = self.clock.local(at).day;
+            let separator = match before {
+                Some(time) if self.clock.local(time).day == day => String::new(),
+                _ => crate::clock::day_text(day),
+            };
+            previous = Some((after, at));
+            out.push((after, separator));
+        }
+        out
+    }
+
+    fn render_proposals(&mut self, model: &UiModel, window: &AppWindow) {
+        let shown = self.card_entries(model);
+        let places = self.card_places(&shown);
         let rows = Rc::clone(
             self.cards
                 .proposals
                 .get_or_insert_with(|| Rc::new(VecModel::default())),
         );
-        if shown != self.cards.proposals_shown {
+        if shown != self.cards.proposals_shown || places != self.cards.proposal_places {
             let mut answers = HashMap::new();
             let mut swipes = HashMap::new();
             let mut handles = HashMap::new();
@@ -1152,10 +1221,15 @@ impl View {
                 .enumerate()
                 .map(|(i, entry)| {
                     let handle = i32::try_from(i).unwrap_or(i32::MAX);
+                    let (after, day) = places.get(i).cloned().unwrap_or((-1, String::new()));
                     let p = match entry {
                         Entry::Answer(a, name, hinted) => {
                             handles.insert(a.row, (handle, true));
-                            return answer_row(handle, a, name, *hinted);
+                            return ProposalRow {
+                                after,
+                                day: day.into(),
+                                ..answer_row(handle, a, name, *hinted)
+                            };
                         }
                         Entry::Proposal(p) => p,
                     };
@@ -1183,7 +1257,11 @@ impl View {
                         }
                         _ => {}
                     }
-                    let row = proposal_row(handle, p, &self.received(p.received_at));
+                    let row = ProposalRow {
+                        after,
+                        day: day.into(),
+                        ..proposal_row(handle, p, &self.received(p.received_at))
+                    };
                     // The notes after the value lines are the model's, in
                     // its order: a same-name one links its contact.
                     let first = slint::Model::row_count(&row.notes) - p.notes.len();
@@ -1233,6 +1311,8 @@ impl View {
             drop(shared);
             self.cards.drawn_rows = handles;
             self.cards.proposals_shown = shown;
+            shared_after(&self.shared, &places);
+            self.cards.proposal_places = places;
         }
         window.set_proposals(ModelRc::from(rows));
         // Back from the contact a link opened: the link, drawn again; its
@@ -1490,13 +1570,10 @@ impl View {
         window.set_own_given(own.given.as_str().into());
         window.set_own_surname(own.surname.clone().unwrap_or_default().into());
         window.set_own_letters(initials(&own.name).into());
-        window.set_own_hue(own.peer.as_ref().map_or(0, |p| {
-            hue(Avatar::of(&ConversationKey::Direct {
-                peer: p.clone(),
-                endpoint: Some(own.endpoint.clone()),
-            })
-            .hue)
-        }));
+        // The identity's own hue, its EndpointId's, known before its
+        // PeerId is: it never changes when the PeerId arrives (design 5.1,
+        // `the_own_initials_keep_the_identitys_hue`).
+        window.set_own_hue(hue(AvatarHue::of_identity(&own.endpoint)));
         window.set_own_has_photo(own.photo.is_some());
         window.set_own_photo(own.photo.as_ref().map(image).unwrap_or_default());
         window.set_own_peer(

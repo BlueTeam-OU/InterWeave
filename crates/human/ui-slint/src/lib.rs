@@ -416,6 +416,9 @@ struct Shared {
     snack: Option<SnackUp>,
     /// An Accept's snackbar whose timeout waits on focus (#416).
     accept_snack: Option<AcceptSnack>,
+    /// The conversation's rows in the reading order, which an Accept's
+    /// snackbar's span is judged in.
+    order: swipe::Order,
     /// The window, to take a snackbar off screen when an input that closes
     /// it is queued.
     window: slint::Weak<AppWindow>,
@@ -838,6 +841,9 @@ pub struct View {
     previews: HashMap<ConversationKey, (ItemKey, String)>,
     /// The messages last drawn, by key, kept while a row leaves.
     shown_items: HashMap<ItemKey, MessageItem>,
+    /// Each message drawn and not leaving, in order: its handle and when
+    /// it arrived, which the card rows are placed among.
+    message_times: Vec<(i32, u64)>,
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
@@ -1066,6 +1072,7 @@ impl View {
             monotonic: Rc::new(Instant::now),
             previews: HashMap::new(),
             shown_items: HashMap::new(),
+            message_times: Vec::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
             copy_feedback: CopyFeedback::Snackbar,
@@ -2336,6 +2343,7 @@ impl View {
                 entry.2 = entry.2.max(last);
             }
         }
+        self.place_cards(model, &keys, &mut rows, &items, &leaving, channel);
         if !self.leaving_messages.is_empty() {
             self.wake_after(LEAVING);
         }
@@ -2359,6 +2367,93 @@ impl View {
         update_by_key(&*self.messages, &mut self.message_keys, &keys, &rows);
         let drawn = &self.message_keys;
         self.pressed.retain(|key| drawn.contains(key));
+    }
+
+    /// The card rows among the messages (contact-cards design 5.4: each
+    /// at its place in time). A card follows the last message that did
+    /// not arrive after it, so each kept row counts the cards drawn below
+    /// it; the message after them is placed as after a row of its own,
+    /// its day separator judged against the last card's day and its run
+    /// broken (`a_card_is_drawn_between_the_messages_it_arrived_between`).
+    /// A leaving row holds no card: they go to the row before it. The
+    /// card rows themselves are placed by the same rule in
+    /// `render_proposals`, from `message_times`.
+    fn place_cards(
+        &mut self,
+        model: &UiModel,
+        keys: &[ItemKey],
+        rows: &mut [MessageRow],
+        items: &[MessageItem],
+        leaving: &HashSet<ItemKey>,
+        channel: bool,
+    ) {
+        let cards = self.card_times(model);
+        let by_key: HashMap<ItemKey, &MessageItem> = items.iter().map(|i| (i.key, i)).collect();
+        let mut times = Vec::new();
+        let mut next = 0;
+        let mut kept: Option<usize> = None;
+        for (i, key) in keys.iter().enumerate() {
+            if leaving.contains(key) {
+                // A leaving row holds no card, whatever its last copy held.
+                rows[i].cards_after = 0;
+                continue;
+            }
+            let Some(item) = by_key.get(key) else {
+                continue;
+            };
+            let first = next;
+            while next < cards.len() && cards[next] < item.local_at {
+                next += 1;
+            }
+            if next > first {
+                if let Some(before) = kept {
+                    rows[before].cards_after += i32::try_from(next - first).unwrap_or(i32::MAX);
+                }
+                // Only leaving rows stand between the kept row and this
+                // one. A card that arrived after one of them moved up past
+                // it: that row gives its separator's hand-over up, the card
+                // heading the day now
+                // (`a_card_that_moves_up_takes_its_days_separator_from_a_leaving_row`);
+                // a row the cards never passed keeps it
+                // (`a_card_before_a_leaving_row_leaves_its_hand_over_alone`,
+                // `a_card_between_two_leaving_rows_takes_no_hand_over_from_the_later`).
+                // This message is judged against the last card only when
+                // that card arrived after every leaving row, so stands
+                // right above it.
+                let last_card = cards[next - 1];
+                let left_at = |key: &ItemKey| self.shown_items.get(key).map(|left| left.local_at);
+                let start = kept.map_or(0, |k| k + 1);
+                for (row, key) in rows[start..i].iter_mut().zip(&keys[start..i]) {
+                    if left_at(key).is_none_or(|at| last_card >= at) {
+                        row.hand_over = false;
+                    }
+                }
+                let next_to_it = keys[start..i]
+                    .last()
+                    .is_none_or(|key| left_at(key).is_none_or(|at| last_card >= at));
+                if !next_to_it {
+                    times.push((rows[i].handle, item.local_at));
+                    kept = Some(i);
+                    continue;
+                }
+                let card_day = self.clock.local(cards[next - 1]).day;
+                let day = self.clock.local(item.local_at).day;
+                rows[i].day = if card_day == day {
+                    SharedString::new()
+                } else {
+                    clock::day_text(day).into()
+                };
+                rows[i].gap = 8.0;
+                rows[i].show_author = channel && item.direction == Direction::Inbound;
+            }
+            times.push((rows[i].handle, item.local_at));
+            kept = Some(i);
+        }
+        if let Some(last) = kept {
+            rows[last].cards_after += i32::try_from(cards.len() - next).unwrap_or(i32::MAX);
+        }
+        self.shared.borrow_mut().order.messages = times.iter().map(|(h, _)| *h).collect();
+        self.message_times = times;
     }
 
     /// One wake at `due`, the soonest age change of a shown waiting
@@ -2725,11 +2820,12 @@ impl View {
                 let focus = window.get_focus_id();
                 let now = monotonic();
                 let closes = {
-                    let mut s = shared.borrow_mut();
+                    let mut held = shared.borrow_mut();
+                    let s = &mut *held;
                     let Some(a) = s.accept_snack.as_mut() else {
                         return;
                     };
-                    if swipe::in_accept_span(focus.as_str(), a.handle) {
+                    if swipe::in_accept_span(focus.as_str(), a.handle, &s.order) {
                         a.deadline = None;
                     } else if a.deadline.is_none() {
                         a.deadline = Some(now + Duration::from_millis(a.ms));
@@ -3286,6 +3382,7 @@ fn message_row(
         reason: status.reason.unwrap_or_default().into(),
         outbound: item.direction == Direction::Outbound,
         hand_over: false,
+        cards_after: 0,
         show_author: placed.show_author,
         status_glyph: mark.glyph,
         status_dot: mark.dot,

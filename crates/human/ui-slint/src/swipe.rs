@@ -328,29 +328,69 @@ pub(crate) const fn is_accept(confirms: Confirmation) -> bool {
     )
 }
 
-/// Whether focus id `focus` is in an Accept snackbar's waiting span: the
-/// confirmation row at `row_handle`, a card row after it, the composer,
-/// or the snackbar's Undo -- the reading order from the row to the Undo,
-/// card rows being drawn after the messages.
-pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>) -> bool {
+/// The conversation's rows as drawn, for the reading order: its messages'
+/// handles in order, and the message each card row follows (-1 before
+/// them all), by the card row's handle.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Order {
+    pub(crate) messages: Vec<i32>,
+    pub(crate) card_after: Vec<i32>,
+}
+
+/// Whether focus id `focus` is in an Accept snackbar's waiting span
+/// (contact-cards design 5.4.2): from the confirmation row at
+/// `row_handle` to the snackbar in the reading order -- the row, a card
+/// row or a message after it, the composer, the snackbar's Undo. Card
+/// rows stand at their place in time among the messages, so a message
+/// drawn after the confirmation row is in the span and one before it is
+/// not (`a_message_after_the_confirmation_row_is_in_its_span`).
+pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>, order: &Order) -> bool {
     if focus == "composer" || focus == "undo" {
         return true;
     }
     let Some(row) = row_handle else {
         return false;
     };
-    [
+    // A key's handle comes first after its prefix; a link's adds its
+    // place after it.
+    let handle_after = |prefixes: &[&str]| {
+        prefixes
+            .iter()
+            .find_map(|prefix| focus.strip_prefix(prefix))
+            .and_then(|rest| rest.split(':').next()?.parse::<i32>().ok())
+    };
+    if let Some(handle) = handle_after(&[
         "answer:",
         "proposal-copy:",
         "proposal-contact:",
         "proposal-decline:",
         "proposal-accept:",
-    ]
-    .into_iter()
-    .find_map(|prefix| focus.strip_prefix(prefix))
-    // A link's key adds its note's place after the handle.
-    .and_then(|rest| rest.split(':').next()?.parse::<i32>().ok())
-    .is_some_and(|handle| handle >= row)
+        "card-menu-accept:",
+        "card-menu-decline:",
+        "card-menu-copy:",
+    ]) {
+        return handle >= row;
+    }
+    // Every control of a message: its item, a link in it, and its
+    // menu's actions and Show source.
+    let Some(message) = handle_after(&["item:", "link:", "action:", "source:"]) else {
+        return false;
+    };
+    let Some(&follows) = usize::try_from(row)
+        .ok()
+        .and_then(|r| order.card_after.get(r))
+    else {
+        return false;
+    };
+    let first = if follows < 0 {
+        0
+    } else {
+        match order.messages.iter().position(|&m| m == follows) {
+            Some(at) => at + 1,
+            None => return false,
+        }
+    };
+    order.messages[first..].contains(&message)
 }
 
 /// Keep `window` reachable from a callback without keeping it alive.
@@ -360,7 +400,7 @@ pub(crate) fn weak(window: &AppWindow) -> slint::Weak<AppWindow> {
 
 #[cfg(test)]
 mod tests {
-    use super::in_accept_span;
+    use super::{Order, in_accept_span};
 
     /// Contact-cards design 5.4.2: the span runs from the confirmation row
     /// through every card row after it, a proposal's "Open your contact"
@@ -369,13 +409,62 @@ mod tests {
     /// with the note's place attached.
     #[test]
     fn a_proposal_link_after_the_confirmation_row_is_in_its_span() {
-        assert!(in_accept_span("proposal-contact:3:1", Some(2)));
-        assert!(in_accept_span("proposal-contact:2:0", Some(2)));
+        let order = Order::default();
+        assert!(in_accept_span("proposal-contact:3:1", Some(2), &order));
+        assert!(in_accept_span("proposal-contact:2:0", Some(2), &order));
         assert!(
-            !in_accept_span("proposal-contact:1:0", Some(2)),
+            !in_accept_span("proposal-contact:1:0", Some(2), &order),
             "before it"
         );
-        assert!(in_accept_span("proposal-copy:3", Some(2)), "control");
-        assert!(!in_accept_span("proposal-contact:3:1", None));
+        assert!(
+            in_accept_span("proposal-copy:3", Some(2), &order),
+            "control"
+        );
+        assert!(!in_accept_span("proposal-contact:3:1", None, &order));
+        // A card's menu items are the card's controls.
+        assert!(
+            in_accept_span("card-menu-accept:3", Some(2), &order),
+            "its menu"
+        );
+        assert!(in_accept_span("card-menu-copy:2", Some(2), &order));
+        assert!(
+            !in_accept_span("card-menu-decline:1", Some(2), &order),
+            "before it"
+        );
+    }
+
+    /// The span's "any message ... after it": the confirmation row drawn
+    /// after message 11, a message after it -- its item, a link in it, its
+    /// source -- is in the span, and one at or before 11 is not; a row
+    /// before every message has them all after it. Mutations: messages
+    /// never in the span; every message in it.
+    #[test]
+    fn a_message_after_the_confirmation_row_is_in_its_span() {
+        let order = Order {
+            messages: vec![10, 11, 12, 13],
+            card_after: vec![-1, 11],
+        };
+        assert!(in_accept_span("item:12", Some(1), &order));
+        assert!(in_accept_span("link:13:0", Some(1), &order));
+        assert!(in_accept_span("source:12", Some(1), &order));
+        // Its menu's actions too, as its Show source is.
+        assert!(
+            in_accept_span("action:12:0", Some(1), &order),
+            "a menu action"
+        );
+        assert!(
+            !in_accept_span("action:11:0", Some(1), &order),
+            "one before it"
+        );
+        assert!(
+            !in_accept_span("item:11", Some(1), &order),
+            "the one before it"
+        );
+        assert!(!in_accept_span("item:10", Some(1), &order));
+        assert!(
+            in_accept_span("item:10", Some(0), &order),
+            "all after a row before them"
+        );
+        assert!(!in_accept_span("item:12", None, &order));
     }
 }

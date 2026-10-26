@@ -938,9 +938,7 @@ ui_texts! {
     // PLACEHOLDER (en)
     CardSame => "This card matches your contact {contact}.",
     /// CARD PROPOSAL: when the card came, `{date}` its calendar date and
-    /// `{time}` its clock time. A proposal is drawn after the
-    /// conversation's messages, not at its place in time, so the row says
-    /// when.
+    /// `{time}` its clock time.
     // PLACEHOLDER (en)
     CardReceivedAt => "Card received {date} at {time}",
     /// The Chats menu item and the page listing this identity's contacts.
