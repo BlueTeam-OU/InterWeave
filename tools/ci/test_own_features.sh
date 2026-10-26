@@ -25,13 +25,15 @@ mkdir -p "$S/repo"
 # The fake cargo. metadata lists the members; `tree --workspace` and
 # `tree -p <pkg>` print $S/tree-ws and $S/tree-<pkg> (as cargo tree's
 # '{p}|{f}' format does, `(*)` repeats included); clippy records its argv
-# in $FAKE_LOG and fails for the package in $FAKE_FAIL.
+# in $FAKE_LOG and fails for the package in $FAKE_FAIL; metadata and tree
+# record theirs in $FAKE_CALLS, so the flags the comparison depends on are
+# asserted, not assumed.
 cat > "$S/cargo" <<'C'
 #!/usr/bin/env bash
 case "$1" in
-  metadata) [ -n "${FAKE_META_FAIL:-}" ] && exit 101
+  metadata) echo "metadata ${*:2}" >> "$FAKE_CALLS"; [ -n "${FAKE_META_FAIL:-}" ] && exit 101
             printf '{"packages":[{"name":"alpha"},{"name":"beta"},{"name":"gamma"},{"name":"delta"}]}\n' ;;
-  tree) shift; sel=""
+  tree) echo "$*" >> "$FAKE_CALLS"; shift; sel=""
         while (( $# )); do case "$1" in --workspace) sel=ws ;; -p) sel="$2"; shift ;; esac; shift; done
         [ "$sel" = "${FAKE_TREE_FAIL:-}" ] && exit 101
         cat "$FAKE_DIR/tree-$sel" ;;
@@ -58,7 +60,7 @@ printf 'alpha v0.1.0 (/r/alpha)|\nserde v1.0.0|std\n' > "$S/tree-alpha"
 printf 'beta v0.1.0 (/r/beta)|x\n' > "$S/tree-beta"
 printf 'gamma v0.1.0 (/r/gamma)|a\n' > "$S/tree-gamma"
 printf 'delta v0.1.0 (/r/delta)|std\n' > "$S/tree-delta"
-run() { rm -f "$S/log"; env OWN_FEATURES_REPO="$S/repo" CARGO="$S/cargo" FAKE_DIR="$S" FAKE_LOG="$S/log" "$@" bash "$SUT" $MODE 2>&1; }
+run() { rm -f "$S/log" "$S/calls"; env OWN_FEATURES_REPO="$S/repo" CARGO="$S/cargo" FAKE_DIR="$S" FAKE_LOG="$S/log" FAKE_CALLS="$S/calls" "$@" bash "$SUT" $MODE 2>&1; }
 
 echo "own_features: which packages differ"
 out="$(MODE=list run)"; rc=$?
@@ -72,6 +74,19 @@ grep -q '^own_features: delta — workspace build \[(none) std\], its own \[std\
     && ok "delta: a second set in the workspace build differs" || bad "delta not selected" "$out"
 grep -q 'serde' <<<"$out" && bad "a dependency, not a member, is selected" "$out" || ok "a non-member is never selected"
 [[ ! -e "$S/log" ]] && ok "list runs no clippy or test" || bad "list ran cargo" "$(cat "$S/log")"
+
+echo "own_features: what cargo tree and metadata are asked"
+# --all-targets builds dev-dependencies, so the feature sets compared must
+# include them, on both sides; --locked so the resolution is the committed one.
+tree_ok() {  # <selection as cargo tree receives it>
+    grep -qxF -- "tree --locked -e normal,build,dev -f {p}|{f} --prefix none $1" "$S/calls"
+}
+tree_ok "--workspace" && ok "the workspace tree: dev-dependencies included, --locked" || bad "workspace tree argv" "$(cat "$S/calls")"
+tree_ok "-p alpha" && tree_ok "-p delta" \
+    && ok "each package's own tree: the same edges and --locked" || bad "per-package tree argv" "$(cat "$S/calls")"
+[[ $(grep -c '^tree ' "$S/calls") -eq 5 ]] && ok "one workspace tree and one per member (4)" || bad "tree call count" "$(cat "$S/calls")"
+grep -qx 'metadata --no-deps --format-version 1 --locked' "$S/calls" \
+    && ok "metadata lists members only (--no-deps), --locked" || bad "metadata argv" "$(cat "$S/calls")"
 
 echo "own_features: clippy, one package per command"
 out="$(MODE=clippy run)"; rc=$?
