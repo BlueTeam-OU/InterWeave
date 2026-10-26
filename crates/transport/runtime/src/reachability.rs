@@ -2974,9 +2974,9 @@ mod tests {
         );
     }
 
-    /// The NAT case rule 3 exists for: a LAN peer advertising its own
-    /// RFC 1918 address is believed exactly when this node has a LAN
-    /// interface of that family to reach it on.
+    /// The one private range rules 3 and 10 share: RFC 1918 and ULA, an
+    /// IPv4-mapped form read as its IPv4; CGNAT, link-local, loopback and
+    /// documentation space are outside it.
     #[test]
     fn the_private_range_is_rfc_1918_and_ula_and_a_mapped_v4_is_v4() {
         for private in [
@@ -3003,6 +3003,9 @@ mod tests {
         }
     }
 
+    /// The NAT case rule 3 exists for: a LAN peer advertising its own
+    /// RFC 1918 address is believed exactly when this node has a LAN
+    /// interface of that family to reach it on.
     #[test]
     fn an_advertised_private_address_needs_a_private_listener_of_its_family() {
         let v4_lan = ["/ip4/192.168.7.20/tcp/4001"];
