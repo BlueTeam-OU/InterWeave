@@ -1437,13 +1437,13 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut heard = [false; 2];
     while heard.contains(&false) {
-        for (watcher, heard) in watchers.iter().zip(heard.iter_mut()) {
-            *heard |= take_all(watcher).await.contains(&told);
-        }
         assert!(
             tokio::time::Instant::now() < deadline,
             "no policy disconnect within {PATIENCE:?}, heard by {heard:?}"
         );
+        for (watcher, heard) in watchers.iter().zip(heard.iter_mut()) {
+            *heard |= take_all(watcher).await.contains(&told);
+        }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     let view = admin.trust().await.expect("the policy");
