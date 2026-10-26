@@ -118,9 +118,10 @@ framed as a colour change; rust-ui-dev-02 accepted all three (REPLY
 each with a test that fails before its fix. The first was found in
 this record's review, and the fourth was restated there against field
 1 and §5.1; both findings were sent in OBSERVATION 01a17660, and
-rust-ui-dev-02 accepted both on the same branch (REPLY 01a17665). The
-steps of §2 were walked again on the build that has the fixes, and §5 shows all
-four findings closed.
+rust-ui-dev-02 accepted both on the same branch (REPLY 01a17665). On
+the build that has the fixes, the steps that reach the four findings
+were walked again, with the step §3 names as not walked; §5 shows all
+four findings closed. §2's other steps were not walked again.
 
 ## 5. The walk again on the fix build
 
@@ -132,7 +133,8 @@ four findings closed.
   2026-10-26 20:34 UTC (00:34 on 27 October by the phone's clock).
 - **Device and method:** as in §1. The owner gave the phone's new
   address on the LAN. The same five images were
-  pushed and picked by their entry in the picker's accessibility tree;
+  pushed; pictures 1 and 5 were picked, by their entry in the picker's
+  accessibility tree;
   no capture of the picker was kept. The card had no photo when the
   run began. Afterwards the images and their media-store entries were
   all removed, the card was saved back to no photo, and Do
