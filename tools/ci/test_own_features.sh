@@ -96,9 +96,9 @@ out="$(MODE=clippy run FAKE_TREE_FAIL=gamma)"; rc=$?
     && ok "cargo tree -p failure: exit 2 before any clippy" || bad "tree -p rc $rc" "$out"
 out="$(MODE=lint run)"; rc=$?
 [[ $rc -eq 2 ]] && ok "an unknown mode: exit 2" || bad "mode rc $rc" "$out"
-out="$(MODE=test run)"; rc=$?
+out="$(MODE='test' run)"; rc=$?
 [[ $rc -eq 2 && ! -e "$S/log" ]] && ok "test is not a mode (clippy only): exit 2" || bad "test mode rc $rc" "$out"
-out="$(MODE= run)"; rc=$?
+out="$(MODE='' run)"; rc=$?
 [[ $rc -eq 2 ]] && ok "no mode: exit 2" || bad "no mode rc $rc" "$out"
 
 echo "own_features: none differs"
