@@ -1805,7 +1805,7 @@ fn permission_denied(e: &(dyn std::error::Error + 'static)) -> bool {
 /// `libp2p-tcp`'s `listen_on` -- answered an empty string, and a device
 /// run reported `transport: ` with no cause (2026-10-10). Pinned by
 /// `a_listener_that_cannot_bind_says_why` (`tests/listen_refusal.rs`).
-fn error_chain(e: &(dyn std::error::Error + 'static)) -> String {
+pub(super) fn error_chain(e: &(dyn std::error::Error + 'static)) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut next = Some(e);
     while let Some(err) = next {

@@ -112,6 +112,30 @@ pub(crate) struct Drawn {
     contact: Option<String>,
     /// The conversation the share sheet can share for.
     shareable: Option<ConversationKey>,
+    /// The saved own card as the editor's Back judges it: its name and
+    /// surname, and whether the editor's photo differs from it.
+    own_saved: Option<(String, Option<String>, bool)>,
+    /// A photo removed or picked in the editor that `own_saved` does not
+    /// yet show: set when the queue accepts it, and cleared at the first
+    /// render after its take that runs outside `View::take_events`. The
+    /// model applies what a take raised before any such render, while a
+    /// take can render before the model has it, and after the take nothing
+    /// renders until the facade answers
+    /// (`back_after_a_queued_photo_change_asks`,
+    /// `back_after_a_photo_change_taken_and_not_yet_drawn_asks`,
+    /// `back_after_a_second_unusable_pick_closes_at_once`).
+    pub(crate) own_photo_queued: bool,
+    /// Such a change has been taken since the last render outside a take.
+    own_photo_taken: bool,
+}
+
+/// Whether `input` removes or picks the editor's photo: a change Back
+/// asks about before the model has it.
+pub(crate) fn changes_own_photo(input: &Input) -> bool {
+    matches!(
+        input,
+        Input::Cards(CardsInput::RemoveOwnPhoto | CardsInput::PhotoPicked(Some(_)))
+    )
 }
 
 /// The card screens' callbacks: each becomes an input, taken as the others
@@ -126,6 +150,21 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     window.on_close_cards(on(shared, CardsInput::Close));
     window.on_own_card_remove_photo(on(shared, CardsInput::RemoveOwnPhoto));
     window.on_own_card_choose_photo(on(shared, CardsInput::ChoosePhoto));
+    // Unsaved, as Save would write it: names trimmed, an empty surname
+    // none, and the photo as the model judges it (design 5.2).
+    let s = Rc::clone(shared);
+    window.on_own_card_unsaved(move |given, surname| {
+        let shared = s.borrow();
+        let Some((saved_given, saved_surname, photo_unsaved)) = shared.cards.own_saved.as_ref()
+        else {
+            return false;
+        };
+        let surname = surname.trim();
+        shared.cards.own_photo_queued
+            || *photo_unsaved
+            || given.trim() != saved_given
+            || saved_surname.as_deref().unwrap_or("") != surname
+    });
     let s = Rc::clone(shared);
     window.on_own_photo_picked_done(move || {
         let picked = s.borrow().photo_pick.lock().ok().and_then(|mut p| p.take());
@@ -509,6 +548,9 @@ pub(crate) struct CardScreens {
     /// one: redrawn whenever what it should show changes, a saved card's
     /// photo included, not only when the step does (#449 F1).
     own_photo_drawn: Option<DrawnPhoto>,
+    /// A render made by `View::take_events` itself, before the model has
+    /// applied what the take raised.
+    pub(crate) rendering_in_take: bool,
     /// A contact deleted from its page: the list's first row takes focus
     /// once the list is drawn without it (design section 9's focus table).
     deleted: Option<String>,
@@ -750,6 +792,12 @@ impl View {
 
     /// The own card editor's photo (contact-cards design 5.2).
     fn take_own_photo(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
+        if matches!(
+            input,
+            CardsInput::RemoveOwnPhoto | CardsInput::PhotoPicked(Some(_))
+        ) {
+            self.shared.borrow_mut().cards.own_photo_taken = true;
+        }
         if self.cards.page != Some(CardsPage::OwnCard) {
             return Vec::new();
         }
@@ -835,6 +883,7 @@ impl View {
         self.cards.contact = None;
         window.set_cards_page(CardsPage::None);
         window.set_contact_confirming_delete(false);
+        window.set_own_discard_open(false);
     }
 
     /// The focus key a contact's focus target names on the card page
@@ -878,6 +927,7 @@ impl View {
             self.cards.contact = None;
             window.set_cards_page(CardsPage::None);
             window.set_contact_confirming_delete(false);
+            window.set_own_discard_open(false);
         }
         self.render_proposals(model, &window);
         // A contact's page whose contact is gone shows the list.
@@ -1362,6 +1412,21 @@ impl View {
     /// announces -- `PhotoAdded` when one is ready, `PhotoUnusable` when
     /// it cannot be used, each once.
     fn render_own_photo(&mut self, model: &UiModel, window: &AppWindow) -> Option<String> {
+        window.set_discard_title(text(UiText::CardDiscardChanges).into());
+        window.set_keep_editing_label(text(UiText::KeepEditing).into());
+        window.set_discard_label(text(UiText::DiscardChanges).into());
+        let mut shared = self.shared.borrow_mut();
+        shared.cards.own_saved = model.identity().map(|i| {
+            (
+                i.given.clone(),
+                i.surname.clone(),
+                model.own_photo_unsaved(),
+            )
+        });
+        if !self.cards.rendering_in_take && std::mem::take(&mut shared.cards.own_photo_taken) {
+            shared.cards.own_photo_queued = shared.inputs.iter().any(changes_own_photo);
+        }
+        drop(shared);
         window.set_add_photo_label(text(UiText::AddPhoto).into());
         window.set_change_photo_label(text(UiText::ChangePhoto).into());
         window.set_own_photo_choosable(self.photo_choosable());

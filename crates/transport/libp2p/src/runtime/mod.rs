@@ -1441,7 +1441,9 @@ impl SwarmRuntime {
         };
         let relay_hop_counters = relay_server_driver::hop_counter_handle(&relay_server_toggle);
         // THE KEEPALIVE toward relay control peers (section 14 item 5),
-        // with either relay role: switched per relay by the relay driver
+        // and on every relayed connection end to end whatever the
+        // switches say (A 2026-10-25), with either relay role: switched
+        // per relay by the relay driver
         // as this profile's reservations move (`relay_driver::sync`), and
         // per holder by the server-event arm below as this relay's
         // reservations move (`relay_reserved`, `set_reserved`).
@@ -2099,7 +2101,10 @@ impl SwarmRuntime {
                             // failure, beside the adapter's own retry.
                             // The adapter re-dials what it dialled;
                             // this walks past it. ONLY the adapter's
-                            // own targets: every other peer's retry --
+                            // own targets, and below the relay
+                            // driver's infrastructure-only relays,
+                            // which its ladder re-asks: every other
+                            // peer's retry --
                             // a revoked one, or one demoted to
                             // infrastructure that nobody re-dials --
                             // still goes to the gate and is refused
@@ -2146,6 +2151,28 @@ impl SwarmRuntime {
                                         ),
                                     });
                                 }
+                                continue;
+                            }
+                            // NOR A RELAY'S, for the AutoNAT targets'
+                            // reason above: a failed reservation dial
+                            // schedules a retry like any other, this
+                            // scheduler's origin is refused for an
+                            // infrastructure-only peer
+                            // (`NotAuthorizedForDataPlane`, reported to
+                            // nobody who asked), and the relay driver
+                            // re-asks on its own ladder. Only while the
+                            // relay is infrastructure-only: one that is
+                            // also a data-plane peer is this scheduler's
+                            // to reconnect, and a revoked one was
+                            // reported just above.
+                            // `relay_client::a_failed_reservation_dial_is_retried_by_the_relay_ladder_and_not_by_the_reconnect_scheduler`
+                            // pins it.
+                            if matches!(
+                                manager.classify(&peer),
+                                interweave_transport_runtime::ConnectionClass::ConnectivityInfrastructureOnly
+                            ) && relay_state.as_ref().is_some_and(|s| s.is_relay(&peer))
+                            {
+                                manager.clear_retry_claim(&peer);
                                 continue;
                             }
                             let candidates = manager.dial_candidates(&peer, now);

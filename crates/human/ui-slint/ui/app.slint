@@ -2027,6 +2027,13 @@ component PathField {
     in property <string> path;
     in property <string> code-font;
     in property <string> focus-key;
+    // A focus request lands on the field (a dialog closing over it gives
+    // focus back, `continue_editing_gives_focus_back_to_each_control`).
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { input.focus(); }
+    }
     callback focused(string);
     VerticalLayout {
         spacing: 2px;
@@ -3036,6 +3043,15 @@ export component AppWindow inherits Window {
     in property <string> delete-contact-label;
     in property <string> delete-contact-confirm;
     in property <string> cards-cancel-label;
+    // Back with unsaved changes on the own card (design 5.2): the dialog's
+    // words, whether it is open, where focus was, and whether what the
+    // fields hold, with the photo, differs from the saved card.
+    in property <string> discard-title;
+    in property <string> keep-editing-label;
+    in property <string> discard-label;
+    in-out property <bool> own-discard-open;
+    property <string> own-discard-return;
+    pure callback own-card-unsaved(string, string) -> bool;
     in property <string> peer-id-label;
     in property <string> fingerprint-label;
     in-out property <bool> contact-confirming-delete;
@@ -3134,11 +3150,40 @@ export component AppWindow inherits Window {
     callback share-confirmed();
     // Details: whether this identity's card was shared here, and when.
     in property <string> details-card;
+    // Back on a card page: the own card's editor with unsaved changes
+    // asks first (contact-cards design 5.2), else the page closes.
     function close-cards-page() {
+        if (root.cards-page == CardsPage.own-card && !root.own-discard-open
+            && root.own-card-unsaved(root.own-given, root.own-surname)) {
+            // Back to the editor's control that had focus -- each takes a
+            // focus request, its share-again rows included -- else, focus
+            // beside the editor on a wide window, to its first field
+            // (`continue_editing_gives_focus_back_to_each_control`,
+            // `continue_editing_gives_focus_back_to_a_share_again_row`).
+            root.own-discard-return = root.focus-id == "close-cards"
+                || root.focus-id.starts-with("own-")
+                || root.focus-id.starts-with("share-again:") ? root.focus-id : "own-given";
+            root.own-discard-open = true;
+            return;
+        }
+        root.leave-cards-page();
+    }
+    function leave-cards-page() {
         root.contact-confirming-delete = false;
         root.list-shown = true;
         root.close-cards();
         root.chats-menu-closed-seq += 1;
+    }
+    // The unsaved-changes dialog closed on Continue editing: focus where
+    // it was when Back asked (section 9's focus table).
+    function keep-editing() {
+        root.own-discard-open = false;
+        root.focus-target = root.own-discard-return;
+        root.focus-seq += 1;
+    }
+    function discard-changes() {
+        root.own-discard-open = false;
+        root.leave-cards-page();
     }
     function close-share() {
         root.share-open = false;
@@ -3179,6 +3224,15 @@ export component AppWindow inherits Window {
         }
         if (root.share-open) {
             root.close-share();
+            return true;
+        }
+        // A dialog over a card page answers Back before the page does.
+        if (root.new-key-open) {
+            root.new-key-cancel();
+            return true;
+        }
+        if (root.own-discard-open) {
+            root.keep-editing();
             return true;
         }
         if (root.cards-page == CardsPage.contact && root.contact-confirming-delete) {
@@ -5060,6 +5114,8 @@ export component AppWindow inherits Window {
                                         wraps: true;
                                         target: 48px;
                                         focus-key: "own-remove-photo";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "own-remove-photo";
                                         pressed => { root.own-card-remove-photo(); }
                                         focused(k) => { root.focus-id = k; }
                                     }
@@ -5111,6 +5167,8 @@ export component AppWindow inherits Window {
                                 filled: true;
                                 target: 48px;
                                 focus-key: "own-save";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "own-save";
                                 pressed => { root.own-card-save(); }
                                 focused(k) => { root.focus-id = k; }
                             }
@@ -5209,6 +5267,8 @@ export component AppWindow inherits Window {
                                 path: root.own-key-path;
                                 code-font: root.code-font;
                                 focus-key: "own-key-path";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "own-key-path";
                                 focused(k) => { root.focus-id = k; }
                             }
                             Text {
@@ -6747,6 +6807,102 @@ export component AppWindow inherits Window {
                             root.close-menu();
                             root.identifier-copied();
                         }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+        }
+    }
+
+    // Back with unsaved changes on the own card (contact-cards design 5.2):
+    // a basic dialog over a scrim; focus opens on Continue editing, and
+    // Escape, Back and the scrim are Continue editing. Tab stays on its two
+    // buttons.
+    if root.own-discard-open: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => {
+            FocusMode.keyboard = false;
+            root.keep-editing();
+        }
+        Rectangle { background: #00000052; }
+    }
+    if root.own-discard-open: discard := FocusScope {
+        focus-gained(reason) => {
+            if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+            if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        }
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: min(root.width - 48px, 560px);
+        height: discard-box.preferred-height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.keep-editing();
+                return accept;
+            }
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                FocusMode.keyboard = true;
+                if (discard-keep.has-focus) {
+                    discard-confirm.focus();
+                } else {
+                    discard-keep.focus();
+                }
+                return accept;
+            }
+            reject
+        }
+        property <bool> taken;
+        Timer {
+            interval: 1ms;
+            running: !discard.taken;
+            triggered => {
+                discard.taken = true;
+                discard-keep.focus();
+            }
+        }
+        discard-box := Rectangle {
+            background: Palette.surface-container-high;
+            border-radius: 28px;
+            TouchArea {}
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                Text {
+                    text: root.discard-title;
+                    font-size: Type.title-large;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                // One action a line, the full width, as the proposal's
+                // (contact-cards 5.4): "Close without saving" does not fit
+                // beside Continue editing on a phone, and Slint 1.18
+                // cannot choose a layout from a label's width
+                // (tests/cards.rs,
+                // `the_unsaved_changes_dialog_fits_a_narrow_window_with_large_text`).
+                VerticalLayout {
+                    spacing: 8px;
+                    discard-confirm := ActionButton {
+                        text: root.discard-label;
+                        detail: root.discard-title;
+                        text-button: true;
+                        wraps: true;
+                        target: 48px;
+                        focus-key: "discard-confirm";
+                        pressed => { root.discard-changes(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    discard-keep := ActionButton {
+                        text: root.keep-editing-label;
+                        filled: true;
+                        wraps: true;
+                        target: 48px;
+                        focus-key: "discard-keep";
+                        pressed => { root.keep-editing(); }
                         focused(k) => { root.focus-id = k; }
                     }
                 }
