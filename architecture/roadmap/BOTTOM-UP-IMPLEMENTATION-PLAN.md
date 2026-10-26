@@ -5774,7 +5774,7 @@ none is the status value's, which stays on this stage.
   reliability (their j130), carried here as that and not as the row's
   step.
 - **C-04, the Windows carry.** The row's tests cell holds only an owed
-  marker, and until 2026-10-26 `check_security_matrix.py --strict`
+  marker, and until #455 landed `check_security_matrix.py --strict`
   would have failed the close on it once S12's rows were filled. Its
   work is not this stage's:
   decided (5) carried the binding and its spoofing tests to Stage 19 on
@@ -5786,7 +5786,7 @@ none is the status value's, which stays on this stage.
   Stage NN (plan section MM)`, every item of the cell, is counted
   carried under `--strict` and labelled so in the plain report, with
   the grammar sentence and the self-test's cases — devex-tooling's
-  #455 (8e5881e2, merged 2026-10-26 on architect-cto's word; asked
+  #455 (8e5881e2, merged 2026-10-25 23:39Z on architect-cto's word; asked
   2026-10-25, REQUEST 01a17546-8198, REPLY 01a17547-31f8, their j239).
   C-04's cell is in that shape, so the close runs the guard with
   `--strict` and this record names C-04 as the one row carried whole.
