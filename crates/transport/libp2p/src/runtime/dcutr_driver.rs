@@ -157,6 +157,19 @@ fn apply_change(scope: &mut HolePunchScope, change: &super::network_change::Netw
     }
 }
 
+/// The platform's classification of this host's addresses (ADR-0052
+/// rule 10): `off_local` withheld at both doors to the crate. Returns
+/// whether the crate was built again, after which the runtime re-offers
+/// its listeners; false when DCUtR is off.
+pub(super) fn withhold_off_local(
+    field: &mut DcutrField,
+    off_local: &std::collections::BTreeSet<std::net::IpAddr>,
+) -> bool {
+    field
+        .as_mut()
+        .is_some_and(|gated| gated.inner_mut().inner_mut().withhold_off_local(off_local))
+}
+
 /// Advance the wrapper's clock; a no-op when DCUtR is off.
 pub fn tick(field: &mut DcutrField, now_ms: u64) {
     if let Some(gated) = field.as_mut() {

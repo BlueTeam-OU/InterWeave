@@ -50,7 +50,11 @@
 //! runtime offers, for the same reason; and to every punch dial the
 //! crate issues, FILTERED
 //! (ADR-0052 rule 5): the far end loses only the refused address, never
-//! the punch.
+//! the punch. Beside the boundary, both doors to the crate withhold an
+//! address on an IP the platform classifies as a private-range one on no
+//! local network (ADR-0052 rule 10, `withhold_off_local`): a carrier's
+//! address is inside the boundary and still no candidate of this node's,
+//! nor an own private listener for the punch dial's filter.
 //!
 //! THE CRATE'S OWN CACHE. libp2p-dcutr 0.15.0 keeps every candidate it
 //! is offered in a cache nothing here can reach (an LRU of 20), and each
@@ -112,7 +116,7 @@
 //! tests, and the dials and outcomes on real sockets by
 //! `tests/connectivity/tests/dcutr.rs`.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll};
@@ -385,20 +389,39 @@ const CRATE_CANDIDATE_CACHE: usize = 20;
 /// be learned again, the cost of a bound.
 const MAX_DEPARTED_IPS: usize = 64;
 
+/// The most off-local IPs the wrapper withholds
+/// (`HolePunchScope::off_local`): a phone's carrier addresses, one or two
+/// per network in practice. Past it the highest are not withheld -- the
+/// cost of a bound, on a platform view no phone reaches.
+const MAX_OFF_LOCAL_IPS: usize = 64;
+
 /// Whether `address` names an IP in `departed` -- one that left this
 /// host and has not come back: the one predicate both doors to the crate
 /// ask, the forward of a peer's observation and the replay into a
 /// rebuilt crate.
 fn on_departed_ip(address: &Multiaddr, departed: &VecDeque<IpAddr>) -> bool {
-    let ip = match address.iter().next() {
-        Some(Protocol::Ip4(ip)) => IpAddr::from(ip),
-        // An IPv4 written as IPv4-mapped IPv6 is the same host address.
-        Some(Protocol::Ip6(ip)) => ip
-            .to_ipv4_mapped()
-            .map_or_else(|| IpAddr::from(ip), IpAddr::from),
-        _ => return false,
-    };
-    departed.contains(&ip)
+    host_ip(address).is_some_and(|ip| departed.contains(&ip))
+}
+
+/// Whether `address` names an IP the platform classifies as a
+/// private-range address on no local network (ADR-0052 rule 10): the
+/// third predicate both doors to the crate ask, beside the boundary and
+/// [`on_departed_ip`].
+fn on_off_local_ip(address: &Multiaddr, off_local: &BTreeSet<IpAddr>) -> bool {
+    host_ip(address).is_some_and(|ip| off_local.contains(&ip))
+}
+
+/// The host IP `address` starts with, an IPv4 written IPv4-mapped read
+/// as the IPv4 it is: the form both IP sets here are kept in.
+fn host_ip(address: &Multiaddr) -> Option<IpAddr> {
+    match address.iter().next()? {
+        Protocol::Ip4(ip) => Some(IpAddr::from(ip)),
+        Protocol::Ip6(ip) => Some(
+            ip.to_ipv4_mapped()
+                .map_or_else(|| IpAddr::from(ip), IpAddr::from),
+        ),
+        _ => None,
+    }
 }
 
 /// The pinned DCUtR behaviour under §13's attempt lifecycle.
@@ -451,6 +474,16 @@ pub struct HolePunchScope {
     /// (`on_departed_ip`). `a_departed_ip_is_neither_replayed_nor_learned_again_until_it_returns`
     /// pins it.
     departed: VecDeque<IpAddr>,
+    /// The private-range IPs the platform classifies as on no local
+    /// network (ADR-0052 rule 10, A 2026-10-26; the runtime's
+    /// `NetworkSet::off_local`, canonical), at most
+    /// [`MAX_OFF_LOCAL_IPS`]: an address on one is offered at neither
+    /// door -- a listener (`offer_listener`) or a peer's observation --
+    /// and is no own private listener for the punch boundary, which
+    /// reads `offered`. `withhold_off_local` replaces it.
+    /// `a_private_address_on_no_local_network_is_offered_at_neither_door`
+    /// pins it.
+    off_local: BTreeSet<IpAddr>,
     /// Direct connections whose establishment ended an attempt -- the
     /// punched ones -- until the runtime reads them (`take_punched`),
     /// which it does for every connection it is told of. Bounded by
@@ -509,6 +542,7 @@ impl HolePunchScope {
             offered: HashSet::new(),
             observed: VecDeque::new(),
             departed: VecDeque::new(),
+            off_local: BTreeSet::new(),
             punched: HashSet::new(),
             stabilising: HashMap::new(),
             punch_dials: HashMap::new(),
@@ -560,6 +594,13 @@ impl HolePunchScope {
         // a private listener is what makes a private candidate
         // legitimate, and a loopback one is never offered -- the far
         // end would refuse it, and this profile refuses the far end's.
+        // NOR ON NO LOCAL NETWORK (ADR-0052 rule 10): a carrier's
+        // private address is not this node's toward anyone, and offered
+        // it would count as the private listener that admits a far end's
+        // private candidate.
+        if on_off_local_ip(address, &self.off_local) {
+            return false;
+        }
         let text = address.to_string();
         let own: Vec<String> = self
             .offered
@@ -675,6 +716,38 @@ impl HolePunchScope {
         while self.departed.len() > MAX_DEPARTED_IPS {
             self.departed.pop_front();
         }
+        self.rebuild();
+    }
+
+    /// The platform's classification moved (ADR-0052 rule 10, A
+    /// 2026-10-26): `off_local` replaces the IPs withheld. When an
+    /// address the crate already holds -- a listener offered, an
+    /// observation forwarded -- is on one now, the crate is BUILT AGAIN,
+    /// as [`Self::network_changed`] builds it and with the same
+    /// consequences: its cache cannot be emptied any other way, and
+    /// every CONNECT it writes carries that cache. On Android that is
+    /// the ordinary start -- the wildcard listener reports the carrier's
+    /// address before the first view classifies it. Returns whether it
+    /// rebuilt; the runtime then re-offers the listeners it offers.
+    /// Pinned by `a_private_address_on_no_local_network_is_offered_at_neither_door`.
+    pub fn withhold_off_local(&mut self, off_local: &BTreeSet<IpAddr>) -> bool {
+        self.off_local = off_local
+            .iter()
+            .map(IpAddr::to_canonical)
+            .take(MAX_OFF_LOCAL_IPS)
+            .collect();
+        let held = |address: &Multiaddr| on_off_local_ip(address, &self.off_local);
+        let stale = self.offered.iter().any(held) || self.observed.iter().any(held);
+        if stale {
+            self.rebuild();
+        }
+        stale
+    }
+
+    /// A fresh crate: the second half of [`Self::network_changed`], and
+    /// all of what [`Self::withhold_off_local`] does when the crate holds
+    /// an address it withholds.
+    fn rebuild(&mut self) {
         let mut fresh = dcutr::Behaviour::new(self.local);
         // A direct connection's addresses: the crate reads only that the
         // local one is not a circuit, and the handler it answers is a
@@ -704,9 +777,11 @@ impl HolePunchScope {
         // special-use observation names an interface too, so it goes with
         // the change and is learned again if it still holds. Given to the
         // crate now in place, the only one there is to give it to.
-        let departed = &self.departed;
+        let (departed, off_local) = (&self.departed, &self.off_local);
         self.observed.retain(|address| {
-            is_probeable_address(&address.to_string()) && !on_departed_ip(address, departed)
+            is_probeable_address(&address.to_string())
+                && !on_departed_ip(address, departed)
+                && !on_off_local_ip(address, off_local)
         });
         let mut replayed = 0u64;
         for address in &self.observed {
@@ -1110,6 +1185,20 @@ impl NetworkBehaviour for HolePunchScope {
                 .or_default() += 1;
             return;
         }
+        // NOR ONE ON NO LOCAL NETWORK (ADR-0052 rule 10): a peer on the
+        // carrier's network observes this profile at the carrier's
+        // address, which no one else reaches.
+        if let FromSwarm::NewExternalAddrCandidate(candidate) = &event
+            && on_off_local_ip(candidate.addr, &self.off_local)
+        {
+            *self
+                .counters
+                .lock()
+                .candidates_withheld
+                .entry("off_local_network")
+                .or_default() += 1;
+            return;
+        }
         if let FromSwarm::ConnectionEstablished(established) = &event {
             self.punches.release(established.connection_id);
         }
@@ -1370,6 +1459,71 @@ mod tests {
             observe(&mut s, &address);
         }
         assert_eq!(kept(&s), CRATE_CANDIDATE_CACHE);
+    }
+
+    /// ADR-0052 rule 10 at the wrapper: a carrier's private address is
+    /// offered at neither door once classified -- the listener door and
+    /// a peer's observation -- and is no own private listener for the
+    /// punch boundary; a classification arriving after it was offered
+    /// (Android's start) builds the crate again, and one that withdraws
+    /// nothing the crate holds does not.
+    #[test]
+    fn a_private_address_on_no_local_network_is_offered_at_neither_door() {
+        let mut s = scope(HolePunchBudgets::default());
+        let cellular: Multiaddr = "/ip4/10.20.30.40/tcp/4001".parse().expect("an address");
+        let wifi: Multiaddr = "/ip4/192.168.1.5/tcp/4001".parse().expect("an address");
+        let far_private: Multiaddr = "/ip4/10.1.2.3/tcp/4001".parse().expect("an address");
+        assert!(
+            s.offer_listener(&cellular),
+            "unclassified, offered as before"
+        );
+        assert!(s.offer_listener(&wifi));
+
+        let off: BTreeSet<IpAddr> = BTreeSet::from(["10.20.30.40".parse().expect("an IP")]);
+        assert!(
+            s.withhold_off_local(&off),
+            "it was in the crate: built again"
+        );
+        assert!(s.offered.is_empty(), "the listener set starts over");
+        assert!(
+            !s.offer_listener(&cellular),
+            "withheld at the listener door"
+        );
+        assert!(s.offer_listener(&wifi), "the control: a local network's");
+        assert!(
+            !s.withhold_off_local(&off),
+            "nothing the crate holds: no rebuild"
+        );
+
+        // The observation door, an IPv4-mapped form included.
+        let observe = |s: &mut HolePunchScope, address: &Multiaddr| {
+            s.on_swarm_event(FromSwarm::NewExternalAddrCandidate(
+                libp2p::swarm::behaviour::NewExternalAddrCandidate { addr: address },
+            ));
+        };
+        let mapped: Multiaddr = "/ip6/::ffff:10.20.30.40/tcp/5000"
+            .parse()
+            .expect("an address");
+        observe(&mut s, &mapped);
+        let counts = s.counter_handle().snapshot();
+        assert_eq!(
+            counts.candidates_withheld.get("off_local_network"),
+            Some(&1)
+        );
+
+        // The punch boundary: beside the Wi-Fi listener a far end's
+        // private candidate is inside it; with Wi-Fi gone it is not,
+        // though the carrier's private listener is still bound.
+        assert_eq!(s.within_boundary(&far_private), Ok(()));
+        assert!(s.forget_listener(&wifi));
+        assert_eq!(
+            s.within_boundary(&far_private),
+            Err(CandidateRefusal::PrivateWithoutPrivateListener)
+        );
+        // The control: unclassified, the same listener counts again.
+        assert!(!s.withhold_off_local(&BTreeSet::new()));
+        assert!(s.offer_listener(&cellular));
+        assert_eq!(s.within_boundary(&far_private), Ok(()));
     }
 
     /// An observation on an IP the change took off the host -- a public
