@@ -650,6 +650,16 @@ impl View {
                 self.cards.return_to_share = self.shown.clone();
                 return raised;
             }
+            // Your card while its editor is open leaves nothing: the
+            // editor stays with its changes, nothing is asked, and focus
+            // goes where the page's opening puts it (design 5.2,
+            // `your_card_while_its_editor_is_open_leaves_nothing`).
+            CardsInput::Open(Opened::OwnCard)
+                if self.page == crate::Page::Cards
+                    && self.cards.page == Some(CardsPage::OwnCard) =>
+            {
+                self.focus_key_after_draw("close-cards".to_owned());
+            }
             CardsInput::Open(opened) => {
                 self.cards.forget_returns();
                 let page = match opened {

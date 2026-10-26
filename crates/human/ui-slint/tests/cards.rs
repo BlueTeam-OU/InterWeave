@@ -1201,6 +1201,26 @@ fn a_page_from_the_app_options_with_a_change_asks_first() {
     );
 }
 
+/// Your card from the app options while the editor is open leaves
+/// nothing: the editor stays with its change, nothing is asked, and focus
+/// goes where the page's opening puts it. Mutation: the page reopened.
+#[test]
+fn your_card_while_its_editor_is_open_leaves_nothing() {
+    let (mut view, mut model, _) = wide_editor_with_a_change();
+    press(&view, text(UiText::AppOptions));
+    // The menu's item, after the page's own title of the same words.
+    press_last(&view, text(UiText::OwnCardTitle));
+    assert!(
+        !view.window().get_chats_menu_open(),
+        "control: the item was pressed"
+    );
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(!view.window().get_own_discard_open(), "nothing asked");
+    assert_eq!(view.window().get_own_given(), "Grace", "its change kept");
+    assert_eq!(view.window().get_focus_id().as_str(), "close-cards");
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {
