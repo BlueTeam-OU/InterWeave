@@ -2517,10 +2517,18 @@ fn show_announces_no_code_for_lines_no_code_holds() {
     assert!(!w.get_show_code_drawn(), "no code is drawn");
     let label = text(UiText::QrLabelOther).replace("{n}", "16");
     assert!(labelled(&view, &label).is_empty(), "no code is announced");
-    assert_eq!(
-        labelled(&view, text(UiText::ShowTooManyForCode)).len(),
-        1,
-        "why there is no code, in its place"
+    let too_many = labelled(&view, text(UiText::ShowTooManyForCode));
+    assert_eq!(too_many.len(), 1, "why there is no code, in its place");
+    // In the code's place: after the warning, before the lines.
+    let warning = labelled(&view, text(UiText::ShowWarning));
+    let listed = labelled(&view, &lines.join("\n"));
+    let y = |e: &ElementHandle| e.absolute_position().y;
+    assert!(
+        y(&warning[0]) < y(&too_many[0]) && y(&too_many[0]) < y(&listed[0]),
+        "warning {}, line {}, lines {}",
+        y(&warning[0]),
+        y(&too_many[0]),
+        y(&listed[0])
     );
     assert_eq!(w.get_show_lines().as_str(), lines.join("\n"));
     assert_eq!(w.get_show_peer().as_str(), me.as_str());
