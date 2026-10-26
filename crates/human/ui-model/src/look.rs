@@ -34,9 +34,10 @@ impl AvatarHue {
     }
 
     /// The hue of one of this device's identities: its `EndpointId`'s,
-    /// by the same rule, so two identities of one `PeerId` do not look
-    /// alike, and the hue is known before the `PeerId` is (contact-cards
-    /// design 5.1 and 5.2 field 1).
+    /// by the same rule (contact-cards design 5.1 and 5.2 field 1). So it
+    /// does not follow the `PeerId` and is known before the `PeerId` is;
+    /// identities of one `PeerId` usually differ, but with three pairs a
+    /// fourth always repeats one.
     #[must_use]
     pub fn of_identity(endpoint: &EndpointId) -> Self {
         Self::of_text(endpoint.as_str())
