@@ -5240,7 +5240,20 @@ directions over a direct and a relayed path, plain and `;ce=br`, every
 captured payload validated against `envelope.schema.json`
 (`tests/human_chat.rs`, `tests/paths.rs`; the Pixel 9a at API 37 on
 2026-10-20, the A40 at API 30 on 2026-10-22, six runs of six each after
-the relayed-path fix that the first Pixel run failed one in five on); of
+the relayed-path fix that the first Pixel run failed one in five on),
+and — a device run recorded after the close, added to this clause on
+2026-10-26 — a direct path over the phone's radio rather than adb's
+tunnel (`tests/wifi.rs`; `runs/2026-10-22-pixel-9a-api37-wifi.md`, the
+Pixel 9a at API 37, p2p-network-dev-02 at architect-cto's request, three
+passing runs on 2026-10-22 after one that found no daemon binary): with
+no `adb reverse`, the desktop daemon dialled the phone's Wi-Fi address
+given it by `admin.peers.add_address`, the control before the add not
+connected, and a message crossed that one TCP connection each way with
+the route reading `direct` on both sides; the run file names what it
+does not prove — the phone dialling the desktop (the host is behind
+NAT), anything relayed, DCUtR or AutoNAT over the radio, a change of
+network, IPv6 — and `tests/pairing.rs`'s phone-to-phone rows are §29's
+(e), recorded there; of
 `tests/interoperability`'s three items the independent codecs and the
 upgrade matrices are proved there, and the desktop ↔ Android platform
 matrix comparing the decoded envelope fields is RE-CARRIED to Stage 18
