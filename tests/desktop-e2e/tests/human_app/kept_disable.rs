@@ -38,13 +38,33 @@ fn home() -> Home {
     home
 }
 
+/// An admin port for the endpoints. The daemon admits four admin
+/// connections, each slot freed when its connection's task ends, so under
+/// load a fresh open can be answered `Overloaded` while the last ones
+/// close: that answer means try again, and it is, within `PATIENCE` (the
+/// full suite once failed here on it).
+async fn endpoints_admin(home: &Home) -> impl interweave_local_client_api::AdminPort {
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        match home
+            .binding()
+            .admin([AdminCapability::Endpoints].into())
+            .await
+        {
+            Ok(admin) => return admin,
+            Err(interweave_transport_api::TransportError::Overloaded)
+                if tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(e) => panic!("an admin port: {e:?}"),
+        }
+    }
+}
+
 /// Each endpoint's (enabled, persisted, leased) as the daemon reports it.
 async fn rows(home: &Home) -> Vec<(EndpointId, bool, bool, bool)> {
-    let admin = home
-        .binding()
-        .admin([AdminCapability::Endpoints].into())
-        .await
-        .expect("an admin port");
+    let admin = endpoints_admin(home).await;
     admin
         .leases()
         .await
@@ -59,10 +79,8 @@ async fn a_disable_kept_across_a_daemon_restart_moves_the_client_to_its_next_end
     let home = home();
     let mut daemon = home.start(&[]);
     daemon.serving(&home).await;
-    home.binding()
-        .admin([AdminCapability::Endpoints].into())
+    endpoints_admin(&home)
         .await
-        .expect("an admin port")
         .set_endpoint_enabled(human(), false)
         .await
         .expect("disabled");
