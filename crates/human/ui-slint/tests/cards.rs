@@ -1454,6 +1454,35 @@ fn a_share_again_row_with_a_change_asks_first() {
     );
 }
 
+/// Close without saving goes on to the page asked: Trust from the app
+/// options opens Trust. Mutation: the Trust branch dropped or swapped.
+#[test]
+fn closing_without_saving_on_the_way_to_trust_opens_trust() {
+    let (mut view, mut model, _) = wide_editor_with_a_change();
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::TrustHeading));
+    settle();
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(view.window().get_trust_page(), "Trust open");
+    assert!(!view.window().get_peers_page());
+}
+
+/// The same for Peers. Mutation: the Peers branch dropped or swapped.
+#[test]
+fn closing_without_saving_on_the_way_to_peers_opens_peers() {
+    let (mut view, mut model, _) = wide_editor_with_a_change();
+    press(&view, text(UiText::AppOptions));
+    press_last(&view, text(UiText::PeersTitle));
+    settle();
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(view.window().get_peers_page(), "Peers open");
+    assert!(!view.window().get_trust_page());
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {
