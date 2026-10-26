@@ -286,3 +286,45 @@ The same amendment reads rule 2's "whoever supplies them" as
 whatever its class, and the two sentences had read against each other
 (#340's review, rounds 4 and 5); the floor is the peer-supplied path's,
 and the person's add brings its own.
+
+### Amendment 2026-10-26 — A private-range address of this host on no local network is not this node's address toward anyone
+
+rust-ui-dev-01 observed on the Pixel 9a (2026-10-26) that ADR-0062's
+Show listed three rows: the Wi-Fi address a LAN peer could reach and
+two carrier-assigned `10.x/32` addresses on the phone's mobile-data
+interfaces, which a LAN peer could not; a second phone scanning the
+code added all three. p2p-network-dev-02 read the code and found it
+doing what decision 4 said — a private range is admitted — and that
+the same addresses went further than Show: Identify advertised every
+listen address to every connected peer, and a punch candidate set and
+rule 3's own-listener test read the same listener set. The runtime
+could not tell: its listener set and the platform's view carried IP
+addresses and nothing about the network each came from.
+
+Ruled: the reason a private range is admitted anywhere in this record
+is the LAN, and a carrier's private address on a cellular network is on
+none, so it is no address of this node toward anyone — not shown, not
+advertised, not offered, not counted — while the listener stays bound
+for what it can reach outward. Rule 10 states it; rule 3's own-listener
+clause gains the exception, because the former reading let a phone on
+mobile data alone admit a far end's private candidate and dial it into
+the carrier's network. The classification crosses the platform bridge
+as a derived fact about each address, read off the network's transport
+in the platform layer (cellular is no local network; a VPN is, since
+its peers reach its private address; a prefix length decides nothing),
+so `CONNECTIVITY.md` §14's rule that no transport, network id or
+carrier fact crosses stands. Rejected: Show alone (the leak to every
+connected peer and their dead dials stay); no change (the same, plus a
+scan spending its lines on dead rows). Measured once, on one carrier;
+whether a carrier routes between its own subscribers' private addresses
+was not measured and the rule does not depend on it.
+
+Propagation: rules 3 and 10; this note; the log row; the digest entry
+and keyword row; the README row; ADR-0062 decision 4 and its
+conformance cases (its own note); `CONNECTIVITY.md` §14 (the view's
+classification, the Identify and offer sites); `DCUTR.md` §6;
+`human-client-android.md` §Android network lifecycle. The code is
+p2p-network-dev-02's (the view's field, `own_addresses::select`, the
+Identify listen set, the offer sites, rule 3's test) with rust-ui-dev's
+bridge half (the Kotlin callback reading each network's transport, the
+`android-platform` seam), one PR.
