@@ -13,10 +13,16 @@
 //!   change was asked of it, by command or on the admin socket. The
 //!   controls that each read is live: the trust set read before holds B,
 //!   the list afterwards holds the code's lines, and the tap saw the add.
-//!   The window is not in this case: the desktop withholds Paste an image
-//!   (#409 F1) and Open an image… is the XDG portal's dialog, which this
-//!   display has no backend for; what an image decodes to is `ui-slint`'s
-//!   (`code.rs`, the Show test's read back).
+//!   The window is not in this case; the next one is.
+//! - **A code's image pasted in the window adds its addresses and nothing
+//!   else.** The shipped window, on Linux, reads the clipboard's image
+//!   within bounds: text on the clipboard says `ClipboardNoImage` under
+//!   the scan controls and adds nothing; a PNG of a hostile code, owned
+//!   on the display's clipboard as another program would own it, pressed
+//!   in with Paste an image, adds exactly its lines to the daemon's list,
+//!   the trust set unchanged. The control: the list before holds none of
+//!   them. Open an image… is not driven: it is the XDG portal's dialog,
+//!   which this display has no backend for.
 //! - **The shown code is this node's addresses and `PeerId` and nothing
 //!   else.** Show my address's code in the shipped window, read from the
 //!   window's pixels as a phone's camera reads a screen, decodes to
@@ -49,6 +55,7 @@ use interweave_local_client_api::{
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
 
 use crate::a11y::{Bus, Element};
+use crate::clipboard;
 use crate::common::{Home, PATIENCE, human};
 use crate::daemon_link::{Tap, asked};
 use crate::display;
@@ -357,5 +364,107 @@ async fn the_shown_code_reads_back_as_this_nodes_own_addresses_and_peer_id_alone
             assert!(!line.starts_with(refused), "{line} is of a refused class");
         }
     }
+    assert!(client.terminate().success(), "{}", client.log());
+}
+
+/// A PNG of the code holding `text`, four pixels a module with its quiet
+/// zone, as a screenshot of another device's Show would be.
+fn code_png(text: &str) -> Vec<u8> {
+    const SCALE: u32 = 4;
+    const QUIET: u32 = 4;
+    let code = qrcode::QrCode::new(text).expect("a code holds it");
+    let modules = u32::try_from(code.width()).expect("a side");
+    let colors = code.to_colors();
+    let side = (modules + 2 * QUIET) * SCALE;
+    let picture = image::GrayImage::from_fn(side, side, |x, y| {
+        let (mx, my) = (x / SCALE, y / SCALE);
+        let dark = (QUIET..QUIET + modules).contains(&mx)
+            && (QUIET..QUIET + modules).contains(&my)
+            && colors[((my - QUIET) * modules + (mx - QUIET)) as usize] == qrcode::Color::Dark;
+        image::Luma([if dark { 0 } else { 255 }])
+    });
+    let mut png = Vec::new();
+    picture
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("encoded");
+    png
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_code_image_pasted_in_the_window_adds_its_addresses_and_nothing_else() {
+    // The display's focus, and its one clipboard, for this case alone.
+    let _focus = display::exclusive().await;
+    let world = two_daemons().await;
+    let hostile = libp2p::identity::Keypair::generate_ed25519()
+        .public()
+        .to_peer_id()
+        .to_string();
+    let lines = [
+        format!("/ip4/192.168.1.21/tcp/4001/p2p/{hostile}"),
+        format!("/ip4/10.0.0.8/tcp/4001/p2p/{hostile}"),
+    ];
+    let trusted = allowed(&world.a).await;
+    let before = addresses(&world.a).await;
+    assert!(
+        !before.iter().any(|r| r.address.contains(&hostile)),
+        "the control: none of the code's lines yet: {before:?}"
+    );
+
+    let bus = Bus::connect().await;
+    let mut client = app::start(&world.a);
+    until_lease(&world.a.binding(), true, &client).await;
+    let window = bus.window_of(client.child.id(), || client.log()).await;
+    display::focus(client.child.id(), || client.log()).await;
+    let log = || client.log();
+    let press = |name: &'static str| move |e: &Element| e.name == name && e.actions == ["click"];
+    for (what, name) in [
+        ("the app's options", text(UiText::AppOptions)),
+        ("the app's Peers entry", text(UiText::PeersTitle)),
+        ("Add an address", text(UiText::AddAddress)),
+    ] {
+        let control = window.until(what, press(name), log).await;
+        window.activate(&control, "click").await;
+    }
+    let paste = window
+        .until("Paste an image", press(text(UiText::PasteCodeImage)), log)
+        .await;
+
+    // Text only: no image, said under the scan controls; nothing added.
+    let words = clipboard::Owner::hold("text/plain", lines.join("\n").into_bytes());
+    window.activate(&paste, "click").await;
+    window
+        .until(
+            "the no-image line",
+            |e: &Element| e.name == text(UiText::ClipboardNoImage),
+            log,
+        )
+        .await;
+    drop(words);
+    assert_eq!(addresses(&world.a).await, before, "text pastes no add");
+
+    // The code's image: added at once, as one add.
+    let _image = clipboard::Owner::hold("image/png", code_png(&lines.join("\n")));
+    window.activate(&paste, "click").await;
+    let deadline = Instant::now() + PATIENCE;
+    let after = loop {
+        let now = addresses(&world.a).await;
+        if now.len() >= before.len() + lines.len() {
+            break now;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the pasted code was never added: {now:?}\n{}",
+            client.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    let mut want = before.clone();
+    want.extend(lines.iter().map(|line| BootstrapAddress {
+        address: line.clone(),
+        source: AddressSource::Added,
+        dialled: true,
+    }));
+    assert_eq!(after, want, "its addresses and nothing else");
+    assert_eq!(allowed(&world.a).await, trusted, "the trust set unchanged");
     assert!(client.terminate().success(), "{}", client.log());
 }
