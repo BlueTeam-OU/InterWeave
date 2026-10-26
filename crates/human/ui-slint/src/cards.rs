@@ -116,17 +116,17 @@ pub(crate) struct Drawn {
     /// surname, and whether the editor's photo differs from it.
     own_saved: Option<(String, Option<String>, bool)>,
     /// A photo removed or picked in the editor that `own_saved` does not
-    /// yet show: set when it is queued, and cleared only by a render whose
-    /// model holds a photo step other than the one drawn before, with no
-    /// such input left queued. Neither the take nor the queue draining is
-    /// enough: a take can render before the model applies what it took,
-    /// and after it nothing renders until the facade answers
+    /// yet show: set when the queue accepts it, and cleared at the first
+    /// render after its take that runs outside `View::take_events`. The
+    /// model applies what a take raised before any such render, while a
+    /// take can render before the model has it, and after the take nothing
+    /// renders until the facade answers
     /// (`back_after_a_queued_photo_change_asks`,
-    /// `back_after_a_photo_change_taken_and_not_yet_drawn_asks`). A change
-    /// the model refuses leaves it set, so Back asks: the safe side.
+    /// `back_after_a_photo_change_taken_and_not_yet_drawn_asks`,
+    /// `back_after_a_second_unusable_pick_closes_at_once`).
     pub(crate) own_photo_queued: bool,
-    /// The model's photo step as the last render drew it.
-    own_photo_shown: Option<OwnPhotoStep>,
+    /// Such a change has been taken since the last render outside a take.
+    own_photo_taken: bool,
 }
 
 /// Whether `input` removes or picks the editor's photo: a change Back
@@ -547,7 +547,10 @@ pub(crate) struct CardScreens {
     /// The photo the editor's circle was last given, once it was given
     /// one: redrawn whenever what it should show changes, a saved card's
     /// photo included, not only when the step does (#449 F1).
-    own_photo_shown: Option<DrawnPhoto>,
+    own_photo_drawn: Option<DrawnPhoto>,
+    /// A render made by `View::take_events` itself, before the model has
+    /// applied what the take raised.
+    pub(crate) rendering_in_take: bool,
     /// A contact deleted from its page: the list's first row takes focus
     /// once the list is drawn without it (design section 9's focus table).
     deleted: Option<String>,
@@ -636,10 +639,6 @@ impl View {
             }
             CardsInput::Open(opened) => {
                 self.cards.forget_returns();
-                // A fresh editor holds no change of its own.
-                let mut shared = self.shared.borrow_mut();
-                shared.cards.own_photo_queued = shared.inputs.iter().any(changes_own_photo);
-                drop(shared);
                 let page = match opened {
                     Opened::Contacts => CardsPage::Contacts,
                     Opened::OwnCard => CardsPage::OwnCard,
@@ -793,6 +792,12 @@ impl View {
 
     /// The own card editor's photo (contact-cards design 5.2).
     fn take_own_photo(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
+        if matches!(
+            input,
+            CardsInput::RemoveOwnPhoto | CardsInput::PhotoPicked(Some(_))
+        ) {
+            self.shared.borrow_mut().cards.own_photo_taken = true;
+        }
         if self.cards.page != Some(CardsPage::OwnCard) {
             return Vec::new();
         }
@@ -1418,9 +1423,7 @@ impl View {
                 model.own_photo_unsaved(),
             )
         });
-        let step = model.own_photo().cloned();
-        if shared.cards.own_photo_shown != step {
-            shared.cards.own_photo_shown = step;
+        if !self.cards.rendering_in_take && std::mem::take(&mut shared.cards.own_photo_taken) {
             shared.cards.own_photo_queued = shared.inputs.iter().any(changes_own_photo);
         }
         drop(shared);
@@ -1447,9 +1450,9 @@ impl View {
             }
             .into(),
         );
-        if self.cards.own_photo_shown.as_ref().map(|d| d.0.as_ref()) != Some(shown) {
+        if self.cards.own_photo_drawn.as_ref().map(|d| d.0.as_ref()) != Some(shown) {
             window.set_own_edit_photo(shown.map(image).unwrap_or_default());
-            self.cards.own_photo_shown = Some(DrawnPhoto(shown.cloned()));
+            self.cards.own_photo_drawn = Some(DrawnPhoto(shown.cloned()));
         }
         if self.cards.own_step_drawn == step {
             return None;

@@ -2437,6 +2437,69 @@ fn back_after_a_photo_change_taken_and_not_yet_drawn_asks() {
     let _ = intents(&mut view, &mut model);
 }
 
+/// A pick the model has applied and drawn is no longer pending, even when
+/// what it drew equals what was drawn before: a second unusable image
+/// over an unchanged card leaves the editor unchanged, and Back closes it
+/// at once. Mutation: the mark cleared only when the drawn photo step
+/// changes.
+#[test]
+fn back_after_a_second_unusable_pick_closes_at_once() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    // As a root runs it: a render opens each turn, the take follows, the
+    // model applies what was taken, and the facade's answer renders.
+    let unusable_pick = |view: &mut View, model: &mut UiModel| {
+        view.photo_picked(Some(vec![1, 2, 3]));
+        view.render(model);
+        for event in view.take_events(model) {
+            if let interweave_human_ui_slint::ViewEvent::Intent(Intent::ChooseOwnPhoto(_)) = event {
+                let seq = model.own_photo_chosen();
+                model.own_photo_prepared(seq, None);
+            }
+        }
+        view.render(model);
+        settle();
+    };
+    unusable_pick(&mut view, &mut model);
+    unusable_pick(&mut view, &mut model);
+    assert!(view.window().invoke_handle_back());
+    assert!(!view.window().get_own_discard_open(), "nothing changed");
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None,
+        "closed at once"
+    );
+}
+
+/// A Remove photo the full queue refused never arrives, so it is no
+/// change: Back on the otherwise unchanged editor does not ask. Mutation:
+/// the mark set before the queue's answer.
+#[test]
+fn a_refused_photo_change_is_no_change() {
+    let (view, _model) = own_editor(ada(
+        true,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    for _ in 0..interweave_human_ui_slint::INPUT_CAP {
+        view.select(direct(P));
+    }
+    press(&view, text(UiText::RemovePhoto));
+    assert_eq!(view.refused_inputs(), 1, "control: refused");
+    assert!(view.window().invoke_handle_back());
+    assert!(
+        !view.window().get_own_discard_open(),
+        "nothing to ask about"
+    );
+}
+
 /// The same for a photo picked and not yet taken; a picker cancelled is
 /// no change.
 #[test]
