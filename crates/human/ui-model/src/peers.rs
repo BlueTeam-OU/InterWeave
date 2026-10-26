@@ -139,6 +139,10 @@ pub enum AddNote {
     ImageUnreadable,
     /// Paste an image found no image on the clipboard.
     ClipboardNoImage,
+    /// Paste an image could not read the clipboard at all, so what it
+    /// holds is not known: never "no image" nor an image unreadable
+    /// (`a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit`).
+    ClipboardUnreadable,
     /// The camera permission refused: type or paste instead.
     CameraDenied,
     /// The camera permission refused for good: Open settings to allow it.
@@ -200,6 +204,7 @@ impl AddNote {
                 | Self::NotAddress
                 | Self::ImageUnreadable
                 | Self::ClipboardNoImage
+                | Self::ClipboardUnreadable
                 | Self::CameraDenied
                 | Self::CameraDeniedSettings
         )
@@ -630,6 +635,9 @@ pub enum PeersInput {
     ImageUnreadable,
     /// Paste an image found no image on the clipboard.
     ClipboardNoImage,
+    /// Paste an image could not read the clipboard at all: held by another
+    /// program, not offered to the app, or the read failed (§5.5).
+    ClipboardUnreadable,
     /// The camera permission was refused at Scan a code; `for_good` when
     /// the platform will not ask again, so only Settings can allow it.
     CameraDenied {
@@ -1034,6 +1042,10 @@ impl Peers {
                 self.scan_ended(Some(AddNote::ClipboardNoImage));
                 Vec::new()
             }
+            PeersInput::ClipboardUnreadable => {
+                self.scan_ended(Some(AddNote::ClipboardUnreadable));
+                Vec::new()
+            }
             PeersInput::CameraDenied { for_good } => {
                 self.camera_denied(for_good);
                 Vec::new()
@@ -1243,6 +1255,13 @@ impl Peers {
         let Some(page) = self.page.as_mut() else {
             return;
         };
+        // A press while a scan is open starts no reader, so it changes
+        // nothing: the open scan's result and focus stay with the control
+        // that started it (§5.5, §8; #409 r3 F4). The desktop's file
+        // dialog leaves the window live, so Paste can be pressed under it.
+        if page.scanning {
+            return;
+        }
         page.scan_from = Some(control);
         // A scan's own line goes at the next scan press (§5.5).
         if page.note.as_ref().is_some_and(AddNote::is_scan_line) {

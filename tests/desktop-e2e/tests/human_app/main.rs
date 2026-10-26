@@ -19,6 +19,7 @@ mod common;
 mod a11y;
 mod accessibility;
 mod chat;
+mod clipboard;
 mod codes;
 mod daemon_link;
 mod display;

@@ -29,8 +29,7 @@ use interweave_transport_embedded::{
 };
 
 use crate::facade::{FacadeLoop, SpawnError};
-use crate::hub::Hub;
-use crate::hub::StoreRefusal;
+use crate::hub::{Hub, StoreAnswer, StoreGeneration, StoreRefusal};
 use crate::network::{NetworkReport, NetworkSlot, Told};
 use crate::offline::offline_embedded;
 
@@ -87,6 +86,17 @@ pub enum StartRefused {
     StoreUnavailable(String),
     /// The facade's thread could not be started.
     Thread(String),
+}
+
+/// A discard that ran, and the hub's count of start answers when it
+/// ended.
+#[derive(Debug)]
+pub struct StoreDiscarded {
+    /// What the discard removed.
+    pub discarded: at_rest::Discarded,
+    /// The start answers said before the discard ended: the restart's
+    /// answer counts past it.
+    pub answered: StoreGeneration,
 }
 
 /// Why a store action was not taken.
@@ -283,7 +293,8 @@ impl ServiceHost {
 
     /// Run the Discard the person confirmed; the next start recreates the
     /// store. Held under the host's lock so no start opens the store while
-    /// it goes.
+    /// it goes, and the hub's count of start answers is read under it: an
+    /// answer counted past [`StoreDiscarded::answered`] is a later start's.
     ///
     /// # Errors
     /// [`StoreActionRefused`]; [`StoreError::DiscardChanged`] inside it
@@ -294,13 +305,29 @@ impl ServiceHost {
         profile: &str,
         store_cipher: &dyn KeyCipher,
         confirmed: at_rest::ConfirmedDiscard,
-    ) -> Result<at_rest::Discarded, StoreActionRefused> {
+    ) -> Result<StoreDiscarded, StoreActionRefused> {
         let running = self.lock();
         if running.is_some() {
             return Err(StoreActionRefused::Running);
         }
         let paths = embedded_paths(app_data_dir, profile)?;
-        at_rest::discard(&paths, store_cipher, confirmed).map_err(StoreActionRefused::Store)
+        let discarded =
+            at_rest::discard(&paths, store_cipher, confirmed).map_err(StoreActionRefused::Store)?;
+        Ok(StoreDiscarded {
+            discarded,
+            answered: self.hub.store_generation(),
+        })
+    }
+
+    /// A start the platform side refused before it reached this host -- no
+    /// profile, no identity, no Keystore -- said to the view as a refusal
+    /// no store screen shows, under the start lock as every answer is.
+    /// Nothing while the client runs: that start changed nothing.
+    pub fn refused_before_start(&self) {
+        let running = self.lock();
+        if running.is_none() {
+            self.hub.set_store_answer(StoreAnswer::OtherRefusal);
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<Running>> {
@@ -411,6 +438,36 @@ impl ServiceHost {
         if running.is_some() {
             return Ok(());
         }
+        let started = self.start_locked(&mut running, launch, data);
+        self.answer(&started);
+        started
+    }
+
+    /// Say a start's answer to the hub, while the caller holds the start
+    /// lock: a discard reads the hub's count under it too, so every answer
+    /// counted past the discard's came from a start after it (#377 review
+    /// r3, risk 2).
+    fn answer(&self, started: &Result<(), StartRefused>) {
+        let answer = match started {
+            Ok(()) => Some(StoreAnswer::Opened),
+            Err(why) => store_answer(why),
+        };
+        if let Some(answer) = answer {
+            self.hub.set_store_answer(answer);
+        }
+    }
+
+    /// [`start_with`](Self::start_with) once the lock is held and nothing
+    /// runs; the caller says the answer.
+    fn start_locked<B>(
+        &self,
+        running: &mut Option<Running>,
+        launch: ServiceLaunch,
+        data: impl FnOnce(&EmbeddedHost) -> B,
+    ) -> Result<(), StartRefused>
+    where
+        B: DataSessionBinding + Send + 'static,
+    {
         let host = EmbeddedHost::start(EmbeddedLaunch {
             app_data_dir: launch.app_data_dir,
             profile: launch.profile,
@@ -420,7 +477,6 @@ impl ServiceHost {
         // From here a refusal stops the host before it answers.
         let refuse = |host: EmbeddedHost, why: StartRefused| {
             let _ = host.stop(Duration::ZERO);
-            self.hub.set_store_refused(store_screen(&why));
             Err(why)
         };
         let config = match ProfileConfig::load(host.paths()) {
@@ -462,7 +518,6 @@ impl ServiceHost {
             Err(SpawnError::Store(e)) => return refuse(host, classify(&e)),
             Err(SpawnError::Thread(e)) => return refuse(host, StartRefused::Thread(e.to_string())),
         };
-        self.hub.set_store_refused(None);
         self.hub.set_network_access(true);
         let host = Arc::new(host);
         // The callback reported the networks before this runtime existed
@@ -500,6 +555,20 @@ impl ServiceHost {
         if running.is_some() {
             return Ok(());
         }
+        let started = self.start_offline_locked(&mut running, app_data_dir, profile, store_cipher);
+        self.answer(&started);
+        started
+    }
+
+    /// [`start_without_network`](Self::start_without_network) once the
+    /// lock is held and nothing runs; the caller says the answer.
+    fn start_offline_locked(
+        &self,
+        running: &mut Option<Running>,
+        app_data_dir: &std::path::Path,
+        profile: &str,
+        store_cipher: Arc<dyn KeyCipher + Send + Sync>,
+    ) -> Result<(), StartRefused> {
         let refused = |e: EmbeddedRefused| StartRefused::Runtime(e);
         let boundary = TrustBoundary::new(app_data_dir).map_err(|e| refused(e.into()))?;
         let paths =
@@ -507,11 +576,7 @@ impl ServiceHost {
         let config = ProfileConfig::load(&paths).map_err(|e| refused(e.into()))?;
         let endpoint = human_endpoint(&config).ok_or(StartRefused::NoHumanEndpoint)?;
         let store = HumanStore::open_profile(&paths, &*store_cipher, StoreOptions::default())
-            .map_err(|e| {
-                let why = classify(&e);
-                self.hub.set_store_refused(store_screen(&why));
-                why
-            })?;
+            .map_err(|e| classify(&e))?;
         let executor = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("interweave-offline")
@@ -536,7 +601,6 @@ impl ServiceHost {
         );
         // Said before the facade runs, so a view never shows this posture
         // as a service that can send.
-        self.hub.set_store_refused(None);
         self.hub.set_network_access(false);
         let facade = match FacadeLoop::spawn(executor.handle().clone(), make, &self.hub) {
             Ok(facade) => facade,
@@ -745,13 +809,15 @@ fn client_config(
     }
 }
 
-/// The screen a store refusal shows in place of the chats (ADR-0060
-/// decision 6), or none for any other refusal.
-const fn store_screen(why: &StartRefused) -> Option<StoreRefusal> {
+/// What a refused start answers of the store, or `None` for a runtime
+/// refused network access: the Service then starts the network-denied
+/// posture, whose answer is the start's.
+const fn store_answer(why: &StartRefused) -> Option<StoreAnswer> {
     match why {
-        StartRefused::StoreNeedsRecovery => Some(StoreRefusal::Recovery),
-        StartRefused::StoreKeyInvalidated => Some(StoreRefusal::KeyLost),
-        _ => None,
+        StartRefused::StoreNeedsRecovery => Some(StoreAnswer::Refused(StoreRefusal::Recovery)),
+        StartRefused::StoreKeyInvalidated => Some(StoreAnswer::Refused(StoreRefusal::KeyLost)),
+        StartRefused::Runtime(EmbeddedRefused::NetworkDenied(_)) => None,
+        _ => Some(StoreAnswer::OtherRefusal),
     }
 }
 
@@ -769,5 +835,42 @@ fn classify(error: &StoreError) -> StartRefused {
             StartRefused::StoreNotPrivate(error.to_string())
         }
         _ => StartRefused::StoreUnavailable(error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A runtime refused network access answers nothing: the Service goes
+    /// on to the network-denied posture, whose answer is the start's, so a
+    /// store screen waiting on the restart does not leave on the first
+    /// half of it. Every other refusal answers.
+    #[test]
+    fn only_a_runtime_refused_network_access_answers_nothing() {
+        assert_eq!(
+            store_answer(&StartRefused::Runtime(EmbeddedRefused::NetworkDenied(
+                String::new()
+            ))),
+            None
+        );
+        assert_eq!(
+            store_answer(&StartRefused::Runtime(EmbeddedRefused::ProfileInvalid(
+                String::new()
+            ))),
+            Some(StoreAnswer::OtherRefusal)
+        );
+        assert_eq!(
+            store_answer(&StartRefused::NoHumanEndpoint),
+            Some(StoreAnswer::OtherRefusal)
+        );
+        assert_eq!(
+            store_answer(&StartRefused::StoreKeyInvalidated),
+            Some(StoreAnswer::Refused(StoreRefusal::KeyLost))
+        );
+        assert_eq!(
+            store_answer(&StartRefused::StoreNeedsRecovery),
+            Some(StoreAnswer::Refused(StoreRefusal::Recovery))
+        );
     }
 }

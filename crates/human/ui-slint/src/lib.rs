@@ -37,6 +37,8 @@ use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 mod body;
 mod cards;
+#[cfg(all(feature = "desktop", target_os = "linux"))]
+mod clipboard;
 mod clock;
 pub mod code;
 mod gesture;
@@ -1128,21 +1130,11 @@ impl View {
             if let WindowEvent::Focused(now) = event {
                 focused(*now);
             }
-            // Minimised: the desktop's background, where Show is never left
-            // on screen (add-a-peer §5.4). Asked of the window itself at
-            // each change that may come with it -- focus lost, a resize, an
-            // occlusion -- since no event says it on every platform, and
-            // occlusion alone is not it: X11 and macOS report a window only
-            // covered as occluded, and the person switches away to paste
-            // the address (#409 C2). Wayland never says a window is
-            // minimised, and a session lock is not reported to the window:
-            // both are known limits.
-            if matches!(
-                event,
-                WindowEvent::Focused(false) | WindowEvent::Resized(_) | WindowEvent::Occluded(_)
-            ) && window.with_winit_window(winit::window::Window::is_minimized)
-                == Some(Some(true))
-            {
+            if minimised_closes_show(event, || {
+                window
+                    .with_winit_window(winit::window::Window::is_minimized)
+                    .flatten()
+            }) {
                 enqueue(&shared, Input::Peers(PeersInput::CloseShow));
             }
             EventResult::Propagate
@@ -1151,15 +1143,16 @@ impl View {
 
     /// The scan controls this platform offers on the add page
     /// (`design/2026-10-22-add-a-peer.md` §5.5): the camera on a phone
-    /// that has one, an image file and the clipboard's image on the
-    /// desktop. None by default, and none is drawn: typing or pasting the
-    /// text does all a scan does. The images' reader is compiled only
-    /// with the `desktop` feature; without it an image scan ends at once
-    /// as a cancelled one. The clipboard's image is offered apart, and
-    /// its reader reads nothing yet: the clipboard crate decodes an image
-    /// whole before any bound of this client's applies, so a Paste press
-    /// ends as a cancelled scan and the desktop withholds the control
-    /// until a bounded read exists (#409 F1).
+    /// that has one, an image file on the desktop, and the clipboard's
+    /// image where offered. None by default, and none is drawn: typing or
+    /// pasting the text does all a scan does. The images' reader is
+    /// compiled only with the `desktop` feature; without it an image scan
+    /// ends at once as a cancelled one. The clipboard's image is offered
+    /// apart, since Linux alone reads it within bounds (`clipboard.rs`;
+    /// desktop-e2e `a_hostile_clipboard_owner_is_given_up_at_the_deadline`);
+    /// elsewhere a Paste press ends as a cancelled scan (#409 F1;
+    /// `a_paste_press_reads_no_clipboard_and_ends_cancelled`, which
+    /// compiles only off Linux, so a Linux-only CI does not run it).
     pub fn offer_scans(&self, camera: bool, files: bool, clipboard: bool) {
         self.window.set_scan_camera(camera);
         self.window.set_scan_images(files);
@@ -3681,6 +3674,27 @@ fn full_id(key: &ConversationKey) -> String {
     }
 }
 
+/// Whether `event` closes Show: the window minimised, the desktop's
+/// background, where Show is never left on screen (add-a-peer §5.4).
+/// `minimised` asks the window itself, at each change that may come with
+/// it -- focus lost, a resize, an occlusion -- since no event says it on
+/// every platform; and occlusion alone is not it: X11 and macOS report a
+/// window only covered as occluded, and the person switches away to paste
+/// the address (#409 C2). Wayland never says a window is minimised (the
+/// answer is `None`), and a session lock is not reported to the window:
+/// both are known limits. `minimised_closes_show_only_when_minimised`.
+#[cfg(feature = "desktop")]
+fn minimised_closes_show(
+    event: &slint::winit_030::winit::event::WindowEvent,
+    minimised: impl FnOnce() -> Option<bool>,
+) -> bool {
+    use slint::winit_030::winit::event::WindowEvent;
+    matches!(
+        event,
+        WindowEvent::Focused(false) | WindowEvent::Resized(_) | WindowEvent::Occluded(_)
+    ) && minimised() == Some(true)
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -3789,5 +3803,39 @@ mod tests {
         assert_eq!(inserts("abcd", "acd").0, 0, "a removal moves nothing");
         assert_eq!(inserts("abcd", "abxcd").0, 1, "an insertion is one");
         assert_eq!(inserts("abcd", "dcba").0, 3, "a reversal is still correct");
+    }
+
+    /// Show closes when the window says it is minimised, at focus lost, a
+    /// resize or an occlusion; never when it is only covered or the answer
+    /// is unknown (Wayland), and never at another event (#409 r3 F3).
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn minimised_closes_show_only_when_minimised() {
+        use slint::winit_030::winit::dpi::PhysicalSize;
+        use slint::winit_030::winit::event::WindowEvent;
+        let events = [
+            WindowEvent::Focused(false),
+            WindowEvent::Resized(PhysicalSize::new(0, 0)),
+            WindowEvent::Occluded(true),
+        ];
+        for event in &events {
+            assert!(
+                super::minimised_closes_show(event, || Some(true)),
+                "{event:?}"
+            );
+            assert!(
+                !super::minimised_closes_show(event, || Some(false)),
+                "{event:?}"
+            );
+            assert!(!super::minimised_closes_show(event, || None), "{event:?}");
+        }
+        assert!(!super::minimised_closes_show(
+            &WindowEvent::Focused(true),
+            || Some(true)
+        ));
+        assert!(!super::minimised_closes_show(
+            &WindowEvent::CloseRequested,
+            || Some(true)
+        ));
     }
 }

@@ -2728,6 +2728,11 @@ export component AppWindow inherits Window {
     in property <string> show-my-address-label;
     in property <string> show-warning;
     in property <bool> show-code-shown;
+    // False when the lines are more than any code holds: then no image,
+    // and nothing announced as a code, while the lines still show.
+    in property <bool> show-code-drawn;
+    // Said in the code's place when no code is drawn (add-a-peer 5.4).
+    in property <string> show-too-many;
     in property <image> show-code;
     in property <string> show-code-label;
     in property <string> show-lines;
@@ -2751,11 +2756,13 @@ export component AppWindow inherits Window {
     in property <int> address-select-to;
     in property <int> address-select-seq;
     // The scan controls this platform offers: the camera on Android,
-    // an image file or a pasted one on the desktop.
+    // an image file on the desktop, and `scan-paste` the clipboard's
+    // image where it is read within bounds (Linux).
     in property <bool> scan-camera;
     in property <bool> scan-images;
-    // Paste an image, offered apart from the image file: withheld until
-    // the clipboard can be read within the file's bounds (#409 F1).
+    // Paste an image, offered apart from the image file: only where the
+    // clipboard is read within the file's bounds (#409 F1; desktop-e2e
+    // a_hostile_clipboard_owner_is_given_up_at_the_deadline).
     in property <bool> scan-paste;
     // The camera's viewfinder (add-a-peer section 5.5), over everything
     // while a camera scan is open: the frames as they come, the square
@@ -4098,7 +4105,7 @@ export component AppWindow inherits Window {
                     // themes, never themed, at least 240 px a side and not
                     // scaled by the font; one item labelled with how many
                     // lines it holds, the lines themselves listed below.
-                    if root.peers-show-open && root.show-code-shown: HorizontalLayout {
+                    if root.peers-show-open && root.show-code-shown && root.show-code-drawn: HorizontalLayout {
                         alignment: center;
                         Image {
                             source: root.show-code;
@@ -4108,6 +4115,17 @@ export component AppWindow inherits Window {
                             accessible-role: image;
                             accessible-label: root.show-code-label;
                         }
+                    }
+                    // No code holds the lines: why, and what to do instead, in
+                    // the code's place; read after the warning, no stop.
+                    if root.peers-show-open && root.show-code-shown && !root.show-code-drawn: Text {
+                        text: root.show-too-many;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        min-width: 0;
+                        accessible-role: text;
+                        accessible-label: self.text;
                     }
                     // The same lines as text, selectable, in the code font,
                     // broken at any character, never cut.
