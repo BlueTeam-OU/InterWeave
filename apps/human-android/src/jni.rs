@@ -544,8 +544,9 @@ fn network(report: NetworkReport) {
 /// resolver or host.
 fn said(told: Told) -> String {
     format!(
-        "{} addresses, {} resolvers, strict Private DNS {}",
+        "{} addresses ({} on no local network), {} resolvers, strict Private DNS {}",
         told.addresses,
+        told.off_local_network,
         told.dns_servers
             .map_or_else(|| "unobserved".to_owned(), |n| n.to_string()),
         if told.strict_private_dns { "on" } else { "off" }
@@ -569,10 +570,10 @@ extern "system" fn Java_org_interweave_human_Native_networkWatching<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
-/// `Native.networkLink(network, addresses, dnsServers, privateDns)`: a
-/// network, the whole of it -- its addresses and its resolvers, each its
-/// length then its bytes, and its Private DNS host when strict, else
-/// null.
+/// `Native.networkLink(network, addresses, dnsServers, privateDns,
+/// local)`: a network, the whole of it -- its addresses and its
+/// resolvers, each its length then its bytes, its Private DNS host when
+/// strict, else null, and whether it is a local network (`Link::local`).
 #[allow(
     unsafe_code,
     reason = "the JVM finds a native method by its unmangled name"
@@ -585,6 +586,7 @@ extern "system" fn Java_org_interweave_human_Native_networkLink<'caller>(
     addresses: JByteArray<'caller>,
     dns_servers: JByteArray<'caller>,
     private_dns: JString<'caller>,
+    local: jboolean,
 ) {
     env.with_env(|env| -> Result<(), jni::errors::Error> {
         let addresses = addresses_from_wire(&env.convert_byte_array(&addresses)?);
@@ -600,6 +602,7 @@ extern "system" fn Java_org_interweave_human_Native_networkLink<'caller>(
                 addresses,
                 dns_servers,
                 private_dns,
+                local,
             },
         });
         Ok(())
