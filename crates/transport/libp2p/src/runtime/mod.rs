@@ -226,7 +226,7 @@ fn on_network_change(
     }
     dcutr_driver::offer_listeners(
         swarm.dcutr_mut(),
-        active.values().flatten().filter(|a| network.holds(a)),
+        active.values().flatten().filter(|a| network.offers(a)),
     );
     if may_buffer_delivery(outbox.len(), event_capacity) {
         outbox.push_back(SwarmEvent::NetworkChanged {
@@ -2020,7 +2020,18 @@ impl SwarmRuntime {
                                 held_resolver = Some(event);
                             }
                         }
-                        let change = network.observe_view(&view.addresses);
+                        let change = network.observe_view(&view.addresses, &view.off_local_network);
+                        // ADR-0052 rule 10: the classification reaches
+                        // Identify's listen set, and DCUtR's doors before
+                        // anything is offered again. Identify withholds
+                        // what is not offered, bound or not, so neither
+                        // order of this view and the listener poll lets
+                        // a classified IP through.
+                        swarm.identify_mut().withhold(&network.not_offered());
+                        let rebuilt = dcutr_driver::withhold_off_local(
+                            swarm.dcutr_mut(),
+                            network.off_local(),
+                        );
                         on_network_change(
                             change,
                             &mut network,
@@ -2034,6 +2045,12 @@ impl SwarmRuntime {
                             &mut outbox,
                             config.event_capacity,
                         );
+                        if rebuilt {
+                            dcutr_driver::offer_listeners(
+                                swarm.dcutr_mut(),
+                                active.values().flatten().filter(|a| network.offers(a)),
+                            );
+                        }
                     }
                     // THE mDNS REFRESH TICK: what the crate's store still
                     // holds goes out again, and a rebuild that is due runs
@@ -2377,10 +2394,11 @@ impl SwarmRuntime {
                         dcutr_driver::tick(swarm.dcutr_mut(), now);
                         // Only what the host still holds: a listener on
                         // an IP the platform's view said departed stays
-                        // bound until the poll catches up.
+                        // bound until the poll catches up. Nor one on no
+                        // local network (ADR-0052 rule 10).
                         dcutr_driver::offer_listeners(
                             swarm.dcutr_mut(),
-                            active.values().flatten().filter(|a| network.holds(a)),
+                            active.values().flatten().filter(|a| network.offers(a)),
                         );
 
                         // THE STABILITY GATE AND THE RETIREMENT (step 9).
@@ -2550,7 +2568,7 @@ impl SwarmRuntime {
                                         .iter()
                                         .map(String::as_str),
                                     circuits.iter().map(String::as_str),
-                                    active.values().flatten().filter(|a| network.holds(a)),
+                                    active.values().flatten().filter(|a| network.offers(a)),
                                 );
                                 let _ = reply.send(own);
                             }
@@ -3299,7 +3317,7 @@ impl SwarmRuntime {
                                         config.event_capacity,
                                     );
                                 }
-                                if let Some(address) = just_bound.filter(|a| network.holds(a)) {
+                                if let Some(address) = just_bound.filter(|a| network.offers(a)) {
                                     dcutr_driver::offer_listeners(
                                         swarm.dcutr_mut(),
                                         std::iter::once(&address),

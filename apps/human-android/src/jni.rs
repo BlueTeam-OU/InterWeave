@@ -12,7 +12,7 @@ use std::time::Duration;
 use interweave_human_android_platform::AvailabilityMode;
 use interweave_human_android_platform::{
     EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, ServiceHost,
-    ServiceLaunch, StartRefused, Told, addresses_from_wire, start_identity,
+    ServiceLaunch, StartRefused, Told, Transports, addresses_from_wire, start_identity,
 };
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_human_ui_slint::{TouchSettings, snackbar_ms};
@@ -544,8 +544,9 @@ fn network(report: NetworkReport) {
 /// resolver or host.
 fn said(told: Told) -> String {
     format!(
-        "{} addresses, {} resolvers, strict Private DNS {}",
+        "{} addresses ({} on no local network), {} resolvers, strict Private DNS {}",
         told.addresses,
+        told.off_local_network,
         told.dns_servers
             .map_or_else(|| "unobserved".to_owned(), |n| n.to_string()),
         if told.strict_private_dns { "on" } else { "off" }
@@ -605,6 +606,32 @@ extern "system" fn Java_org_interweave_human_Native_networkLink<'caller>(
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.networkTransports(network, vpn, cellular, satellite)`: what a
+/// network's capabilities name, at every change of them; classified in
+/// android-platform (`Transports::local`).
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_networkTransports<'caller>(
+    _env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    handle: jlong,
+    vpn: jboolean,
+    cellular: jboolean,
+    satellite: jboolean,
+) {
+    network(NetworkReport::Transports {
+        network: handle.cast_unsigned(),
+        transports: Transports {
+            vpn,
+            cellular,
+            satellite,
+        },
+    });
 }
 
 /// `Native.networkDefault(network)`: the default network, or 0 when there

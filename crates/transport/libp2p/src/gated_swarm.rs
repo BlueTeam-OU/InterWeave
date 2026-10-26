@@ -659,6 +659,14 @@ impl GatedSwarm {
         &mut self.inner.behaviour_mut().inner_mut().autonat_server
     }
 
+    /// The Identify field, for ADR-0052 rule 10's withheld listen
+    /// addresses.
+    pub(crate) fn identify_mut(
+        &mut self,
+    ) -> &mut crate::listen_scope::ListenScope<libp2p::identify::Behaviour> {
+        &mut self.inner.behaviour_mut().inner_mut().identify
+    }
+
     /// The DCUtR field, for the driver's tick.
     pub(crate) fn dcutr_mut(&mut self) -> &mut crate::runtime::dcutr_driver::DcutrField {
         &mut self.inner.behaviour_mut().inner_mut().dcutr

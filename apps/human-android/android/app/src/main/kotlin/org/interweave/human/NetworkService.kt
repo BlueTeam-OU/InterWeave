@@ -17,6 +17,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Binder
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
@@ -166,10 +167,28 @@ class NetworkService : Service() {
         }
     }
 
-    /** Each network's addresses as it reports them, and its loss. */
+    /**
+     * Each network's addresses and transports as it reports them, and its
+     * loss. What the transports mean is android-platform's to decide.
+     */
     private class Networks : ConnectivityManager.NetworkCallback() {
-        // The platform calls this right after onAvailable, and on every
-        // change of the network's addresses: the whole set each time.
+        // The platform calls this after onAvailable, before the first
+        // onLinkPropertiesChanged, and again whenever the capabilities
+        // change.
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            Native.networkTransports(
+                network.networkHandle,
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+                // Named from API 35; no older phone has one.
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM &&
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_SATELLITE),
+            )
+        }
+
+        // The platform calls this right after the first
+        // onCapabilitiesChanged, and on every change of the network's
+        // addresses: the whole set each time.
         override fun onLinkPropertiesChanged(network: Network, link: LinkProperties) {
             Native.networkLink(
                 network.networkHandle,

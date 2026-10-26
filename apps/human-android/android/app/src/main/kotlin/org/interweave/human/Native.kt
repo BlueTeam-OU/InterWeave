@@ -103,6 +103,18 @@ internal object Native {
         privateDns: String?,
     )
 
+    /**
+     * The transports the network [network]'s capabilities name, at every
+     * change of them: whether it is a local network is decided from these
+     * in android-platform (ADR-0052 rule 10), where a host test holds it.
+     */
+    @JvmStatic external fun networkTransports(
+        network: Long,
+        vpn: Boolean,
+        cellular: Boolean,
+        satellite: Boolean,
+    )
+
     /** The default network is [network]; 0 when there is none. */
     @JvmStatic external fun networkDefault(network: Long)
 
