@@ -178,6 +178,28 @@ reset; touch "$SANDBOX/fail-update"
 run install --cache "$C" "$SANDBOX/list" >/dev/null
 [[ "$(log)" != *" install "* ]] && pass "a failed update installs nothing" || fail "install after failed update" "$(log)"
 
+echo "conf, and release.yml's copy of it"
+want_conf='Acquire::Retries "5";
+Acquire::http::Timeout "30";
+Acquire::https::Timeout "30";'
+conf="$(run conf)"; rc=$?
+[[ $rc -eq 0 && "$conf" == "$want_conf" ]] && pass "conf prints install's retries and timeouts" || fail "conf" "rc=$rc $conf"
+out="$(run conf extra)"; rc=$?
+[[ $rc -eq 2 ]] && pass "conf takes no argument" || fail "conf extra" "rc=$rc $out"
+# The linux job runs apt before its checkout, so it writes these lines
+# itself (release.yml, the step before actions/checkout); what its printf
+# writes must be what conf prints, or a change here leaves it behind.
+RELEASE="${APT_INSTALL_RELEASE_YML:-$SCRIPT_DIR/../../.github/workflows/release.yml}"
+fmt="$(sed -n "s/^ *printf '\\(Acquire::[^']*\\)' \\\\$/\\1/p" "$RELEASE")"
+if [[ "$(grep -c . <<<"$fmt")" -ne 1 ]]; then
+    fail "release.yml has one printf of Acquire:: lines" "found: $fmt"
+else
+    # shellcheck disable=SC2059 # the format is release.yml's, run as its step runs it
+    written="$(printf "$fmt")"
+    [[ "$written" == "$conf" ]] && pass "release.yml writes exactly what conf prints" \
+        || fail "release.yml's apt lines differ from conf" "release.yml: $written"$'\n'"conf: $conf"
+fi
+
 echo
 if [[ $failures -eq 0 ]]; then echo "test_apt_install: all passed"; exit 0; fi
 echo "test_apt_install: $failures failed" >&2; exit 1

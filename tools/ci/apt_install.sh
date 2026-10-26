@@ -11,6 +11,7 @@
 #
 #   tools/ci/apt_install.sh key <list>
 #   tools/ci/apt_install.sh install [--cache <dir>] <list>
+#   tools/ci/apt_install.sh conf
 #
 # <list> is a file of package names, one a line; a `#` starts a comment
 # and blank lines are skipped. A name outside Debian's grammar
@@ -45,6 +46,11 @@
 #          As root (a job's container) apt runs directly, otherwise under
 #          `sudo -n`.
 #
+# conf     prints the same retries and timeouts as apt.conf lines, for a
+#          step that runs apt before the checkout and so cannot run this
+#          script (release.yml's linux job writes them into its container);
+#          test_apt_install.sh fails when that step's lines differ.
+#
 # Exit codes:
 #   0  printed / installed
 #   1  apt-get failed (its status is printed)
@@ -54,6 +60,9 @@
 set -euo pipefail
 
 die() { echo "apt_install: $1" >&2; exit "${2:-2}"; }
+
+# What `install` passes apt and `conf` prints: the one copy.
+ACQUIRE=(Acquire::Retries=5 Acquire::http::Timeout=30 Acquire::https::Timeout=30)
 
 case "${1:-}" in
     -h|--help) sed -n '/^# >>> help$/,/^# <<< help$/p' "$0" | sed '1d;$d;s/^# \{0,1\}//'; exit 0 ;;
@@ -95,7 +104,8 @@ case "$cmd" in
 
         as_root=()
         [[ "$(id -u)" -eq 0 ]] || as_root=(sudo -n)
-        opts=(-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+        opts=()
+        for a in "${ACQUIRE[@]}"; do opts+=(-o "$a"); done
         if [[ -n "$cache" ]]; then
             mkdir -p "$cache"
             cache="$(cd "$cache" && pwd)"
@@ -115,5 +125,9 @@ case "$cmd" in
             echo "apt_install: $(find "$cache" -maxdepth 1 -name '*.deb' | wc -l) .deb(s) in $cache after it"
         fi
         ;;
-    *) die "usage: $0 key <list> | install [--cache <dir>] <list> (try --help)" ;;
+    conf)
+        [[ $# -eq 0 ]] || die "usage: $0 conf"
+        for a in "${ACQUIRE[@]}"; do printf '%s "%s";\n' "${a%%=*}" "${a#*=}"; done
+        ;;
+    *) die "usage: $0 key <list> | install [--cache <dir>] <list> | conf (try --help)" ;;
 esac
