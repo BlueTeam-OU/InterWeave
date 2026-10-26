@@ -104,8 +104,13 @@ jobs:
     # GitHub's six-hour default; it holds the cold run plus a miss on the
     # previous-builds cache (below), which adds a cold release build of
     # every entry: 7m38s for the first on a 6-core host, 2026-10-08, not
-    # yet timed on a runner.
-    timeout-minutes: 25
+    # yet timed on a runner. On #461, 2026-10-26, with the cargo cache an
+    # exact hit, the job took 19m35s: Tests 10m33s (the suite has grown
+    # since #288), and the own-features clippy step that PR added 2m38s,
+    # its first run, with none of its feature sets in the cache. A cold
+    # cache plus a previous-builds miss on top of that no longer fit in
+    # 25 minutes, hence 35.
+    timeout-minutes: 35
     env:
       # Incremental compilation pays off only when a build is redone in
       # place. Here every run starts from a fresh checkout, so it is
@@ -188,6 +193,17 @@ jobs:
         # the lockfile in the runner, and the graph that was tested is
         # then one no commit contains.
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # The run above unifies features across the workspace: apps/
+      # human-desktop turns on ui-slint's `desktop`, so ui-slint is never
+      # linted without it there, and code that exists only without a
+      # feature passed this job while `cargo clippy -p` on the package
+      # failed (twice, before this step). The script lints each package
+      # whose own feature set differs from the workspace build's, each in a
+      # cargo run of its own; which ones is computed, not listed (`bash
+      # tools/ci/own_features.sh list` prints them and why).
+      - name: Clippy, each package with its own features
+        run: bash tools/ci/own_features.sh clippy
 
       # mdns_bounds.rs re-executes each test inside `unshare -rn` (a user
       # plus network namespace, no root) and builds a dummy multicast
