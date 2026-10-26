@@ -1274,7 +1274,6 @@ ui_texts! {
     /// error), so what it holds is not known: never says there is no image
     /// or that an image could not be opened; says what to do (add-a-peer
     /// §5.5, §9).
-    // PLACEHOLDER (en)
     ClipboardUnreadable => "InterWeave could not read the clipboard. Choose Paste an image to try again, or choose Open an image… to use an image file instead.",
     /// Show, first, before the code: what showing discloses.
     ShowWarning => "Anyone who sees this screen can learn this device's addresses and its PeerId.",
