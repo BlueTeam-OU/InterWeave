@@ -178,9 +178,11 @@ fn luma_over_white(red: u8, green: u8, blue: u8, alpha: u8) -> u8 {
 
 /// A PNG of the code for `lines`, four pixels a module, as a screenshot
 /// of Show would be: what the scan tests give a reader. Only the
-/// clipboard's tests read one, which build where the clipboard is read.
+/// clipboard's tests read one, which build where the clipboard is read;
+/// a caller elsewhere leaves the `expect` below unfulfilled, a warning
+/// clippy's `-D warnings` refuses.
 #[cfg(test)]
-#[cfg_attr(not(all(feature = "desktop", target_os = "linux")), allow(dead_code))]
+#[cfg_attr(not(all(feature = "desktop", target_os = "linux")), expect(dead_code))]
 pub(crate) fn png_for(lines: &[String]) -> Vec<u8> {
     const SCALE: u32 = 4;
     let code = drawn(lines).expect("fits").to_rgba8().expect("pixels");
