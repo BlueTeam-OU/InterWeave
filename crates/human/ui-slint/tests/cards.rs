@@ -1221,6 +1221,48 @@ fn your_card_while_its_editor_is_open_leaves_nothing() {
     assert_eq!(view.window().get_focus_id().as_str(), "close-cards");
 }
 
+/// On the desktop, Escape on a card page is its Back (contact-cards
+/// design section 4): from an editor field with a change it asks, the
+/// dialog's own Escape is Continue editing, and with nothing to lose it
+/// closes the page. Mutation: the card pages taking no Escape.
+#[test]
+fn escape_on_a_card_page_is_its_back() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    let window = view.window();
+    window.set_focus_target("own-given".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "own-given", "control");
+    view.window().set_own_given("Grace".into());
+    key(&view, slint::platform::Key::Escape);
+    settle();
+    assert!(view.window().get_own_discard_open(), "Escape asks");
+    key(&view, slint::platform::Key::Escape);
+    settle();
+    assert!(
+        !view.window().get_own_discard_open(),
+        "the dialog's Escape keeps editing"
+    );
+    assert_eq!(view.window().get_own_given(), "Grace");
+
+    view.window().set_own_given("Ada".into());
+    key(&view, slint::platform::Key::Escape);
+    settle();
+    assert!(!view.window().get_own_discard_open(), "nothing to lose");
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None,
+        "the page closed"
+    );
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {

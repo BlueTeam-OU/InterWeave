@@ -4978,9 +4978,22 @@ export component AppWindow inherits Window {
             }
         }
         // The card pages (design sections 5.2 and 6), in the conversation's
-        // place: the back arrow and the page's title, then the page.
-        if root.cards-page != CardsPage.none: VerticalLayout {
+        // place: the back arrow and the page's title, then the page. On the
+        // desktop, Escape that no control inside used is the page's Back,
+        // as the back arrow is (design section 4;
+        // `escape_on_a_card_page_is_its_back`).
+        if root.cards-page != CardsPage.none: FocusScope {
             visible: root.pane-shown;
+            focus-on-click: false;
+            focus-on-tab-navigation: false;
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.close-cards-page();
+                    return accept;
+                }
+                reject
+            }
+            VerticalLayout {
             padding: 12px;
             spacing: 8px;
             HorizontalLayout {
@@ -5593,6 +5606,7 @@ export component AppWindow inherits Window {
                 dismissed(id) => { root.snack-closed(id); }
                 focused(k) => { root.focus-id = k; }
             }
+        }
         }
         if !root.trust-page && !root.peers-page && root.cards-page == CardsPage.none: VerticalLayout {
             visible: root.pane-shown;
