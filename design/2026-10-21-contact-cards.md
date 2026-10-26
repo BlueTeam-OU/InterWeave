@@ -329,7 +329,10 @@ are:
   layout;
 - on a wide layout, where the conversation list stays beside the
   editor (§4): a conversation picked in the list, and a page opened
-  from the app options (Trust, Contacts, Your identities or Your card).
+  from the app options (Trust, Contacts or Your identities). With one
+  identity the menu's Your card opens this same editor (§4), so
+  choosing it there leaves nothing: the editor stays as it is, with
+  its changes, and nothing is asked.
 
 The dialog asks about the loss of changes in the same way, whatever
 causes it. A change lost without warning, because the person picked a
@@ -343,12 +346,17 @@ saving above Continue editing, at every width and text scale
 
 - **Close without saving** drops the changes, and the action that
   opened the dialog continues: Back closes the editor, the switch
-  switches, the picked conversation or page opens.
+  switches, the picked conversation or page opens. Focus then goes
+  where that action puts it with no unsaved change: after Back, where
+  a saved card's page puts it (the identity's row in the list, else
+  the control that opened the page, item 1's table); after a switch,
+  as §5.7.3 says; on the opened page, as its own row in item 1's
+  table says.
 - **Continue editing** closes the dialog and changes nothing: the
   editor keeps its changes, and the list's selection stays where it
   was before the pick. Focus goes back to the control that had focus
-  when the dialog opened: an editor field after Back, the switch, the
-  picked row. If that control no longer exists, as with an item of a
+  when the dialog opened: an editor field, or the back arrow when it
+  was used; the switch; the picked row. If that control no longer exists, as with an item of a
   menu that has closed, focus goes to the control that opened the
   menu: the app options button.
 
@@ -1696,7 +1704,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while the picture is being prepared, then `CardPhotoLabel`; TalkBack blocked (§8) |
    | the editor's picture unusable | stays on that button; `PhotoUnusable` announced once | keyboard, choosing a file named `.png` that holds no image; desktop screen reader: heard once; TalkBack blocked (§8) |
    | the editor's Remove photo, also while a picture is being prepared (§5.2) | Add a photo; nothing is announced, also when the dropped picture would have been ready | keyboard; on a card with a saved photo, choose a large picture and press Remove photo before it is ready: focus on Add a photo, the circle shows the initials, and Save leaves the card with no photo; the same steps and results on a card saved with no photo, after a first picture is prepared and the person chooses a second one with Change photo |
-   | unsaved-changes dialog opens / closes on Continue editing (whichever control asked it, §5.2) | Continue editing / the control that had focus when it opened (an editor field after Back, the switch, the picked row), else the app options button when a menu item asked | keyboard: from an editor field press Escape (desktop) or Back; on a wide window move focus to a conversation row and press Enter; open the app options and choose Contacts; each time Continue editing returns focus as this row says and the editor keeps its change |
+   | unsaved-changes dialog opens / closes on Continue editing (whichever control asked it, §5.2) | Continue editing / the control that had focus when it opened (an editor field, or the back arrow when it was used; the switch; the picked row), else the app options button when a menu item asked; on Close without saving, where the action that asked puts it with no unsaved change (§5.2) | keyboard: from an editor field press Escape (desktop) or Back; on a wide window move focus to a conversation row and press Enter; open the app options and choose Contacts; each time Continue editing returns focus as this row says and the editor keeps its change |
    | an identity added | its new row in the list | keyboard |
    | Add an identity at the bound | `IdentityLimit` | keyboard |
    | Make default, and its Undo | stays on the overflow button | keyboard |
@@ -1988,7 +1996,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     200 % text on a 360 dp phone: Back; Escape on the desktop; an
     identity switch; a notification's conversation; and on a wide
     window, a conversation picked in the list and Trust, Contacts and
-    Your identities from the app options. For each, Continue editing
+    Your identities from the app options (with one identity, Your card
+    from the app options keeps the editor open with the change and asks
+    nothing). For each, Continue editing
     leaves the editor open with the changed name, the list's selection
     as it was, and focus as item 1's table says; Close without saving opens
     what was asked, and the card reopened shows the saved name. With no
