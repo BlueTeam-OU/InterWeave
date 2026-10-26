@@ -119,8 +119,9 @@ each with a test that fails before its fix. The first was found in
 this record's review, and the fourth was restated there against field
 1 and §5.1; both findings were sent in OBSERVATION 01a17660, and
 rust-ui-dev-02 accepted both on the same branch (REPLY 01a17665). On
-the build that has the fixes, the steps that reach the four findings
-were walked again, with the step §3 names as not walked; §5 shows all
+the build that has the fixes, the steps in which the four findings were
+seen were walked again, and so was Remove photo of a saved photo,
+then Back, the step §3 names as not walked; §5 shows all
 four findings closed. §2's other steps were not walked again.
 
 ## 5. The walk again on the fix build
@@ -133,7 +134,7 @@ four findings closed. §2's other steps were not walked again.
   2026-10-26 20:34 UTC (00:34 on 27 October by the phone's clock).
 - **Device and method:** as in §1. The owner gave the phone's new
   address on the LAN. The same five images were
-  pushed; pictures 1 and 5 were picked, by their entry in the picker's
+  pushed; pictures 1 and 5 were picked, each by its entry in the picker's
   accessibility tree;
   no capture of the picker was kept. The card had no photo when the
   run began. Afterwards the images and their media-store entries were
@@ -145,7 +146,7 @@ four findings closed. §2's other steps were not walked again.
 | Your card opened from the app options, no photo | the initials circle teal, Add a photo under it | field 1: Add a photo under the circle | pass |
 | picture 1 prepared | the arrow points up; Change photo, then Remove photo, stacked **under** the circle | field 1: under the circle, Change photo and Remove photo | **pass: finding 1 closed** |
 | Save | Conversations, where Your card was opened from; no "Select a conversation" page | the page closes back to where it was opened from | **pass: finding 2 closed** |
-| Your card reopened, picture 5 by Change photo | "This photo cannot be used. Choose another one." under the circle, after Remove photo and before Name; picture 1 still shown | `PhotoUnusable` shows under the circle; the card stays as it was | **pass: finding 3 closed.** The column that holds the buttons and the line has moved from beside the circle to under it (finding 1), so the line is under the circle, where 5.2 places it ("The photo" and the focus item, "`PhotoUnusable` shows under the circle"). Its reading order, after the circle and not a stop of its own, is not observable here (§3) |
+| Your card reopened, picture 5 by Change photo | "This photo cannot be used. Choose another one." under the circle, after Remove photo and before Name; picture 1 still shown | `PhotoUnusable` shows under the circle; the card stays as it was | **pass: finding 3 closed.** The column that holds the buttons and the line has moved from beside the circle to under it (finding 1), so the line is under the circle, where 5.2 places it ("The photo" and "Focus and speech in the photo step": "`PhotoUnusable` shows under the circle"). 5.2 also asks that a screen reader read the line after the circle and not as a stop of its own; that could not be observed (§3) |
 | Remove photo of the saved photo, with the `PeerId` line shown | the initials circle **teal**; Add a photo replaces both buttons; the unusable line gone; no snackbar | the initials on the identity's hue, the hue of its EndpointId (§5.1) | **pass: finding 4 closed.** The EndpointId is `human`: its bytes sum to 537, which is 0 modulo 3, so the EndpointId's hue is teal. The bytes of the `PeerId` shown sum to 1 modulo 3, which gives amber, the hue the old build drew. So teal, while the `PeerId` is known, is the EndpointId's hue |
 | then Back | `CardDiscardChanges`, Close without saving (text) above Continue editing (filled) | Back with unsaved changes asks with `CardDiscardChanges` | pass |
 | Close without saving | Conversations, no snackbar | the changes dropped, with no snackbar (§9 item 11) | pass |
@@ -156,8 +157,8 @@ Also seen: with the buttons under the circle, the rows below them
 move down when Remove photo is shown under Change photo, and again while the
 unusable line shows. The button 5.2 gives focus to, Add a photo or
 Change photo, does not move; where focus actually is could not be
-observed (§3). 5.2 says nothing about this, so it is
-not a finding against the build.
+observed (§3). 5.2 says nothing about where the rows sit, so their
+move is not a finding against the build.
 
 What §3 lists as not shown is still not shown, other than the walk
 of Remove photo of a saved photo, then Back: focus and announcements
