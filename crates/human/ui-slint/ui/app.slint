@@ -3302,20 +3302,37 @@ export component AppWindow inherits Window {
     callback share-confirmed();
     // Details: whether this identity's card was shared here, and when.
     in property <string> details-card;
+    // Contact-cards design 5.2, "Leaving with unsaved changes": every way
+    // off the own card's editor with an unsaved change asks first, and on
+    // Close without saving the way taken goes on -- 0 Back, 1 the
+    // conversation picked (its handle below), 2 Trust, 3 Peers, 4
+    // Contacts (`every_way_off_the_editor_with_a_change_asks_first`).
+    property <int> own-discard-then;
+    property <int> own-discard-then-handle;
+    // Whether this way off the editor must ask first; if so, the dialog
+    // opens, holding the way taken and where focus goes back to.
+    function ask-before-leaving(then: int, handle: int, back-to: string) -> bool {
+        if (root.cards-page != CardsPage.own-card || root.own-discard-open
+            || !root.own-card-unsaved(root.own-given, root.own-surname)) {
+            return false;
+        }
+        root.own-discard-then = then;
+        root.own-discard-then-handle = handle;
+        root.own-discard-return = back-to;
+        root.own-discard-open = true;
+        return true;
+    }
     // Back on a card page: the own card's editor with unsaved changes
     // asks first (contact-cards design 5.2), else the page closes.
     function close-cards-page() {
-        if (root.cards-page == CardsPage.own-card && !root.own-discard-open
-            && root.own-card-unsaved(root.own-given, root.own-surname)) {
-            // Back to the editor's control that had focus -- each takes a
-            // focus request, its share-again rows included -- else, focus
-            // beside the editor on a wide window, to its first field
-            // (`continue_editing_gives_focus_back_to_each_control`,
-            // `continue_editing_gives_focus_back_to_a_share_again_row`).
-            root.own-discard-return = root.focus-id == "close-cards"
+        // Back to the editor's control that had focus -- each takes a
+        // focus request, its share-again rows included -- else, focus
+        // beside the editor on a wide window, to its first field
+        // (`continue_editing_gives_focus_back_to_each_control`,
+        // `continue_editing_gives_focus_back_to_a_share_again_row`).
+        if (root.ask-before-leaving(0, -1, root.focus-id == "close-cards"
                 || root.focus-id.starts-with("own-")
-                || root.focus-id.starts-with("share-again:") ? root.focus-id : "own-given";
-            root.own-discard-open = true;
+                || root.focus-id.starts-with("share-again:") ? root.focus-id : "own-given")) {
             return;
         }
         root.leave-cards-page();
@@ -3333,32 +3350,70 @@ export component AppWindow inherits Window {
         root.chats-menu-closed-seq += 1;
     }
     // The unsaved-changes dialog closed on Continue editing: focus where
-    // it was when Back asked (section 9's focus table).
+    // it was when the dialog opened (section 9's focus table) -- an app
+    // options item being gone with its menu, the app options button.
     function keep-editing() {
         root.own-discard-open = false;
+        if (root.own-discard-return == "app-options") {
+            root.chats-menu-closed-seq += 1;
+            return;
+        }
         root.focus-target = root.own-discard-return;
         root.focus-seq += 1;
     }
+    // Close without saving: the editor goes without its changes, and the
+    // way taken goes on.
     function discard-changes() {
         root.own-discard-open = false;
         root.leave-cards-page();
+        if (root.own-discard-then == 1) {
+            root.go-to-conversation(root.own-discard-then-handle);
+        } else if (root.own-discard-then == 2) {
+            root.go-to-trust();
+        } else if (root.own-discard-then == 3) {
+            root.go-to-peers();
+        } else if (root.own-discard-then == 4) {
+            root.go-to-contacts();
+        }
     }
     function close-share() {
         root.share-open = false;
         root.menu-closed-seq += 1;
     }
 
+    // Each way that puts another page in the editor's place asks first
+    // when the editor holds a change (design 5.2); `go-to-` goes.
     function choose(handle: int) {
+        if (root.ask-before-leaving(1, handle, "c:" + handle)) { return; }
+        root.go-to-conversation(handle);
+    }
+    function go-to-conversation(handle: int) {
         root.list-shown = false;
         root.select(handle);
     }
     function open-settings() {
+        if (root.ask-before-leaving(2, -1, "app-options")) { return; }
+        root.go-to-trust();
+    }
+    function go-to-trust() {
         root.list-shown = false;
         root.open-trust();
     }
     function open-peers-page() {
+        if (root.ask-before-leaving(3, -1, "app-options")) { return; }
+        root.go-to-peers();
+    }
+    function go-to-peers() {
         root.list-shown = false;
         root.open-peers();
+    }
+    function open-contacts-page() {
+        if (root.ask-before-leaving(4, -1, "app-options")) { return; }
+        root.go-to-contacts();
+    }
+    function go-to-contacts() {
+        root.list-shown = false;
+        root.open-contacts();
     }
     function close-peers-page() {
         root.peer-menu = -1;
@@ -6505,8 +6560,7 @@ export component AppWindow inherits Window {
                 rtl: root.rtl;
                 pressed => {
                     root.chats-menu-open = false;
-                    root.list-shown = false;
-                    root.open-contacts();
+                    root.open-contacts-page();
                 }
                 closed => { root.close-chats-menu(); }
                 focused(k) => { root.focus-id = k; }

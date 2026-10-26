@@ -1075,6 +1075,132 @@ fn a_card_between_two_leaving_rows_takes_no_hand_over_from_the_later() {
     );
 }
 
+/// A wide window: the conversation list beside the own card's editor,
+/// which holds a change; the list's one row's title.
+fn wide_editor_with_a_change() -> (View, UiModel, String) {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1200.0, 1600.0));
+    view.photo_picker_hook(|| {});
+    let mut model = UiModel::new();
+    model.identity_shown(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    model.received(message(10, "hello", NOW - MINUTE));
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard
+    );
+    view.window().set_own_given("Grace".into());
+    let title = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a conversation")
+        .title
+        .to_string();
+    (view, model, title)
+}
+
+/// Contact-cards design 5.2, "Leaving with unsaved changes": on a wide
+/// layout, a conversation picked in the list beside the editor asks first.
+/// Continue editing keeps the editor and its change, focus on the picked
+/// row; Close without saving leaves the editor and opens the conversation.
+/// Mutation: the pick not asking.
+#[test]
+fn a_conversation_picked_beside_the_editor_with_a_change_asks_first() {
+    let (mut view, mut model, title) = wide_editor_with_a_change();
+    let handle = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    let pick = |view: &View| {
+        labelled(view, &title)[0].invoke_accessible_default_action();
+        settle();
+    };
+    pick(&view);
+    assert!(view.window().get_own_discard_open(), "asked");
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard,
+        "the editor stays while it asks"
+    );
+    press(&view, text(UiText::KeepEditing));
+    settle();
+    assert!(!view.window().get_own_discard_open());
+    assert_eq!(view.window().get_own_given(), "Grace", "nothing lost");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("conversation:{handle}"),
+        "focus on the picked row"
+    );
+
+    pick(&view);
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None,
+        "the editor left"
+    );
+    assert_eq!(
+        view.window().get_header_title().as_str(),
+        title,
+        "the conversation open"
+    );
+}
+
+/// The same for a page opened from the app options in the editor's place:
+/// Continue editing sends focus to the app options button, the menu item
+/// being gone; Close without saving opens the page. Mutations: Trust,
+/// Peers or Contacts not asking; Close without saving not going on.
+#[test]
+fn a_page_from_the_app_options_with_a_change_asks_first() {
+    let (mut view, mut model, _) = wide_editor_with_a_change();
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::TrustHeading));
+    settle();
+    assert!(view.window().get_own_discard_open(), "Trust asks");
+    press(&view, text(UiText::KeepEditing));
+    settle();
+    assert!(!view.window().get_trust_page(), "Trust not opened");
+    assert_eq!(view.window().get_focus_id().as_str(), "app-options");
+
+    // Peers, a page added after the design's list, by its rule.
+    press(&view, text(UiText::AppOptions));
+    press_last(&view, text(UiText::PeersTitle));
+    settle();
+    assert!(view.window().get_own_discard_open(), "Peers asks");
+    press(&view, text(UiText::KeepEditing));
+    settle();
+
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::ContactsTitle));
+    settle();
+    assert!(view.window().get_own_discard_open(), "Contacts asks");
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::Contacts,
+        "Contacts open in its place"
+    );
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {
