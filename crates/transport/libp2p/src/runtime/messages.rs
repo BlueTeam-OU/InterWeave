@@ -410,6 +410,15 @@ pub struct NetworkView {
     /// this build has no DNS-over-TLS, and plain DNS is what the user's
     /// setting refuses (architect-cto's ruling, `GZCoord` 01a13bb7).
     pub private_dns: Option<String>,
+    /// The members of `addresses` the platform classifies as lying on NO
+    /// LOCAL NETWORK: on Android every address of a cellular network
+    /// (`CONNECTIVITY.md` §14, A 2026-10-26; ADR-0052 rule 10). The
+    /// classification of an address and nothing else: never the
+    /// transport, a network id or a carrier fact. Empty -- the default,
+    /// and the desktop, which has no view -- classifies nothing, and
+    /// every private listener counts as local, as before the rule. An
+    /// entry absent from `addresses` names nothing.
+    pub off_local_network: Vec<std::net::IpAddr>,
 }
 
 impl NetworkView {
@@ -435,6 +444,13 @@ impl NetworkView {
     #[must_use]
     pub fn with_private_dns(mut self, private_dns: Option<String>) -> Self {
         self.private_dns = private_dns;
+        self
+    }
+
+    /// The addresses the platform classifies as on no local network.
+    #[must_use]
+    pub fn with_off_local_network(mut self, off_local_network: Vec<std::net::IpAddr>) -> Self {
+        self.off_local_network = off_local_network;
         self
     }
 }
