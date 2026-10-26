@@ -140,7 +140,7 @@ For `send(destination, payload)`:
 5. self PeerId is rejected as `InvalidArgument`;
 6. ConnectionManager resolves/dials under existing trust/backoff/global-limit policy;
 7. direct protocol v2 carries the caller's leased `source_endpoint` and requested optional `destination_endpoint`;
-8. remote `Accepted` includes the endpoint that actually accepted the message; before the result is cached/surfaced, the sender validates the response message ID, EndpointId length/grammar, and (for explicit routing) exact equality with the requested endpoint. Invalid remote metadata is `ProtocolViolation` and does not become tool/UI metadata.
+8. remote `Accepted` includes the endpoint that actually accepted the message; before the result is cached/surfaced, the sender validates the response message ID, EndpointId length/grammar, and (for explicit routing) exact equality with the requested endpoint. Invalid remote metadata is `ProtocolViolation` and does not become tool/UI metadata. A response stream that ends with no bytes is not invalid metadata but the exchange not completing — the remote read the request and never answered — and is `PeerUnreachable`, in TRANSPORT.md's outcome-unknown class (`transport/libp2p/DIRECT.md` §Response byte layout, A 2026-10-26).
 
 A caller cannot select a different `source_endpoint` field in command arguments.
 
@@ -240,7 +240,7 @@ Important properties:
 - a caller may send to an out-of-band EndpointId without first querying the directory;
 - directory support is not required for endpoint-addressed delivery itself;
 - directory requests are rate/concurrency bounded independently of direct-message requests. The per-peer rate is a **pre-trust** budget: it is charged for every syntactically valid query that reaches the handler, refused ones included, because an infrastructure-only connection can open a directory substream and the in-flight bound caps concurrency rather than frequency. An allowance granted to a peer already found data-plane trusted is a separate concept and is not this one;
-- remote directory data is validated before cache/tool/UI use: >32 entries, invalid EndpointId grammar, or duplicates are `ProtocolViolation`; valid unsorted unique lists are sorted locally; `ttl_ms` is clamped to the local/hard 5-minute ceiling and freshness starts at local receipt, while `generated_at_ms` is diagnostic only.
+- remote directory data is validated before cache/tool/UI use: >32 entries, invalid EndpointId grammar, or duplicates are `ProtocolViolation` — each of which is an answer that arrived; a response stream ending with no bytes is the remote not answering, `PeerUnreachable`, never `ProtocolViolation` (`transport/libp2p/ENDPOINTS.md` §Endpoint directory protocol, A 2026-10-26); valid unsorted unique lists are sorted locally; `ttl_ms` is clamped to the local/hard 5-minute ceiling and freshness starts at local receipt, while `generated_at_ms` is diagnostic only.
 - `advertise: false` controls directory listing only; if such an endpoint is selected explicitly or as the profile default and accepts a direct message, normal direct-protocol routing metadata/acceptance may reveal that route to the communicating peer.
 
 ## Endpoint-specific authorization

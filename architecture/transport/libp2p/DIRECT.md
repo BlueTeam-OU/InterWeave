@@ -82,6 +82,7 @@ RejectedV2: tag:u8 = 2 || message_id:16 || reason:u8
 
   0 and 8..255 are unassigned. A reader refuses an unassigned code as malformed response metadata, a local `ProtocolViolation`. It is never read as `unsupported`: that peer negotiated this protocol and answered on it.
 - A tag other than 1 or 2, a short field, or any byte after the last field is malformed response metadata as well. The longest legal response is therefore 82 bytes (1 + 16 + 1 + 64).
+- **A response stream that ends with no bytes at all is not a short field** (A 2026-10-26): a short field means at least one byte arrived and the responder answered badly. Zero bytes is the exchange NOT COMPLETING — the responder read the request and never wrote an answer: its own request deadline fired first (the same 10 s as the sender's, so which end fires first is SPIKE-002 finding 1's race, and the sender then reads a clean end of stream rather than its own `Timeout`), it dropped the response before writing, or its codec failed before a first byte. The sender reports it as `PeerUnreachable`, in `contracts/TRANSPORT.md`'s outcome-unknown class beside the request-response timeout it stands in for — never as a local `ProtocolViolation`, which would report a peer that did not answer as one that answered wrongly. Both outcomes are in that class, so a client's delivery state is the same; the caller may retry with the same message ID. An honest encoder never writes zero bytes, so no legal answer is lost to the rule. (`tests/direct-v2/tests/stage6_malformed_frames.rs`: a response never written and a responder timing out first both read `PeerUnreachable`; a response of unreadable bytes stays `ProtocolViolation`.)
 
 This layout is the response wire of `/interweave/direct/2.0.0`. It changes only additively, and only behind a new protocol id: a new reason code, tag or field is never sent on 2.0.0. The frozen vectors are `fixtures/direct-v2/direct-response-v2-frame.json`.
 
@@ -122,6 +123,7 @@ For an authorized target:
 - no usable candidate addresses -> `PeerUnknown` without ad hoc discovery;
 - usable candidates -> ConnectionManager may dial under command deadline;
 - connection/protocol negotiation failure -> `PeerUnreachable`;
+- the exchange opened but the remote never answered — the response stream ends with no bytes (§Response byte layout, A 2026-10-26) -> `PeerUnreachable`;
 - successful v2 exchange but remote `no_route` -> `RemoteEndpointUnavailable` locally.
 
 The direct operation does not command discovery providers to perform an ad hoc global search.

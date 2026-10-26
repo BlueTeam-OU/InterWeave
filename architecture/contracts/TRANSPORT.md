@@ -295,7 +295,10 @@ never in the category.
   have been accepted; a client reads this as "not confirmed", never as
   "not sent" or "not delivered": `Timeout`; `CancellationRaced`;
   `PeerUnreachable` (the substrate maps a request-response timeout, a
-  closed connection and a transport I/O failure to it, each of which
+  closed connection, a transport I/O failure and a response stream that
+  ended with no bytes — the remote read the request and never answered,
+  which is how its own deadline firing first reaches the sender,
+  SPIKE-002 finding 1 (A 2026-10-26) — to it, each of which
   can follow a written request; a dial failure or the absence of a
   current connection is reported under the same code until it is
   split); `BackendUnavailable` and `ShuttingDown` (a call pending as the
