@@ -33,7 +33,8 @@ holder can add rows without entering the other's crate.
   that carries it and the holder who owns the work there, as `§NN
   carry (<holder>)`, whether the row is carried whole (C-04) or keeps
   named tests beside its `owed:` items; a row that owes nothing reads
-  `—` whichever stage landed its tests.
+  `—` whichever stage landed its tests, moved there by its holder on
+  their next pull request once its last `owed:` item lands.
 - **tests**: every guarding test as `` `path::fn` ``, the path relative
   to the repository root, separated by `; `. A test inside a
   `#[cfg(test)]` module is named by its source file. `owed: <what>`

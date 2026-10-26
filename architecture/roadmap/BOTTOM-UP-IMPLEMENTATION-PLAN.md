@@ -5727,9 +5727,9 @@ undecodable frame, casts no vote, and a retest against an honest server
 decides the candidate; driven against the vendored client in a raw
 Swarm, since on loopback `AUTONAT.md` §6 refuses every candidate and a
 substrate sends no dial request. Two of the step's findings were
-rulings, not tests (architect-cto, 2026-10-25, each an amendment of
-`transport/libp2p/CONNECTIVITY.md` §14, A 2026-10-25, supplied onto the
-branch): the dialling end of a circuit holds no reservation on the relay
+rulings, not tests (architect-cto, 2026-10-25, together one amendment
+of `transport/libp2p/CONNECTIVITY.md` §14, A 2026-10-25, its two rules
+under one ruling id, supplied onto the branch): the dialling end of a circuit holds no reservation on the relay
 and was never pinged there, so the keepalive now runs on every relayed
 connection, end to end toward the data-plane peer, at both ends, a
 missed liveness closing it (the ping's bytes computed at the defaults as
