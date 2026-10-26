@@ -58,7 +58,8 @@ use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
 use interweave_transport_libp2p::runtime::kademlia_driver::{KademliaSettings, kad_protocol};
 use interweave_transport_libp2p::{
-    DialRefusal, IDENTIFY_PROTOCOL_VERSION, SubstrateConfig, SwarmEvent, SwarmRuntime,
+    DialFailureClass, DialRefusal, IDENTIFY_PROTOCOL_VERSION, SubstrateConfig, SwarmEvent,
+    SwarmRuntime,
 };
 use interweave_transport_runtime::{DialDenial, DialOrigin, TrustSources};
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
@@ -466,6 +467,41 @@ async fn hostile_routers_seat_no_stranger_and_their_poison_costs_its_address() {
         at_cap > 0,
         "some walk's results reached max_results_per_query ({answered} answered, {failed} failed)"
     );
+
+    // THE WALK'S DIAL HAS ENDED before the address is asked about. A walk
+    // settles on its results, and the dial it made to the poisoned
+    // address can still be in its handshake then: under a loaded
+    // full-workspace run the assertion below once ran ahead of it (j130).
+    // Waited for on what the subject itself reports, and never by
+    // dialling: a dial of the test's own would quarantine the address
+    // and prove nothing about the walk. Either signal will do, since the
+    // event is dropped when the outbox is full and the gate row counts
+    // only addresses in the book. The subject keeps draining meanwhile,
+    // or its Swarm stops being polled and the handshake never ends.
+    let mismatched = |e: &SwarmEvent| matches!(e, SwarmEvent::DialFailed { peer: Some(p), class: DialFailureClass::IdentityMismatch, .. } if *p == target_peer);
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while !events.iter().any(mismatched) {
+        let rows = subject
+            .peer_gates(vec![target_peer.clone()])
+            .await
+            .expect("the task answers");
+        if rows.iter().any(|row| row.quarantined_until_ms.is_some()) {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no walk's dial of the poisoned address ended within {PATIENCE:?}: {rows:?}"
+        );
+        events.extend(
+            drive(
+                &mut subject,
+                "waiting for the walk's dial to end",
+                Duration::from_millis(100),
+                &mismatched,
+            )
+            .await,
+        );
+    }
 
     // THE POISON PAID FOR ITSELF: the walk dialled the target at the
     // impostor, the identity check failed, and the address is
