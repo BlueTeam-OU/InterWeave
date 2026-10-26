@@ -414,6 +414,9 @@ struct Shared {
     snack: Option<SnackUp>,
     /// An Accept's snackbar whose timeout waits on focus (#416).
     accept_snack: Option<AcceptSnack>,
+    /// The conversation's rows in the reading order, which an Accept's
+    /// snackbar's span is judged in.
+    order: swipe::Order,
     /// The window, to take a snackbar off screen when an input that closes
     /// it is queued.
     window: slint::Weak<AppWindow>,
@@ -2429,6 +2432,7 @@ impl View {
         if let Some(last) = kept {
             rows[last].cards_after += i32::try_from(cards.len() - next).unwrap_or(i32::MAX);
         }
+        self.shared.borrow_mut().order.messages = times.iter().map(|(h, _)| *h).collect();
         self.message_times = times;
     }
 
@@ -2796,11 +2800,12 @@ impl View {
                 let focus = window.get_focus_id();
                 let now = monotonic();
                 let closes = {
-                    let mut s = shared.borrow_mut();
+                    let mut held = shared.borrow_mut();
+                    let s = &mut *held;
                     let Some(a) = s.accept_snack.as_mut() else {
                         return;
                     };
-                    if swipe::in_accept_span(focus.as_str(), a.handle) {
+                    if swipe::in_accept_span(focus.as_str(), a.handle, &s.order) {
                         a.deadline = None;
                     } else if a.deadline.is_none() {
                         a.deadline = Some(now + Duration::from_millis(a.ms));

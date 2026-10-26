@@ -325,7 +325,7 @@ fn received_noon() -> String {
 // changes nothing says it matches the contact, offers Close alone in
 // Accept's place, says nothing of being removed at close, and Close
 // answers as Decline. The row says when the card came, as every proposal
-// does, since it is drawn after the messages. Mutations: Decline drawn
+// does. Mutations: Decline drawn
 // beside Close; Close raising Accept; the received line not drawn.
 #[test]
 fn a_card_that_changes_nothing_offers_close_alone_and_says_when_it_came() {
@@ -1226,6 +1226,62 @@ fn an_accept_snackbar_waits_while_focus_is_in_its_span() {
     step(&clock, std::time::Duration::from_secs(121));
     let _ = intents(&mut view, &mut model);
     assert!(model.snackbar().is_none(), "closed by two minutes");
+}
+
+/// The span's "any message ... after it", drawn: the card stands between
+/// two messages, and after its Accept focus on the message after it keeps
+/// the snackbar waiting, while focus on the message before it lets the
+/// full time run. Mutation: the drawn order not kept for the span.
+#[test]
+fn an_accept_snackbar_waits_on_a_message_after_its_row_and_not_before() {
+    let clock = std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now()));
+    let mut model = UiModel::new();
+    model.received(message(10, "the message before", NOW - 3 * MINUTE));
+    model.card_received(Proposal {
+        received_at: NOW - 2 * MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    model.received(message(11, "the message after", NOW));
+    let mut view = conversation(&mut model);
+    let c = std::rc::Rc::clone(&clock);
+    view.set_monotonic(move || c.get());
+    press(&view, text(UiText::CardAccept));
+    let _ = intents(&mut view, &mut model);
+    model.card_resolved(
+        row(1),
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: true,
+            photo_dropped: false,
+            photo_removed: false,
+        },
+    );
+    model.contacts_listed(vec![contact("c1", "Ada", P)]);
+    view.render(&model);
+    settle();
+    let messages = view.window().get_messages();
+    let handle = |i: usize| messages.row_data(i).expect("a message").handle;
+    let (before, after) = (handle(0), handle(1));
+
+    // Two polls, as for the message before: the first would start the
+    // full time, the second would close on it.
+    view.window().set_focus_id(format!("item:{after}").into());
+    step(&clock, std::time::Duration::from_millis(100));
+    step(&clock, std::time::Duration::from_secs(7));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        model.snackbar().is_some(),
+        "waits on the message after the row"
+    );
+
+    view.window().set_focus_id(format!("item:{before}").into());
+    step(&clock, std::time::Duration::from_millis(100));
+    step(&clock, std::time::Duration::from_secs(7));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        model.snackbar().is_none(),
+        "the full time ran on the message before it"
+    );
 }
 
 fn keyless(problem: interweave_human_ui_model::KeyProblem) -> IdentityView {

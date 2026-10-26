@@ -487,6 +487,12 @@ enum Entry {
     Answer(CardAnswer, String, bool),
 }
 
+/// The message each drawn card row follows, by its handle, for the reading
+/// order an Accept's snackbar's span is judged in.
+fn shared_after(shared: &RefCell<crate::Shared>, places: &[(i32, String)]) {
+    shared.borrow_mut().order.card_after = places.iter().map(|(after, _)| *after).collect();
+}
+
 impl Entry {
     fn place(&self) -> (u64, RowId) {
         match self {
@@ -1292,6 +1298,7 @@ impl View {
             drop(shared);
             self.cards.drawn_rows = handles;
             self.cards.proposals_shown = shown;
+            shared_after(&self.shared, &places);
             self.cards.proposal_places = places;
         }
         window.set_proposals(ModelRc::from(rows));
