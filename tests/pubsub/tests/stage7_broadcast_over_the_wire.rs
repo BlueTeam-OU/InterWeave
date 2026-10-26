@@ -596,20 +596,39 @@ async fn a_broadcast_flood_does_not_wedge_the_direct_path() {
         payload: Payload::at_ceiling(None, b"through the flood".to_vec())
             .expect("within the ceiling"),
     };
-    let answered = tokio::time::timeout(
-        PATIENCE,
-        a.send_direct(&a_leases["human"], b_peer.clone(), frame),
-    )
-    .await
+    // THE RECEIVER KEEPS DRAINING WHILE THE EXCHANGE IS IN FLIGHT, as the
+    // doc above says it does. It did not: flood deliveries that reached
+    // `b` after the loop's last quiet 25 ms filled its eight-slot outbox
+    // during the send, `polling_room` then stopped `b` polling its
+    // Swarm, and the request waited out a deadline both ends share. That
+    // is the backpressure contract this test says it does not test, and
+    // it failed under a loaded full-workspace run as `PeerUnreachable`,
+    // a lost connection or, before `read_response` told an unanswered
+    // stream from a malformed one, `ProtocolViolation` (j123, j127).
+    let mut seen = Vec::new();
+    // SCOPED, so the pinned send releases `a` before the diagnostics
+    // below drain it.
+    let answered = {
+        let send = tokio::time::timeout(
+            PATIENCE,
+            a.send_direct(&a_leases["human"], b_peer.clone(), frame),
+        );
+        tokio::pin!(send);
+        let mut b_open = true;
+        loop {
+            tokio::select! {
+                settled = &mut send => break settled,
+                event = b.next_event(), if b_open => match event {
+                    Some(event) => seen.push(format!("b, during the send: {event:?}")),
+                    None => b_open = false,
+                },
+            }
+        }
+    }
     .expect("the exchange settled rather than hanging behind a broadcast flood")
     .expect("the command lands");
     if answered.is_err() {
-        // WHAT EACH SIDE SAW, so a failure names its cause: this has
-        // failed about one run in three under a loaded full-workspace
-        // run (`PeerUnreachable`, the direct timeout or a lost
-        // connection) and never in 44 runs on a quiet host, so the next
-        // failure's events are the evidence (j123).
-        let mut seen = Vec::new();
+        // WHAT EACH SIDE SAW, so a failure names its cause (j123).
         for (side, runtime) in [("a", &mut a), ("b", &mut b)] {
             while let Ok(Some(event)) =
                 tokio::time::timeout(Duration::from_millis(100), runtime.next_event()).await

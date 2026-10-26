@@ -58,13 +58,14 @@ use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
 use interweave_transport_libp2p::runtime::kademlia_driver::{KademliaSettings, kad_protocol};
 use interweave_transport_libp2p::{
-    DialRefusal, IDENTIFY_PROTOCOL_VERSION, SubstrateConfig, SwarmEvent, SwarmRuntime,
+    DialFailureClass, DialRefusal, IDENTIFY_PROTOCOL_VERSION, SubstrateConfig, SwarmEvent,
+    SwarmRuntime,
 };
 use interweave_transport_runtime::{DialDenial, DialOrigin, TrustSources};
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{Multiaddr, PeerId, StreamProtocol, Swarm, identify, identity, kad};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 const NETWORK: &str = "stage-18-adversarial";
 const PATIENCE: Duration = Duration::from_secs(20);
@@ -145,7 +146,10 @@ enum Order {
     Get(Vec<u8>),
     /// Learn where a peer listens. A peer that dialled this router is
     /// connected but unroutable until its listen address is known.
-    Know(PeerId, Multiaddr),
+    /// Answered once the table holds it, so a caller that goes on to
+    /// start a walk on another task knows the router can name it
+    /// (`HostileRouter::know`).
+    Know(PeerId, Multiaddr, oneshot::Sender<()>),
 }
 
 /// A hostile router on its own task: its table already stuffed, driven
@@ -155,6 +159,17 @@ struct HostileRouter {
     address: Multiaddr,
     orders: mpsc::UnboundedSender<Order>,
     events: mpsc::UnboundedReceiver<kad::Event>,
+}
+
+impl HostileRouter {
+    /// Tell the router where `peer` listens, and wait until it has it.
+    async fn know(&self, peer: PeerId, address: Multiaddr) {
+        let (done, known) = oneshot::channel();
+        self.orders
+            .send(Order::Know(peer, address, done))
+            .expect("alive");
+        known.await.expect("the router's task answers");
+    }
 }
 
 async fn hostile_router(
@@ -239,8 +254,9 @@ async fn hostile_router_as(
                     Some(Order::Get(key)) => {
                         let _ = swarm.behaviour_mut().kad.get_record(kad::RecordKey::new(&key));
                     }
-                    Some(Order::Know(peer, address)) => {
+                    Some(Order::Know(peer, address, done)) => {
                         swarm.behaviour_mut().kad.add_address(&peer, address);
+                        let _ = done.send(());
                     }
                     None => return,
                 },
@@ -467,6 +483,41 @@ async fn hostile_routers_seat_no_stranger_and_their_poison_costs_its_address() {
         "some walk's results reached max_results_per_query ({answered} answered, {failed} failed)"
     );
 
+    // THE WALK'S DIAL HAS ENDED before the address is asked about. A walk
+    // settles on its results, and the dial it made to the poisoned
+    // address can still be in its handshake then: under a loaded
+    // full-workspace run the assertion below once ran ahead of it (j130).
+    // Waited for on what the subject itself reports, and never by
+    // dialling: a dial of the test's own would quarantine the address
+    // and prove nothing about the walk. Either signal will do, since the
+    // event is dropped when the outbox is full and the gate row counts
+    // only addresses in the book. The subject keeps draining meanwhile,
+    // or its Swarm stops being polled and the handshake never ends.
+    let mismatched = |e: &SwarmEvent| matches!(e, SwarmEvent::DialFailed { peer: Some(p), class: DialFailureClass::IdentityMismatch, .. } if *p == target_peer);
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while !events.iter().any(mismatched) {
+        let rows = subject
+            .peer_gates(vec![target_peer.clone()])
+            .await
+            .expect("the task answers");
+        if rows.iter().any(|row| row.quarantined_until_ms.is_some()) {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no walk's dial of the poisoned address ended within {PATIENCE:?}: {rows:?}"
+        );
+        events.extend(
+            drive(
+                &mut subject,
+                "waiting for the walk's dial to end",
+                Duration::from_millis(100),
+                &mismatched,
+            )
+            .await,
+        );
+    }
+
     // THE POISON PAID FOR ITSELF: the walk dialled the target at the
     // impostor, the identity check failed, and the address is
     // quarantined, whoever asks for it now.
@@ -486,9 +537,7 @@ async fn hostile_routers_seat_no_stranger_and_their_poison_costs_its_address() {
     // is known, so each is told first, or no FIND_NODE would reach it.
     let subject_libp2p = peer_id(&subject_peer);
     for h in &hostiles {
-        h.orders
-            .send(Order::Know(subject_libp2p, subject_address.clone()))
-            .expect("alive");
+        h.know(subject_libp2p, subject_address.clone()).await;
         h.orders.send(Order::FloodFindNode(100)).expect("alive");
     }
     for _ in 0..10 {
@@ -637,10 +686,7 @@ async fn a_trusted_routers_record_and_provider_writes_are_counted_and_stored_now
     let subject_address = listening(&subject, ip).await;
     let writer_peer = writer.peer.clone();
     let _ = seat(&mut subject, &writer_peer, writer.address.clone()).await;
-    writer
-        .orders
-        .send(Order::Know(peer_id(&subject_peer), subject_address))
-        .expect("alive");
+    writer.know(peer_id(&subject_peer), subject_address).await;
 
     let before = subject
         .status(None)
@@ -755,8 +801,13 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
     let subject_libp2p = peer_id(&subject_peer);
     let mut keys = far_keys(&subject_libp2p, BUCKET + NEWCOMERS + OBSERVED + 1).into_iter();
 
-    // OBSERVED: trusted, listening, serving Kademlia, and known to the
-    // subject only through what the newcomers answer its walks.
+    // OBSERVED: trusted, listening, serving Kademlia, and never dialled
+    // or told to the subject by the test: it learns them from its walks'
+    // answers. The newcomers name them; an honest router may come to
+    // name them too, since these routers run libp2p-kad's defaults
+    // (insertion on connect, the automatic bootstrap) and are told the
+    // newcomers. Who names them does not matter to the bound below, which
+    // is that an observation offered under a full bucket takes no seat.
     let mut observed = Vec::new();
     for k in keys.by_ref().take(OBSERVED) {
         observed.push(hostile_router_as(k, ip, Vec::new()).await);
@@ -816,9 +867,7 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
     // a walk that starts at an honest seat goes on to ask a newcomer.
     for h in &honest {
         for n in &newcomers {
-            h.orders
-                .send(Order::Know(peer_id(&n.peer), n.address.clone()))
-                .expect("alive");
+            h.know(peer_id(&n.peer), n.address.clone()).await;
         }
     }
 
@@ -839,9 +888,7 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
             )
             .await,
         );
-        n.orders
-            .send(Order::Know(subject_libp2p, subject_address.clone()))
-            .expect("alive");
+        n.know(subject_libp2p, subject_address.clone()).await;
         n.orders.send(Order::FloodFindNode(50)).expect("alive");
     }
 
@@ -1174,10 +1221,7 @@ async fn an_inbound_stream_flood_keeps_libp2p_kads_ceiling_and_the_subject_answe
     .expect("subject");
     let subject_address = listening(&subject, ip).await;
     let _ = seat(&mut subject, &witness.peer, witness.address.clone()).await;
-    witness
-        .orders
-        .send(Order::Know(subject_libp2p, subject_address.clone()))
-        .expect("alive");
+    witness.know(subject_libp2p, subject_address.clone()).await;
 
     // THE FLOOD: one connection, a hundred Kademlia streams, none of
     // which ever sends a request. The subject is driven meanwhile.

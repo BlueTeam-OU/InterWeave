@@ -450,7 +450,10 @@ fn outbound_error(error: &libp2p::request_response::OutboundFailure) -> DirectEr
     match error {
         OutboundFailure::Io(e) if e.kind() == std::io::ErrorKind::InvalidData => {
             // Our own decoder refused the response: a bad grammar, a bad
-            // count, or trailing bytes arrive here.
+            // count, or trailing bytes arrive here. An EMPTY response does
+            // not: the responder answered nothing, and `read_response`
+            // reports that as `UnexpectedEof`, a reachability failure
+            // (`direct_codec::refuse_an_unanswered_exchange`).
             DirectError::ProtocolViolation
         }
         OutboundFailure::UnsupportedProtocols => DirectError::ProtocolUnsupported,

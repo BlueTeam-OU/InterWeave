@@ -303,8 +303,11 @@ pub struct RelayState {
     manager: ReservationManager,
     /// The relay each open listener reserves on. One per relay that is
     /// `Requested` or `Active`, so bounded by the manager's candidates;
-    /// an entry leaves on the listener's close or at the request
-    /// horizon (`a_request_past_the_horizon_is_abandoned_and_failed`).
+    /// an entry leaves on the listener's close, or when the driver
+    /// abandons the listener (`abandon_listener`): at the request
+    /// horizon (`a_request_past_the_horizon_is_abandoned_and_failed`),
+    /// on a release, when a learned relay is forgotten, and when a
+    /// static one loses its authorization.
     listeners: HashMap<ListenerId, Listening>,
     by_relay: BTreeMap<TransportIdentity, ListenerId>,
     /// Listeners this driver removed and whose close has not yet been
