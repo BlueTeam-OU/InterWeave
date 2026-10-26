@@ -1246,11 +1246,27 @@ mod tests {
                 )
             })
         };
-        block_on(desktop_half(&android, &desktop, told, closes)).expect("a runtime");
-        result(&case.join().expect("the case thread"))
+        let close = block_on(desktop_half(&android, &desktop, told, closes)).expect("a runtime");
+        let mut out = result(&case.join().expect("the case thread"));
+        // Beside the Android side's answer, as `close_exchange` asks of a
+        // caller and `pairing`'s case records it.
+        if let Some(sent) = close {
+            out.insert(
+                keys::CLOSE.to_owned(),
+                sent.map_or_else(|e| format!("{e:?}"), |()| "accepted".to_owned())
+                    .into(),
+            );
+        }
+        out
     }
 
-    async fn desktop_half(android: &FakeNode, desktop: &FakeNode, told: Notice, closes: bool) {
+    /// The desktop's half; its close's outcome, when it closes.
+    async fn desktop_half(
+        android: &FakeNode,
+        desktop: &FakeNode,
+        told: Notice,
+        closes: bool,
+    ) -> Option<Result<(), TransportError>> {
         let session = desktop.open(lease_request()).await.expect("D leases");
         let (_, text) = to_desktop(3);
         Told::default()
@@ -1280,15 +1296,17 @@ mod tests {
         send_until_routed(&session, &peer(), id, &answer, Duration::from_secs(5))
             .await
             .expect("D answers");
+        // Its outcome is returned and not asserted, as [`close_exchange`]
+        // says: an Android half that failed -- told the wrong path, or a
+        // previous one -- ends without waiting for the close, and its
+        // session can be gone before the close arrives (the fake's
+        // `RemoteEndpointUnavailable`). A close a passing half needs and
+        // does not read fails that half
+        // (`the_android_half_waits_for_the_desktops_close`).
         if closes {
-            // Its outcome is not asserted, as [`close_exchange`] says: an
-            // Android half that failed -- told the wrong path, or a
-            // previous one -- ends without waiting for the close, and its
-            // session can be gone before the close arrives
-            // (`RemoteEndpointUnavailable`, #458's CI run). A close a
-            // passing half needs and does not read fails that half
-            // (`the_android_half_waits_for_the_desktops_close`).
-            let _ = close_exchange(&session, &peer(), 3).await;
+            Some(close_exchange(&session, &peer(), 3).await)
+        } else {
+            None
         }
     }
 
@@ -1306,6 +1324,7 @@ mod tests {
         assert_eq!(open[keys::RESULT], keys::FAIL, "{open:?}");
         let detail = open[keys::DETAIL].as_str().expect("a detail");
         assert!(detail.contains(&closing(3).1), "{detail}");
+        assert!(!open.contains_key(keys::CLOSE), "{open:?}");
         let closed = paths_closing(
             PeerPath::Relayed,
             Notice::Connected(PeerPath::Relayed),
@@ -1313,6 +1332,7 @@ mod tests {
             Duration::from_millis(500),
         );
         assert_eq!(closed[keys::RESULT], keys::PASS, "{closed:?}");
+        assert_eq!(closed[keys::CLOSE], "accepted", "{closed:?}");
     }
 
     /// A direct message read while waiting for something else -- a path
