@@ -501,7 +501,10 @@ impl Shared {
     fn push(&mut self, input: Input) -> Option<Rc<dyn Fn()>> {
         let closes = self.snack.as_ref().is_some_and(|s| s.closed_by(&input));
         let refused = self.refused;
+        let photo = cards::changes_own_photo(&input);
         let wake = self.queue(input);
+        // Only a change the queue accepted is waiting to be drawn.
+        self.cards.own_photo_queued |= photo && self.refused == refused;
         if closes
             && self.refused == refused
             && let Some(window) = self.window.upgrade()
@@ -1755,7 +1758,9 @@ impl View {
         // an unrelated event (seen over AT-SPI in the shipped client).
         // After a draft edit returns early, the next call renders it.
         if std::mem::take(&mut self.selection_unrendered) {
+            self.cards.rendering_in_take = true;
             self.render(model);
+            self.cards.rendering_in_take = false;
         }
         // The queue has drained: a render's "viewed" is resolved against the
         // focus and the conversation of this moment, so it can only read

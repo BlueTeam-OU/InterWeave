@@ -1144,6 +1144,27 @@ fn a_key_that_cannot_be_used_is_said_and_a_new_key_is_confirmed_then_made() {
     assert!(!view.window().get_new_key_open());
     assert_eq!(view.window().get_focus_target(), "own-key-new");
 
+    // Back is the dialog's Cancel (identity-key design 5.1): the dialog
+    // closes and the card page it stood over stays.
+    press(&view, text(UiText::KeyMakeNew));
+    let _ = intents(&mut view, &mut model);
+    let _ = model.ask_new_key();
+    model.new_key_asked(true);
+    view.render(&model);
+    settle();
+    assert!(view.window().get_new_key_open());
+    assert!(view.window().invoke_handle_back(), "Back is taken");
+    assert_eq!(intents(&mut view, &mut model), vec![Intent::CloseKeyStep]);
+    model.key_step_closed();
+    view.render(&model);
+    settle();
+    assert!(!view.window().get_new_key_open());
+    assert!(
+        shows(&view, text(UiText::KeyMakeNew)),
+        "the card page is still open"
+    );
+    assert_eq!(view.window().get_focus_target(), "own-key-new");
+
     press(&view, text(UiText::KeyMakeNew));
     let _ = intents(&mut view, &mut model);
     let _ = model.ask_new_key();
@@ -1218,6 +1239,62 @@ fn the_share_sheet_says_the_key_cannot_be_used_and_opens_the_card_page() {
     assert!(shows(&view, text(UiText::KeyStateTitle)), "the card page");
     assert!(!shows(&view, text(UiText::KeyMakeNew)), "no new key there");
     assert!(shows(&view, text(UiText::TryAgain)));
+}
+
+/// The unsaved-changes dialog's two actions are one per line, each the
+/// width of its title's column, Close without saving first, as the
+/// proposal's: at 320 px with 200 % text the two labels cannot sit side
+/// by side, and the longer one wraps inside its button. Mutations: the
+/// actions back on one line; Close without saving not wrapping.
+#[test]
+fn the_unsaved_changes_dialog_fits_a_narrow_window_with_large_text() {
+    let width = 320.0;
+    let mut view = view();
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(width, 2400.0));
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: false,
+        photo: None,
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        peer: Some(peer(Q)),
+    });
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    view.window().set_own_given("Grace".into());
+    assert!(view.window().invoke_handle_back());
+    settle();
+    assert!(view.window().get_own_discard_open());
+
+    let title = bounds(&view, text(UiText::CardDiscardChanges));
+    let close = bounds(&view, text(UiText::DiscardChanges));
+    let keep = bounds(&view, text(UiText::KeepEditing));
+    for (label, b) in [("title", title), ("Close", close), ("Continue", keep)] {
+        assert!(
+            b.0 >= 0.0 && b.2 <= width,
+            "{label} at {b:?}, inside {width} px"
+        );
+    }
+    assert!(close.3 <= keep.1, "Close without saving on a line above");
+    for (label, b) in [("Close", close), ("Continue", keep)] {
+        assert!(
+            (b.0 - title.0).abs() < 0.5 && (b.2 - title.2).abs() < 0.5,
+            "{label} the column's full width: {b:?}, the title {title:?}"
+        );
+    }
 }
 
 /// The bounds of the one element labelled `label`.
@@ -2043,4 +2120,507 @@ fn while_a_photo_is_prepared_the_editor_stays_as_it_was_before() {
     );
     assert!(!shows(&view, text(UiText::RemovePhoto)));
     assert!(!view.window().get_own_edit_has_photo());
+}
+
+/// A tap at `at`, in the window's logical pixels.
+fn tap_at(view: &View, at: (f32, f32)) {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let position = slint::LogicalPosition::new(at.0, at.1);
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    });
+    settle();
+}
+
+/// The own card editor open for `identity`, ready to be changed.
+fn own_editor(identity: IdentityView) -> (View, UiModel) {
+    let mut view = view();
+    // Phone-wide: the editor covers the list, as on the phone.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 1600.0));
+    view.photo_picker_hook(|| {});
+    let mut model = UiModel::new();
+    model.identity_shown(identity);
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard
+    );
+    (view, model)
+}
+
+fn ada(has_photo: bool, key: interweave_human_ui_model::OwnKey) -> IdentityView {
+    IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo,
+        photo: has_photo.then(photo),
+        key,
+        peer: Some(peer(Q)),
+    }
+}
+
+/// Design 5.2's focus table: Continue editing gives focus back to the
+/// field that had it, for EVERY control the editor offers -- each reached
+/// by Tab from the given name, through the photo, the key and Save. Save,
+/// Remove photo and the key's folder once took no focus request, and
+/// focus went nowhere. Mutation: any one of them losing its request.
+fn focus_comes_back_everywhere(
+    key_state: interweave_human_ui_model::OwnKey,
+    prepare: impl FnOnce(&mut UiModel),
+    expect: &[&str],
+) {
+    let mut seen = Vec::new();
+    {
+        let (mut view, mut model) = own_editor(ada(true, key_state));
+        prepare(&mut model);
+        view.render(&model);
+        settle();
+        let window = view.window();
+        window.set_own_given("Grace".into());
+        window.set_focus_target("own-given".into());
+        window.set_focus_seq(window.get_focus_seq() + 1);
+        settle();
+        let mut here = Vec::new();
+        for _ in 0..40 {
+            let at = view.window().get_focus_id().to_string();
+            if here.contains(&at) {
+                break;
+            }
+            assert!(view.window().invoke_handle_back(), "Back at {at}");
+            let _ = intents(&mut view, &mut model);
+            settle();
+            assert!(view.window().get_own_discard_open(), "asked at {at}");
+            assert_eq!(view.window().get_focus_id(), "discard-keep", "at {at}");
+            press(&view, text(UiText::KeepEditing));
+            let _ = intents(&mut view, &mut model);
+            settle();
+            assert!(!view.window().get_own_discard_open());
+            assert_eq!(view.window().get_focus_id(), at.as_str(), "focus back");
+            here.push(at);
+            key(&view, slint::platform::Key::Tab);
+            settle();
+        }
+        seen.extend(here);
+    }
+    for control in expect {
+        assert!(
+            seen.iter().any(|s| s.starts_with(control)),
+            "{control} reached by Tab: {seen:?}"
+        );
+    }
+}
+
+#[test]
+fn continue_editing_gives_focus_back_to_each_control() {
+    focus_comes_back_everywhere(
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        |_| {},
+        &["own-given", "own-surname", "own-remove-photo", "own-save"],
+    );
+}
+
+/// On a wide window the list stands beside the editor: Back with focus
+/// there, then Continue editing, puts focus on the editor's first field,
+/// where the change is. Mutation: the return taken as it was.
+#[test]
+fn continue_editing_from_beside_the_editor_goes_to_its_first_field() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1200.0, 1600.0));
+    view.render(&model);
+    settle();
+    view.window().set_own_given("Grace".into());
+    view.window().set_focus_target("own-given".into());
+    view.window()
+        .set_focus_seq(view.window().get_focus_seq() + 1);
+    settle();
+    let mut outside = None;
+    for _ in 0..40 {
+        key(&view, slint::platform::Key::Tab);
+        settle();
+        let at = view.window().get_focus_id().to_string();
+        if !at.starts_with("own-") && at != "close-cards" {
+            outside = Some(at);
+            break;
+        }
+    }
+    let outside = outside.expect("Tab reaches the list beside the editor");
+    assert!(view.window().invoke_handle_back());
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(view.window().get_own_discard_open(), "asked from {outside}");
+    press(&view, text(UiText::KeepEditing));
+    settle();
+    assert_eq!(view.window().get_focus_id(), "own-given", "from {outside}");
+}
+
+/// The same with a new key made and a conversation to share the card
+/// with again: its row is the editor's too. Mutation: the row's key left
+/// out of the return.
+#[test]
+fn continue_editing_gives_focus_back_to_a_share_again_row() {
+    let ready = || interweave_human_ui_model::OwnKey::Ready {
+        fingerprint: "fedcba9876543210".to_owned(),
+    };
+    focus_comes_back_everywhere(
+        ready(),
+        |model| {
+            model.key_made(
+                Some(ada(true, ready())),
+                "fedcba9876543210".to_owned(),
+                vec![direct(P)],
+            );
+        },
+        &["share-again:"],
+    );
+}
+
+/// The same with the key's folder shown, a field of its own.
+#[test]
+fn continue_editing_gives_focus_back_to_the_key_folder() {
+    focus_comes_back_everywhere(
+        interweave_human_ui_model::OwnKey::Unusable(
+            interweave_human_ui_model::KeyProblem::DirUnsafe {
+                folder: "/home/ada/.local/share/interweave/keys".to_owned(),
+            },
+        ),
+        |_| {},
+        &["own-key-path"],
+    );
+}
+
+/// The unsaved-changes dialog's other answers, beside Back: Escape and
+/// the scrim are Continue editing, and Tab stays on its two buttons.
+/// Mutations: Escape, the scrim or Continue editing's press not keeping
+/// the editor; Tab leaving the dialog.
+#[test]
+fn the_unsaved_changes_dialog_answers_escape_the_scrim_and_tab() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    let ask = |view: &mut View, model: &mut UiModel| {
+        let window = view.window();
+        window.set_focus_target("own-given".into());
+        window.set_focus_seq(window.get_focus_seq() + 1);
+        settle();
+        assert!(view.window().invoke_handle_back());
+        let _ = intents(view, model);
+        settle();
+        assert!(view.window().get_own_discard_open());
+        assert_eq!(view.window().get_focus_id(), "discard-keep");
+    };
+    let kept = |view: &View, how: &str| {
+        assert!(!view.window().get_own_discard_open(), "{how}: closed");
+        assert_eq!(
+            view.window().get_cards_page(),
+            interweave_human_ui_slint::CardsPage::OwnCard,
+            "{how}: the editor stays"
+        );
+        assert_eq!(
+            view.window().get_own_given(),
+            "Grace",
+            "{how}: nothing lost"
+        );
+        assert_eq!(
+            view.window().get_focus_id(),
+            "own-given",
+            "{how}: focus back"
+        );
+    };
+    view.window().set_own_given("Grace".into());
+
+    ask(&mut view, &mut model);
+    key(&view, slint::platform::Key::Tab);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "discard-confirm", "Tab");
+    key(&view, slint::platform::Key::Tab);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "discard-keep", "Tab again");
+    key(&view, slint::platform::Key::Backtab);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "discard-confirm", "Shift+Tab");
+    key(&view, slint::platform::Key::Escape);
+    settle();
+    kept(&view, "Escape");
+
+    ask(&mut view, &mut model);
+    tap_at(&view, (4.0, 4.0));
+    kept(&view, "the scrim");
+
+    ask(&mut view, &mut model);
+    press(&view, text(UiText::KeepEditing));
+    kept(&view, "Continue editing");
+    assert!(
+        intents(&mut view, &mut model).is_empty(),
+        "keeping raises nothing"
+    );
+}
+
+/// A photo removed or picked is a change from the moment it is queued,
+/// before the model takes it: Back in between asks rather than closing
+/// and dropping it. A picker cancelled is no change. Mutation: the
+/// queued mark never set.
+#[test]
+fn back_after_a_queued_photo_change_asks() {
+    let ready = || interweave_human_ui_model::OwnKey::Ready {
+        fingerprint: "0123456789abcdef".to_owned(),
+    };
+    let (view, _model) = own_editor(ada(true, ready()));
+    press(&view, text(UiText::RemovePhoto));
+    // Not taken: no turn has run since the press.
+    assert!(view.window().invoke_handle_back());
+    assert!(view.window().get_own_discard_open(), "a queued removal");
+}
+
+/// The mark outlives the take: a turn renders FIRST and takes after, and
+/// nothing renders again until the facade answers, so a Back after the
+/// take is judged against a drawing that predates the change. Only a
+/// render with the change gone from the queue -- the model holding it --
+/// clears it. Mutations: the mark cleared at the take; cleared at any
+/// render.
+#[test]
+fn back_after_a_photo_change_taken_and_not_yet_drawn_asks() {
+    let (mut view, mut model) = own_editor(ada(
+        true,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    let asks = |view: &View, when: &str| {
+        assert!(view.window().invoke_handle_back(), "{when}");
+        assert!(view.window().get_own_discard_open(), "asks {when}");
+        // Back on the dialog is Continue editing.
+        assert!(view.window().invoke_handle_back());
+        assert!(!view.window().get_own_discard_open());
+    };
+    press(&view, text(UiText::RemovePhoto));
+    // A turn's opening render, the removal still queued.
+    view.render(&model);
+    asks(&view, "after a render with the removal queued");
+    // Taken, and not drawn: as a turn leaves it until the facade answers.
+    let taken = view.take_events(&model);
+    assert!(!taken.is_empty(), "the removal was taken");
+    asks(&view, "after the take, before a render");
+    // The model holds it and a render shows it: asked for by the model.
+    for event in taken {
+        if let interweave_human_ui_slint::ViewEvent::Intent(Intent::RemoveOwnPhoto) = event {
+            model.own_photo_removed();
+        }
+    }
+    view.render(&model);
+    asks(&view, "once drawn");
+    let _ = intents(&mut view, &mut model);
+}
+
+/// A pick the model has applied and drawn is no longer pending, even when
+/// what it drew equals what was drawn before: a second unusable image
+/// over an unchanged card leaves the editor unchanged, and Back closes it
+/// at once. Mutation: the mark cleared only when the drawn photo step
+/// changes.
+#[test]
+fn back_after_a_second_unusable_pick_closes_at_once() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    // As a root runs it: a render opens each turn, the take follows, the
+    // model applies what was taken, and the facade's answer renders.
+    let unusable_pick = |view: &mut View, model: &mut UiModel| {
+        view.photo_picked(Some(vec![1, 2, 3]));
+        view.render(model);
+        for event in view.take_events(model) {
+            if let interweave_human_ui_slint::ViewEvent::Intent(Intent::ChooseOwnPhoto(_)) = event {
+                let seq = model.own_photo_chosen();
+                model.own_photo_prepared(seq, None);
+            }
+        }
+        view.render(model);
+        settle();
+    };
+    unusable_pick(&mut view, &mut model);
+    unusable_pick(&mut view, &mut model);
+    assert!(view.window().invoke_handle_back());
+    assert!(!view.window().get_own_discard_open(), "nothing changed");
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None,
+        "closed at once"
+    );
+}
+
+/// A Remove photo the full queue refused never arrives, so it is no
+/// change: Back on the otherwise unchanged editor does not ask. Mutation:
+/// the mark set before the queue's answer.
+#[test]
+fn a_refused_photo_change_is_no_change() {
+    let (view, _model) = own_editor(ada(
+        true,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    for _ in 0..interweave_human_ui_slint::INPUT_CAP {
+        view.select(direct(P));
+    }
+    press(&view, text(UiText::RemovePhoto));
+    assert_eq!(view.refused_inputs(), 1, "control: refused");
+    assert!(view.window().invoke_handle_back());
+    assert!(
+        !view.window().get_own_discard_open(),
+        "nothing to ask about"
+    );
+}
+
+/// The same for a photo picked and not yet taken; a picker cancelled is
+/// no change.
+#[test]
+fn back_after_a_queued_pick_asks_and_after_a_cancel_does_not() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    view.photo_picked(None);
+    assert!(view.window().invoke_handle_back());
+    assert!(
+        !view.window().get_own_discard_open(),
+        "a cancel is no change"
+    );
+    let _ = intents(&mut view, &mut model);
+    settle();
+
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    view.photo_picked(Some(vec![1, 2, 3]));
+    assert!(view.window().invoke_handle_back());
+    assert!(view.window().get_own_discard_open(), "a queued photo");
+}
+
+/// Contact-cards design 5.2 and item 11: Back on the own card's editor
+/// with unsaved changes opens `CardDiscardChanges`, focus on Continue
+/// editing; Back or Continue editing returns to the field that had focus;
+/// Discard leaves without saving. With no change -- a trailing space
+/// alone, or nothing -- Back leaves at once. Remove photo is a change on a
+/// card with a photo. Mutations: the dialog never asked; a trailing space
+/// counted as a change.
+#[test]
+fn back_with_unsaved_changes_asks_before_the_editor_closes() {
+    use interweave_human_ui_slint::CardsPage;
+    let mut view = view();
+    view.photo_picker_hook(|| {});
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        endpoint: human(),
+        name: "Ada".to_owned(),
+        given: "Ada".to_owned(),
+        surname: None,
+        has_photo: true,
+        photo: Some(photo()),
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        peer: Some(peer(Q)),
+    });
+    view.render(&model);
+    let open = |view: &mut View, model: &mut UiModel| {
+        press(view, text(UiText::AppOptions));
+        press(view, text(UiText::OwnCardTitle));
+        let _ = intents(view, model);
+        settle();
+        assert_eq!(view.window().get_cards_page(), CardsPage::OwnCard);
+    };
+    let back = |view: &mut View, model: &mut UiModel| {
+        assert!(view.window().invoke_handle_back());
+        let _ = intents(view, model);
+        settle();
+    };
+
+    // No change, a trailing space alone: Back leaves at once.
+    open(&mut view, &mut model);
+    view.window().set_own_given("Ada ".into());
+    back(&mut view, &mut model);
+    assert!(!view.window().get_own_discard_open());
+    assert_eq!(view.window().get_cards_page(), CardsPage::None);
+
+    // A new name: Back asks, focus on Continue editing.
+    open(&mut view, &mut model);
+    let window = view.window();
+    window.set_focus_target("own-given".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    view.window().set_own_given("Augusta".into());
+    back(&mut view, &mut model);
+    assert!(view.window().get_own_discard_open(), "asked");
+    assert!(shows(&view, text(UiText::CardDiscardChanges)));
+    assert_eq!(view.window().get_focus_id(), "discard-keep");
+    assert_eq!(
+        view.window().get_cards_page(),
+        CardsPage::OwnCard,
+        "still open"
+    );
+    // Back on the dialog is Continue editing: focus where it was.
+    back(&mut view, &mut model);
+    assert!(!view.window().get_own_discard_open());
+    assert_eq!(view.window().get_own_given(), "Augusta", "nothing lost");
+    assert_eq!(view.window().get_focus_id(), "own-given");
+
+    // Discard: the editor closes, nothing saved.
+    back(&mut view, &mut model);
+    press(&view, text(UiText::DiscardChanges));
+    let raised = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(view.window().get_cards_page(), CardsPage::None);
+    assert!(
+        !raised
+            .iter()
+            .any(|i| matches!(i, Intent::SetOwnCard { .. })),
+        "nothing saved: {raised:?}"
+    );
+
+    // Item 11: Remove photo, then Back asks; Discard keeps the saved photo.
+    open(&mut view, &mut model);
+    press(&view, text(UiText::RemovePhoto));
+    let _ = intents(&mut view, &mut model);
+    model.own_photo_removed();
+    view.render(&model);
+    back(&mut view, &mut model);
+    assert!(
+        view.window().get_own_discard_open(),
+        "a removal is a change"
+    );
+    press(&view, text(UiText::DiscardChanges));
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.contains(&Intent::ForgetOwnPhoto), "{raised:?}");
 }
