@@ -3156,11 +3156,13 @@ export component AppWindow inherits Window {
         if (root.cards-page == CardsPage.own-card && !root.own-discard-open
             && root.own-card-unsaved(root.own-given, root.own-surname)) {
             // Back to the editor's control that had focus -- each takes a
-            // focus request -- else, focus beside the editor on a wide
-            // window, to its first field
-            // (`continue_editing_gives_focus_back_to_each_control`).
+            // focus request, its share-again rows included -- else, focus
+            // beside the editor on a wide window, to its first field
+            // (`continue_editing_gives_focus_back_to_each_control`,
+            // `continue_editing_gives_focus_back_to_a_share_again_row`).
             root.own-discard-return = root.focus-id == "close-cards"
-                || root.focus-id.starts-with("own-") ? root.focus-id : "own-given";
+                || root.focus-id.starts-with("own-")
+                || root.focus-id.starts-with("share-again:") ? root.focus-id : "own-given";
             root.own-discard-open = true;
             return;
         }

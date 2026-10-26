@@ -2178,10 +2178,17 @@ fn ada(has_photo: bool, key: interweave_human_ui_model::OwnKey) -> IdentityView 
 /// by Tab from the given name, through the photo, the key and Save. Save,
 /// Remove photo and the key's folder once took no focus request, and
 /// focus went nowhere. Mutation: any one of them losing its request.
-fn focus_comes_back_everywhere(key_state: interweave_human_ui_model::OwnKey, expect: &[&str]) {
+fn focus_comes_back_everywhere(
+    key_state: interweave_human_ui_model::OwnKey,
+    prepare: impl FnOnce(&mut UiModel),
+    expect: &[&str],
+) {
     let mut seen = Vec::new();
     {
         let (mut view, mut model) = own_editor(ada(true, key_state));
+        prepare(&mut model);
+        view.render(&model);
+        settle();
         let window = view.window();
         window.set_own_given("Grace".into());
         window.set_focus_target("own-given".into());
@@ -2211,7 +2218,7 @@ fn focus_comes_back_everywhere(key_state: interweave_human_ui_model::OwnKey, exp
     }
     for control in expect {
         assert!(
-            seen.iter().any(|s| s == control),
+            seen.iter().any(|s| s.starts_with(control)),
             "{control} reached by Tab: {seen:?}"
         );
     }
@@ -2223,6 +2230,7 @@ fn continue_editing_gives_focus_back_to_each_control() {
         interweave_human_ui_model::OwnKey::Ready {
             fingerprint: "0123456789abcdef".to_owned(),
         },
+        |_| {},
         &["own-given", "own-surname", "own-remove-photo", "own-save"],
     );
 }
@@ -2268,6 +2276,27 @@ fn continue_editing_from_beside_the_editor_goes_to_its_first_field() {
     assert_eq!(view.window().get_focus_id(), "own-given", "from {outside}");
 }
 
+/// The same with a new key made and a conversation to share the card
+/// with again: its row is the editor's too. Mutation: the row's key left
+/// out of the return.
+#[test]
+fn continue_editing_gives_focus_back_to_a_share_again_row() {
+    let ready = || interweave_human_ui_model::OwnKey::Ready {
+        fingerprint: "fedcba9876543210".to_owned(),
+    };
+    focus_comes_back_everywhere(
+        ready(),
+        |model| {
+            model.key_made(
+                Some(ada(true, ready())),
+                "fedcba9876543210".to_owned(),
+                vec![direct(P)],
+            );
+        },
+        &["share-again:"],
+    );
+}
+
 /// The same with the key's folder shown, a field of its own.
 #[test]
 fn continue_editing_gives_focus_back_to_the_key_folder() {
@@ -2277,6 +2306,7 @@ fn continue_editing_gives_focus_back_to_the_key_folder() {
                 folder: "/home/ada/.local/share/interweave/keys".to_owned(),
             },
         ),
+        |_| {},
         &["own-key-path"],
     );
 }
