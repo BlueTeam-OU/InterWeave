@@ -1,4 +1,3 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
 # The own card's photo step on Android: a design review of #449
 
 A design review of the photo step in the card editor
