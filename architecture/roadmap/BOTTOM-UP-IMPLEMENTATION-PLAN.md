@@ -5257,9 +5257,9 @@ relayed path, DCUtR or AutoNAT over the radio, a scanned code or the
 client's screens, HumanChatV2 over Wi-Fi (rust-ui-dev's `human_chat`
 on this mode is run separately), a change of network, the phone in the
 background or dozing, more than one LAN, a LAN that isolates its
-clients, IPv6, and the phone's runtime outside its instrumentation; and
-`tests/pairing.rs`'s phone-to-phone rows are §29's (e), recorded there;
-of
+clients, IPv6, and the phone's runtime outside its instrumentation —
+the same addition pointing at `tests/pairing.rs`'s phone-to-phone rows
+of 2026-10-24, which are §29's (e) and recorded there; of
 `tests/interoperability`'s three items the independent codecs and the
 upgrade matrices are proved there, and the desktop ↔ Android platform
 matrix comparing the decoded envelope fields is RE-CARRIED to Stage 18
