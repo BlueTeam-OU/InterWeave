@@ -113,8 +113,8 @@ pub(super) struct NetworkSet {
     filled_once: bool,
     /// The first fill happened and its lift has not been taken.
     filled_untaken: bool,
-    /// Where the bound IPs the host no longer holds are published, for
-    /// rule 3 at the root funnel ([`crate::held_listeners`]).
+    /// Where what this node does not offer ([`Self::not_offered`]) is
+    /// published, for rule 3 at the root funnel ([`crate::held_listeners`]).
     published: crate::held_listeners::HeldListeners,
 }
 
@@ -207,24 +207,27 @@ impl NetworkSet {
         &self.off_local
     }
 
-    /// The bound IPs that are not this node's address toward anyone:
-    /// those the host no longer holds, and those it holds on no local
-    /// network -- [`Self::offers`]'s two refusals, for the readers that
-    /// cannot ask this set (the root funnel's rule 3, Identify's listen
-    /// set). The first matters to rule 10 too: a classified IP the view
-    /// then drops leaves [`Self::off_local`] while its listener is still
-    /// bound, and is withheld here until the listener poll lets it go.
-    /// Pinned by `a_departed_off_local_ip_stays_withheld_while_bound`.
+    /// The IPs that are not this node's address toward anyone, bound or
+    /// not: those on no local network ([`Self::off_local`]), and the
+    /// bound ones the host no longer holds -- [`Self::offers`]'s two
+    /// refusals, for the readers that cannot ask this set (the root
+    /// funnel's rule 3, Identify's listen set). Each half is there for
+    /// one order of the view and the listener poll: a classified IP
+    /// bound only after the view stays withheld by the first, and a
+    /// classified IP the view drops while still bound by the second.
+    /// Pinned by `a_departed_off_local_ip_stays_withheld_while_bound` and
+    /// `a_classified_ip_is_withheld_before_any_listener_binds_it`.
     pub(super) fn not_offered(&self) -> BTreeSet<IpAddr> {
         self.listeners
             .iter()
-            .filter(|ip| !self.known.contains(*ip) || self.off_local.contains(*ip))
+            .filter(|ip| !self.known.contains(*ip))
+            .chain(&self.off_local)
             .copied()
             .collect()
     }
 
-    /// A detector that publishes the bound IPs the host no longer holds
-    /// to `held` after every observation.
+    /// A detector that publishes what this node does not offer
+    /// ([`Self::not_offered`]) to `held` after every observation.
     pub(super) fn publishing_to(held: crate::held_listeners::HeldListeners) -> Self {
         Self {
             published: held,
@@ -506,6 +509,26 @@ mod tests {
             set.observe_view(&addresses[2..], &classified),
             change(&["10.20.30.40"], &[])
         );
+    }
+
+    /// A classified IP no listener binds yet is withheld all the same,
+    /// so a listener the poll reports after the view is never told to
+    /// Identify; the Wi-Fi listener is the control.
+    #[test]
+    fn a_classified_ip_is_withheld_before_any_listener_binds_it() {
+        let mut set = NetworkSet::default();
+        let carrier = ip("10.20.30.40");
+        let _ = set.observe_listeners(addrs(&["/ip4/192.168.1.5/tcp/4001"]).iter());
+        let _ = set.observe_view(&[ip("192.168.1.5"), carrier], &[carrier]);
+        assert_eq!(
+            set.not_offered(),
+            BTreeSet::from([carrier]),
+            "unbound, withheld"
+        );
+        let _ = set.observe_listeners(
+            addrs(&["/ip4/192.168.1.5/tcp/4001", "/ip4/10.20.30.40/tcp/4001"]).iter(),
+        );
+        assert_eq!(set.not_offered(), BTreeSet::from([carrier]), "bound, still");
     }
 
     /// A classified IP the view drops while its listener is still bound

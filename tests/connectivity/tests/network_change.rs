@@ -966,3 +966,71 @@ async fn a_private_address_on_no_local_network_is_not_advertised_shown_or_counte
     assert_eq!(learns(&mut subject).await, 1, "released: counted again");
     subject.runtime.shutdown().await.expect("shutdown");
 }
+
+/// ADR-0052 rule 10 in the other order: the view classifies an IP no
+/// listener binds yet -- a carrier network coming up before the listener
+/// poll reports its address -- and a listener bound on it afterwards is
+/// not advertised by Identify. A view releasing the classification gives
+/// it back, THE CONTROL that the late listener is one Identify would
+/// advertise; loopback is the in-exchange control.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listener_bound_after_its_ip_is_classified_is_not_advertised() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let subject_id = ProfileIdentity::generate();
+    let observer = libp2p::identity::Keypair::generate_ed25519();
+    let observer_peer = TransportIdentity::parse(observer.public().to_peer_id().to_base58())
+        .expect("a canonical identity");
+    let mut subject = node(&[&observer_peer], &subject_id);
+    let first = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the first listener, which fills the known set");
+    let loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("the loopback listener");
+    let other: std::net::IpAddr = std::net::Ipv4Addr::new(10, 255, 0, 7).into();
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), other]));
+    until_changed(&mut subject.runtime, |_| true).await;
+    assert!(
+        subject
+            .runtime
+            .stop_listening(first)
+            .await
+            .expect("reaches the task"),
+        "the IP is left with no listener, and the view still holds it"
+    );
+
+    // Each view moves the known set by `other`, so its reading is a
+    // change the test waits for.
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into()]).with_off_local_network(vec![ip.into()]));
+    until_changed(&mut subject.runtime, |removed| removed.contains(&other)).await;
+    let late = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("a listener bound after the classification");
+    let told = advertised(&observer, &subject.peer, loopback.clone()).await;
+    assert!(
+        !told.contains(&late),
+        "classified before it was bound: not advertised, {told:?}"
+    );
+    assert!(told.contains(&loopback), "the same exchange's control");
+
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), other]));
+    until_changed(&mut subject.runtime, |_| true).await;
+    let told = advertised(&observer, &subject.peer, loopback.clone()).await;
+    assert!(
+        told.contains(&late),
+        "the control: released, the late listener is advertised, {told:?}"
+    );
+    subject.runtime.shutdown().await.expect("shutdown");
+}

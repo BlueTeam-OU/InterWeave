@@ -33,10 +33,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 use libp2p::Multiaddr;
 use libp2p::multiaddr::Protocol;
 
-/// The IPs this node's listeners still bind that rule 3 must not count
-/// -- no longer known to hold, or on no local network -- shared between the runtime that writes it and the
+/// The IPs a listener of this node's is not counted on by rule 3 -- a
+/// bound one no longer known to hold, or one on no local network, bound
+/// yet or not -- shared between the runtime that writes it and the
 /// root funnel that reads it. Bounded by the listeners this PROCESS
-/// binds, never by anything a remote party chooses.
+/// binds and the platform's own view, never by anything a remote party
+/// chooses.
 #[derive(Clone, Debug, Default)]
 pub struct HeldListeners {
     unheld: Arc<Mutex<BTreeSet<IpAddr>>>,
