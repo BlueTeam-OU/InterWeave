@@ -1394,6 +1394,12 @@ component NoticeCard inherits Rectangle {
     in property <string> message;
     in property <bool> has-action;
     in property <string> action;
+    // The action's focus key, and a focus request for it: a notice whose
+    // action asked the unsaved-changes dialog gets focus back on Continue
+    // editing (`continue_editing_after_the_no_reach_notice_refocuses_its_action`).
+    in property <string> action-key: "notice";
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
     callback pressed();
     callback focused(string);
     background: Palette.notice-background;
@@ -1412,7 +1418,9 @@ component NoticeCard inherits Rectangle {
         }
         if root.has-action: ActionButton {
             text: root.action;
-            focus-key: "notice";
+            focus-key: root.action-key;
+            focus-seq: root.focus-seq;
+            focus-wanted: root.focus-wanted;
             on-notice: true;
             pressed => { root.pressed(); }
             focused(k) => { root.focused(k); }
@@ -3411,8 +3419,10 @@ export component AppWindow inherits Window {
         root.list-shown = false;
         root.open-trust();
     }
-    function open-peers-page() {
-        if (root.ask-before-leaving(3, -1, "app-options")) { return; }
+    // `back-to` is where Continue editing puts focus: the control that
+    // asked, or the app options button for a menu item gone with its menu.
+    function open-peers-page(back-to: string) {
+        if (root.ask-before-leaving(3, -1, back-to)) { return; }
         root.go-to-peers();
     }
     function go-to-peers() {
@@ -3675,7 +3685,10 @@ export component AppWindow inherits Window {
                     message: root.no-reach-text;
                     has-action: true;
                     action: root.peers-title;
-                    pressed => { root.open-peers-page(); }
+                    action-key: "no-reach-peers";
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "no-reach-peers";
+                    pressed => { root.open-peers-page("no-reach-peers"); }
                     focused(k) => { root.focus-id = k; }
                 }
             }
@@ -6575,7 +6588,7 @@ export component AppWindow inherits Window {
                 rtl: root.rtl;
                 pressed => {
                     root.chats-menu-open = false;
-                    root.open-peers-page();
+                    root.open-peers-page("app-options");
                 }
                 closed => { root.close-chats-menu(); }
                 focused(k) => { root.focus-id = k; }

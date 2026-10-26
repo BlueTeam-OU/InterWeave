@@ -1349,6 +1349,50 @@ fn escape_on_a_contacts_delete_confirmation_cancels_it() {
     );
 }
 
+/// #463 F2: the no-reach notice's Peers action asks too, and Continue
+/// editing puts focus back on that action, which is still there -- the
+/// app options button is only for a menu item gone with its menu.
+/// Mutation: the notice's way taking the app options button's return.
+#[test]
+fn continue_editing_after_the_no_reach_notice_refocuses_its_action() {
+    let (mut view, mut model, _) = wide_editor_with_a_change();
+    let _ = model.trust_settings_mut().opened();
+    model
+        .trust_settings_mut()
+        .read(Ok(interweave_human_client_api::TrustList {
+            local_peer: Some(peer(Q)),
+            allowed: Vec::new(),
+        }));
+    let _ = model.read_addresses();
+    model.addresses_read(Ok(interweave_human_client_api::AddressList::default()));
+    view.render(&model);
+    settle();
+    assert!(view.window().get_no_reach_shown(), "control: the notice");
+    let window = view.window();
+    window.set_focus_target("no-reach-peers".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "no-reach-peers",
+        "control: on it"
+    );
+    key(&view, slint::platform::Key::Return);
+    settle();
+    assert!(
+        view.window().get_own_discard_open(),
+        "the notice's Peers asks"
+    );
+    press(&view, text(UiText::KeepEditing));
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "no-reach-peers",
+        "focus back on it"
+    );
+    let _ = intents(&mut view, &mut model);
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {
