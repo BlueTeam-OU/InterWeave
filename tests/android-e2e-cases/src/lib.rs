@@ -1281,10 +1281,14 @@ mod tests {
             .await
             .expect("D answers");
         if closes {
-            // The fake's Android side reads it and stays up: accepted.
-            close_exchange(&session, &peer(), 3)
-                .await
-                .expect("D closes");
+            // Its outcome is not asserted, as [`close_exchange`] says: an
+            // Android half that failed -- told the wrong path, or a
+            // previous one -- ends without waiting for the close, and its
+            // session can be gone before the close arrives
+            // (`RemoteEndpointUnavailable`, #458's CI run). A close a
+            // passing half needs and does not read fails that half
+            // (`the_android_half_waits_for_the_desktops_close`).
+            let _ = close_exchange(&session, &peer(), 3).await;
         }
     }
 
