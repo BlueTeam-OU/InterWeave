@@ -1045,7 +1045,8 @@ pub(super) fn outbound_error(error: &libp2p::request_response::OutboundFailure) 
         // the responder ended with nothing in it, which is its own
         // timeout or a dropped channel and not bytes it sent:
         // `read_response` reports it as `UnexpectedEof`
-        // (`refuse_an_unanswered_exchange`), so it lands here.
+        // (`refuse_an_unanswered_exchange`), so it falls to the `Io(_)`
+        // arm below, `PeerUnreachable`.
         OutboundFailure::Io(e) if e.kind() == std::io::ErrorKind::InvalidData => {
             DirectError::ProtocolViolation
         }
