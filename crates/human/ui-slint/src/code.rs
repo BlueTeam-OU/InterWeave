@@ -176,6 +176,24 @@ fn luma_over_white(red: u8, green: u8, blue: u8, alpha: u8) -> u8 {
     u8::try_from(over).unwrap_or(u8::MAX)
 }
 
+/// A PNG of the code for `lines`, four pixels a module, as a screenshot
+/// of Show would be: what the scan tests give a reader.
+#[cfg(test)]
+pub(crate) fn png_for(lines: &[String]) -> Vec<u8> {
+    const SCALE: u32 = 4;
+    let code = drawn(lines).expect("fits").to_rgba8().expect("pixels");
+    let (w, h) = (code.width(), code.height());
+    let scaled = image::RgbaImage::from_fn(w * SCALE, h * SCALE, |x, y| {
+        let p = code.as_slice()[((y / SCALE) * w + x / SCALE) as usize];
+        image::Rgba([p.r, p.g, p.b, p.a])
+    });
+    let mut png = Vec::new();
+    scaled
+        .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("encoded");
+    png
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::panic)]

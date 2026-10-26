@@ -37,6 +37,8 @@ use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 mod body;
 mod cards;
+#[cfg(all(feature = "desktop", target_os = "linux"))]
+mod clipboard;
 mod clock;
 pub mod code;
 mod gesture;
@@ -1138,15 +1140,13 @@ impl View {
 
     /// The scan controls this platform offers on the add page
     /// (`design/2026-10-22-add-a-peer.md` §5.5): the camera on a phone
-    /// that has one, an image file and the clipboard's image on the
-    /// desktop. None by default, and none is drawn: typing or pasting the
-    /// text does all a scan does. The images' reader is compiled only
-    /// with the `desktop` feature; without it an image scan ends at once
-    /// as a cancelled one. The clipboard's image is offered apart, and
-    /// its reader reads nothing yet: the clipboard crate decodes an image
-    /// whole before any bound of this client's applies, so a Paste press
-    /// ends as a cancelled scan and the desktop withholds the control
-    /// until a bounded read exists (#409 F1).
+    /// that has one, an image file on the desktop, and the clipboard's
+    /// image where offered. None by default, and none is drawn: typing or
+    /// pasting the text does all a scan does. The images' reader is
+    /// compiled only with the `desktop` feature; without it an image scan
+    /// ends at once as a cancelled one. The clipboard's image is offered
+    /// apart, since only Linux reads it within bounds (`clipboard.rs`);
+    /// elsewhere a Paste press ends as a cancelled scan (#409 F1).
     pub fn offer_scans(&self, camera: bool, files: bool, clipboard: bool) {
         self.window.set_scan_camera(camera);
         self.window.set_scan_images(files);

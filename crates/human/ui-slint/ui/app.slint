@@ -2747,11 +2747,12 @@ export component AppWindow inherits Window {
     in property <int> address-select-to;
     in property <int> address-select-seq;
     // The scan controls this platform offers: the camera on Android,
-    // an image file or a pasted one on the desktop.
+    // an image file on the desktop, and `scan-paste` the clipboard's
+    // image where it is read within bounds (Linux).
     in property <bool> scan-camera;
     in property <bool> scan-images;
-    // Paste an image, offered apart from the image file: withheld until
-    // the clipboard can be read within the file's bounds (#409 F1).
+    // Paste an image, offered apart from the image file: only where the
+    // clipboard is read within the file's bounds (#409 F1).
     in property <bool> scan-paste;
     // The camera's viewfinder (add-a-peer section 5.5), over everything
     // while a camera scan is open: the frames as they come, the square

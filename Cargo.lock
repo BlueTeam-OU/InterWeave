@@ -3774,10 +3774,13 @@ dependencies = [
  "qrcode",
  "rfd",
  "rqrr",
+ "rustix 1.1.5",
  "serde_json",
  "slint",
  "slint-build",
  "spin_on",
+ "wl-clipboard-rs",
+ "x11rb",
  "yeslogic-fontconfig-sys",
 ]
 
