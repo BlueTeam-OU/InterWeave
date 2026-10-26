@@ -112,7 +112,7 @@ The workspace builds with the Rust toolchain pinned in [`rust-toolchain.toml`](.
 cargo xtask checks       # the tree checks under tools/checks/
 cargo xtask selftests    # every check's own self-test
 cargo xtask fmt --check
-cargo xtask clippy
+cargo xtask clippy       # the workspace, then each package with its own features
 cargo xtask test
 cargo xtask ci           # all of the above
 ```

@@ -189,6 +189,17 @@ jobs:
         # then one no commit contains.
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # The run above unifies features across the workspace: apps/
+      # human-desktop turns on ui-slint's `desktop`, so ui-slint is never
+      # linted without it there, and code that exists only without a
+      # feature passed this job while `cargo clippy -p` on the package
+      # failed (twice, before this step). The script lints each package
+      # whose own feature set differs from the workspace build's, each in a
+      # cargo run of its own; which ones is computed, not listed (`bash
+      # tools/ci/own_features.sh list` prints them and why).
+      - name: Clippy, each package with its own features
+        run: bash tools/ci/own_features.sh clippy
+
       # mdns_bounds.rs re-executes each test inside `unshare -rn` (a user
       # plus network namespace, no root) and builds a dummy multicast
       # interface there; ADR-0053 rule 9 makes it FAIL where that is
