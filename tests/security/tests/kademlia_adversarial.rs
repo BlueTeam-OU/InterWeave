@@ -65,7 +65,7 @@ use interweave_transport_runtime::{DialDenial, DialOrigin, TrustSources};
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{Multiaddr, PeerId, StreamProtocol, Swarm, identify, identity, kad};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 const NETWORK: &str = "stage-18-adversarial";
 const PATIENCE: Duration = Duration::from_secs(20);
@@ -146,7 +146,10 @@ enum Order {
     Get(Vec<u8>),
     /// Learn where a peer listens. A peer that dialled this router is
     /// connected but unroutable until its listen address is known.
-    Know(PeerId, Multiaddr),
+    /// Answered once the table holds it, so a caller that goes on to
+    /// start a walk on another task knows the router can name it
+    /// (`HostileRouter::know`).
+    Know(PeerId, Multiaddr, oneshot::Sender<()>),
 }
 
 /// A hostile router on its own task: its table already stuffed, driven
@@ -156,6 +159,17 @@ struct HostileRouter {
     address: Multiaddr,
     orders: mpsc::UnboundedSender<Order>,
     events: mpsc::UnboundedReceiver<kad::Event>,
+}
+
+impl HostileRouter {
+    /// Tell the router where `peer` listens, and wait until it has it.
+    async fn know(&self, peer: PeerId, address: Multiaddr) {
+        let (done, known) = oneshot::channel();
+        self.orders
+            .send(Order::Know(peer, address, done))
+            .expect("alive");
+        known.await.expect("the router's task answers");
+    }
 }
 
 async fn hostile_router(
@@ -240,8 +254,9 @@ async fn hostile_router_as(
                     Some(Order::Get(key)) => {
                         let _ = swarm.behaviour_mut().kad.get_record(kad::RecordKey::new(&key));
                     }
-                    Some(Order::Know(peer, address)) => {
+                    Some(Order::Know(peer, address, done)) => {
                         swarm.behaviour_mut().kad.add_address(&peer, address);
+                        let _ = done.send(());
                     }
                     None => return,
                 },
@@ -522,9 +537,7 @@ async fn hostile_routers_seat_no_stranger_and_their_poison_costs_its_address() {
     // is known, so each is told first, or no FIND_NODE would reach it.
     let subject_libp2p = peer_id(&subject_peer);
     for h in &hostiles {
-        h.orders
-            .send(Order::Know(subject_libp2p, subject_address.clone()))
-            .expect("alive");
+        h.know(subject_libp2p, subject_address.clone()).await;
         h.orders.send(Order::FloodFindNode(100)).expect("alive");
     }
     for _ in 0..10 {
@@ -673,10 +686,7 @@ async fn a_trusted_routers_record_and_provider_writes_are_counted_and_stored_now
     let subject_address = listening(&subject, ip).await;
     let writer_peer = writer.peer.clone();
     let _ = seat(&mut subject, &writer_peer, writer.address.clone()).await;
-    writer
-        .orders
-        .send(Order::Know(peer_id(&subject_peer), subject_address))
-        .expect("alive");
+    writer.know(peer_id(&subject_peer), subject_address).await;
 
     let before = subject
         .status(None)
@@ -852,9 +862,7 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
     // a walk that starts at an honest seat goes on to ask a newcomer.
     for h in &honest {
         for n in &newcomers {
-            h.orders
-                .send(Order::Know(peer_id(&n.peer), n.address.clone()))
-                .expect("alive");
+            h.know(peer_id(&n.peer), n.address.clone()).await;
         }
     }
 
@@ -875,9 +883,7 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
             )
             .await,
         );
-        n.orders
-            .send(Order::Know(subject_libp2p, subject_address.clone()))
-            .expect("alive");
+        n.know(subject_libp2p, subject_address.clone()).await;
         n.orders.send(Order::FloodFindNode(50)).expect("alive");
     }
 
@@ -1210,10 +1216,7 @@ async fn an_inbound_stream_flood_keeps_libp2p_kads_ceiling_and_the_subject_answe
     .expect("subject");
     let subject_address = listening(&subject, ip).await;
     let _ = seat(&mut subject, &witness.peer, witness.address.clone()).await;
-    witness
-        .orders
-        .send(Order::Know(subject_libp2p, subject_address.clone()))
-        .expect("alive");
+    witness.know(subject_libp2p, subject_address.clone()).await;
 
     // THE FLOOD: one connection, a hundred Kademlia streams, none of
     // which ever sends a request. The subject is driven meanwhile.
