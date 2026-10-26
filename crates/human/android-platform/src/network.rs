@@ -50,7 +50,7 @@ impl<T: NetworkSink> NetworkSink for Arc<T> {
 }
 
 /// One network as the callback reports it, the whole of it each time.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Link {
     /// Every address it has.
     pub addresses: Vec<IpAddr>,
@@ -59,24 +59,31 @@ pub struct Link {
     /// Its Private DNS host name when Private DNS is in strict mode on it,
     /// else `None`.
     pub private_dns: Option<String>,
-    /// Whether it is a LOCAL network, one whose other hosts can reach this
-    /// one at its addresses: the bridge's reading of the network's
-    /// transport, which stops there -- a cellular network is not one;
-    /// Wi-Fi, Ethernet, USB, Bluetooth and a VPN are (ADR-0052 rule 10,
-    /// A 2026-10-26).
-    pub local: bool,
 }
 
-/// A link nothing has classified is a local one: rule 10 holds back only
-/// what the platform says lies on no local network.
-impl Default for Link {
-    fn default() -> Self {
-        Self {
-            addresses: Vec::new(),
-            dns_servers: Vec::new(),
-            private_dns: None,
-            local: true,
-        }
+/// A network's transports, as its `NetworkCapabilities` names them: read
+/// here and nowhere further, since what reaches the runtime is only the
+/// fact they decide ([`Transports::local`]), never a carrier fact (ADR-0001).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Transports {
+    /// `TRANSPORT_VPN`.
+    pub vpn: bool,
+    /// `TRANSPORT_CELLULAR`.
+    pub cellular: bool,
+    /// `TRANSPORT_SATELLITE` (API 35; false below it).
+    pub satellite: bool,
+}
+
+impl Transports {
+    /// Whether the network is a LOCAL one, whose other hosts reach this one
+    /// at its addresses (ADR-0052 rule 10, A 2026-10-26, and 28545d95): a
+    /// carrier's network, cellular or satellite, is not one; every other
+    /// transport is, and a VPN is one even over a carrier's network, since
+    /// its peers reach its private address -- a VPN names its underlying
+    /// transports beside its own, so VPN is asked first.
+    #[must_use]
+    pub fn local(self) -> bool {
+        self.vpn || !(self.cellular || self.satellite)
     }
 }
 
@@ -86,7 +93,11 @@ impl Default for Link {
 pub struct Links {
     /// `None` while no callback is registered: the platform's view is
     /// unknown, which is not the same as offline.
-    links: Option<BTreeMap<u64, Link>>,
+    networks: Option<BTreeMap<u64, Link>>,
+    /// Each network's transports as last reported; a network with none
+    /// reported is unclassified, which counts as local: rule 10 holds back
+    /// only what the platform says lies on no local network.
+    transports: BTreeMap<u64, Transports>,
     /// The default network's handle, as the default-network callback
     /// last named it.
     default: Option<u64>,
@@ -107,23 +118,24 @@ impl Links {
     /// registered.
     #[must_use]
     pub fn view(&self) -> Option<NetworkView> {
-        let links = self.links.as_ref()?;
+        let links = self.networks.as_ref()?;
         let mut addresses: Vec<IpAddr> = links
             .values()
             .flat_map(|link| link.addresses.iter().copied())
             .collect();
         addresses.sort_unstable();
         addresses.dedup();
-        let local: Vec<IpAddr> = links
-            .values()
-            .filter(|link| link.local)
-            .flat_map(|link| link.addresses.iter().copied())
+        let local = |network: &u64| self.transports.get(network).is_none_or(|t| t.local());
+        let on_local: Vec<IpAddr> = links
+            .iter()
+            .filter(|(network, _)| local(network))
+            .flat_map(|(_, link)| link.addresses.iter().copied())
             .collect();
         let mut off_local: Vec<IpAddr> = links
-            .values()
-            .filter(|link| !link.local)
-            .flat_map(|link| link.addresses.iter().copied())
-            .filter(|address| !local.contains(address))
+            .iter()
+            .filter(|(network, _)| !local(network))
+            .flat_map(|(_, link)| link.addresses.iter().copied())
+            .filter(|address| !on_local.contains(address))
             .collect();
         off_local.sort_unstable();
         off_local.dedup();
@@ -140,13 +152,15 @@ impl Links {
     /// The callback was registered: no network is known yet, which is
     /// offline until it reports one.
     fn watch(&mut self) {
-        self.links = Some(BTreeMap::new());
+        self.networks = Some(BTreeMap::new());
+        self.transports.clear();
         self.default = None;
     }
 
     /// The callback was unregistered: the view is unknown again.
     fn unwatch(&mut self) {
-        self.links = None;
+        self.networks = None;
+        self.transports.clear();
         self.default = None;
     }
 
@@ -154,23 +168,32 @@ impl Links {
     /// callback is registered: a report racing the unregistration says
     /// nothing about a later registration.
     fn link(&mut self, network: u64, link: Link) {
-        if let Some(links) = self.links.as_mut() {
+        if let Some(links) = self.networks.as_mut() {
             links.insert(network, link);
+        }
+    }
+
+    /// `network`'s transports are now `transports`. Ignored while no
+    /// callback is registered, as a link is.
+    fn transports(&mut self, network: u64, transports: Transports) {
+        if self.networks.is_some() {
+            self.transports.insert(network, transports);
         }
     }
 
     /// The default network is now `network`, or there is none.
     fn default_is(&mut self, network: Option<u64>) {
-        if self.links.is_some() {
+        if self.networks.is_some() {
             self.default = network;
         }
     }
 
     /// `network` is gone.
     fn lost(&mut self, network: u64) {
-        if let Some(links) = self.links.as_mut() {
+        if let Some(links) = self.networks.as_mut() {
             links.remove(&network);
         }
+        self.transports.remove(&network);
     }
 }
 
@@ -257,6 +280,13 @@ pub enum NetworkReport {
         /// What it has now.
         link: Link,
     },
+    /// A network's transports, reported whenever its capabilities change.
+    Transports {
+        /// The platform's handle for the network.
+        network: u64,
+        /// What its capabilities name.
+        transports: Transports,
+    },
     /// Which network is the default, if any.
     Default {
         /// The platform's handle for it; `None` when there is none.
@@ -278,6 +308,10 @@ impl<S: NetworkSink> NetworkSlot<S> {
         match report {
             NetworkReport::Watching => self.links.watch(),
             NetworkReport::Link { network, link } => self.links.link(network, link),
+            NetworkReport::Transports {
+                network,
+                transports,
+            } => self.links.transports(network, transports),
             NetworkReport::Default { network } => self.links.default_is(network),
             NetworkReport::Lost { network } => self.links.lost(network),
             NetworkReport::Unwatched => self.links.unwatch(),
@@ -371,7 +405,6 @@ mod tests {
                 addresses: addresses.iter().map(|a| ip(a)).collect(),
                 dns_servers: dns.iter().map(|a| ip(a)).collect(),
                 private_dns: strict.map(str::to_owned),
-                local: true,
             },
         }
     }
@@ -391,17 +424,28 @@ mod tests {
         }
     }
 
-    /// A network with `addresses` whose transport the bridge read as
-    /// cellular, or as local.
-    fn classified(network: u64, addresses: &[&str], local: bool) -> NetworkReport {
-        NetworkReport::Link {
+    const WIFI: Transports = Transports {
+        vpn: false,
+        cellular: false,
+        satellite: false,
+    };
+    const CELLULAR: Transports = Transports {
+        cellular: true,
+        ..WIFI
+    };
+
+    /// A network's transports, then its link, as the callback reports them.
+    fn classified(
+        slot: &mut NetworkSlot<Heard>,
+        network: u64,
+        addresses: &[&str],
+        transports: Transports,
+    ) {
+        let _ = slot.report(NetworkReport::Transports {
             network,
-            link: Link {
-                addresses: addresses.iter().map(|a| ip(a)).collect(),
-                local,
-                ..Link::default()
-            },
-        }
+            transports,
+        });
+        let _ = slot.report(link(network, addresses));
     }
 
     /// The addresses of the last view the runtime heard, then those of
@@ -416,8 +460,8 @@ mod tests {
     fn a_cellular_networks_addresses_lie_on_no_local_network_and_a_wi_fis_do() {
         let (mut slot, heard) = attached();
         let _ = slot.report(NetworkReport::Watching);
-        let _ = slot.report(classified(1, &["192.168.100.54"], true));
-        let _ = slot.report(classified(2, &["10.71.3.9", "10.71.3.10"], false));
+        classified(&mut slot, 1, &["192.168.100.54"], WIFI);
+        classified(&mut slot, 2, &["10.71.3.9", "10.71.3.10"], CELLULAR);
         assert_eq!(
             last_heard(&heard),
             (
@@ -439,20 +483,75 @@ mod tests {
     }
 
     #[test]
+    fn a_carriers_network_is_no_local_one_and_every_other_transport_is() {
+        let t = |vpn, cellular, satellite| Transports {
+            vpn,
+            cellular,
+            satellite,
+        };
+        assert!(
+            t(false, false, false).local(),
+            "Wi-Fi, Ethernet, USB, Bluetooth, and the rest"
+        );
+        assert!(!t(false, true, false).local(), "cellular");
+        assert!(!t(false, false, true).local(), "satellite");
+        assert!(
+            t(true, true, false).local(),
+            "a VPN over cellular: its peers reach it"
+        );
+        assert!(t(true, false, true).local(), "a VPN over satellite");
+    }
+
+    #[test]
+    fn a_network_with_no_transports_reported_counts_as_local() {
+        let (mut slot, heard) = attached();
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(link(3, &["10.9.8.7"]));
+        assert_eq!(last_heard(&heard), (vec![ip("10.9.8.7")], vec![]));
+        let _ = slot.report(NetworkReport::Transports {
+            network: 3,
+            transports: CELLULAR,
+        });
+        assert_eq!(
+            last_heard(&heard).1,
+            vec![ip("10.9.8.7")],
+            "transports reported after the link move its addresses"
+        );
+    }
+
+    #[test]
+    fn a_lost_or_rewatched_network_forgets_its_transports() {
+        let (mut slot, heard) = attached();
+        let _ = slot.report(NetworkReport::Watching);
+        classified(&mut slot, 4, &["10.1.1.1"], CELLULAR);
+        let _ = slot.report(NetworkReport::Lost { network: 4 });
+        let _ = slot.report(link(4, &["10.1.1.1"]));
+        assert!(
+            last_heard(&heard).1.is_empty(),
+            "the handle's transports went with it"
+        );
+        classified(&mut slot, 5, &["10.2.2.2"], CELLULAR);
+        let _ = slot.report(NetworkReport::Unwatched);
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(link(5, &["10.2.2.2"]));
+        assert!(last_heard(&heard).1.is_empty());
+    }
+
+    #[test]
     fn a_network_that_changes_transport_moves_its_addresses() {
         let (mut slot, heard) = attached();
         let _ = slot.report(NetworkReport::Watching);
-        let _ = slot.report(classified(7, &["10.20.30.40"], false));
+        classified(&mut slot, 7, &["10.20.30.40"], CELLULAR);
         assert_eq!(last_heard(&heard).1, vec![ip("10.20.30.40")]);
         let before = heard.0.borrow().len();
-        let _ = slot.report(classified(7, &["10.20.30.40"], true));
+        classified(&mut slot, 7, &["10.20.30.40"], WIFI);
         assert_eq!(
             heard.0.borrow().len(),
             before + 1,
             "a change of classification alone tells the runtime"
         );
         assert_eq!(last_heard(&heard), (vec![ip("10.20.30.40")], vec![]));
-        let _ = slot.report(classified(7, &["10.20.30.40"], false));
+        classified(&mut slot, 7, &["10.20.30.40"], CELLULAR);
         assert_eq!(last_heard(&heard).1, vec![ip("10.20.30.40")]);
     }
 
@@ -460,8 +559,8 @@ mod tests {
     fn an_address_a_local_network_has_too_stays_on_it() {
         let (mut slot, heard) = attached();
         let _ = slot.report(NetworkReport::Watching);
-        let _ = slot.report(classified(1, &["10.0.0.8"], true));
-        let _ = slot.report(classified(2, &["10.0.0.8", "100.64.1.2"], false));
+        classified(&mut slot, 1, &["10.0.0.8"], WIFI);
+        classified(&mut slot, 2, &["10.0.0.8", "100.64.1.2"], CELLULAR);
         assert_eq!(
             last_heard(&heard),
             (
