@@ -846,6 +846,42 @@ fn a_card_after_a_leaving_message_stays_while_the_row_closes() {
     }
 }
 
+/// Contact-cards design 5.2 field 1 and 5.1: the own initials are on the
+/// identity's hue, its `EndpointId`'s, known from the start -- so the circle
+/// keeps its colour when the `PeerId` becomes known (seen on the Pixel: teal
+/// before the first Save, amber after). Mutation: the hue taken from the
+/// `PeerId`, teal while it is unknown.
+#[test]
+fn the_own_initials_keep_the_identitys_hue() {
+    let work = EndpointId::parse("work").expect("an endpoint");
+    let identity = |peer_known: bool| IdentityView {
+        endpoint: work.clone(),
+        peer: peer_known.then(|| peer(Q)),
+        ..ada(
+            false,
+            interweave_human_ui_model::OwnKey::Ready {
+                fingerprint: "0123456789abcdef".to_owned(),
+            },
+        )
+    };
+    let (mut view, mut model) = own_editor(identity(false));
+    let before = view.window().get_own_hue();
+    model.identity_shown(identity(true));
+    view.render(&model);
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_own_hue(),
+        before,
+        "unchanged once the PeerId is known"
+    );
+    // "work" picks amber by section 5.1's rule; teal is what an unknown
+    // PeerId gave.
+    assert_ne!(
+        before, 0,
+        "the identity's own hue, not teal for want of a PeerId"
+    );
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {

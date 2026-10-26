@@ -1557,13 +1557,10 @@ impl View {
         window.set_own_given(own.given.as_str().into());
         window.set_own_surname(own.surname.clone().unwrap_or_default().into());
         window.set_own_letters(initials(&own.name).into());
-        window.set_own_hue(own.peer.as_ref().map_or(0, |p| {
-            hue(Avatar::of(&ConversationKey::Direct {
-                peer: p.clone(),
-                endpoint: Some(own.endpoint.clone()),
-            })
-            .hue)
-        }));
+        // The identity's own hue, its EndpointId's, known before its
+        // PeerId is: it never changes when the PeerId arrives (design 5.1,
+        // `the_own_initials_keep_the_identitys_hue`).
+        window.set_own_hue(hue(AvatarHue::of_identity(&own.endpoint)));
         window.set_own_has_photo(own.photo.is_some());
         window.set_own_photo(own.photo.as_ref().map(image).unwrap_or_default());
         window.set_own_peer(
