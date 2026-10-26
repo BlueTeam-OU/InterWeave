@@ -1075,6 +1075,419 @@ fn a_card_between_two_leaving_rows_takes_no_hand_over_from_the_later() {
     );
 }
 
+/// A wide window: the conversation list beside the own card's editor,
+/// which holds a change; the list's one row's title.
+fn wide_editor_with_a_change() -> (View, UiModel, String) {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1200.0, 1600.0));
+    view.photo_picker_hook(|| {});
+    let mut model = UiModel::new();
+    model.identity_shown(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    model.received(message(10, "hello", NOW - MINUTE));
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard
+    );
+    view.window().set_own_given("Grace".into());
+    let title = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a conversation")
+        .title
+        .to_string();
+    (view, model, title)
+}
+
+/// Contact-cards design 5.2, "Leaving with unsaved changes": on a wide
+/// layout, a conversation picked in the list beside the editor asks first.
+/// Continue editing keeps the editor and its change, focus on the picked
+/// row; Close without saving leaves the editor and opens the conversation.
+/// Mutation: the pick not asking.
+#[test]
+fn a_conversation_picked_beside_the_editor_with_a_change_asks_first() {
+    let (mut view, mut model, title) = wide_editor_with_a_change();
+    let handle = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    let pick = |view: &View| {
+        labelled(view, &title)[0].invoke_accessible_default_action();
+        settle();
+    };
+    pick(&view);
+    assert!(view.window().get_own_discard_open(), "asked");
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard,
+        "the editor stays while it asks"
+    );
+    press(&view, text(UiText::KeepEditing));
+    settle();
+    assert!(!view.window().get_own_discard_open());
+    assert_eq!(view.window().get_own_given(), "Grace", "nothing lost");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("conversation:{handle}"),
+        "focus on the picked row"
+    );
+
+    pick(&view);
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None,
+        "the editor left"
+    );
+    assert_eq!(
+        view.window().get_header_title().as_str(),
+        title,
+        "the conversation open"
+    );
+}
+
+/// The same for a page opened from the app options in the editor's place:
+/// Continue editing sends focus to the app options button, the menu item
+/// being gone; Close without saving opens the page. Mutations: Trust,
+/// Peers or Contacts not asking; Close without saving not going on.
+#[test]
+fn a_page_from_the_app_options_with_a_change_asks_first() {
+    let (mut view, mut model, _) = wide_editor_with_a_change();
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::TrustHeading));
+    settle();
+    assert!(view.window().get_own_discard_open(), "Trust asks");
+    press(&view, text(UiText::KeepEditing));
+    settle();
+    assert!(!view.window().get_trust_page(), "Trust not opened");
+    assert_eq!(view.window().get_focus_id().as_str(), "app-options");
+
+    // Peers, a page added after the design's list, by its rule.
+    press(&view, text(UiText::AppOptions));
+    press_last(&view, text(UiText::PeersTitle));
+    settle();
+    assert!(view.window().get_own_discard_open(), "Peers asks");
+    press(&view, text(UiText::KeepEditing));
+    settle();
+
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::ContactsTitle));
+    settle();
+    assert!(view.window().get_own_discard_open(), "Contacts asks");
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::Contacts,
+        "Contacts open in its place"
+    );
+}
+
+/// Your card from the app options while the editor is open leaves
+/// nothing: the editor stays with its change, nothing is asked, and focus
+/// goes where the page's opening puts it. Mutation: the page reopened.
+#[test]
+fn your_card_while_its_editor_is_open_leaves_nothing() {
+    let (mut view, mut model, _) = wide_editor_with_a_change();
+    press(&view, text(UiText::AppOptions));
+    // The menu's item, after the page's own title of the same words.
+    press_last(&view, text(UiText::OwnCardTitle));
+    assert!(
+        !view.window().get_chats_menu_open(),
+        "control: the item was pressed"
+    );
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(!view.window().get_own_discard_open(), "nothing asked");
+    assert_eq!(view.window().get_own_given(), "Grace", "its change kept");
+    assert_eq!(view.window().get_focus_id().as_str(), "close-cards");
+}
+
+/// On the desktop, Escape on a card page is its Back (contact-cards
+/// design section 4): from an editor field with a change it asks, the
+/// dialog's own Escape is Continue editing, and with nothing to lose it
+/// closes the page. Mutation: the card pages taking no Escape.
+#[test]
+fn escape_on_a_card_page_is_its_back() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    let window = view.window();
+    window.set_focus_target("own-given".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "own-given", "control");
+    view.window().set_own_given("Grace".into());
+    key(&view, slint::platform::Key::Escape);
+    settle();
+    assert!(view.window().get_own_discard_open(), "Escape asks");
+    key(&view, slint::platform::Key::Escape);
+    settle();
+    assert!(
+        !view.window().get_own_discard_open(),
+        "the dialog's Escape keeps editing"
+    );
+    assert_eq!(view.window().get_own_given(), "Grace");
+
+    view.window().set_own_given("Ada".into());
+    key(&view, slint::platform::Key::Escape);
+    settle();
+    assert!(!view.window().get_own_discard_open(), "nothing to lose");
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None,
+        "the page closed"
+    );
+}
+
+/// #463 F1: an editor the share sheet opened, left by Close without saving
+/// after a conversation was picked beside it, opens that conversation and
+/// nothing else -- the way back to the sheet is Back's alone. Mutation:
+/// Close without saving taking the editor's way back.
+#[test]
+fn closing_without_saving_after_a_pick_opens_no_share_sheet() {
+    use interweave_human_ui_model::KeyProblem;
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1200.0, 1600.0));
+    let mut model = UiModel::new();
+    model.identity_shown(keyless(KeyProblem::DirUnsafe {
+        folder: "/home/ada/.local/state/interweave/default/identity-keys".to_owned(),
+    }));
+    model.received(message(10, "from the first", NOW - 2 * MINUTE));
+    model.received(interweave_human_client_api::Received {
+        origin: interweave_human_client_api::Origin::Direct {
+            peer: peer(R),
+            endpoint: human(),
+        },
+        ..message(11, "from the second", NOW - MINUTE)
+    });
+    let _ = shown(&mut view, &mut model, P);
+    press(&view, text(UiText::MoreOptions));
+    press(&view, text(UiText::ShareCard));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    press(&view, text(UiText::KeyOpenCard));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard,
+        "control: the editor, from the sheet"
+    );
+    view.window().set_own_given("Grace".into());
+    let rows = view.window().get_conversations();
+    let second = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .find(|r| r.title.as_str() != view.window().get_header_title().as_str())
+        .expect("the other conversation")
+        .title
+        .to_string();
+    labelled(&view, &second)[0].invoke_accessible_default_action();
+    settle();
+    assert!(view.window().get_own_discard_open(), "asked");
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_header_title().as_str(),
+        second,
+        "the conversation picked"
+    );
+    assert!(!view.window().get_share_open(), "no share sheet over it");
+}
+
+/// #463 F3: Escape and Back do the same on the card pages (design
+/// section 4): with Delete contact's confirmation showing, Escape cancels
+/// it and the contact's page stays, as Back does. Mutation: Escape closing
+/// the page whatever is open over it.
+#[test]
+fn escape_on_a_contacts_delete_confirmation_cancels_it() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", P)]);
+    view.render(&model);
+    open_contact(&mut view, &mut model, "Ada");
+    press(&view, text(UiText::DeleteContact));
+    settle();
+    assert!(
+        view.window().get_contact_confirming_delete(),
+        "control: asked"
+    );
+    key(&view, slint::platform::Key::Escape);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(!view.window().get_contact_confirming_delete(), "cancelled");
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::Contact,
+        "the contact's page stays"
+    );
+}
+
+/// #463 F2: the no-reach notice's Peers action asks too, and Continue
+/// editing puts focus back on that action, which is still there -- the
+/// app options button is only for a menu item gone with its menu.
+/// Mutation: the notice's way taking the app options button's return.
+#[test]
+fn continue_editing_after_the_no_reach_notice_refocuses_its_action() {
+    let (mut view, mut model, _) = wide_editor_with_a_change();
+    let _ = model.trust_settings_mut().opened();
+    model
+        .trust_settings_mut()
+        .read(Ok(interweave_human_client_api::TrustList {
+            local_peer: Some(peer(Q)),
+            allowed: Vec::new(),
+        }));
+    let _ = model.read_addresses();
+    model.addresses_read(Ok(interweave_human_client_api::AddressList::default()));
+    view.render(&model);
+    settle();
+    assert!(view.window().get_no_reach_shown(), "control: the notice");
+    let window = view.window();
+    window.set_focus_target("no-reach-peers".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "no-reach-peers",
+        "control: on it"
+    );
+    key(&view, slint::platform::Key::Return);
+    settle();
+    assert!(
+        view.window().get_own_discard_open(),
+        "the notice's Peers asks"
+    );
+    press(&view, text(UiText::KeepEditing));
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "no-reach-peers",
+        "focus back on it"
+    );
+    let _ = intents(&mut view, &mut model);
+}
+
+/// #463, the review's pre-existing item: a share-again row leaves the
+/// editor for its conversation and the share sheet there, so with a
+/// change it asks first; Continue editing keeps the editor, focus on the
+/// row, and Close without saving goes on to the sheet. Mutation: the row
+/// leaving without asking.
+#[test]
+fn a_share_again_row_with_a_change_asks_first() {
+    let ready = || interweave_human_ui_model::OwnKey::Ready {
+        fingerprint: "fedcba9876543210".to_owned(),
+    };
+    let (mut view, mut model) = own_editor(ada(false, ready()));
+    model.key_made(
+        Some(ada(false, ready())),
+        "fedcba9876543210".to_owned(),
+        vec![direct(P)],
+    );
+    view.render(&model);
+    settle();
+    view.window().set_own_given("Grace".into());
+    let on_row = |view: &View| {
+        let window = view.window();
+        window.set_focus_target("share-again:0".into());
+        window.set_focus_seq(window.get_focus_seq() + 1);
+        settle();
+        assert_eq!(
+            view.window().get_focus_id(),
+            "share-again:0",
+            "control: on the row"
+        );
+        key(view, slint::platform::Key::Return);
+        settle();
+    };
+    on_row(&view);
+    assert!(view.window().get_own_discard_open(), "the row asks");
+    press(&view, text(UiText::KeepEditing));
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "share-again:0",
+        "focus back on it"
+    );
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard
+    );
+
+    on_row(&view);
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None,
+        "the editor left"
+    );
+    assert!(
+        view.window().get_share_open(),
+        "the share sheet, as the row asked"
+    );
+    // On a phone, over its conversation, not the list (#463 F5).
+    assert!(
+        view.window().get_pane_shown(),
+        "the conversation's pane shown"
+    );
+}
+
+/// Close without saving goes on to the page asked: Trust from the app
+/// options opens Trust. Mutation: the Trust branch dropped or swapped.
+#[test]
+fn closing_without_saving_on_the_way_to_trust_opens_trust() {
+    let (mut view, mut model, _) = wide_editor_with_a_change();
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::TrustHeading));
+    settle();
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(view.window().get_trust_page(), "Trust open");
+    assert!(!view.window().get_peers_page());
+}
+
+/// The same for Peers. Mutation: the Peers branch dropped or swapped.
+#[test]
+fn closing_without_saving_on_the_way_to_peers_opens_peers() {
+    let (mut view, mut model, _) = wide_editor_with_a_change();
+    press(&view, text(UiText::AppOptions));
+    press_last(&view, text(UiText::PeersTitle));
+    settle();
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert!(view.window().get_peers_page(), "Peers open");
+    assert!(!view.window().get_trust_page());
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {
