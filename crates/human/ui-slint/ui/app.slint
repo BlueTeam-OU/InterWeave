@@ -2180,6 +2180,13 @@ component ProposalCard inherits Rectangle {
     // `a_proposal_row_is_as_tall_as_what_it_says`).
     min-height: body.min-height;
     preferred-height: body.preferred-height;
+    // Every wrapped line in it takes its own height at the width it is
+    // drawn as its minimum (`min-height: self.preferred-height`): through
+    // the conditional and repeated layouts it sits in, Slint measured a
+    // wrapped Text a line or two short, and the card came out shorter
+    // than what it draws -- its end under the next message, or Accept
+    // outside it (`a_card_between_messages_is_whole_at_a_phones_width`,
+    // `a_proposal_fits_a_narrow_window_with_large_text`).
     // The menu from the keyboard (#433 F3): the Menu key or Shift+F10
     // on any of the card's controls, which pass them up here. The card is
     // no focus stop of its own, so Enter stays the focused control's.
@@ -2245,6 +2252,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.photo-note;
             font-size: Type.body-medium;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2264,6 +2272,7 @@ component ProposalCard inherits Rectangle {
                 text: root.card.heading;
                 font-size: Type.title-medium;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
                 color: Palette.on-surface;
                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 accessible-role: text;
@@ -2274,6 +2283,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.photo-line;
             font-size: Type.body-medium;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2283,6 +2293,7 @@ component ProposalCard inherits Rectangle {
             font-size: Type.body-medium;
             font-weight: 700;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.error;
             accessible-role: text;
             accessible-label: self.text;
@@ -2302,6 +2313,7 @@ component ProposalCard inherits Rectangle {
                 font-family: root.code-font;
                 font-size: Type.body-medium;
                 wrap: char-wrap;
+                min-height: self.preferred-height;
                 color: Palette.on-surface;
                 accessible-role: text;
                 accessible-label: self.text;
@@ -2340,6 +2352,7 @@ component ProposalCard inherits Rectangle {
                 font-family: root.code-font;
                 font-size: Type.body-medium;
                 wrap: char-wrap;
+                min-height: self.preferred-height;
                 color: Palette.on-surface;
                 accessible-role: text;
                 accessible-label: self.text;
@@ -2349,6 +2362,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.context;
             font-size: Type.body-medium;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface;
             accessible-role: text;
             accessible-label: self.text;
@@ -2360,6 +2374,7 @@ component ProposalCard inherits Rectangle {
                 font-size: Type.body-medium;
                 font-weight: note.warning ? 700 : 400;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
                 color: note.warning ? Palette.error : Palette.on-surface;
                 accessible-role: text;
                 accessible-label: self.text;
@@ -2385,6 +2400,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.received;
             font-size: Type.body-small;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2393,6 +2409,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.goes;
             font-size: Type.body-small;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2542,10 +2559,8 @@ component ProposalEntry inherits Rectangle {
         visible: false;
         accessible-role: none;
     }
-    // A day change, as a message's: before the card it heads. Drawn in
-    // the layout's padding rather than as an item beside the card's row,
-    // which would have the layout measure the card before its lines wrap
-    // and clip its end (`a_proposal_fits_a_narrow_window_with_large_text`).
+    // A day change, as a message's: before the card it heads, drawn in
+    // the space the card's layout leaves above it.
     if root.proposal.day != "": Text {
         x: 0;
         y: 8px;

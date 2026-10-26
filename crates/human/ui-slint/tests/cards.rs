@@ -676,6 +676,100 @@ fn a_card_is_drawn_between_the_messages_it_arrived_between() {
     );
 }
 
+/// At a phone's width, where the card's lines wrap, a card drawn after a
+/// message is whole: its row as tall as the card, so nothing of it is
+/// clipped, and the next message below its end. Seen rendered under Xvfb:
+/// the card's end, below Accept, cut off and the next bubble against it.
+/// Mutation: the card's row measured without its card.
+#[test]
+fn a_card_between_messages_is_whole_at_a_phones_width() {
+    let mut model = UiModel::new();
+    model.received(message(10, "the message before", NOW - 2 * MINUTE));
+    model.card_received(Proposal {
+        received_at: NOW - MINUTE,
+        ..proposal(1, P, card("Ada", false), context())
+    });
+    model.received(message(11, "the message after", NOW));
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(420.0, 2400.0));
+    let _ = shown(&mut view, &mut model, P);
+    settle();
+    let card = ElementHandle::find_by_element_type_name(view.window(), "ProposalCard")
+        .next()
+        .expect("a card");
+    let entry = ElementHandle::find_by_element_type_name(view.window(), "ProposalEntry")
+        .next()
+        .expect("its row");
+    let card_end = card.absolute_position().y + card.size().height;
+    let entry_end = entry.absolute_position().y + entry.size().height;
+    assert!(
+        card_end <= entry_end + 0.5,
+        "the card ends at {card_end}, its row at {entry_end}"
+    );
+    assert!(
+        card_end <= top_of(&view, "the message after"),
+        "the next message below the card's end"
+    );
+    let accept = bounds(&view, text(UiText::CardAccept));
+    assert!(accept.3 < card_end, "Accept inside the card");
+}
+
+/// The same for a card answered, its confirmation row with the photo
+/// note, at 320 px with 200 % text where the note wraps: the row is whole
+/// and the next message below it. Mutation: the answered content a
+/// conditional layout of the card's again.
+#[test]
+fn an_answered_card_between_messages_is_whole_with_large_text() {
+    let mut model = UiModel::new();
+    model.received(message(10, "the message before", NOW - 2 * MINUTE));
+    model.card_received(Proposal {
+        received_at: NOW - MINUTE,
+        ..proposal(1, P, card("Ada", true), context())
+    });
+    model.received(message(11, "the message after", NOW));
+    let mut view = view();
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(320.0, 4000.0));
+    let _ = shown(&mut view, &mut model, P);
+    press(&view, text(UiText::CardAccept));
+    let _ = intents(&mut view, &mut model);
+    model.card_resolved(
+        row(1),
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: true,
+            photo_dropped: true,
+            photo_removed: false,
+        },
+    );
+    model.contacts_listed(vec![contact("c1", "Ada", P)]);
+    view.render(&model);
+    settle();
+    assert!(
+        shows(&view, text(UiText::CardPhotoNotUsed)),
+        "the note drawn"
+    );
+    let card = ElementHandle::find_by_element_type_name(view.window(), "ProposalCard")
+        .next()
+        .expect("the answered card");
+    let card_end = card.absolute_position().y + card.size().height;
+    let note = bounds(&view, text(UiText::CardPhotoNotUsed));
+    assert!(
+        note.3 < card_end,
+        "the note inside the card: {note:?}, {card_end}"
+    );
+    assert!(
+        card_end <= top_of(&view, "the message after"),
+        "the next message below the card's end"
+    );
+}
+
 /// A card that opens a day heads it: the day separator is drawn above the
 /// card, and the message after it, on that day too, draws none. Mutations:
 /// the card drawing no separator; the message after it keeping its own.
