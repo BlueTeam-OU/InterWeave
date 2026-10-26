@@ -73,6 +73,11 @@ export struct ProposalNoteRow {
 // photo is not decoded, and the row says only that there is one.
 export struct ProposalRow {
     handle: int,
+    // The handle of the message it follows, or -1 before them all: its
+    // place in time among the messages.
+    after: int,
+    // The day separator above it; empty for none.
+    day: string,
     // "This peer says they are {name}", the name isolated.
     heading: string,
     // The full name, for Accept's accessible description.
@@ -224,6 +229,10 @@ export struct MessageRow {
     // A leaving row whose day separator the next row takes over once it is
     // gone: its gap and separator stay while only its item closes.
     hand-over: bool,
+    // How many card proposals follow it, before the next message: each
+    // drawn below its item (contact-cards design 5.4, at its place in
+    // time).
+    cards-after: int,
     // The source as received, shown on the person's request: always
     // viewable, however it rendered (HUMAN-CHAT.md).
     source: string,
@@ -2502,7 +2511,7 @@ component OpenRow inherits FocusScope {
 // 5.4): its card, swiped Accept and Decline, and its menu. Placed among the
 // messages at its place in time, so the AppWindow draws it in more than one
 // place.
-component ProposalEntry inherits VerticalLayout {
+component ProposalEntry inherits Rectangle {
     in property <ProposalRow> proposal;
     in property <string> swipe-key;
     in property <length> swipe-offset;
@@ -2525,8 +2534,32 @@ component ProposalEntry inherits VerticalLayout {
     callback proposal-open-contact(int, int);
     callback copy-peer(string);
     callback focused(string);
-
-                padding-top: 8px;
+    // The space a day separator takes above the card.
+    property <length> day-space: root.proposal.day != "" ? day-measure.preferred-height + 4px : 0px;
+    day-measure := Text {
+        text: root.proposal.day;
+        font-size: Type.body-small;
+        visible: false;
+        accessible-role: none;
+    }
+    // A day change, as a message's: before the card it heads. Drawn in
+    // the layout's padding rather than as an item beside the card's row,
+    // which would have the layout measure the card before its lines wrap
+    // and clip its end (`a_proposal_fits_a_narrow_window_with_large_text`).
+    if root.proposal.day != "": Text {
+        x: 0;
+        y: 8px;
+        width: parent.width;
+        height: day-measure.preferred-height;
+        text: root.proposal.day;
+        font-size: Type.body-small;
+        color: Palette.on-surface-variant;
+        horizontal-alignment: center;
+        accessible-role: text;
+        accessible-label: self.text;
+    }
+                VerticalLayout {
+                padding-top: 8px + root.day-space;
                 proposal-row := Rectangle {
                 property <string> swipe-key: root.proposal.swipe-key;
                 property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
@@ -2590,6 +2623,7 @@ component ProposalEntry inherits VerticalLayout {
                     focused(k) => { root.focused(k); }
                 }
                     }
+                }
                 }
                 }
 }
@@ -5673,6 +5707,41 @@ export component AppWindow inherits Window {
             // only its item closes (swipe spec section 5;
             // tests/look.rs, `a_leaving_message_closes_its_space_without_a_jump`).
             // Clipped so it hides what it covered.
+            // The card proposals that arrived before the first message
+            // (contact-cards design 5.4: each at its place in time); the
+            // others follow the message they came after.
+            for proposal in root.proposals: VerticalLayout {
+                if proposal.after < 0: ProposalEntry {
+                    proposal: proposal;
+                    swipe-key: root.swipe-key;
+                    swipe-offset: root.swipe-offset;
+                    swipe-armed: root.swipe-armed;
+                    swipe-tracking: root.swipe-tracking;
+                    reduced-motion: root.reduced-motion;
+                    rtl: root.rtl;
+                    code-font: root.code-font;
+                    focus-seq: root.focus-seq;
+                    focus-target: root.focus-target;
+                    card-menu: root.card-menu;
+                    window-width: root.width;
+                    swipe-moved(k, x0, y0, x1, y1, w, ww) => { root.swipe-moved(k, x0, y0, x1, y1, w, ww); }
+                    swipe-ended(k) => { root.swipe-ended(k); }
+                    swipe-cancelled(k) => { root.swipe-cancelled(k); }
+                    menu-haptic => { root.menu-haptic(); }
+                    open-menu(row, x, y, w, h, by-key) => { root.open-card-menu(row, x, y, w, h, by-key); }
+                    proposal-accept(h) => { root.proposal-accept(h); }
+                    proposal-decline(h) => { root.proposal-decline(h); }
+                    proposal-open-contact(h, n) => { root.proposal-open-contact(h, n); }
+                    copy-peer(text) => {
+                        root.proposal-copy-text = text;
+                        proposal-copy.select-all();
+                        proposal-copy.copy();
+                        proposal-copy.clear-selection();
+                    }
+                    focused(k) => { root.focus-id = k; }
+                
+                }
+            }
             for row[index] in root.messages: row-box := Rectangle {
 
                 // Clipped only while it closes: a clipped row is skipped when
@@ -6141,39 +6210,48 @@ export component AppWindow inherits Window {
                         shown: item.has-focus;
                     }
                 }
+                // The card proposals that arrived after it, before the next
+                // message: in one layout, so a row without any keeps its
+                // spacing.
+                if row.cards-after > 0: VerticalLayout {
+                    for proposal in root.proposals: VerticalLayout {
+                        if proposal.after == row.handle: ProposalEntry {
+                            proposal: proposal;
+                            swipe-key: root.swipe-key;
+                            swipe-offset: root.swipe-offset;
+                            swipe-armed: root.swipe-armed;
+                            swipe-tracking: root.swipe-tracking;
+                            reduced-motion: root.reduced-motion;
+                            rtl: root.rtl;
+                            code-font: root.code-font;
+                            focus-seq: root.focus-seq;
+                            focus-target: root.focus-target;
+                            card-menu: root.card-menu;
+                            window-width: root.width;
+                            swipe-moved(k, x0, y0, x1, y1, w, ww) => { root.swipe-moved(k, x0, y0, x1, y1, w, ww); }
+                            swipe-ended(k) => { root.swipe-ended(k); }
+                            swipe-cancelled(k) => { root.swipe-cancelled(k); }
+                            menu-haptic => { root.menu-haptic(); }
+                            open-menu(row, x, y, w, h, by-key) => { root.open-card-menu(row, x, y, w, h, by-key); }
+                            proposal-accept(h) => { root.proposal-accept(h); }
+                            proposal-decline(h) => { root.proposal-decline(h); }
+                            proposal-open-contact(h, n) => { root.proposal-open-contact(h, n); }
+                            copy-peer(text) => {
+                                root.proposal-copy-text = text;
+                                proposal-copy.select-all();
+                                proposal-copy.copy();
+                                proposal-copy.clear-selection();
+                            }
+                            focused(k) => { root.focus-id = k; }
+                        
+                        }
+                    }
+                }
             }
             }
             // The conversation's card proposals, after its messages: each a
             // row of its own (design section 5.4).
-            for proposal in root.proposals: ProposalEntry {
-                proposal: proposal;
-                swipe-key: root.swipe-key;
-                swipe-offset: root.swipe-offset;
-                swipe-armed: root.swipe-armed;
-                swipe-tracking: root.swipe-tracking;
-                reduced-motion: root.reduced-motion;
-                rtl: root.rtl;
-                code-font: root.code-font;
-                focus-seq: root.focus-seq;
-                focus-target: root.focus-target;
-                card-menu: root.card-menu;
-                window-width: root.width;
-                swipe-moved(k, x0, y0, x1, y1, w, ww) => { root.swipe-moved(k, x0, y0, x1, y1, w, ww); }
-                swipe-ended(k) => { root.swipe-ended(k); }
-                swipe-cancelled(k) => { root.swipe-cancelled(k); }
-                menu-haptic => { root.menu-haptic(); }
-                open-menu(row, x, y, w, h, by-key) => { root.open-card-menu(row, x, y, w, h, by-key); }
-                proposal-accept(h) => { root.proposal-accept(h); }
-                proposal-decline(h) => { root.proposal-decline(h); }
-                proposal-open-contact(h, n) => { root.proposal-open-contact(h, n); }
-                copy-peer(text) => {
-                    root.proposal-copy-text = text;
-                    proposal-copy.select-all();
-                    proposal-copy.copy();
-                    proposal-copy.clear-selection();
-                }
-                focused(k) => { root.focus-id = k; }
-            }
+
             }
             }
             }

@@ -391,6 +391,8 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     };
     ProposalRow {
         handle,
+        after: -1,
+        day: SharedString::new(),
         heading: fill(text(UiText::CardProposal), &[("name", &name)]).into(),
         full_name: name.into(),
         // Only when Accept would write the card's photo: a local choice
@@ -456,6 +458,8 @@ fn answer_row(handle: i32, a: &CardAnswer, name: &str, hinted: bool) -> Proposal
     };
     ProposalRow {
         handle,
+        after: -1,
+        day: SharedString::new(),
         answered: true,
         answer: fill(text(template), &[("name", &isolated(name))]).into(),
         photo_note: match (a.photo_dropped, a.photo_removed) {
@@ -500,6 +504,9 @@ pub(crate) struct CardScreens {
     pub(crate) page: Option<CardsPage>,
     contact: Option<String>,
     proposals_shown: Vec<Entry>,
+    /// Where each drawn card row sits among the messages: the message it
+    /// follows and its day separator, as last drawn.
+    proposal_places: Vec<(i32, String)>,
     proposals: Option<Rc<VecModel<ProposalRow>>>,
     /// Each drawn row's card and whether it is a confirmation row, in the
     /// order drawn: the rows are updated in place by it, so a touch on a
@@ -1114,7 +1121,9 @@ impl View {
         )
     }
 
-    fn render_proposals(&mut self, model: &UiModel, window: &AppWindow) {
+    /// The shown conversation's card rows -- its proposals and the
+    /// answers to them -- in the order drawn: by when each card arrived.
+    fn card_entries(&self, model: &UiModel) -> Vec<Entry> {
         // The card whose Accept's snackbar is open, with its Undo.
         let undo_open_for = model
             .snackbar()
@@ -1137,12 +1146,53 @@ impl View {
             _ => Vec::new(),
         };
         shown.sort_by_key(Entry::place);
+        shown
+    }
+
+    /// When each of the shown conversation's card rows arrived, in order.
+    pub(crate) fn card_times(&self, model: &UiModel) -> Vec<u64> {
+        self.card_entries(model)
+            .iter()
+            .map(|e| e.place().0)
+            .collect()
+    }
+
+    /// Where each card row sits among the messages as drawn (design 5.4:
+    /// at its place in time): after the last message that arrived no
+    /// later than it, else before them all (-1), with a day separator
+    /// when its day differs from the row drawn just before it. The same
+    /// rule `render_messages` counts cards by.
+    fn card_places(&self, shown: &[Entry]) -> Vec<(i32, String)> {
+        let mut out = Vec::with_capacity(shown.len());
+        let mut previous: Option<(i32, u64)> = None;
+        for entry in shown {
+            let at = entry.place().0;
+            let message = self.message_times.iter().rev().find(|(_, m)| *m <= at);
+            let after = message.map_or(-1, |(handle, _)| *handle);
+            let before = match previous {
+                Some((slot, time)) if slot == after => Some(time),
+                _ => message.map(|(_, m)| *m),
+            };
+            let day = self.clock.local(at).day;
+            let separator = match before {
+                Some(time) if self.clock.local(time).day == day => String::new(),
+                _ => crate::clock::day_text(day),
+            };
+            previous = Some((after, at));
+            out.push((after, separator));
+        }
+        out
+    }
+
+    fn render_proposals(&mut self, model: &UiModel, window: &AppWindow) {
+        let shown = self.card_entries(model);
+        let places = self.card_places(&shown);
         let rows = Rc::clone(
             self.cards
                 .proposals
                 .get_or_insert_with(|| Rc::new(VecModel::default())),
         );
-        if shown != self.cards.proposals_shown {
+        if shown != self.cards.proposals_shown || places != self.cards.proposal_places {
             let mut answers = HashMap::new();
             let mut swipes = HashMap::new();
             let mut handles = HashMap::new();
@@ -1152,10 +1202,15 @@ impl View {
                 .enumerate()
                 .map(|(i, entry)| {
                     let handle = i32::try_from(i).unwrap_or(i32::MAX);
+                    let (after, day) = places.get(i).cloned().unwrap_or((-1, String::new()));
                     let p = match entry {
                         Entry::Answer(a, name, hinted) => {
                             handles.insert(a.row, (handle, true));
-                            return answer_row(handle, a, name, *hinted);
+                            return ProposalRow {
+                                after,
+                                day: day.into(),
+                                ..answer_row(handle, a, name, *hinted)
+                            };
                         }
                         Entry::Proposal(p) => p,
                     };
@@ -1183,7 +1238,11 @@ impl View {
                         }
                         _ => {}
                     }
-                    let row = proposal_row(handle, p, &self.received(p.received_at));
+                    let row = ProposalRow {
+                        after,
+                        day: day.into(),
+                        ..proposal_row(handle, p, &self.received(p.received_at))
+                    };
                     // The notes after the value lines are the model's, in
                     // its order: a same-name one links its contact.
                     let first = slint::Model::row_count(&row.notes) - p.notes.len();
@@ -1233,6 +1292,7 @@ impl View {
             drop(shared);
             self.cards.drawn_rows = handles;
             self.cards.proposals_shown = shown;
+            self.cards.proposal_places = places;
         }
         window.set_proposals(ModelRc::from(rows));
         // Back from the contact a link opened: the link, drawn again; its

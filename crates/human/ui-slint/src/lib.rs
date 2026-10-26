@@ -836,6 +836,9 @@ pub struct View {
     previews: HashMap<ConversationKey, (ItemKey, String)>,
     /// The messages last drawn, by key, kept while a row leaves.
     shown_items: HashMap<ItemKey, MessageItem>,
+    /// Each message drawn and not leaving, in order: its handle and when
+    /// it arrived, which the card rows are placed among.
+    message_times: Vec<(i32, u64)>,
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
@@ -1064,6 +1067,7 @@ impl View {
             monotonic: Rc::new(Instant::now),
             previews: HashMap::new(),
             shown_items: HashMap::new(),
+            message_times: Vec::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
             copy_feedback: CopyFeedback::Snackbar,
@@ -2343,6 +2347,7 @@ impl View {
                 entry.2 = entry.2.max(last);
             }
         }
+        self.place_cards(model, &keys, &mut rows, &items, &leaving, channel);
         if !self.leaving_messages.is_empty() {
             self.wake_after(LEAVING);
         }
@@ -2366,6 +2371,65 @@ impl View {
         update_by_key(&*self.messages, &mut self.message_keys, &keys, &rows);
         let drawn = &self.message_keys;
         self.pressed.retain(|key| drawn.contains(key));
+    }
+
+    /// The card rows among the messages (contact-cards design 5.4: each
+    /// at its place in time). A card follows the last message that did
+    /// not arrive after it, so each kept row counts the cards drawn below
+    /// it; the message after them is placed as after a row of its own,
+    /// its day separator judged against the last card's day and its run
+    /// broken (`a_card_is_drawn_between_the_messages_it_arrived_between`).
+    /// A leaving row holds no card: they go to the row before it. The
+    /// card rows themselves are placed by the same rule in
+    /// `render_proposals`, from `message_times`.
+    fn place_cards(
+        &mut self,
+        model: &UiModel,
+        keys: &[ItemKey],
+        rows: &mut [MessageRow],
+        items: &[MessageItem],
+        leaving: &HashSet<ItemKey>,
+        channel: bool,
+    ) {
+        let cards = self.card_times(model);
+        let by_key: HashMap<ItemKey, &MessageItem> = items.iter().map(|i| (i.key, i)).collect();
+        let mut times = Vec::new();
+        let mut next = 0;
+        let mut kept: Option<usize> = None;
+        for (i, key) in keys.iter().enumerate() {
+            if leaving.contains(key) {
+                continue;
+            }
+            let Some(item) = by_key.get(key) else {
+                continue;
+            };
+            let first = next;
+            while next < cards.len() && cards[next] < item.local_at {
+                next += 1;
+            }
+            if next > first {
+                if let Some(before) = kept {
+                    rows[before].cards_after += i32::try_from(next - first).unwrap_or(i32::MAX);
+                }
+                if i == 0 || kept == Some(i - 1) {
+                    let card_day = self.clock.local(cards[next - 1]).day;
+                    let day = self.clock.local(item.local_at).day;
+                    rows[i].day = if card_day == day {
+                        SharedString::new()
+                    } else {
+                        clock::day_text(day).into()
+                    };
+                    rows[i].gap = 8.0;
+                    rows[i].show_author = channel && item.direction == Direction::Inbound;
+                }
+            }
+            times.push((rows[i].handle, item.local_at));
+            kept = Some(i);
+        }
+        if let Some(last) = kept {
+            rows[last].cards_after += i32::try_from(cards.len() - next).unwrap_or(i32::MAX);
+        }
+        self.message_times = times;
     }
 
     /// One wake at `due`, the soonest age change of a shown waiting
@@ -3293,6 +3357,7 @@ fn message_row(
         reason: status.reason.unwrap_or_default().into(),
         outbound: item.direction == Direction::Outbound,
         hand_over: false,
+        cards_after: 0,
         show_author: placed.show_author,
         status_glyph: mark.glyph,
         status_dot: mark.dot,
