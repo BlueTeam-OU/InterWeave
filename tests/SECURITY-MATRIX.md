@@ -25,13 +25,15 @@ holder can add rows without entering the other's crate.
   stage. An id is never reused or renumbered.
 - **guards**: the threat-model row or section 21 item, in its own words.
 - **step**: the plan step that owns the row's open work, and its
-  holder (`01` / `02` for the two p2p-network-dev holders); `owner`
+  holder (`01` / `02` for the two p2p-network-dev holders, a role
+  sharing the work named beside them as `with`); `owner`
   where the open work waits on the owner's word; `unassigned` where
   work is owed and no step holds it yet; or `—` once nothing is owed.
-  A row carried whole to a later stage names the plan section that
-  carries it and the holder who owns the work there, as `§NN carry
-  (<holder>)`; a row whose work a later stage's step already holds
-  names that step the same way (`§29 step 2 (rust-ui-dev)`).
+  A row whose open work a later stage carries names the plan section
+  that carries it and the holder who owns the work there, as `§NN
+  carry (<holder>)`, whether the row is carried whole (C-04) or keeps
+  named tests beside its `owed:` items; a row that owes nothing reads
+  `—` whichever stage landed its tests.
 - **tests**: every guarding test as `` `path::fn` ``, the path relative
   to the repository root, separated by `; `. A test inside a
   `#[cfg(test)]` module is named by its source file. `owed: <what>`
