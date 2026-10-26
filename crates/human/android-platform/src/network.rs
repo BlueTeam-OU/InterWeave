@@ -9,17 +9,20 @@
 //! takes one thing ([`NetworkView`]): a SNAPSHOT of every address of every
 //! usable network, empty when there is none, with the ACTIVE (default)
 //! network's resolvers and its strict-mode Private DNS host
-//! (`CONNECTIVITY.md` section 14, A 2026-10-14). The snapshot is made here
+//! (`CONNECTIVITY.md` section 14, A 2026-10-14), and which of the
+//! addresses lie on no local network (ADR-0052 rule 10, A 2026-10-26).
+//! The snapshot is made here
 //! rather than in Kotlin so it is tested on the host. A network's handle
 //! is the bridge's key and stops here: the view carries local facts alone
 //! (ADR-0001's layering).
 //!
-//! The runtime is told only when the snapshot -- addresses or DNS facts --
-//! differs from the last one it was told, and a runtime that starts is told the current one at once:
+//! The runtime is told only when the snapshot -- addresses, their
+//! classification or DNS facts -- differs from the last one it was told, and a runtime that starts is told the current one at once:
 //! the callback reported every network when it was registered, before
 //! that runtime existed, and does not report them again. The tests below:
 //! `a_report_that_leaves_the_addresses_as_they_were_tells_the_runtime_nothing`,
-//! `the_dns_facts_are_the_default_networks_and_unknown_without_one` and
+//! `the_dns_facts_are_the_default_networks_and_unknown_without_one`,
+//! `a_network_that_changes_transport_moves_its_addresses` and
 //! `a_runtime_that_starts_hears_the_networks_reported_before_it_existed`.
 
 use std::collections::BTreeMap;
@@ -91,7 +94,10 @@ pub struct Links {
 
 impl Links {
     /// The snapshot: every address of every network, sorted, a duplicate
-    /// once, and the default network's DNS facts. Its resolvers are
+    /// once; those of them on no local network -- an address of a
+    /// non-local network that no local network has too, since a peer on
+    /// that local network reaches it there; and the default network's DNS
+    /// facts. Its resolvers are
     /// UNOBSERVED (`None`, the runtime keeps the resolver it has) while no
     /// default is named or its link is not reported -- not yet, or lost,
     /// which takes it out of the map. A reported default link gives its
@@ -108,8 +114,22 @@ impl Links {
             .collect();
         addresses.sort_unstable();
         addresses.dedup();
+        let local: Vec<IpAddr> = links
+            .values()
+            .filter(|link| link.local)
+            .flat_map(|link| link.addresses.iter().copied())
+            .collect();
+        let mut off_local: Vec<IpAddr> = links
+            .values()
+            .filter(|link| !link.local)
+            .flat_map(|link| link.addresses.iter().copied())
+            .filter(|address| !local.contains(address))
+            .collect();
+        off_local.sort_unstable();
+        off_local.dedup();
         let active = self.default.and_then(|network| links.get(&network));
         let view = NetworkView::new(addresses)
+            .with_off_local_network(off_local)
             .with_private_dns(active.and_then(|l| l.private_dns.clone()));
         Some(match active {
             Some(observed) => view.with_dns_servers(observed.dns_servers.clone()),
@@ -205,6 +225,8 @@ impl<S> Default for NetworkSlot<S> {
 pub struct Told {
     /// How many addresses.
     pub addresses: usize,
+    /// How many of them lie on no local network.
+    pub off_local_network: usize,
     /// How many resolvers: `None` when they are unobserved, and
     /// `Some(0)` when the default network names none, which is unavailable.
     pub dns_servers: Option<usize>,
@@ -216,6 +238,7 @@ impl Told {
     fn of(view: &NetworkView) -> Self {
         Self {
             addresses: view.addresses.len(),
+            off_local_network: view.off_local_network.len(),
             dns_servers: view.dns_servers.as_ref().map(Vec::len),
             strict_private_dns: view.private_dns.is_some(),
         }
@@ -362,9 +385,91 @@ mod tests {
     fn count(addresses: usize) -> Told {
         Told {
             addresses,
+            off_local_network: 0,
             dns_servers: None,
             strict_private_dns: false,
         }
+    }
+
+    /// A network with `addresses` whose transport the bridge read as
+    /// cellular, or as local.
+    fn classified(network: u64, addresses: &[&str], local: bool) -> NetworkReport {
+        NetworkReport::Link {
+            network,
+            link: Link {
+                addresses: addresses.iter().map(|a| ip(a)).collect(),
+                local,
+                ..Link::default()
+            },
+        }
+    }
+
+    /// The addresses of the last view the runtime heard, then those of
+    /// them on no local network.
+    fn last_heard(heard: &Heard) -> (Vec<IpAddr>, Vec<IpAddr>) {
+        let views = heard.0.borrow();
+        let view = views.last().expect("a view was heard");
+        (view.addresses.clone(), view.off_local_network.clone())
+    }
+
+    #[test]
+    fn a_cellular_networks_addresses_lie_on_no_local_network_and_a_wi_fis_do() {
+        let (mut slot, heard) = attached();
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(classified(1, &["192.168.100.54"], true));
+        let _ = slot.report(classified(2, &["10.71.3.9", "10.71.3.10"], false));
+        assert_eq!(
+            last_heard(&heard),
+            (
+                vec![ip("10.71.3.9"), ip("10.71.3.10"), ip("192.168.100.54")],
+                vec![ip("10.71.3.9"), ip("10.71.3.10")],
+            ),
+            "the view has both networks' addresses; only the cellular ones are off"
+        );
+        assert_eq!(
+            slot.told().map(|t| (t.addresses, t.off_local_network)),
+            Some((3, 2))
+        );
+        let _ = slot.report(NetworkReport::Lost { network: 2 });
+        assert_eq!(
+            last_heard(&heard),
+            (vec![ip("192.168.100.54")], vec![]),
+            "a lost cellular network takes its addresses out of both"
+        );
+    }
+
+    #[test]
+    fn a_network_that_changes_transport_moves_its_addresses() {
+        let (mut slot, heard) = attached();
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(classified(7, &["10.20.30.40"], false));
+        assert_eq!(last_heard(&heard).1, vec![ip("10.20.30.40")]);
+        let before = heard.0.borrow().len();
+        let _ = slot.report(classified(7, &["10.20.30.40"], true));
+        assert_eq!(
+            heard.0.borrow().len(),
+            before + 1,
+            "a change of classification alone tells the runtime"
+        );
+        assert_eq!(last_heard(&heard), (vec![ip("10.20.30.40")], vec![]));
+        let _ = slot.report(classified(7, &["10.20.30.40"], false));
+        assert_eq!(last_heard(&heard).1, vec![ip("10.20.30.40")]);
+    }
+
+    #[test]
+    fn an_address_a_local_network_has_too_stays_on_it() {
+        let (mut slot, heard) = attached();
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(classified(1, &["10.0.0.8"], true));
+        let _ = slot.report(classified(2, &["10.0.0.8", "100.64.1.2"], false));
+        assert_eq!(
+            last_heard(&heard),
+            (
+                vec![ip("10.0.0.8"), ip("100.64.1.2")],
+                vec![ip("100.64.1.2")]
+            ),
+            "a peer on the local network reaches the shared address there"
+        );
     }
 
     fn attached() -> (NetworkSlot<Heard>, Heard) {
@@ -419,6 +524,7 @@ mod tests {
             slot.report(with_dns(2, &["10.115.0.9"], &["10.115.0.3"], None)),
             Some(Told {
                 addresses: 2,
+                off_local_network: 0,
                 dns_servers: Some(1),
                 strict_private_dns: false
             })
@@ -469,6 +575,7 @@ mod tests {
             slot.report(link(2, &["10.115.0.9"])),
             Some(Told {
                 addresses: 2,
+                off_local_network: 0,
                 dns_servers: Some(0),
                 strict_private_dns: false
             }),
