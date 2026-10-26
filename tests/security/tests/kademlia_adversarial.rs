@@ -512,6 +512,10 @@ async fn hostile_routers_seat_no_stranger_and_their_poison_costs_its_address() {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut served = 0_usize;
     while served == 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no hostile query of the flood was answered by the subject"
+        );
         for h in &mut hostiles {
             while let Ok(e) = h.events.try_recv() {
                 if let kad::Event::OutboundQueryProgressed {
@@ -524,10 +528,6 @@ async fn hostile_routers_seat_no_stranger_and_their_poison_costs_its_address() {
                 }
             }
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "no hostile query of the flood was answered by the subject"
-        );
         events.extend(
             drive(
                 &mut subject,

@@ -544,6 +544,11 @@ async fn exchange(pair: &Pair, peer: &TransportIdentity) {
     let mut got_broadcast = false;
     let mut n = 16_u8;
     while !(got_direct && got_broadcast) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "A received direct {got_direct}, broadcast {got_broadcast}:\n{}",
+            pair.logs()
+        );
         n = n.wrapping_add(1);
         theirs
             .broadcast(
@@ -563,11 +568,6 @@ async fn exchange(pair: &Pair, peer: &TransportIdentity) {
                 SessionEvent::Local(_) => {}
             }
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "A received direct {got_direct}, broadcast {got_broadcast}:\n{}",
-            pair.logs()
-        );
     }
     let port = pair
         .a

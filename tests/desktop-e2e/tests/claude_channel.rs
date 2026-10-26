@@ -616,6 +616,10 @@ async fn the_human_and_claude_endpoints_of_one_peer_are_routed_apart() {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut seen = Vec::new();
     while seen.is_empty() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the human message never came"
+        );
         seen.extend(
             a_human
                 .events(usize::MAX)
@@ -626,10 +630,6 @@ async fn the_human_and_claude_endpoints_of_one_peer_are_routed_apart() {
                     SessionEvent::Direct(d) => Some(d.payload.bytes().to_vec()),
                     _ => None,
                 }),
-        );
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the human message never came"
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -1414,6 +1414,11 @@ async fn a_plain_mcp_host_receives_by_pull_across_two_daemons() {
     let mut received: Vec<Value> = Vec::new();
     let deadline = tokio::time::Instant::now() + PATIENCE * 2;
     while !received.iter().any(|e| e["content"] == json!("pull all")) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no broadcast reached the host by pull\n{}",
+            logs(&daemons)
+        );
         b_human
             .broadcast(
                 general(),
@@ -1443,11 +1448,6 @@ async fn a_plain_mcp_host_receives_by_pull_across_two_daemons() {
         let take: Value = serde_json::from_str(&answer).expect("receive is JSON");
         assert_eq!(take["paused"], json!(false), "{take}");
         received.extend(take["events"].as_array().expect("events").iter().cloned());
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "no broadcast reached the host by pull\n{}",
-            logs(&daemons)
-        );
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     let direct = &received[0];
@@ -1932,6 +1932,10 @@ async fn pull_mode_under_load(queue: u32, pause: Duration, keepalive: Option<&st
     let mut quiet_since = tokio::time::Instant::now();
     let deadline = quiet_since + PATIENCE * 6;
     while quiet_since.elapsed() < Duration::from_secs(3) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the drain never settled"
+        );
         let (answer, error) = bridge.tool("receive", json!({})).await;
         assert!(!error, "{answer}");
         let take: Value = serde_json::from_str(&answer).expect("receive is JSON");
@@ -1943,10 +1947,6 @@ async fn pull_mode_under_load(queue: u32, pause: Duration, keepalive: Option<&st
             events
                 .iter()
                 .map(|e| text_number(&e["content"], "pull ").expect("a pull message")),
-        );
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the drain never settled"
         );
         if take["remaining"] == json!(0) {
             tokio::time::sleep(Duration::from_millis(100)).await;

@@ -348,6 +348,13 @@ async fn a_remote_message_shaped_as_an_admin_request_changes_nothing() {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut round = 0_u8;
     while broadcast.len() < payloads.len() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the broadcasts did not all arrive ({} of {}):\n{}",
+            broadcast.len(),
+            payloads.len(),
+            pair.logs()
+        );
         // Published until the mesh has formed; each round sends all four.
         round = round.wrapping_add(1);
         for (n, bytes) in payloads.iter().enumerate() {
@@ -378,13 +385,6 @@ async fn a_remote_message_shaped_as_an_admin_request_changes_nothing() {
                 SessionEvent::Local(_) => {}
             }
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the broadcasts did not all arrive ({} of {}):\n{}",
-            broadcast.len(),
-            payloads.len(),
-            pair.logs()
-        );
     }
     assert_eq!(direct, payloads, "each direct payload arrived as its bytes");
     broadcast.sort();
