@@ -94,16 +94,25 @@ internal object Native {
      * The network [network] (its `Network.getNetworkHandle`), the whole of
      * it: its [addresses] and its [dnsServers], each address its length
      * (4 or 16) then its `InetAddress.getAddress` bytes, and its Private
-     * DNS host when Private DNS is strict on it, else null; and whether
-     * it is a [local] network, one whose other hosts reach this one at its
-     * addresses (ADR-0052 rule 10).
+     * DNS host when Private DNS is strict on it, else null.
      */
     @JvmStatic external fun networkLink(
         network: Long,
         addresses: ByteArray,
         dnsServers: ByteArray,
         privateDns: String?,
-        local: Boolean,
+    )
+
+    /**
+     * The transports the network [network]'s capabilities name, at every
+     * change of them: whether it is a local network is decided from these
+     * in android-platform (ADR-0052 rule 10), where a host test holds it.
+     */
+    @JvmStatic external fun networkTransports(
+        network: Long,
+        vpn: Boolean,
+        cellular: Boolean,
+        satellite: Boolean,
     )
 
     /** The default network is [network]; 0 when there is none. */
