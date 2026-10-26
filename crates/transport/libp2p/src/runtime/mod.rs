@@ -2020,7 +2020,7 @@ impl SwarmRuntime {
                                 held_resolver = Some(event);
                             }
                         }
-                        let change = network.observe_view(&view.addresses);
+                        let change = network.observe_view(&view.addresses, &view.off_local_network);
                         on_network_change(
                             change,
                             &mut network,
@@ -2550,7 +2550,7 @@ impl SwarmRuntime {
                                         .iter()
                                         .map(String::as_str),
                                     circuits.iter().map(String::as_str),
-                                    active.values().flatten().filter(|a| network.holds(a)),
+                                    active.values().flatten().filter(|a| network.offers(a)),
                                 );
                                 let _ = reply.send(own);
                             }

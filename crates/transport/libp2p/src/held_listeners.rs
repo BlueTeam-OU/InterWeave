@@ -17,6 +17,14 @@
 //! funnel, which tracks its own listeners from the Swarm's events and
 //! so cannot ask the detector directly, through this handle. One record,
 //! so the predicate is spelled once: [`HeldListeners::holds`].
+//!
+//! Since ADR-0052 rule 10 (A 2026-10-26) the record also names a bound
+//! IP the host DOES hold but the platform classifies as a private-range
+//! address on no local network -- a phone's carrier-assigned cellular
+//! address. It is no own private listener for rule 3 either: counted, a
+//! phone on mobile data alone would admit a far end's private candidate
+//! and punch into the carrier's network. The detector's `offers` is the
+//! runtime's side of the same predicate.
 
 use std::collections::BTreeSet;
 use std::net::IpAddr;
@@ -25,8 +33,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use libp2p::Multiaddr;
 use libp2p::multiaddr::Protocol;
 
-/// The IPs this node's listeners still bind that the host is no longer
-/// known to hold, shared between the runtime that writes it and the
+/// The IPs this node's listeners still bind that rule 3 must not count
+/// -- no longer known to hold, or on no local network -- shared between the runtime that writes it and the
 /// root funnel that reads it. Bounded by the listeners this PROCESS
 /// binds, never by anything a remote party chooses.
 #[derive(Clone, Debug, Default)]
@@ -41,14 +49,14 @@ impl HeldListeners {
         Self::default()
     }
 
-    /// Replace the set of bound IPs the host no longer holds.
+    /// Replace the set of bound IPs rule 3 does not count.
     pub fn set_unheld(&self, unheld: BTreeSet<IpAddr>) {
         *self.unheld.lock().unwrap_or_else(PoisonError::into_inner) = unheld;
     }
 
     /// Whether a bound listener at `address` counts as this node's for
     /// rule 3: every one does, unless its IP is one the host no longer
-    /// holds. An address naming no IP is held.
+    /// holds or one on no local network. An address naming no IP is held.
     #[must_use]
     pub fn holds(&self, address: &Multiaddr) -> bool {
         let ip = match address.iter().next() {
