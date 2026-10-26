@@ -569,10 +569,10 @@ extern "system" fn Java_org_interweave_human_Native_networkWatching<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
-/// `Native.networkLink(network, addresses, dnsServers, privateDns)`: a
-/// network, the whole of it -- its addresses and its resolvers, each its
-/// length then its bytes, and its Private DNS host when strict, else
-/// null.
+/// `Native.networkLink(network, addresses, dnsServers, privateDns,
+/// local)`: a network, the whole of it -- its addresses and its
+/// resolvers, each its length then its bytes, its Private DNS host when
+/// strict, else null, and whether it is a local network (`Link::local`).
 #[allow(
     unsafe_code,
     reason = "the JVM finds a native method by its unmangled name"
@@ -585,6 +585,7 @@ extern "system" fn Java_org_interweave_human_Native_networkLink<'caller>(
     addresses: JByteArray<'caller>,
     dns_servers: JByteArray<'caller>,
     private_dns: JString<'caller>,
+    local: jboolean,
 ) {
     env.with_env(|env| -> Result<(), jni::errors::Error> {
         let addresses = addresses_from_wire(&env.convert_byte_array(&addresses)?);
@@ -600,6 +601,7 @@ extern "system" fn Java_org_interweave_human_Native_networkLink<'caller>(
                 addresses,
                 dns_servers,
                 private_dns,
+                local,
             },
         });
         Ok(())
