@@ -98,3 +98,21 @@ pub(crate) async fn arriving<S: DataSessionPort>(
     }
     got
 }
+
+/// Everything `session` receives within `window`, cut short at
+/// `deadline`, for a poll loop that asserts its deadline at the top of
+/// each pass. With the whole window, a pass started just before the
+/// deadline could gather the last event up to one window after it and
+/// end the loop with no assert left to read the clock (#459's review,
+/// F1). Clipped, each `events` call starts before the deadline, which
+/// leaves the one call in flight at the deadline as the lateness a pass
+/// can still accept; a pass that gathers nothing in time leaves the next
+/// pass's assert to fail.
+pub(crate) async fn arriving_before<S: DataSessionPort>(
+    session: &S,
+    window: Duration,
+    deadline: tokio::time::Instant,
+) -> Vec<SessionEvent> {
+    let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+    arriving(session, window.min(left)).await
+}

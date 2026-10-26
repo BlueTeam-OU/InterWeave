@@ -1250,12 +1250,19 @@ mod tests {
         let mut out = result(&case.join().expect("the case thread"));
         // Beside the Android side's answer, as `close_exchange` asks of a
         // caller and `pairing`'s case records it.
-        if let Some(sent) = close {
+        if let Some(sent) = &close {
             out.insert(
                 keys::CLOSE.to_owned(),
-                sent.map_or_else(|e| format!("{e:?}"), |()| "accepted".to_owned())
+                sent.as_ref()
+                    .map_or_else(|e| format!("{e:?}"), |()| "accepted".to_owned())
                     .into(),
             );
+        }
+        // A passing half still needs the desktop's close accepted. Not
+        // asserted in `desktop_half`, where a failed Android half would
+        // trip it, but here, once for every passing run on the fake.
+        if out[keys::RESULT] == keys::PASS {
+            assert!(matches!(close, Some(Ok(()))), "{out:?}");
         }
         out
     }
@@ -1372,6 +1379,7 @@ mod tests {
             let out = paths_on_the_fake(path, path);
             assert_eq!(out[keys::RESULT], keys::PASS, "{path:?}: {out:?}");
             assert_eq!(out[keys::PATH], path.label());
+            assert_eq!(out[keys::CLOSE], "accepted", "{path:?}: {out:?}");
         }
         let out = paths_on_the_fake(PeerPath::Relayed, PeerPath::Direct);
         assert_eq!(out[keys::RESULT], keys::FAIL, "{out:?}");

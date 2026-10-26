@@ -33,7 +33,7 @@ use tokio::net::UnixStream;
 
 mod common;
 
-use common::{Pair, arriving, payload};
+use common::{Pair, arriving, arriving_before, payload};
 
 fn claude() -> EndpointId {
     EndpointId::parse("claude").expect("endpoint")
@@ -373,7 +373,7 @@ async fn a_remote_message_shaped_as_an_admin_request_changes_nothing() {
                 .await
                 .expect("accepted locally");
         }
-        for event in arriving(&receiver, Duration::from_millis(500)).await {
+        for event in arriving_before(&receiver, Duration::from_millis(500), deadline).await {
             match event {
                 SessionEvent::Direct(d) => direct.push(d.payload.bytes().to_vec()),
                 SessionEvent::Broadcast(b) => {
