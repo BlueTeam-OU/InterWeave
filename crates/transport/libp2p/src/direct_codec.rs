@@ -233,18 +233,19 @@ where
 /// Refuse a response stream that ended before carrying a single byte, as
 /// the exchange NOT COMPLETING rather than as a bad answer.
 ///
-/// A responder ends the stream with nothing written when it did not
-/// answer, which is never malformed bytes: its request-response worker
-/// hit its own `request_timeout` (the same deadline as ours, so which
-/// end fires first is SPIKE-002 finding 1's race), its
-/// `ResponseChannel` was dropped, or its own codec failed after reading
-/// our request and before writing a first byte. Once it has read our
-/// request to EOF, dropping or closing the stream sends a FIN rather
-/// than an RST (yamux 0.14's `on_drop_stream`, `RecvClosed` arm), and
-/// here that reads as a clean, empty end of stream; a responder that
-/// stops mid-read resets the stream, which is an I/O error already. Decoded, it was "an empty response", the
-/// `InvalidData` the caller is told is a protocol violation, so a
-/// remote that never answered was reported as one that answered badly.
+/// A responder that did not answer ends the stream with nothing written.
+/// Two such cases are tested over real sockets (`stage6_malformed_frames`,
+/// `Answer::OwnTimeout` and `Answer::Omitted`): its request-response
+/// worker hit its own `request_timeout` (the same deadline as ours, so
+/// which end fires first is SPIKE-002 finding 1's race), or its
+/// `ResponseChannel` was dropped. It has read our request to EOF by
+/// then, so dropping or closing the stream sends a FIN rather than an
+/// RST (yamux 0.14's `on_drop_stream`, `RecvClosed` arm), and here that
+/// reads as a clean, empty end of stream. Decoded, it was "an empty
+/// response", the `InvalidData` the caller is told is a protocol
+/// violation, so a remote that did not answer was reported as one that
+/// answered badly. Any other way a responder ends with zero bytes
+/// written lands here too.
 /// `UnexpectedEof` keeps it in the reachability class, which is where
 /// the contract puts a request-response timeout (`TRANSPORT.md`,
 /// outcome unknown: `PeerUnreachable`).
