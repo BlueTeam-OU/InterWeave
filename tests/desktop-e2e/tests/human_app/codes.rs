@@ -492,7 +492,7 @@ async fn a_hostile_clipboard_owner_is_given_up_at_the_deadline() {
     // at a byte a round trip, so the margin cannot hide that.
     const IN_TIME: Duration = Duration::from_secs(25);
     // ui-slint's code::MAX_IMAGE_BYTES, which no dependency of this suite
-    // exports; were it raised, the case's 2x image would still pass it.
+    // exports; were it changed, the count below fails and says so.
     const BOUND: usize = 32 * 1024 * 1024;
     let _focus = display::exclusive().await;
     let world = two_daemons().await;
@@ -567,13 +567,15 @@ async fn a_hostile_clipboard_owner_is_given_up_at_the_deadline() {
         log,
     )
     .await;
-    // Up to the bound, then no further chunk: within one chunk of it.
+    // Up to the bound and not a chunk past it: the bound is a whole number
+    // of the owner's chunks, so a client held to it deletes exactly those
+    // and refuses the next unread, while one that reads the next chunk
+    // whole deletes it too. The owner counts a chunk when its deletion asks
+    // for the next, before sending that next one, so the count is final by
+    // the time the refusal is shown; the window's destruction afterwards
+    // adds nothing (measured: the same count two seconds later).
     let took = big.taken();
-    assert!(
-        took + 128 * 1024 >= BOUND && took <= BOUND + 128 * 1024,
-        "took {took} bytes of {}",
-        2 * BOUND
-    );
+    assert_eq!(took, BOUND, "took {took} bytes of {}", 2 * BOUND);
     drop(big);
 
     // The page is still usable: the next paste is read.
