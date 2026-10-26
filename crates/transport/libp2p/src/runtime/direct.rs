@@ -1041,7 +1041,11 @@ pub(super) fn outbound_error(error: &libp2p::request_response::OutboundFailure) 
         //
         // The KIND is what separates them, and only that kind: every
         // other io error stays a reachability answer, so finding 1's
-        // timeout/EOF race below is untouched.
+        // timeout/EOF race below is untouched. That includes a stream
+        // the responder ended with nothing in it, which is its own
+        // timeout or a dropped channel and not bytes it sent:
+        // `read_response` reports it as `UnexpectedEof`
+        // (`refuse_an_unanswered_exchange`), so it lands here.
         OutboundFailure::Io(e) if e.kind() == std::io::ErrorKind::InvalidData => {
             DirectError::ProtocolViolation
         }

@@ -570,6 +570,7 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
         duplicate,
         over_32,
         bad_grammar,
+        Vec::new(),
     ])));
 
     let responder_keys = libp2p::identity::Keypair::generate_ed25519();
@@ -608,8 +609,9 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
     // Extract the ResponseChannel and send `()`, which triggers
     // `write_response` to pop and transmit the next queued frame. Dropping
     // the event (as an earlier version did) would send an EMPTY response
-    // and the hostile bytes would never leave — a vacuous pass, since an
-    // empty body also decodes as ProtocolViolation.
+    // and the hostile bytes would never leave. That was a vacuous pass
+    // while an empty body decoded as ProtocolViolation too; since j127 it
+    // reads `PeerUnreachable` (the empty frame queued last, below).
     tokio::spawn(async move {
         loop {
             if let RawEvent::Behaviour(request_response::Event::Message {
@@ -662,6 +664,22 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
             "the {form} response must be ProtocolViolation"
         );
     }
+
+    // AND AN EMPTY ONE IS NOT. A stream ended with nothing written is the
+    // responder not answering (its own request timeout, or a dropped
+    // channel), not bytes it sent; the hostile forms above, on the same
+    // connection and the same responder, are the control that the
+    // decoder still refuses what does arrive.
+    let error = querier
+        .query_endpoints(responder_peer.clone())
+        .await
+        .expect("the command reaches the task")
+        .expect_err("an empty response carries no directory");
+    assert_eq!(
+        error,
+        TransportError::PeerUnreachable,
+        "an empty response is the peer answering nothing, not a protocol violation"
+    );
 }
 
 /// The largest legal directory crosses the wire: 32 advertised, leased,
