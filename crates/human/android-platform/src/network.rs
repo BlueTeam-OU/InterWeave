@@ -47,7 +47,7 @@ impl<T: NetworkSink> NetworkSink for Arc<T> {
 }
 
 /// One network as the callback reports it, the whole of it each time.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Link {
     /// Every address it has.
     pub addresses: Vec<IpAddr>,
@@ -56,6 +56,25 @@ pub struct Link {
     /// Its Private DNS host name when Private DNS is in strict mode on it,
     /// else `None`.
     pub private_dns: Option<String>,
+    /// Whether it is a LOCAL network, one whose other hosts can reach this
+    /// one at its addresses: the bridge's reading of the network's
+    /// transport, which stops there -- a cellular network is not one;
+    /// Wi-Fi, Ethernet, USB, Bluetooth and a VPN are (ADR-0052 rule 10,
+    /// A 2026-10-26).
+    pub local: bool,
+}
+
+/// A link nothing has classified is a local one: rule 10 holds back only
+/// what the platform says lies on no local network.
+impl Default for Link {
+    fn default() -> Self {
+        Self {
+            addresses: Vec::new(),
+            dns_servers: Vec::new(),
+            private_dns: None,
+            local: true,
+        }
+    }
 }
 
 /// Every network the callback reports usable, by its handle, which of
@@ -329,6 +348,7 @@ mod tests {
                 addresses: addresses.iter().map(|a| ip(a)).collect(),
                 dns_servers: dns.iter().map(|a| ip(a)).collect(),
                 private_dns: strict.map(str::to_owned),
+                local: true,
             },
         }
     }
