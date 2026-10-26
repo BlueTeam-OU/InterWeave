@@ -845,8 +845,9 @@ async fn advertised(
 /// unclassified -- THE CONTROL -- and is none of the three once the view
 /// classifies it as on no local network, while it stays bound and still
 /// answers the observer's dial; a view that drops the classification
-/// gives all three back. The loopback listener is advertised throughout,
-/// the in-exchange control.
+/// gives all three back, and so does one naming it again after a view
+/// dropped it while it stayed bound -- which withholds it as well. The
+/// loopback listener is advertised throughout, the in-exchange control.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_private_address_on_no_local_network_is_not_advertised_shown_or_counted() {
     let ip = interweave_test_support::net::require_private_interface_v4();
@@ -922,6 +923,31 @@ async fn a_private_address_on_no_local_network_is_not_advertised_shown_or_counte
         learns(&mut subject).await,
         0,
         "classified: no own private listener"
+    );
+
+    // The view drops the classified IP while its listener stays bound,
+    // as when the platform reports a carrier network lost before the
+    // listener poll does: still not advertised. The observer reaches the
+    // subject over loopback, since the departure closes what ran from
+    // the carrier's IP.
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![other]));
+    until_changed(&mut subject.runtime, |removed| removed.contains(&ip.into())).await;
+    let told = advertised(&observer, &subject.peer, loopback.clone()).await;
+    assert!(
+        !told.contains(&carrier),
+        "departed while bound: not advertised, {told:?}"
+    );
+    assert!(told.contains(&loopback), "the same exchange's control");
+    assert!(
+        !shown(&subject.runtime.own_addresses().await.expect("own")),
+        "departed: not shown"
+    );
+    assert_eq!(
+        learns(&mut subject).await,
+        0,
+        "departed: no own private listener"
     );
 
     subject

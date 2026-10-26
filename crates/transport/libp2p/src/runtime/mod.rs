@@ -2023,8 +2023,10 @@ impl SwarmRuntime {
                         let change = network.observe_view(&view.addresses, &view.off_local_network);
                         // ADR-0052 rule 10: the classification reaches
                         // Identify's listen set, and DCUtR's doors before
-                        // anything is offered again.
-                        swarm.identify_mut().withhold(network.off_local());
+                        // anything is offered again. Identify withholds
+                        // what is not offered, so a classified IP the
+                        // view drops stays withheld while still bound.
+                        swarm.identify_mut().withhold(&network.not_offered());
                         let rebuilt = dcutr_driver::withhold_off_local(
                             swarm.dcutr_mut(),
                             network.off_local(),

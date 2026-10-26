@@ -207,6 +207,22 @@ impl NetworkSet {
         &self.off_local
     }
 
+    /// The bound IPs that are not this node's address toward anyone:
+    /// those the host no longer holds, and those it holds on no local
+    /// network -- [`Self::offers`]'s two refusals, for the readers that
+    /// cannot ask this set (the root funnel's rule 3, Identify's listen
+    /// set). The first matters to rule 10 too: a classified IP the view
+    /// then drops leaves [`Self::off_local`] while its listener is still
+    /// bound, and is withheld here until the listener poll lets it go.
+    /// Pinned by `a_departed_off_local_ip_stays_withheld_while_bound`.
+    pub(super) fn not_offered(&self) -> BTreeSet<IpAddr> {
+        self.listeners
+            .iter()
+            .filter(|ip| !self.known.contains(*ip) || self.off_local.contains(*ip))
+            .copied()
+            .collect()
+    }
+
     /// A detector that publishes the bound IPs the host no longer holds
     /// to `held` after every observation.
     pub(super) fn publishing_to(held: crate::held_listeners::HeldListeners) -> Self {
@@ -250,8 +266,8 @@ impl NetworkSet {
     /// as a private-range address on no local network (ADR-0052 rule
     /// 10). What is shown (`own_addresses::select`), offered to DCUtR,
     /// and counted as an own private listener for rule 3 -- the three
-    /// sites the rule names beside Identify, which reads
-    /// [`Self::off_local`] through its own wrapper (`listen_scope`).
+    /// sites the rule names beside Identify, which is told
+    /// [`Self::not_offered`] through its own wrapper (`listen_scope`).
     /// AutoNAT's candidates stay on `holds`: a private address is never
     /// one, and a global cellular one is AutoNAT's to decide. Pinned by
     /// `a_private_address_on_no_local_network_is_held_and_not_offered`.
@@ -288,18 +304,10 @@ impl NetworkSet {
         change
     }
 
-    /// Publish what rule 3 at the root funnel must not count: the bound
-    /// IPs the host no longer holds, and those it holds on no local
-    /// network ([`Self::offers`]'s two refusals, for the one reader that
-    /// cannot ask this set).
+    /// Publish what rule 3 at the root funnel must not count:
+    /// [`Self::not_offered`].
     fn publish(&self) {
-        self.published.set_unheld(
-            self.listeners
-                .iter()
-                .filter(|ip| !self.known.contains(*ip) || self.off_local.contains(*ip))
-                .copied()
-                .collect(),
-        );
+        self.published.set_unheld(self.not_offered());
     }
 }
 
@@ -497,6 +505,39 @@ mod tests {
         assert_eq!(
             set.observe_view(&addresses[2..], &classified),
             change(&["10.20.30.40"], &[])
+        );
+    }
+
+    /// A classified IP the view drops while its listener is still bound
+    /// (the listener poll lags the view) stays not offered until the
+    /// listener lets it go -- what Identify is told -- and a later view
+    /// naming it unclassified releases it. The Wi-Fi listener is the
+    /// control throughout.
+    #[test]
+    fn a_departed_off_local_ip_stays_withheld_while_bound() {
+        let mut set = NetworkSet::default();
+        let (wifi, cellular) = ("/ip4/192.168.1.5/tcp/4001", "/ip4/10.20.30.40/tcp/4001");
+        let carrier = ip("10.20.30.40");
+        let _ = set.observe_listeners(addrs(&[wifi, cellular]).iter());
+        let _ = set.observe_view(&[ip("192.168.1.5"), carrier], &[carrier]);
+        assert_eq!(set.not_offered(), BTreeSet::from([carrier]), "classified");
+
+        let _ = set.observe_view(&[ip("192.168.1.5")], &[]);
+        assert!(set.off_local().is_empty(), "the view no longer names it");
+        assert_eq!(
+            set.not_offered(),
+            BTreeSet::from([carrier]),
+            "departed and still bound: still not offered"
+        );
+        let _ = set.observe_listeners(addrs(&[wifi]).iter());
+        assert!(set.not_offered().is_empty(), "the listener let it go");
+
+        // Bound again and named unclassified: offered, as on the desktop.
+        let _ = set.observe_listeners(addrs(&[wifi, cellular]).iter());
+        let _ = set.observe_view(&[ip("192.168.1.5"), carrier], &[]);
+        assert!(
+            set.not_offered().is_empty(),
+            "released by an unclassified view"
         );
     }
 
