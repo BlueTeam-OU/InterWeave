@@ -12,16 +12,17 @@
 //!
 //! The runtime's detector (`runtime/network_change.rs`) knows which
 //! bound IPs are no longer held, and publishes them here after every
-//! observation; every place that applies rule 3 reads it -- the
+//! observation (its `not_offered`); every place that applies rule 3 reads it -- the
 //! runtime's learn sites through the detector itself, and the root
 //! funnel, which tracks its own listeners from the Swarm's events and
 //! so cannot ask the detector directly, through this handle. One record,
 //! so the predicate is spelled once: [`HeldListeners::holds`].
 //!
-//! Since ADR-0052 rule 10 (A 2026-10-26) the record also names a bound
-//! IP the host DOES hold but the platform classifies as a private-range
+//! Since ADR-0052 rule 10 (A 2026-10-26) the record also names an IP
+//! the host DOES hold but the platform classifies as a private-range
 //! address on no local network -- a phone's carrier-assigned cellular
-//! address. It is no own private listener for rule 3 either: counted, a
+//! address -- whether a listener binds it yet or not, so one the
+//! listener poll reports after the classification is never counted. It is no own private listener for rule 3 either: counted, a
 //! phone on mobile data alone would admit a far end's private candidate
 //! and punch into the carrier's network. The detector's `offers` is the
 //! runtime's side of the same predicate.
@@ -51,7 +52,8 @@ impl HeldListeners {
         Self::default()
     }
 
-    /// Replace the set of bound IPs rule 3 does not count.
+    /// Replace the set of IPs on which rule 3 counts no listener, bound
+    /// yet or not.
     pub fn set_unheld(&self, unheld: BTreeSet<IpAddr>) {
         *self.unheld.lock().unwrap_or_else(PoisonError::into_inner) = unheld;
     }

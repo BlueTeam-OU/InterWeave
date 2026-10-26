@@ -996,14 +996,38 @@ async fn a_listener_bound_after_its_ip_is_classified_is_not_advertised() {
         .runtime
         .network_changed(NetworkView::new(vec![ip.into(), other]));
     until_changed(&mut subject.runtime, |_| true).await;
+    let first_shown = |own: &interweave_local_client_api::OwnAddresses| {
+        own.addresses
+            .iter()
+            .any(|row| row.address.starts_with(&first.to_string()))
+    };
+    assert!(
+        first_shown(&subject.runtime.own_addresses().await.expect("own")),
+        "the control: the first listener is shown while bound"
+    );
     assert!(
         subject
             .runtime
-            .stop_listening(first)
+            .stop_listening(first.clone())
             .await
             .expect("reaches the task"),
         "the IP is left with no listener, and the view still holds it"
     );
+    // The stop is answered before the listener's close reaches the
+    // runtime's listener set, and a view read in between would find the
+    // IP still bound -- the order this test is not about. What is shown
+    // comes from that set, so wait until it no longer shows the listener.
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the first listener's close within the patience"
+        );
+        if !first_shown(&subject.runtime.own_addresses().await.expect("own")) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
 
     // Each view moves the known set by `other`, so its reading is a
     // change the test waits for.
