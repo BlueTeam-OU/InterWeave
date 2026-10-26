@@ -17,6 +17,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Binder
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
@@ -214,15 +215,22 @@ class NetworkService : Service() {
         }
 
         /**
-         * Whether a network is a local one (ADR-0052 rule 10, A 2026-10-26): a
-         * carrier's cellular network is not, and every other one this request
-         * admits is -- Wi-Fi, Ethernet, USB, Bluetooth, and a VPN even over
-         * cellular, since its peers reach its private address. A VPN reports
-         * its underlying transports beside its own, so VPN is asked first.
+         * Whether a network is a local one (ADR-0052 rule 10, A 2026-10-26):
+         * a carrier's network is not -- cellular, and satellite where the
+         * SDK names it (API 35) -- since the carrier assigns a leaf address
+         * the person is not on; every other transport is, a VPN even over
+         * a carrier's network, since its peers reach its private address.
+         * A VPN reports its underlying transports beside its own, so VPN
+         * is asked first.
          */
         private fun isLocal(capabilities: NetworkCapabilities): Boolean =
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                !(capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                    satellite(capabilities))
+
+        private fun satellite(capabilities: NetworkCapabilities): Boolean =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM &&
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_SATELLITE)
 
         /** Each address its length, then its bytes (`addresses_from_wire`). */
         private fun wire(addresses: List<InetAddress>): ByteArray {
