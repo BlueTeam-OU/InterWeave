@@ -775,24 +775,39 @@ async fn inbound_deliveries_cannot_starve_an_outbound_exchange() {
     );
 }
 
-/// A peer that answers with unreadable bytes violated the protocol; it
-/// is not unreachable.
+/// How the hand-built responder below treats each request it reads.
+enum Answer {
+    /// Writes these bytes as the response.
+    Bytes(Vec<u8>),
+    /// Drops the `ResponseChannel`: request-response then closes the
+    /// stream with nothing written (`ResponseOmission`).
+    Omitted,
+    /// Holds the channel and lets the responder's own request timeout,
+    /// this short, end the exchange first (`InboundTimeout`): the worker
+    /// future is dropped with the stream it owns. It is the shape a
+    /// loaded receiver produces when it cannot poll its Swarm before its
+    /// deadline, which both ends share (`DIRECT_TIMEOUT`), so it can win
+    /// the race against the sender's.
+    OwnTimeout(Duration),
+}
+
+/// What a sender reads when the far end of a direct exchange answers as
+/// `answer` says.
 ///
-/// `read_response` reports an unknown tag, a bad endpoint label,
-/// trailing bytes or an over-ceiling response as `InvalidData`, and
-/// request-response wraps that in `OutboundFailure::Io` — the same
-/// variant a broken socket produces. Reading them alike told the caller
-/// the peer could not be reached, when the peer had answered and the
-/// answer was refused by this side's own decoder.
-///
-/// The peer here is reachable throughout: it accepts the request and
-/// replies. Only its bytes are wrong.
-#[tokio::test]
-async fn an_unreadable_response_is_a_protocol_violation() {
+/// The responder is reachable throughout: connected, speaking the real
+/// protocol id over the real transport stack, reading every request.
+/// Only what it does with the request differs.
+async fn what_the_sender_reads(answer: Answer) -> TransportError {
     let rude_keys = libp2p::identity::Keypair::generate_ed25519();
     let rude_peer = TransportIdentity::parse(rude_keys.public().to_peer_id().to_string())
         .expect("a valid peer id");
 
+    let config = match &answer {
+        Answer::OwnTimeout(deadline) => {
+            request_response::Config::default().with_request_timeout(*deadline)
+        }
+        Answer::Bytes(_) | Answer::Omitted => request_response::Config::default(),
+    };
     let mut rude = SwarmBuilder::with_existing_identity(rude_keys)
         .with_tokio()
         .with_tcp(
@@ -804,7 +819,7 @@ async fn an_unreadable_response_is_a_protocol_violation() {
         .with_behaviour(|_| {
             request_response::Behaviour::<RawCodec>::new(
                 [(DIRECT_PROTOCOL, ProtocolSupport::Full)],
-                request_response::Config::default(),
+                config,
             )
         })
         .expect("behaviour")
@@ -817,17 +832,24 @@ async fn an_unreadable_response_is_a_protocol_violation() {
         }
     };
 
-    // Answers every request with a tag no response uses.
     tokio::spawn(async move {
+        // HELD, not dropped, under `OwnTimeout`: a dropped channel is
+        // `Omitted`, a different route to the same wire shape, and this
+        // case must reach the responder's timeout to be the one it names.
+        let mut held = Vec::new();
         loop {
             if let Libp2pSwarmEvent::Behaviour(request_response::Event::Message {
                 message: request_response::Message::Request { channel, .. },
                 ..
             }) = rude.select_next_some().await
             {
-                let _ = rude
-                    .behaviour_mut()
-                    .send_response(channel, vec![0xFF, 0xFF, 0xFF]);
+                match &answer {
+                    Answer::Bytes(bytes) => {
+                        let _ = rude.behaviour_mut().send_response(channel, bytes.clone());
+                    }
+                    Answer::Omitted => drop(channel),
+                    Answer::OwnTimeout(_) => held.push(channel),
+                }
             }
         }
     });
@@ -854,9 +876,9 @@ async fn an_unreadable_response_is_a_protocol_violation() {
         .expect("admitted");
 
     // THE CONNECTION MUST EXIST FIRST. Without this the send is refused
-    // as unreachable before any exchange happens — which is the very
-    // answer under test, so the test would pass for the wrong reason
-    // and then fail for it.
+    // as unreachable before any exchange happens — which is one of the
+    // answers under test, so a case expecting it would pass for the
+    // wrong reason.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -868,19 +890,68 @@ async fn an_unreadable_response_is_a_protocol_violation() {
         }
     }
 
-    let error = tokio::time::timeout(
+    tokio::time::timeout(
         Duration::from_secs(20),
         sender.send_direct(&leases["human"], rude_peer, legal_message()),
     )
     .await
     .expect("the exchange settled")
     .expect("the command reaches the task")
-    .expect_err("the answer was unreadable");
+    .expect_err("the responder never accepted")
+}
 
+/// A peer that answers with unreadable bytes violated the protocol; it
+/// is not unreachable.
+///
+/// `read_response` reports an unknown tag, a bad endpoint label,
+/// trailing bytes or an over-ceiling response as `InvalidData`, and
+/// request-response wraps that in `OutboundFailure::Io` — the same
+/// variant a broken socket produces. Reading them alike told the caller
+/// the peer could not be reached, when the peer had answered and the
+/// answer was refused by this side's own decoder.
+///
+/// The peer here is reachable throughout: it accepts the request and
+/// replies. Only its bytes are wrong. It is also the positive control
+/// for the two cases after it: the same responder, answering.
+#[tokio::test]
+async fn an_unreadable_response_is_a_protocol_violation() {
     assert_eq!(
-        error,
+        what_the_sender_reads(Answer::Bytes(vec![0xFF, 0xFF, 0xFF])).await,
         TransportError::ProtocolViolation,
         "the peer answered — badly — so this is not a reachability failure"
+    );
+}
+
+/// A responder that never answers did not violate the protocol: the
+/// exchange did not complete, which is `PeerUnreachable`.
+///
+/// Both routes end the stream with nothing in it, after the responder
+/// read the request to its end, so the muxer sends a FIN and the sender
+/// reads a clean, EMPTY response. Decoded, that was "an empty response",
+/// `InvalidData`, and so `ProtocolViolation`: under load a receiver that
+/// could not poll its Swarm before its own deadline was reported as one
+/// that had sent bad bytes (j127, the pubsub flood case at its panic).
+/// The contract puts a request-response timeout in the outcome-unknown
+/// class as `PeerUnreachable` (`TRANSPORT.md`), whichever end's fired.
+#[tokio::test]
+async fn a_response_never_written_is_unreachable_not_a_violation() {
+    assert_eq!(
+        what_the_sender_reads(Answer::Omitted).await,
+        TransportError::PeerUnreachable,
+        "a dropped response channel: the peer answered nothing"
+    );
+}
+
+/// The same, reached by the responder's own request timeout firing
+/// before the sender's: the route a loaded receiver takes, kept apart so
+/// that a regression on it fails on its own rather than behind the
+/// dropped-channel case.
+#[tokio::test]
+async fn a_responder_timing_out_first_is_unreachable_not_a_violation() {
+    assert_eq!(
+        what_the_sender_reads(Answer::OwnTimeout(Duration::from_millis(300))).await,
+        TransportError::PeerUnreachable,
+        "the responder's own request timeout fired first: the peer answered nothing"
     );
 }
 

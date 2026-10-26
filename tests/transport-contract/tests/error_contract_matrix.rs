@@ -396,6 +396,48 @@ const MATRIX: &[Clause] = &[
         error: "ProtocolViolation",
         proof: Proof::Test("a_malformed_response_is_a_local_protocol_violation_at_head"),
     },
+    // --- a response stream ended empty (A 2026-10-26) ------------------
+    //
+    // Zero bytes is the responder not answering, never malformed bytes:
+    // the direct rows cite the two no-answer routes and the garbage
+    // control, the directory row the empty frame queued after its three
+    // hostile ones.
+    Clause {
+        doc: DIRECT,
+        text: "The sender reports it as `PeerUnreachable`",
+        error: "PeerUnreachable",
+        proof: Proof::Test("a_responder_timing_out_first_is_unreachable_not_a_violation"),
+    },
+    Clause {
+        doc: DIRECT,
+        text: "a response never written and a responder timing out first both read `PeerUnreachable`",
+        error: "PeerUnreachable",
+        proof: Proof::Test("a_response_never_written_is_unreachable_not_a_violation"),
+    },
+    Clause {
+        doc: DIRECT,
+        text: "a response of unreadable bytes stays `ProtocolViolation`",
+        error: "ProtocolViolation",
+        proof: Proof::Test("an_unreadable_response_is_a_protocol_violation"),
+    },
+    Clause {
+        doc: ENDPOINTS,
+        text: "is not invalid metadata but the exchange not completing — the remote read the request and never answered — and is `PeerUnreachable`",
+        error: "PeerUnreachable",
+        proof: Proof::Test("a_response_never_written_is_unreachable_not_a_violation"),
+    },
+    Clause {
+        doc: ENDPOINTS,
+        text: "a response stream ending with no bytes is the remote not answering, `PeerUnreachable`",
+        error: "PeerUnreachable",
+        proof: Proof::Test("a_hostile_directory_response_is_a_protocol_violation"),
+    },
+    Clause {
+        doc: DIRECT,
+        text: "the response stream ends with no bytes (§Response byte layout, A 2026-10-26) -> `PeerUnreachable`",
+        error: "PeerUnreachable",
+        proof: Proof::Test("a_responder_timing_out_first_is_unreachable_not_a_violation"),
+    },
     // --- one line, several rules ------------------------------------
     //
     // Totality is matched per CODE, not per line, so the second rule on
@@ -606,6 +648,24 @@ const PROSE: &[(&str, &str, &str, &str)] = &[
         "any byte after the last field is malformed response metadata as well",
         "malformed",
         "describes the response; the error it maps to is ProtocolViolation",
+    ),
+    (
+        DIRECT,
+        "never as a local `ProtocolViolation`",
+        "ProtocolViolation",
+        "says which code the empty stream is NOT; the error is PeerUnreachable",
+    ),
+    (
+        ENDPOINTS,
+        "`PeerUnreachable`, never `ProtocolViolation`",
+        "ProtocolViolation",
+        "says which code the empty stream is NOT; the error is PeerUnreachable",
+    ),
+    (
+        DIRECT,
+        "rather than its own `Timeout`",
+        "Timeout",
+        "says which code the sender does NOT read; the error is PeerUnreachable",
     ),
     (
         DIRECT,

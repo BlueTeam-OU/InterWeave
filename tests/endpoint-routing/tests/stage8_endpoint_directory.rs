@@ -437,6 +437,79 @@ async fn a_revoked_peers_directory_is_not_surfaced_to_an_in_flight_query() {
     );
 }
 
+/// A responder codec that writes whatever raw bytes the test queues, for
+/// `a_hostile_directory_response_is_a_protocol_violation`.
+#[derive(Clone)]
+struct RawResponder {
+    outbox: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<Vec<u8>>>>,
+}
+impl libp2p::request_response::Codec for RawResponder {
+    type Protocol = libp2p::StreamProtocol;
+    type Request = ();
+    type Response = ();
+    async fn read_request<T>(
+        &mut self,
+        _: &libp2p::StreamProtocol,
+        io: &mut T,
+    ) -> std::io::Result<()>
+    where
+        T: libp2p::futures::AsyncRead + Unpin + Send,
+    {
+        use libp2p::futures::AsyncReadExt as _;
+        let mut buf = Vec::new();
+        io.take(8).read_to_end(&mut buf).await?;
+        Ok(())
+    }
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "the codec trait's method is async; this test codec answers without awaiting"
+    )]
+    async fn read_response<T>(
+        &mut self,
+        _: &libp2p::StreamProtocol,
+        _: &mut T,
+    ) -> std::io::Result<()>
+    where
+        T: libp2p::futures::AsyncRead + Unpin + Send,
+    {
+        Ok(())
+    }
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "the codec trait's method is async; this test codec answers without awaiting"
+    )]
+    async fn write_request<T>(
+        &mut self,
+        _: &libp2p::StreamProtocol,
+        _: &mut T,
+        (): (),
+    ) -> std::io::Result<()>
+    where
+        T: libp2p::futures::AsyncWrite + Unpin + Send,
+    {
+        Ok(())
+    }
+    async fn write_response<T>(
+        &mut self,
+        _: &libp2p::StreamProtocol,
+        io: &mut T,
+        (): (),
+    ) -> std::io::Result<()>
+    where
+        T: libp2p::futures::AsyncWrite + Unpin + Send,
+    {
+        use libp2p::futures::AsyncWriteExt as _;
+        let bytes = self
+            .outbox
+            .lock()
+            .expect("lock")
+            .pop_front()
+            .unwrap_or_default();
+        io.write_all(&bytes).await?;
+        io.close().await
+    }
+}
+
 /// A hostile directory response is a local `ProtocolViolation` across all
 /// three forms the clause names — a duplicate entry (caught by
 /// `validate_response`), an over-32 count and an invalid-grammar label
@@ -451,7 +524,9 @@ async fn a_revoked_peers_directory_is_not_surfaced_to_an_in_flight_query() {
 /// what refuses them.
 ///
 /// Proves ENDPOINTS.md ">32 entries, invalid `EndpointId` grammar, or
-/// duplicates are `ProtocolViolation`".
+/// duplicates are `ProtocolViolation`", and, with an empty frame queued
+/// after the three, that a response stream ending with no bytes is
+/// `PeerUnreachable` (the same section, A 2026-10-26).
 #[tokio::test]
 async fn a_hostile_directory_response_is_a_protocol_violation() {
     use interweave_transport_libp2p::endpoints_codec::ENDPOINTS_PROTOCOL;
@@ -461,78 +536,6 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
     use libp2p::swarm::SwarmEvent as RawEvent;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-
-    // A responder codec that writes whatever raw bytes the test queues.
-    #[derive(Clone)]
-    struct RawResponder {
-        outbox: Arc<Mutex<std::collections::VecDeque<Vec<u8>>>>,
-    }
-    impl request_response::Codec for RawResponder {
-        type Protocol = libp2p::StreamProtocol;
-        type Request = ();
-        type Response = ();
-        async fn read_request<T>(
-            &mut self,
-            _: &libp2p::StreamProtocol,
-            io: &mut T,
-        ) -> std::io::Result<()>
-        where
-            T: libp2p::futures::AsyncRead + Unpin + Send,
-        {
-            use libp2p::futures::AsyncReadExt as _;
-            let mut buf = Vec::new();
-            io.take(8).read_to_end(&mut buf).await?;
-            Ok(())
-        }
-        #[expect(
-            clippy::unused_async_trait_impl,
-            reason = "the codec trait's method is async; this test codec answers without awaiting"
-        )]
-        async fn read_response<T>(
-            &mut self,
-            _: &libp2p::StreamProtocol,
-            _: &mut T,
-        ) -> std::io::Result<()>
-        where
-            T: libp2p::futures::AsyncRead + Unpin + Send,
-        {
-            Ok(())
-        }
-        #[expect(
-            clippy::unused_async_trait_impl,
-            reason = "the codec trait's method is async; this test codec answers without awaiting"
-        )]
-        async fn write_request<T>(
-            &mut self,
-            _: &libp2p::StreamProtocol,
-            _: &mut T,
-            (): (),
-        ) -> std::io::Result<()>
-        where
-            T: libp2p::futures::AsyncWrite + Unpin + Send,
-        {
-            Ok(())
-        }
-        async fn write_response<T>(
-            &mut self,
-            _: &libp2p::StreamProtocol,
-            io: &mut T,
-            (): (),
-        ) -> std::io::Result<()>
-        where
-            T: libp2p::futures::AsyncWrite + Unpin + Send,
-        {
-            use libp2p::futures::AsyncWriteExt as _;
-            let bytes = self
-                .outbox
-                .lock()
-                .expect("lock")
-                .pop_front()
-                .unwrap_or_default();
-            io.write_all(&bytes).await?;
-            io.close().await
-        }
-    }
 
     // The three hostile frames, hand-encoded (tag 0x01 directory).
     fn directory_header() -> Vec<u8> {
@@ -570,6 +573,7 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
         duplicate,
         over_32,
         bad_grammar,
+        Vec::new(),
     ])));
 
     let responder_keys = libp2p::identity::Keypair::generate_ed25519();
@@ -608,8 +612,9 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
     // Extract the ResponseChannel and send `()`, which triggers
     // `write_response` to pop and transmit the next queued frame. Dropping
     // the event (as an earlier version did) would send an EMPTY response
-    // and the hostile bytes would never leave — a vacuous pass, since an
-    // empty body also decodes as ProtocolViolation.
+    // and the hostile bytes would never leave. That was a vacuous pass
+    // while an empty body decoded as ProtocolViolation too; since j127 it
+    // reads `PeerUnreachable` (the empty frame queued last, below).
     tokio::spawn(async move {
         loop {
             if let RawEvent::Behaviour(request_response::Event::Message {
@@ -662,9 +667,24 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
             "the {form} response must be ProtocolViolation"
         );
     }
+
+    // AND AN EMPTY ONE IS NOT. A stream ended with nothing written is the
+    // responder not answering (its own request timeout, or a dropped
+    // channel), not bytes it sent; the hostile forms above, on the same
+    // connection and the same responder, are the control that the
+    // decoder still refuses what does arrive.
+    let error = querier
+        .query_endpoints(responder_peer.clone())
+        .await
+        .expect("the command reaches the task")
+        .expect_err("an empty response carries no directory");
+    assert_eq!(
+        error,
+        TransportError::PeerUnreachable,
+        "an empty response is the peer answering nothing, not a protocol violation"
+    );
 }
 
-/// The largest legal directory crosses the wire: 32 advertised, leased,
 /// The largest legal directory crosses the wire: 32 advertised, leased,
 /// admissible endpoints at the 64-byte label ceiling. The codec's frozen
 /// bytes are unit-tested; this proves the whole path carries them.
