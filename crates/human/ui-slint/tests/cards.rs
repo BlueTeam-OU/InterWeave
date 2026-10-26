@@ -1393,6 +1393,67 @@ fn continue_editing_after_the_no_reach_notice_refocuses_its_action() {
     let _ = intents(&mut view, &mut model);
 }
 
+/// #463, the review's pre-existing item: a share-again row leaves the
+/// editor for its conversation and the share sheet there, so with a
+/// change it asks first; Continue editing keeps the editor, focus on the
+/// row, and Close without saving goes on to the sheet. Mutation: the row
+/// leaving without asking.
+#[test]
+fn a_share_again_row_with_a_change_asks_first() {
+    let ready = || interweave_human_ui_model::OwnKey::Ready {
+        fingerprint: "fedcba9876543210".to_owned(),
+    };
+    let (mut view, mut model) = own_editor(ada(false, ready()));
+    model.key_made(
+        Some(ada(false, ready())),
+        "fedcba9876543210".to_owned(),
+        vec![direct(P)],
+    );
+    view.render(&model);
+    settle();
+    view.window().set_own_given("Grace".into());
+    let on_row = |view: &View| {
+        let window = view.window();
+        window.set_focus_target("share-again:0".into());
+        window.set_focus_seq(window.get_focus_seq() + 1);
+        settle();
+        assert_eq!(
+            view.window().get_focus_id(),
+            "share-again:0",
+            "control: on the row"
+        );
+        key(view, slint::platform::Key::Return);
+        settle();
+    };
+    on_row(&view);
+    assert!(view.window().get_own_discard_open(), "the row asks");
+    press(&view, text(UiText::KeepEditing));
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "share-again:0",
+        "focus back on it"
+    );
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard
+    );
+
+    on_row(&view);
+    press(&view, text(UiText::DiscardChanges));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None,
+        "the editor left"
+    );
+    assert!(
+        view.window().get_share_open(),
+        "the share sheet, as the row asked"
+    );
+}
+
 /// The fixture's test-only key, as the card parser reads it from the
 /// fixture's valid vector, and the fingerprint the vector states.
 fn fixture_key() -> ([u8; 32], String) {

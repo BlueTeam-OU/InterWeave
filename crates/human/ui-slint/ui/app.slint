@@ -3317,7 +3317,9 @@ export component AppWindow inherits Window {
     // off the own card's editor with an unsaved change asks first, and on
     // Close without saving the way taken goes on -- 0 Back, 1 the
     // conversation picked (its handle below), 2 Trust, 3 Peers, 4
-    // Contacts (`a_conversation_picked_beside_the_editor_with_a_change_asks_first`,
+    // Contacts, 5 a share-again row (its handle below)
+    // (`a_conversation_picked_beside_the_editor_with_a_change_asks_first`,
+    // `a_share_again_row_with_a_change_asks_first`,
     // `a_page_from_the_app_options_with_a_change_asks_first`).
     property <int> own-discard-then;
     property <int> own-discard-then-handle;
@@ -3394,6 +3396,8 @@ export component AppWindow inherits Window {
             root.go-to-peers();
         } else if (root.own-discard-then == 4) {
             root.go-to-contacts();
+        } else if (root.own-discard-then == 5) {
+            root.own-key-share-again-chosen(root.own-discard-then-handle);
         }
     }
     function close-share() {
@@ -3428,6 +3432,12 @@ export component AppWindow inherits Window {
     function go-to-peers() {
         root.list-shown = false;
         root.open-peers();
+    }
+    // A share-again row opens its conversation and the share sheet there,
+    // leaving the editor: it asks first like every other way off it.
+    function share-again(handle: int) {
+        if (root.ask-before-leaving(5, handle, "share-again:" + handle)) { return; }
+        root.own-key-share-again-chosen(handle);
     }
     function open-contacts-page() {
         if (root.ask-before-leaving(4, -1, "app-options")) { return; }
@@ -5490,7 +5500,7 @@ export component AppWindow inherits Window {
                                     focus-key: "share-again:" + row.handle;
                                     focus-seq: root.focus-seq;
                                     focus-wanted: root.focus-target == "share-again:" + row.handle;
-                                    pressed => { root.own-key-share-again-chosen(row.handle); }
+                                    pressed => { root.share-again(row.handle); }
                                     focused(k) => { root.focus-id = k; }
                                 }
                             }
