@@ -28,6 +28,10 @@ holder can add rows without entering the other's crate.
   holder (`01` / `02` for the two p2p-network-dev holders); `owner`
   where the open work waits on the owner's word; `unassigned` where
   work is owed and no step holds it yet; or `—` once nothing is owed.
+  A row carried whole to a later stage names the plan section that
+  carries it and the holder who owns the work there, as `§NN carry
+  (<holder>)`; a row whose work a later stage's step already holds
+  names that step the same way (`§29 step 2 (rust-ui-dev)`).
 - **tests**: every guarding test as `` `path::fn` ``, the path relative
   to the repository root, separated by `; `. A test inside a
   `#[cfg(test)]` module is named by its source file. `owed: <what>`
