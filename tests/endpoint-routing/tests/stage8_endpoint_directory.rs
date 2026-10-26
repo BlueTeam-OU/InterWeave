@@ -437,6 +437,79 @@ async fn a_revoked_peers_directory_is_not_surfaced_to_an_in_flight_query() {
     );
 }
 
+/// A responder codec that writes whatever raw bytes the test queues, for
+/// `a_hostile_directory_response_is_a_protocol_violation`.
+#[derive(Clone)]
+struct RawResponder {
+    outbox: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<Vec<u8>>>>,
+}
+impl libp2p::request_response::Codec for RawResponder {
+    type Protocol = libp2p::StreamProtocol;
+    type Request = ();
+    type Response = ();
+    async fn read_request<T>(
+        &mut self,
+        _: &libp2p::StreamProtocol,
+        io: &mut T,
+    ) -> std::io::Result<()>
+    where
+        T: libp2p::futures::AsyncRead + Unpin + Send,
+    {
+        use libp2p::futures::AsyncReadExt as _;
+        let mut buf = Vec::new();
+        io.take(8).read_to_end(&mut buf).await?;
+        Ok(())
+    }
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "the codec trait's method is async; this test codec answers without awaiting"
+    )]
+    async fn read_response<T>(
+        &mut self,
+        _: &libp2p::StreamProtocol,
+        _: &mut T,
+    ) -> std::io::Result<()>
+    where
+        T: libp2p::futures::AsyncRead + Unpin + Send,
+    {
+        Ok(())
+    }
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "the codec trait's method is async; this test codec answers without awaiting"
+    )]
+    async fn write_request<T>(
+        &mut self,
+        _: &libp2p::StreamProtocol,
+        _: &mut T,
+        (): (),
+    ) -> std::io::Result<()>
+    where
+        T: libp2p::futures::AsyncWrite + Unpin + Send,
+    {
+        Ok(())
+    }
+    async fn write_response<T>(
+        &mut self,
+        _: &libp2p::StreamProtocol,
+        io: &mut T,
+        (): (),
+    ) -> std::io::Result<()>
+    where
+        T: libp2p::futures::AsyncWrite + Unpin + Send,
+    {
+        use libp2p::futures::AsyncWriteExt as _;
+        let bytes = self
+            .outbox
+            .lock()
+            .expect("lock")
+            .pop_front()
+            .unwrap_or_default();
+        io.write_all(&bytes).await?;
+        io.close().await
+    }
+}
+
 /// A hostile directory response is a local `ProtocolViolation` across all
 /// three forms the clause names — a duplicate entry (caught by
 /// `validate_response`), an over-32 count and an invalid-grammar label
@@ -461,78 +534,6 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
     use libp2p::swarm::SwarmEvent as RawEvent;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-
-    // A responder codec that writes whatever raw bytes the test queues.
-    #[derive(Clone)]
-    struct RawResponder {
-        outbox: Arc<Mutex<std::collections::VecDeque<Vec<u8>>>>,
-    }
-    impl request_response::Codec for RawResponder {
-        type Protocol = libp2p::StreamProtocol;
-        type Request = ();
-        type Response = ();
-        async fn read_request<T>(
-            &mut self,
-            _: &libp2p::StreamProtocol,
-            io: &mut T,
-        ) -> std::io::Result<()>
-        where
-            T: libp2p::futures::AsyncRead + Unpin + Send,
-        {
-            use libp2p::futures::AsyncReadExt as _;
-            let mut buf = Vec::new();
-            io.take(8).read_to_end(&mut buf).await?;
-            Ok(())
-        }
-        #[expect(
-            clippy::unused_async_trait_impl,
-            reason = "the codec trait's method is async; this test codec answers without awaiting"
-        )]
-        async fn read_response<T>(
-            &mut self,
-            _: &libp2p::StreamProtocol,
-            _: &mut T,
-        ) -> std::io::Result<()>
-        where
-            T: libp2p::futures::AsyncRead + Unpin + Send,
-        {
-            Ok(())
-        }
-        #[expect(
-            clippy::unused_async_trait_impl,
-            reason = "the codec trait's method is async; this test codec answers without awaiting"
-        )]
-        async fn write_request<T>(
-            &mut self,
-            _: &libp2p::StreamProtocol,
-            _: &mut T,
-            (): (),
-        ) -> std::io::Result<()>
-        where
-            T: libp2p::futures::AsyncWrite + Unpin + Send,
-        {
-            Ok(())
-        }
-        async fn write_response<T>(
-            &mut self,
-            _: &libp2p::StreamProtocol,
-            io: &mut T,
-            (): (),
-        ) -> std::io::Result<()>
-        where
-            T: libp2p::futures::AsyncWrite + Unpin + Send,
-        {
-            use libp2p::futures::AsyncWriteExt as _;
-            let bytes = self
-                .outbox
-                .lock()
-                .expect("lock")
-                .pop_front()
-                .unwrap_or_default();
-            io.write_all(&bytes).await?;
-            io.close().await
-        }
-    }
 
     // The three hostile frames, hand-encoded (tag 0x01 directory).
     fn directory_header() -> Vec<u8> {
