@@ -8,9 +8,13 @@
 //! The clipboard is another program's: it decides what it offers, how
 //! much it sends and how fast. So nothing here decodes, and every read
 //! stops at one byte past the bound or at the deadline, whichever comes
-//! first. The toolkit's clipboard crate is not used for it: it decodes an
-//! image whole before handing it over, under no bound of this client's
-//! (#409 F1).
+//! first: `read_bounded`'s tests here, `x11_reads_the_clipboard_within_bounds`
+//! (Xvfb and xclip, `--ignored`), and desktop-e2e
+//! `a_hostile_clipboard_owner_is_given_up_at_the_deadline`, which CI runs
+//! against an owner that never answers and one that keeps sending.
+//! The toolkit's clipboard crate is not used for it: it decodes an image
+//! whole before handing it over, under no bound of this client's (#409
+//! F1).
 //!
 //! Wayland is asked first, through the data-control protocol; a
 //! compositor without it, or a session with no Wayland, is asked through
@@ -67,8 +71,11 @@ fn chosen<'a>(offered: impl IntoIterator<Item = &'a str>) -> Option<&'static str
 
 /// Read `source` to its end, stopping one byte past [`MAX_IMAGE_BYTES`] or
 /// at `deadline`: a source still open then is a writer that is not
-/// answering, never waited on further. Without blocking, so the deadline
-/// holds however the writer paces itself.
+/// answering, never waited on further. Without blocking, and the deadline
+/// asked at every turn, so it holds however the writer paces itself --
+/// silent (`a_writer_that_never_ends_is_given_up_at_the_deadline`) or
+/// never letting the pipe run dry
+/// (`a_writer_that_never_runs_dry_is_given_up_at_the_deadline`).
 fn read_bounded(mut source: impl Read + AsFd, deadline: Instant) -> Pasted {
     if rustix::io::ioctl_fionbio(&source, true).is_err() {
         return Pasted::ImageUnread;
@@ -76,6 +83,9 @@ fn read_bounded(mut source: impl Read + AsFd, deadline: Instant) -> Pasted {
     let mut bytes = Vec::new();
     let mut chunk = vec![0; 64 * 1024];
     loop {
+        if past(deadline) {
+            return Pasted::ImageUnread;
+        }
         match source.read(&mut chunk) {
             Ok(0) => return Pasted::Image(bytes),
             Ok(n) => {
@@ -93,6 +103,35 @@ fn read_bounded(mut source: impl Read + AsFd, deadline: Instant) -> Pasted {
             Err(_) => return Pasted::ImageUnread,
         }
     }
+}
+
+/// The next of what `queued` hands over (`Some(None)`: nothing queued,
+/// `None`: broken), waiting with `wait` while nothing is; `None` at the
+/// deadline. The deadline is asked before every item, queued ones
+/// included: an owner that keeps events coming never lets the queue run
+/// dry, and would otherwise hold the read until the byte bound (#451 r7
+/// F1; `a_queue_that_never_runs_dry_is_given_up_at_the_deadline`).
+fn next_before<T>(
+    mut queued: impl FnMut() -> Option<Option<T>>,
+    mut wait: impl FnMut() -> bool,
+    deadline: Instant,
+) -> Option<T> {
+    loop {
+        if past(deadline) {
+            return None;
+        }
+        if let Some(item) = queued()? {
+            return Some(item);
+        }
+        if !wait() {
+            return None;
+        }
+    }
+}
+
+/// Whether `deadline` has come.
+fn past(deadline: Instant) -> bool {
+    Instant::now() >= deadline
 }
 
 /// Wait until `fd` can be read or `deadline` passes; `false` at the
@@ -367,14 +406,11 @@ mod x11 {
 
     /// The next event, or `None` at the deadline or a broken connection.
     fn next_event(conn: &RustConnection, deadline: Instant) -> Option<Event> {
-        loop {
-            if let Some(event) = conn.poll_for_event().ok()? {
-                return Some(event);
-            }
-            if !wait_readable(conn.stream(), deadline) {
-                return None;
-            }
-        }
+        super::next_before(
+            || conn.poll_for_event().ok(),
+            || wait_readable(conn.stream(), deadline),
+            deadline,
+        )
     }
 }
 
@@ -451,6 +487,63 @@ mod tests {
         assert!(took >= Duration::from_millis(300), "{took:?}");
         assert!(took < Duration::from_secs(3), "{took:?}");
         drop(writer);
+    }
+
+    /// A source that always has a byte, a little at a time: a read never
+    /// waits, so only the deadline asked at every turn stops it short of
+    /// the byte bound (#451 r7 F1).
+    #[test]
+    fn a_writer_that_never_runs_dry_is_given_up_at_the_deadline() {
+        struct NeverDry(std::io::PipeReader);
+        impl Read for NeverDry {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                std::thread::sleep(Duration::from_millis(1));
+                buf[0] = 1;
+                Ok(1)
+            }
+        }
+        impl AsFd for NeverDry {
+            fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+                self.0.as_fd()
+            }
+        }
+        let (reader, writer) = pipe();
+        let start = Instant::now();
+        let pasted = read_bounded(
+            NeverDry(reader),
+            Instant::now() + Duration::from_millis(300),
+        );
+        let took = start.elapsed();
+        assert_eq!(pasted, Pasted::ImageUnread);
+        assert!(took < Duration::from_secs(3), "{took:?}");
+        drop(writer);
+    }
+
+    /// An event source whose queue never runs dry still ends at the
+    /// deadline; before it, a queued item is handed over and a source with
+    /// nothing queued waits (#451 r7 F1).
+    #[test]
+    fn a_queue_that_never_runs_dry_is_given_up_at_the_deadline() {
+        let gone = Instant::now();
+        assert_eq!(next_before(|| Some(Some(1)), || true, gone), None);
+        let soon = Instant::now() + Duration::from_secs(60);
+        assert_eq!(next_before(|| Some(Some(1)), || true, soon), Some(1));
+        let mut waited = 0;
+        let mut queue = vec![None, Some(2)].into_iter();
+        let got = next_before(
+            || Some(queue.next().flatten()),
+            || {
+                waited += 1;
+                true
+            },
+            soon,
+        );
+        assert_eq!((got, waited), (Some(2), 1));
+        assert_eq!(
+            next_before(|| None::<Option<u8>>, || true, soon),
+            None,
+            "broken"
+        );
     }
 
     /// Wayland: an empty clipboard or one with no type is no image; a
