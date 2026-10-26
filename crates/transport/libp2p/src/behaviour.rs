@@ -44,6 +44,7 @@ use crate::candidate_scope::ScopedCandidates;
 use crate::class_gate::ClassGated;
 use crate::direct_codec::{DIRECT_PROTOCOL, DirectCodec};
 use crate::endpoints_codec::{ENDPOINTS_PROTOCOL, EndpointsCodec};
+use crate::listen_scope::ListenScope;
 use crate::outbound_gate::OutboundAdmission;
 use crate::preauth_gate::PreAuthAdmission;
 
@@ -201,8 +202,10 @@ pub struct SubstrateBehaviour {
     /// once still, but labelled as the other case. `preauth` has no
     /// outbound denial, and nothing else precedes this field.
     pub outbound: OutboundAdmission,
-    /// Peer metadata exchange on an already-established connection.
-    pub identify: identify::Behaviour,
+    /// Peer metadata exchange on an already-established connection,
+    /// told of this node's listen addresses less those ADR-0052 rule 10
+    /// withholds (`listen_scope`).
+    pub identify: ListenScope<identify::Behaviour>,
     /// Directed messaging, `/interweave/direct/2.0.0`.
     ///
     /// LAST, and after both gates, because the derive calls each field's
@@ -508,7 +511,7 @@ impl SubstrateBehaviour {
         Ok(Self {
             preauth: PreAuthAdmission::new(preauth),
             outbound,
-            identify: identify::Behaviour::new(identify_config(keypair.public())),
+            identify: ListenScope::new(identify::Behaviour::new(identify_config(keypair.public()))),
             direct: ClassGated::new(
                 request_response::Behaviour::with_codec(
                     DirectCodec,

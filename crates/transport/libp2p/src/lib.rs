@@ -109,6 +109,7 @@ pub mod gated_swarm;
 pub mod held_listeners;
 pub mod hole_punch;
 pub mod hop_gate;
+pub mod listen_scope;
 pub mod live_dns;
 pub mod mdns_scope;
 pub mod operator_set;

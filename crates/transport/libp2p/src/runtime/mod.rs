@@ -2022,7 +2022,9 @@ impl SwarmRuntime {
                         }
                         let change = network.observe_view(&view.addresses, &view.off_local_network);
                         // ADR-0052 rule 10: the classification reaches
-                        // DCUtR's doors before anything is offered again.
+                        // Identify's listen set, and DCUtR's doors before
+                        // anything is offered again.
+                        swarm.identify_mut().withhold(network.off_local());
                         let rebuilt = dcutr_driver::withhold_off_local(
                             swarm.dcutr_mut(),
                             network.off_local(),
