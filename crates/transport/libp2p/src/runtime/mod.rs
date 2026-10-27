@@ -173,7 +173,22 @@ fn on_network_change(
     open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>,
     outbox: &mut VecDeque<SwarmEvent>,
     event_capacity: usize,
+    held_back: &mut dialing::HeldBack,
+    stores: &crate::store_refusals::StoreRefusals,
+    operator: &crate::operator_set::OperatorSet,
 ) {
+    // RULE 3'S BOUNDARY MAY WIDEN WITH NO CHANGE TO REPORT -- a rule 10
+    // lift moves nothing in the known set -- so this runs before the
+    // change is read: when the widenings count moved, what connected
+    // peers' Identify had refused for want of a private listener is
+    // judged again (`dialing::HeldBack`), against the listeners now.
+    let own_listeners: Vec<String> = network.own_listeners(active.values().flatten());
+    let mut boundary = dialing::AdvertisedBoundary {
+        own_listeners: &own_listeners,
+        stores,
+        operator,
+    };
+    held_back.relearn(network.widenings(), manager, &mut boundary, now);
     // THE FIRST FILL is no change, but a runtime started offline failed
     // its first dials before it: the lift runs (ADR-0011 A 2026-10-09).
     let filled = network.take_filled();
@@ -1074,6 +1089,10 @@ pub struct SwarmRuntime {
     commands: mpsc::Sender<SwarmCommand>,
     /// Where the platform's view is handed in ([`NetworkMonitor`]).
     network_view: watch::Sender<NetworkView>,
+    /// The detector's count of rule 3's boundary widening, read by a
+    /// caller that remembers what it offered the book
+    /// ([`Self::listener_widenings`]).
+    listener_widenings: crate::held_listeners::ListenerWidenings,
     events: mpsc::Receiver<SwarmEvent>,
     task: Option<tokio::task::JoinHandle<()>>,
     local_peer: TransportIdentity,
@@ -1479,6 +1498,7 @@ impl SwarmRuntime {
         // rule 3, A 2026-10-09): written by the detector, read by the funnel.
         let held_listeners = crate::held_listeners::HeldListeners::new();
         let funnel_held = held_listeners.clone();
+        let listener_widenings = held_listeners.widenings();
         let make_behaviour =
             move |key: &libp2p::identity::Keypair, relay_client: relay_driver::ClientField| {
                 SubstrateBehaviour::new(
@@ -1660,6 +1680,9 @@ impl SwarmRuntime {
         // Sends waiting for the dial they started (relay seq 13444),
         // bounded with the exchanges in flight by `admit_outbound`.
         let mut held_sends = held_sends::HeldSends::default();
+        // Identify's addresses refused for want of a private listener,
+        // judged again when rule 3's boundary widens.
+        let mut held_back = dialing::HeldBack::default();
         // The IP set this host is known to hold, for section 14's
         // network change (step 10): the listeners' and the platform's.
         let mut network = network_change::NetworkSet::publishing_to(held_listeners);
@@ -2044,6 +2067,9 @@ impl SwarmRuntime {
                             &open,
                             &mut outbox,
                             config.event_capacity,
+                            &mut held_back,
+                            &task_stores,
+                            &task_operator,
                         );
                         if rebuilt {
                             dcutr_driver::offer_listeners(
@@ -3101,6 +3127,7 @@ impl SwarmRuntime {
                             &mut refuse,
                             &infrastructure_origin,
                             &mut advertised,
+                            &mut held_back,
                             settled_at,
                         );
                         // An inbound connection the ceiling cannot
@@ -3315,6 +3342,9 @@ impl SwarmRuntime {
                                         &open,
                                         &mut outbox,
                                         config.event_capacity,
+                                        &mut held_back,
+                                        &task_stores,
+                                        &task_operator,
                                     );
                                 }
                                 if let Some(address) = just_bound.filter(|a| network.offers(a)) {
@@ -3466,6 +3496,7 @@ impl SwarmRuntime {
         Ok(Self {
             commands: command_tx,
             network_view: network_view_tx,
+            listener_widenings,
             events: event_rx,
             unread_capacity,
             task: Some(task),
