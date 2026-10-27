@@ -1023,14 +1023,15 @@ ui_texts! {
     // PLACEHOLDER (en)
     CardSharedStays => "People who already have this card still see it as it was. To show them your changes, share the card with them again.",
     /// One's own card row (contact-cards design 5.5): the line under the
-    /// card as it was sent, and what the row's label opens with.
-    // PLACEHOLDER (en)
-    CardSentLabel => "You shared your card",
-    /// One's own card row, its spoken label: said after the name when the
-    /// card as sent carried a photo; the photo itself is not described
-    /// (contact-cards design 5.5).
-    // PLACEHOLDER (en)
-    CardSentPhoto => "with your photo",
+    /// card as it was sent, and what the row's label opens with. Read
+    /// beside every status, Sending and Not sent too, so it claims no
+    /// sending.
+    CardSentLabel => "Your contact card",
+    /// One's own card row, its spoken label: a sentence after the name
+    /// when the card as sent carried a photo; the photo itself is not
+    /// described (contact-cards design 5.5). A whole sentence, its own
+    /// period included.
+    CardSentPhoto => "The card includes your photo.",
     /// The own card: the photo is set with the command-line client while
     /// the graphical clients cannot choose one.
     // PLACEHOLDER (en)
