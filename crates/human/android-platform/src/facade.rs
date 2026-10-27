@@ -106,6 +106,16 @@ impl Drop for Ends {
     }
 }
 
+/// What the facade's thread holds. Fields drop in order, so the side --
+/// its store connection with it, the WAL truncated and closed -- goes
+/// before the hub hears the thread ended, on every path, an unwind
+/// included: until then a store discard is refused (#495 review F3,
+/// `the_side_drops_before_the_hub_hears_the_thread_ended`).
+struct Held<S> {
+    side: S,
+    _ends: Ends,
+}
+
 impl FacadeLoop {
     /// Build the facade side with `make` on a thread of its own -- a
     /// session is not `Send`, so it lives where it is made -- and run it
@@ -145,7 +155,7 @@ impl FacadeLoop {
                 .name("human-facade".to_owned())
                 .spawn(move || {
                     let hub = on_thread;
-                    let mut side = match make() {
+                    let side = match make() {
                         Ok(side) => side,
                         Err(e) => {
                             let _ = report.send(Err(e));
@@ -153,10 +163,14 @@ impl FacadeLoop {
                         }
                     };
                     let generation = hub.started(commands);
-                    let ends = Ends {
-                        hub: Arc::clone(&hub),
-                        generation,
+                    let mut held = Held {
+                        side,
+                        _ends: Ends {
+                            hub: Arc::clone(&hub),
+                            generation,
+                        },
                     };
+                    let side = &mut held.side;
                     let _ = report.send(Ok(generation));
                     let start = Instant::now();
                     let now = || u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -177,7 +191,7 @@ impl FacadeLoop {
                             // replay, so a route indicator shows nothing
                             // until the path next changes (carried to the
                             // Android client's batch 2).
-                            for update in snapshot(&side) {
+                            for update in snapshot(side) {
                                 hub.update(generation, update);
                             }
                         }
@@ -227,7 +241,7 @@ impl FacadeLoop {
                 });
                     // Its own generation only: a facade that outlived its close
                     // never stops one started after it, and owes it a listing.
-                    drop(ends);
+                    drop(held);
                 });
         let thread = spawned.map_err(SpawnError::Thread)?;
         match reported.recv() {
@@ -307,5 +321,54 @@ mod closing_tests {
         let accepted = closing(&hub, generation, &mut waiting);
         assert_eq!(accepted, vec![Command::Reopen; 3]);
         assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
+    }
+
+    /// #495 review F3: the side drops while the facade still counts as
+    /// alive, and the hub hears it ended only after, on a plain drop and on
+    /// an unwind alike. Mutation: `Held`'s fields in the other order.
+    #[test]
+    fn the_side_drops_before_the_hub_hears_the_thread_ended() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct Probe {
+            hub: Arc<Hub>,
+            alive_at_drop: Arc<AtomicBool>,
+        }
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                self.alive_at_drop
+                    .store(self.hub.facade_alive(), Ordering::SeqCst);
+            }
+        }
+        for unwind in [false, true] {
+            let hub = Arc::new(Hub::new());
+            let (sender, _waiting) = tokio::sync::mpsc::unbounded_channel();
+            let generation = hub.started(sender);
+            let seen = Arc::new(AtomicBool::new(false));
+            let held = super::Held {
+                side: Probe {
+                    hub: Arc::clone(&hub),
+                    alive_at_drop: Arc::clone(&seen),
+                },
+                _ends: super::Ends {
+                    hub: Arc::clone(&hub),
+                    generation,
+                },
+            };
+            if unwind {
+                let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                    let _held = held;
+                    panic!("the facade's thread unwinds");
+                }));
+                assert!(ended.is_err());
+            } else {
+                drop(held);
+            }
+            assert!(
+                seen.load(Ordering::SeqCst),
+                "unwind {unwind}: alive as the side dropped"
+            );
+            assert!(!hub.facade_alive(), "unwind {unwind}: ended after");
+        }
     }
 }
