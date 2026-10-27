@@ -456,6 +456,14 @@ async fn until_done<B: DataSessionBinding, A: AdminBinding>(
                 line(out);
                 return Ok(());
             }
+            // `--no-pending` (G4): a send that will not be accepted by the
+            // end of `--wait` is cancelled -- RETENTION.md's explicit cancel,
+            // with no Undo -- so no later run sends it. One held for
+            // attention is among them: the next run's facade attempts every
+            // pending row again, attention or not.
+            ItemStatus::Outbound(OutboundStatus::NeedsAttention { .. }) if !pending => {
+                return cancel_unaccepted(s, r, key, item, out).await;
+            }
             ItemStatus::Outbound(OutboundStatus::NeedsAttention { problem, .. }) => {
                 line(out);
                 return Err(Failure::Refused(format!(
@@ -467,9 +475,6 @@ async fn until_done<B: DataSessionBinding, A: AdminBinding>(
                 line(out);
                 return Err(Failure::Refused(format!("{item} was cancelled")));
             }
-            // `--no-pending` (G4): not accepted by the end of `--wait`, the
-            // send is cancelled -- RETENTION.md's explicit cancel, with no
-            // Undo -- so no later run ever sends it.
             _ if Instant::now() >= r.until && !pending => {
                 return cancel_unaccepted(s, r, key, item, out).await;
             }
@@ -488,7 +493,8 @@ async fn until_done<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// `--no-pending`'s end: `item`, still on its way, is cancelled. One the
-/// transport accepted while the cancel was asked is said as accepted.
+/// transport accepted while the cancel was asked is said as accepted; one
+/// the cancel did not reach is said as it stands, pending.
 async fn cancel_unaccepted<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
@@ -496,6 +502,9 @@ async fn cancel_unaccepted<B: DataSessionBinding, A: AdminBinding>(
     item: ItemKey,
     out: &mut String,
 ) -> Result<(), Failure> {
+    // The cancel carried out is the row gone from the store (the `cancel`
+    // verb's rule); its `Cancelled` event may follow a step later.
+    let mut cancelled = false;
     if let Some(cancel) = s
         .model()
         .actions(item)
@@ -505,6 +514,7 @@ async fn cancel_unaccepted<B: DataSessionBinding, A: AdminBinding>(
         s.will(move |_| vec![ViewEvent::Intent(cancel)]);
         s.step().await;
         problems(s)?;
+        cancelled = true;
     }
     let status = s
         .model()
@@ -512,26 +522,33 @@ async fn cancel_unaccepted<B: DataSessionBinding, A: AdminBinding>(
         .into_iter()
         .find(|m| m.key == item)
         .map(|m| m.status);
-    let accepted = matches!(
-        status,
-        Some(ItemStatus::Outbound(
-            OutboundStatus::Accepted { .. } | OutboundStatus::Published
-        ))
-    );
-    let token = if accepted { "accepted" } else { "cancelled" };
+    let (token, pending) = match &status {
+        Some(ItemStatus::Outbound(OutboundStatus::Accepted { .. } | OutboundStatus::Published)) => {
+            ("accepted", false)
+        }
+        Some(ItemStatus::Outbound(OutboundStatus::Cancelled { .. })) => ("cancelled", false),
+        _ if cancelled => ("cancelled", false),
+        Some(other) => (output::status(other), true),
+        None => ("unknown", true),
+    };
     if r.json {
         out.push_str(&output::json_line(
-            &json!({ "id": item.to_string(), "status": token, "pending": false }),
+            &json!({ "id": item.to_string(), "status": token, "pending": pending }),
         ));
     } else {
         let _ = writeln!(out, "{item} {token}");
     }
-    if accepted {
-        return Ok(());
+    match (token, pending) {
+        ("accepted", _) => Ok(()),
+        (_, false) => Err(Failure::Refused(format!(
+            "{item} was not accepted within --wait and is cancelled: no later run sends it"
+        ))),
+        // Never said as cancelled while it is not: a later run sends it.
+        (_, true) => Err(Failure::Pending(format!(
+            "{item} could not be cancelled: it stays pending in the message store, and the \
+             next client to open the session sends it again"
+        ))),
     }
-    Err(Failure::Refused(format!(
-        "{item} was not accepted within --wait and is cancelled: no later run sends it"
-    )))
 }
 
 #[derive(Clone, Copy)]

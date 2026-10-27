@@ -717,3 +717,30 @@ async fn a_send_with_no_pending_is_cancelled_when_its_wait_ends() {
     let pending = store(dir.path()).pending_outbound().expect("read");
     assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
 }
+
+/// G4 for a send held for attention: the next run's facade attempts every
+/// pending row again, so `--no-pending` cancels it too, rather than
+/// leaving it for a later run to send once the peer is trusted.
+/// Mutation: the needs-attention arm returning before the cancel.
+#[tokio::test]
+async fn a_send_with_no_pending_that_needs_attention_is_cancelled() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    a.inject_send(TransportError::UnauthorizedPeer);
+    let verb = Verb::Send {
+        conversation: to(b.peer()),
+        text: Some("held".to_owned()),
+        pending: false,
+    };
+    let (out, sent) = run(&mut alice, verb, true).await;
+    assert!(matches!(sent, Err(Failure::Refused(_))), "{sent:?}");
+    let line = &lines(&out)[0];
+    assert_eq!(line["status"], "cancelled", "{out}");
+    assert_eq!(line["pending"], false);
+    alice.close().await;
+    let pending = store(dir_a.path()).pending_outbound().expect("read");
+    assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
+}
