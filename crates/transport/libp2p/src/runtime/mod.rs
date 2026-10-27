@@ -259,8 +259,8 @@ fn on_network_change(
 /// it judges a new listen address against itself; and DCUtR's two doors,
 /// told the off-local IPs (the crate is built again when it holds an
 /// address on one) and then offered every listener this node offers,
-/// which the wrapper takes once each -- so a listener released by a later
-/// view is offered as it is released, not at the next network change.
+/// which the wrapper takes once each -- so a rebuilt crate has them
+/// before the next circuit rather than at the retry tick's re-offer.
 /// Before `on_network_change`, so nothing is offered past a stale
 /// classification.
 fn withhold_not_offered(

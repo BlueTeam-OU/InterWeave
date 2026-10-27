@@ -755,7 +755,7 @@ impl HolePunchScope {
     /// address before the first view classifies it, or arrives without
     /// naming it. Returns whether it rebuilt; the runtime offers the
     /// listeners it offers after every call, so a rebuilt crate has them
-    /// again and a lifted one is offered as it is lifted.
+    /// again.
     /// Pinned by `a_private_address_on_no_local_network_is_offered_at_neither_door`.
     pub fn withhold_off_local(&mut self, off_local: &BTreeSet<IpAddr>) -> bool {
         self.off_local = off_local
