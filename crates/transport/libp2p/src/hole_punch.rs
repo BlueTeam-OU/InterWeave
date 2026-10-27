@@ -51,10 +51,11 @@
 //! crate issues, FILTERED
 //! (ADR-0052 rule 5): the far end loses only the refused address, never
 //! the punch. Beside the boundary, both doors to the crate withhold an
-//! address on a private-range IP on no local network (ADR-0052 rule 10,
-//! `withhold_off_local`) -- one the platform's view classifies so, or,
-//! while a view is present, one this host binds that the view does not
-//! hold (A 2026-10-27): a carrier's address is inside the boundary and
+//! address on an IP on no local network (ADR-0052 rule 10,
+//! `withhold_off_local`) -- a private one the platform's view classifies
+//! so, or, while a view is present, one this host binds that the view
+//! does not hold, and one this host binds in the shared address space
+//! with or without a view (A 2026-10-27): a carrier's address is inside the boundary and
 //! still no candidate of this node's, nor an own private listener for the
 //! punch dial's filter.
 //!
@@ -413,7 +414,7 @@ fn on_departed_ip(address: &Multiaddr, departed: &VecDeque<IpAddr>) -> bool {
     host_ip(address).is_some_and(|ip| departed.contains(&ip))
 }
 
-/// Whether `address` names a private-range IP on no local network
+/// Whether `address` names an IP on no local network
 /// (ADR-0052 rule 10, the runtime's `NetworkSet::off_local`): the
 /// third predicate both doors to the crate ask, beside the boundary and
 /// [`on_departed_ip`].
@@ -484,7 +485,7 @@ pub struct HolePunchScope {
     /// (`on_departed_ip`). `a_departed_ip_is_neither_replayed_nor_learned_again_until_it_returns`
     /// pins it.
     departed: VecDeque<IpAddr>,
-    /// The private-range IPs on no local network (ADR-0052 rule 10, A
+    /// The IPs on no local network (ADR-0052 rule 10, A
     /// 2026-10-26 and A 2026-10-27; the runtime's
     /// `NetworkSet::off_local`, canonical), at most
     /// [`MAX_OFF_LOCAL_IPS`]: an address on one is offered at neither
