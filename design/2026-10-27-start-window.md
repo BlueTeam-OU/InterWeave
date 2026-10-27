@@ -602,8 +602,9 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     alone at the top, with Try again and no `ContactsEmpty`, and
     announces nothing on opening. Press Try again with the read held
     (a test hook): the row goes at once, focus is on the page title,
-    the progress row shows after 250 ms and nothing else can be
-    pressed there. Let it fail again: focus on Try again,
+    the progress row shows after 250 ms, its accessible name
+    `ContactsLoading` (the desktop's accessibility tree now; TalkBack
+    blocked), and nothing else can be pressed there. Let it fail again: focus on Try again,
     `ContactsLoadFailed` announced once. Remove the failure and press
     Try again: the list shows, focus on its first row, and the titles
     on Chats take the contacts' names. With a store holding no contact,
