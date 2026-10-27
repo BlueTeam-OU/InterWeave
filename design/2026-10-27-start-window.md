@@ -154,7 +154,7 @@ Evidence and hypotheses behind the choices below:
   another conversation's read rows past it only by the person's
   choice (§7.1).
 - **The number of conversations is bounded, and the person sees
-  nothing at the bound.** A direct conversation is keyed by the remote
+  nothing at the bound from a peer.** A direct conversation is keyed by the remote
   EndpointId (`human-client-ui.md` §4), which the sending peer asserts;
   no conforming profile speaks from more than 64 endpoints
   (`architecture/contracts/ENDPOINTS.md`), and architect-cto rules that
@@ -162,8 +162,20 @@ Evidence and hypotheses behind the choices below:
   a malformed envelope: nothing stored, nothing shown, counted
   (REPLY 01a17be2, Q3; the rule is theirs to write into `HUMAN-CHAT.md`
   and `RETENTION.md` with j68's record). So the summaries held are
-  bounded by the trust list times 64. Nothing is designed for the
-  bound.
+  bounded by the trust list times 64. Nothing is designed for an
+  inbound at the bound.
+- **The person's own send at the bound has words of its own**
+  (rust-ui-dev-02's QUESTION 01a17e74). architect-cto ruled (A2) that
+  the person's own direct send counts toward the same 64: a send that
+  would open a 65th endpoint of one peer is refused before its pending
+  row is written, and shown as any refused send is (Not sent, with
+  the reason). The reason is not `NotConfigured`'s "This route or
+  channel is not configured here": a person who typed the endpoint
+  would read that as their own mistake, or as a setting to change,
+  and neither is so (*help users recognize, diagnose and recover from
+  errors*, Nielsen 9). Its key is `NotSentEndpointLimit` (§9). Nothing
+  else differs from any refused send: focus and the composer's
+  contents stay as that rule leaves them.
 - Every notification counts as (a) says; a notification is raised on
   receipt, which the window does not change.
 - **Every pending row is held, whatever the window**, so a failed
@@ -525,6 +537,7 @@ The words are language-culture's; these say what each must do.
 | `EarlierLoadFailed` | Could not load more messages. | the failure row (§5), at the top edge or in a gap (§5.1), and its announcement | that the rows could not be read; must not suggest they are lost |
 | `CardContactsUnread` | InterWeave could not read your contacts to compare this card with them, so you cannot accept it yet. To try again, choose Contacts in InterWeave's menu, then choose Try again. | a proposal's case line while the contacts are unread (§11) | that the comparison with the person's contacts could not be made and why Accept is missing, and where to try again (the Contacts list's Try again, §11); must not suggest the card is unsafe or the contacts lost |
 | `NamingContactsUnread` | InterWeave could not read your contacts, so you cannot add this person as a contact yet. | Details, in place of naming by hand, while the contacts are unread (§11) | that the contacts could not be read and that adding a contact waits for that; names no card; must not suggest the contacts are lost |
+| `NotSentEndpointLimit` | This device already has conversations with 64 different endpoints of this peer, which is the most it keeps. Send from one of those conversations instead. | the reason of a refused send that would open a peer's 65th endpoint (§3), after the "Not sent" that every refused send shows, which it does not repeat | that this device keeps at most 64 endpoints of one peer and already has them; that the conversations it has with that peer still work, and to send from one of them; must not suggest the person typed something wrong, that a setting can change it, or anything about the peer's intent |
 | `ContactsLoading` | Loading your contacts | the accessible name of the Contacts list's progress row during Try again (§11); never visible text | that the contacts are being read |
 | `ContactsLoadFailed` | Could not load your contacts. | the Contacts list's failure row, when the read of every contact fails (§11), and its announcement | that the contacts could not be read just now; must not suggest they are lost or that there are none |
 
@@ -630,6 +643,11 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     Hebrew first line previews its first 160 characters with the
     ellipsis on the left, and one whose cut falls in a Latin word at
     the end of a Hebrew line keeps the ellipsis on the left too.
+11b. **A send at the endpoint bound** (§3): with a test store
+    holding 64 endpoints of one peer, a send to a 65th endpoint of that
+    peer is refused with `NotSentEndpointLimit`, nothing is pending and
+    nothing is sent; a send in one of the 64 conversations goes as
+    usual.
 12. **The bound while open**: with a test bound small enough to reach
     (the builder's hook), read B's unread row, then open A and page up.
     With room left for fewer session-only rows than a page holds, the
