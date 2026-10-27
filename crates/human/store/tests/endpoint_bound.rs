@@ -170,3 +170,56 @@ fn rows_stored_before_the_index_are_indexed_at_open() {
     let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
     assert_eq!(store.remote_endpoints(&peer(P)).expect("count"), 3);
 }
+
+fn tablet_card<'a>(p: &'a TransportIdentity, e: &'a EndpointId) -> AcceptedCard<'a> {
+    AcceptedCard {
+        peer: p,
+        endpoint: e,
+        name: "Ada",
+        surname: None,
+        identity_key: [1; 32],
+        photo: None,
+    }
+}
+
+/// A route's endpoint stays counted when its contact goes: accepting a
+/// card indexes the route's pair with it, so deleting the contact (and
+/// its routes) forgets nothing -- only a discard does (STATE.md, #492's
+/// review F6). Mutation: the Accept not indexing its route.
+#[test]
+fn a_deleted_contacts_route_stays_counted() {
+    let (_dir, _path, mut store) = store();
+    let (p, tablet) = (peer(P), endpoint("tablet"));
+    let ada = store
+        .accept_card(&tablet_card(&p, &tablet), 10)
+        .expect("a contact");
+    assert!(store.delete_contact(&ada.contact_id).expect("deleted"));
+    assert_eq!(store.remote_endpoints(&p).expect("count"), 1);
+    assert!(store.holds_endpoint(&p, &tablet).expect("still held"));
+}
+
+/// A store whose routes were kept before an Accept indexed them -- every
+/// store at backfill version 1 -- has their pairs indexed at open, once,
+/// so deleting the contact then forgets nothing either. Mutation: the
+/// backfill not reading the routes.
+#[test]
+fn routes_kept_before_the_accept_indexed_them_are_indexed_at_open() {
+    let (_dir, path, mut store) = store();
+    let (p, tablet) = (peer(P), endpoint("tablet"));
+    let ada = store
+        .accept_card(&tablet_card(&p, &tablet), 10)
+        .expect("a contact");
+    drop(store);
+    // As version 1 left it: the route, and no index row for its pair.
+    let conn = rusqlite::Connection::open(&path).expect("a second connection");
+    conn.execute_batch(
+        "DELETE FROM conversation_index;
+         UPDATE settings SET value = '1' WHERE key = 'conversation_index_version';",
+    )
+    .expect("back to version 1");
+    drop(conn);
+
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    assert!(store.delete_contact(&ada.contact_id).expect("deleted"));
+    assert_eq!(store.remote_endpoints(&p).expect("count"), 1);
+}

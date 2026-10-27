@@ -923,6 +923,10 @@ impl HumanStore {
                         card.identity_key.as_slice()
                     ],
                 )?;
+                // The route's pair is indexed with it, so deleting the
+                // route later forgets nothing: the per-peer bound counts it
+                // until a discard (STATE.md, #492's review F6).
+                super::window::index_direct(&tx, card.peer, card.endpoint)?;
                 Accepted {
                     undo: AcceptUndo(UndoOf::Created {
                         contact_id: contact_id.clone(),

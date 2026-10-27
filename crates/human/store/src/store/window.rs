@@ -230,14 +230,17 @@ pub(crate) fn index_direct(
 }
 
 /// The version of the index's backfill, kept in `settings` as
-/// `conversation_index_version` (STATE.md): a store without it -- every
-/// store before this build -- has the direct conversations of its stored
-/// rows indexed at open, once.
-const CONVERSATION_INDEX_VERSION: &str = "1";
+/// `conversation_index_version` (STATE.md): a store without it, or with
+/// an earlier one, has its stored rows and routes indexed at open, once.
+/// Version 2 adds every contact route's pair, which version 1 left to the
+/// routes table alone, so deleting a route forgot its endpoint (#492's
+/// review F6).
+const CONVERSATION_INDEX_VERSION: &str = "2";
 
 /// At open: index the direct conversation of every stored pending, unread
-/// and kept row, once per version, in one transaction with the version
-/// row. Read from the rows' own columns, never their payloads.
+/// and kept row, and the pair of every contact route, once per version, in
+/// one transaction with the version row. Read from the rows' own columns,
+/// never their payloads.
 ///
 /// # Errors
 /// A storage error; the open then fails as a migration's would.
@@ -287,6 +290,12 @@ pub(crate) fn backfill_conversation_index(
             [],
         )?;
     }
+    tx.execute(
+        "INSERT OR IGNORE INTO conversation_index (conversation_id, peer_id, endpoint_id)
+         SELECT DISTINCT 'direct/' || peer_id || '/' || endpoint_id, peer_id, endpoint_id
+           FROM contact_routes",
+        [],
+    )?;
     tx.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('conversation_index_version', ?1)",
         params![CONVERSATION_INDEX_VERSION],
