@@ -21,7 +21,7 @@
 //! listener bound on a private-range address the view does not hold is
 //! on no local network too ([`is_outside_the_view`]); and so, with or
 //! without a view, is one in the shared address space, `100.64.0.0/10`
-//! (A 2026-10-27, [`lies_on_no_local_network`]). The scope holds
+//! (A 2026-10-27 (iii), [`lies_on_no_local_network`]). The scope holds
 //! the view itself and judges each `NewListenAddr` against it as the
 //! Swarm reports it, so a listener the wildcard reports after the view
 //! never reaches the crate -- deciding it later, from the runtime's next
@@ -65,10 +65,12 @@ pub(crate) fn is_outside_the_view(ip: IpAddr, view: &BTreeSet<IpAddr>) -> bool {
 
 /// ADR-0052 rule 10 for a DIRECT listener's IP, apart from the view's
 /// own classification: in the shared address space (RFC 6598) whatever
-/// the platform says, since rule 2's floor refuses that range at every
-/// learn site, so no peer may learn and dial such an address of this
-/// node and offering it serves nobody, whoever numbered it (A
-/// 2026-10-27); else, while `view` is present, a private IP
+/// the platform says (A 2026-10-27 (iii)), since rule 2's floor refuses
+/// that range in every address a peer supplies: no peer learns such an
+/// address of this node through the peer door, one that reaches it does
+/// so from an entry its own operator wrote (rule 9), which needs no
+/// advertisement, so offering it serves nobody, whoever numbered it;
+/// else, while `view` is present, a private IP
 /// outside it ([`is_outside_the_view`]). The one predicate the runtime's
 /// detector (`NetworkSet::derive_off_local`) and this door apply.
 pub(crate) fn lies_on_no_local_network(ip: IpAddr, view: Option<&BTreeSet<IpAddr>>) -> bool {
@@ -380,7 +382,7 @@ mod tests {
         assert_eq!(told(&scope), set(&[quic]));
     }
 
-    /// The shared address space (A 2026-10-27): a direct listen address in
+    /// The shared address space (A 2026-10-27 (iii)): a direct listen address in
     /// `100.64.0.0/10` is withheld at the door with no view and with a
     /// view naming it, an IPv4-mapped form included; a private one with
     /// no view is told -- THE CONTROL -- and so is a circuit through a

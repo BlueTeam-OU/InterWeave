@@ -112,7 +112,8 @@ pub(super) struct NetworkSet {
     /// no peer reaches it on (a cellular network kept in the background,
     /// a carrier-restricted one); and, with or without a view, every
     /// shared-address-space IP (`100.64.0.0/10`) a direct listener binds,
-    /// which a provider numbers and no LAN is. Known and bound like any
+    /// whoever numbered it, since rule 2's floor keeps every peer from
+    /// learning it (A 2026-10-27 (iii)). Known and bound like any
     /// other -- a dial, a reservation and the carrier NAT's public address
     /// run over it -- but never this node's address toward anyone
     /// ([`Self::offers`]). Derived from the view and the listeners after
@@ -766,7 +767,7 @@ mod tests {
         assert!(set.not_offered().is_empty(), "the listener let it go");
     }
 
-    /// ADR-0052 rule 10 for the shared address space (A 2026-10-27): a
+    /// ADR-0052 rule 10 for the shared address space (A 2026-10-27 (iii)): a
     /// direct listener on a `100.64.0.0/10` IP is on no local network
     /// with NO VIEW -- the desktop with a cellular modem -- and with a
     /// view that names it, held and in the known set throughout. THE

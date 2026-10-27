@@ -54,10 +54,11 @@
 //! address on an IP on no local network (ADR-0052 rule 10,
 //! `withhold_off_local`) -- a private one the platform's view classifies
 //! so, or, while a view is present, one this host binds that the view
-//! does not hold, and one this host binds in the shared address space
-//! with or without a view (A 2026-10-27): a carrier's address is inside the boundary and
-//! still no candidate of this node's, nor an own private listener for the
-//! punch dial's filter.
+//! does not hold (A 2026-10-27): a carrier's private address is inside
+//! the boundary and still no candidate of this node's, nor an own
+//! private listener for the punch dial's filter; and one this host binds
+//! in the shared address space with or without a view (A 2026-10-27
+//! (iii)), which the boundary already refuses.
 //!
 //! THE CRATE'S OWN CACHE. libp2p-dcutr 0.15.0 keeps every candidate it
 //! is offered in a cache nothing here can reach (an LRU of 20), and each
