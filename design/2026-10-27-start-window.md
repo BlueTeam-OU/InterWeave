@@ -399,7 +399,11 @@ requires is that **paging never drops a read row on its own**.
 
 - When the session already holds as many session-only rows as the
   bound allows, so that the next row read would drop one, no page is
-  fetched by scrolling or focus. Below that, a page brings at most as
+  fetched by scrolling or focus, unless the rows still to load on that
+  side hold no unread row: older than the top edge with no
+  `EarlierUnread` line at the top, or a gap with no line of its own
+  (§5.1, §6). Such a page makes no row session-only and drops
+  nothing, so it is fetched as below the bound. Below that, a page brings at most as
   many rows as can become session-only without dropping one, so near
   the bound a page may be shorter than the builder's page size; a kept
   row in it does not count, since it keeps its stored copy. (Asked by
@@ -638,10 +642,16 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     as in item 12, and move focus down from the line to the row below
     the gap and back up to the line. The limit row shows directly above
     the line, with nothing dropped. Press `EarlierShowAnyway` with
-    focus on it: focus is on the line. Repeat (d) with a gap holding no
-    unread rows, made as in (b): the failure row and the limit row show
-    directly above the row below the gap, and both presses put focus on
-    the row below the gap.
+    focus on it: focus is on the line. (e) With the session bound out of reach, make a gap holding more
+    kept rows than two pages bring and no unread row, as in (b), so
+    that the person is above it. Make the gap's next read fail and
+    scroll down until the row above the gap comes into view: the
+    failure row shows directly below that row, with no line in the
+    gap. Remove the failure, move focus to Try again and press it:
+    focus is on the row below the gap, and stays there once the page
+    arrives. Now set the bound as in item 12 and scroll down until the
+    gap's upper side is reached again: the next page loads, with no
+    limit row and nothing dropped.
 15. **Photos on demand** (§11), with photo loads slowed by a test hook.
     The Contacts list, Chats and the app bar show a contact's initials
     on its hue, at the photo's size, then the photo in its place:
@@ -742,9 +752,9 @@ line. Two of five failing is enough to reopen §6.
 - **How the window is held and its budget figures**: the builder's.
   When paging may push read rows past the session bound is §7.1's.
 - **An exact limit row at the bound** (§7.1). With the session at the
-  bound, the limit row shows before the next page is read, so it shows
-  even when every row of that page is kept and showing it would drop
-  nothing; pressing `EarlierShowAnyway` then drops nothing. Accepted:
+  bound and unread rows still to load on that side, the limit row
+  shows before the next page is read, so it shows even when every row
+  of that page is kept and showing it would drop nothing; pressing `EarlierShowAnyway` then drops nothing. Accepted:
   knowing it beforehand needs the page's rows read first, and the cost
   is one question the person did not need.
 
