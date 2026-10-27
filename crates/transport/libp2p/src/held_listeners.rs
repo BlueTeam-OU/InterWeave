@@ -59,8 +59,10 @@ pub struct HeldListeners {
 
 /// How many times rule 3's own-listener boundary has widened
 /// ([`HeldListeners::widenings`]): a reader of the count the detector
-/// moves, shared, never reset. Only the difference between two readings
-/// means anything.
+/// moves, shared with every clone
+/// (`a_widenings_reader_sees_every_count_a_clone_of_the_record_makes`).
+/// The record's one writer adds to it and nothing lowers it, so a
+/// caller compares two readings rather than reading a value.
 #[derive(Clone, Debug, Default)]
 pub struct ListenerWidenings(Arc<AtomicU64>);
 

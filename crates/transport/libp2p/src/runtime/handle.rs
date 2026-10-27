@@ -65,8 +65,8 @@ impl SwarmRuntime {
     /// [`Self::learn`] refused as `private_without_private_listener`
     /// before a move may be admitted after it, so a caller remembering
     /// what it offered offers again once the count differs from the one
-    /// it read before offering. Read without a command, so a reading
-    /// never waits on the Swarm task.
+    /// it read before offering. A clone of a shared atomic, read with a
+    /// load: no command goes to the Swarm task.
     #[must_use]
     pub fn listener_widenings(&self) -> crate::held_listeners::ListenerWidenings {
         self.listener_widenings.clone()
