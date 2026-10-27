@@ -1554,3 +1554,51 @@ async fn the_control_plane_carrier_sends_consumes_and_names_its_endpoint() {
 
     a_daemon.terminate().await;
 }
+
+/// G2 through the binary: on a profile with a second human endpoint,
+/// `listen --endpoint` leases that one and no other, and its events name
+/// it. Mutation: `--endpoint` parsed and the profile's first endpoint
+/// leased all the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn listen_with_endpoint_leases_the_one_named() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let a = Home::new("human-desktop");
+    a.write_key();
+    // A peer the profile names, never started.
+    let other = Home::new("human-desktop").write_key();
+    let claude = "    - { id: claude,";
+    let config = example(
+        "human-desktop.yaml",
+        &other,
+        &format!("/ip4/{ip}/tcp/{}", free_port(ip)),
+        None,
+    );
+    assert!(config.contains(claude), "the example's claude row");
+    a.write_config(&config.replacen(
+        claude,
+        &format!(
+            "    - {{ id: control, enabled: true, advertise: true, allowed_client_kinds: [human-client], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}\n{claude}"
+        ),
+        1,
+    ));
+    let mut a_daemon = a.start(&[]);
+    a_daemon.serving(&a).await;
+    runtime_up(&mut a_daemon).await;
+
+    let listener = Listener::with(&a, &["listen", "--json", "--endpoint", "control"]).0;
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    let listed = a.transportctl(&["endpoints", "list", "--json"], "");
+    let listed: Value = serde_json::from_slice(&listed.stdout).expect("the list");
+    let leased: Vec<&Value> = listed["endpoints"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .filter(|row| !row["lease"].is_null())
+        .map(|row| &row["id"])
+        .collect();
+    assert_eq!(leased, [&Value::from("control")], "{listed}");
+    listener.stop();
+    a_daemon.terminate().await;
+}
