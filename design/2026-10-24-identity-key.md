@@ -266,13 +266,29 @@ and no snackbar or Undo, by either route: on the sheet route the
 person is still in the conversation, where message-swipe §6 would
 otherwise show it with its Undo. That announcement waits for the
 step's own (`KeyMaking`, then `KeyMade` or the failure line, §8) and
-never interrupts it. A row whose Cancel is still awaiting its answer
-when the step starts is still pending in the transport, so it counts
-as a row the client holds and the step withdraws it; whatever answer
-the Cancel then gets, the row does not come back: a success is
-announced as above, and a refusal (message-swipe §8's Cancel refused
-by the store) does not return the row, which is as the step's
-withdrawal left it. The step's own withdrawals have no Undo either.
+never interrupts it. The step's own withdrawals have no Undo either.
+
+A row whose Cancel is still awaiting its answer when the step starts
+is judged by the test above like any other: the step withdraws it if
+the client still holds it, and leaves it if the transport took it (or
+under the fallback, which treats every Sending row as taken). A
+withdrawal that finds the row already cancelled, the Cancel having
+succeeded first, counts as done.
+
+- **The step withdrew it.** The withdrawal is the row's outcome, and
+  the Cancel's later answer adds nothing to the row: a success is
+  announced as above; a refusal (message-swipe §8's Cancel refused by
+  the store) is not announced and does not return the row, since the
+  row is already gone and "could not cancel" would be false.
+- **The step left it, or was not taken** (§7, where the store cannot
+  be written). The Cancel's answer applies as message-swipe §8 says:
+  a refusal returns the row in the state the facade reports, with the
+  storage notice and the refusal announcement; the card may then
+  arrive with the old key, and its conversation is in the share-again
+  list as for any row the transport took. Two things differ: the
+  announcement waits for the step's own, as above, and focus stays
+  where it is (on the card page, or on the sheet after Back), as
+  message-swipe §8 has it for a person who has left the conversation.
 
 ### 5.3 The result
 
@@ -382,6 +398,8 @@ be used". §4.3's sheet: title, "as {identity}", the reason line (with
 | Open your card from the sheet | as cards §5.2 | keyboard |
 | Back from §4.1 to the sheet, key made | the sheet's Share | keyboard |
 | Back from §4.1 to the sheet, no key | Open your card | keyboard |
+| a card row's Cancel answered after the step started, the row withdrawn by the step (§5.2): success or refusal | stays where it is; a success is announced once after the step's own announcement, a refusal not at all | keyboard; desktop screen reader (acceptance 13) |
+| the same, the row left by the step or the step not taken: a refusal | stays where it is (the card page, or the sheet after Back); the row returns in the conversation, and the storage notice and the refusal announcement follow the step's own | keyboard; desktop screen reader (acceptance 13) |
 | the page goes to the background during `KeyMaking` | on return, as "made" or "failed" by what the step left; the announcement is made on return, once | keyboard; screen reader |
 
 On Android every screen-reader check is a blocked precondition while
@@ -473,13 +491,20 @@ On both clients unless said; Android's screen-reader checks blocked as
     §8; until then the run is timed from the Cancel to the
     confirmation and passes only inside the timeout set), and a
     third time by that route with the Cancel's success held by a test
-    seam until after Make a new key: its success is then announced
-    once, after `KeyMade`, with no snackbar; and a fourth time by that
-    route with the Cancel held and then refused by the seam after Make
-    a new key: E's row does not return. On each run, after Make a new
-    key, returning to E (the first) or Back to the sheet and closing it
-    (the others) shows no snackbar, and E's card is not sent, a restart
-    included.
+    seam and released while `KeyMaking` shows (the key's write held by a
+    seam): its success is announced once, after `KeyMade` and not
+    over it, with no snackbar; the same with the key's write failed
+    (item 9's seam): announced once, after the failure line. On each
+    of these runs, after Make a new key, returning to E (the first) or
+    Back to the sheet and closing it (the others) shows no snackbar,
+    and E's card is not sent, a restart included.
+    Two runs of a Cancel refused by the seam after Make a new key, by
+    the sheet route: E's row Not sent (held, so withdrawn): it does
+    not return and no refusal is announced; E's row Sending and taken
+    by the transport (D's seam): it returns in the state the facade
+    reports, the storage notice and the refusal announcement follow
+    `KeyMade`, focus stays on the card page, and E is in the
+    share-again list.
     Where the client cannot tell a Sending row it holds from one the
     transport took (§5.2's fallback), D is instead left to arrive, and
     D is still in the share-again list; the build states which of the
