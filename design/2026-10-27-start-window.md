@@ -782,11 +782,17 @@ line. Two of five failing is enough to reopen §6.
   the top, under the app bar, in place of the rows and of
   `ContactsEmpty`, which would claim there are no contacts. The row
   is `EarlierLoadFailed`'s pattern (§8): `ContactsLoadFailed`, then a
-  Try again button (`TryAgain`). Try again reads every contact again;
-  meanwhile §5's progress row stands in its place after 250 ms.
-  Success shows the list, with focus, if it was on Try again, on its
-  first row as app-placed focus. A failure shows the failure row
-  again, with focus on Try again. `ContactsLoadFailed` is announced
+  Try again button (`TryAgain`). Pressing Try again reads every contact
+  again. The failure row goes at once, and focus goes to the page's
+  title as app-placed focus (the title is where Contacts puts focus on
+  opening, contact-cards §9 item 1). Its place stays empty until §5's
+  progress row shows there after 250 ms, if the read has not answered
+  by then. With the button gone, no second read can start while one
+  is in flight. Success shows the list, with focus on its first row,
+  else on `ContactsEmpty` when the store holds no contact (contact-cards
+  §9 item 1's rule), if focus was still on the title. A failure shows
+  the failure row again, with focus on Try again if it was still on
+  the title. `ContactsLoadFailed` is announced
   once, politely, when the failure arises while Contacts is open, a
   failed Try again included. A Contacts list that opens already
   showing it announces nothing, because the row is the first item read
