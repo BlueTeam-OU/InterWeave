@@ -17,7 +17,7 @@ use interweave_human_android_platform::{
     AvailabilityMode, Ended, Link, NetworkReport, ServiceHost, ServiceLaunch, StartRefused,
     StayReachable, StoreAnswer, ToView, ViewLink,
 };
-use interweave_human_app_core::Update;
+use interweave_human_app_core::{Command, Update};
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_transport_embedded::EmbeddedRefused;
@@ -190,6 +190,63 @@ fn a_stop_releases_the_waiter_tells_the_view_and_frees_the_profile() {
     });
     until(&mut link, &mut held, "a fresh listing", is_listing);
     let _ = service.stop(GRACE);
+}
+
+/// Owner's finding P2-2, through the running service: every command the
+/// hub accepted before a stop is carried out and answered before the view
+/// hears the service stopped -- none is dropped unanswered -- and one sent
+/// once it stopped is handed back. Whether any is still queued when the
+/// close is seen is timing: with the close's drain removed this fails in
+/// about two runs of five. The drain itself is held without timing by
+/// facade.rs's `closing_hands_back_every_command_accepted_before_it`.
+#[test]
+fn a_command_accepted_before_a_stop_is_answered() {
+    let app = app();
+    let service = started(&app);
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    until(&mut link, &mut held, "listing", is_listing);
+    let rows: Vec<_> = (1_000..1_200)
+        .map(interweave_human_ui_model::RowId::from_stored)
+        .collect();
+    for row in &rows {
+        assert!(service.hub().command(Command::MarkRead(*row)).is_ok());
+    }
+    let _ = service.stop(GRACE).expect("it ran");
+    let mut answered = std::collections::BTreeSet::new();
+    let deadline = Instant::now() + WAIT;
+    'heard: loop {
+        let mut waiting = std::mem::take(&mut held);
+        waiting.extend(link.take());
+        for message in waiting {
+            match message {
+                ToView::Update(update) => match *update {
+                    Update::Done(Command::MarkRead(row))
+                    | Update::Failed {
+                        command: Command::MarkRead(row),
+                        ..
+                    } => {
+                        answered.insert(row);
+                    }
+                    _ => {}
+                },
+                ToView::Running(false) => break 'heard,
+                _ => {}
+            }
+        }
+        assert!(Instant::now() < deadline, "no stop within {WAIT:?}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        answered.len(),
+        rows.len(),
+        "every accepted command answered before the stop"
+    );
+    assert_eq!(
+        service.hub().command(Command::Reopen),
+        Err(Command::Reopen),
+        "handed back once stopped"
+    );
 }
 
 /// The network callback's reports (plan section 20 step 5) are taken
@@ -644,7 +701,6 @@ fn without_network_a_missing_profile_is_refused_and_nothing_runs() {
 /// kept row.
 #[test]
 fn without_network_a_message_is_read_and_kept_as_with_one() {
-    use interweave_human_app_core::Command;
     use interweave_human_chat_protocol::{HumanChatV2, MessageKind, encode_outbound};
     use interweave_human_store::{
         AppMessageId, HumanStore, InboundOrigin, NewInbound, StoreOptions,
@@ -739,7 +795,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     // Read both; keep one.
     for row in [kept_row, read_row] {
         assert!(
-            service.hub().command(Command::MarkRead(row)),
+            service.hub().command(Command::MarkRead(row)).is_ok(),
             "a facade takes commands"
         );
         until(
@@ -760,7 +816,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
             _ => None,
         })
         .expect("Keep offered on the read message");
-    assert!(service.hub().command(keep));
+    assert!(service.hub().command(keep).is_ok());
     until(
         &mut link,
         &mut held,
@@ -790,7 +846,6 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
 /// attempt ("Sending"), and the facade reports a row only when it changes.
 #[test]
 fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
-    use interweave_human_app_core::Command;
     use interweave_human_client_api::OutboundStatus;
     use interweave_human_ui_model::ConversationKey;
 
@@ -805,13 +860,18 @@ fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
     let stranger = interweave_profile_identity::ProfileIdentity::generate()
         .transport_identity()
         .expect("a PeerId");
-    assert!(service.hub().command(Command::Send {
-        key: ConversationKey::Direct {
-            peer: stranger,
-            endpoint: None,
-        },
-        draft: "to nobody".to_owned(),
-    }));
+    assert!(
+        service
+            .hub()
+            .command(Command::Send {
+                key: ConversationKey::Direct {
+                    peer: stranger,
+                    endpoint: None,
+                },
+                draft: "to nobody".to_owned(),
+            })
+            .is_ok()
+    );
     let settled = |status: &OutboundStatus| matches!(status, OutboundStatus::NeedsAttention { .. });
     let mut row = None;
     until(&mut first, &mut held, "a settled pending row", |message| {
