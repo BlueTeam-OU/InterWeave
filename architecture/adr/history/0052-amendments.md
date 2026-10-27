@@ -328,3 +328,62 @@ p2p-network-dev-02's (the view's field, `own_addresses::select`, the
 Identify listen set, the offer sites, rule 3's test) with rust-ui-dev's
 bridge half (the Kotlin callback reading each network's transport, the
 `android-platform` seam), one PR.
+
+### Amendment 2026-10-27 — An address the platform's view does not hold is on no local network
+
+rust-ui-dev-01 re-ran ADR-0062's gate (e) on the Pixel 9a at main
+bdc7ac89, the first build carrying rule 10, with Wi-Fi and mobile
+data on (OBSERVATION 01a17bb8): Show still listed both carrier
+`10.x/32` addresses beside the Wi-Fi one. The platform's connectivity
+service had reported neither carrier network to the bridge's listen —
+one was the cellular network held in the background behind validated
+Wi-Fi, the other the carrier's IMS network, which an app cannot
+request — so the view held the Wi-Fi network alone and classified
+nothing, while the wildcard listener bound both addresses.
+p2p-network-dev-02 read the four surfaces on `origin/main`
+(OBSERVATION 01a17bbb): the known set is the view's addresses plus the
+listeners' bound set (`CONNECTIVITY.md` §14), the off-local set holds
+only what the view classifies, so an address the view never named was
+shown, advertised, offered and counted as an own private listener —
+rule 10's unclassified-counts-as-local default, applied to a network
+the platform never described. On cellular alone the IMS address is
+still bound, so rule 3 still admitted a far end's private candidate:
+the probe rule 10 was written to refuse.
+
+Ruled: where a view is present, a bound private-range address the
+view does not hold lies on no local network for rule 10's four
+consequences, and is lifted when a view names it. The reason is what
+the view is: every network the platform lets the app use. A network
+it withholds is one the app cannot use and no peer reaches it on,
+whichever reason the platform has, so the measurement of whether a
+different listen would see the background network was not needed.
+Written as a rule of the runtime with no platform in it; the desktop,
+with no view, is unchanged. The fail direction is the opposite of the
+unclassified-transport default and chosen on the weights: wrongly
+hiding costs a LAN address the view missed, with the other phone's
+code still connecting the pair one way; wrongly showing is the rule 3
+probe into the carrier's network and the carrier address handed to
+every Identify peer. Two things follow for the bridge. Its listen
+admits every network the platform reports to the app, not only
+Internet-capable ones, since a Wi-Fi with no uplink or a local-only
+hotspot is a LAN the person is on and would otherwise fall outside
+the view. And the one LAN a platform may report to no app, a
+tethering downstream — the phone's own hotspot access point, a Wi-Fi
+Direct group owner — enters the view as a local network where the
+platform lets an app read it; where it does not, the hotspot host's
+unshown address is the recorded limit, unmeasured at the time of this
+note (rust-ui-dev-01's row). Rejected: the bridge reading the host's
+interfaces and classifying by absence (a second address source in the
+platform layer, classifying from the interface names §14 keeps out,
+for a fact the runtime already holds); keeping the rule and widening
+the listen alone (the IMS network is withheld whatever the listen
+asks, so the rule 3 probe stays).
+
+Propagation: rule 10; this note; the log row; the digest entry;
+ADR-0062 decision 4 and its note; `CONNECTIVITY.md` §14; `DCUTR.md`
+§6; `human-client-android.md` §Android network lifecycle. The code is
+p2p-network-dev-02's (the off-local set in `network_change.rs`, read
+by the four sites as before; j82) with rust-ui-dev-01's bridge half
+(the listen, the tethering read if one exists, the Pixel rows), one
+PR; the stage record says gate (e) passes only on the re-run row.
+

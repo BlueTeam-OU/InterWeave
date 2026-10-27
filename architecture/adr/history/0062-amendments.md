@@ -98,3 +98,23 @@ already omits the special-use classes, from the classification the
 platform's view carries; nothing else in the decision moves.
 Propagation: decision 4; the conformance cases; this note; the log
 row; the digest entry; ADR-0052's own note names the specifications.
+
+### Amendment 2026-10-27 — An address the platform's view does not hold is not shown
+
+rust-ui-dev-01's device row of 2026-10-27, on the first build carrying
+rule 10 (main bdc7ac89): the Pixel 9a's Show listed both carrier
+addresses beside the Wi-Fi one as before. The platform had reported
+neither carrier network to the bridge, so the view classified nothing
+and the show side, reading the view's classification, omitted
+nothing. ADR-0052 rule 10 (A 2026-10-27, its own note) now says what
+such an address is — bound on a network the platform reports to no
+app, it lies on no local network — and decision 4 inherits it as it
+inherited the first case: the show side omits what the runtime holds
+back, from the one off-local set. The limit the rule admits is named
+here because it is the show side that a person meets: a phone hosting
+a hotspot whose access point the platform lets no app read shows no
+address for it, and the client's code connects the pair one way.
+Gate (e)'s case is the same case, re-run on the build that carries
+this. Propagation: decision 4; this note; the log row; the digest
+entry; ADR-0052's note names the specifications.
+
