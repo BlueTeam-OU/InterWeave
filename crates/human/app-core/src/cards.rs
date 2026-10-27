@@ -158,6 +158,19 @@ pub(crate) fn shown(bytes: &[u8]) -> Option<Photo> {
     })
 }
 
+/// The card one share sent, for its own card row (contact-cards section
+/// 5.5): its name and surname as one line, its photo decoded for display.
+pub(crate) fn sent_card(
+    name: &str,
+    surname: Option<&str>,
+    photo: Option<&[u8]>,
+) -> interweave_human_ui_model::SentCard {
+    interweave_human_ui_model::SentCard {
+        name: surname.map_or_else(|| name.to_owned(), |s| format!("{name} {s}")),
+        photo: photo.and_then(shown),
+    }
+}
+
 /// Every contact, as the model shows it.
 pub(crate) fn contact_views(store: &HumanStore) -> Result<Vec<ContactView>, StoreError> {
     Ok(store

@@ -2035,7 +2035,9 @@ async fn a_card_accepted_after_a_new_key_records_no_share() {
 /// Contact-cards section 5.5 through the loop: Share puts the card in
 /// its conversation as one's own card row, the card as it went -- an edit
 /// after the share does not rewrite the row -- with Retry and Cancel while
-/// it is Not sent. Mutation: the queued card not applied to the model.
+/// it is Not sent; after a restart the store lists the same row, read back
+/// as it went. Mutations: the queued card not applied to the model; the
+/// listing not reading an own card back.
 #[tokio::test]
 async fn a_shared_card_is_its_own_card_row_as_it_went() {
     use interweave_human_ui_model::{Intent, SentCard};
@@ -2074,6 +2076,23 @@ async fn a_shared_card_is_its_own_card_row_as_it_went() {
     assert_eq!(
         alice.model().actions(rows[0].key),
         vec![Intent::Retry(row), Intent::Cancel(row)]
+    );
+
+    // After a restart the store lists it, read back as it went.
+    drop(alice);
+    a.restart();
+    a.inject_send(TransportError::UnauthorizedPeer);
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(4).await;
+    let rows = alice.model().messages(&to_bob);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        rows[0].card,
+        Some(SentCard {
+            name: "Ada Lovelace".to_owned(),
+            photo: None,
+        }),
+        "listed at start as it went"
     );
 }
 

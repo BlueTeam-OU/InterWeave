@@ -129,19 +129,41 @@ pub(crate) fn walk<T>(
 }
 
 fn outbound(row: &PendingOutbound) -> Option<ListedOutbound> {
-    Some(ListedOutbound {
-        row: row.row_id,
-        destination: match &row.destination {
-            OutboundDestination::Direct(direct) => Destination::Direct {
-                peer: direct.peer.clone(),
-                endpoint: direct.endpoint.clone(),
-            },
-            OutboundDestination::Broadcast(channel) => Destination::Broadcast(channel.clone()),
+    let destination = match &row.destination {
+        OutboundDestination::Direct(direct) => Destination::Direct {
+            peer: direct.peer.clone(),
+            endpoint: direct.endpoint.clone(),
         },
-        envelope: decode(row.media_type.as_ref(), &row.payload)?,
-        created_at: row.created_at,
-        card: None,
-    })
+        OutboundDestination::Broadcast(channel) => Destination::Broadcast(channel.clone()),
+    };
+    if let Some(envelope) = decode(row.media_type.as_ref(), &row.payload) {
+        return Some(ListedOutbound {
+            row: row.row_id,
+            destination,
+            envelope,
+            created_at: row.created_at,
+            card: None,
+        });
+    }
+    // The identity's own card, read back to show it as it went (contact-
+    // cards section 5.5): its own write, unverified, since this node's
+    // PeerId is not known before a session (HUMAN-CHAT.md section Contact
+    // card, A 2026-10-27). One the grammar refuses stays undecodable.
+    let info = parse_media_type(row.media_type.as_ref()?.as_str()).ok()?;
+    let text = decode_envelope_bytes(&row.payload, info.encoding).ok()?;
+    let own = interweave_human_chat_protocol::read_own_card_unverified(&text)?;
+    let card = crate::cards::sent_card(
+        &own.name,
+        own.surname.as_deref(),
+        own.photo.as_ref().map(|p| p.bytes.as_slice()),
+    );
+    Some(ListedOutbound::own_card(
+        row.row_id,
+        destination,
+        own.app_message_id,
+        card,
+        row.created_at,
+    ))
 }
 
 fn inbound(row: &StoredInbound) -> Option<ListedInbound> {

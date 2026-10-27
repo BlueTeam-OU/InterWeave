@@ -1171,13 +1171,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         self.card_rows.insert(row, key.clone());
         // What went, for its own card row: never the card as edited later
         // (contact-cards section 5.5, `CardSharedStays`).
-        let card = interweave_human_ui_model::SentCard {
-            name: own_card.surname.as_ref().map_or_else(
-                || own_card.name.clone(),
-                |s| format!("{} {s}", own_card.name),
-            ),
-            photo: own_card.photo.as_deref().and_then(cards::shown),
-        };
+        let card = cards::sent_card(
+            &own_card.name,
+            own_card.surname.as_deref(),
+            own_card.photo.as_deref(),
+        );
         updates.push(Update::CardQueued {
             key: key.clone(),
             row,
