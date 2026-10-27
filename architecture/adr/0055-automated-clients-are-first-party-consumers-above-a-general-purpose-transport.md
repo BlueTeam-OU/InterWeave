@@ -41,7 +41,7 @@ In this repository, a stage that ran beside Stage 17 by record and closed on it 
 
 ## Revisit conditions
 
-A second host reached across the open Internet (ADR-0034 §7 cleared, SPIKE-004's limits consumed; decision 5b's private overlay is not one); the broadcast ingress bucket gaining a counter or a refusal (then decision 2's sentence is updated, not the client's rule); the Channel bridge gaining a standalone mode; the ceiling proving too small for a client class (then the client splits, never the ceiling rises).
+A second host reached across the open Internet (ADR-0034 §7 cleared, SPIKE-004's limits consumed; decision 5b's private overlay is not one); the second host itself running under decision 5b, when the owner is to be reminded of the limits accepted for the first remote host (A 2026-10-27 (iii)); the broadcast ingress bucket gaining a counter or a refusal (then decision 2's sentence is updated, not the client's rule); the Channel bridge gaining a standalone mode; the ceiling proving too small for a client class (then the client splits, never the ceiling rises).
 
 ## Amendments
 
@@ -49,6 +49,7 @@ Full notes: [`history/0055-amendments.md`](./history/0055-amendments.md).
 
 | Date | Amendment | Effect |
 |---|---|---|
+| 2026-10-27 (iii) | The owner accepts decision 5b's limits for the first remote host | The owner's word, 2026-10-27, in architect-cto's session: "accept the 5b limits but remember me about this after we have the second host"; the limits of the two-namespace case (one kernel, no NAT, no second uid, no real second host in CI) are accepted for the first remote host, ADR-0034 §7 and SPIKE-004's deferred limits unchanged, and the Revisit conditions name the second host's running as the reminder. |
 | 2026-10-27 (ii) | The two amendments of the day read against each other | Decision 5b's limit sentence says the port rule is measured on the host and owed as a CI case; decision 5's last sentence and the Revisit condition say 5b's overlay is not the Internet-reached second host that consumes ADR-0034 §7 and SPIKE-004's limits; 5b's wildcard parenthesis cites the kept case that renders the overlay-literal shape (#475 review F1, F2); and 5b says a peer on the overlay is a configuration entry, never a run-time add, since ADR-0062's floor refuses the shared address space at the add (#475 review's carried risk). |
 | 2026-10-27 | Decision 5's cross-account port rule is measured | Decision 5: another account's daemon refused the held port and its unit retrying every 5 s, the next retry listening once the holder stopped — measured on the host between two accounts with the v0.1.0 programs (`packaging/linux/evidence/2026-10-27-second-uid-port.md`); the suite stays one-uid, so a CI case is still owed. |
 | 2026-10-27 | Two hosts over a private overlay the deployment provides | Decision 5b: a daemon listening on a wildcard (never the overlay literal alone, whose loss no detector sees, measured) with its peer's overlay address as a static-bootstrap entry through ADR-0052 rule 9's door, whatever the class; the overlay is the deployment's; no Kademlia, no connectivity role; proved by a two-namespace case of `tests/automated-client`, its limits named (one kernel, no NAT, no second uid, no real second host in CI); the owner's acceptance of those limits for the first remote host is recorded here when given. |

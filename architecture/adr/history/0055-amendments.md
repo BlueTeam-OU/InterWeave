@@ -101,3 +101,19 @@ digest entry. The lesson for the record's author: two amendments of
 one record on one day are read against each other before the second
 leaves.
 
+### Amendment 2026-10-27 (iii) — The owner accepts decision 5b's limits for the first remote host
+
+Decision 5b's note of the same day said the owner's word on the
+two-namespace case's limits would be recorded here when given. It
+was given in architect-cto's session on 2026-10-27, verbatim: "accept
+the 5b limits but remember me about this after we have the second
+host". So the limits the case leaves — one kernel, so no real tunnel
+latency, loss, MTU or clock skew; no NAT; no second uid; no real
+second host in CI — are accepted for the first remote host, with
+ADR-0034 §7's release gate and SPIKE-004's deferred limits unchanged,
+and the Revisit conditions gain the second host's running under
+decision 5b as the point at which the owner is reminded of what was
+accepted, so that a real second host is measured rather than
+assumed. Propagation: the Revisit conditions; this note; the log row;
+the digest entry.
+
