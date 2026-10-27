@@ -416,6 +416,9 @@ impl HumanStore {
 
         migrate(&mut conn)?;
         verify_shape(&conn)?;
+        // Before anything can read a key: a store whose keys another build
+        // made, or the v10 migration left empty, has them all again here.
+        contacts::refresh_name_keys(&mut conn)?;
 
         Ok(Self {
             conn,

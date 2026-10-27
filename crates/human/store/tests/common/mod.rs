@@ -39,3 +39,19 @@ pub(crate) fn private_tempdir_in(dir: impl AsRef<Path>) -> tempfile::TempDir {
     }
     temp
 }
+
+/// What v10 added (the start window: STATE.md's v10 paragraph), undone on
+/// a file this build made. A test that fakes an earlier schema runs it
+/// first: the indexes go before the columns they cover.
+pub(crate) const UNDO_V10: &str = "DROP INDEX contacts_by_name_key;
+     DROP INDEX contact_routes_by_route;
+     DROP INDEX contact_routes_by_key;
+     DROP INDEX unread_inbound_by_conversation;
+     DROP INDEX unread_inbound_by_channel;
+     DROP INDEX kept_inbound_by_conversation;
+     DROP INDEX kept_inbound_by_channel;
+     ALTER TABLE contacts DROP COLUMN name_key;
+     ALTER TABLE unread_inbound DROP COLUMN kind;
+     ALTER TABLE kept_inbound DROP COLUMN kind;
+     DELETE FROM settings WHERE key = 'name_key_version';
+     ";

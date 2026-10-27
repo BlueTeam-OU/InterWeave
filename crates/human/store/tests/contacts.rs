@@ -971,3 +971,53 @@ fn a_removed_photo_leaves_both_files_before_the_call_returns() {
     );
     drop(store);
 }
+
+/// Schema v10: every writer of a contact's display name -- a new
+/// contact, a card's update, an accept undone, the person's rename, a
+/// deleted contact restored -- leaves `name_key` the key of the name it
+/// wrote, as the file holds it. Mutation: the rename without `name_key`.
+#[test]
+fn every_writer_of_a_name_keeps_its_name_key() {
+    let (dir, mut store) = store();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let keys_agree = |what: &str| {
+        let conn = rusqlite::Connection::open(&path).expect("a reader beside the store");
+        let rows: Vec<(String, String)> = conn
+            .prepare("SELECT display_name, name_key FROM contacts")
+            .expect("prepare")
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .expect("query")
+            .collect::<Result<_, _>>()
+            .expect("rows");
+        assert!(!rows.is_empty(), "{what}: control, a contact");
+        for (name, key) in rows {
+            assert_eq!(key, name_key(&name), "{what}: {name:?}");
+        }
+    };
+    let (p, human) = (peer(P), endpoint("human"));
+    let first = store
+        .accept_card(&card(&p, &human, "\u{ff21}da", 1), 10)
+        .expect("a new contact");
+    keys_agree("a new contact");
+    let second = store
+        .accept_card(&card(&p, &human, "Ada Lovelace", 1), 20)
+        .expect("an update");
+    keys_agree("a card's update");
+    assert!(store.undo_accept(&second.undo).expect("undone"));
+    keys_agree("an accept undone");
+    assert!(
+        store
+            .set_contact_name(&first.contact_id, "Countess", 30)
+            .expect("renamed")
+    );
+    keys_agree("the person's rename");
+    let deleted = store
+        .delete_contact_for_undo(&first.contact_id)
+        .expect("deleted")
+        .expect("it existed");
+    assert_eq!(
+        store.restore_contact(&deleted).expect("restored"),
+        ContactRestored::Restored
+    );
+    keys_agree("a deleted contact restored");
+}

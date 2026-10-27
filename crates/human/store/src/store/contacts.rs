@@ -401,6 +401,72 @@ pub fn name_key(name: &str) -> String {
     unicode_security::skeleton(&spaced).collect()
 }
 
+/// The version of [`name_key`]'s output, kept in `settings` as
+/// `name_key_version` (STATE.md, schema v10). A build whose key differs
+/// for any name -- a new Unicode version in `unicode-normalization`,
+/// `caseless` or `unicode-security`, or a change here -- bumps it, and the
+/// first open recomputes every contact's key before any standing reads
+/// one. `the_name_key_is_pinned` fails when the output moves and this did
+/// not.
+pub(crate) const NAME_KEY_VERSION: &str = "1";
+
+/// The `settings` key [`NAME_KEY_VERSION`] is kept under.
+const NAME_KEY_SETTING: &str = "name_key_version";
+
+/// Contacts recomputed per statement batch: the open holds this many names
+/// at a time, never every contact.
+const NAME_KEY_BATCH: i64 = 256;
+
+/// At open: every contact's `name_key` recomputed when the store's keys
+/// were made by another version of [`name_key`] -- or by none, as after
+/// the v10 migration, which leaves them empty -- in one transaction with
+/// the version row, so a crash leaves the old version and the next open
+/// starts over.
+///
+/// # Errors
+/// A storage error; the open then fails as a migration's would.
+pub(crate) fn refresh_name_keys(conn: &mut rusqlite::Connection) -> Result<(), StoreError> {
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![NAME_KEY_SETTING],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if stored.as_deref() == Some(NAME_KEY_VERSION) {
+        return Ok(());
+    }
+    let tx = conn.transaction()?;
+    let mut after = String::new();
+    loop {
+        let batch: Vec<(String, String)> = tx
+            .prepare(
+                "SELECT contact_id, display_name FROM contacts
+                  WHERE contact_id > ?1 ORDER BY contact_id LIMIT ?2",
+            )?
+            .query_map(params![after, NAME_KEY_BATCH], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        let Some((last, _)) = batch.last() else {
+            break;
+        };
+        after.clone_from(last);
+        for (contact_id, display_name) in &batch {
+            tx.execute(
+                "UPDATE contacts SET name_key = ?2 WHERE contact_id = ?1",
+                params![contact_id, name_key(display_name)],
+            )?;
+        }
+    }
+    tx.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![NAME_KEY_SETTING, NAME_KEY_VERSION],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 fn new_contact_id() -> String {
     format!("{:032x}", rand::random::<u128>())
 }
@@ -641,9 +707,9 @@ impl HumanStore {
                     ValueSource::from_sql(name_source.as_deref()) == ValueSource::Person;
                 if !name_kept {
                     tx.execute(
-                        "UPDATE contacts SET display_name = ?2, name_at = ?3, updated_at = ?3
+                        "UPDATE contacts SET display_name = ?2, name_key = ?4, name_at = ?3, updated_at = ?3
                           WHERE contact_id = ?1",
-                        params![contact_id, display, at],
+                        params![contact_id, display, at, name_key(&display)],
                     )?;
                 }
                 // A photo the person set stays. Unlike a name, a contact
@@ -685,9 +751,9 @@ impl HumanStore {
             } else {
                 let contact_id = new_contact_id();
                 tx.execute(
-                    "INSERT INTO contacts (contact_id, display_name, name_source, name_at,
+                    "INSERT INTO contacts (contact_id, display_name, name_key, name_source, name_at,
                                            photo, photo_source, photo_at, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?4, ?4)",
+                     VALUES (?1, ?2, ?8, ?3, ?4, ?5, ?6, ?7, ?4, ?4)",
                     params![
                         contact_id,
                         display,
@@ -695,7 +761,8 @@ impl HumanStore {
                         at,
                         card.photo,
                         card.photo.map(|_| ValueSource::Card.as_sql()),
-                        card.photo.map(|_| at)
+                        card.photo.map(|_| at),
+                        name_key(&display)
                     ],
                 )?;
                 tx.execute(
@@ -746,7 +813,7 @@ impl HumanStore {
         let result = (|| -> Result<bool, StoreError> {
             let tx = self.conn.transaction()?;
             let restored = tx.execute(
-                "UPDATE contacts SET display_name = ?2, name_source = ?3, name_at = ?4,
+                "UPDATE contacts SET display_name = ?2, name_key = ?9, name_source = ?3, name_at = ?4,
                         photo = ?5, photo_source = ?6, photo_at = ?7, updated_at = ?8
                   WHERE contact_id = ?1",
                 params![
@@ -757,7 +824,8 @@ impl HumanStore {
                     before.photo,
                     before.photo_source,
                     before.photo_at,
-                    before.updated_at
+                    before.updated_at,
+                    name_key(&before.display_name)
                 ],
             )?;
             tx.execute(
@@ -792,9 +860,9 @@ impl HumanStore {
         let changed = self
             .conn
             .execute(
-                "UPDATE contacts SET display_name = ?2, name_source = ?3, name_at = ?4, updated_at = ?4
+                "UPDATE contacts SET display_name = ?2, name_key = ?5, name_source = ?3, name_at = ?4, updated_at = ?4
                   WHERE contact_id = ?1",
-                params![contact_id, name, ValueSource::Person.as_sql(), at],
+                params![contact_id, name, ValueSource::Person.as_sql(), at, name_key(name)],
             )
             .map_err(StoreError::from)
             .map_err(|e| self.note_store_failure(e))?;
@@ -1230,5 +1298,68 @@ impl HumanStore {
         };
         self.set_own_card(&card, at_ms)?;
         Ok(card)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NAME_KEY_VERSION, name_key};
+
+    /// [`name_key`]'s output, pinned: stored keys are compared with keys
+    /// computed now, so an output that moves -- a Unicode update in a
+    /// dependency -- must move [`NAME_KEY_VERSION`] with it, and the open
+    /// recomputes every key. When this fails, bump the version and the
+    /// pins together. Mutation: the case folding dropped.
+    #[test]
+    fn the_name_key_is_pinned() {
+        assert_eq!(NAME_KEY_VERSION, "1", "the pins below are version 1's");
+        for (name, key) in [
+            ("Ada", "ada"),
+            ("  Ada   Lovelace ", "ada lovelace"),
+            ("\u{ff21}da", "ada"),
+            ("\u{410}da", "ada"),
+            ("ADA", "ada"),
+            ("Stra\u{df}e", "strasse"),
+            ("\u{fb01}le", "file"),
+            ("Ada\u{a0}L", "ada l"),
+            ("\u{1c4}emal", "dz\u{306}ernal"),
+            ("\u{130}stanbul", "i\u{307}stanbul"),
+            ("\u{3a9}mega", "\u{3c9}rnega"),
+            ("\u{1fbc}", "ai"),
+            ("m", "rn"),
+            ("0O", "Oo"),
+            ("\u{661}\u{662}\u{663}", "l\u{662}\u{663}"),
+        ] {
+            assert_eq!(name_key(name), key, "{name:?}");
+        }
+    }
+
+    /// Every statement of this file that writes a contact's display name
+    /// writes its `name_key` too (schema v10): a key left behind by a
+    /// rename makes the same-name standing compare against a name the
+    /// contact no longer has. Read from the source, so a writer added
+    /// later is held as well; `every_writer_of_a_name_keeps_its_name_key`
+    /// holds the values. Mutation: one writer without `name_key`.
+    #[test]
+    fn every_statement_writing_a_display_name_writes_its_name_key() {
+        let source = include_str!("contacts.rs");
+        // Built here, so this test's own text does not match itself.
+        let writes = [
+            ["INSERT INTO ", "contacts ("].concat(),
+            ["UPDATE contacts SET ", "display_name"].concat(),
+        ];
+        let statements: Vec<&str> = source
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .filter(|literal| writes.iter().any(|w| literal.contains(w.as_str())))
+            .collect();
+        assert!(statements.len() >= 4, "control: the writers are found");
+        for statement in statements {
+            assert!(
+                statement.contains("name_key"),
+                "writes a display name without its key: {statement}"
+            );
+        }
     }
 }

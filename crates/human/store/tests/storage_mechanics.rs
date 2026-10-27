@@ -12,6 +12,8 @@
 
 mod common;
 
+use common::UNDO_V10;
+
 /// What v9 added (plan §29 step 2), undone on a file this build made: the
 /// older-version tests below fake an earlier schema that way, so each
 /// undoes the later migrations, this one included.
@@ -31,7 +33,7 @@ use std::os::unix::fs::PermissionsExt;
 use interweave_human_core::retention::{StorageHealth, TerminalCause};
 use interweave_human_store::{
     AppMessageId, HumanStore, InboundOrigin, NewInbound, NewOutbound, OutboundDestination,
-    PageLimits, PageLimitsError, READ_PAIR_CAP, SCHEMA_VERSION, StoreError, StoreOptions,
+    PageLimits, PageLimitsError, READ_PAIR_CAP, SCHEMA_VERSION, StoreError, StoreOptions, name_key,
 };
 use interweave_transport_api::{
     ChannelId, DirectDestination, EndpointId, MediaType, MessageId, TransportIdentity,
@@ -477,7 +479,7 @@ fn a_v5_database_gains_transport_ids_keeping_its_rows_and_its_id_high_water() {
     };
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(&format!(
-        "{UNDO_V9}CREATE TABLE pending_outbound_v5 (
+        "{UNDO_V10}{UNDO_V9}CREATE TABLE pending_outbound_v5 (
              row_id                INTEGER PRIMARY KEY AUTOINCREMENT,
              app_message_id        TEXT    NOT NULL UNIQUE,
              destination_peer      TEXT    NOT NULL,
@@ -555,11 +557,11 @@ fn a_v4_database_gains_the_three_tables_and_keeps_its_rows() {
             .expect("a v4-era row");
     }
     let conn = rusqlite::Connection::open(&path).expect("reopen");
-    conn.execute_batch(
-        "DROP TABLE own_cards; DROP TABLE contact_routes; DROP TABLE contacts; DROP TABLE conversation_index;
+    conn.execute_batch(&format!(
+        "{UNDO_V10}DROP TABLE own_cards; DROP TABLE contact_routes; DROP TABLE contacts; DROP TABLE conversation_index;
          DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received;
-         PRAGMA user_version = 4;",
-    )
+         PRAGMA user_version = 4;"
+    ))
     .expect("back to v4");
     drop(conn);
 
@@ -2342,6 +2344,7 @@ fn a_generated_key_with_the_right_name_and_a_different_expression_is_refused() {
             media_type      TEXT,
             payload         BLOB    NOT NULL,
             received_at     INTEGER NOT NULL,
+            kind            TEXT    NOT NULL DEFAULT 'other',
             source_endpoint_key TEXT GENERATED ALWAYS AS ('') VIRTUAL,
             channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
             UNIQUE(source_peer, source_endpoint_key, channel_key, app_message_id)
@@ -2385,6 +2388,7 @@ fn a_stored_generated_column_is_not_the_virtual_one_this_build_wrote() {
             received_at     INTEGER NOT NULL,
             read_at         INTEGER NOT NULL,
             kept_at         INTEGER NOT NULL,
+            kind            TEXT    NOT NULL DEFAULT 'other',
             source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) STORED,
             channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
             UNIQUE(source_peer, source_endpoint_key, channel_key, app_message_id)
@@ -2462,6 +2466,7 @@ fn a_decoy_comment_carrying_the_expected_declaration_does_not_excuse_a_constant(
             media_type      TEXT,
             payload         BLOB    NOT NULL,
             received_at     INTEGER NOT NULL,
+            kind            TEXT    NOT NULL DEFAULT 'other',
             source_endpoint_key TEXT GENERATED ALWAYS AS ('') VIRTUAL
                 /* source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) VIRTUAL */,
             channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
@@ -2526,6 +2531,7 @@ fn a_channel_key_expression_that_collapses_channels_is_refused() {
                 media_type      TEXT,
                 payload         BLOB    NOT NULL,
                 received_at     INTEGER NOT NULL,
+                kind            TEXT    NOT NULL DEFAULT 'other',
                 source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) VIRTUAL,
                 channel_key         TEXT GENERATED ALWAYS AS ({tampered}) VIRTUAL,
                 UNIQUE(source_peer, source_endpoint_key, channel_key, app_message_id)
@@ -2573,6 +2579,7 @@ fn a_truncating_generated_key_is_refused_even_though_it_matches_short_probes() {
             media_type      TEXT,
             payload         BLOB    NOT NULL,
             received_at     INTEGER NOT NULL,
+            kind            TEXT    NOT NULL DEFAULT 'other',
             source_endpoint_key TEXT
                 GENERATED ALWAYS AS (IFNULL(substr(source_endpoint, 1, 14), '')) VIRTUAL,
             channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
@@ -2616,6 +2623,7 @@ fn a_generated_key_that_drops_a_legal_character_class_is_refused() {
             received_at     INTEGER NOT NULL,
             read_at         INTEGER NOT NULL,
             kept_at         INTEGER NOT NULL,
+            kind            TEXT    NOT NULL DEFAULT 'other',
             source_endpoint_key TEXT
                 GENERATED ALWAYS AS (IFNULL(replace(source_endpoint, '.', ''), '')) VIRTUAL,
             channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
@@ -2888,7 +2896,7 @@ fn a_v6_database_gains_the_read_pairs_keeping_its_rows() {
             .expect("a v6-era row");
     }
     let conn = rusqlite::Connection::open(&path).expect("reopen");
-    conn.execute_batch(&format!("{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;"))
+    conn.execute_batch(&format!("{UNDO_V10}{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;"))
         .expect("back to v6");
     drop(conn);
 
@@ -2940,7 +2948,7 @@ fn a_v7_database_gains_the_walk_indexes_keeping_its_rows() {
     }
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(&format!(
-        "{UNDO_V9}DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received;
+        "{UNDO_V10}{UNDO_V9}DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received;
          PRAGMA user_version = 7;",
     ))
     .expect("back to v7");
@@ -2969,13 +2977,22 @@ fn a_v7_database_gains_the_walk_indexes_keeping_its_rows() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .expect("version");
     assert_eq!(version, SCHEMA_VERSION);
+    // v8's walk index, and since v10 the start window's two beside it.
     assert_eq!(
         store_indexes(&conn, "unread_inbound"),
-        ["unread_inbound_by_received"]
+        [
+            "unread_inbound_by_channel",
+            "unread_inbound_by_conversation",
+            "unread_inbound_by_received"
+        ]
     );
     assert_eq!(
         store_indexes(&conn, "kept_inbound"),
-        ["kept_inbound_by_received"]
+        [
+            "kept_inbound_by_channel",
+            "kept_inbound_by_conversation",
+            "kept_inbound_by_received"
+        ]
     );
 }
 
@@ -3039,7 +3056,7 @@ fn the_walk_indexes_are_part_of_the_verified_shape() {
         ),
         (
             "unique",
-            "CREATE UNIQUE INDEX settings_by_value ON settings (value)",
+            "CREATE UNIQUE INDEX settings_by_value ON settings (key, value)",
             "",
         ),
     ] {
@@ -3112,6 +3129,7 @@ fn a_unique_key_over_an_expression_is_not_the_generated_column_this_build_wrote(
                 media_type      TEXT,
                 payload         BLOB    NOT NULL,
                 received_at     INTEGER NOT NULL,
+                kind            TEXT    NOT NULL DEFAULT 'other',
                 source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) VIRTUAL,
                 channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL
             );
@@ -3161,7 +3179,7 @@ fn a_migration_blocked_by_another_writer_is_not_a_file_needing_recovery() {
     let path = dir.path().join("state").join("human.sqlite3");
     drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
     let conn = rusqlite::Connection::open(&path).expect("raw");
-    conn.execute_batch(&format!("{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;"))
+    conn.execute_batch(&format!("{UNDO_V10}{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;"))
         .expect("back to v6");
     conn.execute_batch("BEGIN IMMEDIATE;")
         .expect("a writer holds the file");
@@ -3188,7 +3206,7 @@ fn a_migration_of_a_file_this_user_cannot_write_is_not_a_file_needing_recovery()
         drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
         let conn = rusqlite::Connection::open(&path).expect("raw");
         conn.execute_batch(&format!(
-            "{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6; PRAGMA journal_mode = {journal};"
+            "{UNDO_V10}{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6; PRAGMA journal_mode = {journal};"
         ))
         .expect("back to v6");
         drop(conn);
@@ -3255,7 +3273,7 @@ fn a_v8_database_gains_the_card_columns_keeping_its_rows() {
     // typed value is the person's, and a typed route has no key.
     let (_dir, path, conn) = raw_store();
     conn.execute_batch(&format!(
-        "{UNDO_V9}PRAGMA user_version = 8;
+        "{UNDO_V10}{UNDO_V9}PRAGMA user_version = 8;
          INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
              VALUES ('c1', 'Ada', 1, 2);
          INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, last_seen)
@@ -3272,7 +3290,7 @@ fn a_v8_database_gains_the_card_columns_keeping_its_rows() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .expect("version");
-    assert_eq!(version, 9);
+    assert_eq!(version, SCHEMA_VERSION, "through v9 to this build's");
     for (table, column) in [
         ("contacts", "name_source"),
         ("contacts", "name_at"),
@@ -3362,7 +3380,8 @@ fn the_card_columns_and_keys_are_part_of_the_verified_shape() {
         ),
         (
             "a route without identity_key",
-            "ALTER TABLE contact_routes DROP COLUMN identity_key;",
+            "DROP INDEX contact_routes_by_key;
+             ALTER TABLE contact_routes DROP COLUMN identity_key;",
         ),
         (
             "a conversation without card_shared_at",
@@ -3396,6 +3415,137 @@ fn the_card_columns_and_keys_are_part_of_the_verified_shape() {
              );
              DROP TABLE contact_routes;
              ALTER TABLE r RENAME TO contact_routes;",
+        ),
+    ] {
+        let (_dir, path, conn) = raw_store();
+        conn.execute_batch(sql).expect("the edit is legal SQLite");
+        drop(conn);
+        let refused = HumanStore::open(&path, StoreOptions::default());
+        assert!(
+            matches!(&refused, Err(StoreError::Migration(_))),
+            "{what}: must refuse the open, got {refused:?}"
+        );
+    }
+}
+
+/// Schema v10 (STATE.md's v10 paragraph): a v9 file gains the two derived
+/// columns and the seven indexes, keeping every row. Its contacts' keys
+/// are computed at that first open, not left empty, and the version row
+/// written; an inbound row starts as `other` until the client classifies
+/// it. Mutation: the open without `refresh_name_keys`.
+#[test]
+fn a_v9_database_gains_the_start_window_columns_and_indexes_keeping_its_rows() {
+    let (_dir, path, conn) = raw_store();
+    conn.execute_batch(&format!(
+        "{UNDO_V10}PRAGMA user_version = 9;
+         INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
+             VALUES ('c1', '\u{ff21}da Lovelace', 1, 2);
+         INSERT INTO unread_inbound
+             (app_message_id, source_peer, source_endpoint, payload, received_at)
+             VALUES ('{ID_A}', 'p', 'human', x'01', 3);"
+    ))
+    .expect("back to v9, with a contact and an unread row");
+    assert!(!columns_of(&conn, "contacts").contains(&"name_key".to_owned()));
+    drop(conn);
+
+    drop(HumanStore::open(&path, StoreOptions::default()).expect("migrates to v10"));
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("version");
+    assert_eq!(version, SCHEMA_VERSION);
+    let (name, key): (String, String) = conn
+        .query_row("SELECT display_name, name_key FROM contacts", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .expect("the contact");
+    assert_eq!(key, name_key(&name), "computed at the first open");
+    assert_eq!(key, "ada lovelace");
+    let recorded: String = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'name_key_version'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("the version row");
+    assert_eq!(recorded, "1");
+    let (payload, kind): (Vec<u8>, String) = conn
+        .query_row("SELECT payload, kind FROM unread_inbound", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .expect("the unread row");
+    assert_eq!((payload, kind.as_str()), (vec![1], "other"));
+    assert_eq!(store_indexes(&conn, "contacts"), ["contacts_by_name_key"]);
+    assert_eq!(
+        store_indexes(&conn, "contact_routes"),
+        ["contact_routes_by_key", "contact_routes_by_route"]
+    );
+}
+
+/// A key made by another version of `name_key` is recomputed at open,
+/// before anything reads it, and a current one is left alone. Mutation:
+/// the version row compared and never written.
+#[test]
+fn a_name_key_of_another_version_is_recomputed_at_open() {
+    let (_dir, path, conn) = raw_store();
+    conn.execute_batch(
+        "INSERT INTO contacts (contact_id, display_name, name_key, created_at, updated_at)
+             VALUES ('c1', 'Ada', 'stale', 1, 2);
+         UPDATE settings SET value = '0' WHERE key = 'name_key_version';",
+    )
+    .expect("a key another version made");
+    drop(conn);
+    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let key: String = conn
+        .query_row("SELECT name_key FROM contacts", [], |r| r.get(0))
+        .expect("the key");
+    assert_eq!(key, "ada", "recomputed");
+
+    // The control: at this build's version, a key is not touched again.
+    conn.execute("UPDATE contacts SET name_key = 'left alone'", [])
+        .expect("mark it");
+    drop(conn);
+    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let key: String = conn
+        .query_row("SELECT name_key FROM contacts", [], |r| r.get(0))
+        .expect("the key");
+    assert_eq!(key, "left alone", "one recompute per version, not per open");
+}
+
+/// Each v10 addition is held by the shape check: a file missing one, or
+/// with it changed, does not open.
+#[test]
+fn the_start_window_columns_and_indexes_are_part_of_the_verified_shape() {
+    for (what, sql) in [
+        (
+            "contacts without name_key",
+            "DROP INDEX contacts_by_name_key; ALTER TABLE contacts DROP COLUMN name_key;",
+        ),
+        (
+            "unread rows without kind",
+            "ALTER TABLE unread_inbound DROP COLUMN kind;",
+        ),
+        (
+            "kept rows without kind",
+            "ALTER TABLE kept_inbound DROP COLUMN kind;",
+        ),
+        ("no name-key index", "DROP INDEX contacts_by_name_key;"),
+        ("no route index", "DROP INDEX contact_routes_by_route;"),
+        ("no identity-key index", "DROP INDEX contact_routes_by_key;"),
+        (
+            "no unread conversation index",
+            "DROP INDEX unread_inbound_by_conversation;",
+        ),
+        (
+            "no kept channel index",
+            "DROP INDEX kept_inbound_by_channel;",
+        ),
+        (
+            "an index over other columns under the name",
+            "DROP INDEX unread_inbound_by_channel;
+             CREATE INDEX unread_inbound_by_channel ON unread_inbound (channel_key, row_id);",
         ),
     ] {
         let (_dir, path, conn) = raw_store();

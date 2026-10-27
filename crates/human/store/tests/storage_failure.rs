@@ -195,6 +195,9 @@ fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every
     // CREATE TABLE fails on it, AFTER migration 6 has rebuilt
     // pending_outbound inside the same transaction.
     raw(&path)
+        .execute_batch(common::UNDO_V10)
+        .expect("back before v10");
+    raw(&path)
         .execute_batch(
             "CREATE TABLE pending_outbound_v5 (
                  row_id                INTEGER PRIMARY KEY AUTOINCREMENT,
