@@ -5,7 +5,9 @@
 # daemons on loopback, static bootstrap and mutual trust as a deployment
 # renders them, and a generic automated TEST client -- any endpoint, any
 # client kind, any channel the case configures; test-only, never a
-# production dependency.
+# production dependency. Decision 5b's case (`tests/two_hosts.rs`) puts
+# two daemons in two network namespaces joined by one private link
+# (`interweave-test-support`'s overlay), Linux only.
 # The binaries are the workspace's own build: run the workspace's tests, or
 # build `interweave-transport-daemon` and `interweave-transportctl` first
 # (every profile's key is minted by `transportctl identity init`) -- a
