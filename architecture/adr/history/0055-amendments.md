@@ -29,7 +29,14 @@ runner and jobs cannot reach each other. Decision 5b states the
 shape, puts the overlay on the deployment's side of the line decision
 7 draws, and names the case that proves it: two daemons in two
 network namespaces on one runner over a point-to-point private link,
-with the limits that leaves. The owner's word on those limits for the
+with the limits that leaves. The first text offered the listen address as
+"its overlay address, or a wildcard"; p2p-network-dev-01 measured
+the two (REPLY 01a17c34, 2026-10-27): with wildcard listeners the
+link's deletion closes the connection at both ends within 10 s and
+its return redials, with the overlay literal the loss closes nothing,
+since a listener bound to one address reports no change and a daemon
+has no platform view, so the decision names the wildcard alone and
+says why. The owner's word on those limits for the
 first remote host, when given, is recorded here; ADR-0034 §7 and
 SPIKE-004's deferred limits stay where decision 5 left them.
 Propagation: decision 5b; this note; the log row; the digest entry;
