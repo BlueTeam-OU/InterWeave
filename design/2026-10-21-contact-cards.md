@@ -1401,7 +1401,10 @@ none is specified here (§11).
 App bar: back arrow, title "Contacts" and, while two or more identities
 are held, the identity in front as the subtitle (§5.7.2): the list is
 that identity's contacts and no other's. Rows sorted by name in the
-locale's collation: avatar, name, and under it `ContactRoutes` ("{n}
+locale's collation; contacts whose names collate equal are ordered by
+the smallest of their routes, a route compared by its full PeerId in
+canonical form and then by its route label, as text (two contacts never
+share a route, so no two contacts tie). Each row: avatar, name, and under it `ContactRoutes` ("{n}
 conversations") only when there is more than one. A row opens the contact page.
 
 - **Empty**: `ContactsEmpty`: no contacts yet; a contact is added when

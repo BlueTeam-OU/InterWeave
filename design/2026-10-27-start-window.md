@@ -621,8 +621,9 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     proposal shows its neutral avatar, as contact-cards §5.4 says.
 16. **One contact named** (§11): with two contacts "Anna Rossi" on
     other PeerIds, a card "Anna Rossi" from a third PeerId shows
-    `CardSameName` naming the first of the two in the Contacts list's
-    order, and Open your contact opens that one; with three contacts
+    `CardSameName` naming the one whose PeerId sorts first as text
+    (contact-cards §6.2's tie-break), and Open your contact opens that
+    one, not the other; with three contacts
     on one PeerId, a card from a fourth route of that PeerId shows
     `CardSharesDeviceMany` naming the first of them in that order and
     2 others. Both hold with the Contacts list scrolled to its end and
