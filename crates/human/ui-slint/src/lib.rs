@@ -41,6 +41,7 @@ mod cards;
 mod clipboard;
 mod clock;
 pub mod code;
+mod connect;
 mod gesture;
 mod identity;
 mod peers;
@@ -88,7 +89,7 @@ pub use generated::Palette;
 /// The start-up refusal screen's window, for a test that reads its tree.
 pub use generated::RefusalWindow;
 use generated::{ActionRow, BodyLine, ConversationRow, LineKind, LinkRow, MessageRow, TrustRow};
-use interweave_human_ui_model::PeersInput;
+use interweave_human_ui_model::{ConnectInput, PeersInput};
 
 /// The view's window, to run the event loop on: shows it, and returns
 /// once the person closes it or [`quit_event_loop`] is called.
@@ -321,6 +322,22 @@ enum Input {
     /// What the person did on a card screen: a proposal's answer names
     /// the model's intent as drawn, a contact names its id.
     Cards(cards::CardsInput),
+    /// What the person did on onboarding's Connect.
+    Connect(ConnectInput),
+}
+
+/// An input the root applies before the next take, handed over as it
+/// is: a draft's edit, or a press on the trust settings, Peers or
+/// Connect, which the model judges when it applies it. Any other input is
+/// the view's to resolve.
+fn handed_over(input: Input) -> Result<ViewEvent, Input> {
+    match input {
+        Input::Draft(key, draft) => Ok(ViewEvent::DraftChanged { key, draft }),
+        Input::Trust(input) => Ok(ViewEvent::Trust(input)),
+        Input::Peers(input) => Ok(ViewEvent::Peers(input)),
+        Input::Connect(input) => Ok(ViewEvent::Connect(input)),
+        other => Err(other),
+    }
 }
 
 /// What made an item action: its row button, or a touch swipe.
@@ -750,6 +767,9 @@ enum Page {
     Peers,
     /// A card page -- Contacts, a contact, the own card -- in its place.
     Cards,
+    /// Onboarding's Connect, over everything; the pages it opens are
+    /// Peers', drawn in its place while they are up.
+    Connect,
 }
 
 /// The reference view: one window, bound to a [`UiModel`].
@@ -1017,6 +1037,7 @@ impl View {
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
         wire_trust(&window, &shared);
         peers::wire(&window, &shared);
+        connect::wire(&window, &shared);
         cards::wire(&window, &shared);
 
         let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
@@ -1546,6 +1567,13 @@ impl View {
             let Some(input) = next else {
                 break;
             };
+            let input = match handed_over(input) {
+                Ok(event) => {
+                    out.push(event);
+                    return out;
+                }
+                Err(input) => input,
+            };
             match input {
                 Input::Select(key) => {
                     // A conversation picked in the list beside the trust
@@ -1665,10 +1693,6 @@ impl View {
                 Input::Send(key) => {
                     out.extend(model.send_draft(&key).map(ViewEvent::Intent));
                 }
-                Input::Draft(key, draft) => {
-                    out.push(ViewEvent::DraftChanged { key, draft });
-                    return out;
-                }
                 // The root applies a trust input before the next take, as
                 // it does an edit. Leaving the settings drops a change still
                 // waiting for confirmation: none is made from a page the
@@ -1692,10 +1716,6 @@ impl View {
                     }));
                     return out;
                 }
-                Input::Trust(input) => {
-                    out.push(ViewEvent::Trust(input));
-                    return out;
-                }
                 // The root applies a Peers input before the next take.
                 Input::PeersPage(open) => {
                     self.page = if open {
@@ -1713,10 +1733,8 @@ impl View {
                         return out;
                     }
                 }
-                Input::Peers(input) => {
-                    out.push(ViewEvent::Peers(input));
-                    return out;
-                }
+                // Handed over before this match (`handed_over`).
+                Input::Draft(..) | Input::Trust(_) | Input::Peers(_) | Input::Connect(_) => {}
                 // A card page opened in the trust settings' or Peers'
                 // place leaves them as a pick of a conversation does.
                 Input::Cards(input) => {
@@ -1883,7 +1901,7 @@ impl View {
     fn on_screen(&self) -> Option<&ConversationKey> {
         match self.page {
             Page::Conversation if self.window.get_pane_shown() => self.shown.as_ref(),
-            Page::Conversation | Page::Trust | Page::Peers | Page::Cards => None,
+            Page::Conversation | Page::Trust | Page::Peers | Page::Cards | Page::Connect => None,
         }
     }
 
@@ -1915,10 +1933,12 @@ impl View {
         // slot, and the first would never be heard (review F5).
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
+        // Before Peers, which draws the pages Connect opened by its page.
+        let connect = self.render_connect(model);
         let peers = self.render_peers(model);
         let cards = self.render_cards(model);
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
-        let said = [conversation, trust, peers, cards, outcome]
+        let said = [conversation, trust, connect, peers, cards, outcome]
             .into_iter()
             .flatten()
             .reduce(|first, rest| {

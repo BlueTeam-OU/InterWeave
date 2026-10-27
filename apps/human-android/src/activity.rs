@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide};
+use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboarding};
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent};
 use interweave_human_ui_slint::{
@@ -19,7 +19,7 @@ use interweave_human_ui_slint::{
     invoke_on_window,
 };
 
-use crate::jni::log;
+use crate::jni::{PROFILE, log};
 
 /// The view, shared by every model side the Activity makes: one per
 /// attach, since a service that starts again lists its store from new.
@@ -350,6 +350,16 @@ impl Opener for AndroidOpener {
     fn authenticate(&mut self) {
         crate::onboard::authenticate();
     }
+
+    fn connect_settled(&mut self) {
+        if let Some((dir, _)) = crate::onboard::platform()
+            && let Err(why) = onboarding::set_connect_owed(&dir, PROFILE, false)
+        {
+            // Left set, Connect is decided again at the next start, and
+            // opens only if the device still knows no one.
+            log(&format!("the connect-owed marker: {why:?}"));
+        }
+    }
 }
 
 struct Root {
@@ -365,8 +375,17 @@ impl Root {
         }));
         let surface = Rc::clone(&view);
         Self {
+            // Each fresh model -- a service restart makes one -- asks the
+            // marker again, so a Connect a start left undecided is owed to
+            // the next (add-a-peer §5.1).
             side: ViewSide::new(move || {
-                ModelSide::new(AndroidSurface(Rc::clone(&surface)), AndroidOpener)
+                let mut side = ModelSide::new(AndroidSurface(Rc::clone(&surface)), AndroidOpener);
+                if crate::onboard::platform()
+                    .is_some_and(|(dir, _)| onboarding::connect_owed(&dir, PROFILE))
+                {
+                    side.connect_owed();
+                }
+                side
             }),
             view,
             link,

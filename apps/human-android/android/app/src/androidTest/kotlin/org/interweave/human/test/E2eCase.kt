@@ -33,7 +33,8 @@ class E2eCase : Instrumentation() {
         val status = Bundle()
         val out =
             try {
-                JSONObject(run(case, args, targetContext.dataDir.absolutePath))
+                if (case == DROP_STORE_KEY) dropStoreKey()
+                else JSONObject(run(case, args, targetContext.dataDir.absolutePath))
             } catch (e: Throwable) {
                 JSONObject().put("case", case).put("result", "fail").put("detail", "the runner: $e")
             }
@@ -42,7 +43,27 @@ class E2eCase : Instrumentation() {
         finish(Activity.RESULT_OK, status)
     }
 
+    /**
+     * A device row's precondition, not a case: the store key's Keystore
+     * entry deleted, as a lost or wiped Keystore leaves it, so the next
+     * start shows the recovery screen and its discard can be run by a
+     * person (j138's device rows). Destroys the store's readability on
+     * the phone it runs on; runs only when asked by name.
+     */
+    private fun dropStoreKey(): JSONObject {
+        val answer = org.interweave.human.KeystoreCipher.retire(STORE_KEY_ALIAS)
+        return JSONObject()
+            .put("case", DROP_STORE_KEY)
+            .put("result", if (answer.firstOrNull() == 0.toByte()) "pass" else "fail")
+            .put("detail", "retire $STORE_KEY_ALIAS answered ${answer.firstOrNull()}")
+    }
+
     companion object {
+        const val DROP_STORE_KEY = "drop-store-key"
+
+        /** keystore.rs: the store's own alias, `interweave.store.<profile>`. */
+        const val STORE_KEY_ALIAS = "interweave.store.human-android"
+
         init {
             System.loadLibrary("interweave_human_android")
         }

@@ -14,6 +14,7 @@
 
 #![forbid(unsafe_code)]
 
+mod connect;
 mod identity_flow;
 mod labels;
 mod look;
@@ -25,6 +26,7 @@ mod store_recovery;
 mod trust;
 mod waiting;
 
+pub use connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectLine};
 pub use identity_flow::{
     Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, Words,
 };
@@ -51,9 +53,9 @@ pub use model::{
 };
 pub use peers::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockHeld, BlockProblem, BlockState, BlockView,
-    CODE_LINES, LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus, PeersInput,
-    PeersSnack, Refusal, RowReadBack, RowState, ScanControl, ScanVerdict, ShowProblem, ShowState,
-    TYPED_LINES, TrustLine, is_address_list, lines_of,
+    CODE_LINES, ConnectAdd, LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus,
+    PeersInput, PeersSnack, Refusal, RowReadBack, RowState, ScanControl, ScanVerdict, ShowProblem,
+    ShowState, TYPED_LINES, TrustLine, is_address_list, lines_of,
 };
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
