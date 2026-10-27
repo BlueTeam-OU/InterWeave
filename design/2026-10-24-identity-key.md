@@ -458,7 +458,10 @@ On both clients unless said; Android's screen-reader checks blocked as
     E, cancelled just before the card page is opened, once by each
     route: through the Chats ⋮ menu's Your card, and through E's share
     sheet and Open your card with the Cancel snackbar still open under
-    it (the platform's longest timeout set, message-swipe §6), and a
+    it (on Android the platform's longest timeout set, message-swipe
+    §6; on the desktop, whose snackbar lasts 6 s, a test seam holding
+    it open), the snackbar observed present in the accessibility tree
+    under the sheet just before the confirmation, and a
     third time by that route with the Cancel's success held by a test
     seam until after Make a new key: its success is then announced
     once, with no snackbar. On each run, after Make a new key,

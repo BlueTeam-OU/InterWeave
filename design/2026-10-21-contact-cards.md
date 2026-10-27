@@ -1646,7 +1646,9 @@ accessibility tree) are checked now.
   is open, `CardUndoHint` as its description.
 - Own card row: "You shared your card", the name and surname as sent,
   `CardSentPhoto` when the card as sent carried a photo (the photo
-  itself is not described: what matters is that it was sent), then the
+  itself is not described: what matters is that it is in the card;
+  it is read in every state of the row, Sending and Not sent included,
+  so it claims no delivery, which the status after it states), then the
   status and the time. Its custom actions (Android) are those of its
   menu, Retry and Cancel while pending, as message-swipe §7 sets for a
   sent message; none once it is Accepted.
@@ -2079,8 +2081,8 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     activatable, and TalkBack offers no custom action and no "double
     tap to activate" (TalkBack blocked, §8, until the device run). The
     desktop screen reader reads the row as §8 says, with
-    `CardSentPhoto` for a card sent with a photo and without it for
-    one sent with none.
+    `CardSentPhoto` for a card sent with a photo, on a Sending, a Not
+    sent and an Accepted row, and without it for one sent with none.
 
 ### 9.1 `human-client-ui.md` §13 criteria
 
@@ -2189,7 +2191,7 @@ and are for them to write.
 | `CardNotification` | You received a contact card. | notification body; never the name |
 | `AnnounceCard` | New contact card | live announcement |
 | `CardSentLabel` | You shared your card | own card row |
-| `CardSentPhoto` | Your photo was sent with the card. | own card row, accessible description only, when the card as sent carried a photo (§8) |
+| `CardSentPhoto` | The card includes your photo. | own card row, accessible description only, when the card as sent carried a photo (§8), read in every state of the row, so it claims no delivery; proposal, language-culture's to word |
 | `AddAsContact` / `OpenContact` | Add as a contact / Open contact | Details |
 | `DetailsNoCard` | You have not shared your card here. | Details |
 | `ContactsEmpty` | One identity: You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. Two or more: {front} has no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty; with two or more identities it is this identity's list that is empty, and the text must not suggest the person has no contacts at all (language-culture to judge whether it needs saying) |
