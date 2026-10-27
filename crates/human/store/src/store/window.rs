@@ -177,6 +177,25 @@ const HIDDEN: &str =
     "SELECT (SELECT COUNT(*) FROM unread_inbound INDEXED BY unread_inbound_by_kind WHERE kind NOT IN ('text', 'card')),
             (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind WHERE kind NOT IN ('text', 'card'))";
 
+/// A peer's distinct endpoints: its conversations by a range on the
+/// index's key, its contacts' routes by the route index, never a scan of
+/// either (`the_endpoint_count_reads_its_indexes`).
+const ENDPOINT_COUNT: &str = "SELECT COUNT(*) FROM (
+     SELECT endpoint_id FROM conversation_index
+      WHERE conversation_id > ?1 AND conversation_id < ?2
+     UNION
+     SELECT endpoint_id FROM contact_routes WHERE peer_id = ?3)";
+
+/// The bounds of `peer`'s direct conversation ids, `direct/<peer>/...`,
+/// for a range read on the index's key: `/` sorts just before `0`, so
+/// every id of this peer, and no other's, is between them.
+fn conversation_id_range(peer: &TransportIdentity) -> (String, String) {
+    (
+        format!("direct/{}/", peer.as_str()),
+        format!("direct/{}0", peer.as_str()),
+    )
+}
+
 /// The rank of a table among rows received at one instant: kept rows rank
 /// above unread ones, so in a newest-first page a kept row comes first
 /// (`a_conversation_is_paged_newest_first_with_every_row_once`), and a
@@ -188,7 +207,131 @@ const fn rank(table: BackupTable) -> u8 {
     }
 }
 
+/// Index the direct conversation of `peer`'s `endpoint`, if it is not
+/// already: written with the conversation's first row, in its
+/// transaction (STATE.md, the per-peer endpoint bound).
+pub(crate) fn index_direct(
+    tx: &rusqlite::Connection,
+    peer: &TransportIdentity,
+    endpoint: &EndpointId,
+) -> rusqlite::Result<()> {
+    tx.execute(
+        "INSERT OR IGNORE INTO conversation_index (conversation_id, peer_id, endpoint_id)
+         VALUES (?1, ?2, ?3)",
+        params![
+            crate::direct_conversation_id(peer, endpoint),
+            peer.as_str(),
+            endpoint.as_str()
+        ],
+    )?;
+    Ok(())
+}
+
+/// The version of the index's backfill, kept in `settings` as
+/// `conversation_index_version` (STATE.md): a store without it -- every
+/// store before this build -- has the direct conversations of its stored
+/// rows indexed at open, once.
+const CONVERSATION_INDEX_VERSION: &str = "1";
+
+/// At open: index the direct conversation of every stored pending, unread
+/// and kept row, once per version, in one transaction with the version
+/// row. Read from the rows' own columns, never their payloads.
+///
+/// # Errors
+/// A storage error; the open then fails as a migration's would.
+pub(crate) fn backfill_conversation_index(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), StoreError> {
+    use rusqlite::OptionalExtension as _;
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'conversation_index_version'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if stored.as_deref() == Some(CONVERSATION_INDEX_VERSION) {
+        return Ok(());
+    }
+    let tx = conn.transaction()?;
+    // `direct/<peer>/<endpoint>`, as `direct_conversation_id` writes it.
+    for (table, peer, endpoint, channel) in [
+        (
+            "unread_inbound",
+            "source_peer",
+            "source_endpoint",
+            "channel_id",
+        ),
+        (
+            "kept_inbound",
+            "source_peer",
+            "source_endpoint",
+            "channel_id",
+        ),
+        (
+            "pending_outbound",
+            "destination_peer",
+            "destination_endpoint",
+            "channel_id",
+        ),
+    ] {
+        tx.execute(
+            &format!(
+                "INSERT OR IGNORE INTO conversation_index (conversation_id, peer_id, endpoint_id)
+                 SELECT DISTINCT 'direct/' || {peer} || '/' || {endpoint}, {peer}, {endpoint}
+                   FROM {table}
+                  WHERE {channel} IS NULL AND {endpoint} IS NOT NULL"
+            ),
+            [],
+        )?;
+    }
+    tx.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('conversation_index_version', ?1)",
+        params![CONVERSATION_INDEX_VERSION],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 impl HumanStore {
+    /// How many distinct endpoints of `peer` the store holds: its indexed
+    /// direct conversations and the routes kept under contacts, together
+    /// (HUMAN-CHAT.md's malformed rule; STATE.md). Two indexed reads.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn remote_endpoints(&self, peer: &TransportIdentity) -> Result<u64, StoreError> {
+        let (from, to) = conversation_id_range(peer);
+        let count: i64 =
+            self.conn
+                .query_row(ENDPOINT_COUNT, params![from, to, peer.as_str()], |r| {
+                    r.get(0)
+                })?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
+    /// Whether the store already holds `endpoint` of `peer`, as an indexed
+    /// conversation or a contact's route.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn holds_endpoint(
+        &self,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+    ) -> Result<bool, StoreError> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM conversation_index WHERE conversation_id = ?1)
+                 OR EXISTS (SELECT 1 FROM contact_routes WHERE peer_id = ?2 AND endpoint_id = ?3)",
+            params![
+                crate::direct_conversation_id(peer, endpoint),
+                peer.as_str(),
+                endpoint.as_str()
+            ],
+            |r| r.get(0),
+        )?)
+    }
+
     /// One page of `conversation`'s rows of a kind this build shows, unread
     /// and kept together, newest first, older than `before` (the newest at
     /// `None`): within `limits`, and the cursor of the next page when there
@@ -394,7 +537,7 @@ impl HumanStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{CHANNEL, CHANNEL_COUNTS, DIRECT, DIRECT_COUNTS, HIDDEN, page_sql};
+    use super::{CHANNEL, CHANNEL_COUNTS, DIRECT, DIRECT_COUNTS, ENDPOINT_COUNT, HIDDEN, page_sql};
     use crate::{HumanStore, StoreOptions};
 
     /// Each window read is planned on its v10 index, never a scan of an
@@ -474,5 +617,35 @@ mod tests {
                 "a row read: {plan:?}"
             );
         }
+    }
+
+    /// A peer's endpoint count reads the conversation index by a range on
+    /// its key and the routes by their index, never a scan of either table.
+    /// Mutation: the range replaced by a filter on `peer_id`.
+    #[test]
+    fn the_endpoint_count_reads_its_indexes() {
+        let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let plan: Vec<String> = store
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {ENDPOINT_COUNT}"))
+            .expect("plan")
+            .query_map(rusqlite::params!["a", "b", "p"], |r| r.get::<_, String>(3))
+            .expect("rows")
+            .collect::<Result<_, _>>()
+            .expect("plan rows");
+        assert!(
+            plan.iter()
+                .any(|s| s.starts_with("SEARCH conversation_index USING")),
+            "{plan:?}"
+        );
+        assert!(
+            plan.iter().any(|s| s.contains("contact_routes_by_route")),
+            "{plan:?}"
+        );
+        assert!(
+            !plan.iter().any(|s| s.starts_with("SCAN conversation_index")
+                || s.starts_with("SCAN contact_routes")),
+            "{plan:?}"
+        );
     }
 }

@@ -430,6 +430,7 @@ impl HumanStore {
         // Before anything can read a key: a store whose keys another build
         // made, or the v10 migration left empty, has them all again here.
         contacts::refresh_name_keys(&mut conn)?;
+        window::backfill_conversation_index(&mut conn)?;
 
         Ok(Self {
             conn,
@@ -724,32 +725,50 @@ impl HumanStore {
             .map(|at| sql_timestamp("last_attempt_at", at))
             .transpose()?;
 
-        let result = self.conn.execute(
-            "INSERT INTO pending_outbound
+        let created_at = sql_timestamp("created_at", new.created_at)?;
+        // The row and its conversation's index entry in one transaction: a
+        // direct send to a named endpoint indexes the conversation it opens
+        // (STATE.md, the per-peer endpoint bound), a send to the default
+        // endpoint or a channel names none.
+        let indexed = match &new.destination {
+            OutboundDestination::Direct(d) => d.endpoint.as_ref().map(|e| (&d.peer, e)),
+            OutboundDestination::Broadcast(_) => None,
+        };
+        let result = (|| -> rusqlite::Result<i64> {
+            let tx = self.conn.unchecked_transaction()?;
+            tx.execute(
+                "INSERT INTO pending_outbound
                  (app_message_id, transport_message_id, destination_peer,
                   destination_endpoint, channel_id, media_type, payload, created_at,
                   last_attempt_at, attempts)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                new.app_message_id.as_str(),
-                new.transport_message_id.as_bytes().as_slice(),
-                // A broadcast row has no peer; the column is NOT NULL, so
-                // the channel row stores the empty string and the channel
-                // column is what identifies it. Reading discriminates on
-                // channel_id, never on this.
-                peer.unwrap_or_default(),
-                endpoint,
-                channel,
-                new.media_type.as_ref().map(MediaType::as_str),
-                new.payload,
-                sql_timestamp("created_at", new.created_at)?,
-                last_attempt_at,
-                attempts,
-            ],
-        );
+                params![
+                    new.app_message_id.as_str(),
+                    new.transport_message_id.as_bytes().as_slice(),
+                    // A broadcast row has no peer; the column is NOT NULL, so
+                    // the channel row stores the empty string and the channel
+                    // column is what identifies it. Reading discriminates on
+                    // channel_id, never on this.
+                    peer.unwrap_or_default(),
+                    endpoint,
+                    channel,
+                    new.media_type.as_ref().map(MediaType::as_str),
+                    new.payload,
+                    created_at,
+                    last_attempt_at,
+                    attempts,
+                ],
+            )?;
+            let row = tx.last_insert_rowid();
+            if let Some((peer, endpoint)) = indexed {
+                window::index_direct(&tx, peer, endpoint)?;
+            }
+            tx.commit()?;
+            Ok(row)
+        })();
 
         match result {
-            Ok(_) => Ok(RowId::from_stored(self.conn.last_insert_rowid())),
+            Ok(row) => Ok(RowId::from_stored(row)),
             Err(e) => Err(self.note_failure(e)),
         }
     }
@@ -945,8 +964,18 @@ impl HumanStore {
         // copy is the same message and is not unread again (STATE.md
         // `read_pairs`). The check is IN the insert, so nothing can slip
         // between them.
-        let result = self.conn.execute(
-            "INSERT INTO unread_inbound
+        let received_at = sql_timestamp("received_at", new.received_at)?;
+        // The row and, for a direct one, its conversation's index entry in
+        // one transaction (STATE.md: the index holds every direct
+        // conversation the store holds rows of).
+        let indexed = match (&new.origin.endpoint, &new.origin.channel) {
+            (Some(endpoint), None) => Some((&new.origin.peer, endpoint)),
+            _ => None,
+        };
+        let result = (|| -> rusqlite::Result<Option<i64>> {
+            let tx = self.conn.unchecked_transaction()?;
+            let inserted = tx.execute(
+                "INSERT INTO unread_inbound
                  (app_message_id, source_peer, source_endpoint, channel_id,
                   media_type, payload, received_at, kind)
              SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
@@ -956,27 +985,37 @@ impl HumanStore {
                        AND source_endpoint_key = IFNULL(?3, '')
                        AND channel_key = IFNULL(?4, '')
                        AND app_message_id = ?1)",
-            params![
-                new.app_message_id.as_str(),
-                new.origin.peer.as_str(),
-                new.origin
-                    .endpoint
-                    .as_ref()
-                    .map(interweave_transport_api::EndpointId::as_str),
-                new.origin
-                    .channel
-                    .as_ref()
-                    .map(interweave_transport_api::ChannelId::as_str),
-                new.media_type.as_ref().map(MediaType::as_str),
-                new.payload,
-                sql_timestamp("received_at", new.received_at)?,
-                new.kind.as_sql(),
-            ],
-        );
+                params![
+                    new.app_message_id.as_str(),
+                    new.origin.peer.as_str(),
+                    new.origin
+                        .endpoint
+                        .as_ref()
+                        .map(interweave_transport_api::EndpointId::as_str),
+                    new.origin
+                        .channel
+                        .as_ref()
+                        .map(interweave_transport_api::ChannelId::as_str),
+                    new.media_type.as_ref().map(MediaType::as_str),
+                    new.payload,
+                    received_at,
+                    new.kind.as_sql(),
+                ],
+            )?;
+            if inserted == 0 {
+                return Ok(None);
+            }
+            let row = tx.last_insert_rowid();
+            if let Some((peer, endpoint)) = indexed {
+                window::index_direct(&tx, peer, endpoint)?;
+            }
+            tx.commit()?;
+            Ok(Some(row))
+        })();
 
         match result {
-            Ok(0) => Err(StoreError::AlreadyRead),
-            Ok(_) => Ok(RowId::from_stored(self.conn.last_insert_rowid())),
+            Ok(None) => Err(StoreError::AlreadyRead),
+            Ok(Some(row)) => Ok(RowId::from_stored(row)),
             Err(e) => Err(self.note_failure(e)),
         }
     }
