@@ -13,7 +13,7 @@ use interweave_human_client_api::{
     TrustSetFailure,
 };
 use interweave_human_ui_model::{
-    AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES, Intent,
+    AddNote, AddResult, Barred, BlockHeld, BlockProblem, BlockState, BlockView, CODE_LINES, Intent,
     LineSelection, ListProblem, PeersFocus, PeersInput, PeersSnack, Refusal, RowReadBack, RowState,
     ScanControl, ScanVerdict, TYPED_LINES, TrustChange, TrustLine, UiModel,
 };
@@ -4494,6 +4494,21 @@ fn an_unknown_trust_a_later_read_decides_is_no_longer_unknown() {
             assert_eq!(block[0].state, BlockState::Trusted, "listed: trusted");
             assert_eq!(block[0].problem, None);
             assert_eq!(focus(&m), before, "focus not moved by the read");
+            // Decided, the one block's page shows Done as its exit, and
+            // focus held on its Trust or Not now, now gone, goes there.
+            assert!(m.peers().done_shown(m.trust_settings()), "Done shows");
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &them, BlockHeld::Choice),
+                Some(PeersFocus::Done)
+            );
+            // Its problem line went too: focus on it goes to the block's
+            // new line, in its place.
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &them, BlockHeld::Problem),
+                Some(PeersFocus::BlockState(them.clone()))
+            );
         } else {
             assert_eq!(
                 block[0].problem,
@@ -4501,6 +4516,118 @@ fn an_unknown_trust_a_later_read_decides_is_no_longer_unknown() {
                 "not listed: not made"
             );
             assert_eq!(focus(&m), before, "focus not moved by the read");
+            // Undecided, Trust offered again: no Done, and its Trust and
+            // Not now stay, so focus on them stays too.
+            assert!(!m.peers().done_shown(m.trust_settings()), "no Done");
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &them, BlockHeld::Choice),
+                None
+            );
+            // The line stays, its words changed: focus on it stays.
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &them, BlockHeld::Problem),
+                None
+            );
+        }
+    }
+}
+
+/// A block of several left not known -- `TrustStepUnknown`, or
+/// `TrustStepSupersededUnread` -- that a read the person did not ask for
+/// decides trusted: its Trust and Not now go, so focus held on them goes
+/// to the next undecided block's title, else Done; the page stays open
+/// with Done shown (§5.3, §8's row for that read).
+#[test]
+fn a_block_of_several_decided_by_an_unasked_read_sends_its_buttons_focus_on() {
+    for superseded in [false, true] {
+        for other_decided in [false, true] {
+            let (me, a, b) = (peer(), peer(), peer());
+            let mut m = opened(&me, &[], &[]);
+            let _ = input(&mut m, PeersInput::OpenAdd);
+            let _ = input(
+                &mut m,
+                PeersInput::FieldChanged(format!("{}\n{}", at(&a), at(&b))),
+            );
+            let _ = input(&mut m, PeersInput::Add);
+            m.addresses_added(
+                &[at(&a), at(&b)],
+                answer(
+                    AddressOutcome::Added { peer: None },
+                    &[added(&a), added(&b)],
+                ),
+            );
+            let _ = m.peers_turn();
+            let _ = input(&mut m, PeersInput::Trust(a.clone()));
+            m.trust_settings_mut().set(
+                TrustChange {
+                    peer: a.clone(),
+                    allowed: true,
+                },
+                Err(if superseded {
+                    TrustSetFailure::Superseded
+                } else {
+                    TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)
+                }),
+            );
+            let _ = m.peers_turn();
+            assert_eq!(
+                m.trust_settings_mut().take_reread(),
+                Some(Intent::ReadTrust)
+            );
+            m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+            let _ = m.peers_turn();
+            assert_eq!(
+                m.peers().blocks(m.trust_settings())[0].problem,
+                Some(if superseded {
+                    BlockProblem::SupersededUnread
+                } else {
+                    BlockProblem::Unknown
+                })
+            );
+            if other_decided {
+                let _ = input(&mut m, PeersInput::NotNow(b.clone()));
+            }
+            // Undecided, A still draws its Trust and Not now.
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &a, BlockHeld::Choice),
+                None
+            );
+            let _ = m.trust_settings_mut().opened();
+            m.trust_settings_mut().read(Ok(TrustList {
+                local_peer: Some(me.clone()),
+                allowed: vec![TrustRow::added_here(a.clone())],
+            }));
+            let _ = m.peers_turn();
+            assert!(m.peers().add_open(), "the page stays open");
+            assert_eq!(
+                m.peers().blocks(m.trust_settings())[0].state,
+                BlockState::Trusted
+            );
+            assert!(m.peers().done_shown(m.trust_settings()));
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &a, BlockHeld::Choice),
+                Some(if other_decided {
+                    PeersFocus::Done
+                } else {
+                    PeersFocus::Block(b.clone())
+                }),
+                "superseded {superseded}, B decided {other_decided}"
+            );
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &a, BlockHeld::Problem),
+                Some(PeersFocus::BlockState(a.clone()))
+            );
+            // B, not decided by the read, has no move of its own.
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &b, BlockHeld::Choice),
+                None
+            );
         }
     }
 }

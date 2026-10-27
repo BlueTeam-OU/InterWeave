@@ -313,6 +313,10 @@ export struct PeerTrustBlock {
     trust-offered: bool,
     // Its state once decided, or its Trust on its way.
     state: string,
+    // The state line is a polite live region, except the line focus
+    // moved to in place of the problem line it replaced: read there on
+    // focus, it is not said a second time (design section 5.3).
+    state-live: bool,
     // Why its last Trust did not trust it.
     problem: string,
 }
@@ -4994,7 +4998,7 @@ export component AppWindow inherits Window {
                             text: block.state;
                             font-weight: 500;
                             rtl: root.rtl;
-                            live: true;
+                            live: block.state-live;
                             focus-key: "block-state:" + block.handle;
                             focus-seq: root.focus-seq;
                             focus-wanted: root.focus-target == "block-state:" + block.handle;
