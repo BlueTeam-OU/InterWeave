@@ -23,7 +23,10 @@ Revised for rust-ui-dev-02's four further questions (QUESTION
 01a17dc9, U1 to U4, asked while building this note): the held-row
 ceiling and gaps (§5.1), the limit row judged at the bound and not a
 page early (§7.1), photos loaded on demand and the one contact a
-proposal names (§11, and contact-cards §5.4.1).
+proposal names (§11, and contact-cards §5.4.1). Revised again for
+rust-ui-dev-02's QUESTION 01a17e5d (U-a, U-b): the preview's bound
+(§3) and the Contacts list when its read fails, with what that
+withholds (§11).
 
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
@@ -888,3 +891,8 @@ line. Two of five failing is enough to reopen §6.
   a proposal to cap; which contact is named is contact-cards §5.4.1's
   rule (§11). U4, the limit row a page early, is rejected: it shows at
   the bound, and a page near it is shortened (§7.1).
+- **U-a and U-b, rust-ui-dev-02** (QUESTION 01a17e5d): answered here.
+  U-a, the preview holds at most 160 characters and 1 KiB, cut after
+  it is computed (§3). U-b, a failed contacts read shows its row alone
+  with Try again, and nothing writes a contact until a read succeeds
+  (§11).
