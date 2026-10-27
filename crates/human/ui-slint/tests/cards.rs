@@ -1823,7 +1823,7 @@ fn contacts_with_none_say_how_one_is_made_and_each_row_opens_its_contact() {
             .iter()
             .enumerate()
             .map(|(i, n)| {
-                // Two contacts never share a route.
+                // A route of its own for each contact, as the store keeps them.
                 let mut c = contact(&format!("c{i}"), n, P);
                 c.routes[0].endpoint = EndpointId::parse(format!("e{i}")).expect("an endpoint");
                 c

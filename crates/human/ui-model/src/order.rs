@@ -99,8 +99,10 @@ pub fn compare_names(a: &str, b: &str) -> Ordering {
 }
 
 /// Two contacts in the client's one order: by name, then by the smallest
-/// route. Two contacts never share a route, so only two contacts with no
-/// route at all reach the store's id, which keeps the order total.
+/// route, then by the store's id, which keeps the order total whatever
+/// the routes hold -- two contacts of one name with no route between them
+/// are told apart by it
+/// (`contacts_no_name_or_route_tells_apart_go_by_their_id`).
 #[must_use]
 pub fn contact_order(a: &ContactView, b: &ContactView) -> Ordering {
     compare_names(&a.name, &b.name)
@@ -238,6 +240,21 @@ mod tests {
             ["c2", "c3", "c1"],
             "P before Q; then label 'a' before 'zed'"
         );
+    }
+
+    #[test]
+    fn contacts_no_name_or_route_tells_apart_go_by_their_id() {
+        // Two contacts of one name with no route, given in either order,
+        // go by the store's id. Mutation: the id tie dropped leaves them
+        // in the order given, so one of the two sorts fails.
+        let a = contact("c1", "Ada", &[]);
+        let b = contact("c2", "Ada", &[]);
+        for given in [[a.clone(), b.clone()], [b, a]] {
+            let mut list = given;
+            list.sort_by(contact_order);
+            let ids: Vec<&str> = list.iter().map(|c| c.contact_id.as_str()).collect();
+            assert_eq!(ids, ["c1", "c2"]);
+        }
     }
 
     #[test]
