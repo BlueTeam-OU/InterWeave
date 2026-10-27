@@ -42,7 +42,7 @@ The CPU cost of software rendering is measured here, as plan §18 (14) asks. The
 
 ## What it does not prove
 
-- That window focus, read from winit, gates a read on a real display: the view's half is tested, and the person-input cases were batches 5 to 7 (`tests/desktop-e2e/tests/human_app/`, plan §18's closing record).
+- That an unfocused window reads nothing on a real display: the view's half is tested, and the end-to-end cases (`tests/desktop-e2e/tests/human_app/`, batches 5 to 7, plan §18's closing record) read with the window given the focus first; the unfocused case runs only in `human_chat.rs`.
 - The Slint attribution: the badge on the download page at Stage 19 (architect-cto's ruling), not a screen here.
 - A visible scrollbar on a long conversation or conversation list: both scroll by wheel and touch, and keyboard focus brings a row into view.
 - Windows and macOS: carried (§18).
