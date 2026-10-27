@@ -40,14 +40,46 @@ pub mod relay;
 /// fails the case.
 pub const PATIENCE: Duration = Duration::from_secs(30);
 
-/// The workspace's own `transport-daemon`, beside this test's build.
-pub fn daemon_binary() -> PathBuf {
-    workspace_binary("transport-daemon", "interweave-transport-daemon")
+/// The variable naming a released package's executables: one directory
+/// holding them under their own names, as the Linux archive's `bin/` and
+/// `install.sh`'s `~/.local/bin` do. Set, every case that starts a daemon,
+/// `transportctl` or a client through this module runs the package's
+/// build -- the release run's check of a published archive (ADR-0065,
+/// ADR-0066); unset, the workspace's build beside the test, as always.
+pub const PACKAGE_BIN: &str = "INTERWEAVE_PACKAGE_BIN";
+
+/// `name` from the package [`PACKAGE_BIN`] names, else the workspace's
+/// build of `package`.
+///
+/// # Panics
+/// When the package lacks `name`: it fails by name and never falls back
+/// to the workspace, which would test a build the package does not ship.
+#[must_use]
+pub fn package_binary(name: &str, package: &str) -> PathBuf {
+    match std::env::var_os(PACKAGE_BIN) {
+        Some(dir) => {
+            let bin = Path::new(&dir).join(name);
+            assert!(
+                bin.is_file(),
+                "{PACKAGE_BIN} names {}, which holds no {name}",
+                Path::new(&dir).display()
+            );
+            bin
+        }
+        None => workspace_binary(name, package),
+    }
 }
 
-/// The workspace's own `transportctl`, beside this test's build.
+/// `transport-daemon`: the package's when [`PACKAGE_BIN`] names one, else
+/// the workspace's own beside this test's build.
+pub fn daemon_binary() -> PathBuf {
+    package_binary("transport-daemon", "interweave-transport-daemon")
+}
+
+/// `transportctl`: the package's when [`PACKAGE_BIN`] names one, else the
+/// workspace's own beside this test's build.
 pub fn transportctl_binary() -> PathBuf {
-    workspace_binary("transportctl", "interweave-transportctl")
+    package_binary("transportctl", "interweave-transportctl")
 }
 
 /// A workspace binary beside this test's own: cargo builds each package's
