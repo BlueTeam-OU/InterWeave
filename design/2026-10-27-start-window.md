@@ -311,10 +311,11 @@ A gap is not a `ReadNotShown` run: a run's rows cannot come back
 ## 6. Unread rows beyond the window
 
 While the conversation is open and the store holds unread rows of it
-that the window has not loaded, a line shows at the top of the loaded
+older than the oldest loaded row, a line shows at the top of the loaded
 rows, above the oldest one and below the progress or failure row:
 `EarlierUnread`, with the count of those rows (messages and card
-proposals together, as the badge counts both, §3).
+proposals together, as the badge counts both, §3). Unread rows in a
+gap are not among them: the gap's own line counts those (§5.1).
 
 - It is text, not a control. It is focusable so that TalkBack and the
   keyboard can reach it; as the top edge, focus moved onto it by the
