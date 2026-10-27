@@ -617,8 +617,12 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     on its hue, at the photo's size, then the photo in its place:
     nothing else in the row moves, nothing animates and nothing is
     announced. A photo that cannot be read leaves the initials. A
-    contact page opens with its photo, never the initials first. A
-    proposal shows its neutral avatar, as contact-cards §5.4 says.
+    contact page opens with its photo, never the initials first; with
+    the photo made unreadable (a test hook), it opens with the initials
+    and Remove photo, and Remove photo removes the stored photo. A
+    proposal shows its neutral avatar, as contact-cards §5.4 says. With
+    a contact's avatar in view, Remove photo on its page (wide layout)
+    replaces the photo with the initials at once.
 16. **One contact named** (§11): with two contacts "Anna Rossi" on
     other PeerIds, a card "Anna Rossi" from a third PeerId shows
     `CardSameName` naming the one whose PeerId sorts first as text
@@ -670,8 +674,17 @@ line. Two of five failing is enough to reopen §6.
   proposal shows no contact's photo at all (its neutral avatar,
   contact-cards §5.4), so nothing loads there; and a contact page, where the
   person acts on the photo (Remove photo, contact-cards §6.3), opens
-  with its photo, so that it never shows initials for a
-  contact that has a photo. Evidence: the avatar is decoration, never
+  with its photo: opening the page waits for its one photo, with no
+  loading state, so that it never shows initials for a contact whose
+  photo can be read. If that wait can be long enough for a person to
+  notice (more than about 100 ms on the Pixel 9a), the builder says so
+  and a loading state is added here, as §3 says of opening a
+  conversation. A photo that cannot be read shows the initials there
+  too, and Remove photo stays, since the contact still has a stored
+  photo the person can remove. A third place needs nothing: the
+  confirmation row that replaces an accepted proposal (contact-cards
+  §5.4.2) shows the photo decoded by that Accept; reloaded later, it
+  follows the lists' rule above. Evidence: the avatar is decoration, never
   a trust signal (contact-cards §3), so a moment of initials misleads
   no one about who a contact is; on the contact page the photo is what
   the person acts on.
