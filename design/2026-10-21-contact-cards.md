@@ -1087,7 +1087,7 @@ announced as §7 says.
   unread item does.
 - **List preview** of a conversation whose last item is a card:
   `CardPreviewReceived` ("Contact card") or, for one's own,
-  `CardPreviewSent` ("You shared a card"). Never the claimed name: the
+  `CardPreviewSent` ("Your contact card"). Never the claimed name: the
   list has no PeerId beside it to frame the claim.
 - **Notification** (`human-client-ui.md` §10): the conversation's title
   (the short PeerId until Accept) and `CardNotification` ("You received
@@ -1099,11 +1099,40 @@ announced as §7 says.
 
 An outbound card is shown as a row at the end side in the sent bubble's
 colour (`primary-container`), holding the card as sent (avatar or photo,
-name and surname) and the line `CardSentLabel`: "You shared your card",
+name and surname) and the line `CardSentLabel`: "Your contact card",
 then the status and time as for any sent message. The card shown is the
 one that was sent, not the identity's card as it is now: an edit after
-the share does not rewrite the row (`CardSharedStays`). Its actions are those of a sent
-message in its state (Retry, Cancel), with the same swipes (kind C).
+the share does not rewrite the row (`CardSharedStays`).
+
+**Its actions** are those of a sent message in its state, as
+`UiModel::actions` gives them (message-swipe §3): Retry and Cancel
+while it is pending (kind C), with the same swipes, results, snackbar,
+announcements and Undo as message-swipe §5, §6 and §8, the
+may-have-reached text of a Cancel included. The Undo restores the
+cancelled record itself, the card exactly as it was signed and sent,
+never the identity's card as it is now. The row's menu (message-swipe
+§7) holds those actions in that order and **no Show source**: a card
+has no markdown source to show, like the proposal's menu (§5.4.4).
+Keep is not offered, as on any outbound row (message-swipe §7).
+
+**Accepted.** Once the row reaches Accepted by remote transport it
+stays as any accepted outbound message does (kind D): the card,
+`CardSentLabel`, the status and the time, kept as long as such a
+message is kept (`RETENTION.md`). It offers no action, so it has **no
+menu**: a long press, a secondary click, Enter, the Menu key,
+Shift+F10 and the screen reader's activate do nothing on it, with no
+haptic tick, and its role is not announced as one that can be
+activated, since a control that opens nothing would tell the person
+something false (a target the toolkit cannot meet yet, §9 item 27).
+The bubble stays a focus stop, read as §8 says. If the row becomes
+Accepted while its menu is open, message-swipe §7's rule for a status
+that changes the actions applies: the menu closes and focus goes to
+the bubble.
+
+**Focus** follows message-swipe §7's rules for a sent message in every case:
+after a Cancel, by its removal rule; after the Undo, to the restored
+row's bubble; after a refused Undo, as message-swipe §7 says; after Retry from the
+menu, to the bubble. §9 item 1 lists them.
 
 ### 5.6 Naming a contact by hand
 
@@ -1615,7 +1644,14 @@ accessibility tree) are checked now.
   `CardAccepted` or `CardUpdated` (with the name as saved), then
   `CardPhotoNotUsed` or `CardPhotoNotUsedRemoved` when one shows, then, while the Accept's snackbar
   is open, `CardUndoHint` as its description.
-- Own card row: "You shared your card", the name, status, time.
+- Own card row: "Your contact card", the name and surname as sent,
+  `CardSentPhoto` when the card as sent carried a photo (the photo
+  itself is not described: what matters is that it is in the card;
+  it is read in every state of the row, Sending and Not sent included,
+  so it claims no delivery, which the status after it states), then the
+  status and the time. Its custom actions (Android) are those of its
+  menu, Retry and Cancel while pending, as message-swipe §7 sets for a
+  sent message; none once it is Accepted.
 - Share sheet: title, the "as {identity}" line when shown, then the
   preview as one item (`ShareCardPreviewSpoken`, or
   `ShareCardPreviewSpokenPhoto` when the photo goes), the note, Cancel,
@@ -1741,6 +1777,13 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | Accept (button, menu item, custom action or swipe) | the confirmation row (focusable), read once with `CardUndoHint`: no live announcement of `ConfirmContactSaved` or `ConfirmContactUpdated` follows (§8 Announcements); the snackbar's timeout waits while focus is between the row and the snackbar, for at most 2 minutes (§5.4.2) | keyboard: with three or more rows after the confirmation row, wait past 6 s on the row, then move one stop at a time, more than 6 s apart, to Undo, and Undo is still reached; move focus to something before the row, then back to the row within 6 s, wait past 6 s, and Undo is still reached; pointer Accept with no further input: the snackbar closes by 2 minutes; desktop screen reader: in a case N and a case U accept, the row is read with `CardUndoHint` and neither "Contact saved" nor "Contact updated" follows; TalkBack blocked (§8); swipe with TalkBack cannot occur |
    | Decline, by button, menu item or keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
    | Decline by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set elsewhere first, then a swipe |
+   | own card row: Cancel from its menu or by keyboard (§5.5) | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title | keyboard: Shift+F10 on a Not sent card row, Cancel; once with a row after it, once as the conversation's last row |
+   | own card row: Cancel by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set on another row first, then a swipe |
+   | own card row: the Cancel's Undo | the restored row's bubble, its first control | keyboard: after the Cancel above, Undo from the snackbar |
+   | own card row: the Cancel's Undo refused | the next row's first control, else the previous row's, else the conversation's header title (message-swipe §7) | keyboard, with the store degraded before Undo |
+   | own card row: Retry from its menu | the row's bubble | keyboard: Shift+F10 on a Not sent card row, Retry |
+   | own card row Accepted while its menu is open | the row's bubble, the menu closed | keyboard, with a test seam holding the row until the menu is open |
+   | own card row Accepted: Enter, Menu key or Shift+F10 on its bubble | stays on the bubble; no menu opens | keyboard |
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
    | case S Close | as Decline | keyboard |
    | the proposal's menu opens (Menu key or Shift+F10 on a row control, long press, secondary click) | its first item | keyboard: Menu key and Shift+F10 from each of Copy PeerId, Open your contact (a warned row), Decline, Accept, and Close (case S); long press (Android) and secondary click (desktop) |
@@ -2027,6 +2070,26 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     on an added identity with the change, Remove this identity opens
     only its own dialog, and its Cancel returns to the editor with the
     change still there.
+27. **One's own card row offers only what §5.5 gives it.** On a Not
+    sent card row, the menu opened by each of long press (Android),
+    secondary click (desktop), the Menu key and Shift+F10 holds Retry
+    then Cancel and nothing else, no Show source; the Android custom
+    actions are the same two. On an Accepted card row, a long press
+    opens nothing and plays no haptic tick (a long press on a message
+    row beside it plays one, the control), and a secondary click and
+    the desktop screen reader's activate open nothing and say nothing.
+    That its role is not announced as activatable is **blocked by the
+    toolkit**, not passed: Slint 1.18 advertises a default action for
+    every element that declares a handler, whatever the handler does
+    (stated by rust-ui-dev on 2026-10-27, and in
+    `crates/human/ui-slint/README.md` on their branch for the row,
+    commit 72e58dbe, not yet on main), so the desktop screen reader still offers one; it is
+    checked again when the toolkit lets an action be offered
+    conditionally. TalkBack offers no custom action and no "double tap
+    to activate" (TalkBack blocked, §8, until the device run). The
+    desktop screen reader reads the row as §8 says, with
+    `CardSentPhoto` for a card sent with a photo, on a Sending, a Not
+    sent and an Accepted row, and without it for one sent with none.
 
 ### 9.1 `human-client-ui.md` §13 criteria
 
@@ -2131,10 +2194,11 @@ and are for them to write.
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo; not announced (§8 Announcements) |
 | `CardUndoHint` | You can undo this change. Undo comes after all the messages in this conversation. | accessible description of the confirmation row while the Accept's snackbar is open (§5.4.2), never shown as text; must say that the save can be undone and where the Undo is, in a phrase read after `CardAccepted` or `CardUpdated` |
 | `ConfirmCardDeclined` | Card declined | snackbar, with Undo |
-| `CardPreviewReceived` / `CardPreviewSent` | Contact card / You shared a card | list previews |
+| `CardPreviewReceived` / `CardPreviewSent` | Contact card / Your contact card | list previews |
 | `CardNotification` | You received a contact card. | notification body; never the name |
 | `AnnounceCard` | New contact card | live announcement |
-| `CardSentLabel` | You shared your card | own card row |
+| `CardSentLabel` | Your contact card | own card row |
+| `CardSentPhoto` | The card includes your photo. | own card row, accessible description only, when the card as sent carried a photo (§8), read in every state of the row, so it claims no delivery |
 | `AddAsContact` / `OpenContact` | Add as a contact / Open contact | Details |
 | `DetailsNoCard` | You have not shared your card here. | Details |
 | `ContactsEmpty` | One identity: You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. Two or more: {front} has no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty; with two or more identities it is this identity's list that is empty, and the text must not suggest the person has no contacts at all (language-culture to judge whether it needs saying) |
