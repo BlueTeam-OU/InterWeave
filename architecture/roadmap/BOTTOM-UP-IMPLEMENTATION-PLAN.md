@@ -6918,11 +6918,14 @@ owner:
   indexed and routes under contacts — are at most the contract's 64
   per profile, a 65th discarded and counted as a malformed envelope
   (HUMAN-CHAT.md, STATE.md; ruled 2026-10-27 to ux-designer-01 and
-  rust-ui-dev-02): until the second batch lands, the rule is the
-  record's and not yet the build's, and this bullet is where that is
-  said. Until then the test #483 holds
-  for the window's constraint (b), a pending row that does not decode
-  resent after a restart (b046573a), is the only part of it on main.
+  rust-ui-dev-02). The check is built by the second batch's first PR,
+  in the transport client's commit and send paths, over a
+  conversation index every direct row now writes; the window itself
+  follows in that batch's later PRs, and until they land the window is
+  the record's and not yet the build's, and this bullet is where that
+  is said. Of the window, the test #483 holds for its constraint (b),
+  a pending row that does not decode resent after a restart
+  (b046573a), is the only part on main.
 - The fresh-pair row's one-sided step in the other direction (B
   trusting first) was not run; which side dialled in its step 3, and
   from which source, is not told apart (the peer cache was on):
