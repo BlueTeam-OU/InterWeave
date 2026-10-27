@@ -1148,8 +1148,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             .store_mut()
             .ensure_own_card(&from, at)
             .map_err(|e| store_failure(&e))?;
+        let app_message_id = format!("{:032x}", rand::random::<u128>());
         let text = interweave_human_chat_protocol::build_card(
-            &format!("{:032x}", rand::random::<u128>()),
+            &app_message_id,
             interweave_human_chat_protocol::CardDraft {
                 name: &own_card.name,
                 surname: own_card.surname.as_deref(),
@@ -1168,9 +1169,21 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             .await
             .map_err(|_| Failure::CardNotSent)?;
         self.card_rows.insert(row, key.clone());
+        // What went, for its own card row: never the card as edited later
+        // (contact-cards section 5.5, `CardSharedStays`).
+        let card = interweave_human_ui_model::SentCard {
+            name: own_card.surname.as_ref().map_or_else(
+                || own_card.name.clone(),
+                |s| format!("{} {s}", own_card.name),
+            ),
+            photo: own_card.photo.as_deref().and_then(cards::shown),
+        };
         updates.push(Update::CardQueued {
             key: key.clone(),
             row,
+            app_message_id,
+            card,
+            at,
         });
         Ok(())
     }

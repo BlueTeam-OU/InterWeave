@@ -2032,6 +2032,51 @@ async fn a_card_accepted_after_a_new_key_records_no_share() {
     );
 }
 
+/// Contact-cards section 5.5 through the loop: Share puts the card in
+/// its conversation as one's own card row, the card as it went -- an edit
+/// after the share does not rewrite the row -- with Retry and Cancel while
+/// it is Not sent. Mutation: the queued card not applied to the model.
+#[tokio::test]
+async fn a_shared_card_is_its_own_card_row_as_it_went() {
+    use interweave_human_ui_model::{Intent, SentCard};
+    use interweave_transport_api::TransportError;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    alice.pump(0).await;
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: Some("Lovelace".to_owned()),
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(1).await;
+    let to_bob = direct(b.peer());
+    a.inject_send(TransportError::UnauthorizedPeer);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(2).await;
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: Some("King".to_owned()),
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(3).await;
+    let rows = alice.model().messages(&to_bob);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        rows[0].card,
+        Some(SentCard {
+            name: "Ada Lovelace".to_owned(),
+            photo: None,
+        }),
+        "the card as it went"
+    );
+    let row = queued(&alice);
+    assert_eq!(
+        alice.model().actions(rows[0].key),
+        vec![Intent::Retry(row), Intent::Cancel(row)]
+    );
+}
+
 /// A cancelled card brought back by its Undo is pending again, and its
 /// Accepted is a share like any other. Mutation: the restored row not
 /// held as a card.
