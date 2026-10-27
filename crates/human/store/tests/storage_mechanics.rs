@@ -3602,6 +3602,11 @@ fn the_start_window_columns_and_indexes_are_part_of_the_verified_shape() {
             "DROP INDEX unread_inbound_by_channel;
              CREATE INDEX unread_inbound_by_channel ON unread_inbound (channel_key, row_id);",
         ),
+        (
+            "the kept kind index as v10 had it, at v11",
+            "DROP INDEX kept_inbound_by_kind;
+             CREATE INDEX kept_inbound_by_kind ON kept_inbound (kind);",
+        ),
     ] {
         let (_dir, path, conn) = raw_store();
         conn.execute_batch(sql).expect("the edit is legal SQLite");
@@ -3665,4 +3670,53 @@ fn a_second_connection_waits_for_a_write_rather_than_failing() {
         .expect("waits for the writer, then lands");
     released.join().expect("the writer's thread");
     assert_eq!(second.unread_inbound().expect("read").len(), 2);
+}
+
+/// Schema v11 (STATE.md, #492's review F2): a store at v10 has its kept
+/// kind index rebuilt over the conversation's columns, its rows kept, so
+/// the Chats list's conversations read no kept row. Mutation: migration 11
+/// not run.
+#[test]
+fn a_v10_store_gains_the_wide_kept_kind_index_and_keeps_its_rows() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let row = store
+        .commit_unread_inbound(&inbound(ID_A, b"kept across v11".to_vec()))
+        .expect("committed");
+    let read = store.mark_read(row, 1).expect("read");
+    store.keep(&read, 2).expect("kept");
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("raw");
+    conn.execute_batch(
+        "DROP INDEX kept_inbound_by_kind;
+         CREATE INDEX kept_inbound_by_kind ON kept_inbound (kind);
+         PRAGMA user_version = 10;",
+    )
+    .expect("back to v10");
+    drop(conn);
+
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("migrates to v11");
+    assert_eq!(
+        store.kept_inbound().expect("kept").len(),
+        1,
+        "the row stays"
+    );
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let columns: Vec<String> = conn
+        .prepare("SELECT name FROM pragma_index_info('kept_inbound_by_kind') ORDER BY seqno")
+        .expect("index info")
+        .query_map([], |r| r.get(0))
+        .expect("rows")
+        .collect::<Result<_, _>>()
+        .expect("columns");
+    assert_eq!(
+        columns,
+        ["kind", "source_peer", "source_endpoint", "channel_id"]
+    );
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("version");
+    assert_eq!(version, SCHEMA_VERSION);
 }
