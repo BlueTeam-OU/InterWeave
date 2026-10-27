@@ -636,8 +636,11 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     replaces the photo with the initials at once.
 16. **One contact named** (§11): with two contacts "Anna Rossi" on
     other PeerIds, a card "Anna Rossi" from a third PeerId shows
-    `CardSameName` naming the one whose PeerId sorts first as text
-    (contact-cards §6.2's tie-break), and Open your contact opens that
+    `CardSameName` naming the one whose PeerId sorts first by code
+    point (contact-cards §6.2's tie-break; the fixture's two PeerIds
+    first differ at an uppercase and a lowercase letter, such as
+    `…KooWB…` and `…KooWa…`, and the one with the uppercase letter is
+    expected), and Open your contact opens that
     one, not the other; with three contacts
     on one PeerId, a card from a fourth route of that PeerId shows
     `CardSharesDeviceMany` naming the first of them in that order and
