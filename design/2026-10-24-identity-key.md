@@ -241,6 +241,17 @@ arrive; its conversation is in the share-again list either way, so
 the next share shows the counterparty the new key. The confirmation
 says so first (`KeyNewPending`), shown when any such row exists.
 
+A card the person cancelled before the step cannot come back with the
+old key either. A Cancel's snackbar, and its Undo, are gone before
+Make a new key can be reached: the button is on the identity's card
+page, and opening that page leaves the conversation, which closes the
+snackbar (message-swipe §5's closing list; on a wide layout the page
+takes the conversation pane's place, cards §4). A Cancel whose success
+arrives after the person has left is only announced, with no Undo
+(message-swipe §6). Were a path to Make a new key ever added that
+keeps a conversation's snackbar up, the step closes that snackbar
+first, its Undo gone, as the step's own withdrawals have no Undo.
+
 ### 5.3 The result
 
 **Made.** The block is replaced by the fingerprint row with the new
@@ -428,7 +439,10 @@ On both clients unless said; Android's screen-reader checks blocked as
     it), when the key becomes unusable: the confirmation shows
     `KeyNewPending`; after Make a new key, both rows are withdrawn with
     no Undo, neither is sent afterwards (a restart included), and C
-    and D are in the share-again list.
+    and D are in the share-again list. A third card row, Not sent in
+    E, cancelled just before opening the card page: the conversation
+    shows no snackbar on return, and E's card is not sent after Make a
+    new key.
     Where the client cannot tell a Sending row it holds from one the
     transport took (§5.2's fallback), D is instead left to arrive, and
     D is still in the share-again list; the build states which of the
