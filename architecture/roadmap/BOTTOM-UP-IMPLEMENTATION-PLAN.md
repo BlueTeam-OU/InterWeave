@@ -5370,7 +5370,14 @@ clipboard refusal on a device are carried to the release gate with the
 user-presence case; StrongBox reporting and API 34+ behaviour on another
 device, Samsung Keyboard's input flags, the IME window outside
 `FLAG_SECURE`, system_server's saved-state and crash artifacts, and the
-D6b re-run stay carried, unmeasured.
+D6b re-run stay carried, unmeasured. Found after the close, from the
+owner's review of the client (2026-10-27, judged by the review class
+at f2295901): a command the Android hub had accepted while the facade
+loop was closing was dropped with no update — fixed on #483
+(752c4b12 carries it out or hands it back as
+`Failure::ServiceStopped`, b156191f the failure), host-tested, not run
+on a phone, so the service-restart interleaving on a device stays
+carried to the release gate with the cases above.
 
 ## 21. Stage 18 — full adversarial/security gate
 
@@ -6878,6 +6885,44 @@ owner:
   Design 5.3 and section 7 name the record as the design, as a design
   note does; this bullet, not the note, is where its not being built
   is said. rust-ui-dev-02's, the batch after 5.5's or with it.
+- Found after the close, from the owner's review of the client
+  (2026-10-27, judged by the review class at f2295901), two of step
+  2's card photo: the picked photo's read had no deadline or cancel,
+  and a late pick replaced a newer one — fixed on #483 (378bedde
+  opens and reads the photo for its request under a cancellation
+  signal within one 30 s deadline and a bound of three read workers,
+  41f99f82 and 9044e244 its wait; ba2d0153 and 447ecf7d take a pick
+  only as the answer to the editor's latest request, unique in the
+  process), host-tested; not run on a phone, where a real provider
+  and TalkBack are unexercised.
+- The start listing, from the same review (P2-1): `list_all` decodes
+  every pending, unread, kept and card row and every contact into one
+  Update, and card standing is O(K × C), so a trusted peer's unread
+  backlog can exhaust memory at start. Ruled 2026-10-27 (rust-ui-dev-
+  02's QUESTION 01a17bcc): a bounded window handed to the model, the
+  rest in the store and fetched as the model has room, with a
+  content-free "more remain" count — consistent with RETENTION.md,
+  whose read state begins at presentation, under four constraints: the
+  badge and the arrival notice count every decodable unread row, in
+  or beyond the window; retries read the store, never the window; an
+  unshown proposal survives process exit; Keep, Dismiss, Cancel and
+  Undo keep their rules in the window. The design is
+  `design/2026-10-27-start-window.md` (#472). Built in two batches
+  by rust-ui-dev-02 after #483: first the store's schema v10 (#489:
+  a name key beside each contact, a content-free kind on the inbound
+  rows, the covering indexes for the start's counts, each versioned
+  and recomputed at open; STATE.md's rows and HUMAN-CHAT.md's text
+  are architect-cto's on it), which changes nothing a person sees;
+  then the window itself, and with it the check for the rule that the
+  distinct endpoints the store holds per PeerId — conversations
+  indexed and routes under contacts — are at most the contract's 64
+  per profile, a 65th discarded and counted as a malformed envelope
+  (HUMAN-CHAT.md, STATE.md; ruled 2026-10-27 to ux-designer-01 and
+  rust-ui-dev-02): until the second batch lands, the rule is the
+  record's and not yet the build's, and this bullet is where that is
+  said. Until then the test #483 holds
+  for the window's constraint (b), a pending row that does not decode
+  resent after a restart (b046573a), is the only part of it on main.
 - The fresh-pair row's one-sided step in the other direction (B
   trusting first) was not run; which side dialled in its step 3, and
   from which source, is not told apart (the peer cache was on):
