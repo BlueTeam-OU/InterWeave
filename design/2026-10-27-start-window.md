@@ -627,8 +627,8 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     item 12. With focus on the row above the gap, let a further page of
     the gap arrive from the upper side: focus stays on that row and the
     view does not move. (d) Close A and reopen it, so that paging asks
-    again (§7.1); make a gap with more unread rows than one page
-    brings, as in (a), with the bound within reach. Coming from below,
+    again (§7.1); make a gap with more unread rows than two pages
+    bring (the two this step loads), as in (a), with the bound within reach. Coming from below,
     make the gap's next read fail. The failure row shows
     directly above the gap's line; press Try again with focus on it:
     focus is on the gap's line, and stays there once the page arrives,
