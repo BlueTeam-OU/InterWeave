@@ -25,6 +25,10 @@ interweave-human-core = { path = "../core" }
 interweave-human-store = { path = "../store" }
 interweave-local-client-api = { path = "../../api/local-client-api" }
 interweave-transport-api = { path = "../../api/transport-api" }
+# MAX_ENDPOINTS: the most endpoints a conforming profile speaks from, and
+# so the most of one peer's endpoints a direct conversation may be opened
+# with (HUMAN-CHAT.md's malformed rule).
+interweave-profile-config = { path = "../../config/profile-config" }
 # The transport id each pending row is minted with (schema v6).
 rand = { workspace = true }
 # An outbound envelope is round-tripped through HumanChatV2::parse.

@@ -3759,6 +3759,7 @@ dependencies = [
  "interweave-human-store",
  "interweave-local-client-api",
  "interweave-local-client-fake",
+ "interweave-profile-config",
  "interweave-profile-identity",
  "interweave-transport-api",
  "rand 0.10.3",

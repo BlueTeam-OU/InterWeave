@@ -109,6 +109,10 @@ pub enum SendError {
     StorageUnavailable,
     /// A pending row with this application id already exists.
     AlreadyPending,
+    /// A direct send to an endpoint of a peer the store already holds 64
+    /// endpoints of: the 65th is refused before its pending row is written
+    /// (HUMAN-CHAT.md's malformed rule, its send side).
+    EndpointBound,
 }
 
 /// Why a row operation was refused.
@@ -361,6 +365,10 @@ pub struct Diagnostics {
     /// Contact cards discarded as malformed: any fault of HUMAN-CHAT.md
     /// §Contact card, a signature that does not verify included.
     pub malformed_card: u64,
+    /// Direct inbound from a peer's 65th distinct source endpoint,
+    /// discarded unstored (HUMAN-CHAT.md's malformed rule,
+    /// `human_inbound_malformed_total{reason="endpoint_bound"}`).
+    pub malformed_endpoint_bound: u64,
     /// Contact cards received over broadcast: ignored, never shown, since
     /// broadcast is not the channel a card is sent on (ADR-0059 decision 2).
     pub card_over_broadcast: u64,
