@@ -15,7 +15,7 @@
 //! - both leases held on one daemon at once, and each carrier holding
 //!   exactly the frames sent to its endpoint, so no `fabric-control` line
 //!   reaches `gzcoord`. The other direction is not observable here: the
-//!   CLI's facade drops, unprinted, a payload that is not a HumanChatV2
+//!   CLI's facade drops, unprinted, a payload that is not a `HumanChatV2`
 //!   envelope, so a carrier frame misrouted to `fabric-control` would show
 //!   nothing; that direction rests on direct v2 resolving to exactly one
 //!   destination endpoint;
