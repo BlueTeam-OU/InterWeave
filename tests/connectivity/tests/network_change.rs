@@ -1338,10 +1338,12 @@ async fn a_private_address_no_view_holds_is_not_advertised_shown_or_counted() {
         std::net::Ipv4Addr::new(10, 255, 0, 8).into(),
         std::net::Ipv4Addr::new(10, 255, 0, 9).into(),
     );
+    // Whole components only: `/tcp/3456` must not match `/tcp/34567`.
     let shown = |own: &interweave_local_client_api::OwnAddresses, address: &Multiaddr| {
+        let address = address.to_string();
         own.addresses
             .iter()
-            .any(|row| row.address.starts_with(&address.to_string()))
+            .any(|row| row.address == address || row.address.starts_with(&format!("{address}/")))
     };
     let mut candidate = 0u8;
     let mut learns = async |subject: &mut Node| {
