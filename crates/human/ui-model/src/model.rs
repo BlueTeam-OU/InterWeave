@@ -19,12 +19,12 @@ use interweave_transport_api::{
     ChannelId, EndpointId, PeerPath, TransportError, TransportIdentity,
 };
 
+use crate::connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectState};
 use crate::labels::{
     ErrorClass, LabelKey, UiText, fill, outbound_label, placeholder_en, send_error_class,
     session_problem_class, short_peer,
 };
 use crate::look::Avatar;
-use crate::connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectState};
 use crate::peers::{Peers, PeersInput, ScanVerdict};
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 

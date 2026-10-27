@@ -130,9 +130,7 @@ fn a_start_opens_settles_or_defers_connect_on_its_two_reads() {
     let mut pending = UiModel::new();
     pending.connect_owed();
     start_reads(&mut pending);
-    pending
-        .trust_settings_mut()
-        .read(Ok(trust_list(&me, &[])));
+    pending.trust_settings_mut().read(Ok(trust_list(&me, &[])));
     assert_eq!(pending.connect_turn(), None, "the list still unread");
     pending.addresses_read(Ok(list(&[])));
     assert_eq!(pending.connect_turn(), Some(ConnectGate::Open));

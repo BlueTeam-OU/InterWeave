@@ -53,10 +53,9 @@ pub use model::{
 };
 pub use peers::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES,
-    ConnectAdd,
-    LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus, PeersInput, PeersSnack,
-    Refusal, RowReadBack, RowState, ScanControl, ScanVerdict, ShowProblem, ShowState, TYPED_LINES,
-    TrustLine, is_address_list, lines_of,
+    ConnectAdd, LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus, PeersInput,
+    PeersSnack, Refusal, RowReadBack, RowState, ScanControl, ScanVerdict, ShowProblem, ShowState,
+    TYPED_LINES, TrustLine, is_address_list, lines_of,
 };
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
