@@ -708,13 +708,13 @@ line. Two of five failing is enough to reopen §6.
 - **A loading state for opening a conversation** (§3), until a
   measurement says it is visible.
 - **How the window is held and its budget figures**: the builder's.
+  When paging may push read rows past the session bound is §7.1's.
 - **An exact limit row at the bound** (§7.1). With the session at the
   bound, the limit row shows before the next page is read, so it shows
   even when every row of that page is kept and showing it would drop
   nothing; pressing `EarlierShowAnyway` then drops nothing. Accepted:
   knowing it beforehand needs the page's rows read first, and the cost
   is one question the person did not need.
-  When paging may push read rows past the session bound is §7.1's.
 
 ## 13. Questions
 
