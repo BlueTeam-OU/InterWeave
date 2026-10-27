@@ -305,15 +305,20 @@ fn stdin_lines() -> tokio::sync::mpsc::Receiver<verbs::InputLine> {
     lines
 }
 
-/// The most bytes `send ... -` reads from stdin. A message's text is at
-/// most the envelope's decompressed ceiling, the envelope carrying it at
-/// a byte a byte at best; the room is the shell's newline and slack.
-const MAX_SEND_STDIN_BYTES: usize = 256 << 10;
+/// The most bytes `send ... -` reads from stdin, derived so it moves with
+/// the envelope: a message's text is at most the envelope's decompressed
+/// ceiling, the envelope carrying it at a byte a byte at best, and the
+/// room is the shell's newline and slack -- 262,144 bytes (256 KiB)
+/// today, the figure the README states (#495 review F4).
+const MAX_SEND_STDIN_BYTES: usize =
+    interweave_human_chat_protocol::MAX_DECOMPRESSED_BYTES + SEND_ROOM_BYTES;
 
-// A larger envelope ceiling would have a text this build could send
-// refused before the session.
-const _: () =
-    assert!(interweave_human_chat_protocol::MAX_DECOMPRESSED_BYTES + 2 <= MAX_SEND_STDIN_BYTES);
+/// The room beside the text in what `send ... -` reads.
+const SEND_ROOM_BYTES: usize = 64 << 10;
+
+// The README states this figure: a ceiling that moves fails here until it
+// is changed there too.
+const _: () = assert!(MAX_SEND_STDIN_BYTES == 262_144);
 
 /// The text `send ... -` reads: stdin, at most [`MAX_SEND_STDIN_BYTES`],
 /// less the one trailing newline the shell adds. Read before the profile

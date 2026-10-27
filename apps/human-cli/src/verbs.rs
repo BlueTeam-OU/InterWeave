@@ -944,21 +944,21 @@ pub(crate) type InputLine = Result<String, String>;
 /// checked as the bytes arrive, before UTF-8 and JSON: a line past it is
 /// drained through its newline, kept nowhere, and refused.
 ///
-/// Sized from the largest legal input: a message's text is at most the
-/// envelope's decompressed ceiling, which JSON's worst escaping (`\u00XX`
-/// for a byte) makes six times as long, beside the line's other fields.
-pub(crate) const MAX_INPUT_LINE_BYTES: usize = 1_310_720;
+/// Derived from the largest legal input, so it moves with it: a
+/// message's text is at most the envelope's decompressed ceiling, which
+/// JSON's worst escaping (`\u00XX` for a byte) makes six times as long,
+/// beside the line's other fields -- 1,245,184 bytes today, the figure
+/// the README states (#495 review F4).
+pub(crate) const MAX_INPUT_LINE_BYTES: usize =
+    6 * interweave_human_chat_protocol::MAX_DECOMPRESSED_BYTES + INPUT_ROOM_BYTES;
 
 /// The line's fields beside the text: the conversation, the endpoint,
 /// the `ref` and the JSON around them.
 const INPUT_ROOM_BYTES: usize = 64 << 10;
 
-// A larger envelope ceiling would have a line this build could send
-// refused unread.
-const _: () = assert!(
-    6 * interweave_human_chat_protocol::MAX_DECOMPRESSED_BYTES + INPUT_ROOM_BYTES
-        <= MAX_INPUT_LINE_BYTES
-);
+// The README states this figure: a ceiling that moves fails here until it
+// is changed there too.
+const _: () = assert!(MAX_INPUT_LINE_BYTES == 1_245_184);
 
 /// The most bytes an input line's `ref` may take, serialised as listen
 /// echoes it: one is kept for every row the line's send left pending, so
