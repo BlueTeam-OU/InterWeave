@@ -2921,6 +2921,9 @@ export component AppWindow inherits Window {
     // The list's own column, neither the add page nor Show covering it.
     property <bool> peers-list-shown: !root.peers-add-open && !root.peers-show-open;
     in property <string> add-title;
+    // The back arrow of the add page and of Show, which go back to Peers
+    // or Connect, so it never takes the conversations' Back.
+    in property <string> add-close-label;
     in property <string> address-field-label;
     in property <string> address-help;
     in-out property <string> address-text;
@@ -4285,7 +4288,7 @@ export component AppWindow inherits Window {
                 spacing: 8px;
                 // The top app bar, as Trust's: the back arrow at the line's
                 // start and the screen's title, which takes focus when Peers
-                // opens. The add page's back arrow is its Close.
+                // opens. The add page's and Show's back arrow is their close.
                 HorizontalLayout {
                     min-height: 64px;
                     spacing: 8px;
@@ -4295,7 +4298,7 @@ export component AppWindow inherits Window {
                             glyph: Glyph.back;
                             rtl: root.rtl;
                             ink: Palette.on-surface;
-                            label: root.back-label;
+                            label: root.peers-list-shown ? root.back-label : root.add-close-label;
                             focus-key: "close-peers";
                             pressed => {
                                 if (root.peers-add-open) { root.peers-add-closed(); } else if (root.peers-show-open) { root.peers-show-closed(); } else { root.close-peers-page(); }
@@ -4323,7 +4326,7 @@ export component AppWindow inherits Window {
                             glyph: Glyph.back;
                             rtl: root.rtl;
                             ink: Palette.on-surface;
-                            label: root.back-label;
+                            label: root.peers-list-shown ? root.back-label : root.add-close-label;
                             focus-key: "close-peers";
                             pressed => {
                                 if (root.peers-add-open) { root.peers-add-closed(); } else if (root.peers-show-open) { root.peers-show-closed(); } else { root.close-peers-page(); }
