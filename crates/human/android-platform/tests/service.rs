@@ -193,8 +193,9 @@ fn a_stop_releases_the_waiter_tells_the_view_and_frees_the_profile() {
 }
 
 /// Owner's finding P2-2, through the running service: every command the
-/// hub accepted before a stop is carried out and answered before the view
-/// hears the service stopped -- none is dropped unanswered -- and one sent
+/// hub accepted before a stop is carried out and, within the stop's
+/// grace, answered before the view hears the service stopped -- none is
+/// dropped unanswered -- and one sent
 /// once it stopped is handed back. Whether any is still queued when the
 /// close is seen is timing: with the close's drain removed this fails in
 /// about two runs of five. The drain itself is held without timing by
@@ -246,6 +247,88 @@ fn a_command_accepted_before_a_stop_is_answered() {
         service.hub().command(Command::Reopen),
         Err(Command::Reopen),
         "handed back once stopped"
+    );
+}
+
+/// `human-client-android.md`, a facade past its stop: a facade whose
+/// command outlasts the stop's grace is retired at the stop -- the view
+/// hears that nothing runs and no command is taken -- a discard is refused
+/// while its thread lives, its command is answered to no view, and when it
+/// ends after the next start the new facade lists again. What the test
+/// holds is the command, at the loop; the interleaving on a device is not
+/// this test's. Mutations: the close not retiring; the plan and the
+/// discard each not asking for a live facade; an update not asking its
+/// generation; the late end not marking the view unlisted.
+#[test]
+fn a_facade_past_its_stop_publishes_nothing_and_holds_the_store_until_it_ends() {
+    use interweave_human_android_platform::StoreActionRefused;
+    use interweave_human_store::key_custody::FilesystemCustody;
+    let app = app();
+    let service = started(&app);
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    until(&mut link, &mut held, "listing", is_listing);
+    // A plan made while nothing holds the store, to be confirmed while
+    // the retired facade still does.
+    let _ = service.stop(GRACE).expect("it ran");
+    let plan = service
+        .plan_store_discard(&app.dir, PROFILE, &FilesystemCustody)
+        .expect("control: nothing holds the store");
+    service.start(launch(&app)).expect("started again");
+    until(&mut link, &mut held, "listing", is_listing);
+
+    let release = service.hub().hold_commands_for_test();
+    let row = interweave_human_ui_model::RowId::from_stored(4_242);
+    assert!(service.hub().command(Command::MarkRead(row)).is_ok());
+    let stopped = service.stop(GRACE).expect("it ran");
+    assert!(
+        !stopped.session_closed,
+        "the held command outlasted the grace"
+    );
+    until(&mut link, &mut held, "the stop said", |m| {
+        matches!(m, ToView::Running(false))
+    });
+    assert_eq!(service.hub().command(Command::Reopen), Err(Command::Reopen));
+    assert!(matches!(
+        service.plan_store_discard(&app.dir, PROFILE, &FilesystemCustody),
+        Err(StoreActionRefused::Running)
+    ));
+    assert!(matches!(
+        service.discard_store(&app.dir, PROFILE, &FilesystemCustody, plan.confirm()),
+        Err(StoreActionRefused::Running)
+    ));
+
+    service.start(launch(&app)).expect("started again");
+    until(&mut link, &mut held, "the next start", |m| {
+        matches!(m, ToView::Running(true))
+    });
+    until(&mut link, &mut held, "the next start's listing", is_listing);
+    drop(release);
+    // The old facade answers its command before its thread ends, and its
+    // end is what lists again: an answer reaching the view comes first.
+    let answers = |m: &ToView| {
+        matches!(m, ToView::Update(u) if matches!(
+            &**u,
+            Update::Done(Command::MarkRead(r)) | Update::Failed { command: Command::MarkRead(r), .. }
+                if *r == row
+        ))
+    };
+    let mut seen = Vec::new();
+    until(&mut link, &mut held, "the listing again", |m| {
+        seen.push(answers(m));
+        is_listing(m)
+    });
+    assert!(
+        !seen.contains(&true),
+        "the retired facade's answer reached the view"
+    );
+
+    let _ = service.stop(GRACE).expect("it ran");
+    assert!(
+        service
+            .plan_store_discard(&app.dir, PROFILE, &FilesystemCustody)
+            .is_ok(),
+        "control: with every facade ended the discard is planned"
     );
 }
 

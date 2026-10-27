@@ -152,11 +152,21 @@ pub enum StoreRefusal {
     KeyLost,
 }
 
-/// The running facade's generation and where its commands go.
+/// The running facade's generation and where its commands go, and how
+/// many facade threads of the process are alive, a retired one included.
 #[derive(Default)]
 struct Commands {
     generation: Option<u64>,
     sender: Option<tokio::sync::mpsc::UnboundedSender<Command>>,
+    alive: usize,
+}
+
+impl Commands {
+    /// Whether `generation` is the facade the hub serves now: what every
+    /// operation of a facade on the hub is decided by, under this lock.
+    fn current(&self, generation: u64) -> bool {
+        self.generation == Some(generation)
+    }
 }
 
 /// The process's one meeting point between the facade and the view.
@@ -164,11 +174,17 @@ pub struct Hub {
     slot: Mutex<Slot>,
     /// The running facade's generation and, while it takes commands, where
     /// they go: withdrawn before it closes, so a command is never accepted
-    /// by a facade that will not carry it out (owner's finding P2-2).
+    /// by a facade that will not carry it out (owner's finding P2-2); and
+    /// retired at its stop, so a facade left running past the stop's grace
+    /// publishes nothing (`human-client-android.md`, a facade past its
+    /// stop).
     commands: Mutex<Commands>,
     generations: std::sync::atomic::AtomicU64,
     focused: AtomicBool,
     notices: Notices,
+    /// Held by a test: every command waits on it before it is carried out.
+    #[cfg(feature = "test-hooks")]
+    held: Mutex<Option<Receiver<()>>>,
 }
 
 impl Default for Hub {
@@ -187,7 +203,13 @@ impl Hub {
             generations: std::sync::atomic::AtomicU64::new(0),
             focused: AtomicBool::new(false),
             notices: Notices::default(),
+            #[cfg(feature = "test-hooks")]
+            held: Mutex::new(None),
         }
+    }
+
+    fn commands(&self) -> MutexGuard<'_, Commands> {
+        self.commands.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn slot(&self) -> MutexGuard<'_, Slot> {
@@ -251,7 +273,10 @@ impl Hub {
     /// takes commands -- none runs, or the one that runs is closing -- for
     /// the view to fail it explicitly (owner's finding P2-2). A command
     /// accepted here is carried out: the facade withdraws before it
-    /// closes and runs every command it accepted first.
+    /// closes and runs every command it accepted first. Its answer reaches
+    /// the view unless the command outlasted the stop's grace: the facade
+    /// is retired then, the view starts again from the store, and the
+    /// result is shown by the next facade's listing ([`Self::ended`]).
     ///
     /// # Errors
     /// The command, when no facade takes it.
@@ -263,45 +288,52 @@ impl Hub {
         }
     }
 
+    /// Hold every command a facade of this hub carries out, from the next
+    /// one, until the returned sender is dropped: a command that outlasts
+    /// a stop's grace, as one that never returns would on a device. TEST
+    /// BUILDS ONLY.
+    #[cfg(feature = "test-hooks")]
+    pub fn hold_commands_for_test(&self) -> mpsc::Sender<()> {
+        let (release, held) = mpsc::channel();
+        *self.held.lock().unwrap_or_else(PoisonError::into_inner) = Some(held);
+        release
+    }
+
     // --- the facade's side -------------------------------------------------
 
-    /// The facade started (`Some`, with where its commands go) or stopped:
-    /// the latest generation, whichever it is. The tests' shorthand; a
-    /// facade starts, withdraws and stops by its own generation.
-    #[cfg(test)]
-    pub(crate) fn set_running(
-        &self,
-        commands: Option<tokio::sync::mpsc::UnboundedSender<Command>>,
-    ) {
-        if let Some(sender) = commands {
-            self.started(sender);
-            return;
-        }
-        let current = self
-            .commands
+    /// Before a facade carries out a command: waits while a test holds
+    /// commands ([`Self::hold_commands_for_test`]); nothing otherwise.
+    pub(crate) fn before_command(&self) {
+        #[cfg(feature = "test-hooks")]
+        if let Some(held) = self
+            .held
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .generation;
-        if let Some(generation) = current {
-            self.stopped(generation);
+            .as_ref()
+        {
+            // Every send or the sender's drop lets it go.
+            let _ = held.recv();
         }
     }
 
     /// A facade started, taking commands at `sender`: its generation, which
-    /// alone may withdraw or stop it.
+    /// alone may withdraw, retire or end it, and which every operation it
+    /// performs on the hub carries. Its thread counts as alive until
+    /// [`Self::ended`].
     pub(crate) fn started(&self, sender: tokio::sync::mpsc::UnboundedSender<Command>) -> u64 {
         let generation = self
             .generations
             .fetch_add(1, Ordering::SeqCst)
             .wrapping_add(1);
-        let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut commands = self.commands();
         *commands = Commands {
             generation: Some(generation),
             sender: Some(sender),
+            alive: commands.alive + 1,
         };
-        // Said under the commands lock, as `stopped` says its own: an old
-        // facade's stop cannot then say "not running" after this start
-        // (#483 F2). The order is commands, then the slot, everywhere.
+        // Said under the commands lock, as `retire` and `ended` say
+        // theirs: an old facade's stop cannot then say "not running" after
+        // this start (#483 F2). The order is commands, then the slot, everywhere.
         self.say_running(true);
         drop(commands);
         generation
@@ -310,23 +342,56 @@ impl Hub {
     /// Facade `generation` is closing: it takes no more commands. A later
     /// generation is left as it is.
     pub(crate) fn withdraw(&self, generation: u64) {
-        let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
-        if commands.generation == Some(generation) {
+        let mut commands = self.commands();
+        if commands.current(generation) {
             commands.sender = None;
         }
     }
 
-    /// Facade `generation` stopped: said, unless a later one runs -- an old
-    /// facade's late stop never clears a new one.
-    pub(crate) fn stopped(&self, generation: u64) {
-        let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
-        if commands.generation != Some(generation) {
+    /// The service stopped facade `generation`, whether or not its thread
+    /// has ended: from now on it is not the hub's, it takes no command, and
+    /// everything it publishes is refused; the view is told nothing runs.
+    /// A later generation is left as it is.
+    pub(crate) fn retire(&self, generation: u64) {
+        let mut commands = self.commands();
+        if !commands.current(generation) {
             return;
         }
-        *commands = Commands::default();
+        commands.generation = None;
+        commands.sender = None;
         // Under the lock that decided it (see `started`).
         self.say_running(false);
         drop(commands);
+    }
+
+    /// Facade `generation`'s thread ended. Still the hub's, it is retired
+    /// as a stop would. Retired, and a newer facade runs: the newer one's
+    /// view is listed again, from the store, so what the old one wrote
+    /// after its stop is shown. Each thread ends once, so its count as
+    /// alive goes with it.
+    pub(crate) fn ended(&self, generation: u64) {
+        let mut commands = self.commands();
+        commands.alive = commands.alive.saturating_sub(1);
+        if commands.current(generation) {
+            commands.generation = None;
+            commands.sender = None;
+            self.say_running(false);
+        } else if commands.generation.is_some() {
+            // Generations only grow and a start makes its own current,
+            // so a current one that is not this is newer.
+            if let Some(viewer) = self.slot().viewer.as_mut() {
+                viewer.listed = false;
+            }
+        }
+        drop(commands);
+    }
+
+    /// Whether a facade thread of the process is alive, a retired one
+    /// still finishing its commands included: a store discard waits for
+    /// none, since it would delete files under an open connection.
+    #[must_use]
+    pub(crate) fn facade_alive(&self) -> bool {
+        self.commands().alive > 0
     }
 
     fn say_running(&self, running: bool) {
@@ -397,14 +462,23 @@ impl Hub {
     }
 
     /// Whether the attached view, if any, still waits for its listing
-    /// from a running facade.
-    pub(crate) fn wants_listing(&self) -> bool {
+    /// from facade `generation`. Never from a retired one.
+    pub(crate) fn wants_listing(&self, generation: u64) -> bool {
+        let commands = self.commands();
         let slot = self.slot();
-        slot.running && slot.viewer.as_ref().is_some_and(|v| !v.listed)
+        commands.current(generation)
+            && slot.running
+            && slot.viewer.as_ref().is_some_and(|v| !v.listed)
     }
 
-    /// Hand the listing (or its failure) to the view that waits for it.
-    pub(crate) fn listed(&self, listing: ToView) {
+    /// Facade `generation` hands the listing (or its failure) to the view
+    /// that waits for it; refused, the view untouched, unless it is the
+    /// hub's current facade.
+    pub(crate) fn listed(&self, generation: u64, listing: ToView) {
+        let commands = self.commands();
+        if !commands.current(generation) {
+            return;
+        }
         let mut slot = self.slot();
         if let Some(viewer) = slot.viewer.as_mut() {
             viewer.listed = true;
@@ -414,12 +488,18 @@ impl Hub {
         }
     }
 
-    /// Hand `update` to a listed view; with none, it is dropped (the
-    /// store keeps the rows) after a received message has been counted
-    /// for a notice when no window has the person's focus.
-    pub(crate) fn update(&self, update: Update) {
+    /// Facade `generation` hands `update` to a listed view; with none, or
+    /// when it is not the hub's current facade, it is dropped (the store
+    /// keeps the rows) after a received message has been counted for a
+    /// notice when no window has the person's focus: the notice counts
+    /// committed rows, a retired facade's included.
+    pub(crate) fn update(&self, generation: u64, update: Update) {
         if matches!(update, Update::Received(_)) && !self.focused() {
             self.notices.received();
+        }
+        let commands = self.commands();
+        if !commands.current(generation) {
+            return;
         }
         let mut slot = self.slot();
         if let Some(viewer) = slot.viewer.as_ref().filter(|v| v.listed)
@@ -503,15 +583,15 @@ mod tests {
                 ToView::AuthenticationNeeded(false)
             ]
         ));
-        assert!(!hub.wants_listing(), "nothing to list while none runs");
+        assert!(!hub.wants_listing(1), "nothing to list while none runs");
 
         let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
-        hub.set_running(Some(commands));
-        assert!(hub.wants_listing());
+        let g = hub.started(commands);
+        assert!(hub.wants_listing(g));
         // An update before the listing never reaches the view.
-        hub.update(Update::Diagnostics(Diagnostics::default()));
-        hub.listed(listed());
-        hub.update(Update::Diagnostics(Diagnostics::default()));
+        hub.update(g, Update::Diagnostics(Diagnostics::default()));
+        hub.listed(g, listed());
+        hub.update(g, Update::Diagnostics(Diagnostics::default()));
         let taken = link.take();
         assert!(matches!(taken[0], ToView::Running(true)), "{taken:?}");
         assert!(
@@ -531,16 +611,16 @@ mod tests {
         let (woken, wake) = counting();
         let mut link = hub.attach(wake);
         let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
-        hub.set_running(Some(commands));
-        hub.listed(listed());
+        let g = hub.started(commands);
+        hub.listed(g, listed());
         assert_eq!(
             woken.load(Ordering::SeqCst),
             1,
             "Running(false), then nothing taken"
         );
         let _ = link.take();
-        hub.update(Update::Diagnostics(Diagnostics::default()));
-        hub.update(Update::Diagnostics(Diagnostics::default()));
+        hub.update(g, Update::Diagnostics(Diagnostics::default()));
+        hub.update(g, Update::Diagnostics(Diagnostics::default()));
         assert_eq!(woken.load(Ordering::SeqCst), 2, "one wake for both");
     }
 
@@ -550,16 +630,16 @@ mod tests {
         let (_, wake) = counting();
         let mut link = hub.attach(wake);
         let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
-        hub.set_running(Some(commands));
-        hub.listed(listed());
+        let g = hub.started(commands);
+        hub.listed(g, listed());
         // Running(false), Running(true) and the listing are queued already.
         for _ in 0..TO_VIEW {
-            hub.update(Update::Diagnostics(Diagnostics::default()));
+            hub.update(g, Update::Diagnostics(Diagnostics::default()));
         }
         let taken = link.take();
         assert_eq!(taken.len(), TO_VIEW, "the queue held exactly its bound");
         assert!(link.lost(), "and the view was dropped, not waited for");
-        assert!(!hub.wants_listing(), "no viewer remains");
+        assert!(!hub.wants_listing(g), "no viewer remains");
     }
 
     #[test]
@@ -664,7 +744,9 @@ mod tests {
     fn an_arrival_asks_a_notice_only_while_no_window_has_focus() {
         let now = std::time::Duration::ZERO;
         let hub = Hub::new();
-        hub.update(arrival());
+        // Generation 0 is no facade's, as a retired one is not the hub's:
+        // the notice counts the committed row all the same.
+        hub.update(0, arrival());
         assert_eq!(
             hub.notices().wait_change(now),
             Some(1),
@@ -677,11 +759,11 @@ mod tests {
             Some(0),
             "focus withdraws it"
         );
-        hub.update(arrival());
+        hub.update(0, arrival());
         assert_eq!(hub.notices().wait_change(now), None, "focused: read there");
 
         hub.set_focused(false);
-        hub.update(Update::Diagnostics(Diagnostics::default()));
+        hub.update(0, Update::Diagnostics(Diagnostics::default()));
         assert_eq!(
             hub.notices().wait_change(now),
             None,
@@ -694,10 +776,10 @@ mod tests {
         let hub = Hub::new();
         assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
         let (commands, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        hub.set_running(Some(commands));
+        let g = hub.started(commands);
         assert_eq!(hub.command(Command::Reopen), Ok(()));
         assert!(matches!(rx.try_recv(), Ok(Command::Reopen)));
-        hub.set_running(None);
+        hub.retire(g);
         assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
     }
 
@@ -720,14 +802,14 @@ mod tests {
         let new = hub.started(second);
         assert_ne!(old, new);
         hub.withdraw(old);
-        hub.stopped(old);
+        hub.ended(old);
         assert_eq!(
             hub.command(Command::Reopen),
             Ok(()),
             "the new one still takes it"
         );
         assert!(matches!(rx2.try_recv(), Ok(Command::Reopen)));
-        hub.stopped(new);
+        hub.ended(new);
         assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
     }
 
@@ -747,7 +829,7 @@ mod tests {
                 let (hub, gate) = (Arc::clone(&hub), Arc::clone(&gate));
                 std::thread::spawn(move || {
                     gate.wait();
-                    hub.stopped(old);
+                    hub.ended(old);
                 })
             };
             let (second, _rx2) = tokio::sync::mpsc::unbounded_channel();
@@ -803,5 +885,97 @@ mod tests {
             [(StoreAnswer::Opened, 5)],
             "the last answer, at the hub's count"
         );
+    }
+
+    fn the_listing(taken: &[ToView]) -> bool {
+        taken
+            .iter()
+            .any(|t| matches!(t, ToView::Update(u) if matches!(**u, Update::Listed(_))))
+    }
+
+    /// `human-client-android.md`, a facade past its stop, rules 1 and 2:
+    /// retired at its stop, a facade takes no command, the view hears that
+    /// nothing runs, and nothing it does on the hub -- asking for a
+    /// listing, supplying one, an update -- reaches the next facade's view
+    /// or marks it listed; an arrival it commits still asks a notice.
+    /// Mutations: `retire` leaving the generation current; `wants_listing`,
+    /// `listed` and `update` each not asking the generation.
+    #[test]
+    fn a_retired_facade_takes_no_command_and_publishes_nothing() {
+        let hub = Hub::new();
+        let (_, wake) = counting();
+        let mut link = hub.attach(wake);
+        let (first, _rx1) = tokio::sync::mpsc::unbounded_channel();
+        let old = hub.started(first);
+        hub.listed(old, listed());
+        let _ = link.take();
+
+        hub.retire(old);
+        assert!(matches!(link.take()[..], [ToView::Running(false)]));
+        assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
+        assert!(!hub.wants_listing(old), "not asked to list for no facade");
+        hub.listed(old, listed());
+        hub.update(old, Update::Diagnostics(Diagnostics::default()));
+        assert!(link.take().is_empty(), "nor heard before the next start");
+
+        let (second, _rx2) = tokio::sync::mpsc::unbounded_channel();
+        let new = hub.started(second);
+        let _ = link.take();
+        assert!(!hub.wants_listing(old), "nor for the new facade's view");
+        hub.listed(old, listed());
+        hub.update(old, Update::Diagnostics(Diagnostics::default()));
+        assert!(link.take().is_empty(), "the old facade reaches no view");
+        assert!(hub.wants_listing(new), "nor marks it listed");
+
+        hub.listed(new, listed());
+        assert!(the_listing(&link.take()), "control: the new one lists");
+        hub.update(old, Update::Diagnostics(Diagnostics::default()));
+        hub.update(old, arrival());
+        assert!(link.take().is_empty(), "a listed view hears nothing old");
+        assert_eq!(
+            hub.notices().wait_change(std::time::Duration::ZERO),
+            Some(1),
+            "the old facade's arrival is noticed"
+        );
+        hub.update(new, Update::Diagnostics(Diagnostics::default()));
+        assert_eq!(link.take().len(), 1, "control: the new one's update");
+    }
+
+    /// Rule 3's end: a retired facade whose thread ends after a newer
+    /// facade started makes the newer one's view list again, so what the
+    /// old one wrote is shown; one that ended before the start changes
+    /// nothing. Rule 4's count: a retired facade is alive until its thread
+    /// ends. Mutations: `ended` not marking the view unlisted; `retire`
+    /// counting the facade as ended.
+    #[test]
+    fn a_retired_facade_ending_late_makes_the_next_view_list_again() {
+        let hub = Hub::new();
+        let (_, wake) = counting();
+        let _link = hub.attach(wake);
+        let (first, _rx1) = tokio::sync::mpsc::unbounded_channel();
+        let old = hub.started(first);
+        hub.retire(old);
+        assert!(hub.facade_alive(), "retired, its thread still runs");
+        let (second, _rx2) = tokio::sync::mpsc::unbounded_channel();
+        let new = hub.started(second);
+        hub.listed(new, listed());
+        assert!(!hub.wants_listing(new));
+
+        hub.ended(old);
+        assert!(hub.wants_listing(new), "listed again after the late end");
+        assert!(hub.facade_alive(), "the new facade's thread");
+        hub.retire(new);
+        hub.ended(new);
+        assert!(!hub.facade_alive());
+
+        // The control: an end before the next start leaves its listing.
+        let (third, _rx3) = tokio::sync::mpsc::unbounded_channel();
+        let before = hub.started(third);
+        hub.retire(before);
+        hub.ended(before);
+        let (fourth, _rx4) = tokio::sync::mpsc::unbounded_channel();
+        let after = hub.started(fourth);
+        hub.listed(after, listed());
+        assert!(!hub.wants_listing(after), "nothing ended since its listing");
     }
 }
