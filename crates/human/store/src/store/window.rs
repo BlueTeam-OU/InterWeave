@@ -3,8 +3,9 @@
 //! The start window's reads (`design/2026-10-27-start-window.md`; STATE.md
 //! schema v10): one conversation's shown rows a page at a time, newest
 //! first, and the counts the Chats list needs, so that opening the app
-//! reads counts and pages, never every row. Each is served by a v10 index;
-//! `the_window_reads_use_their_indexes` reads their plans.
+//! reads counts and pages, never every row. Each is served by a v10 index:
+//! `the_window_reads_use_their_indexes` reads the pages' plans and
+//! `the_counts_read_a_covering_index_alone` the counts'.
 
 use rusqlite::params;
 
@@ -110,8 +111,10 @@ const HIDDEN: &str =
     "SELECT (SELECT COUNT(*) FROM unread_inbound INDEXED BY unread_inbound_by_kind WHERE kind NOT IN ('text', 'card')),
             (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind WHERE kind NOT IN ('text', 'card'))";
 
-/// The rank of a table among rows received at one instant: kept rows
-/// order after unread ones, newest first, so a cursor names one place.
+/// The rank of a table among rows received at one instant: kept rows rank
+/// above unread ones, so in a newest-first page a kept row comes first
+/// (`a_conversation_is_paged_newest_first_with_every_row_once`), and a
+/// cursor names one place.
 const fn rank(table: BackupTable) -> u8 {
     match table {
         BackupTable::Unread => 0,
