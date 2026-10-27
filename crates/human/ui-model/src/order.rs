@@ -15,6 +15,7 @@
 //! megabyte of data no build of today can ask for. When a locale arrives,
 //! the provider below gives way to the compiled data's own.
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use icu_collator::provider::{
@@ -107,20 +108,37 @@ pub fn contact_order(a: &ContactView, b: &ContactView) -> Ordering {
         .then_with(|| a.contact_id.cmp(&b.contact_id))
 }
 
-/// Contact names in the one order, each found among `contacts` by its id
-/// for the route tie; a name no contact holds goes by name and id alone.
-pub(crate) fn sort_refs(refs: &mut [ContactRef], contacts: &[ContactView]) {
-    let route = |r: &ContactRef| {
-        contacts
-            .iter()
-            .find(|c| c.contact_id == r.contact_id)
-            .and_then(smallest_route)
-    };
-    refs.sort_by(|a, b| {
-        compare_names(&a.name, &b.name)
-            .then_with(|| route(a).cmp(&route(b)))
-            .then_with(|| a.contact_id.cmp(&b.contact_id))
-    });
+/// Contact names in the one order: each ordered as the contact `contacts`
+/// holds under its id, by [`contact_order`] itself, so a note can never
+/// be ordered by another rule than the list; a name no contact holds is
+/// ordered as a contact of that name with no route.
+pub(crate) fn sort_refs(refs: &mut Vec<ContactRef>, contacts: &[ContactView]) {
+    let mut keyed: Vec<(Cow<'_, ContactView>, ContactRef)> = refs
+        .drain(..)
+        .map(|r| {
+            let view = contacts
+                .iter()
+                .find(|c| c.contact_id == r.contact_id)
+                .map_or_else(
+                    || {
+                        Cow::Owned(ContactView {
+                            contact_id: r.contact_id.clone(),
+                            name: r.name.clone(),
+                            name_from_card: false,
+                            name_at: None,
+                            photo_from_card: None,
+                            photo_at: None,
+                            photo: None,
+                            routes: Vec::new(),
+                        })
+                    },
+                    Cow::Borrowed,
+                );
+            (view, r)
+        })
+        .collect();
+    keyed.sort_by(|(a, _), (b, _)| contact_order(a, b));
+    refs.extend(keyed.into_iter().map(|(_, r)| r));
 }
 
 /// The smallest of a contact's routes, a route compared by its `PeerId`'s
@@ -224,12 +242,17 @@ mod tests {
 
     #[test]
     fn a_proposals_names_take_the_same_order_with_the_route_tie() {
-        // The two "Ada" are told apart by their routes, c9's P before
-        // c1's Q, against the order of their ids. Mutation: sorting the
-        // refs by name alone (then by id) puts c1 first.
+        // Each note is ordered as the list orders its contact: the two
+        // "Ada" by their routes, c9's P before c1's Q, against the order
+        // of their ids; c7, renamed "Zoltan" since the standing was read,
+        // where the list has it, after c5's "Zoe", which no contact holds.
+        // Mutations: the refs by name alone (then by id) put c1 first; a
+        // second comparator over the refs' own names puts c7 ("Åke")
+        // before c5.
         let contacts = vec![
             contact("c1", "Ada", &[(Q, "human")]),
             contact("c9", "Ada", &[(P, "human")]),
+            contact("c7", "Zoltan", &[(P, "z")]),
         ];
         let mut refs: Vec<ContactRef> = ["Zoe", "Ada", "Åke", "Ada"]
             .iter()
@@ -241,7 +264,7 @@ mod tests {
             .collect();
         sort_refs(&mut refs, &contacts);
         let ids: Vec<&str> = refs.iter().map(|r| r.contact_id.as_str()).collect();
-        assert_eq!(ids, ["c9", "c1", "c7", "c5"]);
+        assert_eq!(ids, ["c9", "c1", "c5", "c7"]);
     }
 
     #[test]
