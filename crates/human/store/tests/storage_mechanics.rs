@@ -3583,3 +3583,36 @@ fn the_engine_is_sqlcipher_with_its_crypto_built_in() {
         .expect("a provider");
     assert_eq!(provider, "openssl");
 }
+
+/// Two connections of one process on one store -- on Android, a facade
+/// left running past its stop and the next start's -- are serialised by
+/// the store: a write that meets another connection's write transaction
+/// waits for it and lands, never failing busy (`human-client-android.md`,
+/// a facade past its stop, rule 3). Mutation: the open setting a busy
+/// timeout of zero.
+#[test]
+fn a_second_connection_waits_for_a_write_rather_than_failing() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut first = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut second = HumanStore::open(&path, StoreOptions::default()).expect("opens twice");
+    second
+        .commit_unread_inbound(&inbound(ID_B, b"other".to_vec()))
+        .expect("control: the second connection writes");
+
+    let holder = rusqlite::Connection::open(&path).expect("a third connection");
+    holder
+        .execute_batch("BEGIN IMMEDIATE;")
+        .expect("a writer holds the file");
+    let released = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        holder
+            .execute_batch("COMMIT;")
+            .expect("the writer finishes");
+    });
+    first
+        .commit_unread_inbound(&inbound(ID_A, b"hello".to_vec()))
+        .expect("waits for the writer, then lands");
+    released.join().expect("the writer's thread");
+    assert_eq!(second.unread_inbound().expect("read").len(), 2);
+}
