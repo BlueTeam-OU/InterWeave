@@ -853,7 +853,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         }
         // The Accept is written: a contacts list that cannot be read now is
         // a problem of its own, never a refusal of what was done (#414 F8).
-        updates.push(contacts_update(self.client.store_mut()));
+        say(updates, contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
         Ok(())
     }
@@ -979,7 +979,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         match self.own_view() {
             Ok(view) => view,
             Err(e) => {
-                updates.push(Update::CardsNotRead(store_failure(&e)));
+                say(updates, Update::CardsNotRead(store_failure(&e)));
                 None
             }
         }
@@ -1208,7 +1208,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             change: interweave_human_ui_model::ContactChange::Deleted,
             hold,
         });
-        updates.push(contacts_update(self.client.store_mut()));
+        say(updates, contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
         Ok(())
     }
@@ -1246,7 +1246,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Ok(false) => return Err(Failure::Refused),
             Err(e) => return Err(store_failure(&e)),
         }
-        updates.push(contacts_update(self.client.store_mut()));
+        say(updates, contacts_update(self.client.store_mut()));
         updates.push(Update::ContactRestored {
             contact_id: contact_id.to_owned(),
             change,
@@ -1388,7 +1388,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 }
             }
         }
-        updates.push(contacts_update(self.client.store_mut()));
+        say(updates, contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
         Ok(())
     }
@@ -1406,10 +1406,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         match listing::list_unread(self.client.store_mut()) {
             Ok((_, unshown, _)) => {
                 for card in unshown {
-                    updates.push(judged(cards::proposal(self.client.store_mut(), card)));
+                    say(
+                        updates,
+                        judged(cards::proposal(self.client.store_mut(), card)),
+                    );
                 }
             }
-            Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
+            Err(e) => say(updates, Update::CardsNotRead(store_failure(&e))),
         }
         let shown: Vec<_> = self
             .copies
@@ -1422,14 +1425,17 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             .collect();
         for (row, received_at, (peer, endpoint, card)) in shown {
             let context = cards::context(self.client.store_mut(), &peer, &endpoint, &card);
-            updates.push(judged(context.map(|context| Proposal {
-                row,
-                peer,
-                endpoint,
-                card,
-                received_at,
-                context,
-            })));
+            say(
+                updates,
+                judged(context.map(|context| Proposal {
+                    row,
+                    peer,
+                    endpoint,
+                    card,
+                    received_at,
+                    context,
+                })),
+            );
         }
     }
 
@@ -1580,7 +1586,7 @@ fn new_key_start(
     let pending = match pending {
         Ok(pending) => pending,
         Err(e) => {
-            updates.push(Update::CardsNotRead(store_failure(&e)));
+            say(updates, Update::CardsNotRead(store_failure(&e)));
             return None;
         }
     };
@@ -1603,7 +1609,7 @@ fn new_key_start(
             list
         }
         Err(e) => {
-            updates.push(Update::CardsNotRead(store_failure(&e)));
+            say(updates, Update::CardsNotRead(store_failure(&e)));
             Vec::new()
         }
     };
@@ -1692,15 +1698,27 @@ fn undo_answer<S: CardStore>(
         }
         Err(e) if accept.is_none() => return Err(store_failure(&e)),
         Err(e) => {
-            updates.push(Update::CardsNotRead(store_failure(&e)));
+            say(updates, Update::CardsNotRead(store_failure(&e)));
             updates.push(Update::ProposalNotRestored(answer.row));
             false
         }
     };
     if accept.is_some() {
-        updates.push(contacts_update(store));
+        say(updates, contacts_update(store));
     }
     Ok(restored)
+}
+
+/// Push `update`, unless it is a [`Update::CardsNotRead`] and the
+/// command has said one already: the reads after one change fail
+/// together -- the contacts and every proposal judged again -- and the
+/// person is told once that what is shown may lag the store.
+fn say(updates: &mut Vec<Update>, update: Update) {
+    let again = matches!(update, Update::CardsNotRead(_))
+        && updates.iter().any(|u| matches!(u, Update::CardsNotRead(_)));
+    if !again {
+        updates.push(update);
+    }
 }
 
 /// The contacts after a write to them that is done: listed, or, when they
@@ -1915,7 +1933,7 @@ mod tests {
         );
     }
 
-    /// The store step a test store fails at.
+    /// A store step a test store fails at.
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Step {
         Write,
@@ -1923,23 +1941,24 @@ mod tests {
         Contacts,
     }
 
-    /// A store that fails at the step it is told to, recording a write.
+    /// A store that fails at the steps it is told to, recording a write.
     #[derive(Default)]
     struct Failing {
-        at: Option<Step>,
+        at: Vec<Step>,
         written: bool,
     }
 
     impl Failing {
         fn at(step: Step) -> Self {
-            Self {
-                at: Some(step),
-                written: false,
-            }
+            Self::at_each(vec![step])
+        }
+
+        fn at_each(at: Vec<Step>) -> Self {
+            Self { at, written: false }
         }
 
         fn fails(&self, step: Step) -> Result<(), StoreError> {
-            if self.at == Some(step) {
+            if self.at.contains(&step) {
                 return Err(StoreError::Corrupt("told to".to_owned()));
             }
             Ok(())
@@ -2035,6 +2054,13 @@ mod tests {
             (Ok(false), vec!["not read", "not restored", "contacts"])
         );
         assert!(s.written);
+        // An Accept written, neither its card nor the contacts read: the
+        // lag is said once.
+        let mut s = Failing::at_each(vec![Step::Judge, Step::Contacts]);
+        assert_eq!(
+            run(&mut s, true),
+            (Ok(false), vec!["not read", "not restored"])
+        );
         // An Accept written and judged, its contacts unread: done, back.
         let mut s = Failing::at(Step::Contacts);
         assert_eq!(run(&mut s, true), (Ok(true), vec!["restored", "not read"]));
