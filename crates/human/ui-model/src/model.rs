@@ -282,6 +282,8 @@ pub struct LastMessage {
     /// The local time it reached this app: never the time a sender
     /// asserts.
     pub local_at: u64,
+    /// One's own card row: previewed as that, since it has no text.
+    pub card: bool,
 }
 
 impl LastMessage {
@@ -1052,6 +1054,7 @@ impl UiModel {
                 label: item.label(),
                 body: item.body.clone(),
                 local_at: item.local_at,
+                card: item.card.is_some(),
             };
             let summary = by
                 .entry(&item.conversation)
