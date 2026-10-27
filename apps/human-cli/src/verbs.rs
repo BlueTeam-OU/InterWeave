@@ -194,6 +194,7 @@ pub(crate) fn problems<B: DataSessionBinding, A: AdminBinding>(
         Why::ProposalChanged => {
             Failure::Refused(format!("{what}: the proposal changed since it was shown"))
         }
+        Why::ServiceStopped => Failure::Refused(format!("{what}: the service was not running")),
     })
 }
 
