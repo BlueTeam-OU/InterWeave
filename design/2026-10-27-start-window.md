@@ -479,7 +479,10 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     fetch at the top); with A's badge at 0, Chats ends with
     `RowsNotShown` showing 1. Add a second undecodable row to a third
     conversation with no other row: it has no Chats row, and
-    `RowsNotShown` shows 2.
+    `RowsNotShown` shows 2. Add a third undecodable row as B's newest stored
+    row, with the app restarted so the session holds none of B's
+    rows: B's preview and time are those of its newest row that
+    decodes, and `RowsNotShown` shows 3.
 
 **Test of §2's hypothesis** (with people, when there is a session to
 run): give a participant the flooded A and ask them to find the first
