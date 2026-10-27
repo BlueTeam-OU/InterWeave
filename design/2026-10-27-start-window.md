@@ -817,8 +817,8 @@ line. Two of five failing is enough to reopen §6.
   showing it announces nothing, because the row is the first item read
   there. While the contacts are unread, a conversation title on Chats
   and in the app bar has no contact name to use, so it is the title of
-  a conversation under no contact (`human-client-ui.md` §4, the short
-  PeerId and route as `DirectTitle` builds it). It takes the contact's
+  a conversation under no contact: the short PeerId, with the route
+  label only where `human-client-ui.md` §4 asks for it (`DirectTitle`). It takes the contact's
   name once a read succeeds, from Try again or the next start.
 - **Nothing writes a contact while the contacts are unread.** A card
   proposal's case, its same-name warning (`CardSameName`) and its
