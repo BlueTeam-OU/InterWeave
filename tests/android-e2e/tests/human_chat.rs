@@ -425,7 +425,10 @@ async fn over_wifi_the_phone_chats_with_the_desktop_dialling_its_lan_address() {
         .await;
     let admin = d
         .binding()
-        .admin(BTreeSet::from([AdminCapability::Peers]))
+        .admin(BTreeSet::from([
+            AdminCapability::Peers,
+            AdminCapability::Status,
+        ]))
         .await
         .expect("D's admin port");
 
