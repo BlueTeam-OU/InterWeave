@@ -1205,7 +1205,13 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         if consume && drain && ended.is_none() {
             drain = false;
             let (messages, proposals) = undrained(s, &consumed);
-            for row in messages {
+            // A row this step already holds a line for -- one received in
+            // the same turn as a card or a relist -- is that line's: never
+            // printed twice
+            // (`a_message_received_with_a_card_is_printed_once`).
+            let queued: std::collections::HashSet<RowId> =
+                lines.iter().filter_map(|(_, row)| *row).collect();
+            for row in messages.into_iter().filter(|row| !queued.contains(row)) {
                 if let Some(line) = message_line(s, row, json, None) {
                     lines.push((line, Some(row)));
                 }

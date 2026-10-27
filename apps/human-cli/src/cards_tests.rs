@@ -966,3 +966,55 @@ async fn listen_consume_declines_a_card_as_it_arrives() {
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     assert!(out.is_empty(), "none held: {out}");
 }
+
+/// A message handed over in the same turn as a card is printed once, not
+/// again by the drain the card starts. Mutation: the drain blind to the
+/// rows its own step already holds.
+#[tokio::test]
+async fn a_message_received_with_a_card_is_printed_once() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (alice, bob) = (Side::new(a), Side::new(b));
+    let mut b_run = bob.session();
+    run(&mut b_run, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    let mut a_run = alice.session();
+    run(&mut a_run, set("Ada", None), false)
+        .await
+        .1
+        .expect("set");
+    run(&mut a_run, Verb::CardShare(bob.route()), false)
+        .await
+        .1
+        .expect("shared");
+    let message = Verb::Send {
+        conversation: bob.route(),
+        text: Some("beside the card".to_owned()),
+        pending: true,
+    };
+    run(&mut a_run, message, false).await.1.expect("sent");
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut b_run,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let messages = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "message" && e["text"] == "beside the card")
+        .count();
+    assert_eq!(messages, 1, "once: {out}");
+    assert!(
+        !out.contains(r#""event":"failed""#),
+        "no second read refused: {out}"
+    );
+}
