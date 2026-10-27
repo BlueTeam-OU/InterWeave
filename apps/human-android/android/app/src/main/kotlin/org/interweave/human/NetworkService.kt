@@ -141,11 +141,15 @@ class NetworkService : Service() {
     private fun watchNetworks() {
         networkThread.start()
         val handler = Handler(networkThread.looper)
-        // A usable network is one the platform says reaches the Internet,
-        // a VPN included: the runtime's sockets leave from its addresses
-        // too, and the default request would leave it out.
+        // Every network the platform lets this app use, whether or not it
+        // reaches the Internet: a Wi-Fi with no uplink or a local-only
+        // hotspot is a LAN its peers are on, and an address of this host
+        // outside the view counts as on no local network (ADR-0052 rule
+        // 10, A 2026-10-27). A VPN included: the default request leaves it
+        // out. Restricted and untrusted networks stay out, as the
+        // platform keeps them from an app.
         val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
         handler.post { Native.networkWatching() }
