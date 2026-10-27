@@ -1357,6 +1357,17 @@ impl HumanStore {
         let result = (|| -> Result<(), StoreError> {
             let tx = self.conn.unchecked_transaction()?;
             for table in ["unread_inbound", "kept_inbound"] {
+                // A kind this build does not write -- a newer build's -- reads
+                // back as `Other`, which the classifier may also answer, so
+                // the comparison below would leave it in place. It is made
+                // `other` first, and the classifier then decides.
+                tx.execute(
+                    &format!(
+                        "UPDATE {table} SET kind = 'other'
+                          WHERE kind NOT IN ('text', 'card', 'other')"
+                    ),
+                    [],
+                )?;
                 let mut after = None;
                 loop {
                     let page = self.read_inbound_table(table, after, PageLimits::default())?;

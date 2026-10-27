@@ -74,7 +74,7 @@ fn page_sql(table: &str, conversation: &str) -> String {
         "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
                 media_type, payload, received_at, {read}, kind
            FROM {table}
-          WHERE {conversation} AND kind <> 'other'
+          WHERE {conversation} AND kind IN ('text', 'card')
             AND (received_at, row_id) < (?3, ?4)
           ORDER BY received_at DESC, row_id DESC
           LIMIT ?5"
@@ -89,6 +89,26 @@ const DIRECT: &str = "source_peer = ?1 AND source_endpoint_key = ?2";
 /// A channel: its key alone, served by the `_by_channel` index. `?2` is
 /// unused and bound empty so both filters take the same parameters.
 const CHANNEL: &str = "channel_key = ?1 AND ?2 = ''";
+
+/// The badge's count of direct conversations, and of channels, and the
+/// hidden counts: each read from a `_by_kind` index alone, no row read
+/// (schema v10), over the tables' own columns rather than their generated
+/// `_key` forms, which SQLite recomputes from the row and so never reads
+/// from an index alone, and named rather than left to the planner, which with no
+/// statistics picks a narrower index and reads the rows. A kind this build
+/// does not know -- a newer build's -- is
+/// neither text nor card, so it is hidden rather than counted.
+const DIRECT_COUNTS: &str = "SELECT source_peer, source_endpoint, COUNT(DISTINCT app_message_id)
+   FROM unread_inbound INDEXED BY unread_inbound_by_kind
+  WHERE channel_id IS NULL AND source_endpoint IS NOT NULL AND kind IN ('text', 'card')
+  GROUP BY source_peer, source_endpoint";
+const CHANNEL_COUNTS: &str = "SELECT channel_id, COUNT(DISTINCT app_message_id)
+   FROM unread_inbound INDEXED BY unread_inbound_by_kind
+  WHERE channel_id IS NOT NULL AND kind IN ('text', 'card')
+  GROUP BY channel_id";
+const HIDDEN: &str =
+    "SELECT (SELECT COUNT(*) FROM unread_inbound INDEXED BY unread_inbound_by_kind WHERE kind NOT IN ('text', 'card')),
+            (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind WHERE kind NOT IN ('text', 'card'))";
 
 /// The rank of a table among rows received at one instant: kept rows
 /// order after unread ones, newest first, so a cursor names one place.
@@ -190,25 +210,16 @@ impl HumanStore {
     /// A storage error, or a row this build cannot read back.
     pub fn unread_counts(&self) -> Result<Vec<ConversationUnread>, StoreError> {
         let mut out = Vec::new();
-        let mut direct = self.conn.prepare(
-            "SELECT source_peer, source_endpoint, COUNT(DISTINCT app_message_id)
-               FROM unread_inbound
-              WHERE channel_key = '' AND kind <> 'other'
-              GROUP BY source_peer, source_endpoint_key",
-        )?;
+        let mut direct = self.conn.prepare(DIRECT_COUNTS)?;
         let rows = direct.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
-                r.get::<_, Option<String>>(1)?,
+                r.get::<_, String>(1)?,
                 r.get::<_, i64>(2)?,
             ))
         })?;
         for row in rows {
             let (peer, endpoint, count) = row?;
-            let Some(endpoint) = endpoint else {
-                // A direct row with no endpoint is no row the client wrote.
-                continue;
-            };
             out.push(ConversationUnread {
                 conversation: StoreConversation::Direct {
                     peer: TransportIdentity::parse(peer)
@@ -219,12 +230,7 @@ impl HumanStore {
                 unread: u64::try_from(count).unwrap_or(0),
             });
         }
-        let mut channels = self.conn.prepare(
-            "SELECT channel_id, COUNT(DISTINCT app_message_id)
-               FROM unread_inbound
-              WHERE channel_key <> '' AND kind <> 'other'
-              GROUP BY channel_key",
-        )?;
+        let mut channels = self.conn.prepare(CHANNEL_COUNTS)?;
         let rows = channels.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
         for row in rows {
             let (channel, count) = row?;
@@ -243,12 +249,9 @@ impl HumanStore {
     /// # Errors
     /// A storage error.
     pub fn hidden_inbound(&self) -> Result<HiddenInbound, StoreError> {
-        let (unread, kept): (i64, i64) = self.conn.query_row(
-            "SELECT (SELECT COUNT(*) FROM unread_inbound WHERE kind = 'other'),
-                    (SELECT COUNT(*) FROM kept_inbound WHERE kind = 'other')",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
+        let (unread, kept): (i64, i64) = self
+            .conn
+            .query_row(HIDDEN, [], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(HiddenInbound {
             unread: u64::try_from(unread).unwrap_or(0),
             kept: u64::try_from(kept).unwrap_or(0),
@@ -277,7 +280,7 @@ impl HumanStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{CHANNEL, DIRECT, page_sql};
+    use super::{CHANNEL, CHANNEL_COUNTS, DIRECT, DIRECT_COUNTS, HIDDEN, page_sql};
     use crate::{HumanStore, StoreOptions};
 
     /// Each window read is planned on its v10 index, never a scan of an
@@ -305,6 +308,53 @@ mod tests {
             assert!(
                 plan.iter().any(|step| step.contains(index)),
                 "{table} {filter}: {index} not used: {plan:?}"
+            );
+        }
+    }
+
+    /// The badge's and the hidden counts read an index alone, never a row:
+    /// each plan names a covering `_by_kind` index (#489 review F1).
+    /// Mutation: the unread kind index dropped from migration 10.
+    #[test]
+    fn the_counts_read_a_covering_index_alone() {
+        let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        for (sql, indexes) in [
+            (
+                DIRECT_COUNTS,
+                &["COVERING INDEX unread_inbound_by_kind"][..],
+            ),
+            (
+                CHANNEL_COUNTS,
+                &["COVERING INDEX unread_inbound_by_kind"][..],
+            ),
+            (
+                HIDDEN,
+                &[
+                    "COVERING INDEX unread_inbound_by_kind",
+                    "COVERING INDEX kept_inbound_by_kind",
+                ][..],
+            ),
+        ] {
+            let plan: Vec<String> = store
+                .conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .expect("plan")
+                .query_map([], |r| r.get::<_, String>(3))
+                .expect("rows")
+                .collect::<Result<_, _>>()
+                .expect("plan rows");
+            for index in indexes {
+                assert!(
+                    plan.iter().any(|step| step.contains(index)),
+                    "{index} not used: {plan:?}"
+                );
+            }
+            assert!(
+                !plan
+                    .iter()
+                    .any(|step| step.starts_with("SCAN unread_inbound")
+                        && !step.contains("COVERING")),
+                "a row read: {plan:?}"
             );
         }
     }

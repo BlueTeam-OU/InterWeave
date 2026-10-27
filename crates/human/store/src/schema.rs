@@ -175,7 +175,9 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
 /// for this migration and for a later change of normalisation or
 /// classification (`refresh_name_keys`, the inbound-kind version). The
 /// indexes are on the columns already in the rows, and go with the row
-/// they index. No content table gains content.
+/// they index, two of them (`_by_kind`) covering the badge's and the
+/// hidden counts so that no row is read for either. No content table
+/// gains content.
 fn migration_10(tx: &Transaction<'_>) -> Result<(), StoreError> {
     tx.execute_batch(
         "
@@ -193,6 +195,9 @@ fn migration_10(tx: &Transaction<'_>) -> Result<(), StoreError> {
             ON kept_inbound (source_peer, source_endpoint_key, received_at, row_id);
         CREATE INDEX kept_inbound_by_channel
             ON kept_inbound (channel_key, received_at, row_id);
+        CREATE INDEX unread_inbound_by_kind
+            ON unread_inbound (kind, source_peer, source_endpoint, channel_id, app_message_id);
+        CREATE INDEX kept_inbound_by_kind ON kept_inbound (kind);
         ",
     )
     .map_err(migration_error)
@@ -1227,6 +1232,16 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
                 ],
             ),
             (
+                "unread_inbound_by_kind",
+                &[
+                    "kind",
+                    "source_peer",
+                    "source_endpoint",
+                    "channel_id",
+                    "app_message_id",
+                ],
+            ),
+            (
                 "unread_inbound_by_channel",
                 &["channel_key", "received_at", "row_id"],
             ),
@@ -1267,6 +1282,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
                     "row_id",
                 ],
             ),
+            ("kept_inbound_by_kind", &["kind"]),
             (
                 "kept_inbound_by_channel",
                 &["channel_key", "received_at", "row_id"],

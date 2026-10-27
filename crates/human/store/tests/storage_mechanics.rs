@@ -2984,6 +2984,7 @@ fn a_v7_database_gains_the_walk_indexes_keeping_its_rows() {
         [
             "unread_inbound_by_channel",
             "unread_inbound_by_conversation",
+            "unread_inbound_by_kind",
             "unread_inbound_by_received"
         ]
     );
@@ -2992,6 +2993,7 @@ fn a_v7_database_gains_the_walk_indexes_keeping_its_rows() {
         [
             "kept_inbound_by_channel",
             "kept_inbound_by_conversation",
+            "kept_inbound_by_kind",
             "kept_inbound_by_received"
         ]
     );
@@ -3526,12 +3528,14 @@ fn the_start_window_columns_and_indexes_are_part_of_the_verified_shape() {
         ),
         (
             "unread rows without kind",
-            "ALTER TABLE unread_inbound DROP COLUMN kind;",
+            "DROP INDEX unread_inbound_by_kind; ALTER TABLE unread_inbound DROP COLUMN kind;",
         ),
         (
             "kept rows without kind",
-            "ALTER TABLE kept_inbound DROP COLUMN kind;",
+            "DROP INDEX kept_inbound_by_kind; ALTER TABLE kept_inbound DROP COLUMN kind;",
         ),
+        ("no unread kind index", "DROP INDEX unread_inbound_by_kind;"),
+        ("no kept kind index", "DROP INDEX kept_inbound_by_kind;"),
         ("no name-key index", "DROP INDEX contacts_by_name_key;"),
         ("no route index", "DROP INDEX contact_routes_by_route;"),
         ("no identity-key index", "DROP INDEX contact_routes_by_key;"),

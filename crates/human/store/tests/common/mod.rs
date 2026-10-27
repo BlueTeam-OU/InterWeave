@@ -50,6 +50,8 @@ pub(crate) const UNDO_V10: &str = "DROP INDEX contacts_by_name_key;
      DROP INDEX unread_inbound_by_channel;
      DROP INDEX kept_inbound_by_conversation;
      DROP INDEX kept_inbound_by_channel;
+     DROP INDEX unread_inbound_by_kind;
+     DROP INDEX kept_inbound_by_kind;
      ALTER TABLE contacts DROP COLUMN name_key;
      ALTER TABLE unread_inbound DROP COLUMN kind;
      ALTER TABLE kept_inbound DROP COLUMN kind;

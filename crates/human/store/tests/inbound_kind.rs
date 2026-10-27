@@ -10,7 +10,8 @@
 mod common;
 
 use interweave_human_store::{
-    AppMessageId, HumanStore, InboundKind, InboundOrigin, NewInbound, StoreOptions,
+    AppMessageId, HiddenInbound, HumanStore, InboundKind, InboundOrigin, NewInbound, PageLimits,
+    StoreConversation, StoreOptions,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -176,4 +177,48 @@ fn a_reclassification_that_fails_changes_nothing() {
             .all(|r| r.kind == InboundKind::Other),
         "no row kept the two updates made before the failure"
     );
+}
+
+/// A kind only a newer build writes (here `image`) is neither text nor
+/// card: hidden, never counted in a badge nor paged, and a
+/// reclassification writes it back as this build's `other` rather than
+/// leaving it because it reads back as `Other` (#489 review F3).
+/// Mutations: the counts filtering `<> 'other'`; the reclassification not
+/// resetting an unknown kind.
+#[test]
+fn a_kind_this_build_does_not_know_is_hidden_and_reset_by_reclassification() {
+    let (_dir, path, mut store) = store();
+    store
+        .commit_unread_inbound(&inbound(1, InboundKind::Text))
+        .expect("committed");
+    rusqlite::Connection::open(&path)
+        .expect("a second connection")
+        .execute("UPDATE unread_inbound SET kind = 'image'", [])
+        .expect("a newer build's kind");
+
+    assert!(
+        store.unread_counts().expect("counts").is_empty(),
+        "not counted"
+    );
+    assert_eq!(
+        store.hidden_inbound().expect("hidden"),
+        HiddenInbound { unread: 1, kept: 0 }
+    );
+    let conversation = StoreConversation::Direct {
+        peer: TransportIdentity::parse(P).expect("a PeerId"),
+        endpoint: EndpointId::parse("human").expect("an endpoint"),
+    };
+    let page = store
+        .conversation_page(&conversation, None, PageLimits::default())
+        .expect("a page");
+    assert!(page.items.is_empty(), "not paged");
+
+    store
+        .reclassify_inbound("2", |_| InboundKind::Other)
+        .expect("reclassified");
+    let stored: String = rusqlite::Connection::open(&path)
+        .expect("a second connection")
+        .query_row("SELECT kind FROM unread_inbound", [], |r| r.get(0))
+        .expect("the kind");
+    assert_eq!(stored, "other", "written back as this build's");
 }
