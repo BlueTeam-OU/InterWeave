@@ -111,11 +111,18 @@ struct Listener {
 
 impl Listener {
     fn start(home: &Home) -> Self {
-        let mut child = command(home, &["listen", "--json"])
+        Self::with(home, &["listen", "--json"]).0
+    }
+
+    /// `listen` with `args`, its stdin piped for `--input` lines.
+    fn with(home: &Home, args: &[&str]) -> (Self, std::process::ChildStdin) {
+        let mut child = command(home, args)
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
             .expect("listen runs");
+        let stdin = child.stdin.take().expect("stdin");
         let stdout = child.stdout.take().expect("stdout");
         let (send, lines) = mpsc::channel();
         std::thread::spawn(move || {
@@ -128,18 +135,19 @@ impl Listener {
                 }
             }
         });
-        Self { child, lines }
+        (Self { child, lines }, stdin)
     }
 
     /// The first line `matches` takes, within `PATIENCE`.
     fn until(&self, what: &str, matches: impl Fn(&Value) -> bool) -> Value {
         let deadline = Instant::now() + PATIENCE;
+        let mut seen = Vec::new();
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             match self.lines.recv_timeout(left) {
                 Ok(line) if matches(&line) => return line,
-                Ok(_) => {}
-                Err(e) => panic!("listen never printed {what}: {e}"),
+                Ok(line) => seen.push(line),
+                Err(e) => panic!("listen never printed {what}: {e}; it printed {seen:?}"),
             }
         }
     }
@@ -1441,4 +1449,166 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
     }
     a_daemon.terminate().await;
     b_daemon.terminate().await;
+}
+
+/// The control-plane carrier (architect-cto's REQUEST of 2026-10-27, the
+/// owner's priority), through the binary and two daemons: `listen --json
+/// --input --consume` sends a stdin line over its own lease and answers it
+/// with its ref (G1), prints a message with the local endpoint that got it
+/// (G6) and leaves it read, no unread row in the store (G3); `send
+/// --no-pending` that is never accepted is cancelled and leaves nothing
+/// pending (G4); and an endpoint the profile does not offer is refused
+/// (G2).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_control_plane_carrier_sends_consumes_and_names_its_endpoint() {
+    use std::io::Write as _;
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let to_a = format!("{}/human", a_peer.as_str());
+    let to_b = format!("{}/human", b_peer.as_str());
+
+    let (listener, mut input) = Listener::with(&b, &["listen", "--json", "--input", "--consume"]);
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    // A takes what B sends only while a client of A holds its lease.
+    let a_listener = Listener::start(&a);
+    a_listener.until("A's session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    writeln!(input, "not json").expect("written");
+    let refused = listener.until("the refusal", |l| l["event"] == "input-refused");
+    assert_eq!(refused["ref"], Value::Null);
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        writeln!(
+            input,
+            r#"{{"send":{{"conversation":"{to_a}","text":"over the lease","ref":"r1"}}}}"#
+        )
+        .expect("written");
+        input.flush().expect("flushed");
+        let answer = listener.until("the send's answer", |l| {
+            l["event"] == "outbound" && l["ref"] == "r1"
+        });
+        let id = answer["id"].as_str().expect("an id").to_owned();
+        let last = listener.until("its last status", |l| {
+            l["event"] == "outbound"
+                && l["id"] == id.as_str()
+                && matches!(l["status"].as_str(), Some("accepted" | "needs-attention"))
+        });
+        assert_eq!(
+            last["ref"], "r1",
+            "every outbound event of its row names its ref"
+        );
+        if last["status"] == "accepted" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "never accepted: {last}");
+    }
+    a_listener.until("B's line at A", |l| {
+        l["event"] == "message" && l["text"] == "over the lease"
+    });
+    a_listener.stop();
+
+    send_accepted(&a, &to_b, "consumed by the carrier");
+    let message = listener.until("the message", |l| {
+        l["event"] == "message" && l["text"] == "consumed by the carrier"
+    });
+    assert_eq!(message["local_endpoint"], "human", "G6");
+    // Read as printed, before listen looks at the stop: no wait here.
+    drop(input);
+    listener.stop();
+    let out = human(&b, &["store", "health", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["unread"], 0, "consumed: {}", said(&out));
+
+    // G4: with B's daemon gone, an ephemeral send to B is never accepted:
+    // it is cancelled when its wait ends.
+    b_daemon.terminate().await;
+    let out = human(
+        &a,
+        &[
+            "--wait",
+            "1500",
+            "send",
+            &to_b,
+            "ephemeral",
+            "--no-pending",
+            "--json",
+        ],
+        "",
+    );
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["status"], "cancelled");
+    assert_eq!(lines(&out)[0]["pending"], false);
+    let out = human(&a, &["store", "health", "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["pending"],
+        0,
+        "nothing left to send: {}",
+        said(&out)
+    );
+
+    // G2: an endpoint the profile does not offer is refused, none made.
+    let out = human(&a, &["listen", "--endpoint", "not-offered"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let listed = a.transportctl(&["endpoints", "list", "--json"], "");
+    let listed: Value = serde_json::from_slice(&listed.stdout).expect("the list");
+    assert!(
+        listed["endpoints"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .all(|row| row["id"] != "not-offered" && row["lease"].is_null()),
+        "none made, none leased: {listed}"
+    );
+
+    a_daemon.terminate().await;
+}
+
+/// G2 through the binary: on a profile with a second human endpoint,
+/// `listen --endpoint` leases that one and no other, and its events name
+/// it. Mutation: `--endpoint` parsed and the profile's first endpoint
+/// leased all the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn listen_with_endpoint_leases_the_one_named() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let a = Home::new("human-desktop");
+    a.write_key();
+    // A peer the profile names, never started.
+    let other = Home::new("human-desktop").write_key();
+    let claude = "    - { id: claude,";
+    let config = example(
+        "human-desktop.yaml",
+        &other,
+        &format!("/ip4/{ip}/tcp/{}", free_port(ip)),
+        None,
+    );
+    assert!(config.contains(claude), "the example's claude row");
+    a.write_config(&config.replacen(
+        claude,
+        &format!(
+            "    - {{ id: control, enabled: true, advertise: true, allowed_client_kinds: [human-client], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}\n{claude}"
+        ),
+        1,
+    ));
+    let mut a_daemon = a.start(&[]);
+    a_daemon.serving(&a).await;
+    runtime_up(&mut a_daemon).await;
+
+    let listener = Listener::with(&a, &["listen", "--json", "--endpoint", "control"]).0;
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    let listed = a.transportctl(&["endpoints", "list", "--json"], "");
+    let listed: Value = serde_json::from_slice(&listed.stdout).expect("the list");
+    let leased: Vec<&Value> = listed["endpoints"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .filter(|row| !row["lease"].is_null())
+        .map(|row| &row["id"])
+        .collect();
+    assert_eq!(leased, [&Value::from("control")], "{listed}");
+    listener.stop();
+    a_daemon.terminate().await;
 }
