@@ -205,8 +205,8 @@ jobs:
       - name: Clippy, each package with its own features
         run: bash tools/ci/own_features.sh clippy
 
-      # Three files re-execute tests inside an unprivileged user plus
-      # network namespace (no root), and each FAILS where that is
+      # Three files re-execute this job's tests inside an unprivileged user
+      # plus network namespace (no root), and each FAILS where that is
       # impossible, never skips (ADR-0053 rule 9):
       #   - crates/transport/libp2p/tests/mdns_bounds.rs: `unshare -rn`,
       #     a dummy multicast interface;
@@ -214,9 +214,15 @@ jobs:
       #     --pdeathsig KILL unshare -rn --pid --fork --kill-child`, with
       #     addresses added to lo (#476);
       #   - tests/support/src/e2e/netns.rs, the helper desktop-e2e's and
-      #     the automated client's multi-network tests go through:
-      #     `-rnm` with a private /run, `ip netns`, veth pairs and nft.
-      # A new caller of `unshare` is a new line here. The hosted image
+      #     the automated client's multi-network tests go through: `-rnm`
+      #     with a private /run, named namespaces joined by veth pairs,
+      #     ip_forward written through nsenter, nft nat and forward tables,
+      #     and a pivot_root into a tmpfs its --rbind mounts fill.
+      # A new test of this job that enters such a namespace is a new line
+      # here. Two other callers of `unshare` are not this step's:
+      # tools/host/android/test_android-toolchain.sh (a user plus mount
+      # namespace) runs in the tool-suites job behind its own step, and
+      # spikes/spike-010/harness/run.sh runs in no job. The hosted image
       # restricts unprivileged user namespaces through AppArmor
       # (kernel.apparmor_restrict_unprivileged_userns=1), and `unshare -r`
       # then cannot write its uid map: "write failed /proc/self/uid_map:
@@ -225,19 +231,30 @@ jobs:
       # mdns_bounds' five tests green after it, with default threads and
       # with one. A dummy link needs no `modprobe` there — measured too, so
       # none is added. The last line enters a namespace the strictest way
-      # the callers do and does there what each needs (a mount, a named
-      # namespace, a dummy link, an address on lo, nft), so a runner-image
-      # change fails HERE, named, not as scattered test failures.
+      # the callers do and performs there each network operation they
+      # perform (the /run mount, two named namespaces and a veth pair
+      # between them, a dummy link, an address on lo, an nsenter write of
+      # ip_forward, netns.rs's kind of nft nat and forward tables), so a
+      # runner-image change to any of those fails HERE, named, not as
+      # scattered test failures. netns.rs's root switch is not probed.
       - name: Allow unprivileged user namespaces (the namespace tests)
         run: |
           f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
           if [ -e "$f" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
           setpriv --pdeathsig KILL unshare -rnm --pid --fork --kill-child --propagation private sh -c '
             mount -t tmpfs -o mode=0755 none /run && mkdir /run/netns &&
-            ip netns add probe && ip -n probe link set lo up &&
+            ip netns add pa && ip netns add pb && ip -n pa link set lo up &&
+            ip link add v0 type veth peer name v1 && ip link set v0 netns pa && ip link set v1 netns pb &&
+            ip -n pa link set v0 up && ip -n pb link set v1 up &&
+            ip -n pa addr add 100.64.0.1/30 dev v0 && ip -n pb addr add 100.64.0.2/30 dev v1 &&
             ip link add probe0 type dummy && ip link set probe0 up &&
-            ip addr add 100.64.0.1/32 dev lo && ip -brief addr show dev lo &&
-            nft list ruleset >/dev/null'
+            ip addr add 100.64.0.9/32 dev lo &&
+            nsenter --net=/run/netns/pa sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward" &&
+            printf "%s\n" "table ip nat {" "chain post {" "type nat hook postrouting priority 100" \
+              "oifname v0 masquerade" "}" "}" "table ip filter {" "chain forwarding {" \
+              "type filter hook forward priority 0; policy drop" "ct state established,related accept" \
+              "counter drop" "}" "}" | nsenter --net=/run/netns/pa nft -f - &&
+            nsenter --net=/run/netns/pa nft list ruleset | grep -q masquerade'
 
       # Plan §18 (Stage 15): the desktop client's end-to-end tests open a
       # real window -- winit on X11, Slint's software renderer -- and the
@@ -1225,7 +1242,8 @@ jobs:
       # tools/host/android's install cases run as uid 0 in user and mount
       # namespaces (`unshare -rm`) and FAIL under CI where those are
       # unavailable, never skip; the same AppArmor restriction as the rust
-      # job's namespace-tests step, lifted the same way, probed the same way.
+      # job's namespace-tests step, lifted the same way; probed for what its
+      # cases do, a user plus mount namespace and a mount.
       - name: Allow unprivileged user namespaces (android-toolchain install cases)
         run: |
           f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
