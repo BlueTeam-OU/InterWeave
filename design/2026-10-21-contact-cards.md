@@ -1123,7 +1123,7 @@ menu**: a long press, a secondary click, Enter, the Menu key,
 Shift+F10 and the screen reader's activate do nothing on it, with no
 haptic tick, and its role is not announced as one that can be
 activated, since a control that opens nothing would tell the person
-something false.
+something false (a target the toolkit cannot meet yet, §9 item 27).
 The bubble stays a focus stop, read as §8 says. If the row becomes
 Accepted while its menu is open, message-swipe §7's rule for a status
 that changes the actions applies: the menu closes and focus goes to
