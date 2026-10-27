@@ -2976,3 +2976,38 @@ async fn a_private_address_on_no_local_network_is_not_sent_in_a_connect() {
         "the subject's CONNECT carried no address"
     );
 }
+
+/// ADR-0052 rule 10's second case (A 2026-10-27) at the CONNECT: a
+/// private listener offered to the crate before the first view, which
+/// then never names its address -- a cellular network the platform keeps
+/// in the background, a carrier-restricted one -- is not sent once that
+/// view arrives, though it stays bound and held; the view classifies
+/// nothing. THE CONTROL is a first view naming the address: the held
+/// candidate is sent and the punch lands. And a later view naming it
+/// lifts the rule -- it adds [`OTHER_IP`]'s neighbour too, since the
+/// listener's IP is already known and a lift alone is no change to wait
+/// for -- and the listener is offered to the crate again and sent.
+#[tokio::test]
+async fn a_private_address_no_view_holds_is_not_sent_in_a_connect() {
+    const THIRD_IP: Ipv4Addr = Ipv4Addr::new(10, 255, 0, 6);
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    connect_outcome(ip, vec![view_of(&[ip, OTHER_IP], &[])])
+        .await
+        .expect("the control: named by the view, the private candidate is sent");
+    let detail = connect_outcome(ip, vec![view_of(&[OTHER_IP], &[])])
+        .await
+        .expect_err("outside the view, the candidate is not sent, so nothing can be punched");
+    assert_eq!(
+        detail, "Failed to hole-punch connection: Inbound stream error: Protocol error",
+        "the subject's CONNECT carried no address"
+    );
+    connect_outcome(
+        ip,
+        vec![
+            view_of(&[OTHER_IP], &[]),
+            view_of(&[ip, OTHER_IP, THIRD_IP], &[]),
+        ],
+    )
+    .await
+    .expect("named by a later view: offered again and sent");
+}

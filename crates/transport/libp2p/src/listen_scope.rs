@@ -17,6 +17,15 @@
 //! released -- the crate then updates every connected handler's set
 //! itself. Everything else passes through untouched.
 //!
+//! The second case (A 2026-10-27): while a platform view is present, a
+//! listener bound on a private-range address the view does not hold is
+//! on no local network too ([`is_outside_the_view`]). The scope holds
+//! the view itself and judges each `NewListenAddr` against it as the
+//! Swarm reports it, so a listener the wildcard reports after the view
+//! never reaches the crate -- deciding it later, from the runtime's next
+//! [`ListenScope::withhold`], would let the crate tell its connections'
+//! handlers the address in between.
+//!
 //! What it does not reach: a peer that ran Identify with this node
 //! before the classification arrived has the address already, and what
 //! it learned is its own; the next exchange omits it. The address is
@@ -36,6 +45,20 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 
+use interweave_transport_runtime::reachability::{is_private_range, literal_host};
+
+/// ADR-0052 rule 10's second case (A 2026-10-27): whether a private-range
+/// IP this host binds lies on no local network because the platform's
+/// `view` does not hold it -- a network the platform withholds from the
+/// app is one no peer reaches it on. Read for a DIRECT listener only,
+/// never a circuit one, whose leading IP is the relay's. The one
+/// predicate, applied by the runtime's detector
+/// (`NetworkSet::derive_off_local`) and by this door.
+pub(crate) fn is_outside_the_view(ip: IpAddr, view: &BTreeSet<IpAddr>) -> bool {
+    let ip = ip.to_canonical();
+    is_private_range(ip) && !view.iter().any(|held| held.to_canonical() == ip)
+}
+
 /// A behaviour told of this node's listen addresses less those on a
 /// withheld IP.
 pub struct ListenScope<B> {
@@ -46,6 +69,10 @@ pub struct ListenScope<B> {
     bound: HashMap<Multiaddr, ListenerId>,
     /// The IPs withheld, canonical (an IPv4-mapped form is its IPv4).
     withheld: BTreeSet<IpAddr>,
+    /// The platform's last view, `None` before the first: a direct
+    /// listen address on a private IP outside it is withheld too.
+    /// Bounded by the platform's own view.
+    view: Option<BTreeSet<IpAddr>>,
 }
 
 impl<B> ListenScope<B> {
@@ -55,6 +82,7 @@ impl<B> ListenScope<B> {
             inner,
             bound: HashMap::new(),
             withheld: BTreeSet::new(),
+            view: None,
         }
     }
 
@@ -65,21 +93,28 @@ impl<B> ListenScope<B> {
 
     fn is_withheld(&self, address: &Multiaddr) -> bool {
         host_ip(address).is_some_and(|ip| self.withheld.contains(&ip))
+            || self.view.as_ref().is_some_and(|view| {
+                literal_host(&address.to_string()).is_some_and(|ip| is_outside_the_view(ip, view))
+            })
     }
 }
 
 impl<B: NetworkBehaviour> ListenScope<B> {
-    /// Withhold the listen addresses on `ips` from now on, releasing any
-    /// no longer named: the crate is told each bound address that moved,
-    /// as an expiry or a new listen address. Returns how many moved.
-    /// Pinned by `a_withheld_listen_address_is_never_advertised`.
-    pub fn withhold(&mut self, ips: &BTreeSet<IpAddr>) -> usize {
+    /// Withhold the listen addresses on `ips` from now on, and while
+    /// `view` is `Some` every direct one on a private IP it does not
+    /// hold, releasing any no longer withheld: the crate is told each
+    /// bound address that moved, as an expiry or a new listen address.
+    /// Returns how many moved. Pinned by
+    /// `a_withheld_listen_address_is_never_advertised` and
+    /// `a_private_listen_address_outside_the_view_is_never_advertised`.
+    pub fn withhold(&mut self, ips: &BTreeSet<IpAddr>, view: Option<&BTreeSet<IpAddr>>) -> usize {
         let before: Vec<(Multiaddr, ListenerId, bool)> = self
             .bound
             .iter()
             .map(|(addr, id)| (addr.clone(), *id, self.is_withheld(addr)))
             .collect();
         self.withheld = ips.iter().map(IpAddr::to_canonical).collect();
+        self.view = view.map(|view| view.iter().map(IpAddr::to_canonical).collect());
         let mut moved = 0;
         for (addr, listener_id, was) in before {
             match (was, self.is_withheld(&addr)) {
@@ -295,10 +330,10 @@ mod tests {
         assert_eq!(told(&scope), set(&[wifi, cellular]), "nothing classified");
 
         let carrier = BTreeSet::from(["10.20.30.40".parse().expect("an IP")]);
-        assert_eq!(scope.withhold(&carrier), 1);
+        assert_eq!(scope.withhold(&carrier, None), 1);
         assert_eq!(told(&scope), set(&[wifi]), "withheld once classified");
         assert_eq!(
-            scope.withhold(&carrier),
+            scope.withhold(&carrier, None),
             0,
             "the same classification moves nothing"
         );
@@ -313,18 +348,80 @@ mod tests {
         assert_eq!(told(&scope), set(&[wifi]));
         expire(&mut scope, mapped);
 
-        assert_eq!(scope.withhold(&BTreeSet::new()), 2, "released");
+        assert_eq!(scope.withhold(&BTreeSet::new(), None), 2, "released");
         assert_eq!(told(&scope), set(&[wifi, cellular, quic]));
 
-        assert_eq!(scope.withhold(&carrier), 2);
+        assert_eq!(scope.withhold(&carrier, None), 2);
         expire(&mut scope, cellular);
         assert_eq!(
-            scope.withhold(&BTreeSet::new()),
+            scope.withhold(&BTreeSet::new(), None),
             1,
             "only what is still bound"
         );
         assert_eq!(told(&scope), set(&[wifi, quic]));
         expire(&mut scope, wifi);
         assert_eq!(told(&scope), set(&[quic]));
+    }
+
+    /// The second case (A 2026-10-27): with no view a private listener
+    /// the platform never named is told -- THE CONTROL, the desktop --
+    /// and once a view is present one outside it is withheld whether it
+    /// was bound before the view or after, while a circuit listener
+    /// through a private relay and a global address outside the view are
+    /// told; a view naming the IP releases it, an IPv4-mapped form
+    /// included. The Wi-Fi address is the control throughout.
+    #[test]
+    fn a_private_listen_address_outside_the_view_is_never_advertised() {
+        let mut scope = ListenScope::new(Told::default());
+        let listener = ListenerId::next();
+        let bind = |scope: &mut ListenScope<Told>, addr: &str| {
+            let addr: Multiaddr = addr.parse().expect("an address");
+            scope.on_swarm_event(FromSwarm::NewListenAddr(NewListenAddr {
+                listener_id: listener,
+                addr: &addr,
+            }));
+        };
+        let ip = |s: &str| -> IpAddr { s.parse().expect("an IP") };
+        let (wifi, background, ims) = (
+            "/ip4/192.168.1.5/tcp/4001",
+            "/ip4/10.20.30.40/tcp/4001",
+            "/ip4/10.99.0.7/tcp/4001",
+        );
+        let circuit = "/ip4/10.1.1.1/tcp/4001/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN/p2p-circuit";
+        let global = "/ip4/203.0.113.9/tcp/4001";
+        bind(&mut scope, wifi);
+        bind(&mut scope, background);
+        assert_eq!(
+            told(&scope),
+            set(&[wifi, background]),
+            "the control: no view, nothing outside it"
+        );
+
+        let view = BTreeSet::from([ip("192.168.1.5")]);
+        assert_eq!(scope.withhold(&BTreeSet::new(), Some(&view)), 1);
+        assert_eq!(told(&scope), set(&[wifi]), "bound before the view");
+        bind(&mut scope, ims);
+        bind(&mut scope, circuit);
+        bind(&mut scope, global);
+        assert_eq!(
+            told(&scope),
+            set(&[wifi, circuit, global]),
+            "bound after the view: withheld at the door; a relay's IP and a global one are not judged"
+        );
+
+        let mapped = "/ip6/::ffff:10.20.30.40/tcp/4002";
+        bind(&mut scope, mapped);
+        let named = BTreeSet::from([ip("192.168.1.5"), ip("::ffff:10.20.30.40")]);
+        assert_eq!(scope.withhold(&BTreeSet::new(), Some(&named)), 2);
+        assert_eq!(
+            told(&scope),
+            set(&[wifi, background, circuit, global, mapped]),
+            "a view naming the IP releases it, either form"
+        );
+        assert_eq!(scope.withhold(&BTreeSet::new(), None), 1, "no view again");
+        assert_eq!(
+            told(&scope),
+            set(&[wifi, background, ims, circuit, global, mapped])
+        );
     }
 }

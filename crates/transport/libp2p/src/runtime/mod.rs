@@ -251,6 +251,33 @@ fn on_network_change(
     }
 }
 
+/// ADR-0052 rule 10 at the two doors whose crates keep their own copy of
+/// this node's addresses, after EVERY observation of the view or the
+/// listeners -- each can move what is on no local network, the second
+/// case (A 2026-10-27) by a listener binding a private IP the view does
+/// not hold: Identify's listen set, told what is not offered and the view
+/// it judges a new listen address against itself; and DCUtR's two doors,
+/// told the off-local IPs (the crate is built again when it holds an
+/// address on one) and then offered every listener this node offers,
+/// which the wrapper takes once each -- so a rebuilt crate has them
+/// before the next circuit rather than at the retry tick's re-offer.
+/// Before `on_network_change`, so nothing is offered past a stale
+/// classification.
+fn withhold_not_offered(
+    swarm: &mut GatedSwarm,
+    network: &network_change::NetworkSet,
+    active: &dialing::ActiveListeners,
+) {
+    let _ = swarm
+        .identify_mut()
+        .withhold(&network.not_offered(), network.view());
+    dcutr_driver::withhold_off_local(swarm.dcutr_mut(), network.off_local());
+    dcutr_driver::offer_listeners(
+        swarm.dcutr_mut(),
+        active.values().flatten().filter(|a| network.offers(a)),
+    );
+}
+
 /// An addition's lift, or the first fill's: every held-off peer and
 /// every backing-off relay due once, within the lift floor.
 fn lift_held_off(
@@ -2044,17 +2071,7 @@ impl SwarmRuntime {
                             }
                         }
                         let change = network.observe_view(&view.addresses, &view.off_local_network);
-                        // ADR-0052 rule 10: the classification reaches
-                        // Identify's listen set, and DCUtR's doors before
-                        // anything is offered again. Identify withholds
-                        // what is not offered, bound or not, so neither
-                        // order of this view and the listener poll lets
-                        // a classified IP through.
-                        swarm.identify_mut().withhold(&network.not_offered());
-                        let rebuilt = dcutr_driver::withhold_off_local(
-                            swarm.dcutr_mut(),
-                            network.off_local(),
-                        );
+                        withhold_not_offered(&mut swarm, &network, &active);
                         on_network_change(
                             change,
                             &mut network,
@@ -2071,12 +2088,6 @@ impl SwarmRuntime {
                             &task_stores,
                             &task_operator,
                         );
-                        if rebuilt {
-                            dcutr_driver::offer_listeners(
-                                swarm.dcutr_mut(),
-                                active.values().flatten().filter(|a| network.offers(a)),
-                            );
-                        }
                     }
                     // THE mDNS REFRESH TICK: what the crate's store still
                     // holds goes out again, and a rebuild that is due runs
@@ -3278,23 +3289,6 @@ impl SwarmRuntime {
                         // it.
                         let translated = match announce {
                             Announce::Yes => {
-                                // A LISTENER THAT JUST BOUND is a DCUtR
-                                // candidate from this moment, not from
-                                // the next tick: a circuit can arrive
-                                // between the two, and its CONNECT would
-                                // carry only what a peer had observed.
-                                // Offered below, AFTER the detector has
-                                // observed the bind, and only if the host
-                                // holds its IP: a second port on an IP the
-                                // platform's view said departed is bound,
-                                // and is no candidate (ADR-0052 A
-                                // 2026-10-09).
-                                let just_bound = match &event {
-                                    libp2p::swarm::SwarmEvent::NewListenAddr { address, .. } => {
-                                        Some(address.clone())
-                                    }
-                                    _ => None,
-                                };
                                 match &event {
                                     // And forgotten as they go, so the
                                     // offered set holds what is bound.
@@ -3328,8 +3322,22 @@ impl SwarmRuntime {
                                 // the listeners' bound set made, seen
                                 // here, once, as the listener event that
                                 // made it lands (`on_network_change`).
+                                //
+                                // A LISTENER THAT JUST BOUND is a DCUtR
+                                // candidate from this moment, not from
+                                // the next tick: a circuit can arrive
+                                // between the two, and its CONNECT would
+                                // carry only what a peer had observed.
+                                // `withhold_not_offered` offers it, AFTER
+                                // the detector has observed the bind, and
+                                // only if this node offers it: a second
+                                // port on an IP the platform's view said
+                                // departed is bound and is no candidate
+                                // (ADR-0052 A 2026-10-09), nor one on no
+                                // local network (rule 10).
                                 if listener_event {
                                     let change = network.observe_listeners(active.values().flatten());
+                                    withhold_not_offered(&mut swarm, &network, &active);
                                     on_network_change(
                                         change,
                                         &mut network,
@@ -3345,12 +3353,6 @@ impl SwarmRuntime {
                                         &mut held_back,
                                         &task_stores,
                                         &task_operator,
-                                    );
-                                }
-                                if let Some(address) = just_bound.filter(|a| network.offers(a)) {
-                                    dcutr_driver::offer_listeners(
-                                        swarm.dcutr_mut(),
-                                        std::iter::once(&address),
                                     );
                                 }
                                 translated

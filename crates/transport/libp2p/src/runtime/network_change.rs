@@ -102,11 +102,22 @@ pub(super) struct NetworkSet {
     platform: Option<BTreeSet<IpAddr>>,
     /// The private-range IPs of the platform's last view that it
     /// classifies as lying on NO LOCAL NETWORK (ADR-0052 rule 10, A
-    /// 2026-10-26): a phone's carrier-assigned cellular address. Known
-    /// and bound like any other -- a dial, a reservation and the carrier
-    /// NAT's public address run over it -- but never this node's address
-    /// toward anyone ([`Self::offers`]). Empty with no view, so the
-    /// desktop classifies nothing; bounded by the view's addresses.
+    /// 2026-10-26): a phone's carrier-assigned cellular address.
+    /// Bounded by the view's addresses.
+    classified: BTreeSet<IpAddr>,
+    /// The IPs on NO LOCAL NETWORK (ADR-0052 rule 10): those the view
+    /// classifies, and -- while a view is present (A 2026-10-27) -- every
+    /// private-range IP a direct listener binds that the view does not
+    /// hold, since a network the platform withholds from the app is one
+    /// no peer reaches it on (a cellular network kept in the background,
+    /// a carrier-restricted one). Known and bound like any other -- a
+    /// dial, a reservation and the carrier NAT's public address run over
+    /// it -- but never this node's address toward anyone
+    /// ([`Self::offers`]). Derived from the view and the listeners after
+    /// every observation of either ([`Self::derive_off_local`]), so
+    /// neither order of the two decides it. Empty with no view, so the
+    /// desktop classifies nothing; bounded by the view's addresses and
+    /// the listeners this process binds.
     off_local: BTreeSet<IpAddr>,
     /// Whether the known set has ever held an address: the first time
     /// it fills is not a change.
@@ -179,6 +190,7 @@ impl NetworkSet {
             .iter()
             .filter_map(|a| literal_host(&a.to_string()))
             .collect();
+        self.derive_off_local();
         let now: BTreeSet<IpAddr> = bound
             .into_iter()
             .filter(|a| !is_interface_scoped(a))
@@ -197,9 +209,10 @@ impl NetworkSet {
     ///
     /// `off_local_network` is the view's classification
     /// (`NetworkView::off_local_network`): its private-range members
-    /// that are among the view's addresses become [`Self::off_local`],
-    /// replacing the last view's. It moves nothing in the known set, so
-    /// a classification alone is no change.
+    /// that are among the view's addresses join [`Self::off_local`],
+    /// replacing the last view's, beside the bound private IPs the view
+    /// does not hold. It moves nothing in the known set, so a
+    /// classification alone is no change.
     pub(super) fn observe_view(
         &mut self,
         addresses: &[IpAddr],
@@ -210,19 +223,46 @@ impl NetworkSet {
             .copied()
             .filter(|ip| !is_interface_scoped_ip(*ip))
             .collect();
-        self.off_local = off_local_network
+        self.classified = off_local_network
             .iter()
             .copied()
             .filter(|ip| now.contains(ip) && is_private_range(*ip))
             .collect();
         let before = self.platform.replace(now.clone()).unwrap_or_default();
+        self.derive_off_local();
         self.apply(&before, &now, &BTreeSet::new())
     }
 
-    /// The private-range IPs the platform's last view classifies as on
-    /// no local network ([`Self::offers`] withholds them).
+    /// The private-range IPs on no local network ([`Self::offers`]
+    /// withholds them): what the view classifies, and the bound ones it
+    /// does not hold.
     pub(super) const fn off_local(&self) -> &BTreeSet<IpAddr> {
         &self.off_local
+    }
+
+    /// The platform's last view, `None` before the first: what Identify's
+    /// door judges a listen address against as the Swarm reports it
+    /// (`ListenScope::withhold`), before this set has observed it.
+    pub(super) const fn view(&self) -> Option<&BTreeSet<IpAddr>> {
+        self.platform.as_ref()
+    }
+
+    /// [`Self::off_local`] from what the two sources last said: the
+    /// view's classification, and each direct listener's IP outside the
+    /// view while there is one (`listen_scope::is_outside_the_view`, the
+    /// predicate Identify's door applies too). A circuit listener is not
+    /// among them: its leading IP is the relay's, which no view of this
+    /// host's holds. Pinned by
+    /// `a_bound_private_ip_no_view_holds_is_on_no_local_network_in_either_order`.
+    fn derive_off_local(&mut self) {
+        let outside: Vec<IpAddr> = self.platform.as_ref().map_or_else(Vec::new, |view| {
+            self.direct_listeners
+                .iter()
+                .copied()
+                .filter(|ip| crate::listen_scope::is_outside_the_view(*ip, view))
+                .collect()
+        });
+        self.off_local = self.classified.iter().copied().chain(outside).collect();
     }
 
     /// The IPs that are not this node's address toward anyone, bound or
@@ -231,10 +271,12 @@ impl NetworkSet {
     /// refusals, for the readers that cannot ask this set (the root
     /// funnel's rule 3, Identify's listen set). Each half is there for
     /// one order of the view and the listener poll: a classified IP
-    /// bound only after the view stays withheld by the first, and a
-    /// classified IP the view drops while still bound by the second.
-    /// Pinned by `a_departed_off_local_ip_stays_withheld_while_bound` and
-    /// `a_classified_ip_is_withheld_before_any_listener_binds_it`.
+    /// bound only after the view stays withheld by the first, and an IP
+    /// the view drops while still bound by the second -- for a private
+    /// one the first half covers that too since A 2026-10-27, being
+    /// outside the view, so the second is what withholds a GLOBAL one.
+    /// Pinned by `a_classified_ip_is_withheld_before_any_listener_binds_it`
+    /// and `a_departed_global_ip_stays_withheld_while_bound`.
     pub(super) fn not_offered(&self) -> BTreeSet<IpAddr> {
         self.listeners
             .iter()
@@ -293,15 +335,17 @@ impl NetworkSet {
     }
 
     /// Whether `address` is THIS NODE'S ADDRESS TOWARD ANYONE: one it
-    /// [`holds`](Self::holds), and not on an IP the platform classifies
-    /// as a private-range address on no local network (ADR-0052 rule
-    /// 10). What is shown (`own_addresses::select`), offered to DCUtR,
+    /// [`holds`](Self::holds), and not on a private-range IP on no local
+    /// network ([`Self::off_local`]: the view's classification, and a
+    /// bound one outside a present view; ADR-0052 rule 10). What is shown (`own_addresses::select`), offered to DCUtR,
     /// and counted as an own private listener for rule 3 -- the three
     /// sites the rule names beside Identify, which is told
     /// [`Self::not_offered`] through its own wrapper (`listen_scope`).
     /// AutoNAT's candidates stay on `holds`: a private address is never
     /// one, and a global cellular one is AutoNAT's to decide. Pinned by
-    /// `a_private_address_on_no_local_network_is_held_and_not_offered`.
+    /// `a_private_address_on_no_local_network_is_held_and_not_offered`,
+    /// `a_bound_private_ip_no_view_holds_is_on_no_local_network_in_either_order`
+    /// and, for the `holds` half, `a_departed_global_ip_stays_withheld_while_bound`.
     pub(super) fn offers(&self, address: &Multiaddr) -> bool {
         first_ip(address).is_none_or(|ip| self.offers_ip(ip))
     }
@@ -660,14 +704,131 @@ mod tests {
         bound.extend(addrs(&[lan]));
         let _ = set.observe_listeners(bound.iter());
         assert!(step(&mut set, &bound, "the LAN listener bound again", true));
+        // A private listener on an IP the view does not hold is on no
+        // local network (rule 10, A 2026-10-27): no widening until a view
+        // names it, and the view naming it is one.
         bound.extend(addrs(&[second_lan]));
         let _ = set.observe_listeners(bound.iter());
         step(
             &mut set,
             &bound,
-            "a second LAN of the family, the per-IP superset",
+            "a private listener outside the view",
+            false,
+        );
+        let _ = set.observe_view(&[view[0], view[1], ip("10.0.0.9")], &[]);
+        step(
+            &mut set,
+            &bound,
+            "a second LAN of the family named by the view, the per-IP superset",
             true,
         );
+    }
+
+    /// An IP the view drops while its listener is still bound stays not
+    /// offered until the listener lets it go -- what Identify is told and
+    /// what DCUtR and rule 3 are offered -- on the departed half of
+    /// `not_offered` and the `holds` half of `offers` alone: a GLOBAL
+    /// address, which rule 10 never withholds, so nothing else covers it.
+    /// The Wi-Fi listener is the control throughout.
+    #[test]
+    fn a_departed_global_ip_stays_withheld_while_bound() {
+        let held = crate::held_listeners::HeldListeners::new();
+        let mut set = NetworkSet::publishing_to(held.clone());
+        let bound = addrs(&["/ip4/192.168.1.5/tcp/4001", "/ip6/2a00:1450::7/tcp/4001"]);
+        let global = ip("2a00:1450::7");
+        let _ = set.observe_listeners(bound.iter());
+        let _ = set.observe_view(&[ip("192.168.1.5"), global], &[]);
+        assert!(set.offers(&bound[1]), "the control: held, offered");
+        assert!(set.not_offered().is_empty());
+
+        let _ = set.observe_view(&[ip("192.168.1.5")], &[]);
+        assert!(
+            set.off_local().is_empty(),
+            "rule 10 never takes a global IP"
+        );
+        assert_eq!(
+            set.not_offered(),
+            BTreeSet::from([global]),
+            "departed and still bound: not offered"
+        );
+        assert!(!set.offers(&bound[1]));
+        assert!(!held.holds(&bound[1]), "nor counted at the root funnel");
+        assert!(set.offers(&bound[0]), "the Wi-Fi control");
+
+        let _ = set.observe_listeners(bound[..1].iter());
+        assert!(set.not_offered().is_empty(), "the listener let it go");
+    }
+
+    /// ADR-0052 rule 10's second case (A 2026-10-27): while a view is
+    /// present, a private-range IP a direct listener binds that the view
+    /// does not hold is on no local network -- held, in the known set,
+    /// and offered nowhere -- whether the view or the bind came first;
+    /// a view that names it lifts it, and the listener letting it go
+    /// drops it. THE CONTROL is the same listener with no view (the
+    /// desktop), offered; beside it a global address outside the view,
+    /// AutoNAT's to decide, and a circuit listener through a private
+    /// relay, whose IP is the relay's, are offered throughout.
+    #[test]
+    fn a_bound_private_ip_no_view_holds_is_on_no_local_network_in_either_order() {
+        let wifi = "/ip4/192.168.1.5/tcp/4001";
+        let unviewed = "/ip4/10.20.30.40/tcp/4001";
+        let global = "/ip6/2a00:1450::7/tcp/4001";
+        let circuit = "/ip4/10.1.1.1/tcp/4001/p2p/12D3KooWCLxLXFHqvfsHVLDcNsSpZBQq1M1KMRgQRLLLnHTv7oQD/p2p-circuit";
+        let carrier = ip("10.20.30.40");
+        let bound = addrs(&[wifi, unviewed, global, circuit]);
+        let offered = |set: &NetworkSet| -> Vec<String> { set.own_listeners(bound.iter()) };
+        let everything: Vec<String> = bound.iter().map(ToString::to_string).collect();
+        let but_unviewed: Vec<String> = [wifi, global, circuit].map(str::to_owned).to_vec();
+
+        // THE CONTROL: no view, nothing is outside it.
+        let held = crate::held_listeners::HeldListeners::new();
+        let mut desktop = NetworkSet::publishing_to(held.clone());
+        let _ = desktop.observe_listeners(bound.iter());
+        assert!(desktop.off_local().is_empty(), "no view, nothing off-local");
+        assert_eq!(offered(&desktop), everything, "the control: offered");
+        assert!(held.holds(&bound[1]), "and counted by rule 3");
+
+        // The bind first, then a view that never names it.
+        let held = crate::held_listeners::HeldListeners::new();
+        let mut set = NetworkSet::publishing_to(held.clone());
+        let _ = set.observe_listeners(bound.iter());
+        let _ = set.observe_view(&[ip("192.168.1.5"), ip("2a00:1450::7")], &[]);
+        assert_eq!(
+            set.off_local(),
+            &BTreeSet::from([carrier]),
+            "bind, then view"
+        );
+        assert!(set.holds(&bound[1]), "held: still the host's and bound");
+        assert_eq!(offered(&set), but_unviewed);
+        assert_eq!(set.not_offered(), BTreeSet::from([carrier]), "Identify's");
+        assert!(!held.holds(&bound[1]), "no own listener for rule 3");
+        assert!(held.holds(&bound[0]), "the Wi-Fi control is");
+
+        // A view naming it lifts it; one dropping it again withholds it.
+        let _ = set.observe_view(&[ip("192.168.1.5"), ip("2a00:1450::7"), carrier], &[]);
+        assert!(set.off_local().is_empty(), "named by the view: lifted");
+        assert_eq!(offered(&set), everything);
+        assert!(held.holds(&bound[1]));
+        let _ = set.observe_view(&[ip("192.168.1.5"), ip("2a00:1450::7")], &[]);
+        assert_eq!(set.off_local(), &BTreeSet::from([carrier]));
+        // The listener letting it go drops it.
+        let _ = set.observe_listeners(bound.iter().filter(|a| **a != bound[1]));
+        assert!(set.off_local().is_empty(), "unbound: dropped");
+        assert!(set.not_offered().is_empty());
+
+        // The view first, then the bind: the same answer.
+        let held = crate::held_listeners::HeldListeners::new();
+        let mut set = NetworkSet::publishing_to(held.clone());
+        let _ = set.observe_view(&[ip("192.168.1.5"), ip("2a00:1450::7")], &[]);
+        assert!(set.off_local().is_empty(), "nothing bound yet");
+        let _ = set.observe_listeners(bound.iter());
+        assert_eq!(
+            set.off_local(),
+            &BTreeSet::from([carrier]),
+            "view, then bind"
+        );
+        assert_eq!(offered(&set), but_unviewed);
+        assert!(!held.holds(&bound[1]));
     }
 
     /// A classified IP no listener binds yet is withheld all the same,
@@ -697,6 +858,10 @@ mod tests {
     /// control throughout.
     #[test]
     fn a_departed_off_local_ip_stays_withheld_while_bound() {
+        // A private IP: since A 2026-10-27 the departure leaves it outside
+        // the view, so this case is held by `off_local` too, and the
+        // departed half of `not_offered` alone is pinned by
+        // `a_departed_global_ip_stays_withheld_while_bound`.
         let mut set = NetworkSet::default();
         let (wifi, cellular) = ("/ip4/192.168.1.5/tcp/4001", "/ip4/10.20.30.40/tcp/4001");
         let carrier = ip("10.20.30.40");
@@ -705,7 +870,11 @@ mod tests {
         assert_eq!(set.not_offered(), BTreeSet::from([carrier]), "classified");
 
         let _ = set.observe_view(&[ip("192.168.1.5")], &[]);
-        assert!(set.off_local().is_empty(), "the view no longer names it");
+        assert_eq!(
+            set.off_local(),
+            &BTreeSet::from([carrier]),
+            "unclassified now, and bound outside the view (A 2026-10-27)"
+        );
         assert_eq!(
             set.not_offered(),
             BTreeSet::from([carrier]),
