@@ -1087,12 +1087,15 @@ pub fn is_private_range(ip: IpAddr) -> bool {
 }
 
 /// Whether `ip` sits in the SHARED ADDRESS SPACE, `100.64.0.0/10`
-/// (RFC 6598), a v4-mapped v6 address judged as v4: what a provider
-/// numbers between its translator and its subscribers, a carrier's
-/// cellular or IMS interface among them. ADR-0052 rule 10 (A
-/// 2026-10-27) puts this host's address in it on no local network with
-/// or without a platform view, and rule 2's floor refuses it as
-/// special-use ([`is_public_v4`] reads this one definition). Pinned by
+/// (RFC 6598), a v4-mapped v6 address judged as v4, whoever numbered
+/// it: a carrier's cellular or IMS interface and a mesh overlay alike.
+/// Rule 2's floor refuses it as special-use in every address a peer
+/// supplies ([`is_public_v4`] reads this one definition), so no peer
+/// learns such an address of this node through the peer door -- one
+/// that reaches it does so from an entry its own operator wrote (rule
+/// 9) -- and that is why ADR-0052 rule 10 (A 2026-10-27 (iii)) puts this
+/// host's address in it on no local network with or without a platform
+/// view. Pinned by
 /// `the_shared_address_space_is_100_64_slash_10_and_a_mapped_v4_is_v4`.
 #[must_use]
 pub fn is_shared_address_space(ip: IpAddr) -> bool {
