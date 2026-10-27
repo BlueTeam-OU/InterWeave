@@ -54,16 +54,17 @@ pub mod store;
 pub mod store_key;
 
 pub use records::{
-    AppMessageId, BackupCursor, BackupTable, Cursor, InboundOrigin, NewInbound, NewOutbound,
-    OutboundDestination, Page, PageLimits, PageLimitsError, PendingOutbound, ReadEphemeral, RowId,
-    StoredInbound,
+    AppMessageId, BackupCursor, BackupTable, Cursor, InboundKind, InboundOrigin, NewInbound,
+    NewOutbound, OutboundDestination, Page, PageLimits, PageLimitsError, PendingOutbound,
+    ReadEphemeral, RowId, StoredInbound,
 };
 pub use schema::{REQUIRED_TABLES, SCHEMA_VERSION};
 pub use store::contacts::{
-    AcceptUndo, Accepted, AcceptedCard, CardStanding, Contact, ContactRestored, ContactRoute,
-    DeletedContact, KeyStanding, OwnCard, PhotoAccepted, RemovedPhoto, RouteDeleted, ValueSource,
-    direct_conversation_id, name_key,
+    AcceptUndo, Accepted, AcceptedCard, CardStanding, Contact, ContactListing, ContactName,
+    ContactRestored, ContactRoute, DeletedContact, KeyStanding, OwnCard, PhotoAccepted,
+    RemovedPhoto, RouteDeleted, ValueSource, direct_conversation_id, name_key,
 };
+pub use store::window::{ConversationUnread, HiddenInbound, StoreConversation, WindowCursor};
 pub use store::{HumanStore, READ_PAIR_CAP, STORE_FILE, StoreOptions};
 
 // Re-exported so a caller acting on retention does not need a second

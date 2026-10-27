@@ -100,6 +100,43 @@ pub struct PendingOutbound {
     pub attempts: u32,
 }
 
+/// What an inbound row holds, as the client classified its envelope at
+/// commit (schema v10, STATE.md): content-free, so the unread badge is an
+/// indexed count and a row this build cannot show is counted apart.
+/// `Other` names a row, never what it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InboundKind {
+    /// A message the client shows as text.
+    Text,
+    /// A contact card the client shows as a proposal.
+    Card,
+    /// Neither: a row this build cannot show.
+    Other,
+}
+
+impl InboundKind {
+    /// The column's value.
+    #[must_use]
+    pub const fn as_sql(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Card => "card",
+            Self::Other => "other",
+        }
+    }
+
+    /// The column's value read back; one this build did not write is a
+    /// row it cannot show.
+    #[must_use]
+    pub fn from_sql(value: &str) -> Self {
+        match value {
+            "text" => Self::Text,
+            "card" => Self::Card,
+            _ => Self::Other,
+        }
+    }
+}
+
 /// The content and metadata of a message just received.
 #[derive(Clone, PartialEq, Eq)]
 pub struct NewInbound {
@@ -113,6 +150,8 @@ pub struct NewInbound {
     pub payload: Vec<u8>,
     /// Local millisecond timestamp of receipt.
     pub received_at: u64,
+    /// What the client classified it as.
+    pub kind: InboundKind,
 }
 
 /// A durable inbound row, unread or kept.
@@ -134,6 +173,8 @@ pub struct StoredInbound {
     pub read_at: Option<u64>,
     /// When it was kept, for a kept row.
     pub kept_at: Option<u64>,
+    /// What the client classified it as.
+    pub kind: InboundKind,
 }
 
 /// A message that has been read and whose durable copy is already gone.
@@ -164,6 +205,7 @@ pub struct ReadEphemeral {
     pub(crate) payload: Vec<u8>,
     pub(crate) received_at: u64,
     pub(crate) read_at: u64,
+    pub(crate) kind: InboundKind,
 }
 
 impl ReadEphemeral {
@@ -266,8 +308,8 @@ impl core::fmt::Debug for NewInbound {
         redacted(f, "NewInbound", self.payload.len())?;
         write!(
             f,
-            "app_message_id: {:?}, origin: {:?}, media_type: {:?}, received_at: {} }}",
-            self.app_message_id, self.origin, self.media_type, self.received_at
+            "app_message_id: {:?}, origin: {:?}, media_type: {:?}, received_at: {}, kind: {:?} }}",
+            self.app_message_id, self.origin, self.media_type, self.received_at, self.kind
         )
     }
 }
@@ -278,14 +320,15 @@ impl core::fmt::Debug for StoredInbound {
         write!(
             f,
             "row_id: {:?}, app_message_id: {:?}, origin: {:?}, media_type: {:?}, \
-             received_at: {}, read_at: {:?}, kept_at: {:?} }}",
+             received_at: {}, read_at: {:?}, kept_at: {:?}, kind: {:?} }}",
             self.row_id,
             self.app_message_id,
             self.origin,
             self.media_type,
             self.received_at,
             self.read_at,
-            self.kept_at
+            self.kept_at,
+            self.kind
         )
     }
 }

@@ -1282,12 +1282,20 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             return Committed::Skipped;
         };
         let received_at = (self.wall)();
+        // Classified as the listing classifies a stored row (STATE.md
+        // schema v10): what is committed here decoded, as a message or a
+        // card, and a row this build cannot read is never committed.
+        let kind = match &decoded {
+            Decoded::Message(_) => interweave_human_store::InboundKind::Text,
+            Decoded::Card(_) => interweave_human_store::InboundKind::Card,
+        };
         let new = NewInbound {
             app_message_id,
             origin: stored,
             media_type: payload.media_type().cloned(),
             payload: payload.bytes().to_vec(),
             received_at,
+            kind,
         };
         match self.store.commit_unread_inbound(&new) {
             Ok(row) => Committed::Yes(Box::new(match decoded {
