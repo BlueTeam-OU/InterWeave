@@ -205,24 +205,39 @@ jobs:
       - name: Clippy, each package with its own features
         run: bash tools/ci/own_features.sh clippy
 
-      # mdns_bounds.rs re-executes each test inside `unshare -rn` (a user
-      # plus network namespace, no root) and builds a dummy multicast
-      # interface there; ADR-0053 rule 9 makes it FAIL where that is
-      # impossible, never skip. The hosted Ubuntu 24.04 image restricts
-      # unprivileged user namespaces through AppArmor
+      # Three files re-execute tests inside an unprivileged user plus
+      # network namespace (no root), and each FAILS where that is
+      # impossible, never skips (ADR-0053 rule 9):
+      #   - crates/transport/libp2p/tests/mdns_bounds.rs: `unshare -rn`,
+      #     a dummy multicast interface;
+      #   - tests/connectivity/tests/network_change.rs: `setpriv
+      #     --pdeathsig KILL unshare -rn --pid --fork --kill-child`, with
+      #     addresses added to lo (#476);
+      #   - tests/support/src/e2e/netns.rs, the helper desktop-e2e's and
+      #     the automated client's multi-network tests go through:
+      #     `-rnm` with a private /run, `ip netns`, veth pairs and nft.
+      # A new caller of `unshare` is a new line here. The hosted image
+      # restricts unprivileged user namespaces through AppArmor
       # (kernel.apparmor_restrict_unprivileged_userns=1), and `unshare -r`
       # then cannot write its uid map: "write failed /proc/self/uid_map:
       # Operation not permitted". Measured on ubuntu-latest (kernel
-      # 6.17.0-azure, 2026-09-25): that failure before this step, the five
-      # tests green after it, with default threads and with one. A dummy
-      # link needs no `modprobe` there — measured too, so none is added.
-      # The last line builds one interface the way the test does, so a
-      # runner-image change fails HERE, named, not as five test failures.
-      - name: Allow unprivileged user namespaces (mdns_bounds)
+      # 6.17.0-azure, 2026-09-25): that failure before this step,
+      # mdns_bounds' five tests green after it, with default threads and
+      # with one. A dummy link needs no `modprobe` there — measured too, so
+      # none is added. The last line enters a namespace the strictest way
+      # the callers do and does there what each needs (a mount, a named
+      # namespace, a dummy link, an address on lo, nft), so a runner-image
+      # change fails HERE, named, not as scattered test failures.
+      - name: Allow unprivileged user namespaces (the namespace tests)
         run: |
           f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
           if [ -e "$f" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
-          unshare -rn sh -c 'ip link add probe0 type dummy && ip link set probe0 up && ip link show probe0'
+          setpriv --pdeathsig KILL unshare -rnm --pid --fork --kill-child --propagation private sh -c '
+            mount -t tmpfs -o mode=0755 none /run && mkdir /run/netns &&
+            ip netns add probe && ip -n probe link set lo up &&
+            ip link add probe0 type dummy && ip link set probe0 up &&
+            ip addr add 100.64.0.1/32 dev lo && ip -brief addr show dev lo &&
+            nft list ruleset >/dev/null'
 
       # Plan §18 (Stage 15): the desktop client's end-to-end tests open a
       # real window -- winit on X11, Slint's software renderer -- and the
@@ -1210,7 +1225,7 @@ jobs:
       # tools/host/android's install cases run as uid 0 in user and mount
       # namespaces (`unshare -rm`) and FAIL under CI where those are
       # unavailable, never skip; the same AppArmor restriction as the rust
-      # job's mdns_bounds step, lifted the same way, probed the same way.
+      # job's namespace-tests step, lifted the same way, probed the same way.
       - name: Allow unprivileged user namespaces (android-toolchain install cases)
         run: |
           f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
