@@ -91,6 +91,10 @@ pub struct Connect {
     opener: Option<ConnectFocus>,
     focus: Option<ConnectFocus>,
     focuses: u64,
+    /// Bumped at each return whose page did something §5.1 counts: the
+    /// line is said then, its words unchanged included, and on no other
+    /// return.
+    said: u64,
 }
 
 impl Connect {
@@ -137,11 +141,27 @@ impl Connect {
         self.opener = Some(from);
     }
 
-    /// A page Connect opened has closed: what it came to, and focus back
-    /// on the control that opened it -- Continue in Trust's place once
-    /// the line no longer offers Trust.
-    pub(crate) fn returned(&mut self, adds: Vec<ConnectAdd>, shown: bool) {
-        for add in adds {
+    /// A count bumped at each return whose page did something §5.1
+    /// counts -- an add counted, a Show that drew this device's
+    /// addresses, or a trust decided in step two: the line is said once
+    /// for each bump, after focus lands. A refusal, a failure, an unknown
+    /// add, Back from an add with nothing added, or a Show that drew
+    /// nothing leaves it unchanged, an earlier line still showing
+    /// included.
+    #[must_use]
+    pub const fn said(&self) -> u64 {
+        self.said
+    }
+
+    /// A page Connect opened has closed: what its adds came to, `None`
+    /// when it did nothing §5.1 counts, whether Show drew this device's
+    /// addresses, and focus back on the control that opened it --
+    /// Continue in Trust's place once the line no longer offers Trust.
+    pub(crate) fn returned(&mut self, adds: Option<Vec<ConnectAdd>>, shown: bool) {
+        if adds.is_some() || shown {
+            self.said += 1;
+        }
+        for add in adds.into_iter().flatten() {
             self.added.retain(|a| a.peer != add.peer);
             self.added.push(add);
         }

@@ -860,8 +860,10 @@ pub struct Peers {
     /// Connect's `ConnectDoneShown` (§5.1).
     show_drew: Option<TransportIdentity>,
     /// What add pages opened from Connect came to, in the order they
-    /// closed, since this was last taken ([`Self::take_connect_adds`]).
-    connect_adds: Vec<ConnectAdd>,
+    /// closed, since this was last taken ([`Self::take_connect_return`]):
+    /// `Some` once one closed having done something §5.1 counts -- an
+    /// add's answer, or a step two.
+    connect_return: Option<Vec<ConnectAdd>>,
 }
 
 /// A peer an add opened from Connect added, and whether it is trusted
@@ -1640,9 +1642,6 @@ impl Peers {
         let Some(page) = self.page.take() else {
             return;
         };
-        if page.from_connect {
-            self.keep_for_connect(&page, trust);
-        }
         let all_trusted = !page.blocks.is_empty()
             && page
                 .blocks
@@ -1650,8 +1649,12 @@ impl Peers {
                 .all(|b| b.state(trust) == BlockState::Trusted);
         // One snackbar: Trusted when every block was; else step one's
         // own word on the add -- "added" only when it read so (§5.3). A
-        // row's trust step, with no add, closes with none.
-        if all_trusted {
+        // row's trust step, with no add, closes with none, and so does a
+        // page opened from Connect: Connect's line says what was done,
+        // said on the return, and a snackbar would say it twice.
+        if page.from_connect {
+            self.keep_for_connect(&page, trust);
+        } else if all_trusted {
             self.say(PeersSnack::PeerTrusted);
         } else {
             match page.result {
@@ -1679,6 +1682,12 @@ impl Peers {
             .into_iter()
             .flatten()
             .chain(page.blocks.iter().map(|b| &b.peer));
+        // A page reaches here with an add's answer or a step two (`close`,
+        // `settle` and `accepted` call `finish` for no other): either is
+        // something §5.1 counts, a step two closed by Back included, since
+        // Back there is Done (§5.3;
+        // `a_return_is_said_only_when_its_page_did_something_counted`).
+        let adds = self.connect_return.get_or_insert_with(Vec::new);
         for peer in peers {
             let trusted = match page.blocks.iter().find(|b| &b.peer == peer) {
                 None => Some(true),
@@ -1690,17 +1699,18 @@ impl Peers {
                 Some(b) if b.trusting || trust.is_pending(peer) => None,
                 Some(b) => b.known(trust),
             };
-            self.connect_adds.retain(|a| &a.peer != peer);
-            self.connect_adds.push(ConnectAdd {
+            adds.retain(|a| &a.peer != peer);
+            adds.push(ConnectAdd {
                 peer: peer.clone(),
                 trusted,
             });
         }
     }
 
-    /// What add pages opened from Connect came to since the last take.
-    pub fn take_connect_adds(&mut self) -> Vec<ConnectAdd> {
-        std::mem::take(&mut self.connect_adds)
+    /// What add pages opened from Connect came to since the last take:
+    /// `None` when none closed having done something §5.1 counts.
+    pub fn take_connect_return(&mut self) -> Option<Vec<ConnectAdd>> {
+        self.connect_return.take()
     }
 
     /// Connect's Trust: step two for `peers`, opened as a row's is, the

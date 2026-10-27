@@ -10,11 +10,11 @@
 
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
-    AddressProblem, PeerAddress, ShowAddresses, TrustList, TrustProblem, TrustRow,
+    AddressProblem, AddressRefused, PeerAddress, ShowAddresses, TrustList, TrustProblem, TrustRow,
 };
 use interweave_human_ui_model::{
     AddResult, ConnectFocus, ConnectGate, ConnectInput, ConnectLine, Intent, PeersFocus,
-    PeersInput, PeersSnack, TrustChange, UiModel,
+    PeersInput, TrustChange, UiModel,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
@@ -235,8 +235,8 @@ fn an_add_left_untrusted_offers_trust_until_it_is_made() {
 }
 
 /// On a page opened from Connect an add answered unchanged reads as
-/// checked, step line and snackbar, never "Nothing was added" (§5.3), and
-/// counts as added; from Peers it stays unchanged.
+/// checked, never "Nothing was added" (§5.3), counts as added, and the
+/// page closes with no snackbar; from Peers it stays unchanged.
 #[test]
 fn an_unchanged_add_from_connect_reads_checked_and_counts() {
     let (me, them) = (peer(), peer());
@@ -258,10 +258,7 @@ fn an_unchanged_add_from_connect_reads_checked_and_counts() {
         Some(&AddResult::Checked { lines: 1 })
     );
     let _ = m.peers_input(PeersInput::Close);
-    assert_eq!(
-        m.peers().snack().0,
-        Some(&PeersSnack::AddedChecked { lines: 1 })
-    );
+    assert_eq!(m.peers().snack().0, None, "Connect's line says it");
     assert_eq!(line(&m), Some(ConnectLine::NeedsTrust), "counted as added");
 
     // Control: the same answer on a page Peers opened.
@@ -327,6 +324,67 @@ fn show_alone_says_shown_and_an_add_wins_over_it() {
     add_from_connect(&mut t, &them, &[added(&them)]);
     let _ = t.peers_input(PeersInput::NotNow(them));
     assert_eq!(line(&t), Some(ConnectLine::NeedsTrust));
+}
+
+/// Each return from a page opened from Connect that did something §5.1
+/// counts is said once, its words unchanged included, and closes with no
+/// snackbar; a return that did nothing counted is not said, an earlier
+/// line still showing included.
+#[test]
+fn a_return_is_said_only_when_its_page_did_something_counted() {
+    let (me, them, other) = (peer(), peer(), peer());
+    let mut m = connect_open(&me);
+    let said = |m: &UiModel| m.connect().expect("Connect open").said();
+    let show = |m: &mut UiModel, addresses: Vec<String>| {
+        let _ = m.connect_input(ConnectInput::Show);
+        m.own_addresses_read(Ok(ShowAddresses {
+            peer: me.clone(),
+            addresses,
+            truncated: false,
+        }));
+        let _ = m.peers_input(PeersInput::CloseShow);
+    };
+    let start = said(&m);
+
+    show(&mut m, vec![]);
+    assert_eq!(said(&m), start, "a Show that drew nothing");
+    let _ = m.connect_input(ConnectInput::Add);
+    let _ = m.peers_input(PeersInput::Close);
+    assert_eq!(said(&m), start, "Back from Add with nothing added");
+    let _ = m.connect_input(ConnectInput::Add);
+    let _ = m.peers_input(PeersInput::FieldChanged(at(&other)));
+    let _ = m.peers_input(PeersInput::Add);
+    m.addresses_added(
+        &[at(&other)],
+        answer(AddressOutcome::Refused(AddressRefused::Grammar), &[]),
+    );
+    let _ = m.peers_input(PeersInput::Close);
+    assert_eq!(said(&m), start, "a refusal");
+    assert_eq!(line(&m), None);
+
+    show(&mut m, vec![at(&me)]);
+    assert_eq!(said(&m), start + 1, "a Show that drew this device's");
+    show(&mut m, vec![at(&me)]);
+    assert_eq!(said(&m), start + 2, "again, the same line");
+    assert_eq!(line(&m), Some(ConnectLine::Shown));
+
+    add_from_connect(&mut m, &them, &[added(&them)]);
+    let _ = m.peers_input(PeersInput::NotNow(them.clone()));
+    assert_eq!(said(&m), start + 3, "an add, step two Not now");
+    assert_eq!(m.peers().snack().0, None, "no snackbar from Connect");
+
+    assert!(m.connect_input(ConnectInput::Trust).is_empty());
+    assert!(m.peers().add_open(), "step two reopened");
+    let _ = m.peers_input(PeersInput::Close);
+    assert_eq!(said(&m), start + 4, "Back on step two is Done");
+    assert_eq!(m.peers().snack().0, None);
+
+    let _ = m.connect_input(ConnectInput::Add);
+    let _ = m.peers_input(PeersInput::FieldChanged(at(&other)));
+    let _ = m.peers_input(PeersInput::Add);
+    let _ = m.peers_input(PeersInput::Close);
+    assert_eq!(said(&m), start + 4, "an add whose answer is unknown");
+    assert_eq!(line(&m), Some(ConnectLine::NeedsTrust), "the earlier line");
 }
 
 /// Back while the add is on its way: the page closes at once, and the add

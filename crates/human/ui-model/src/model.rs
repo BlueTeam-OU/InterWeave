@@ -1459,7 +1459,7 @@ impl UiModel {
         if self.peers.add_open() || self.peers.show().is_some() {
             return;
         }
-        let adds = self.peers.take_connect_adds();
+        let adds = self.peers.take_connect_return();
         let shown = self.peers.take_show_drew();
         connect.returned(adds, shown);
     }
