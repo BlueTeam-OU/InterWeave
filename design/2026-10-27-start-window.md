@@ -53,11 +53,14 @@ Unchanged by this note, and relied on by it:
   `conversation_viewed` (`crates/human/ui-model/src/model/cards.rs`).
   The window changes which proposals can be shown, nothing else.
 - **A read row that is not kept lives in this session only**
-  (`human-client-ui.md` §6). A row loaded by the window and then read
+  (`human-client-ui.md` §6), as does the person's own message once the
+  transport accepted it. A row loaded by the window and then read
   becomes such a row. The session holds at most `SESSION_ITEM_CAP`
   (1,024) of them; past it, `UiModel::evict` drops the one that became
-  session-only first (`crates/human/ui-model/src/model.rs`). §7.1 changes
-  which one is dropped while a conversation is open. (`copy_gone` is a
+  session-only first, and never one an open snackbar's Undo needs
+  (`crates/human/ui-model/src/model.rs`, `release` and `evict`). The
+  bound is shared by every conversation. §7.1 keeps that order and
+  changes only when paging may push rows past it. (`copy_gone` is a
   different bound: it withdraws Keep from a read row whose copy the
   root no longer holds, and removes nothing.)
 
@@ -117,14 +120,21 @@ Evidence and hypotheses behind the choices below:
   its stored rows in memory, only its summary (a preview line, a time,
   a count). Starting the app loads summaries and the pending rows, and
   no conversation's window. One conversation's backlog never pushes
-  another conversation's rows out.
-- **The number of conversations is not bounded by this note.** A
-  direct conversation is keyed by the remote EndpointId
-  (`human-client-ui.md` §4), which the sending peer chooses
-  (`architecture/contracts/ENDPOINTS.md`: peer-asserted routing
-  metadata), so one trusted peer can open many conversations, limited
-  only by the ingress rate. Holding one summary each keeps that cost
-  small, but not bounded; whether the count needs a rule is §13 Q3.
+  another conversation's stored rows out of the list or its window.
+  The session bound on read rows is shared (§1), and paging may push
+  another conversation's read rows past it only by the person's
+  choice (§7.1).
+- **The number of conversations is bounded, and the person sees
+  nothing at the bound.** A direct conversation is keyed by the remote
+  EndpointId (`human-client-ui.md` §4), which the sending peer asserts;
+  no conforming profile speaks from more than 64 endpoints
+  (`architecture/contracts/ENDPOINTS.md`), and architect-cto rules that
+  an inbound from a peer's 65th distinct source endpoint is treated as
+  a malformed envelope: nothing stored, nothing shown, counted
+  (REPLY 01a17be2, Q3; the rule is theirs to write into `HUMAN-CHAT.md`
+  and `RETENTION.md` with j68's record). So the summaries held are
+  bounded by the trust list times 64. Nothing is designed for the
+  bound.
 - Every notification counts as (a) says; a notification is raised on
   receipt, which the window does not change.
 - **Every pending row is held, whatever the window**, so a failed
@@ -168,7 +178,8 @@ top edge:
 - receives focus moved by the person (Tab, Shift+Tab or the arrow keys
   on the desktop, TalkBack's swipe, switch access).
 
-Focus the app places (§7) triggers nothing, and no page is requested
+At the session bound, the limit row of §7.1 shows in place of a
+fetch. Focus the app places (§7) triggers nothing, and no page is requested
 while one is in flight. A page is requested once per arrival: focus or
 the view must leave the top edge and come back before the next page is
 fetched, except that a page arriving below a focused line (below) makes
@@ -244,14 +255,23 @@ proposals together, as the badge counts both, §3).
 
 A stored unread row that does not decode never becomes an item, so no
 load shows it and no view reads it (`listing.rs`, `undecodable_unread`;
-`model_side.rs`, `hidden_rows`). The line does not count it, and the
-conversation's badge does not either, as today: such rows are said
-by the app's existing hidden-rows report, not by a count the person
-could never bring to zero. So the line reaches zero, and goes, once
-every unread row the app can show is loaded. Whether (a)'s "every
-unread row" means to include them is §13 Q4.
+`model_side.rs`, `hidden_rows`). Neither the line nor the
+conversation's badge counts it, as today's badge does not: (a) means
+every unread row this build can decode, and the hidden-rows count is
+the surface for the rest (architect-cto, REPLY 01a17be2, Q4). So the
+line reaches zero, and goes, once every unread row the app can show is
+loaded.
 
-**Rejected: jumping to the oldest unread**, §2's hypothesis.
+architect-cto's condition: the hidden count stays reachable when the
+badge and the line read zero. Today only the command-line client
+shows it (`apps/human-cli`); the desktop and Android apps show it
+nowhere. Required: once the store holds nothing older for an open
+conversation that has such rows, the top edge shows a line,
+`UnreadNotShown`, with their count in this conversation. It looks and
+behaves as the `EarlierUnread` line (§8): text, focusable, not
+announced. It says that these messages are kept, unread, and that
+this version of the app cannot show them; it claims nothing about who
+sent them or why.
 
 ## 7. Focus
 
@@ -264,47 +284,72 @@ screen hold for every other case.
 | any row, or the `EarlierUnread` line | a page is added above it or below the line | stays where it was; nothing moves | §10 items 4 and 5 |
 | the `EarlierUnread` line | its count reaches zero | the row that was just below the line, as app-placed focus (no fetch, §5) | §10 item 6 |
 | the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives | the row that was just below the failure row (the line, else the oldest loaded row), as app-placed focus | §10 item 7 |
-| a row of the open conversation | the session bound drops it | cannot happen: §7.1 drops the rows furthest from the person's position, never the focused one | §10 item 12 |
+| the limit row's `EarlierShowAnyway` | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the limit row, as app-placed focus | §10 item 12 |
+| a row of the open conversation | the session bound drops it | cannot happen: the focused row is never dropped (§7.1) | §10 item 12 |
+| a `ReadNotShown` line | a new drop adds to its count | stays on the line, whose count changes | §10 item 12 |
 
 ### 7.1 The session bound while a conversation is open
 
-Today the bound drops the row that became session-only first (§1).
-Paging up through a flood reads the newest rows first, so past the
-bound it would drop the newest messages the person just read, for
-good, while they are looking at older ones. Required instead, when
-the bound must drop a read, unkept row while a conversation is open:
+The bound and its order stay as today (§1): it is shared by every
+conversation, and past it the row that became session-only first is
+dropped, never one an open Undo needs. Paging up through a flood reads
+each page as it loads, so it fills the bound; past it, today's order
+drops first the read rows of other conversations that were read
+earlier (a conversation listed only because of such a row leaves
+Chats, look §5.2), then the open conversation's newest rows, which
+were read first on opening. Those rows have no stored copy: they are
+gone for good. No order avoids losing something read; what this note
+requires is that **paging never drops a read row on its own**.
 
-1. first, read rows of conversations that are not open, in today's
-   order;
-2. then, rows of the open conversation furthest from the person's
-   position (the focused item, else the middle of the visible rows):
-   whichever end of the loaded rows is further away.
+**Required.**
 
-Where rows of the open conversation were dropped, a line stands in
-their place: `ReadNotShown`, with the count dropped there. It looks and
-behaves as the `EarlierUnread` line (§8): text, focusable, not
-announced. The rows it stands for have no stored copy and cannot be
-loaded again; a page fetched past it brings rows older than them. When
-the conversation closes, its read rows fall back into today's order.
-
-On Android every TalkBack check above is a **blocked precondition**,
-not a pass, until TalkBack reaches the app (Slint 1.18.1's Android
-backend has no accessibility bridge; look §7). The desktop's checks run
-now, through Slint's accessibility tree and the keyboard.
+- When fetching the next page would take the session past the bound
+  (the page's rows that would become session-only, counted by the
+  builder), no page is fetched by scrolling or focus. The top edge
+  shows instead a **limit row**: `EarlierAtLimit`, then a button,
+  `EarlierShowAnyway`. The text says, before anything is committed,
+  that showing earlier messages removes from the screen the messages
+  read first in this session, here and in other conversations, that
+  they cannot come back, and that a message the person keeps stays.
+  Nothing is dropped while the row only shows.
+- Pressing `EarlierShowAnyway` fetches the next page; the bound drops
+  rows in today's order. From then until the conversation is closed,
+  paging is automatic again (§5) and drops as it needs: the person
+  chose that once for this opening. Closing and reopening the
+  conversation asks again.
+- The unread rows not loaded stay unread and stored: the badge and
+  `EarlierUnread` stay true, and they can be read later (after other
+  read rows leave the session, or after a restart).
+- Where rows of the open conversation were dropped, a line stands in
+  their place: `ReadNotShown`, with the count dropped there. Today's
+  order drops them from the newest end of the loaded rows, so the line
+  stands below the remaining rows and above any message that arrived
+  later, never at the top edge. It looks and behaves as the
+  `EarlierUnread` line (§8): text, focusable, not announced. The rows
+  it stands for have no stored copy and cannot be loaded again.
+- Rows of other conversations are dropped as today, with nothing said
+  in them; their summaries follow §3.
+- The focused row is never dropped while focused; if today's order
+  reaches it, the next row in that order is dropped instead.
 
 ## 8. Accessibility
 
 - **Reading order** at the top of a conversation: the failure row
-  (`EarlierLoadFailed`, then Try again) or nothing (the progress row is
-  not focusable), then `EarlierUnread` when shown, then the loaded
-  rows; a `ReadNotShown` line is read where it stands.
-- **Look**: the `EarlierUnread` and `ReadNotShown` lines are styled
+  (`EarlierLoadFailed`, then Try again), the limit row
+  (`EarlierAtLimit`, then `EarlierShowAnyway`), or nothing (the
+  progress row is not focusable); then `EarlierUnread` when shown, or
+  `UnreadNotShown` when the store holds nothing older; then the loaded
+  rows. A `ReadNotShown` line is read where it stands.
+- **Look**: the `EarlierUnread`, `ReadNotShown` and `UnreadNotShown`
+  lines are styled
   as the day separator (look §6): centred, body small,
   `on-surface-variant`, one item each for a screen reader. The
   failure row is centred: `EarlierLoadFailed` in body medium in
   `error`, and under it a Material text button, Try again. The
   progress row is the indicator alone, 24 dp, centred, with 8 dp
-  above and below.
+  above and below. The limit row is laid out as the failure row:
+  `EarlierAtLimit` in body medium in `on-surface-variant`, and under
+  it a Material text button, `EarlierShowAnyway`.
 - **Every gesture has a non-gesture equivalent**: §5's focus trigger.
 - **Reduced motion**: the progress indicator follows the platform's
   setting as Material's does; no row animates in.
@@ -317,9 +362,9 @@ now, through Slint's accessibility tree and the keyboard.
 
   | Mark | Pair | Needs | Dark | Light |
   |---|---|---|---|---|
-  | `EarlierUnread`, `ReadNotShown` | `on-surface-variant` on `surface` | 4.5 | 9.9 | 7.6 |
+  | `EarlierUnread`, `ReadNotShown`, `UnreadNotShown`, `EarlierAtLimit` | `on-surface-variant` on `surface` | 4.5 | 9.9 | 7.6 |
   | `EarlierLoadFailed` | `error` on `surface` | 4.5 | 10.6 | 6.2 |
-  | Try again, its focus ring, the progress indicator | `primary` on `surface` | 4.5 (3 for the ring and indicator) | 10.8 | 6.2 |
+  | Try again, `EarlierShowAnyway`, their focus ring, the progress indicator | `primary` on `surface` | 4.5 (3 for the ring and indicator) | 10.8 | 6.2 |
 
 ## 9. Strings
 
@@ -329,6 +374,9 @@ The words are language-culture's; these say what each must do.
 |---|---|---|---|
 | `EarlierUnread` | {count} earlier unread | the line of §6 | how many unread items are above, not yet shown; a plural by count (language-culture's forms); must not say "messages" if it counts cards too, or must cover both |
 | `ReadNotShown` | {count} read messages no longer shown | the line of §7.1 | that messages the person already read were removed from this screen and cannot come back; a plural by count; must not suggest they were deleted by anyone else |
+| `UnreadNotShown` | {count} unread messages here can't be shown by this version of the app | the line of §6.1 | that unread messages of this conversation are kept and this app version cannot show them; a plural by count; must not blame the sender or suggest tampering |
+| `EarlierAtLimit` | To show earlier messages, the first messages you read in this session will be removed from the screen, here and in other chats. They can't come back. Messages you keep stay. | the limit row (§7.1) | before anything happens: what showing earlier messages removes (messages read first, in every conversation), that it cannot be undone, and that kept messages stay |
+| `EarlierShowAnyway` | Show earlier messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
 | `EarlierLoading` | Loading earlier messages | the progress row's accessible name (§5); never visible text | that older rows are on their way |
 | `EarlierLoadFailed` | Couldn't load earlier messages. | the failure row (§5), and its announcement | that the older rows could not be read; must not suggest they are lost |
 
@@ -339,7 +387,8 @@ The words are language-culture's; these say what each must do.
 Run on the desktop and on the Pixel 9a, with a store a test fills: one
 conversation "A" with more rows than the window's row budget, 10 of
 them unread, followed by more unread rows than the window holds; a
-second conversation "B" with two read-and-kept rows and one unread row.
+second conversation "B" with two read-and-kept rows and one unread row
+newer than both.
 Every TalkBack check below is a blocked precondition on Android (§7);
 its desktop counterpart, through Slint's accessibility tree, runs now.
 
@@ -389,14 +438,22 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     shows every contact, with no edge or progress row, and every
     conversation title on Chats uses its contact's name.
 12. **The bound while open**: with a test bound small enough to reach
-    (the builder's hook), open A and page up past it. The newest rows,
-    read first, are still there when the person comes back down; the
-    rows dropped are those furthest from the focused row, and a
-    `ReadNotShown` line with their count stands where they were. Focus
-    is never on a dropped row.
+    (the builder's hook), read B's unread row, then open A and page up
+    until the next page would pass the bound. No page is fetched; the
+    limit row shows with `EarlierAtLimit` and `EarlierShowAnyway`;
+    nothing has been dropped (A's newest rows and B are as they were).
+    Press `EarlierShowAnyway`: the page loads, focus is on the item
+    that was below the limit row, B's read row goes first (B leaves
+    Chats if it held nothing else), then A's newest rows, and a
+    `ReadNotShown` line with their count stands below A's remaining
+    rows. Paging goes on without asking until A is closed; reopening
+    A and reaching the bound shows the limit row again. Keep a row
+    before pressing: it stays. A row with an open snackbar is not
+    dropped; the focused row is not dropped.
 13. **An undecodable unread row**: add one to A's store. It is not
     counted on the line or on A's badge; the line goes once every
-    other unread row is loaded; the app's hidden-rows report counts it.
+    other unread row is loaded; once the store holds nothing older,
+    `UnreadNotShown` shows with 1, with A's badge at 0.
 
 **Test of §2's hypothesis** (with people, when there is a session to
 run): give a participant the flooded A and ask them to find the first
@@ -433,7 +490,7 @@ line. Two of five failing is enough to reopen §6.
 - **A loading state for opening a conversation** (§3), until a
   measurement says it is visible.
 - **How the window is held and its budget figures**: the builder's.
-  Which read row the session bound drops is §7.1's.
+  When paging may push read rows past the session bound is §7.1's.
 
 ## 13. Questions
 
@@ -445,16 +502,11 @@ line. Two of five failing is enough to reopen §6.
   note adds its refusal state.
 - **Q2, rust-ui-dev**: answered by the code. The session bound drops
   the row that became session-only first (`UiModel::evict`), so it
-  would drop the newest rows of a flood first; §7.1 is the rule that
-  replaces it while a conversation is open.
-- **Q3, architect-cto**: a direct conversation is keyed by a remote
-  EndpointId the sending peer chooses, so one trusted peer can open
-  conversations without a count bound, limited only by the ingress
-  rate. This note keeps each closed conversation to a summary (§3),
-  which makes the cost small but not bounded. Is a bound on
-  conversations per peer, or on summaries held, a product rule this
-  fix needs? If one comes, this note adds what the person sees at it.
-- **Q4, architect-cto**: (a) says the badge counts every unread row.
-  §6.1 leaves out a stored unread row that does not decode, which no
-  load can show and no view can read, as today's badge does. Is that
-  the reading of (a) you meant?
+  would drop the newest rows of a flood first; §7.1 keeps that order
+  and makes paging past the bound the person's informed choice.
+- **Q3, architect-cto**: answered (REPLY 01a17be2). At most 64 direct
+  conversations per peer; a 65th source endpoint is malformed,
+  counted, and shows nothing (§3).
+- **Q4, architect-cto**: answered (REPLY 01a17be2). (a) is every
+  decodable unread row; the hidden count is the rest, reachable at
+  zero (§6.1).
