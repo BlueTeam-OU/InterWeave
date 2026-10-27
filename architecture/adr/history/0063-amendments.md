@@ -68,3 +68,25 @@ bullets 31 and 33 read with it; `design/2026-10-24-identity-key.md`
 (#411), whose §5.3 states the gap's outcome for an identity that
 never shared.
 
+### Amendment 2026-10-27 — The silent first key also counts an own-card row pending outbound
+
+Building contact-cards 5.3's leaving and share rules (rust-ui-dev-02's
+j54, QUESTION 01a17abc), two rules met at one column: 5.3 sets a
+conversation's `card_shared_at` when the own-card row reaches Accepted
+by remote transport, while the build wrote it when the card was
+queued, so the 2026-10-24 amendment's "share record alone" agreed with
+the build and not with the design. Written as 5.3 says, a key file
+lost while the first card is still Sending — it survives a restart as
+pending outbound — left no record, the next start made a key silently,
+and the old-key card could still arrive, making the contact's next
+card a key change the person was never told of. Ruled: `card_shared_at`
+stays at Accepted and nothing earlier, since the stored value is
+person-facing and a Sending card can still be cancelled; the silent
+key's predicate gains the pending own-card rows of the identity, the
+predicate the share-again list already reads, so one store predicate
+serves both sites and the two cannot part again; a failed store read
+goes on counting as shared. The alternative of writing `card_shared_at`
+at queue time was refused as naming a disclosure that may never happen.
+Propagation: decision 1; this note; the log row; the digest entry;
+`design/2026-10-24-identity-key.md` §7 and §8 (ux-designer-01, by
+locator); the code on rust-ui-dev-02's branch, one PR.
