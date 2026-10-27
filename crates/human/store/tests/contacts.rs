@@ -9,8 +9,8 @@
 mod common;
 
 use interweave_human_store::{
-    AcceptedCard, ContactRestored, HumanStore, KeyStanding, OwnCard, PhotoAccepted, RouteDeleted,
-    StoreOptions, ValueSource, name_key,
+    AcceptedCard, ContactListing, ContactRestored, HumanStore, KeyStanding, OwnCard, PhotoAccepted,
+    RouteDeleted, StoreOptions, ValueSource, name_key,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -1020,4 +1020,68 @@ fn every_writer_of_a_name_keeps_its_name_key() {
         ContactRestored::Restored
     );
     keys_agree("a deleted contact restored");
+}
+
+/// The Contacts list's read (j68 P2-1): every contact once, in id order,
+/// a page at a time, each with its routes and whether it has a photo but
+/// never the photo's bytes, which are read one contact at a time.
+/// Mutations: the cursor read as `>=` (a contact twice); `has_photo`
+/// always false.
+#[test]
+fn the_contact_directory_is_paged_without_photos() {
+    let (_dir, mut store) = store();
+    let human = endpoint("human");
+    let peers = [P, Q, "12D3KooWRBy97UB99e3J6hiPesre1MZeuNQvfan4gBziswrRJsNK"];
+    let mut ids = Vec::new();
+    for (n, p) in peers.iter().enumerate() {
+        let p = peer(p);
+        let photo: &[u8] = b"jpeg";
+        let accepted = store
+            .accept_card(
+                &AcceptedCard {
+                    photo: (n == 1).then_some(photo),
+                    ..card(&p, &human, &format!("Contact {n}"), 1)
+                },
+                10,
+            )
+            .expect("a contact");
+        ids.push(accepted.contact_id);
+    }
+    ids.sort();
+    let mut seen: Vec<ContactListing> = Vec::new();
+    let mut after: Option<String> = None;
+    loop {
+        let page = store
+            .contact_directory_page(after.as_deref(), 2)
+            .expect("a page");
+        assert!(page.items.len() <= 2);
+        seen.extend(page.items);
+        assert!(seen.len() <= 10, "the walk does not end");
+        match page.next {
+            Some(next) => after = Some(next),
+            None => break,
+        }
+    }
+    let seen_ids: Vec<&str> = seen.iter().map(|c| c.contact_id.as_str()).collect();
+    assert_eq!(seen_ids, ids.iter().map(String::as_str).collect::<Vec<_>>());
+    let with_photo: Vec<&str> = seen
+        .iter()
+        .filter(|c| c.has_photo)
+        .map(|c| c.display_name.as_str())
+        .collect();
+    assert_eq!(with_photo, ["Contact 1"]);
+    assert!(
+        seen.iter().all(|c| c.routes.len() == 1),
+        "each with its route"
+    );
+    let one = seen.iter().find(|c| c.has_photo).expect("one");
+    assert_eq!(
+        store
+            .contact_photo(&one.contact_id)
+            .expect("read")
+            .as_deref(),
+        Some(b"jpeg".as_slice())
+    );
+    let other = seen.iter().find(|c| !c.has_photo).expect("another");
+    assert_eq!(store.contact_photo(&other.contact_id).expect("read"), None);
 }

@@ -87,6 +87,29 @@ pub struct Contact {
     pub routes: Vec<ContactRoute>,
 }
 
+/// A contact as the Contacts list reads it: everything a [`Contact`]
+/// holds but its photo's bytes, which [`HumanStore::contact_photo`] reads
+/// when the photo is shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactListing {
+    /// The store's id for it.
+    pub contact_id: String,
+    /// The name, then a space and the surname when there is one.
+    pub display_name: String,
+    /// Where the name came from.
+    pub name_source: ValueSource,
+    /// When the name was last set, if known.
+    pub name_at: Option<u64>,
+    /// Where the photo came from, if there is one.
+    pub photo_source: Option<ValueSource>,
+    /// When the photo was last set or removed, if known.
+    pub photo_at: Option<u64>,
+    /// Whether it has a photo.
+    pub has_photo: bool,
+    /// Its routes.
+    pub routes: Vec<ContactRoute>,
+}
+
 /// A contact as a proposal names it: its id and its name, read without
 /// its photo or its routes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -555,33 +578,7 @@ impl HumanStore {
         let Some((display_name, name_source, name_at, photo_source, photo, photo_at)) = row else {
             return Ok(None);
         };
-        let routes = self
-            .conn
-            .prepare(
-                "SELECT peer_id, endpoint_id, identity_key FROM contact_routes
-                  WHERE contact_id = ?1 ORDER BY peer_id, endpoint_id",
-            )?
-            .query_map(params![contact_id], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, Option<Vec<u8>>>(2)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .map(|(peer, endpoint, key)| {
-                Ok(ContactRoute {
-                    peer: TransportIdentity::parse(&peer).map_err(|_| {
-                        StoreError::Corrupt("a route's PeerId does not parse".to_owned())
-                    })?,
-                    endpoint: EndpointId::parse(&endpoint).map_err(|_| {
-                        StoreError::Corrupt("a route's EndpointId does not parse".to_owned())
-                    })?,
-                    identity_key: key_of(key)?,
-                })
-            })
-            .collect::<Result<_, StoreError>>()?;
+        let routes = self.routes_of(contact_id)?;
         Ok(Some(Contact {
             contact_id: contact_id.to_owned(),
             display_name,
@@ -614,6 +611,115 @@ impl HumanStore {
             )
             .optional()?;
         id.map_or(Ok(None), |id| self.contact(&id))
+    }
+
+    /// `contact_id`'s routes, by `PeerId` then endpoint.
+    fn routes_of(&self, contact_id: &str) -> Result<Vec<ContactRoute>, StoreError> {
+        self.conn
+            .prepare(
+                "SELECT peer_id, endpoint_id, identity_key FROM contact_routes
+                  WHERE contact_id = ?1 ORDER BY peer_id, endpoint_id",
+            )?
+            .query_map(params![contact_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<Vec<u8>>>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|(peer, endpoint, key)| {
+                Ok(ContactRoute {
+                    peer: TransportIdentity::parse(&peer).map_err(|_| {
+                        StoreError::Corrupt("a route's PeerId does not parse".to_owned())
+                    })?,
+                    endpoint: EndpointId::parse(&endpoint).map_err(|_| {
+                        StoreError::Corrupt("a route's EndpointId does not parse".to_owned())
+                    })?,
+                    identity_key: key_of(key)?,
+                })
+            })
+            .collect()
+    }
+
+    /// One page of the contacts, `max` at most, after `after` in id order
+    /// (the first at `None`), each with its routes and whether it has a
+    /// photo, never the photo's bytes: the Contacts list and every
+    /// conversation title need every contact's name, and a photo is read
+    /// when it is shown ([`Self::contact_photo`]). The cursor of the next
+    /// page is the last contact's id.
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn contact_directory_page(
+        &self,
+        after: Option<&str>,
+        max: usize,
+    ) -> Result<crate::Page<ContactListing, String>, StoreError> {
+        let max = max.max(1);
+        let fetch = i64::try_from(max.saturating_add(1)).unwrap_or(i64::MAX);
+        let rows = self
+            .conn
+            .prepare(
+                "SELECT contact_id, display_name, name_source, name_at, photo_source, photo_at,
+                        photo IS NOT NULL
+                   FROM contacts WHERE contact_id > ?1 ORDER BY contact_id LIMIT ?2",
+            )?
+            .query_map(params![after.unwrap_or(""), fetch], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<i64>>(5)?,
+                    r.get::<_, bool>(6)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let more = rows.len() > max;
+        let mut items = Vec::new();
+        for (contact_id, display_name, name_source, name_at, photo_source, photo_at, has_photo) in
+            rows.into_iter().take(max)
+        {
+            let routes = self.routes_of(&contact_id)?;
+            items.push(ContactListing {
+                contact_id,
+                display_name,
+                name_source: ValueSource::from_sql(name_source.as_deref()),
+                name_at: name_at.map(|t| stored_ms("name_at", t)).transpose()?,
+                photo_source: photo_source
+                    .as_deref()
+                    .map(|s| ValueSource::from_sql(Some(s))),
+                photo_at: photo_at.map(|t| stored_ms("photo_at", t)).transpose()?,
+                has_photo,
+                routes,
+            });
+        }
+        let next = if more {
+            items.last().map(|c| c.contact_id.clone())
+        } else {
+            None
+        };
+        Ok(crate::Page { items, next })
+    }
+
+    /// One contact's photo, as [`Contact::photo`] holds it: read when it
+    /// is shown, one at a time.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn contact_photo(&self, contact_id: &str) -> Result<Option<Vec<u8>>, StoreError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT photo FROM contacts WHERE contact_id = ?1",
+                params![contact_id],
+                |r| r.get::<_, Option<Vec<u8>>>(0),
+            )
+            .optional()?
+            .flatten())
     }
 
     /// What `card` would do if accepted, for its proposal.
