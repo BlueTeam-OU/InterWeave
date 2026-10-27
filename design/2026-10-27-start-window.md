@@ -96,10 +96,13 @@ Evidence and hypotheses behind the choices below:
 **Required.**
 
 - **The Chats list is complete.** Every conversation the store holds
-  a row of — pending, unread or kept — is listed, as are the
+  a row of that the app can show (§6.1) — pending, unread or kept — is
+  listed, as are the
   conversations the session holds read rows of (look §5.2: listed
   while the app holds one of its messages). No budget leaves a
-  conversation out.
+  conversation out. A conversation whose stored rows the app can show
+  none of is not listed, as today; its rows are counted by §6.1's
+  line.
 - **Each Chats row's last message and time are those of the newest
   message the conversation has, held in the session or stored**:
   whichever is newer of the newest row the session holds (a message
@@ -271,9 +274,12 @@ Chats row to open, and a row can lack an origin the app can attribute
 to any conversation (`listing.rs`, `inbound`), so the count is not
 shown inside a conversation. Required: while
 `ModelSide::hidden_rows` is above zero, the Chats list ends with a
-line, `RowsNotShown`, with that count. It is text, not a control,
+line, `RowsNotShown`, with that count. The count is every stored row
+that does not decode, not only unread ones: the person's own pending
+sends and kept rows too (`hidden_rows` is `hidden_unread` plus
+`hidden_other`). It is text, not a control,
 focusable, not announced, and styled as the `EarlierUnread` line
-(§8). It says that these stored messages are kept and that this
+(§8). It says that these messages are still stored and that this
 version of the app cannot show them; it claims nothing about who sent
 them or why. It is the same count the command-line client prints; no
 per-conversation count is needed.
@@ -390,7 +396,7 @@ The words are language-culture's; these say what each must do.
 |---|---|---|---|
 | `EarlierUnread` | {count} earlier unread | the line of §6 | how many unread items are above, not yet shown; a plural by count (language-culture's forms); must not say "messages" if it counts cards too, or must cover both |
 | `ReadNotShown` | {count} earlier messages no longer shown | the line of §7.1 | that messages the person already read or sent were removed from this screen and cannot come back; a plural by count; must not suggest they were deleted by anyone else |
-| `RowsNotShown` | {count} stored messages can't be shown by this version of the app | the line at the end of Chats (§6.1) | that stored messages are kept and this app version cannot show them; a plural by count; must not blame a sender or suggest tampering |
+| `RowsNotShown` | {count} stored messages can't be shown by this version of the app | the line at the end of Chats (§6.1) | that these messages (received unread, kept, or the person's own still waiting to send) are still stored and this app version cannot show them; must not use "kept" in the sense of Keep; a plural by count; must not blame a sender or suggest tampering |
 | `EarlierAtLimit` | To show earlier messages, the first messages you read or sent in this session will be removed from the screen, here and in other chats. They can't come back. Messages you keep stay. | the limit row (§7.1) | before anything happens: what showing earlier messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
 | `EarlierShowAnyway` | Show earlier messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
 | `EarlierLoading` | Loading earlier messages | the progress row's accessible name (§5); never visible text | that older rows are on their way |
@@ -468,8 +474,9 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     dropped; the focused row is not dropped.
 13. **An undecodable unread row**: add one to A's store, as its oldest
     row. It is not counted on the line or on A's badge; the line goes
-    once every other unread row is loaded, and paging then stops (no
-    further fetch at the top); with A's badge at 0, Chats ends with
+    once every other unread row is loaded, and once the store holds
+    nothing older that the app can show, paging stops (no further
+    fetch at the top); with A's badge at 0, Chats ends with
     `RowsNotShown` showing 1. Add a second undecodable row to a third
     conversation with no other row: it has no Chats row, and
     `RowsNotShown` shows 2.
