@@ -6662,7 +6662,17 @@ owner:
   branch). Not named by this gate, which proves the card's sending and
   acceptance and not the sender's view of it; rust-ui-dev-02's, j54's
   next batch, with `CardSentLabel`, the status line and kind C swipes
-  as 5.5 specifies.
+  as 5.5 specifies. Built on their `feat/j54-own-card-row` branch
+  (2026-10-27): the queued card as its row, a pending card read back
+  after a restart from its stored payload by a reader that skips the
+  signature step for the sender's own rows alone (HUMAN-CHAT.md
+  §Contact card, A 2026-10-27, since the node's PeerId is unknown
+  before a session), Retry and Cancel with no Show source, no menu
+  once Accepted, the list's preview and the command-line client's
+  additive `card` member; `CardSentLabel` and `CardSentPhoto` are
+  placeholders until language-culture-en's read. Still not built: the
+  "may have left" record (the next bullet) and the share date of a
+  card Accepted after a restart.
 - The silent first key's third record (ADR-0063 decision 1, A
   2026-10-27): a conversation's record that a card of the identity may
   have left this device, kept through a cancel after an attempt that
