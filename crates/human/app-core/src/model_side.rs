@@ -45,7 +45,8 @@ pub trait Opener {
     /// Onboarding's Connect is no longer owed: forget that it was, so no
     /// later start opens it (add-a-peer §5.1). Raised once, only after the
     /// root said it was owed ([`ModelSide::connect_owed`]); a platform
-    /// with no onboarding never owes it.
+    /// with no onboarding never owes it
+    /// (`connect_settled_reaches_the_platform_once_and_only_when_owed`).
     fn connect_settled(&mut self) {}
 }
 

@@ -115,6 +115,9 @@ const NETWORK_ASKED: &str = "<network access>";
 /// What [`Opened`] records for an ask for the person's authentication.
 const AUTHENTICATION_ASKED: &str = "<authentication>";
 
+/// What [`Opened`] records for onboarding's Connect settled.
+const CONNECT_SETTLED: &str = "<connect settled>";
+
 impl Opener for Opened {
     fn open(&mut self, destination: &str) {
         self.0.borrow_mut().push(destination.to_owned());
@@ -126,6 +129,10 @@ impl Opener for Opened {
 
     fn authenticate(&mut self) {
         self.0.borrow_mut().push(AUTHENTICATION_ASKED.to_owned());
+    }
+
+    fn connect_settled(&mut self) {
+        self.0.borrow_mut().push(CONNECT_SETTLED.to_owned());
     }
 }
 
@@ -1650,6 +1657,33 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
 
 /// The words' `{max}` is the configuration's bound, which the runtime
 /// enforces: one value, held equal here.
+/// Onboarding's Connect owed and settled at the start -- the pair's trust
+/// lists each hold the other, so the device can reach someone -- is said
+/// to the platform once, and turns after say nothing more; a start that
+/// does not owe it never says it (§5.1: the platform forgets that it was
+/// owed only on this word).
+#[tokio::test]
+async fn connect_settled_reaches_the_platform_once_and_only_when_owed() {
+    for owed in [true, false] {
+        let (a, _) = FakeNetwork::pair(node(), node());
+        let (mut root, opened) = Root::new(facade(&a, memory()));
+        if owed {
+            root.model.connect_owed();
+        }
+        root.settled(0).await;
+        for _ in 0..3 {
+            root.pump(0).await;
+        }
+        let said = opened
+            .0
+            .borrow()
+            .iter()
+            .filter(|o| *o == CONNECT_SETTLED)
+            .count();
+        assert_eq!(said, usize::from(owed), "owed: {owed}");
+    }
+}
+
 #[test]
 fn the_address_bound_in_the_words_is_the_configurations() {
     assert_eq!(
