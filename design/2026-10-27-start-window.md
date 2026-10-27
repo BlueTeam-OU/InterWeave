@@ -187,7 +187,8 @@ next page of older rows is fetched when the top edge:
   on the desktop, TalkBack's swipe, switch access).
 
 At the session bound, the limit row of §7.1 shows in place of a
-fetch. Focus the app places (§7) triggers nothing, and no page is requested
+fetch, where §7.1 asks (not when the rows still to load hold no unread
+row). Focus the app places (§7) triggers nothing, and no page is requested
 while one is in flight. A page is requested once each time the top edge is reached: focus or
 the view must leave the top edge and come back before the next page is
 fetched, except that a page arriving below a focused line (below) makes
@@ -289,7 +290,7 @@ nothing new for the person to learn:
   page of the same gap is in flight.
 - **While it loads, when it fails, at the session bound**: §5's
   progress row, §5's failure row with Try again, and §7.1's limit row
-  show in the gap, on the side that fetched. The upper side's row
+  (where §7.1 asks) show in the gap, on the side that fetched. The upper side's row
   shows directly below the row above the gap. The lower side's row
   shows directly above the gap's `EarlierUnread` line (below), or, when
   there is no line, directly above the row below the gap, as at the top
