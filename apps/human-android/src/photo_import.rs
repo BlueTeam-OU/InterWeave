@@ -41,8 +41,10 @@ pub(crate) const MAX_READ_WORKERS: usize = 3;
 /// too large from at the bound.
 pub(crate) const MAX_PHOTO_BYTES: usize = 32 * 1024 * 1024;
 
-/// How often a read waiting on its descriptor looks at its flag: the
-/// longest a read no longer wanted goes on.
+/// How often the caller of a read, and a worker waiting in `poll`, look at
+/// the flag: the longest a caller waits once a read is no longer wanted
+/// (`a_read_stuck_in_the_kernel_is_answered_at_the_deadline_and_the_cancel`).
+/// A worker blocked inside `read` on a regular file is not bounded by it.
 const CANCEL_SLICE: Duration = Duration::from_millis(100);
 
 /// What a read came to.
@@ -193,8 +195,10 @@ impl Imports {
     }
 }
 
-/// `fd`'s bytes up to `max`, waiting on it at most until `deadline` and
-/// no longer than [`CANCEL_SLICE`] past `unwanted` being set.
+/// `fd`'s bytes up to `max`. Between reads it looks at `deadline` and
+/// `unwanted`, each [`CANCEL_SLICE`] while `poll` waits on a pipe or a
+/// socket; a `read` that blocks on a regular file is not interrupted, which
+/// is why the caller does not wait on it (`Imports::read_with`).
 fn read_bounded(fd: OwnedFd, deadline: Instant, unwanted: &AtomicBool, max: usize) -> Read {
     let mut file = File::from(fd);
     let mut out = Vec::new();
