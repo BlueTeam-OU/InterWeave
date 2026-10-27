@@ -852,6 +852,94 @@ async fn a_private_listener_bound_after_a_refusal_widens_the_boundary_and_admits
     subject.runtime.shutdown().await.expect("shutdown");
 }
 
+/// The Identify sibling of the discovery memo's refusal: a connected
+/// peer's advertised LAN address, refused while the subject listened on
+/// loopback alone, enters the subject's book when its own private
+/// listener binds -- at the widening, not at the peer's next Identify,
+/// which the crate sends every five minutes. Read from the subject's
+/// address-book counts: the refusal is counted first (the control that
+/// the Identify arrived and rule 3 judged it), and the admission after
+/// the listen.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peers_lan_address_refused_by_rule_3_is_learned_when_a_private_listener_binds() {
+    use interweave_transport_libp2p::store_refusals::store;
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (subject_id, far_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
+    let (subject_peer, far_peer) = (
+        subject_id.transport_identity().expect("peer id"),
+        far_id.transport_identity().expect("peer id"),
+    );
+    let mut subject = node(&[&far_peer], &subject_id);
+    let mut far = node(&[&subject_peer], &far_id);
+    let _far_lan = far
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the far end's LAN listener");
+    let subject_loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("the subject's loopback listener");
+    let book = |runtime: &SwarmRuntime| {
+        runtime
+            .store_refusals()
+            .get(store::ADDRESS_BOOK)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let refused = |runtime: &SwarmRuntime| {
+        book(runtime)
+            .refused
+            .get("private_without_private_listener")
+            .copied()
+            .unwrap_or(0)
+    };
+    assert!(
+        matches!(
+            far.runtime
+                .dial(subject_peer.clone(), subject_loopback)
+                .await,
+            Ok(Ok(()))
+        ),
+        "the far end dials the subject over loopback"
+    );
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while refused(&subject.runtime) == 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the far end's Identify was never judged: {:?}",
+            book(&subject.runtime)
+        );
+        drive(
+            &mut subject.runtime,
+            &mut [&mut far.runtime],
+            "identify",
+            Duration::from_millis(100),
+            None::<fn(&[SwarmEvent]) -> bool>,
+        )
+        .await;
+    }
+    let admitted = book(&subject.runtime).admitted;
+
+    let _subject_lan = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the subject's LAN listener");
+    // A command after the listen: the task handled the listener event,
+    // and the re-judgement it runs, before answering it.
+    let _ = subject.runtime.status(None).await.expect("answered");
+    assert_eq!(
+        book(&subject.runtime).admitted,
+        admitted + 1,
+        "the far end's LAN address entered the book at the widening: {:?}",
+        book(&subject.runtime)
+    );
+    subject.runtime.shutdown().await.expect("shutdown");
+    far.runtime.shutdown().await.expect("shutdown");
+}
+
 /// What `subject` advertises as its listen addresses to a fresh observer
 /// holding `keys` -- a peer the subject trusts, or it closes the
 /// connection before Identify runs -- that dials it at `address`: the

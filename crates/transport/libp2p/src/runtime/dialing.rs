@@ -19,6 +19,7 @@ use libp2p::{Multiaddr, PeerId, identify};
 use tokio::sync::oneshot;
 
 use interweave_transport_api::{DisconnectReason, TransportIdentity};
+use interweave_transport_runtime::reachability::CandidateRefusal;
 use interweave_transport_runtime::{
     ConnectionClass, ConnectionManager, ConnectionSlot, DialOrigin, DialRequest, DialTicket,
     Revoked,
@@ -880,13 +881,18 @@ pub(super) struct AdvertisedBoundary<'a> {
 /// predicate behind an unwired hook is the exact shape this repository
 /// has shipped before -- a helper whose own documentation explained
 /// what a caller skipping it would get, called by nothing.
+///
+/// Returns the addresses refused as `private_without_private_listener`
+/// alone: the one refusal this node's own listeners decide, which
+/// [`HeldBack`] judges again once rule 3's boundary widens.
 fn learn_advertised(
     manager: &mut ConnectionManager,
     peer: &TransportIdentity,
     advertised: &[Multiaddr],
     boundary: &mut AdvertisedBoundary<'_>,
     now_ms: u64,
-) {
+) -> Vec<Multiaddr> {
+    let mut held_back = Vec::new();
     for address in advertised {
         // A peer asserts its own addresses with its own `/p2p/` suffix
         // as often as not, so this is a suffixed input by convention
@@ -913,6 +919,9 @@ fn learn_advertised(
                 .operator
                 .admits(address, boundary.own_listeners.iter().map(String::as_str)),
         };
+        if verdict == Err(CandidateRefusal::PrivateWithoutPrivateListener) {
+            held_back.push(address.clone());
+        }
         if !boundary
             .stores
             .record(crate::store_refusals::store::ADDRESS_BOOK, verdict)
@@ -920,6 +929,81 @@ fn learn_advertised(
             continue;
         }
         let _ = learn_route(manager, peer, &text, now_ms);
+    }
+    held_back
+}
+
+/// The addresses each connected peer's last Identify advertised that
+/// rule 3 refused for want of a private listener of their family -- the
+/// one verdict this node's own listeners decide -- judged again when
+/// that boundary WIDENS (`NetworkSet::widenings`): a wildcard listener
+/// reporting its LAN address after its loopback one, a Wi-Fi joining
+/// while the peer is connected over another path. Without it the
+/// peer's LAN address waited for its next Identify, five minutes by the
+/// crate's default, as composition's discovery memo waited its relearn
+/// interval for the same refusal (j133).
+///
+/// BOUNDED by the peers connected at the last hold or re-judgement --
+/// both prune to [`OpenConnection`]'s peers, so a peer gone, revoked
+/// and closed included, leaves at the next one -- and by
+/// `MAX_ADDRESSES_PER_PEER` per peer, the most the book keeps for one.
+/// Each Identify replaces the peer's entry.
+#[derive(Debug, Default)]
+pub(super) struct HeldBack {
+    by_peer: HashMap<TransportIdentity, Vec<Multiaddr>>,
+    /// The widenings count at the last re-judgement.
+    seen: u64,
+}
+
+impl HeldBack {
+    /// Hold what `peer`'s Identify had refused, replacing what was held.
+    fn hold(
+        &mut self,
+        peer: &TransportIdentity,
+        mut refused: Vec<Multiaddr>,
+        open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>,
+    ) {
+        self.prune(open);
+        refused.truncate(interweave_transport_runtime::connection_manager::MAX_ADDRESSES_PER_PEER);
+        if refused.is_empty() {
+            self.by_peer.remove(peer);
+        } else {
+            self.by_peer.insert(peer.clone(), refused);
+        }
+    }
+
+    fn prune(&mut self, open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>) {
+        let connected: BTreeSet<&TransportIdentity> = open.values().map(|c| &c.peer).collect();
+        self.by_peer.retain(|peer, _| connected.contains(peer));
+    }
+
+    /// Judge every held address again when the widenings count moved
+    /// since the last time, through the same door Identify uses; what
+    /// is still refused stays held.
+    pub(super) fn relearn(
+        &mut self,
+        widenings: u64,
+        manager: &mut ConnectionManager,
+        boundary: &mut AdvertisedBoundary<'_>,
+        open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>,
+        now_ms: u64,
+    ) {
+        if widenings == self.seen {
+            return;
+        }
+        self.seen = widenings;
+        self.prune(open);
+        for (peer, held) in std::mem::take(&mut self.by_peer) {
+            let still = learn_advertised(manager, &peer, &held, boundary, now_ms);
+            if !still.is_empty() {
+                self.by_peer.insert(peer, still);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn held(&self, peer: &TransportIdentity) -> usize {
+        self.by_peer.get(peer).map_or(0, Vec::len)
     }
 }
 
@@ -1000,6 +1084,7 @@ pub(super) fn settle_outcome(
     refuse: &mut Vec<libp2p::swarm::ConnectionId>,
     infrastructure_origin: &InfrastructureOrigin<'_>,
     boundary: &mut AdvertisedBoundary<'_>,
+    held_back: &mut HeldBack,
     now_ms: u64,
 ) -> Announce {
     match event {
@@ -1199,7 +1284,9 @@ pub(super) fn settle_outcome(
             identify::Event::Received { peer_id, info, .. },
         )) => {
             if let Ok(peer) = to_transport_identity(peer_id) {
-                learn_advertised(manager, &peer, &info.listen_addrs, boundary, now_ms);
+                let refused =
+                    learn_advertised(manager, &peer, &info.listen_addrs, boundary, now_ms);
+                held_back.hold(&peer, refused, open);
             }
         }
         _ => {}
@@ -3495,6 +3582,66 @@ mod tests {
         let mut m = ConnectionManager::new(ConnectionPolicy::new(8, 8), 8);
         m.set_trust(trust(&[RELAY], &[]), &[]);
         m
+    }
+
+    /// An Identify address refused for want of a private listener is
+    /// HELD, and enters the book when the widenings count moves with
+    /// one now offered -- not before (the same count: the control), and
+    /// not while the boundary still refuses it. A loopback address is
+    /// refused for its class and never held; a peer no longer connected
+    /// is dropped at the next hold (j133's Identify sibling).
+    #[test]
+    fn an_identify_address_refused_by_rule_3_enters_the_book_when_the_boundary_widens() {
+        use super::HeldBack;
+        let mut m = admitting_manager();
+        let peer = ident(RELAY);
+        let mut open = HashMap::new();
+        open.insert(ConnectionId::new_unchecked(1), open_to(&peer, &mut m));
+        let stores = crate::store_refusals::StoreRefusals::new();
+        let operator = crate::operator_set::OperatorSet::new();
+        let none: Vec<String> = Vec::new();
+        let lan = vec!["/ip4/10.0.0.9/tcp/4001".to_owned()];
+        let advertised: Vec<Multiaddr> = ["/ip4/10.0.0.1/tcp/4001", "/ip4/127.0.0.1/tcp/4001"]
+            .iter()
+            .map(|a| a.parse().expect("valid"))
+            .collect();
+        let boundary = |own| AdvertisedBoundary {
+            own_listeners: own,
+            stores: &stores,
+            operator: &operator,
+        };
+        let mut held = HeldBack::default();
+
+        let refused = learn_advertised(&mut m, &peer, &advertised, &mut boundary(&none), 0);
+        held.hold(&peer, refused, &open);
+        assert_eq!(
+            held.held(&peer),
+            1,
+            "the private address, not the loopback one"
+        );
+        assert_eq!(m.known_addresses(&peer), 0);
+
+        held.relearn(1, &mut m, &mut boundary(&none), &open, 1);
+        assert_eq!(
+            m.known_addresses(&peer),
+            0,
+            "widened elsewhere, still refused here"
+        );
+        assert_eq!(held.held(&peer), 1, "and still held");
+        held.relearn(1, &mut m, &mut boundary(&lan), &open, 2);
+        assert_eq!(
+            m.known_addresses(&peer),
+            0,
+            "the same count: nothing judged again (the control)"
+        );
+        held.relearn(2, &mut m, &mut boundary(&lan), &open, 3);
+        assert_eq!(m.known_addresses(&peer), 1, "admitted once the count moved");
+        assert_eq!(held.held(&peer), 0, "and no longer held");
+
+        let refused = learn_advertised(&mut m, &peer, &advertised, &mut boundary(&none), 4);
+        held.hold(&peer, refused, &HashMap::new());
+        held.hold(&ident(RELAY), Vec::new(), &HashMap::new());
+        assert_eq!(held.held(&peer), 0, "a peer with no connection is not held");
     }
 
     /// THE HOOK, not the predicate: does a refused advertised address

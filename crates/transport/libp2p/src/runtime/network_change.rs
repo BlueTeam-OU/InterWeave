@@ -252,6 +252,12 @@ impl NetworkSet {
             .collect()
     }
 
+    /// The count of rule 3's boundary widening (`Self::publish`), for
+    /// the task's own learn sites (`dialing::HeldBack`).
+    pub(super) fn widenings(&self) -> u64 {
+        self.published.widenings().count()
+    }
+
     /// Whether the first fill of the known set has happened since this
     /// was last asked: the runtime runs an addition's lift for it,
     /// though it reported no change. `true` once.
