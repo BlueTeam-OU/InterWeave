@@ -264,8 +264,15 @@ snackbar. A Cancel of one of this identity's card rows whose success
 arrives after the step has started is only announced, with message-swipe §8's words
 and no snackbar or Undo, by either route: on the sheet route the
 person is still in the conversation, where message-swipe §6 would
-otherwise show it with its Undo. The step's own withdrawals have no
-Undo either.
+otherwise show it with its Undo. That announcement waits for the
+step's own (`KeyMaking`, then `KeyMade` or the failure line, §8) and
+never interrupts it. A row whose Cancel is still awaiting its answer
+when the step starts is still pending in the transport, so it counts
+as a row the client holds and the step withdraws it; whatever answer
+the Cancel then gets, the row does not come back: a success is
+announced as above, and a refusal (message-swipe §8's Cancel refused
+by the store) does not return the row, which is as the step's
+withdrawal left it. The step's own withdrawals have no Undo either.
 
 ### 5.3 The result
 
@@ -467,10 +474,12 @@ On both clients unless said; Android's screen-reader checks blocked as
     confirmation and passes only inside the timeout set), and a
     third time by that route with the Cancel's success held by a test
     seam until after Make a new key: its success is then announced
-    once, with no snackbar. On each run, after Make a new key,
-    returning to E (the first) or Back to the sheet and closing it
-    (the second and third) shows no snackbar, and E's card is not
-    sent, a restart included.
+    once, after `KeyMade`, with no snackbar; and a fourth time by that
+    route with the Cancel held and then refused by the seam after Make
+    a new key: E's row does not return. On each run, after Make a new
+    key, returning to E (the first) or Back to the sheet and closing it
+    (the others) shows no snackbar, and E's card is not sent, a restart
+    included.
     Where the client cannot tell a Sending row it holds from one the
     transport took (§5.2's fallback), D is instead left to arrive, and
     D is still in the share-again list; the build states which of the
