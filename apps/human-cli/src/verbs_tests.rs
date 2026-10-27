@@ -949,14 +949,15 @@ async fn a_line_not_written_leaves_its_message_unread() {
     assert_eq!(unread.len(), 1, "the one not written: {unread:?}");
 }
 
-/// A read `--consume` asks that the store cannot carry out is said as a
-/// `failed` event, never dropped. Mutation: listen leaving the model
-/// side's problems untaken.
+/// Every read `--consume` asks that the store cannot carry out is said
+/// as a `failed` event naming its row, never dropped: a drain's reads run
+/// in one step. Mutations: listen leaving the model side's problems
+/// untaken; only the first of a step's said.
 #[tokio::test]
-async fn a_read_the_store_refuses_is_said() {
-    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["gone"])).await;
-    // Gone from the store after the session listed it: the read finds no
-    // row.
+async fn every_read_the_store_refuses_is_said_by_its_row() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["gone", "and gone"])).await;
+    // Gone from the store after the session listed them: each read finds
+    // no row.
     let conn = rusqlite::Connection::open(dir_b.path().join("human.sqlite3")).expect("open");
     conn.execute("DELETE FROM unread_inbound", [])
         .expect("deleted");
@@ -975,12 +976,22 @@ async fn a_read_the_store_refuses_is_said() {
     .await
     .expect("listened");
     let out = String::from_utf8(out).expect("utf-8");
-    assert!(
-        lines(&out)
-            .iter()
-            .any(|e| e["event"] == "failed" && e["reason"].as_str().is_some_and(|r| !r.is_empty())),
-        "{out}"
-    );
+    let events = lines(&out);
+    let printed: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "message")
+        .map(|e| &e["id"])
+        .collect();
+    let mut failed: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "failed" && e["reason"].as_str().is_some_and(|r| !r.is_empty()))
+        .map(|e| &e["id"])
+        .collect();
+    failed.sort_by_key(|id| id.as_str().map(str::to_owned));
+    let mut printed = printed;
+    printed.sort_by_key(|id| id.as_str().map(str::to_owned));
+    assert_eq!(printed.len(), 2, "{out}");
+    assert_eq!(failed, printed, "each read refused, by its row: {out}");
 }
 
 /// A send the facade refuses before any row is made answers its own line

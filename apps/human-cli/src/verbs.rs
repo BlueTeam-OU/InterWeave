@@ -170,16 +170,22 @@ fn print_messages<B: DataSessionBinding, A: AdminBinding>(
 pub(crate) fn problems<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
 ) -> Result<(), Failure> {
-    let Some(problem) = s.side().take_problems().into_iter().next() else {
-        return Ok(());
-    };
+    s.side()
+        .take_problems()
+        .into_iter()
+        .next()
+        .map_or(Ok(()), |problem| Err(problem_failure(problem)))
+}
+
+/// A problem the model side reported, as the failure it is said as.
+fn problem_failure(problem: Problem) -> Failure {
     let (what, why) = match problem {
         Problem::Command { command, why } => (command_name(&command), why),
         Problem::UnreadNotListed(why) => ("listing the unread messages", why),
         Problem::CardsNotRead(why) => ("reading the cards and contacts", why),
         Problem::ShareNotRecorded(why) => ("recording a card's share", why),
     };
-    Err(match why {
+    match why {
         Why::StorageUnavailable => {
             Failure::Store(format!("{what}: the message store cannot record it now"))
         }
@@ -195,7 +201,7 @@ pub(crate) fn problems<B: DataSessionBinding, A: AdminBinding>(
         Why::ProposalChanged => {
             Failure::Refused(format!("{what}: the proposal changed since it was shown"))
         }
-    })
+    }
 }
 
 const fn command_name(command: &Command) -> &'static str {
@@ -1106,11 +1112,28 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         // A command the model side could not carry out -- a read or a
         // decline `--consume` asked -- is said, never dropped: its row
         // stays unread in the store.
-        if let Err(failure) = problems(s) {
+        // Each one, by the row it was for: a drain's reads and declines run
+        // in one step, and every one refused leaves its row unread
+        // (`every_read_the_store_refuses_is_said_by_its_row`).
+        for problem in s.side().take_problems() {
+            let row = match &problem {
+                Problem::Command {
+                    command: Command::MarkRead(row) | Command::DeclineCard(row),
+                    ..
+                } => Some(format!("u{}", row.get())),
+                _ => None,
+            };
+            let failure = problem_failure(problem);
             let line = if json {
-                output::json_line(&json!({ "event": "failed", "reason": failure.message() }))
+                output::json_line(
+                    &json!({ "event": "failed", "id": row, "reason": failure.message() }),
+                )
             } else {
-                format!("failed {}\n", output::one_line(failure.message()))
+                format!(
+                    "failed {}{}\n",
+                    row.map(|row| format!("{row} ")).unwrap_or_default(),
+                    output::one_line(failure.message())
+                )
             };
             if !put(out, &line)? {
                 return Ok(());
