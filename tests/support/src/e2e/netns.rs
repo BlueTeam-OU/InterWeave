@@ -270,14 +270,24 @@ fn inside(network: &str, test: &str) -> bool {
     }
     let exe = std::env::current_exe().expect("the test binary's path");
     // What the inner copy needs of this host's tree, mounted at the same
-    // paths: the repository (its examples) and the target directory the
-    // binaries are in, wherever CARGO_TARGET_DIR put it.
+    // paths: the repository (its examples), the target directory the
+    // binaries are in, wherever CARGO_TARGET_DIR put it, and the package
+    // `super::PACKAGE_BIN` names, whose programs the inner copy then runs.
     let target = exe
         .ancestors()
         .nth(3)
         .expect("<target>/<profile>/deps/<test>")
         .to_path_buf();
     let repo = crate::repo_root();
+    // Mounted at its own path inside, so it must name one from `/`.
+    if let Some(package) = std::env::var_os(super::PACKAGE_BIN) {
+        assert!(
+            Path::new(&package).is_absolute(),
+            "{} must be an absolute path inside the namespaces, not {}",
+            super::PACKAGE_BIN,
+            Path::new(&package).display()
+        );
+    }
     // Under ROOT_PARENT when set: a caller that kills this copy -- whose
     // TempDir then never drops -- removes what it left.
     let parent = std::env::var_os(ROOT_PARENT).map_or_else(std::env::temp_dir, PathBuf::from);
@@ -319,6 +329,7 @@ fn inside(network: &str, test: &str) -> bool {
         .arg(root.path())
         .arg(&repo)
         .arg(&target)
+        .args(std::env::var_os(super::PACKAGE_BIN))
         .env("IW_TEST_EXE", &exe)
         .env("IW_TEST_NAME", test)
         .stdout(std::process::Stdio::piped())
