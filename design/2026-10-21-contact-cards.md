@@ -2077,9 +2077,15 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     actions are the same two. On an Accepted card row, a long press
     opens nothing and plays no haptic tick (a long press on a message
     row beside it plays one, the control), and a secondary click and
-    the desktop screen reader's activate open nothing; the desktop screen reader reads its role as not
-    activatable, and TalkBack offers no custom action and no "double
-    tap to activate" (TalkBack blocked, §8, until the device run). The
+    the desktop screen reader's activate open nothing and say nothing.
+    That its role is not announced as activatable is **blocked by the
+    toolkit**, not passed: Slint 1.18 advertises a default action for
+    every element that declares a handler, whatever the handler does
+    (`crates/human/ui-slint/README.md`, stated by rust-ui-dev
+    2026-10-27), so the desktop screen reader still offers one; it is
+    checked again when the toolkit lets an action be offered
+    conditionally. TalkBack offers no custom action and no "double tap
+    to activate" (TalkBack blocked, §8, until the device run). The
     desktop screen reader reads the row as §8 says, with
     `CardSentPhoto` for a card sent with a photo, on a Sending, a Not
     sent and an Accepted row, and without it for one sent with none.
