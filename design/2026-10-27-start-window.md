@@ -655,9 +655,10 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     session-only rows as it allows, as in item 12, and scroll down
     until the gap's upper side is reached again: the next page loads,
     with no limit row and nothing dropped. Then the top edge: with the
-    bound still full, scroll up through A until the store holds only
-    kept rows older than the top edge and no `EarlierUnread` line
-    shows at the top; reaching the top edge again loads the next page,
+    bound still full and the store holding only kept rows older than
+    A's top edge (a test hook that makes them so), so that no
+    `EarlierUnread` line shows at the top, scroll to the top edge: the
+    next page loads,
     with no limit row and nothing dropped. Control: give A one unread
     row older than the top edge (a test hook), so that the line shows,
     and reach the top edge again: the limit row shows.
