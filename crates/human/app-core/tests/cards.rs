@@ -1645,8 +1645,9 @@ async fn a_new_key_withdraws_the_not_sent_card_and_lists_both_pending_conversati
 /// start shows: before the removal, the state as before; after it and
 /// before the new key is stored -- a half-written temporary beside the
 /// file included, as a kill inside the write leaves it -- "missing" with
-/// no key made for an identity that shared its card, and a key with no
-/// state for one that never shared; after, the new key's fingerprint.
+/// no key made for an identity whose card a conversation holds or may
+/// hold, and a key with no state for any other; after, the new key's
+/// fingerprint.
 #[tokio::test]
 async fn a_new_key_cut_at_each_point_starts_as_far_as_the_step_got() {
     use interweave_human_ui_model::{KeyProblem, OwnKey};
@@ -1700,7 +1701,8 @@ async fn a_new_key_cut_at_each_point_starts_as_far_as_the_step_got() {
         )
     );
 
-    // An identity that never shared, cut between: a key, no state.
+    // An identity no conversation holds a card of, cut between: a key, no
+    // state.
     let pc = profile();
     let mut carol = Root::new(facade_with_source(&a, &pc, Box::new(FilesystemCustody)));
     carol.pump(0).await;
@@ -1716,6 +1718,53 @@ async fn a_new_key_cut_at_each_point_starts_as_far_as_the_step_got() {
         key_of(&pc).fingerprint().to_string(),
         "the key shown is the one stored"
     );
+}
+
+/// Design section 7 and acceptance item 11 as ADR-0063 A 2026-10-27
+/// amends them: an identity that never shared but has an own card row on
+/// its way -- Sending, or Not sent with Retry -- starts "missing" when its
+/// key file is gone, and makes no key by itself, since that card may still
+/// arrive with the old key. Mutation: the start reading the share record
+/// alone.
+#[tokio::test]
+async fn a_key_file_gone_while_a_card_is_pending_is_missing() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    use interweave_transport_api::TransportError;
+    for (case, refused) in [
+        ("Sending", None),
+        ("Not sent", Some(TransportError::UnauthorizedPeer)),
+    ] {
+        let (a, b) = FakeNetwork::pair(node(), node());
+        let pa = profile();
+        let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+        alice.pump(0).await;
+        // Sending: a peer with no address yet; Not sent: the node refuses.
+        let to = match refused {
+            None => direct(
+                &ProfileIdentity::generate()
+                    .transport_identity()
+                    .expect("peer id"),
+            ),
+            Some(error) => {
+                a.inject_send(error);
+                direct(b.peer())
+            }
+        };
+        alice.will(Intent::ShareCard(to));
+        alice.pump(1).await;
+        assert!(alice.failed().is_empty(), "{case}: {:?}", alice.failed());
+        drop(alice);
+        let file = identity_key::key_path(&pa.paths, &human());
+        std::fs::remove_file(&file).expect("lost");
+        let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+        alice.pump(2).await;
+        assert_eq!(
+            own_key(&alice),
+            OwnKey::Unusable(KeyProblem::Missing),
+            "{case}"
+        );
+        assert!(!file.exists(), "{case}: no key made by itself");
+    }
 }
 
 /// A cipher at the desktop's custody that cannot seal: a new key cannot

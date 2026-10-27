@@ -12,7 +12,7 @@ use interweave_human_client_api::ReceivedCard;
 use interweave_human_store::identity_key::Fingerprint;
 use interweave_human_store::{
     AcceptedCard, CardStanding, Contact, HumanStore, InboundOrigin, KeyStanding,
-    OutboundDestination, ReadEphemeral, RowId, StoreError, ValueSource,
+    OutboundDestination, PendingOutbound, ReadEphemeral, RowId, StoreError, ValueSource,
 };
 use interweave_human_ui_model::{
     ContactRef, ContactView, IdentityView, KeyView, OwnKey, Photo, PhotoChange, Proposal,
@@ -220,17 +220,33 @@ pub(crate) fn own_cards_pending(
     let rows =
         crate::listing::walk(|after| store.pending_outbound_page(after, crate::listing::limits()))?;
     Ok(rows
-        .into_iter()
-        .filter_map(|row| {
-            let OutboundDestination::Direct(direct) = &row.destination else {
-                return None;
-            };
-            let endpoint = direct.endpoint.clone()?;
-            let info = parse_media_type(row.media_type.as_ref()?.as_str()).ok()?;
-            let text = decode_envelope_bytes(&row.payload, info.encoding).ok()?;
-            is_card(&text).then(|| (row.row_id, direct.peer.clone(), endpoint))
-        })
+        .iter()
+        .filter_map(|row| own_card_route(row).map(|(peer, endpoint)| (row.row_id, peer, endpoint)))
         .collect())
+}
+
+/// The route of a pending row that holds the identity's own card, `None`
+/// for any other row.
+pub(crate) fn own_card_route(row: &PendingOutbound) -> Option<(TransportIdentity, EndpointId)> {
+    let OutboundDestination::Direct(direct) = &row.destination else {
+        return None;
+    };
+    let endpoint = direct.endpoint.clone()?;
+    let info = parse_media_type(row.media_type.as_ref()?.as_str()).ok()?;
+    let text = decode_envelope_bytes(&row.payload, info.encoding).ok()?;
+    is_card(&text).then(|| (direct.peer.clone(), endpoint))
+}
+
+/// Whether any conversation holds or may hold the identity's card: a
+/// share recorded (`card_shared_at`, written at Accepted) or an own card
+/// row still pending outbound, Sending or Not sent -- the two sources
+/// Make a new key's share-again list unions (`new_key_start`). A read
+/// that fails counts as held, so a key is never made silently on a guess
+/// (design/2026-10-24-identity-key.md section 7, ADR-0063 A 2026-10-27;
+/// `tests/cards.rs`: `a_key_file_gone_while_a_card_is_pending_is_missing`).
+pub(crate) fn card_may_be_held(store: &HumanStore) -> bool {
+    store.card_ever_shared().unwrap_or(true)
+        || own_cards_pending(store).map_or(true, |rows| !rows.is_empty())
 }
 
 /// Whether a read row holds a contact card by its kind, verified or not:
