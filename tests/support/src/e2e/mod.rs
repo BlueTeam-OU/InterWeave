@@ -10,8 +10,10 @@
 //! be two definitions of where a daemon lives.
 //!
 //! The daemon and `transportctl` binaries are the workspace's own build,
-//! found beside the running test's executable: a workspace test run
-//! builds them, and a missing one fails by name rather than skipping.
+//! found beside the running test's executable -- a workspace test run
+//! builds them, and a missing one fails by name rather than skipping --
+//! unless [`PACKAGE_BIN`] names a released package, whose programs are
+//! then started instead.
 
 // A harness helper panics when the case cannot be set up -- that is its
 // failure, by name -- and its value is always used by the case.
@@ -46,6 +48,10 @@ pub const PATIENCE: Duration = Duration::from_secs(30);
 /// `transportctl` or a client through this module runs the package's
 /// build -- the release run's check of a published archive (ADR-0065,
 /// ADR-0066); unset, the workspace's build beside the test, as always.
+/// A suite that also starts a program the archive's `bin/` does not
+/// hold from the workspace (`tests/desktop-e2e`'s `claude_channel.rs`
+/// and `user_units.rs`) would pair it with the package's daemon, so the
+/// release check sets it for `tests/automated-client` alone.
 pub const PACKAGE_BIN: &str = "INTERWEAVE_PACKAGE_BIN";
 
 /// `name` from the package [`PACKAGE_BIN`] names, else the workspace's
@@ -56,7 +62,13 @@ pub const PACKAGE_BIN: &str = "INTERWEAVE_PACKAGE_BIN";
 /// to the workspace, which would test a build the package does not ship.
 #[must_use]
 pub fn package_binary(name: &str, package: &str) -> PathBuf {
-    match std::env::var_os(PACKAGE_BIN) {
+    binary_in(std::env::var_os(PACKAGE_BIN).as_deref(), name, package)
+}
+
+/// [`package_binary`] with the variable's value given: `dir`, when there
+/// is one, must hold `name`.
+fn binary_in(dir: Option<&std::ffi::OsStr>, name: &str, package: &str) -> PathBuf {
+    match dir {
         Some(dir) => {
             let bin = Path::new(&dir).join(name);
             assert!(
@@ -615,7 +627,28 @@ pub fn schema_validator(relative: &str) -> jsonschema::Validator {
 mod tests {
     use std::io::Write as _;
 
-    use super::{create_fresh, new_daemon_log, private_tempdir};
+    use super::{binary_in, create_fresh, new_daemon_log, private_tempdir};
+
+    /// A package that holds the program is where it is taken from.
+    #[test]
+    fn a_named_package_holding_the_program_supplies_it() {
+        let dir = private_tempdir();
+        let bin = dir.path().join("transportctl");
+        std::fs::write(&bin, b"").expect("a file");
+        assert_eq!(
+            binary_in(Some(dir.path().as_os_str()), "transportctl", "unused"),
+            bin
+        );
+    }
+
+    /// A package that lacks it fails by name, never the workspace's build:
+    /// the package is the build under test.
+    #[test]
+    #[should_panic(expected = "INTERWEAVE_PACKAGE_BIN names")]
+    fn a_named_package_without_the_program_fails_rather_than_falls_back() {
+        let dir = private_tempdir();
+        let _ = binary_in(Some(dir.path().as_os_str()), "transportctl", "unused");
+    }
 
     /// Starts in one home, back to back, each get their own log, and none
     /// cuts a log an earlier start is still writing.
