@@ -747,4 +747,32 @@ mod onboarding {
         onboarding::set_void_paper(&app.dir, PROFILE, false).expect("cleared again");
         assert!(!onboarding::void_paper(&app.dir, PROFILE));
     }
+
+    /// Connect's marker is a flag of its own: set and cleared apart from
+    /// the void-paper one, empty and private, and clearing an absent one
+    /// is no error.
+    #[test]
+    fn the_connect_owed_marker_is_its_own_empty_flag() {
+        let app = app();
+        assert!(!onboarding::connect_owed(&app.dir, PROFILE));
+        onboarding::set_connect_owed(&app.dir, PROFILE, true).expect("set");
+        assert!(onboarding::connect_owed(&app.dir, PROFILE));
+        assert!(!onboarding::void_paper(&app.dir, PROFILE), "not the other");
+        let marker = paths(&app).human_dir().join("connect-owed");
+        assert_eq!(std::fs::read(&marker).expect("the marker").len(), 0);
+        assert_eq!(
+            std::fs::metadata(&marker)
+                .expect("its mode")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        onboarding::set_void_paper(&app.dir, PROFILE, true).expect("the other set");
+        onboarding::set_void_paper(&app.dir, PROFILE, false).expect("the other cleared");
+        assert!(onboarding::connect_owed(&app.dir, PROFILE), "still owed");
+        onboarding::set_connect_owed(&app.dir, PROFILE, false).expect("cleared");
+        onboarding::set_connect_owed(&app.dir, PROFILE, false).expect("cleared again");
+        assert!(!onboarding::connect_owed(&app.dir, PROFILE));
+    }
 }

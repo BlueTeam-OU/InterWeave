@@ -276,6 +276,8 @@ pub(crate) struct PeerLists {
     pub(crate) camera: Option<Rc<dyn Fn(bool)>>,
     /// The last code the camera read is no address list (§5.5).
     pub(crate) viewfinder_not_address: bool,
+    /// What of onboarding's Connect, which opens these pages, was drawn.
+    pub(crate) connect: crate::connect::ConnectDrawn,
 }
 
 /// Show's secure flag, asked of the platform ([`View::guard_show`]).
@@ -416,6 +418,7 @@ impl PeerLists {
             show_guard: None,
             camera: None,
             viewfinder_not_address: false,
+            connect: crate::connect::ConnectDrawn::default(),
         }
     }
 }
@@ -424,7 +427,9 @@ impl View {
     /// Peers and its add page, and Chats' no-reach notice: what changed
     /// is returned once, for the render's one announcement.
     pub(crate) fn render_peers(&mut self, model: &UiModel) -> Option<String> {
-        let on_page = self.page == Page::Peers;
+        // A page Connect opened is drawn in Peers' place, as from Peers.
+        let on_page = self.page == Page::Peers
+            || (self.page == Page::Connect && crate::connect::page_up(model));
         self.window.set_peers_page(on_page);
         self.window.set_no_reach_shown(model.no_reach());
         let (peers, trust) = (model.peers(), model.trust_settings());

@@ -525,6 +525,22 @@ impl TrustSettings {
         }
     }
 
+    /// Whether the list's read has answered: `Some(true)` while the list
+    /// is the daemon's word, `Some(false)` once a read failed or a change
+    /// may have altered it, `None` while no read has answered or one is on
+    /// its way.
+    #[must_use]
+    pub(crate) fn read_answered(&self) -> Option<bool> {
+        if self.reading || self.in_flight.is_some() {
+            return None;
+        }
+        match (self.held, &self.list) {
+            (Held::AsRead, Some(_)) => Some(true),
+            (Held::AsRead, None) => None,
+            (Held::MayHaveChanged, _) => Some(false),
+        }
+    }
+
     /// Whether a read is on its way.
     #[must_use]
     pub const fn reading(&self) -> bool {
