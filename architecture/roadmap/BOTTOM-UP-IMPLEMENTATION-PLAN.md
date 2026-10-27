@@ -5240,7 +5240,26 @@ directions over a direct and a relayed path, plain and `;ce=br`, every
 captured payload validated against `envelope.schema.json`
 (`tests/human_chat.rs`, `tests/paths.rs`; the Pixel 9a at API 37 on
 2026-10-20, the A40 at API 30 on 2026-10-22, six runs of six each after
-the relayed-path fix that the first Pixel run failed one in five on); of
+the relayed-path fix that the first Pixel run failed one in five on),
+and — a device run recorded after the close, added to this clause on
+2026-10-26 — a direct path over the phone's radio rather than adb's
+tunnel (`tests/wifi.rs`; `runs/2026-10-22-pixel-9a-api37-wifi.md`, the
+Pixel 9a at API 37, p2p-network-dev-02 at architect-cto's request, three
+passing runs on 2026-10-22 after one that found no daemon binary): with
+no `adb reverse`, the desktop daemon dialled the phone's Wi-Fi address
+given it by `admin.peers.add_address` (the dial inferred from the
+control, the add and the host's TCP table, not observed itself), the
+control before the add not connected, and the `paths` case's message
+crossed that one TCP connection each way with the route reading
+`direct` on both sides; the run file's "What this run does not prove"
+lists the phone dialling the desktop (the host is behind NAT), a
+relayed path, DCUtR or AutoNAT over the radio, a scanned code or the
+client's screens, HumanChatV2 over Wi-Fi (rust-ui-dev's `human_chat`
+on this mode is run separately), a change of network, the phone in the
+background or dozing, more than one LAN, a LAN that isolates its
+clients, IPv6, and the phone's runtime outside its instrumentation —
+the same addition pointing at `tests/pairing.rs`'s phone-to-phone rows
+of 2026-10-24, which are §29's (e) and recorded there; of
 `tests/interoperability`'s three items the independent codecs and the
 upgrade matrices are proved there, and the desktop ↔ Android platform
 matrix comparing the decoded envelope fields is RE-CARRIED to Stage 18
@@ -5643,6 +5662,178 @@ second uid or user namespace is a red gate, not a limit; (f) the ledger
 holds no `stage-18` entry; the closing record then moves the status to
 `stage-19-…` once §20 has closed, or records Stage 18 closed beside an
 open Stage 17 if it closes first.
+
+### Record
+
+The owner's word closes it, as every stage. The `Met.` block, when it
+is written, names the rows, decided (2)'s figures and what was carried;
+until then this record names what each step landed on `main`, by pull
+request, and what the gate still waits on, read against the matrix at a
+named commit, so the close is a census of this list and not a reading of
+the matrix alone.
+
+**Landed (read at `main` e31760d0, 2026-10-25).** p2p-network-dev-01's
+S0–S4 (#267, fdd1f333, 2026-10-11: both suites as members, the matrix
+with its grammar, the pre-Noise floods over raw sockets, the R6 line of
+decided (6), the mesh identity rows, the `no_route` probing rows) and
+S5–S8's first pass (#268, 6fd3b0ae, 2026-10-11: address poisoning from
+each learning source, the hostile Kademlia routers, the relay class
+rows, `tests/security/tests/autonat_ssrf.rs` over the whole address
+matrix, and S21-06's limit cell with decided (2)'s figures, N=6
+trusted routers of which M=3 hostile, 12 explorations, 0 eclipsed, 12
+at the cap, with the reason the count is fixed by the topology and not
+measured against an attacker); S6 (#273, 7870492d, 2026-10-13: the
+bootstrap storm in synthetic time, the full-bucket eviction, the
+inbound stream flood kept at libp2p-kad's 32); S7 and S8 (#452,
+e31760d0, 2026-10-25, below). rust-ui-dev-02's S10 store half (#315,
+074ba19d, 2026-10-19: a corrupt store, a failed migration, a full
+medium; TM-44/45/46). p2p-network-dev-02's S9 and S11 (#337, fc5eeb81,
+2026-10-21: the
+sockets under a hostile umask, the foreign uid by the modes and then by
+the peer credential, the tampered phrase and the wrong PeerId through
+`transportctl`, the phrase scanned out of every captured stream; the CI
+step that runs the foreign-uid test as `nobody`, #338), and S10's
+profile-state half with C-05's second network, decided (7)'s R7, two
+daemons each behind its own NAT in one user namespace (#352, 0a3ef6b7,
+2026-10-22), which is S13's bridge proof. Rows written by other lanes:
+C-02 and TM-48 (architect-cto, #335), TM-30 and TM-32's bridge half
+(rust-services-dev-02, #336), and Stage 21's TM-52 to TM-56 (rust-ui-dev,
+§29). Of the matrix's rows six name no test yet: S12's five device rows
+(TM-25, TM-26, TM-42, TM-43, TM-47) and C-04, each below; every other
+row's tests exist, and `check_security_matrix.py` runs in the `tree
+checks` job, a required context, so clause (a)'s guard is in place.
+
+**S7 and S8 (p2p-network-dev-01, #452, merged e31760d0 on 2026-10-25;
+the owner's standing word above the minimum).** The misbehaving double
+the owner's outside suite asked for (2026-10-25, judged against this
+section the same day: covered for a direct peer, a broadcast publisher
+and a daemon in front of a client, not whole for a relay in front of a
+real daemon) is now a test or a limit for every item, in
+`tests/security/tests/relay_double.rs`: a relay that never answers
+RESERVE holds the ask, and with it a place in the reservation target,
+for libp2p-relay 0.22.0's 60 s stream timeout, then the spare is
+reserved; one that answers RESERVE or CONNECT with an undecodable frame
+fails the ask or the dial at once, and an honest circuit then connects;
+one that stops under a live circuit, sockets open and nothing forwarded,
+bounds each send at `DIRECT_TIMEOUT` with `PeerUnreachable` and is found
+by both ends within about a minute, the target losing its reservation;
+one that refuses the keepalive loses each reservation with the detail
+saying so. The hop gate's late drop `RELAY.md` §8 said no test shut is
+pinned at the crate surface (`relay_hop_gate.rs`, a request on a stream
+negotiated open, dropped when the gate shut before it arrived). S8's
+counterpart, `crates/transport/libp2p/tests/autonat_misbehaving_server.rs`:
+a server that never answers a dial request, or answers it with an
+undecodable frame, casts no vote, and a retest against an honest server
+decides the candidate; driven against the vendored client in a raw
+Swarm, since on loopback `AUTONAT.md` §6 refuses every candidate and a
+substrate sends no dial request. Two of the step's findings were
+rulings, not tests (architect-cto, 2026-10-25, together one amendment
+of `transport/libp2p/CONNECTIVITY.md` §14, A 2026-10-25, its two rules
+under one ruling id, supplied onto the branch): the dialling end of a circuit holds no reservation on the relay
+and was never pinged there, so the keepalive now runs on every relayed
+connection, end to end toward the data-plane peer, at both ends, a
+missed liveness closing it (the ping's bytes computed at the defaults as
+about 0.02 % of the per-circuit budget, §14); and a control peer's
+refusal of the ping protocol is a missed liveness, closed and reported
+by cause, so a relay that cannot be found dead is not a usable relay —
+required, not preferred. Both are `relay_keepalive.rs`'s cases, and the
+two limits S21-07 first carried closed with them. The step also fixed
+a defect it found in its own lane: the reconnect scheduler re-dialled an
+infrastructure-only relay under its own origin after a failed
+reservation dial; it now leaves such a relay to the relay ladder and
+still retries a relay that is also a data-plane peer. Every test relay,
+the shared e2e harness's included (`tests/support/src/e2e/relay.rs`),
+answers ping since this change, which the android-e2e `human_chat` case
+needed. Limits the rows carry: the 60 s hold is the crate's timeout,
+which the step did not shorten; a stopped relay is found within about
+a minute, each send through it meanwhile ending `PeerUnreachable`; a
+relay that refuses ping is not used, so a foreign relay that declines
+it cannot serve this profile; the misbehaving AutoNAT server is driven
+against the vendored client in a raw Swarm. Limits the tests show and
+the rows do not state: every address is loopback on one host, so no
+NAT is crossed (`relay_double.rs`'s harness), and a stopped relay is a
+parked thread, not a crashed host. The keepalive rule has no ADR of
+its own: the owner's word of 2026-09-26 and the two rulings live in
+§14, three rules in all, and no record promotes them yet; architect-cto
+promotes them into one ADR, with its digest entry and README row, at
+the latest with this stage's closing record, or earlier if §14 gains a
+fourth (the open list below carries it).
+
+**Open before the close (the same read).** Each named to its owner;
+none is the status value's, which stays on this stage.
+
+- **S12, the device rows** (S21-12, TM-25, TM-26, TM-42, TM-43, TM-47,
+  TM-48 with rust-ui-dev, and TM-54 in rust-ui-dev's lane once #451
+  lands): the Keystore invalidation, the secure window,
+  the backup exclusion, the half-restored install, user presence offline
+  until authentication. §20 closed on 2026-10-22 with its
+  instrumentation landed (`tests/android-e2e`, the `on_a_device_*`
+  cases), so what the rows wait on is a phone in a window and
+  p2p-network-dev-02's cases; the owner gives the phone. A row the phone
+  does not reach by the close is a `limit` cell, re-carried in the
+  closing record, as decided (0) said, and its `owed` item takes the
+  carried shape below (the section it is carried to named), so the
+  guard counts it carried and not empty: clause (a)'s "no row is
+  empty" reads, at the close, as no row without a test or a named
+  carry.
+- **TM-45's owed cases** (step S10 (02, with rust-ui-dev)): the
+  notification content and the clients' own logs as a shadow archive
+  (`apps/human-desktop`, `apps/human-android`), the one `owed` item
+  outside S12 and C-04; the clients are rust-ui-dev's, so the cases are
+  theirs to land or to record as a limit, the row's step naming them.
+- **S21-06's and TM-04's step cells** still name S6 (01) while
+  S21-06's limit cell holds decided (2)'s figures and clause (c) is met
+  by them. Nothing is owed on either (p2p-network-dev-01, 2026-10-25,
+  REPLY 01a17547-1407 to QUESTION 01a17545-9d3b, read at e31760d0: the
+  limit cell's open points are stated limits, not owed work); both
+  cells move to `—` on that lane's next pull request. One item touches
+  the row's tests without being owed work: a one-off failure of
+  `hostile_routers_seat_no_stranger_and_their_poison_costs_its_address`
+  under a full workspace run, held by p2p-network-dev-01 as test
+  reliability (their j130), carried here as that and not as the row's
+  step.
+- **C-04, the Windows carry.** The row's tests cell holds only an owed
+  marker, and until #455 landed `check_security_matrix.py --strict`
+  would have failed the close on it once S12's rows were filled. Its
+  work is not this stage's:
+  decided (5) carried the binding and its spoofing tests to Stage 19 on
+  the owner's word of 2026-10-11, and P4 records that word as given, so
+  the row's "owed: the owner's word" was stale and now records the carry
+  as clause (d) asks, its step cell naming §22's carry and architect-cto
+  as its holder (§22 holds the carries by name). The guard now reads a
+  carried row as not empty: an `owed` item in the shape `owed: … in
+  Stage NN (plan section MM)`, every item of the cell, is counted
+  carried under `--strict` and labelled so in the plain report, with
+  the grammar sentence and the self-test's cases — devex-tooling's
+  #455 (8e5881e2, merged 2026-10-25 23:39Z on architect-cto's word; asked
+  2026-10-25, REQUEST 01a17546-8198, REPLY 01a17547-31f8, their j239).
+  C-04's cell is in that shape, so the close runs the guard with
+  `--strict` and this record names C-04 as the one row carried whole.
+- **TM-52, TM-54, TM-55 and TM-56's step cells** named §29 step 2
+  (rust-ui-dev) after Stage 21 closed on 2026-10-25 (TM-53's already
+  read `—`). Read against `main` by rust-ui-dev-01
+  the same day (REPLY 01a17548-26af to QUESTION 01a17545-a033; the
+  assignment architect-cto's, REPLY 01a17549-2349): TM-52 and
+  TM-55 move to `—`, TM-52's cell adding the rendered half's own test
+  (`crates/human/ui-slint/tests/cards.rs`, the key change read before
+  Accept with both fingerprints); TM-54 moves
+  to `S12 (rust-ui-dev)`, since the identity key's Keystore cipher,
+  alias retirement and invalidation have no device run yet and are
+  S12's item in rust-ui-dev's lane, run with the store key's device
+  rows in the owner's phone window; TM-56 moves to a §29 carry
+  (rust-ui-dev): the same-name three-key rule and a rendered title told
+  apart by the short PeerId, Stage 21's carried work and not a Stage 18
+  step. The four cells moved in one commit, a3c92915 on #451 (REPLY
+  01a1754a-7708), which lands them when that pull request merges.
+- **Clause (f)**: the ledger `tools/checks/domain_fn_exempt.txt` holds
+  no `stage-18` entry (read 2026-10-25); the close re-reads it. Apart
+  from the clause, `error_contract_matrix.rs` holds no `Proof::Stage(18)`
+  deferral either, as decided (0) required while the stage ran beside
+  Stage 17.
+- **The closing record itself**: on the owner's word, the `Met.` block
+  in §28's shape, the status to Stage 19's value since §20 has closed,
+  the three prose status sites with it, and, unless done earlier, the
+  keepalive rules' promotion from §14 into one ADR (architect-cto).
 
 ## 22. Stage 19 — packaging, migration, and release
 
