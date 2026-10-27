@@ -51,10 +51,12 @@
 //! crate issues, FILTERED
 //! (ADR-0052 rule 5): the far end loses only the refused address, never
 //! the punch. Beside the boundary, both doors to the crate withhold an
-//! address on an IP the platform classifies as a private-range one on no
-//! local network (ADR-0052 rule 10, `withhold_off_local`): a carrier's
-//! address is inside the boundary and still no candidate of this node's,
-//! nor an own private listener for the punch dial's filter.
+//! address on a private-range IP on no local network (ADR-0052 rule 10,
+//! `withhold_off_local`) -- one the platform's view classifies so, or,
+//! while a view is present, one this host binds that the view does not
+//! hold (A 2026-10-27): a carrier's address is inside the boundary and
+//! still no candidate of this node's, nor an own private listener for the
+//! punch dial's filter.
 //!
 //! THE CRATE'S OWN CACHE. libp2p-dcutr 0.15.0 keeps every candidate it
 //! is offered in a cache nothing here can reach (an LRU of 20), and each
@@ -409,8 +411,8 @@ fn on_departed_ip(address: &Multiaddr, departed: &VecDeque<IpAddr>) -> bool {
     host_ip(address).is_some_and(|ip| departed.contains(&ip))
 }
 
-/// Whether `address` names an IP the platform classifies as a
-/// private-range address on no local network (ADR-0052 rule 10): the
+/// Whether `address` names a private-range IP on no local network
+/// (ADR-0052 rule 10, the runtime's `NetworkSet::off_local`): the
 /// third predicate both doors to the crate ask, beside the boundary and
 /// [`on_departed_ip`].
 fn on_off_local_ip(address: &Multiaddr, off_local: &BTreeSet<IpAddr>) -> bool {
@@ -480,8 +482,8 @@ pub struct HolePunchScope {
     /// (`on_departed_ip`). `a_departed_ip_is_neither_replayed_nor_learned_again_until_it_returns`
     /// pins it.
     departed: VecDeque<IpAddr>,
-    /// The private-range IPs the platform classifies as on no local
-    /// network (ADR-0052 rule 10, A 2026-10-26; the runtime's
+    /// The private-range IPs on no local network (ADR-0052 rule 10, A
+    /// 2026-10-26 and A 2026-10-27; the runtime's
     /// `NetworkSet::off_local`, canonical), at most
     /// [`MAX_OFF_LOCAL_IPS`]: an address on one is offered at neither
     /// door -- a listener (`offer_listener`) or a peer's observation --
@@ -742,16 +744,18 @@ impl HolePunchScope {
         self.rebuild();
     }
 
-    /// The platform's classification moved (ADR-0052 rule 10, A
-    /// 2026-10-26): `off_local` replaces the IPs withheld. When an
+    /// What is on no local network moved (ADR-0052 rule 10): `off_local`
+    /// replaces the IPs withheld. When an
     /// address the crate already holds -- a listener offered, an
     /// observation forwarded -- is on one now, the crate is BUILT AGAIN,
     /// as [`Self::network_changed`] builds it and with the same
     /// consequences: its cache cannot be emptied any other way, and
     /// every CONNECT it writes carries that cache. On Android that is
     /// the ordinary start -- the wildcard listener reports the carrier's
-    /// address before the first view classifies it. Returns whether it
-    /// rebuilt; the runtime then re-offers the listeners it offers.
+    /// address before the first view classifies it, or arrives without
+    /// naming it. Returns whether it rebuilt; the runtime offers the
+    /// listeners it offers after every call, so a rebuilt crate has them
+    /// again and a lifted one is offered as it is lifted.
     /// Pinned by `a_private_address_on_no_local_network_is_offered_at_neither_door`.
     pub fn withhold_off_local(&mut self, off_local: &BTreeSet<IpAddr>) -> bool {
         self.off_local = off_local

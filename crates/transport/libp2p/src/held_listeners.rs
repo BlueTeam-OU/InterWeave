@@ -24,8 +24,11 @@
 //! address -- whether a listener binds it yet or not, so one the
 //! listener poll reports after the classification is never counted. It is no own private listener for rule 3 either: counted, a
 //! phone on mobile data alone would admit a far end's private candidate
-//! and punch into the carrier's network. The detector's `offers` is the
-//! runtime's side of the same predicate.
+//! and punch into the carrier's network. Since A 2026-10-27, while a
+//! view is present, it names too every private-range IP a listener
+//! binds that the view does not hold: a network the platform withholds
+//! from the app, which no peer reaches it on. The detector's `offers` is
+//! the runtime's side of the same predicate.
 //!
 //! The record also COUNTS each time rule 3's answer can turn from no to
 //! yes -- an offered private-range listener IP this node did not offer

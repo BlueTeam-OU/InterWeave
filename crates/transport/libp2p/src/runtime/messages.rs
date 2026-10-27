@@ -419,9 +419,11 @@ pub struct NetworkView {
     /// its private-range members alone: not advertised by Identify, not
     /// offered to DCUtR, not shown, no own private listener for rule 3
     /// (`NetworkSet::offers`); a global one is AutoNAT's. Empty -- the
-    /// default, and the desktop, which has no view -- classifies
-    /// nothing, and every private listener counts as local, as before
-    /// the rule. An entry absent from `addresses` names nothing.
+    /// default -- classifies nothing, but the VIEW still judges: a
+    /// private listener on an IP `addresses` does not hold is on no local
+    /// network all the same (A 2026-10-27). With no view at all, the
+    /// desktop, every private listener counts as local, as before the
+    /// rule. An entry absent from `addresses` names nothing.
     pub off_local_network: Vec<std::net::IpAddr>,
 }
 
