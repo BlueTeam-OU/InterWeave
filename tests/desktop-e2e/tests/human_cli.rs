@@ -1551,6 +1551,16 @@ async fn the_control_plane_carrier_sends_consumes_and_names_its_endpoint() {
     // G2: an endpoint the profile does not offer is refused, none made.
     let out = human(&a, &["listen", "--endpoint", "not-offered"], "");
     assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let listed = a.transportctl(&["endpoints", "list", "--json"], "");
+    let listed: Value = serde_json::from_slice(&listed.stdout).expect("the list");
+    assert!(
+        listed["endpoints"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .all(|row| row["id"] != "not-offered" && row["lease"].is_null()),
+        "none made, none leased: {listed}"
+    );
 
     a_daemon.terminate().await;
 }
