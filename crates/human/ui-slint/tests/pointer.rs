@@ -1196,3 +1196,71 @@ fn a_warned_rows_menu_accepts_by_a_tap_never_by_the_long_press_release() {
         "control: a tap on Accept"
     );
 }
+
+/// [`hold`] for a message row: whether its menu was open before the lift.
+fn hold_row(view: &View, at: (f32, f32), hold_ms: u64, button: PointerEventButton) -> i32 {
+    let position = LogicalPosition::new(at.0, at.1);
+    event(view, WindowEvent::PointerPressed { position, button });
+    tick(120);
+    tick(hold_ms);
+    let opened = view.window().get_row_menu();
+    event(view, WindowEvent::PointerReleased { position, button });
+    tick(16);
+    opened
+}
+
+/// A row's long press opens its menu every time, not only the first: the
+/// long-press timer once stopped itself by assigning its own `running`,
+/// which drops its binding, so a second long press on the same row opened
+/// nothing. Mutation: the timer stopping itself that way again.
+#[test]
+fn a_second_long_press_on_a_row_opens_its_menu_again() {
+    let (view, _model) = kept_row();
+    view.set_touch_settings(TouchSettings {
+        long_press_ms: 400,
+        ..TouchSettings::default()
+    });
+    let at = message_text_at(&view, 0);
+    let handle = view
+        .window()
+        .get_messages()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    for n in 1..=2 {
+        assert_eq!(
+            hold_row(&view, at, 400, PointerEventButton::Left),
+            handle,
+            "long press {n}"
+        );
+        view.window().invoke_close_row_menu();
+        tick(16);
+    }
+}
+
+/// A proposal's long press opens its menu every time too, for the same
+/// reason as a message row's. Mutation: its timer stopping itself by
+/// assigning its own `running`.
+#[test]
+fn a_second_long_press_on_a_proposal_opens_its_menu_again() {
+    let mut view = phone();
+    view.set_touch_settings(TouchSettings {
+        long_press_ms: 400,
+        ..TouchSettings::default()
+    });
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let at = proposal_heading_at(&view, 0);
+    for n in 1..=2 {
+        assert_eq!(
+            hold(&view, at, 0.0, 400, PointerEventButton::Left),
+            0,
+            "long press {n}"
+        );
+        view.window().invoke_close_card_menu();
+        tick(16);
+    }
+}

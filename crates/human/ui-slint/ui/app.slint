@@ -2230,9 +2230,14 @@ component ProposalCard inherits Rectangle {
     // menu; an answered row has none.
     card-touch := TouchArea {
         property <bool> drifted;
+        // This press's long press has fired. Never `running = false` in
+        // the timer: that assignment drops the binding for good, and the
+        // row's next long press would open nothing (seen in a test).
+        property <bool> fired;
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {
                 self.drifted = false;
+                self.fired = false;
                 FocusMode.keyboard = false;
                 if (event.button == PointerEventButton.right && !root.card.answered) {
                     root.menu(false, false);
@@ -2247,10 +2252,10 @@ component ProposalCard inherits Rectangle {
         }
         Timer {
             interval: Touch.long-press;
-            running: card-touch.pressed && !card-touch.drifted && !root.menu-open
-                && !root.swipe-tracking && !root.card.answered;
+            running: card-touch.pressed && !card-touch.drifted && !card-touch.fired
+                && !root.menu-open && !root.swipe-tracking && !root.card.answered;
             triggered => {
-                self.running = false;
+                card-touch.fired = true;
                 root.menu(true, false);
             }
         }
@@ -6085,9 +6090,13 @@ export component AppWindow inherits Window {
                     // and a secondary click opens it at once (section 4).
                     row-touch := TouchArea {
                         property <bool> drifted;
+                        // This press's long press has fired; as the
+                        // proposal's, never `running = false`.
+                        property <bool> fired;
                         pointer-event(event) => {
                             if (event.kind == PointerEventKind.down) {
                                 self.drifted = false;
+                                self.fired = false;
                                 FocusMode.keyboard = false;
                                 if (event.button == PointerEventButton.right) { item.open-menu(); }
                             }
@@ -6100,10 +6109,10 @@ export component AppWindow inherits Window {
                         }
                         Timer {
                             interval: Touch.long-press;
-                            running: row-touch.pressed && !row-touch.drifted && root.row-menu != row.handle
-                                && !root.swipe-tracking;
+                            running: row-touch.pressed && !row-touch.drifted
+                                && !row-touch.fired && root.row-menu != row.handle && !root.swipe-tracking;
                             triggered => {
-                                self.running = false;
+                                row-touch.fired = true;
                                 root.menu-haptic();
                                 item.open-menu();
                             }
