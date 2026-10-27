@@ -297,25 +297,53 @@ fn run(
 }
 
 /// `listen --input`'s lines, read from stdin on a thread of its own so a
-/// blocked read never holds the session's turns (G1).
-fn stdin_lines() -> tokio::sync::mpsc::UnboundedReceiver<verbs::InputLine> {
-    let (send, lines) = tokio::sync::mpsc::unbounded_channel();
+/// blocked read never holds the session's turns (G1), and a full channel
+/// holds the read rather than the session.
+fn stdin_lines() -> tokio::sync::mpsc::Receiver<verbs::InputLine> {
+    let (send, lines) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     std::thread::spawn(move || verbs::read_input(std::io::stdin().lock(), &send));
     lines
 }
 
-/// The text `send ... -` reads: stdin, less the one trailing newline the
-/// shell adds.
-fn stdin_text() -> Option<String> {
-    let mut read = String::new();
-    std::io::stdin().read_to_string(&mut read).ok()?;
+/// The most bytes `send ... -` reads from stdin. A message's text is at
+/// most the envelope's decompressed ceiling, the envelope carrying it at
+/// a byte a byte at best; the room is the shell's newline and slack.
+const MAX_SEND_STDIN_BYTES: usize = 256 << 10;
+
+// A larger envelope ceiling would have a text this build could send
+// refused before the session.
+const _: () =
+    assert!(interweave_human_chat_protocol::MAX_DECOMPRESSED_BYTES + 2 <= MAX_SEND_STDIN_BYTES);
+
+/// The text `send ... -` reads: stdin, at most [`MAX_SEND_STDIN_BYTES`],
+/// less the one trailing newline the shell adds. Read before the profile
+/// or the session: a text past the bound opens nothing. Refused with the
+/// exit code and why: past the bound or unreadable, refused (1); not
+/// UTF-8, a usage error (2), as it was before the bound.
+fn stdin_text(reader: impl std::io::Read) -> Result<String, (u8, String)> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_SEND_STDIN_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| (1, format!("the message on stdin could not be read: {e}")))?;
+    if bytes.len() > MAX_SEND_STDIN_BYTES {
+        return Err((
+            1,
+            format!(
+                "the message on stdin is larger than {} KiB",
+                MAX_SEND_STDIN_BYTES / 1024
+            ),
+        ));
+    }
+    let mut read = String::from_utf8(bytes)
+        .map_err(|_| (2, "the message on stdin is not UTF-8 text".to_owned()))?;
     if read.ends_with('\n') {
         read.pop();
         if read.ends_with('\r') {
             read.pop();
         }
     }
-    Some(read)
+    Ok(read)
 }
 
 fn main() -> ExitCode {
@@ -350,11 +378,13 @@ fn main() -> ExitCode {
                 text: text @ None, ..
             } = &mut verb
             {
-                let Some(read) = stdin_text() else {
-                    eprintln!("interweave-human: the message on stdin is not UTF-8 text");
-                    return ExitCode::from(2);
-                };
-                *text = Some(read);
+                match stdin_text(std::io::stdin().lock()) {
+                    Ok(read) => *text = Some(read),
+                    Err((code, why)) => {
+                        eprintln!("interweave-human: {why}");
+                        return ExitCode::from(code);
+                    }
+                }
             }
             run(&profile, &verb, json, wait, endpoint.as_ref())
         }

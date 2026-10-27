@@ -429,7 +429,7 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
     let to_alice = format!("{}/human", a.peer().as_str());
-    let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     // As stdin hands them over: a line that is not UTF-8 among them, and
     // two sends, answered in the order read.
     let mut stdin = Vec::new();
@@ -450,8 +450,9 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
             .as_bytes(),
         );
     }
-    verbs::read_input(stdin.as_slice(), &lines_in);
-    drop(lines_in);
+    // On a thread of its own, as main runs it: it waits while the channel
+    // is full.
+    std::thread::spawn(move || verbs::read_input(stdin.as_slice(), &lines_in));
     let mut out = Vec::new();
     verbs::listen(
         &mut bob,
@@ -530,9 +531,9 @@ async fn an_input_sends_outbound_event_names_its_problem() {
     run(&mut bob, Verb::Status, false).await.1.expect("status");
     let to_alice = format!("{}/human", a.peer().as_str());
     b.inject_send(TransportError::UnauthorizedPeer);
-    let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     lines_in
-        .send(Ok(format!(
+        .try_send(Ok(format!(
             r#"{{"send":{{"conversation":"{to_alice}","text":"held","ref":"r1"}}}}"#
         )))
         .expect("queued");
@@ -1009,7 +1010,7 @@ async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
     let to_alice = format!("{}/human", a.peer().as_str());
-    let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     // Past the payload bound however it is encoded: text that does not
     // compress.
     let mut seed: u64 = 1;
@@ -1024,7 +1025,7 @@ async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
         .collect();
     for (text, reference) in [(big, "big"), ("after".to_owned(), "after")] {
         let line = json!({"send": {"conversation": to_alice, "text": text, "ref": reference}});
-        lines_in.send(Ok(line.to_string())).expect("queued");
+        lines_in.try_send(Ok(line.to_string())).expect("queued");
     }
     drop(lines_in);
     let mut out = Vec::new();
@@ -1054,4 +1055,90 @@ async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
             .any(|e| e["event"] == "outbound" && e["ref"] == "after"),
         "{out}"
     );
+}
+
+/// Every line `reader` gives under `ceiling`, read as `listen --input`
+/// reads stdin: on a thread of its own, into the bounded channel.
+fn read_all(
+    reader: impl std::io::BufRead + Send + 'static,
+    ceiling: usize,
+) -> Vec<verbs::InputLine> {
+    let (lines_in, mut lines) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    let reading = std::thread::spawn(move || verbs::read_input_under(reader, &lines_in, ceiling));
+    let mut read = Vec::new();
+    while let Some(line) = lines.blocking_recv() {
+        read.push(line);
+    }
+    reading.join().expect("the reader");
+    read
+}
+
+/// A line past the ceiling, checked as its bytes arrive, is refused and
+/// drained through its newline, and the next line is read; a line at the
+/// ceiling is taken, a carriage return before the newline counting toward
+/// it, and a last line without a newline too. Read three bytes at a time,
+/// so a line spans many reads. Mutations: the ceiling taken as exclusive;
+/// the drain ending before the newline.
+#[test]
+fn a_line_past_the_ceiling_is_refused_and_the_next_is_read() {
+    let input = b"12345678\n123456789abc\n1234567\r\nnext\ntail".to_vec();
+    let read = read_all(
+        std::io::BufReader::with_capacity(3, std::io::Cursor::new(input)),
+        8,
+    );
+    assert_eq!(
+        read,
+        [
+            Ok("12345678".to_owned()),
+            Err("longer than 8 bytes".to_owned()),
+            Ok("1234567".to_owned()),
+            Ok("next".to_owned()),
+            Ok("tail".to_owned()),
+        ]
+    );
+}
+
+/// The program's own ceiling: a line of exactly
+/// [`verbs::MAX_INPUT_LINE_BYTES`] is taken and one byte more is refused.
+#[test]
+fn a_line_at_the_input_ceiling_is_taken_and_one_byte_more_is_not() {
+    let mut input = vec![b'a'; verbs::MAX_INPUT_LINE_BYTES];
+    input.push(b'\n');
+    input.extend(vec![b'b'; verbs::MAX_INPUT_LINE_BYTES + 1]);
+    input.push(b'\n');
+    let read = read_all(
+        std::io::BufReader::new(std::io::Cursor::new(input)),
+        verbs::MAX_INPUT_LINE_BYTES,
+    );
+    assert_eq!(read.len(), 2);
+    assert_eq!(
+        read[0].as_ref().map(String::len),
+        Ok(verbs::MAX_INPUT_LINE_BYTES)
+    );
+    assert!(read[1].is_err(), "one byte past it");
+}
+
+/// A reader ahead of listen waits once [`verbs::INPUT_QUEUE`] lines are
+/// not yet taken, rather than reading on into memory, and every line is
+/// still delivered once they are taken. Mutation: the send not waiting
+/// (a full channel dropping the line).
+#[test]
+fn a_reader_ahead_of_listen_waits_rather_than_growing() {
+    let input: Vec<u8> = (0..100)
+        .flat_map(|n| format!("line {n}\n").into_bytes())
+        .collect();
+    let (lines_in, mut lines) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    let reading = std::thread::spawn(move || {
+        verbs::read_input(std::io::Cursor::new(input), &lines_in);
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(lines.len(), verbs::INPUT_QUEUE, "the channel is full");
+    assert!(!reading.is_finished(), "and the reader waits on it");
+    let mut taken = 0;
+    while let Some(line) = lines.blocking_recv() {
+        assert_eq!(line, Ok(format!("line {taken}")));
+        taken += 1;
+    }
+    assert_eq!(taken, 100, "none dropped");
+    reading.join().expect("the reader");
 }

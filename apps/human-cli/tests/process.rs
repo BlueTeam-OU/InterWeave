@@ -121,3 +121,53 @@ fn a_profile_with_no_configuration_is_refused_with_exit_1() {
         "nothing is created for a profile that does not resolve"
     );
 }
+
+/// `send ... -` reads stdin to its bound and refuses a text one byte past
+/// it with exit 1, naming the bound, before the profile is resolved or
+/// anything opened; at the bound the text is taken, and the absent profile
+/// is what refuses it (the control). Mutation: the bound not checked.
+#[test]
+fn a_message_on_stdin_past_its_bound_is_refused_before_anything_opens() {
+    use std::io::Write as _;
+    // `MAX_SEND_STDIN_BYTES`, 256 KiB, as the README states it.
+    const BOUND: usize = 256 * 1024;
+    for (size, refused_for_size) in [(BOUND + 1, true), (BOUND, false)] {
+        let xdg = tempfile::tempdir().expect("tempdir");
+        let mut child = Command::new(env!("CARGO_BIN_EXE_interweave-human"))
+            .args([
+                "--profile",
+                "absent",
+                "send",
+                "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN/human",
+                "-",
+            ])
+            .env_clear()
+            .env("XDG_CONFIG_HOME", xdg.path().join("config"))
+            .env("XDG_DATA_HOME", xdg.path().join("data"))
+            .env("XDG_STATE_HOME", xdg.path().join("state"))
+            .env("XDG_CACHE_HOME", xdg.path().join("cache"))
+            .env("XDG_RUNTIME_DIR", xdg.path().join("run"))
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("the binary runs");
+        let mut stdin = child.stdin.take().expect("stdin");
+        // Written whole or until the binary stops reading: a refusal at
+        // the bound closes the pipe under the rest.
+        let _ = stdin.write_all(&vec![b'a'; size]);
+        drop(stdin);
+        let out = child.wait_with_output().expect("it ends");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "{size}: {stderr}");
+        assert_eq!(
+            stderr.contains("larger than 256 KiB"),
+            refused_for_size,
+            "{size}: {stderr}"
+        );
+        assert!(
+            !xdg.path().join("state").exists(),
+            "nothing is created for {size}"
+        );
+    }
+}
