@@ -581,8 +581,10 @@ mod tests {
     }
 
     /// The badge's and the hidden counts read an index alone, never a row:
-    /// each plan names a covering `_by_kind` index (#489 review F1).
-    /// Mutation: the unread kind index dropped from migration 10.
+    /// each plan names a covering `_by_kind` index, and no step of it
+    /// touches an inbound table otherwise (#489 review F1, #492 review F5).
+    /// Mutations: the unread kind index dropped from migration 10; a
+    /// subquery of `HIDDEN` reading a kept column its index lacks.
     #[test]
     fn the_counts_read_a_covering_index_alone() {
         let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
@@ -617,11 +619,15 @@ mod tests {
                     "{index} not used: {plan:?}"
                 );
             }
+            // Any step on either inbound table that is not a covering index
+            // reads its rows, a SEARCH through an index as much as a SCAN
+            // (#492 review F2, F5).
             assert!(
-                !plan
-                    .iter()
-                    .any(|step| step.starts_with("SCAN unread_inbound")
-                        && !step.contains("COVERING")),
+                !plan.iter().any(|step| {
+                    (step.starts_with("SCAN ") || step.starts_with("SEARCH "))
+                        && (step.contains("unread_inbound") || step.contains("kept_inbound"))
+                        && !step.contains("COVERING INDEX")
+                }),
                 "a row read: {plan:?}"
             );
         }
