@@ -1159,8 +1159,14 @@ impl NetworkBehaviour for HolePunchScope {
             // its establishment the punch, its failure the crate's dial's
             // (handed on under `reissue.crates`, below). The crate is not
             // asked about the admission, as it would not be asked about
-            // any other behaviour's dial.
-            self.reissued_in_flight.insert(id, reissue);
+            // any other behaviour's dial. HELD only while its attempt is
+            // in flight, so the map stays bounded by live attempts: the
+            // crate dials after its `rtt / 2` wait, and the far end's
+            // punch can have ended the attempt first
+            // (`a_reissue_admitted_after_its_attempt_ended_is_not_held`).
+            if self.attempt_toward(&target).is_some() {
+                self.reissued_in_flight.insert(id, reissue);
+            }
             self.punches.hold(id, target, addresses);
             return Ok(Vec::new());
         }
@@ -1243,17 +1249,22 @@ impl NetworkBehaviour for HolePunchScope {
                     // any other way): nothing to hand on. The crate would
                     // answer with another CONNECT round after the success
                     // -- the rule the crate's own dials follow below. An
-                    // ADMITTED reissue never gets here, since the
-                    // attempt's end takes it out of `reissued_in_flight`
-                    // (`a_reissued_dial_leaves_the_map_with_its_attempt`);
-                    // this arm is for one the Swarm refused before the
-                    // hook. The property on the wire, through either:
+                    // admitted reissue is held only while its attempt is
+                    // in flight and leaves the map with it
+                    // (`a_reissue_admitted_after_its_attempt_ended_is_not_held`,
+                    // `a_reissued_dial_leaves_the_map_with_its_attempt`),
+                    // so its late failure is found in neither map; this
+                    // arm serves a reissue the Swarm refused before the
+                    // hook after its attempt ended, which no test reaches.
+                    // The property on the wire, for an admitted one:
                     // `a_late_failure_of_a_reissued_dial_opens_no_second_round`.
                     None => {}
-                    // GIVEN UP by a network change: the crate that minted
-                    // the dial was replaced and knows nothing of it, so
-                    // the failure ends the attempt, `Abandoned`
-                    // (`DCUTR.md`'s network change, step 10).
+                    // GIVEN UP by a network change: the failure ends the
+                    // attempt, `Abandoned` (`DCUTR.md`'s network change,
+                    // step 10, lists it) -- whichever crate minted the
+                    // dial: the one replaced knows nothing of it, and a
+                    // round the new one runs on the kept handler belongs
+                    // to an attempt already given up.
                     // `a_reissued_dials_failure_ends_a_given_up_attempt`
                     // pins it.
                     Some(relayed) if self.attempts.get(&relayed).is_some_and(|a| a.abandoned) => {
@@ -2332,10 +2343,54 @@ mod tests {
         assert!(s.replacement_dials.is_empty());
     }
 
+    /// The crate dials after the far end's punch has ended the attempt
+    /// (its `rtt / 2` wait against the far end's handshake): the dial is
+    /// filtered and reissued all the same, since the boundary holds for
+    /// every punch dial, but once admitted it belongs to no attempt, so
+    /// the wrapper does not hold it -- held, its entry outlived every
+    /// attempt, and its failure had no attempt to hand on to.
+    #[test]
+    fn a_reissue_admitted_after_its_attempt_ended_is_not_held() {
+        let mut s = scope(HolePunchBudgets::default());
+        let a = peer();
+        assert!(matches!(relayed_inbound(&mut s, 1, a), Either::Left(_)));
+        direct_inbound(&mut s, 2, a);
+        assert!(!s.is_punching(&a), "the far end's punch ended it");
+        drain(&mut s);
+        let dial = ConnectionId::new_unchecked(3);
+        s.punch_dials.insert(dial, a);
+        assert!(
+            s.handle_pending_outbound_connection(
+                dial,
+                Some(a),
+                &[direct(), loopback()],
+                Endpoint::Listener
+            )
+            .is_err(),
+            "the late crate dial is still filtered"
+        );
+        let reissued = next_dial(&mut s).connection_id();
+        assert!(
+            s.handle_pending_outbound_connection(
+                reissued,
+                Some(a),
+                &[direct()],
+                Endpoint::Listener
+            )
+            .is_ok(),
+            "and its survivors admitted"
+        );
+        assert!(
+            s.reissued_in_flight.is_empty(),
+            "but not held: no attempt bounds it"
+        );
+    }
+
     /// A reissued dial that fails after a network change gave its
-    /// attempt up ends the attempt `Abandoned`: the crate that minted
-    /// the dial it stands for was replaced and would answer nothing, and
-    /// held, the attempt kept its per-peer permit until the horizon.
+    /// attempt up ends the attempt `Abandoned`, as `DCUTR.md`'s network
+    /// change lists: here the crate that minted the dial it stands for
+    /// was replaced and would answer nothing, and held, the attempt kept
+    /// its per-peer permit until the horizon.
     #[test]
     fn a_reissued_dials_failure_ends_a_given_up_attempt() {
         let mut s = scope(HolePunchBudgets::default());
