@@ -33,6 +33,7 @@ Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migrati
 - **`transportctl`** (`apps/transportctl`): administers a live daemon and backs up, verifies and restores an identity offline.
 - **`human-desktop`** (`apps/human-desktop`): the first-party desktop client, a Slint window over a headless application core.
 - **`claude-channel`** (`apps/claude-channel`): the Claude Code Channel bridge, a stdio MCP server over the daemon's data socket; the plugin that starts it is `packaging/claude-plugin/interweave`.
+- **`human-cli`** (`apps/human-cli`, the binary `interweave-human`): the command-line human client over the same data and admin sockets (Stage 21, plan §29 step 4), shipped in the Linux archive.
 
 `apps/human-android` is the Android client Stage 17 built: its APK draws the client's views and hosts the profile's runtime in-process — the embedded transport (`crates/transport/embedded`) inside its foreground network service, with the identity seed sealed by a key held in the Android Keystore; its device runs on a Pixel 9a (API 37) and a Samsung A40 (API 30) are recorded under `apps/human-android/device-runs/`, and what the stage did not prove is carried by name in the plan's §20 closing record.
 
@@ -88,7 +89,7 @@ The accepted details live in the contracts and ADRs; this README is an orientati
 | Path | Role |
 |---|---|
 | [`architecture/`](./architecture/README.md) | Normative ADRs, contracts, architecture, research, configuration schema/examples, and roadmap |
-| [`apps/`](./apps/README.md) | The thin executables: the daemon, `transportctl`, the desktop client, the Claude Channel bridge; the Android landing zone |
+| [`apps/`](./apps/README.md) | The thin executables: the daemon, `transportctl`, the desktop client, the Claude Channel bridge, the command-line client and the Android client's native library with its Gradle project |
 | [`crates/`](./crates/README.md) | The Rust crates, one directory per compile-time boundary: neutral `api`, `config`, `identity`, `discovery`, `transport`, `local` (IPC), `human`, `claude` |
 | [`tests/`](./tests/README.md) | Cross-crate, conformance, real-network, security, desktop E2E, and Android E2E suites |
 | [`fixtures/`](./fixtures/README.md) | Frozen normative protocol/crypto/config vectors |
@@ -96,7 +97,7 @@ The accepted details live in the contracts and ADRs; this README is an orientati
 | [`spikes/`](./spikes/README.md) | Empirical investigations and their evidence harnesses; never production dependencies |
 | [`third_party/`](./third_party/README.md) | Vendored dependency sources, each under its own licence and each with an ADR; a patched one also records its diff |
 | [`assets/`](./assets/README.md) | The InterWeave icon, its generator and the register of every image in the repository and where it is used |
-| [`packaging/`](./packaging/README.md) | The Claude Code plugin that starts the Channel bridge (`claude-plugin/`); Linux/macOS/Windows/Android landing zones, implemented with Stage 19 |
+| [`packaging/`](./packaging/README.md) | The Claude Code plugin that starts the Channel bridge (`claude-plugin/`); the Linux release archive, user units and install scripts and the Android release run (Stage 19); macOS and Windows landing zones |
 | [`xtask/`](./xtask/README.md) | Repository/test orchestration — `cargo xtask checks` / `cargo xtask ci` |
 | [`tools/`](./tools/) | Repository tooling — PR/review scripts and tree checks, each with a self-test beside it |
 | `.claude/` | Committed agent configuration and task-scoped skills; per-developer overrides stay untracked |
@@ -226,7 +227,7 @@ In every stage:
 
 Do not commit private transport identities, recovery phrases, Android signing material, Keystore exports, local profile state, or real credentials. The `.gitignore` is a guardrail, not a secret-management boundary.
 
-Security-sensitive implementation changes should be checked against the threat model, resource limits, security review, and the permanent `tests/security/` landing zone. Discovery, trust, connection admission, endpoint routing, and connectivity-infrastructure authorization are intentionally separate boundaries.
+Security-sensitive implementation changes should be checked against the threat model, resource limits, security review, and the permanent `tests/security/` suite. Discovery, trust, connection admission, endpoint routing, and connectivity-infrastructure authorization are intentionally separate boundaries.
 
 ## License
 
