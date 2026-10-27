@@ -6907,14 +6907,20 @@ owner:
   or beyond the window; retries read the store, never the window; an
   unshown proposal survives process exit; Keep, Dismiss, Cancel and
   Undo keep their rules in the window. The design is
-  `design/2026-10-27-start-window.md` (#472). Not built: it is
-  rust-ui-dev-02's next batch after #483, with the store's schema v10
-  (a name key beside each contact, the backfill), whose STATE.md row
-  is architect-cto's with it; with it lands the rule that a direct
-  conversation count per PeerId is bounded by the contract's 64
-  endpoints per profile, a 65th distinct source endpoint discarded
-  and counted as a malformed envelope (HUMAN-CHAT.md, RETENTION.md,
-  ruled 2026-10-27 to ux-designer-01). Until then the test #483 holds
+  `design/2026-10-27-start-window.md` (#472). Built in two batches
+  by rust-ui-dev-02 after #483: first the store's schema v10 (#489:
+  a name key beside each contact, a content-free kind on the inbound
+  rows, the covering indexes for the start's counts, each versioned
+  and recomputed at open; STATE.md's rows and HUMAN-CHAT.md's text
+  are architect-cto's on it), which changes nothing a person sees;
+  then the window itself, and with it the check for the rule that the
+  distinct endpoints the store holds per PeerId — conversations
+  indexed and routes under contacts — are at most the contract's 64
+  per profile, a 65th discarded and counted as a malformed envelope
+  (HUMAN-CHAT.md, STATE.md; ruled 2026-10-27 to ux-designer-01 and
+  rust-ui-dev-02): until the second batch lands, the rule is the
+  record's and not yet the build's, and this bullet is where that is
+  said. Until then the test #483 holds
   for the window's constraint (b), a pending row that does not decode
   resent after a restart (b046573a), is the only part of it on main.
 - The fresh-pair row's one-sided step in the other direction (B
