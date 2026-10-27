@@ -329,10 +329,12 @@ fn show_alone_says_shown_and_an_add_wins_over_it() {
 
 /// Each return from a page opened from Connect that did something §5.1
 /// counts is said once, its words unchanged included, and closes with no
-/// snackbar; a return that did nothing counted is not said, an earlier
-/// line still showing included.
+/// snackbar; a return that did nothing counted, with the line as it was
+/// when the page opened, is not said, an earlier line still showing
+/// included. A line changed under the page is
+/// `a_line_changed_under_a_page_is_said_on_the_return`'s.
 #[test]
-fn a_return_is_said_only_when_its_page_did_something_counted() {
+fn a_return_with_the_line_unchanged_is_said_when_its_page_did_something_counted() {
     let (me, them, other) = (peer(), peer(), peer());
     let mut m = connect_open(&me);
     let show = |m: &mut UiModel, addresses: Vec<String>| {
