@@ -389,3 +389,65 @@ by the four sites as before; j82) with rust-ui-dev-01's bridge half
 (the listen, the tethering read if one exists, the Pixel rows), one
 PR; the stage record says gate (e) passes only on the re-run row.
 
+### Amendment 2026-10-27 (ii) — What the widened listen admits, measured; the hotspot limit's cause
+
+The first amendment of the day said the bridge's listen admits every
+network the platform reports so that a Wi-Fi with no uplink stays
+shown, and that a tethering downstream enters the view "where the
+platform lets an app read it". #474's review (F1) read the second as
+built, which it was not, and rust-ui-dev-01 then measured both on the
+Pixel 9a (OBSERVATIONS 01a17c25 and 01a17c33, the combined build of
+the rule and the widened listen): a Wi-Fi with no uplink — the A40's
+hotspot with mobile data off, the Pixel joined — carries the Internet
+capability unvalidated and was heard by the old listen too, so the
+no-uplink case never needed the widening; what the widening admits is
+a network carrying the local-network capability and no Internet one,
+the phone's own hotspot access point, and the platform reports such a
+network to an app only when the app targets Android SDK 37 — the
+`ENABLE_MATCH_NON_THREAD_LOCAL_NETWORKS` compatibility gate, enabled
+from that target, which forced on for the debuggable build made Show
+list the access-point address beside the Wi-Fi one; a network held in
+the background is never heard, the platform adding the foreground
+requirement to an app's listen. The app targets SDK 36. Ruled: the
+hotspot host's own address stays the recorded limit, now with its
+cause, its cost one direction (the client's shown code connects the
+pair); raising the target is the owner's release decision, not this
+rule's, since it needs a compile-SDK pin (devex-tooling) and brings
+Android 17's runtime local-network permission before any LAN traffic,
+the in-room scan included (ux-designer and the owner); the
+recommendation given to the owner was not now. Propagation: rule 10;
+this note; the log row; the digest entry; `CONNECTIVITY.md` §14;
+`human-client-android.md` §Android network lifecycle; the bridge's
+own comment (rust-ui-dev-01's cc12f4a8).
+
+### Amendment 2026-10-27 (iii) — The shared address space is on no local network, with or without a view
+
+#474's review noted that rule 10 withheld private-range addresses
+only (RFC 1918, ULA), so a carrier that numbers a phone's cellular or
+IMS interface from the shared address space, `100.64.0.0/10`
+(RFC 6598), would still have that address advertised by Identify;
+the book, Show and the punch offer sites already refused it as
+special-use, and rule 3 counts private listeners only, so Identify
+was the one surface it reached (p2p-network-dev-02's OBSERVATION
+01a17c11). Ruled: the range is on no local network unconditionally,
+with or without a platform view, the desktop with a cellular modem
+included, there being no classification to wait for. The first
+reason given — that the space is provider-numbered and no person's
+LAN — was wrong as a premise and p2p-network-dev-02 said so while
+building it (OBSERVATION 01a17c69): mesh overlays number a person's
+own peers from the same space, and ADR-0055 decision 5b's two-host
+case runs on it. The ruling stands on the record's own rules instead:
+rule 2's floor refuses the range as a peer-supplied candidate at
+every learn site, so no peer may learn and dial such an address of
+this node, advertising it serves nobody and withholding it costs
+nothing, whoever numbered it; a peer's address in that space enters
+by the configuration half of rule 9's operator door, as a static
+entry (ADR-0055 decision 5b, the run-time add keeping ADR-0062's
+floor); and should the floor ever admit the range for a peer-learned
+address, this treatment moves with it. Built by p2p-network-dev-02 on
+#476 (j84) as one predicate, with the owed case (a listener on a
+shared-space address, no view, not advertised, beside a private
+listener as the control). Propagation: rule 10; this note; the log
+row; the digest entry; the README row; `CONNECTIVITY.md` §14;
+`DCUTR.md` §6.
+
