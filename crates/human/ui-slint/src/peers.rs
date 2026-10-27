@@ -370,6 +370,7 @@ impl PeerLists {
         window.set_not_removable_label(set(UiText::PeerConfigNotRemovable));
         window.set_trust_this_label(set(UiText::TrustThisPeer));
         window.set_add_title(set(UiText::AddAddress));
+        window.set_add_close_label(set(UiText::AddClose));
         window.set_address_field_label(set(UiText::AddressField));
         window.set_address_help(set(UiText::AddressHelp));
         window.set_scan_code_label(set(UiText::ScanCode));

@@ -590,6 +590,41 @@ fn an_unknown_removal_focuses_the_snackbars_try_again() {
     assert_eq!(view.window().get_focus_id().as_str(), "peers-snack-action");
 }
 
+/// The add page's back arrow is `AddClose` (design section 5.3): it goes
+/// back to Peers, so it never reads "Back to conversations", which the
+/// same arrow reads on Peers itself, where it does go there.
+#[test]
+fn the_add_pages_back_arrow_names_no_conversations() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    open_peers(&mut view, &mut model, &peer(), &[], &[]);
+    let on_peers = labelled(&view, text(UiText::BackToConversations)).len();
+    assert!(on_peers > 0, "Peers' arrow goes to the conversations");
+    assert!(labelled(&view, text(UiText::AddClose)).is_empty());
+
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_peers_add_open());
+    assert_eq!(
+        labelled(&view, text(UiText::BackToConversations)).len(),
+        on_peers - 1,
+        "the add page's arrow no longer says conversations"
+    );
+    press(&view, text(UiText::AddClose));
+    let _ = intents(&mut view, &mut model);
+    for _ in 0..2 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    }
+    view.render(&model);
+    assert!(!view.window().get_peers_add_open(), "back to Peers");
+    assert!(
+        view.window().get_peers_page(),
+        "Peers, not the conversations"
+    );
+    assert_eq!(view.window().get_focus_id().as_str(), "add-address");
+    assert!(labelled(&view, text(UiText::AddClose)).is_empty());
+}
+
 /// Escape on the add page is its Back (design section 5.3), from
 /// wherever focus is on it: on step one it discards the field and focus
 /// goes to Add an address; on step two it is Done, and the page closes
