@@ -5451,9 +5451,11 @@ mod tests {
                 (".forget_address(", 1),
                 // THE CANONICALIZATION, which is the thing this whole branch
                 // is for: `attempt_dial`'s use of it, its own declaration,
-                // `learn_route`'s and `forget_route`'s. Dropping any one fails
-                // here, which is what the audit found nothing else did.
-                ("canonical_dial_address(", 4),
+                // `learn_route`'s and `forget_route`'s -- and `HeldBack::hold`'s,
+                // which keys what it holds as the book keys it and writes no
+                // book. Dropping any one fails here, which is what the audit
+                // found nothing else did.
+                ("canonical_dial_address(", 5),
                 // And the function it wraps, which is where the key actually
                 // gets computed: its declaration, the wrapper's call, and
                 // `settle_failed_dial`'s `strip` closure. The FOURTH site is
