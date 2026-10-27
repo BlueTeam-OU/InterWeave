@@ -589,10 +589,14 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     contacts' read fail at start (a test hook): Chats titles read as
     for a conversation under no contact; Contacts shows the failure row
     alone at the top, with Try again and no `ContactsEmpty`, and
-    announces nothing on opening. Try again failing again: focus on Try
-    again, `ContactsLoadFailed` announced once. Remove the failure and
-    press Try again: the list shows, focus on its first row, and the
-    titles on Chats take the contacts' names.
+    announces nothing on opening. Press Try again with the read held
+    (a test hook): the row goes at once, focus is on the page title,
+    the progress row shows after 250 ms and nothing else can be
+    pressed there. Let it fail again: focus on Try again,
+    `ContactsLoadFailed` announced once. Remove the failure and press
+    Try again: the list shows, focus on its first row, and the titles
+    on Chats take the contacts' names. With a store holding no contact,
+    the same success shows `ContactsEmpty`, with focus on it.
 11a. **Preview bound** (§3): a conversation whose newest row's first
     line is 300 characters long previews its first 160 characters and
     an ellipsis, on a window wide enough to show more, and identically
