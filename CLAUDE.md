@@ -4,7 +4,7 @@ This file is the working contract for Claude Code and other coding agents operat
 
 ## 1. Repository state
 
-InterWeave is an **accepted architecture with its implementation built stage by stage**: through Stage 17 the transport, the daemon and its IPC, the Claude Channel bridge and the human clients on desktop and Android exist as programs under `apps/`; Stages 20 and 21 added the automated client and the contacts, cards and encrypted store; the first release, v0.1.0, was tagged 2026-10-25 (Linux archive and Android APK, `packaging/`); Stage 18 is open and Stage 19 runs beside it (the status below).
+InterWeave is an **accepted architecture with its implementation built stage by stage**: through Stage 17 the transport, the daemon and its IPC, the Claude Channel bridge and the human clients on desktop and Android exist as programs under `apps/`; Stage 20 added what the transport promises an automated client (its conformance suite, `transportctl`'s identity verbs and the Linux user units; the client program itself is the deployment's, `packaging/linux/README.md`) and Stage 21 the contacts, cards and encrypted store; the first release, v0.1.0, was tagged 2026-10-25 (Linux archive and Android APK, `packaging/`); Stage 18 is open and Stage 19 runs beside it (the status below).
 
 - `architecture/` is the normative design source.
 - `apps/`, `crates/`, `tests/`, `fixtures/`, `test-data/`, `spikes/`, `packaging/`, and `xtask/` are tracked landing zones created by ADR-0045.
@@ -100,9 +100,11 @@ InterWeave is an **accepted architecture with its implementation built stage by 
   that translation from a profile, so a profile setting
   `autonat.client.enabled` or `relay.client.enabled` constructed
   nothing, and the validated config was a document shape, not a
-  switch — since Stage 12's close (2026-09-28) the composition root's
-  `translate.rs` calls every `from_profile` and a profile's block is
-  the switch. That ended the era in which §3's promise was kept by the
+  switch — since Stage 12 (b28af0ed, 2026-09-27) the composition root's
+  `translate.rs` calls every `from_profile`: the client roles run in
+  every valid profile (their `enabled` is `literal[true]`, so the
+  setting named above cannot be false), and a server role's block,
+  or Kademlia's discovery entry, is the switch. That ended the era in which §3's promise was kept by the
   compiler: a behaviour can now be switched on by writing code rather
   than by editing a manifest, so from here the guarantee is the outbound
   gate, the trust classification and their tests. **Two
