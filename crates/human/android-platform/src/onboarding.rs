@@ -31,8 +31,11 @@ pub const PHRASE_WORDS: usize = 24;
 /// A phrase's words, as references into [`english`].
 pub type Words = [&'static str; PHRASE_WORDS];
 
-/// The marker's file name, in the profile's human-client directory.
+/// The void-paper marker's file name, in the profile's human-client
+/// directory.
 const VOID_PAPER: &str = "void-paper";
+/// Onboarding's Connect is owed (add-a-peer §5.1): beside it.
+const CONNECT_OWED: &str = "connect-owed";
 
 /// BIP-39's English list, sorted as published: the picker's words.
 #[must_use]
@@ -284,8 +287,8 @@ pub fn restore(
     }
 }
 
-fn marker(app_data_dir: &Path, profile: &str) -> Result<PathBuf, WriteRefused> {
-    Ok(paths(app_data_dir, profile)?.human_dir().join(VOID_PAPER))
+fn marker(app_data_dir: &Path, profile: &str, name: &str) -> Result<PathBuf, WriteRefused> {
+    Ok(paths(app_data_dir, profile)?.human_dir().join(name))
 }
 
 /// Whether a creation showed its words and never finished (W's
@@ -293,7 +296,7 @@ fn marker(app_data_dir: &Path, profile: &str) -> Result<PathBuf, WriteRefused> {
 /// notice is a courtesy, never a gate.
 #[must_use]
 pub fn void_paper(app_data_dir: &Path, profile: &str) -> bool {
-    marker(app_data_dir, profile).is_ok_and(|path| path.exists())
+    marker(app_data_dir, profile, VOID_PAPER).is_ok_and(|path| path.exists())
 }
 
 /// Set or clear the marker. It holds no byte of a word, seed or `PeerId`:
@@ -302,8 +305,35 @@ pub fn void_paper(app_data_dir: &Path, profile: &str) -> bool {
 /// # Errors
 /// [`WriteRefused::Storage`].
 pub fn set_void_paper(app_data_dir: &Path, profile: &str, set: bool) -> Result<(), WriteRefused> {
+    set_marker(app_data_dir, profile, VOID_PAPER, set)
+}
+
+/// Whether onboarding's Connect is owed: a new or restored identity whose
+/// first start has not yet decided it (add-a-peer §5.1). A marker that
+/// cannot be read is read as unset: Chats opens, and Connect is a
+/// courtesy, never a gate.
+#[must_use]
+pub fn connect_owed(app_data_dir: &Path, profile: &str) -> bool {
+    marker(app_data_dir, profile, CONNECT_OWED).is_ok_and(|path| path.exists())
+}
+
+/// Set Connect owed, when an identity is made or restored, or clear it,
+/// once a start decided it. Its existence is the whole of it.
+///
+/// # Errors
+/// [`WriteRefused::Storage`].
+pub fn set_connect_owed(app_data_dir: &Path, profile: &str, set: bool) -> Result<(), WriteRefused> {
+    set_marker(app_data_dir, profile, CONNECT_OWED, set)
+}
+
+fn set_marker(
+    app_data_dir: &Path,
+    profile: &str,
+    name: &str,
+    set: bool,
+) -> Result<(), WriteRefused> {
     let paths = paths(app_data_dir, profile)?;
-    let path = paths.human_dir().join(VOID_PAPER);
+    let path = paths.human_dir().join(name);
     if set {
         interweave_profile_config::persist::create_private_dir_within(
             &paths.human_dir(),
