@@ -116,6 +116,10 @@ pub(super) struct NetworkSet {
     /// Where what this node does not offer ([`Self::not_offered`]) is
     /// published, for rule 3 at the root funnel ([`crate::held_listeners`]).
     published: crate::held_listeners::HeldListeners,
+    /// The private-range listener IPs this node offered at the last
+    /// observation: rule 3's own-listener boundary, kept to count each
+    /// widening of it ([`Self::publish`]). Bounded by the listeners.
+    offered_private: BTreeSet<IpAddr>,
 }
 
 /// What changed: the IPs that left the known set and those that joined
@@ -261,7 +265,11 @@ impl NetworkSet {
     /// bound until the listener poll catches up, and must not be offered
     /// meanwhile.
     pub(super) fn holds(&self, address: &Multiaddr) -> bool {
-        first_ip(address).is_none_or(|ip| is_interface_scoped_ip(ip) || self.known.contains(&ip))
+        first_ip(address).is_none_or(|ip| self.holds_ip(ip))
+    }
+
+    fn holds_ip(&self, ip: IpAddr) -> bool {
+        is_interface_scoped_ip(ip) || self.known.contains(&ip)
     }
 
     /// Whether `address` is THIS NODE'S ADDRESS TOWARD ANYONE: one it
@@ -275,7 +283,13 @@ impl NetworkSet {
     /// one, and a global cellular one is AutoNAT's to decide. Pinned by
     /// `a_private_address_on_no_local_network_is_held_and_not_offered`.
     pub(super) fn offers(&self, address: &Multiaddr) -> bool {
-        self.holds(address) && first_ip(address).is_none_or(|ip| !self.off_local.contains(&ip))
+        first_ip(address).is_none_or(|ip| self.offers_ip(ip))
+    }
+
+    /// [`Self::offers`] for an address on `ip`: the one predicate, read
+    /// by the widening count as by every site that asks of an address.
+    fn offers_ip(&self, ip: IpAddr) -> bool {
+        self.holds_ip(ip) && !self.off_local.contains(&ip)
     }
 
     /// Apply one source's difference to the known set; an IP in
@@ -308,9 +322,29 @@ impl NetworkSet {
     }
 
     /// Publish what rule 3 at the root funnel must not count:
-    /// [`Self::not_offered`].
-    fn publish(&self) {
+    /// [`Self::not_offered`]; and count a WIDENING of rule 3's boundary
+    /// when this node now offers a private-range listener IP it did not
+    /// at the last observation -- a listener reporting its LAN address
+    /// after its loopback one, an IP joining the known set, the view
+    /// lifting a rule 10 classification. Every input `offers` reads
+    /// reaches the known set or `off_local` through `apply`, which ends
+    /// here, so no widening goes uncounted
+    /// (`every_way_rule_3s_boundary_widens_is_counted_and_nothing_else`).
+    /// Counted per IP, a superset of rule 3's per-family answer turning
+    /// yes: a second LAN of a family already held counts too, and costs
+    /// the reader one offer more.
+    fn publish(&mut self) {
         self.published.set_unheld(self.not_offered());
+        let offered: BTreeSet<IpAddr> = self
+            .listeners
+            .iter()
+            .copied()
+            .filter(|ip| is_private_range(*ip) && self.offers_ip(*ip))
+            .collect();
+        if !offered.is_subset(&self.offered_private) {
+            self.published.widen();
+        }
+        self.offered_private = offered;
     }
 }
 
@@ -508,6 +542,98 @@ mod tests {
         assert_eq!(
             set.observe_view(&addresses[2..], &classified),
             change(&["10.20.30.40"], &[])
+        );
+    }
+
+    /// Rule 3's boundary WIDENS when this node comes to offer a
+    /// private-range listener IP it did not, and the record counts every
+    /// such move and no other (`HeldListeners::widenings`). Each step
+    /// reads the discovery verdict on a private candidate through
+    /// `own_listeners`, as the `Learn` command does: a verdict that
+    /// turns from refused to admitted is a counted move, every time.
+    /// The first step is a wildcard listener's loopback report arriving
+    /// before its LAN one -- a cache's private route offered then was
+    /// refused, and is admitted after the second (j133).
+    #[test]
+    fn every_way_rule_3s_boundary_widens_is_counted_and_nothing_else() {
+        use interweave_transport_runtime::reachability::is_discovered_address;
+        let held = crate::held_listeners::HeldListeners::new();
+        let widenings = held.widenings();
+        let mut set = NetworkSet::publishing_to(held);
+        let candidate = "/ip4/10.137.0.9/tcp/4001";
+        let lo = "/ip4/127.0.0.1/tcp/4001";
+        let lan = "/ip4/192.168.1.5/tcp/4001";
+        let global = "/ip6/2a00:1450::7/tcp/4001";
+        let second_lan = "/ip4/10.0.0.9/tcp/4001";
+        let mut bound: Vec<Multiaddr> = Vec::new();
+        let mut was_admitted = false;
+        let mut last = 0;
+        let mut step = |set: &mut NetworkSet, bound: &[Multiaddr], what: &str, moved: bool| {
+            let own = set.own_listeners(bound.iter());
+            let admitted = is_discovered_address(candidate, own.iter().map(String::as_str)).is_ok();
+            let count = widenings.count();
+            assert_eq!(count != last, moved, "{what}: count {last} -> {count}");
+            if admitted && !was_admitted {
+                assert!(
+                    moved,
+                    "{what}: admitted now, refused before, and not counted"
+                );
+            }
+            was_admitted = admitted;
+            last = count;
+            admitted
+        };
+
+        bound.extend(addrs(&[lo]));
+        let _ = set.observe_listeners(bound.iter());
+        assert!(!step(&mut set, &bound, "loopback alone", false), "refused");
+        bound.extend(addrs(&[lan]));
+        let _ = set.observe_listeners(bound.iter());
+        assert!(
+            step(&mut set, &bound, "the LAN address after it", true),
+            "admitted"
+        );
+        let _ = set.observe_listeners(bound.iter());
+        step(&mut set, &bound, "the same listeners again", false);
+        bound.extend(addrs(&[global]));
+        let _ = set.observe_listeners(bound.iter());
+        step(&mut set, &bound, "a global listener", false);
+
+        let view = [ip("192.168.1.5"), ip("2a00:1450::7")];
+        let _ = set.observe_view(&view, &[ip("192.168.1.5")]);
+        assert!(
+            !step(
+                &mut set,
+                &bound,
+                "the view classifies the LAN off-local",
+                false
+            ),
+            "a narrowing is refused and not counted"
+        );
+        let _ = set.observe_view(&view, &[]);
+        assert!(step(&mut set, &bound, "the classification lifted", true));
+
+        bound.retain(|a| a.to_string() != lan);
+        let _ = set.observe_listeners(bound.iter());
+        assert!(
+            !step(
+                &mut set,
+                &bound,
+                "the LAN listener closed, the view still holding its IP",
+                false
+            ),
+            "rule 3 counts a bound listener only"
+        );
+        bound.extend(addrs(&[lan]));
+        let _ = set.observe_listeners(bound.iter());
+        assert!(step(&mut set, &bound, "the LAN listener bound again", true));
+        bound.extend(addrs(&[second_lan]));
+        let _ = set.observe_listeners(bound.iter());
+        step(
+            &mut set,
+            &bound,
+            "a second LAN of the family, the per-IP superset",
+            true,
         );
     }
 

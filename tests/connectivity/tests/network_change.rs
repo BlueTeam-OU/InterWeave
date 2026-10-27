@@ -785,6 +785,73 @@ async fn a_departed_ips_listener_admits_no_private_candidate() {
     subject.runtime.shutdown().await.expect("shutdown");
 }
 
+/// ADR-0052 rule 3's boundary WIDENING is counted where a caller outside
+/// the Swarm task can read it (`SwarmRuntime::listener_widenings`), as
+/// a wildcard listener makes it at startup: its loopback address reported
+/// first and its LAN address after. A private candidate offered between
+/// the two is refused and the count stands; the LAN listener binding
+/// moves the count, and the same candidate offered again is admitted --
+/// the move a caller remembering its offer (composition's discovery
+/// memo) must see, or it keeps the refusal for its relearn interval
+/// (j133: the android-e2e cache-alone row, 1 run in 24 under load).
+/// Each reading follows a `learn` reply, which the task sends only
+/// after it handled the listener event before it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_private_listener_bound_after_a_refusal_widens_the_boundary_and_admits_it() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (subject_id, far_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
+    let far_peer = far_id.transport_identity().expect("peer id");
+    let mut subject = node(&[&far_peer], &subject_id);
+    let widenings = subject.runtime.listener_widenings();
+    let candidate = || ["/ip4/10.1.2.3/tcp/4001".to_owned()];
+    let _loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("the loopback listener");
+    let admitted = subject
+        .runtime
+        .learn(far_peer.clone(), candidate())
+        .await
+        .expect("reaches the task");
+    assert_eq!(admitted, 0, "loopback alone is no private listener");
+    let before = widenings.count();
+
+    let _private = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the subject's private listener");
+    let admitted = subject
+        .runtime
+        .learn(far_peer.clone(), candidate())
+        .await
+        .expect("reaches the task");
+    assert_eq!(admitted, 1, "the control: beside a private listener");
+    assert!(
+        widenings.count() > before,
+        "the boundary widened and the count did not move ({before})"
+    );
+
+    let settled = widenings.count();
+    let _second_loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("a second loopback listener");
+    let _ = subject
+        .runtime
+        .learn(far_peer.clone(), candidate())
+        .await
+        .expect("reaches the task");
+    assert_eq!(
+        widenings.count(),
+        settled,
+        "a loopback listener widens nothing"
+    );
+    subject.runtime.shutdown().await.expect("shutdown");
+}
+
 /// What `subject` advertises as its listen addresses to a fresh observer
 /// holding `keys` -- a peer the subject trusts, or it closes the
 /// connection before Identify runs -- that dials it at `address`: the

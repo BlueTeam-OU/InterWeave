@@ -1074,6 +1074,10 @@ pub struct SwarmRuntime {
     commands: mpsc::Sender<SwarmCommand>,
     /// Where the platform's view is handed in ([`NetworkMonitor`]).
     network_view: watch::Sender<NetworkView>,
+    /// The detector's count of rule 3's boundary widening, read by a
+    /// caller that remembers what it offered the book
+    /// ([`Self::listener_widenings`]).
+    listener_widenings: crate::held_listeners::ListenerWidenings,
     events: mpsc::Receiver<SwarmEvent>,
     task: Option<tokio::task::JoinHandle<()>>,
     local_peer: TransportIdentity,
@@ -1479,6 +1483,7 @@ impl SwarmRuntime {
         // rule 3, A 2026-10-09): written by the detector, read by the funnel.
         let held_listeners = crate::held_listeners::HeldListeners::new();
         let funnel_held = held_listeners.clone();
+        let listener_widenings = held_listeners.widenings();
         let make_behaviour =
             move |key: &libp2p::identity::Keypair, relay_client: relay_driver::ClientField| {
                 SubstrateBehaviour::new(
@@ -3466,6 +3471,7 @@ impl SwarmRuntime {
         Ok(Self {
             commands: command_tx,
             network_view: network_view_tx,
+            listener_widenings,
             events: event_rx,
             unread_capacity,
             task: Some(task),
