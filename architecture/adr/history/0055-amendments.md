@@ -44,3 +44,22 @@ the README row. The case is p2p-network-dev-01's (j134, with the
 one-profile carrier-and-client case); the command-line client's verbs
 are rust-ui-dev-02's.
 
+### Amendment 2026-10-27 — Decision 5's cross-account port rule is measured
+
+Decision 5 said that another account's daemon being refused the port
+this one holds rested on the kernel's `SO_REUSEPORT` rule and was not
+measured, the suite having one uid. p2p-network-dev-01 measured it on
+the host on 2026-10-27 (REPLY 01a17c4a, their job j125, asked in
+architect-cto's REQUEST 01a1722a): two accounts, each under its own
+user manager with the installed v0.1.0 programs and `DEPLOYING.md`'s
+unit and configuration, one holding `127.0.0.1:47990`, the other's
+daemon exiting 1 on "Address already in use" with its unit retrying
+every 5 s; the control, once the holder stopped, the next retry
+listening within a second. The second account was another agent's,
+by fabric-coordinator's route (no shell into another uid). Not run:
+a fresh install from the archive in an empty account, which needs an
+account the owner opens by hand, carried by name; two hosts, which
+decision 5b covers. The sentence now says what was measured and
+where; the suite's one-uid limit stands as written. Propagation: the
+decision 5 sentence; this note; the log row; the digest entry.
+
