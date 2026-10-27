@@ -1112,7 +1112,7 @@ may-have-reached text of a Cancel included. The Undo restores the
 cancelled record itself, the card exactly as it was signed and sent,
 never the identity's card as it is now. The row's menu (message-swipe
 §7) holds those actions in that order and **no Show source**: a card
-has no markdown source to show (as the proposal's menu, §5.4.4). Copy,
+has no markdown source to show, like the proposal's menu (§5.4.4). Copy,
 Reply and Keep are not offered, as on any outbound row.
 
 **Accepted.** Once the row reaches Accepted by remote transport it
@@ -1122,15 +1122,16 @@ message is kept (`RETENTION.md`). It offers no action, so it has **no
 menu**: a long press, a secondary click, Enter, the Menu key,
 Shift+F10 and the screen reader's activate do nothing on it, with no
 haptic tick, and its role is not announced as one that can be
-activated, since a control that opens nothing is a promise not kept.
+activated, since a control that opens nothing would tell the person
+something false.
 The bubble stays a focus stop, read as §8 says. If the row becomes
 Accepted while its menu is open, message-swipe §7's rule for a status
 that changes the actions applies: the menu closes and focus goes to
 the bubble.
 
-**Focus** is message-swipe §7's for a sent message in every case:
+**Focus** follows message-swipe §7's rules for a sent message in every case:
 after a Cancel, by its removal rule; after the Undo, to the restored
-row's bubble; after a refused Undo, as there; after Retry from the
+row's bubble; after a refused Undo, as message-swipe §7 says; after Retry from the
 menu, to the bubble. §9 item 1 lists them.
 
 ### 5.6 Naming a contact by hand
@@ -1645,7 +1646,7 @@ accessibility tree) are checked now.
   is open, `CardUndoHint` as its description.
 - Own card row: "You shared your card", the name and surname as sent,
   `CardSentPhoto` when the card as sent carried a photo (the photo
-  itself is not described: what matters is that it went), then the
+  itself is not described: what matters is that it was sent), then the
   status and the time. Its custom actions (Android) are those of its
   menu, Retry and Cancel while pending, as message-swipe §7 sets for a
   sent message; none once it is Accepted.
@@ -2171,7 +2172,7 @@ and are for them to write.
 | `CardNotification` | You received a contact card. | notification body; never the name |
 | `AnnounceCard` | New contact card | live announcement |
 | `CardSentLabel` | You shared your card | own card row |
-| `CardSentPhoto` | with your photo | own card row, accessible description only, when the card as sent carried a photo (§8); proposal, language-culture's to word |
+| `CardSentPhoto` | Your photo was sent with the card. | own card row, accessible description only, when the card as sent carried a photo (§8) |
 | `AddAsContact` / `OpenContact` | Add as a contact / Open contact | Details |
 | `DetailsNoCard` | You have not shared your card here. | Details |
 | `ContactsEmpty` | One identity: You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. Two or more: {front} has no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty; with two or more identities it is this identity's list that is empty, and the text must not suggest the person has no contacts at all (language-culture to judge whether it needs saying) |
