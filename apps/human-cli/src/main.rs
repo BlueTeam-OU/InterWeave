@@ -297,18 +297,10 @@ fn run(
 }
 
 /// `listen --input`'s lines, read from stdin on a thread of its own so a
-/// blocked read never holds the session's turns; the channel closes at
-/// EOF, and listen goes on (G1).
-fn stdin_lines() -> tokio::sync::mpsc::UnboundedReceiver<String> {
+/// blocked read never holds the session's turns (G1).
+fn stdin_lines() -> tokio::sync::mpsc::UnboundedReceiver<verbs::InputLine> {
     let (send, lines) = tokio::sync::mpsc::unbounded_channel();
-    std::thread::spawn(move || {
-        for line in std::io::stdin().lines() {
-            let Ok(line) = line else { return };
-            if send.send(line).is_err() {
-                return;
-            }
-        }
-    });
+    std::thread::spawn(move || verbs::read_input(std::io::stdin().lock(), &send));
     lines
 }
 

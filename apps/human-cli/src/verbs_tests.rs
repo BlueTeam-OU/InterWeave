@@ -18,7 +18,7 @@ use interweave_human_ui_model::ConversationKey;
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::Failure;
 use crate::cli::Verb;
@@ -430,13 +430,27 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
     run(&mut bob, Verb::Status, false).await.1.expect("status");
     let to_alice = format!("{}/human", a.peer().as_str());
     let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
-    for line in [
-        "not json".to_owned(),
-        r#"{"send":{"conversation":"x","ref":"bad"}}"#.to_owned(),
-        format!(r#"{{"send":{{"conversation":"{to_alice}","text":"over the lease","ref":7}}}}"#),
-    ] {
-        lines_in.send(line).expect("queued");
+    // As stdin hands them over: a line that is not UTF-8 among them, and
+    // two sends, answered in the order read.
+    let mut stdin = Vec::new();
+    stdin.extend_from_slice(b"not json\n");
+    stdin.extend_from_slice(br#"{"send":{"conversation":"x","ref":"bad"}}"#);
+    stdin.extend_from_slice(b"\n\xff\xfe{\"send\"}\r\n");
+    stdin.extend_from_slice(
+        format!(
+            "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"x\",\"ref\":\"ep\",\"endpoint\":\"other\"}}}}\n"
+        )
+        .as_bytes(),
+    );
+    for (text, reference) in [("over the lease", 7), ("and after it", 8)] {
+        stdin.extend_from_slice(
+            format!(
+                "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"{text}\",\"ref\":{reference}}}}}\n"
+            )
+            .as_bytes(),
+        );
     }
+    verbs::read_input(stdin.as_slice(), &lines_in);
     drop(lines_in);
     let mut out = Vec::new();
     verbs::listen(
@@ -457,9 +471,23 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
         .iter()
         .filter(|e| e["event"] == "input-refused")
         .collect();
-    assert_eq!(refused.len(), 2, "{out}");
-    assert_eq!(refused[0]["ref"], Value::Null);
-    assert_eq!(refused[1]["ref"], "bad");
+    let refs: Vec<&Value> = refused.iter().map(|e| &e["ref"]).collect();
+    assert_eq!(
+        refs,
+        [&Value::Null, &json!("bad"), &Value::Null, &json!("ep")],
+        "{out}"
+    );
+    assert_eq!(refused[2]["reason"], "not UTF-8 text", "{out}");
+    let answered: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "outbound" && e["ref"].is_number())
+        .map(|e| &e["ref"])
+        .collect();
+    assert_eq!(answered.first(), Some(&&json!(7)), "{out}");
+    assert!(
+        answered.contains(&&json!(8)),
+        "the second send, after: {out}"
+    );
     let sent = events
         .iter()
         .find(|e| e["event"] == "outbound" && e["ref"] == 7)
@@ -477,10 +505,12 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
         "every outbound event of its row names its ref: {out}"
     );
     let (out, _) = run(&mut alice, Verb::Messages(to(b.peer())), true).await;
-    assert!(
-        lines(&out).iter().any(|m| m["text"] == "over the lease"),
-        "it reached alice: {out}"
-    );
+    for text in ["over the lease", "and after it"] {
+        assert!(
+            lines(&out).iter().any(|m| m["text"] == text),
+            "it reached alice: {out}"
+        );
+    }
 }
 
 /// G5: an outbound event names the send problem its status carries
@@ -502,9 +532,9 @@ async fn an_input_sends_outbound_event_names_its_problem() {
     b.inject_send(TransportError::UnauthorizedPeer);
     let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
     lines_in
-        .send(format!(
+        .send(Ok(format!(
             r#"{{"send":{{"conversation":"{to_alice}","text":"held","ref":"r1"}}}}"#
-        ))
+        )))
         .expect("queued");
     let mut out = Vec::new();
     verbs::listen(

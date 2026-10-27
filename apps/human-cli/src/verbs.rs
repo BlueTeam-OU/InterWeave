@@ -913,7 +913,45 @@ pub(crate) struct ListenMode {
     pub(crate) consume: bool,
     /// JSON lines to send over the lease listen holds (G1); the channel
     /// closing at EOF ends the input, never listen.
-    pub(crate) input: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
+    pub(crate) input: Option<tokio::sync::mpsc::UnboundedReceiver<InputLine>>,
+}
+
+/// One line `listen --input` read: its text, or why it could not be read
+/// as text, which is answered `input-refused` like any line it cannot read.
+pub(crate) type InputLine = Result<String, String>;
+
+/// Read `reader`'s lines into `lines` until EOF, or until a read fails or
+/// the receiver is gone. A line that is not UTF-8 is passed on as a
+/// refusal and the reading goes on: one bad line never silences those
+/// after it (`a_line_that_is_not_utf8_is_refused_and_the_next_is_read`).
+pub(crate) fn read_input(
+    mut reader: impl std::io::BufRead,
+    lines: &tokio::sync::mpsc::UnboundedSender<InputLine>,
+) {
+    let mut bytes = Vec::new();
+    loop {
+        bytes.clear();
+        match reader.read_until(b'\n', &mut bytes) {
+            Ok(0) => return,
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("interweave-human: stdin: {e}; no more input is read");
+                return;
+            }
+        }
+        // As `BufRead::lines` ends a line: "\n" or "\r\n".
+        if bytes.last() == Some(&b'\n') {
+            bytes.pop();
+            if bytes.last() == Some(&b'\r') {
+                bytes.pop();
+            }
+        }
+        let line =
+            String::from_utf8(std::mem::take(&mut bytes)).map_err(|_| "not UTF-8 text".to_owned());
+        if lines.send(line).is_err() {
+            return;
+        }
+    }
 }
 
 /// One input line `listen --input` sends, as read.
@@ -991,7 +1029,7 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         mut input,
     } = mode;
     let mut stop = std::pin::pin!(stop);
-    let mut waiting: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    let mut waiting: std::collections::VecDeque<InputLine> = std::collections::VecDeque::new();
     // The `ref` each input line carried, by the pending row its send made:
     // every outbound event of that row names it.
     let mut refs: std::collections::HashMap<RowId, serde_json::Value> =
@@ -1075,7 +1113,8 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         if issued.is_none()
             && let Some(line) = waiting.pop_front()
         {
-            match input_send(s, &line) {
+            let read = line.map_err(|reason| (serde_json::Value::Null, reason));
+            match read.and_then(|line| input_send(s, &line)) {
                 Err((reference, reason)) => {
                     let refused = output::json_line(&json!({
                         "event": "input-refused",
