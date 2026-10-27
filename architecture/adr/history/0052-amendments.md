@@ -420,3 +420,34 @@ this note; the log row; the digest entry; `CONNECTIVITY.md` §14;
 `human-client-android.md` §Android network lifecycle; the bridge's
 own comment (rust-ui-dev-01's cc12f4a8).
 
+### Amendment 2026-10-27 (iii) — The shared address space is on no local network, with or without a view
+
+#474's review noted that rule 10 withheld private-range addresses
+only (RFC 1918, ULA), so a carrier that numbers a phone's cellular or
+IMS interface from the shared address space, `100.64.0.0/10`
+(RFC 6598), would still have that address advertised by Identify;
+the book, Show and the punch offer sites already refused it as
+special-use, and rule 3 counts private listeners only, so Identify
+was the one surface it reached (p2p-network-dev-02's OBSERVATION
+01a17c11). Ruled: the range is on no local network unconditionally,
+with or without a platform view, the desktop with a cellular modem
+included, there being no classification to wait for. The first
+reason given — that the space is provider-numbered and no person's
+LAN — was wrong as a premise and p2p-network-dev-02 said so while
+building it (OBSERVATION 01a17c69): mesh overlays number a person's
+own peers from the same space, and ADR-0055 decision 5b's two-host
+case runs on it. The ruling stands on the record's own rules instead:
+rule 2's floor refuses the range as a peer-supplied candidate at
+every learn site, so no peer may learn and dial such an address of
+this node, advertising it serves nobody and withholding it costs
+nothing, whoever numbered it; a peer's address in that space enters
+by the configuration half of rule 9's operator door, as a static
+entry (ADR-0055 decision 5b, the run-time add keeping ADR-0062's
+floor); and should the floor ever admit the range for a peer-learned
+address, this treatment moves with it. Built by p2p-network-dev-02 on
+#476 (j84) as one predicate, with the owed case (a listener on a
+shared-space address, no view, not advertised, beside a private
+listener as the control). Propagation: rule 10; this note; the log
+row; the digest entry; the README row; `CONNECTIVITY.md` §14;
+`DCUTR.md` §6.
+
