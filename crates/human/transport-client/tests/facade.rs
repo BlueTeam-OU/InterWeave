@@ -2528,3 +2528,38 @@ async fn a_send_that_would_open_a_65th_endpoint_is_refused_before_a_row() {
         .expect("the default names no endpoint");
     assert_eq!(pending(&mut sender), 2);
 }
+
+/// A store read the bound's check needs that fails is a commit failure,
+/// as RETENTION.md's degrade rule says: the inbound is discarded unstored
+/// and counted so, never committed past the check. The read is made to
+/// fail by taking the contacts' routes, which the check reads and the
+/// commit does not write, from under the open store. Mutation: a failed
+/// read taken as admitting the endpoint.
+#[tokio::test]
+async fn a_failed_read_behind_the_endpoint_check_stores_nothing() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut receiver = client(
+        &b,
+        human(),
+        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+    );
+    ready(&mut receiver, 0).await;
+    rusqlite::Connection::open(&path)
+        .expect("a second connection")
+        .execute_batch("DROP TABLE contact_routes;")
+        .expect("the read's table gone");
+
+    let mut sender = client(&a, agent(), memory());
+    ready(&mut sender, 0).await;
+    sender
+        .send(to(b.peer()), &envelope("behind a failing read"), 0)
+        .await
+        .expect("sent");
+    sender.tick(0).await;
+    assert!(receiver.drain(16, 1).await.is_empty(), "nothing presented");
+    let d = receiver.diagnostics();
+    assert_eq!(d.dropped_unstored, 1, "counted as a commit failure");
+    assert_eq!(d.malformed_endpoint_bound, 0, "not as the bound");
+}
