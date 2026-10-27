@@ -2587,7 +2587,9 @@ impl Peers {
             }
             // A block whose Trust was pressed and left not known: a read
             // the person did not ask for decides it in place -- the page
-            // stays open and focus stays where it is (§5.3, §8).
+            // stays open and the model asks no focus move; focus on a
+            // control the decision took away is the view's to move, by
+            // `focus_after_block_decided` (§5.3, §8).
             let left_unknown = matches!(
                 block.problem,
                 Some(BlockProblem::Unknown | BlockProblem::SupersededUnread)
