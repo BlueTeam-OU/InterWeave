@@ -430,32 +430,35 @@ mod tests {
     }
 
     /// `send -`'s bound is on the read, not only on what was read: a
-    /// stdin far past it is refused having read at most the bound and a
-    /// byte, so the process's peak memory grows by much less than the
-    /// stdin (#495 review F5). Read from the kernel's high-water mark,
-    /// which a stdin read whole raises by its size. Mutation: the read's
-    /// `take` removed.
-    #[cfg(target_os = "linux")]
+    /// stdin far past it is refused having read exactly the bound and a
+    /// byte, counted at the reader (#495 review F5, F7). Mutations: the
+    /// read's `take` removed; its limit loosened.
     #[test]
-    fn a_stdin_far_past_its_bound_is_refused_without_being_read_whole() {
+    fn a_stdin_far_past_its_bound_is_refused_having_read_the_bound_and_a_byte() {
         use std::io::Read as _;
-        fn peak_kib() -> u64 {
-            std::fs::read_to_string("/proc/self/status")
-                .expect("status")
-                .lines()
-                .find_map(|l| l.strip_prefix("VmHWM:"))
-                .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
-                .expect("VmHWM")
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        struct Counting<R> {
+            inner: R,
+            read: Arc<AtomicU64>,
         }
-        const STDIN: u64 = 256 << 20;
-        let before = peak_kib();
-        let read = super::stdin_text(std::io::repeat(b'a').take(STDIN));
-        let grown = peak_kib().saturating_sub(before);
-        assert!(matches!(read, Err((1, _))), "{read:?}");
-        assert!(
-            grown < (STDIN >> 10) / 4,
-            "peak memory grew {grown} KiB for a {} KiB stdin",
-            STDIN >> 10
+        impl<R: std::io::Read> std::io::Read for Counting<R> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.inner.read(buf)?;
+                self.read.fetch_add(n as u64, Ordering::SeqCst);
+                Ok(n)
+            }
+        }
+        let read = Arc::new(AtomicU64::new(0));
+        let stdin = Counting {
+            inner: std::io::repeat(b'a').take(256 << 20),
+            read: Arc::clone(&read),
+        };
+        let answer = super::stdin_text(stdin);
+        assert!(matches!(answer, Err((1, _))), "{answer:?}");
+        assert_eq!(
+            read.load(Ordering::SeqCst),
+            super::MAX_SEND_STDIN_BYTES as u64 + 1
         );
     }
 }

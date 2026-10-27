@@ -1198,11 +1198,12 @@ fn a_reader_ahead_of_listen_waits_rather_than_growing() {
     reading.join().expect("the reader");
 }
 
-/// The line ceiling is checked as the bytes arrive: a line far past it is
-/// drained without being held, so the process's peak memory grows by much
-/// less than the line, and the next line is read (#495 review F5). Read
-/// from the kernel's high-water mark, which a line held whole before it is
-/// judged raises by its size. Mutation: a `read_until` of the whole line,
+/// The line ceiling is checked as the bytes arrive: a 256 MiB line far
+/// past it is drained while the process's peak memory grows by less than
+/// 16 MiB, and the next line is read (#495 review F5, F7). Read from the
+/// kernel's high-water mark, which a line held before it is judged raises
+/// by what is held. What it holds is that much: a part of the line under
+/// 16 MiB held is not seen. Mutation: a `read_until` of the whole line,
 /// then the length check.
 #[cfg(target_os = "linux")]
 #[test]
@@ -1228,7 +1229,7 @@ fn an_over_long_line_is_refused_without_being_held() {
         [Err("longer than 8 bytes".to_owned()), Ok("next".to_owned())]
     );
     assert!(
-        grown < (LINE >> 10) / 4,
+        grown < 16 << 10,
         "peak memory grew {grown} KiB for a {} KiB line",
         LINE >> 10
     );
