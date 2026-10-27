@@ -49,14 +49,13 @@
 //!
 //! # How a test uses it
 //!
-//! [`in_second_network`] (or [`in_overlay`]) at the top of the test: the outer copy re-runs
-//! the test's own binary inside the namespaces, asserts it passed, and
-//! returns `false`; the inner copy gets `true` and runs the body. Where
-//! user namespaces, `nft`, `iproute2` or util-linux's `unshare` (with
-//! `--kill-child`) and `setpriv` (with `--pdeathsig`) are unavailable
-//! the test FAILS,
-//! never skips (decided (7), ADR-0053 rule 9): a skip is a green check
-//! that asserted nothing.
+//! [`in_second_network`] (or [`in_overlay`]) at the top of the test: the
+//! outer copy re-runs the test's own binary inside the namespaces, asserts
+//! it passed, and returns `false`; the inner copy gets `true` and runs the
+//! body. Where user namespaces, `iproute2`, util-linux's `unshare` (with
+//! `--kill-child`) and `setpriv` (with `--pdeathsig`), or -- for the NATs'
+//! topology -- `nft` are unavailable the test FAILS, never skips (decided
+//! (7), ADR-0053 rule 9): a skip is a green check that asserted nothing.
 
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
