@@ -568,8 +568,9 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
 12. **The bound while open**: with a test bound small enough to reach
     (the builder's hook), read B's unread row, then open A and page up.
     With room left for fewer session-only rows than a page holds, the
-    next page loads without the limit row and brings no more rows than
-    that room; no read row is dropped. Page up again, with the session
+    next page loads without the limit row and brings no more rows that
+    become session-only than that room (kept rows in it may be more);
+    no read row is dropped. Page up again, with the session
     holding as many session-only rows as the bound allows: no page is
     fetched; the
     limit row shows with `EarlierAtLimit` and `EarlierShowAnyway`;
