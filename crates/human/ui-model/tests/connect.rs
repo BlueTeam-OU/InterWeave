@@ -442,6 +442,57 @@ fn a_trust_awaited_at_done_is_unknown_and_needs_trust_wins() {
     );
 }
 
+/// A Trust whose answer was lost as its page closed leaves the line not
+/// known; the answer landing later moves the line to what it says --
+/// trusted, Trust gone -- at the next turn, and a press of the line's
+/// Trust before that turn opens nothing on a peer the list now allows.
+/// A refusal read back the same way says not trusted.
+#[test]
+fn a_late_trust_answer_moves_connects_line() {
+    let (me, them) = (peer(), peer());
+    let change = TrustChange {
+        peer: them.clone(),
+        allowed: true,
+    };
+    let lost = |m: &mut UiModel| {
+        add_from_connect(m, &them, &[added(&them)]);
+        assert_eq!(
+            m.peers_input(PeersInput::Trust(them.clone())),
+            vec![Intent::SetTrust(change.clone())]
+        );
+        let _ = m.peers_input(PeersInput::Close);
+        assert_eq!(line(m), Some(ConnectLine::TrustUnknown));
+        assert_eq!(m.connect_turn(), None);
+        assert_eq!(line(m), Some(ConnectLine::TrustUnknown), "still lost");
+    };
+
+    let mut m = connect_open(&me);
+    lost(&mut m);
+    m.trust_settings_mut().set(
+        change.clone(),
+        Ok(trust_list(&me, std::slice::from_ref(&them))),
+    );
+    assert_eq!(m.connect_turn(), None);
+    assert_eq!(line(&m), Some(ConnectLine::Trusted), "the answer read");
+    assert!(m.connect().expect("open").to_trust().is_empty());
+
+    let mut p = connect_open(&me);
+    lost(&mut p);
+    p.trust_settings_mut().set(
+        change.clone(),
+        Ok(trust_list(&me, std::slice::from_ref(&them))),
+    );
+    assert!(p.connect_input(ConnectInput::Trust).is_empty());
+    assert!(!p.peers().add_open(), "nothing to reopen");
+    assert_eq!(line(&p), Some(ConnectLine::Trusted), "read at the press");
+
+    let mut n = connect_open(&me);
+    lost(&mut n);
+    n.trust_settings_mut().set(change, Ok(trust_list(&me, &[])));
+    assert_eq!(n.connect_turn(), None);
+    assert_eq!(line(&n), Some(ConnectLine::NeedsTrust), "read not trusted");
+}
+
 /// A press reaching Connect while a page it opened is up opens nothing.
 #[test]
 fn connect_opens_one_page_at_a_time() {

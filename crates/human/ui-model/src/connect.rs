@@ -12,6 +12,7 @@
 use interweave_transport_api::TransportIdentity;
 
 use crate::peers::ConnectAdd;
+use crate::trust::TrustSettings;
 
 /// What a start does about an owed Connect, said once
 /// ([`crate::UiModel::connect_turn`]).
@@ -174,6 +175,21 @@ impl Connect {
             ConnectFocus::Trust if !offers_trust => ConnectFocus::Continue,
             other => other,
         });
+    }
+
+    /// Each added peer's trust as the list now confirms it, so the line
+    /// and its Trust follow an answer that came after the page closed --
+    /// a Trust whose answer was lost, read back later. A list is
+    /// confirmed only once no change of it is lost
+    /// ([`TrustSettings::confirmed_list`]), so a Trust still lost leaves
+    /// its peer not known here (§5.3).
+    pub(crate) fn trust_read(&mut self, trust: &TrustSettings) {
+        let Some(list) = trust.confirmed_list() else {
+            return;
+        };
+        for add in &mut self.added {
+            add.trusted = Some(list.allows(&add.peer));
+        }
     }
 
     fn ask_focus(&mut self, focus: ConnectFocus) {

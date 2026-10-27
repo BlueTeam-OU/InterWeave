@@ -1381,6 +1381,8 @@ impl UiModel {
     /// it when both reads succeeded on two empty lists, settle it when
     /// either list has an entry or once the person left it, defer it
     /// when a read failed (§5.1, §5.6). `None` while nothing is to say.
+    /// While Connect is open, each turn reads its added peers' trust from
+    /// the list again, so its line follows an answer that came late.
     pub fn connect_turn(&mut self) -> Option<ConnectGate> {
         match self.connect {
             ConnectState::Owed => {
@@ -1402,7 +1404,11 @@ impl UiModel {
                 self.connect = ConnectState::Decided;
                 Some(ConnectGate::Settled)
             }
-            ConnectState::NotOwed | ConnectState::Open(_) | ConnectState::Decided => None,
+            ConnectState::Open(ref mut connect) => {
+                connect.trust_read(&self.trust);
+                None
+            }
+            ConnectState::NotOwed | ConnectState::Decided => None,
         }
     }
 
@@ -1420,6 +1426,7 @@ impl UiModel {
         let ConnectState::Open(connect) = &mut self.connect else {
             return Vec::new();
         };
+        connect.trust_read(&self.trust);
         // One page at a time: a press reaching Connect while a page it
         // opened is still up is a stale one.
         if self.peers.add_open() || self.peers.show().is_some() {
