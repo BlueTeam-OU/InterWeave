@@ -241,16 +241,17 @@ arrive; its conversation is in the share-again list either way, so
 the next share shows the counterparty the new key. The confirmation
 says so first (`KeyNewPending`), shown when any such row exists.
 
-A card the person cancelled before the step cannot come back with the
+A card the person cancelled before the step cannot be restored with the
 old key either. A Cancel's snackbar, and its Undo, are gone before
 Make a new key can be reached: the button is on the identity's card
-page, and opening that page leaves the conversation, which closes the
-snackbar (message-swipe §5's closing list; on a wide layout the page
+page; opening that page leaves the conversation, and leaving the
+conversation closes the snackbar (message-swipe §5's closing list; on a wide layout the page
 takes the conversation pane's place, cards §4). A Cancel whose success
 arrives after the person has left is only announced, with no Undo
-(message-swipe §6). Were a path to Make a new key ever added that
-keeps a conversation's snackbar up, the step closes that snackbar
-first, its Undo gone, as the step's own withdrawals have no Undo.
+(message-swipe §6). If a path to Make a new key is ever added that
+keeps a conversation's snackbar open, the step first closes that
+snackbar, and the snackbar's Undo with it. The step's own withdrawals
+have no Undo either.
 
 ### 5.3 The result
 
