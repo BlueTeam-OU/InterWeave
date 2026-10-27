@@ -54,7 +54,8 @@ GZCoord (REPLY 01a17c44 and 01a17c46), quoted, not re-run here.
   `enable`.
 - Uid 1016's `j125-hold` config, state and data directories were
   removed after the run; what is left of uid 1016's profiles is the
-  fleet's:
+  fleet's (the home directory's path, which `ls` printed in full, is
+  shortened to `~` here):
 
   ```
   $ ls ~/.config/interweave/profiles/ ~/.local/state/interweave/profiles/ ~/.local/share/interweave/profiles/
