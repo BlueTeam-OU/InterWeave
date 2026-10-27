@@ -104,8 +104,17 @@ impl View {
             line.map_or("", |l| placeholder_en::text(line_text(l)))
                 .into(),
         );
-        self.window
-            .set_connect_line_trust(line.is_some_and(ConnectLine::offers_trust));
+        let offers = line.is_some_and(ConnectLine::offers_trust);
+        // The line's Trust taken away under focus -- a late answer read its
+        // peer trusted -- would leave focus on nothing: it goes to
+        // Continue, which the line keeps.
+        if !offers
+            && self.window.get_connect_line_trust()
+            && self.window.get_focus_id() == focus_key(ConnectFocus::Trust)
+        {
+            self.focus_key_after_draw(focus_key(ConnectFocus::Continue).to_owned());
+        }
+        self.window.set_connect_line_trust(offers);
         // Nothing of Connect's is on screen while a page it opened is:
         // its requests and its line wait for that page to close.
         if page_up(model) {

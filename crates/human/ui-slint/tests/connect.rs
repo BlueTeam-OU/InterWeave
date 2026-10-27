@@ -329,6 +329,51 @@ fn a_return_says_the_line_when_its_page_did_something_counted() {
     assert!(!view.window().get_peers_snack_shown(), "no snackbar");
 }
 
+/// A Trust lost as step two closed leaves the line's Trust, with focus
+/// on it once step two was reopened from there; its answer read late
+/// takes Trust away and focus goes to Continue, never to nothing.
+#[test]
+fn a_late_trust_answer_takes_trust_away_and_focus_goes_to_continue() {
+    let mut view = view();
+    let (me, them) = (peer(), peer());
+    let mut model = connect_open(&mut view, &me);
+    add_from_connect(&mut view, &mut model, &them);
+    press(&view, text(UiText::NotNow));
+    let _ = intents(&mut view, &mut model);
+    press(&view, text(UiText::TrustThisPeer));
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_peers_add_open(), "step two again");
+    press(&view, text(UiText::TrustThisPeer));
+    let change = TrustChange {
+        peer: them.clone(),
+        allowed: true,
+    };
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::SetTrust(change.clone())]
+    );
+    assert!(view.window().invoke_handle_back(), "Back while awaited");
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_connect_line().as_str(),
+        text(UiText::ConnectDoneTrustUnknown)
+    );
+    assert_eq!(view.window().get_focus_id().as_str(), "connect-trust");
+
+    model
+        .trust_settings_mut()
+        .set(change, Ok(trust_list(&me, std::slice::from_ref(&them))));
+    assert_eq!(model.connect_turn(), None);
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_connect_line().as_str(),
+        text(UiText::ConnectDoneTrusted)
+    );
+    assert!(!view.window().get_connect_line_trust());
+    assert_eq!(focus(&view), "connect-continue");
+    assert_eq!(view.window().get_focus_id().as_str(), "connect-continue");
+}
+
 /// Every element of `view` with a label and a size lies inside `width`.
 fn overflowing(view: &View, width: f32) -> Vec<String> {
     i_slint_backend_testing::ElementQuery::from_root(view.window())
