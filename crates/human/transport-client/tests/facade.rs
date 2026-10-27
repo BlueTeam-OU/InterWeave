@@ -462,6 +462,47 @@ async fn after_a_restart_a_pending_row_is_reported_once_and_resent_under_its_id(
     );
 }
 
+/// A pending row whose bytes this build cannot decode is resent all the
+/// same after a restart: the facade sends the stored bytes and never reads
+/// them, so a row the listing cannot show is still retried (j68 P2-1,
+/// constraint (b) of design/2026-10-27-start-window.md). Mutation: the
+/// row skipped at the restart's load.
+#[tokio::test]
+async fn a_pending_row_that_does_not_decode_is_resent_after_a_restart() {
+    use interweave_human_store::{AppMessageId, NewOutbound, OutboundDestination};
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let held = raw(&b, Some(human())).await;
+    let transport = MessageId::parse_hex(&format!("{:032x}", rand_id() + 7)).expect("an id");
+    {
+        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("store");
+        store
+            .commit_pending_outbound(&NewOutbound {
+                app_message_id: AppMessageId::parse(format!("{:032x}", rand_id())).expect("an id"),
+                transport_message_id: transport,
+                destination: OutboundDestination::Direct(DirectDestination::to_default(
+                    b.peer().clone(),
+                )),
+                media_type: None,
+                payload: b"no envelope a build can read".to_vec(),
+                created_at: 0,
+            })
+            .expect("committed");
+    }
+    let mut restarted = client(
+        &a,
+        agent(),
+        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+    );
+    ready(&mut restarted, 10).await;
+    assert_eq!(
+        last_status(&mut restarted),
+        OutboundStatus::Accepted { endpoint: human() }
+    );
+    assert_eq!(raw_direct_ids(&held).await, [transport], "resent as stored");
+}
+
 #[tokio::test]
 async fn a_cancel_after_an_unconfirmed_attempt_says_it_may_have_reached() {
     let (a, b) = FakeNetwork::pair(node_config(), node_config());
