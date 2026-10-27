@@ -12,13 +12,12 @@
 //! What the case checks, beside what `tests/desktop-e2e`'s
 //! `the_control_plane_carrier_sends_consumes_and_names_its_endpoint` already
 //! shows of the CLI alone:
-//! - both leases held on one daemon at once, and each carrier holding
+//! - both leases held on one daemon at once, each carrier holding
 //!   exactly the frames sent to its endpoint, so no `fabric-control` line
-//!   reaches `gzcoord`. The other direction is not observable here: the
-//!   CLI's facade drops, unprinted, a payload that is not a `HumanChatV2`
-//!   envelope, so a carrier frame misrouted to `fabric-control` would show
-//!   nothing; that direction rests on direct v2 resolving to exactly one
-//!   destination endpoint;
+//!   reaches `gzcoord`; and a frame the CLI would print -- a `HumanChatV2`
+//!   envelope, which its facade reads from any endpoint -- sent to the
+//!   peer's `gzcoord` never printed by the peer's CLI, beside the same
+//!   envelope sent to `fabric-control`, which is (the positive control);
 //! - no message row left in either profile's human store once the lines
 //!   were consumed and the sends accepted;
 //! - a `send --no-pending` that expired while the peer's daemon was down
@@ -43,7 +42,7 @@ use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort 
 use interweave_test_support::e2e::{
     Daemon, Home, PATIENCE, free_port, private_tempdir, workspace_binary,
 };
-use interweave_transport_api::{MessageId, TransportIdentity};
+use interweave_transport_api::{EndpointId, MediaType, MessageId, Payload, TransportIdentity};
 use serde_json::Value;
 
 /// The fleet's endpoint, client kind and (unused) channel.
@@ -362,6 +361,32 @@ fn no_rows(home: &Home, conversation: &str) {
     );
 }
 
+fn endpoint(name: &str) -> EndpointId {
+    EndpointId::parse(name).expect("an endpoint id")
+}
+
+/// `text` as a `HumanChatV2` text message from `gzcoord`, the frame a human
+/// client reads (`interweave_human_chat_protocol`'s media type, spelled
+/// out: this suite does not depend on the human crates).
+fn envelope(n: u8, text: &str) -> Payload {
+    let body = serde_json::json!({
+        "v": 2,
+        "kind": "text",
+        "app_message_id": format!("{n:032x}"),
+        "text": text,
+        "sent_at_ms": 1,
+        "from_endpoint": CARRIER,
+    });
+    Payload::at_ceiling(
+        Some(
+            MediaType::parse("application/vnd.interweave-human-chat+json;v=2")
+                .expect("a media type"),
+        ),
+        body.to_string().into_bytes(),
+    )
+    .expect("within the ceiling")
+}
+
 fn id(n: u8) -> MessageId {
     MessageId::from_bytes([n; 16])
 }
@@ -430,6 +455,41 @@ async fn the_carrier_and_the_control_cli_share_one_profile_and_leave_no_row() {
         c.received.inbound.iter().map(|m| m.message_id).collect()
     };
     assert_eq!(ids(&carrier_b), [id(1)], "{:?}", carrier_b.received.inbound);
+
+    // A frame the CLI prints, from A's carrier: to B's fabric-control it
+    // is printed (the control); to B's gzcoord it reaches B's carrier and
+    // never B's CLI.
+    let to_control = envelope(2, "typed to control");
+    let sent = carrier_a
+        .send_payload_once(&b.peer, endpoint(CONTROL), id(2), to_control)
+        .await;
+    assert!(sent.is_ok(), "{sent:?}\n{}", a.log());
+    cli_b.until("the typed frame sent to fabric-control", |l| {
+        l["event"] == "message" && l["text"] == "typed to control"
+    });
+    let to_carrier = envelope(3, "typed to the carrier");
+    let sent = carrier_a
+        .send_payload_once(&b.peer, endpoint(CARRIER), id(3), to_carrier)
+        .await;
+    assert!(sent.is_ok(), "{sent:?}\n{}", a.log());
+    assert!(
+        carrier_b
+            .pump_until(PATIENCE, |r| r
+                .inbound
+                .iter()
+                .any(|m| m.message_id == id(3)))
+            .await,
+        "the typed frame reached B's carrier\n{}",
+        b.log()
+    );
+    let printed = cli_b.within(QUIET, |l| {
+        l["event"] == "message" && l["text"] == "typed to the carrier"
+    });
+    assert!(
+        printed.is_none() && !cli_b.heard("typed to the carrier"),
+        "a frame sent to gzcoord reached fabric-control: {:?}",
+        cli_b.seen
+    );
     assert!(
         ids(&carrier_a).is_empty(),
         "{:?}",
