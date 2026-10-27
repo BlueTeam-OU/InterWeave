@@ -568,6 +568,61 @@ async fn an_input_sends_outbound_event_names_its_problem() {
     );
 }
 
+/// A line's `ref` is capped at [`verbs::MAX_INPUT_REF_BYTES`] serialised:
+/// one at the cap is sent and echoed; one byte over is refused
+/// input-refused with `ref` null, the send not made. Mutation: the cap
+/// taken as exclusive.
+#[tokio::test]
+async fn a_ref_past_its_cap_is_refused_and_one_at_it_is_echoed() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    // A JSON string serialises with its two quotes.
+    let at_cap = "a".repeat(verbs::MAX_INPUT_REF_BYTES - 2);
+    let over = "b".repeat(verbs::MAX_INPUT_REF_BYTES - 1);
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    for (text, reference) in [("over", &over), ("at the cap", &at_cap)] {
+        let line = json!({"send": {"conversation": to_alice, "text": text, "ref": reference}});
+        lines_in.try_send(Ok(line.to_string())).expect("queued");
+    }
+    drop(lines_in);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_000)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    let refused: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "input-refused")
+        .collect();
+    assert_eq!(refused.len(), 1, "{out}");
+    assert_eq!(refused[0]["ref"], Value::Null, "{out}");
+    assert!(
+        events
+            .iter()
+            .any(|e| e["event"] == "outbound" && e["ref"] == Value::String(at_cap.clone())),
+        "{out}"
+    );
+    assert!(!out.contains(&over), "the long ref is echoed nowhere");
+}
+
 /// G3: `listen --consume` marks each message read once its line is
 /// written, so the store holds it unread no more. Mutation: consume
 /// marking nothing.

@@ -960,6 +960,12 @@ const _: () = assert!(
         <= MAX_INPUT_LINE_BYTES
 );
 
+/// The most bytes an input line's `ref` may take, serialised as listen
+/// echoes it: one is kept for every row the line's send left pending, so
+/// what the refs hold is this times the store's pending rows
+/// (`a_ref_past_its_cap_is_refused_and_one_at_it_is_echoed`).
+pub(crate) const MAX_INPUT_REF_BYTES: usize = 256;
+
 /// The lines read and not yet taken by `listen`: past it the reading
 /// thread waits, so a producer faster than the sends holds the pipe, not
 /// this process's memory (`a_reader_ahead_of_listen_waits_rather_than_growing`).
@@ -1062,6 +1068,13 @@ fn input_send<B: DataSessionBinding, A: AdminBinding>(
         .and_then(|v| v.get("ref"))
         .cloned()
         .unwrap_or(serde_json::Value::Null);
+    // A ref not taken cannot be echoed: refused with none.
+    if serde_json::to_string(&reference).map_or(usize::MAX, |r| r.len()) > MAX_INPUT_REF_BYTES {
+        return Err((
+            serde_json::Value::Null,
+            format!("a ref longer than {MAX_INPUT_REF_BYTES} bytes"),
+        ));
+    }
     let refused = |why: &str| (reference.clone(), why.to_owned());
     let send = send.ok_or_else(|| refused("not a send: {\"send\": {...}}"))?;
     let conversation = send
