@@ -1439,14 +1439,9 @@ impl View {
         window.set_contacts_title(text(UiText::ContactsTitle).into());
         window.set_own_card_title(text(UiText::OwnCardTitle).into());
         window.set_contacts_empty(text(UiText::ContactsEmpty).into());
-        let mut contacts: Vec<ContactView> = model.contacts().to_vec();
-        contacts.sort_by(|a, b| {
-            a.name
-                .to_lowercase()
-                .cmp(&b.name.to_lowercase())
-                .then_with(|| a.name.cmp(&b.name))
-                .then_with(|| a.contact_id.cmp(&b.contact_id))
-        });
+        // The model holds the contacts in the client's one order
+        // (human-client-ui.md section 3); the list is drawn in it.
+        let contacts: Vec<ContactView> = model.contacts().to_vec();
         let rows = Rc::clone(
             self.cards
                 .contact_rows

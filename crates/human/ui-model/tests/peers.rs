@@ -2703,8 +2703,10 @@ fn a_read_ends_only_the_trusts_sent_before_it() {
 }
 
 /// The contact names on a row's `PeerId` (§5.2): every contact of the
-/// identity in front with a route on it, one name each, in order --
-/// case set aside, then the exact name -- and none for another `PeerId`.
+/// identity in front with a route on it, one name each, in the contacts'
+/// one order (`contact_order`, human-client-ui.md section 3), and none
+/// for another `PeerId`. Mutation: the lowercase-then-exact-name order
+/// this replaced puts "Ben" before "ben" and "Åke" last.
 #[test]
 fn a_rows_contact_names_are_every_contact_on_its_peer_in_order() {
     use interweave_human_ui_model::{ContactView, RouteView};
@@ -2730,14 +2732,13 @@ fn a_rows_contact_names_are_every_contact_on_its_peer_in_order() {
         contact("2", "Smith, John", &p, "home"),
         contact("3", "Alice", &q, "home"),
         contact("4", "Mum and Dad", &p, "family"),
+        contact("5", "Ben", &p, "b1"),
+        contact("6", "Åke", &p, "a"),
+        contact("7", "ben", &p, "b2"),
     ]);
     assert_eq!(
         m.contact_names_on(&p),
-        vec![
-            "Mum and Dad".to_owned(),
-            "Smith, John".to_owned(),
-            "zoe".to_owned()
-        ]
+        ["Åke", "ben", "Ben", "Mum and Dad", "Smith, John", "zoe"]
     );
     assert_eq!(m.contact_names_on(&q), vec!["Alice".to_owned()]);
     assert!(m.contact_names_on(&peer()).is_empty());
