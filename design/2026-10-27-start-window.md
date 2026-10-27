@@ -523,7 +523,8 @@ The words are language-culture's; these say what each must do.
 | `EarlierShowAnyway` | Show more messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
 | `EarlierLoading` | Loading more messages | the progress row's accessible name (§5), at the top edge or in a gap (§5.1); never visible text | that more rows are on their way |
 | `EarlierLoadFailed` | Could not load more messages. | the failure row (§5), at the top edge or in a gap (§5.1), and its announcement | that the rows could not be read; must not suggest they are lost |
-| `CardContactsUnread` | InterWeave could not check this card against your contacts, so you cannot accept it yet. | a proposal's case line, and Details' naming, while the contacts are unread (§11) | that the comparison with the person's contacts could not be made and why Accept is missing; must not suggest the card is unsafe or the contacts lost |
+| `CardContactsUnread` | InterWeave could not check this card against your contacts, so you cannot accept it yet. | a proposal's case line while the contacts are unread (§11) | that the comparison with the person's contacts could not be made and why Accept is missing; must not suggest the card is unsafe or the contacts lost |
+| `NamingContactsUnread` | InterWeave could not read your contacts, so you cannot add this person as a contact yet. | Details, in place of naming by hand, while the contacts are unread (§11) | that the contacts could not be read and that adding a contact waits for that; names no card; must not suggest the contacts are lost |
 | `ContactsLoadFailed` | Could not load your contacts. | the Contacts list's failure row, when the read of every contact fails (§11), and its announcement | that the contacts could not be read just now; must not suggest they are lost or that there are none |
 
 `TryAgain` exists and is reused.
@@ -608,8 +609,10 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     the same success shows `ContactsEmpty`, with focus on it. With the
     read failed, a card "Anna Rossi" arriving while a contact "Anna
     Rossi" exists shows `CardContactsUnread`, no Accept and no
-    `CardSameName`, and a right swipe on it does nothing; Details
-    offers no naming. After Try again succeeds, the row shows
+    `CardSameName`, and a right swipe on it does nothing, while a left
+    swipe declines it as on any proposal, and its menu and its screen
+    reader actions offer Decline and no Accept; Details shows
+    `NamingContactsUnread` and no naming. After Try again succeeds, the row shows
     `CardSameName` and Accept as a new contact, with nothing announced.
 11a. **Preview bound** (§3): a conversation whose newest row's first
     line is 300 characters long previews its first 160 characters and
@@ -834,8 +837,9 @@ line. Two of five failing is enough to reopen §6.
   `CardContactsUnread`: InterWeave could not check this card against
   your contacts, so it cannot be accepted yet. It offers no Accept,
   so its right swipe does nothing (contact-cards §5.4.4, a row with no
-  Accept). Details' naming by hand (contact-cards §5.6) is withheld in
-  the same way, with the same line in its place, because it writes a
+  Accept); a left swipe still declines it, and its menu and its screen
+  reader actions (contact-cards §8) offer no Accept. Details' naming by hand (contact-cards §5.6) is withheld in
+  the same way, with `NamingContactsUnread` in its place, because it writes a
   contact without knowing whether the route is already under one.
   When a read succeeds, from Contacts' Try again or the next start,
   every such proposal shows its case and its Accept. That is a change
