@@ -659,8 +659,8 @@ line. Two of five failing is enough to reopen §6.
   store; contact-cards §5.4.1 says so once. On a contact page,
   `ContactSharesDevice` has one line for each other contact on that
   PeerId (contact-cards §6.3): all are shown, and they are at most 63,
-  since a PeerId holds at most 64 endpoints
-  (`architecture/contracts/ENDPOINTS.md`).
+  since a 65th distinct source endpoint of a peer is malformed and
+  stores nothing (§3, architect-cto's REPLY 01a17be2).
 - **Photos may load on demand** (U2 of QUESTION 01a17dc9). In the
   Contacts list, on Chats and in the app bar, a contact whose photo
   has not arrived shows its initials avatar (contact-cards §6.1), at
