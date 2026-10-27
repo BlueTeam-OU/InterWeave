@@ -590,11 +590,12 @@ fn an_unknown_removal_focuses_the_snackbars_try_again() {
     assert_eq!(view.window().get_focus_id().as_str(), "peers-snack-action");
 }
 
-/// The add page's back arrow is `AddClose` (design section 5.3): it goes
-/// back to Peers, so it never reads "Back to conversations", which the
-/// same arrow reads on Peers itself, where it does go there.
+/// The back arrow of the add page and of Show is `AddClose` (design
+/// sections 5.3, 5.4, acceptance 7): each goes back to Peers, so it never
+/// reads "Back to conversations", which the same arrow reads on Peers
+/// itself, where it does go there.
 #[test]
-fn the_add_pages_back_arrow_names_no_conversations() {
+fn the_add_and_show_pages_back_arrow_names_no_conversations() {
     let mut view = view();
     let mut model = UiModel::new();
     open_peers(&mut view, &mut model, &peer(), &[], &[]);
@@ -622,6 +623,23 @@ fn the_add_pages_back_arrow_names_no_conversations() {
         "Peers, not the conversations"
     );
     assert_eq!(view.window().get_focus_id().as_str(), "add-address");
+    assert!(labelled(&view, text(UiText::AddClose)).is_empty());
+
+    press(&view, text(UiText::ShowMyAddress));
+    let _ = intents(&mut view, &mut model);
+    slint::platform::update_timers_and_animations();
+    assert!(view.window().get_peers_show_open());
+    assert_eq!(
+        labelled(&view, text(UiText::BackToConversations)).len(),
+        on_peers - 1,
+        "Show's arrow no longer says conversations"
+    );
+    press(&view, text(UiText::AddClose));
+    let _ = intents(&mut view, &mut model);
+    slint::platform::update_timers_and_animations();
+    assert!(!view.window().get_peers_show_open(), "back to Peers");
+    assert!(view.window().get_peers_page());
+    assert_eq!(view.window().get_focus_target().as_str(), "show-my-address");
     assert!(labelled(&view, text(UiText::AddClose)).is_empty());
 }
 
