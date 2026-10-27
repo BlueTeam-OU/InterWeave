@@ -6652,6 +6652,17 @@ owner:
   identity is unkeyed (#437's desktop-e2e limit).
 - The no-reach notice: a ui-model test only; not on a device —
   rust-ui-dev-01's, with the next device record.
+- One's own card row (design 5.5): a shared card is pending outbound
+  under RETENTION.md and reaches Accepted, Not sent or Cancel like any
+  sent message, but the client shows it no row — `listing::list_all`
+  decodes a pending row only as a message, the model holds no item for
+  a card row, so Retry and Cancel are never offered on a Not sent card
+  and item 13's withdrawal removes a row nobody sees (rust-ui-dev-02,
+  2026-10-27, QUESTION 01a17ade; the ui-slint README names it on their
+  branch). Not named by this gate, which proves the card's sending and
+  acceptance and not the sender's view of it; rust-ui-dev-02's, j54's
+  next batch, with `CardSentLabel`, the status line and kind C swipes
+  as 5.5 specifies.
 - The fresh-pair row's one-sided step in the other direction (B
   trusting first) was not run; which side dialled in its step 3, and
   from which source, is not told apart (the peer cache was on):
