@@ -1087,7 +1087,7 @@ announced as §7 says.
   unread item does.
 - **List preview** of a conversation whose last item is a card:
   `CardPreviewReceived` ("Contact card") or, for one's own,
-  `CardPreviewSent` ("You shared a card"). Never the claimed name: the
+  `CardPreviewSent` ("Your contact card"). Never the claimed name: the
   list has no PeerId beside it to frame the claim.
 - **Notification** (`human-client-ui.md` §10): the conversation's title
   (the short PeerId until Accept) and `CardNotification` ("You received
@@ -1099,7 +1099,7 @@ announced as §7 says.
 
 An outbound card is shown as a row at the end side in the sent bubble's
 colour (`primary-container`), holding the card as sent (avatar or photo,
-name and surname) and the line `CardSentLabel`: "You shared your card",
+name and surname) and the line `CardSentLabel`: "Your contact card",
 then the status and time as for any sent message. The card shown is the
 one that was sent, not the identity's card as it is now: an edit after
 the share does not rewrite the row (`CardSharedStays`).
@@ -1644,7 +1644,7 @@ accessibility tree) are checked now.
   `CardAccepted` or `CardUpdated` (with the name as saved), then
   `CardPhotoNotUsed` or `CardPhotoNotUsedRemoved` when one shows, then, while the Accept's snackbar
   is open, `CardUndoHint` as its description.
-- Own card row: "You shared your card", the name and surname as sent,
+- Own card row: "Your contact card", the name and surname as sent,
   `CardSentPhoto` when the card as sent carried a photo (the photo
   itself is not described: what matters is that it is in the card;
   it is read in every state of the row, Sending and Not sent included,
@@ -2187,10 +2187,10 @@ and are for them to write.
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo; not announced (§8 Announcements) |
 | `CardUndoHint` | You can undo this change. Undo comes after all the messages in this conversation. | accessible description of the confirmation row while the Accept's snackbar is open (§5.4.2), never shown as text; must say that the save can be undone and where the Undo is, in a phrase read after `CardAccepted` or `CardUpdated` |
 | `ConfirmCardDeclined` | Card declined | snackbar, with Undo |
-| `CardPreviewReceived` / `CardPreviewSent` | Contact card / You shared a card | list previews |
+| `CardPreviewReceived` / `CardPreviewSent` | Contact card / Your contact card | list previews |
 | `CardNotification` | You received a contact card. | notification body; never the name |
 | `AnnounceCard` | New contact card | live announcement |
-| `CardSentLabel` | You shared your card | own card row |
+| `CardSentLabel` | Your contact card | own card row |
 | `CardSentPhoto` | The card includes your photo. | own card row, accessible description only, when the card as sent carried a photo (§8), read in every state of the row, so it claims no delivery |
 | `AddAsContact` / `OpenContact` | Add as a contact / Open contact | Details |
 | `DetailsNoCard` | You have not shared your card here. | Details |
