@@ -4,7 +4,7 @@
 
 It is the desktop client's composition with no display: the same store, facade (`crates/human/app-core`) and model (`crates/human/ui-model`), over the daemon's data socket. A verb is a script of what a person does in the window (view a conversation, type and press Send, press Cancel on a row, confirm a trust change), and the model resolves it into the commands the facade carries out (`src/session.rs`, `src/verbs.rs`). A view never reaches past the facade, and this one is no exception. `identities` and `peers` are the exceptions the model leaves: no model holds an endpoint's administration or the profile's bootstrap addresses, so they call the daemon's admin methods, as `transportctl` does, `identities` narrowed to the profile's human endpoints. `store health` and `store discard` work on the store's files and key alone.
 
-`interweave-human --help` prints every verb and every exit code. `interweave-human --version`, alone, prints the workspace version with the commit it was built from as build metadata, `interweave-human 0.1.0+<twelve hex digits>` (ADR-0065 decision 6); beside any other argument it is a usage error.
+`interweave-human --help` prints every verb and every exit code. `interweave-human --version`, alone, prints the workspace version with the commit it was built from as build metadata, `interweave-human <version>+<twelve hex digits>`, the version being the workspace's (`Cargo.toml`) and never written here, so no release has to change this line (ADR-0065 decision 6); beside any other argument it is a usage error.
 
 ## Batches
 
