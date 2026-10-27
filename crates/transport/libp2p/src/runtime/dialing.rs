@@ -953,12 +953,18 @@ fn learn_advertised(
 /// (`an_identify_address_refused_by_rule_3_enters_the_book_when_the_boundary_widens`,
 /// and on the wire
 /// `a_peer_that_left_is_not_judged_again_when_a_private_listener_binds`).
-/// Per peer and per address family, at most `MAX_ADDRESSES_PER_PEER`,
-/// the most the book keeps for one: rule 3's refusal is per family, so
-/// a family's widening finds that family's addresses held however many
-/// of the other the peer listed first
+/// HELD AS THE BOOK KEYS THEM: one entry per distinct route under
+/// `canonical_dial_address`, the key `learn_route` writes, so a peer
+/// repeating a route -- byte for byte, with and without its own `/p2p`
+/// suffix, a circuit with and without its own tail -- holds it once and
+/// cannot crowd out another; and per address family, at most
+/// `MAX_ADDRESSES_PER_PEER`, the ceiling any profile may configure the
+/// book to keep per peer (not this profile's own setting, which a
+/// re-judgement meets in the book): rule 3's refusal is per family, so
+/// a family's widening finds that family's routes held however many of
+/// the other the peer listed first
 /// (`a_peer_advertising_more_private_addresses_than_the_book_keeps_is_held_to_the_cap`,
-/// review F1 of #468 by the second engine).
+/// review F1 of #468 by the second engine, at 85af4d8d and 38c1d8b9).
 /// Each Identify replaces the peer's entry.
 #[derive(Debug, Default)]
 pub(super) struct HeldBack {
@@ -979,7 +985,11 @@ impl HeldBack {
     ) {
         let cap = interweave_transport_runtime::connection_manager::MAX_ADDRESSES_PER_PEER;
         let (mut v4, mut v6) = (0, 0);
+        let mut routes = std::collections::HashSet::new();
         refused.retain(|address| {
+            if !routes.insert(canonical_dial_address(peer, &address.to_string())) {
+                return false;
+            }
             let kept = if is_v6_family(address) {
                 &mut v6
             } else {
@@ -3724,10 +3734,10 @@ mod tests {
         );
     }
 
-    /// What a peer's Identify had refused is held up to
-    /// `MAX_ADDRESSES_PER_PEER`, the most the book keeps for one peer:
-    /// the list is written by the party being described, so its length
-    /// is the peer's choice and the hold must not be.
+    /// What a peer's Identify had refused is held as distinct routes, up
+    /// to `MAX_ADDRESSES_PER_PEER` per family: the list is written by
+    /// the party being described, so its length, its order and its
+    /// repeats are the peer's choice and the hold must not be.
     #[test]
     fn a_peer_advertising_more_private_addresses_than_the_book_keeps_is_held_to_the_cap() {
         use super::HeldBack;
@@ -3771,6 +3781,42 @@ mod tests {
             held.held(&peer),
             2,
             "the control: a short list is held whole"
+        );
+
+        // REPEATS ARE ONE ROUTE, as the book keys them: a full cap of one
+        // route's copies ahead of a second route holds both, and a
+        // widening puts both in the book.
+        let (a, b) = (many[0].clone(), many[1].clone());
+        let mut repeats = vec![a.clone(); MAX_ADDRESSES_PER_PEER];
+        repeats.push(b.clone());
+        held.hold(&peer, repeats, &open);
+        assert_eq!(
+            held.held(&peer),
+            2,
+            "32 copies of A, then B: two routes held"
+        );
+        let stores = crate::store_refusals::StoreRefusals::new();
+        let operator = crate::operator_set::OperatorSet::new();
+        let lan = vec!["/ip4/10.0.0.9/tcp/4001".to_owned()];
+        let mut boundary = AdvertisedBoundary {
+            own_listeners: &lan,
+            stores: &stores,
+            operator: &operator,
+        };
+        held.relearn(1, &mut m, &mut boundary, 0);
+        assert_eq!(m.known_addresses(&peer), 2, "both routes entered the book");
+        // And the same route in its other spellings: with the advertiser's
+        // own suffix, and a circuit with and without its own tail.
+        let suffixed: Multiaddr = format!("{a}/p2p/{RELAY}").parse().expect("valid");
+        let circuit: Multiaddr = format!("/ip4/10.0.0.2/tcp/4001/p2p/{FAR}/p2p-circuit")
+            .parse()
+            .expect("valid");
+        let tailed: Multiaddr = format!("{circuit}/p2p/{RELAY}").parse().expect("valid");
+        held.hold(&peer, vec![a, suffixed, circuit, tailed], &open);
+        assert_eq!(
+            held.held(&peer),
+            2,
+            "a route and its suffixed spelling are one, a circuit and its tailed spelling one"
         );
     }
 
