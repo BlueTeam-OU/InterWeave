@@ -3,7 +3,7 @@
 //! A second network on one host: plan section 21's decided (7). Two
 //! network namespaces, A and B, each behind its own NAT, the relay in a
 //! third, all inside one unprivileged user namespace, so a test needs no
-//! capability in the host's namespaces.
+//! capability in the host's namespaces ([`in_second_network`]).
 //!
 //! ```text
 //!   A 10.1.0.2 -- NAT-A -- 203.0.113.2 \
@@ -20,6 +20,21 @@
 //! counts what it drops ([`inward_drops`]): the refusal a test asserts
 //! is the NAT's, not an unroutable address's.
 //!
+//! # The overlay: two hosts on one private link
+//!
+//! The other topology ([`in_overlay`], ADR-0055 decision 5b): A and B
+//! alone, joined by one point-to-point link on a carrier-grade prefix,
+//! as an overlay a deployment provides would join two hosts -- no NAT,
+//! no router, nothing between them.
+//!
+//! ```text
+//!   A 100.64.0.1/30 (w0) ---- (w1) 100.64.0.2/30 B
+//! ```
+//!
+//! [`overlay_down`] deletes the link, both ends with it, as an overlay
+//! interface taken down goes; [`overlay_up`] makes it again, the same
+//! addresses on the same names.
+//!
 //! # Why the namespace has a root of its own
 //!
 //! An unprivileged user namespace cannot map the host's root, so `/` and
@@ -34,7 +49,7 @@
 //!
 //! # How a test uses it
 //!
-//! [`in_second_network`] at the top of the test: the outer copy re-runs
+//! [`in_second_network`] (or [`in_overlay`]) at the top of the test: the outer copy re-runs
 //! the test's own binary inside the namespaces, asserts it passed, and
 //! returns `false`; the inner copy gets `true` and runs the body. Where
 //! user namespaces, `nft`, `iproute2` or util-linux's `unshare` (with
@@ -64,6 +79,10 @@ pub const ROOT_PARENT: &str = "INTERWEAVE_E2E_SECOND_NETWORK_ROOT_PARENT";
 /// Set in the inner copy; its value is unused.
 pub const NETNS_ENV: &str = "INTERWEAVE_E2E_SECOND_NETWORK";
 
+/// A's address in the overlay, on its end of the link.
+pub const OVERLAY_A: Ipv4Addr = Ipv4Addr::new(100, 64, 0, 1);
+/// B's address in the overlay, on its end of the link.
+pub const OVERLAY_B: Ipv4Addr = Ipv4Addr::new(100, 64, 0, 2);
 /// A's address, behind NAT-A.
 pub const A: Ipv4Addr = Ipv4Addr::new(10, 1, 0, 2);
 /// B's address, behind NAT-B.
@@ -78,9 +97,9 @@ pub const RELAY: Ipv4Addr = Ipv4Addr::new(203, 0, 113, 10);
 /// One of the namespaces a test places something in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Net {
-    /// Behind NAT-A.
+    /// Behind NAT-A; in the overlay, A's end of the link.
     A,
-    /// Behind NAT-B.
+    /// Behind NAT-B; in the overlay, B's end of the link.
     B,
     /// The relay's, on the core.
     Relay,
@@ -105,15 +124,19 @@ impl Net {
     }
 }
 
-/// The topology, as the inner copy's shell builds it before it execs the
-/// test: `$1` is the new root. Every step is `set -e`: a namespace that
-/// half-built fails the run.
-const SETUP: &str = r#"
+/// What both topologies' shells begin with: `$1` is the new root.
+/// Every step is `set -e`: a namespace that half-built fails the run.
+const PRELUDE: &str = r#"
 set -e
 NR="$1"; shift
 # The network first: `ip -n` remounts /sys as it switches, which the
 # pivoted root refuses. /run, holding the namespaces, is carried over.
 mount -t tmpfs -o mode=0755 none /run; mkdir /run/netns
+"#;
+
+/// The NATs' topology, built inside the inner copy before it execs the
+/// test.
+const NAT_NETWORK: &str = r#"
 for n in core natA natB A B R; do ip netns add $n; ip -n $n link set lo up; done
 link() { ip link add "$1" type veth peer name "$3"; ip link set "$1" netns "$2"; ip link set "$3" netns "$4"; ip -n "$2" link set "$1" up; ip -n "$4" link set "$3" up; }
 link a0 A a1 natA; ip -n A addr add 10.1.0.2/24 dev a0; ip -n natA addr add 10.1.0.1/24 dev a1; ip -n A route add default via 10.1.0.1
@@ -146,6 +169,29 @@ nat natB nb b1
 # it, is what refuses it (counted, `inward_drops`).
 ip -n core route add 10.1.0.0/24 via 203.0.113.2
 ip -n core route add 10.2.0.0/24 via 203.0.113.6
+"#;
+
+/// The overlay's two namespaces; [`OVERLAY_UP`] then makes the link.
+const OVERLAY_NETWORK: &str = r"
+for n in A B; do ip netns add $n; ip -n $n link set lo up; done
+";
+
+/// The overlay's link, made: by the setup, and by [`overlay_up`] from the
+/// pivoted root, where `ip -n` is refused -- so every step in a namespace
+/// is `nsenter`'s.
+const OVERLAY_UP: &str = r"
+ip link add w0 type veth peer name w1
+ip link set w0 netns A; ip link set w1 netns B
+nsenter --net=/run/netns/A sh -c 'ip addr add 100.64.0.1/30 dev w0 && ip link set w0 up'
+nsenter --net=/run/netns/B sh -c 'ip addr add 100.64.0.2/30 dev w1 && ip link set w1 up'
+";
+
+/// The overlay's link, deleted: a veth goes with both its ends.
+const OVERLAY_DOWN: &str = "nsenter --net=/run/netns/A ip link del w0";
+
+/// The namespace's own root, made and pivoted into, after either
+/// topology.
+const NEW_ROOT: &str = r#"
 # Then the root of the namespace's own.
 mount -t tmpfs -o mode=0755 none "$NR"
 for d in usr etc proc sys dev run tmp scratch; do mkdir -p "$NR/$d"; done
@@ -172,6 +218,54 @@ mkdir "$NR/old"; cd "$NR"; pivot_root . old; cd /; umount -l /old; rmdir /old
 /// copy did not pass -- never a skip.
 #[must_use]
 pub fn in_second_network(test: &str) -> bool {
+    inside(NAT_NETWORK, test)
+}
+
+/// [`in_second_network`], in the overlay's topology instead: A and B on
+/// one private link and nothing else.
+///
+/// # Panics
+/// As [`in_second_network`].
+#[must_use]
+pub fn in_overlay(test: &str) -> bool {
+    inside(&format!("{OVERLAY_NETWORK}{OVERLAY_UP}"), test)
+}
+
+/// Delete the overlay's link, as an overlay interface taken down goes:
+/// both ends' addresses leave their namespaces.
+///
+/// # Panics
+/// Outside the overlay, or when the link is already down.
+pub fn overlay_down() {
+    shell("deleting the overlay's link", OVERLAY_DOWN);
+}
+
+/// Make the overlay's link again, the same addresses on the same names.
+///
+/// # Panics
+/// Outside the overlay, or when the link is already up.
+pub fn overlay_up() {
+    shell(
+        "making the overlay's link",
+        &format!("set -e\n{OVERLAY_UP}"),
+    );
+}
+
+fn shell(what: &str, script: &str) {
+    let out = Command::new("sh")
+        .args(["-c", script])
+        .output()
+        .unwrap_or_else(|e| panic!("{what}: {e}"));
+    assert!(
+        out.status.success(),
+        "{what}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The outer copy's run of the inner one in the namespaces `network`
+/// builds.
+fn inside(network: &str, test: &str) -> bool {
     if std::env::var_os(NETNS_ENV).is_some() {
         return true;
     }
@@ -193,7 +287,7 @@ pub fn in_second_network(test: &str) -> bool {
         .tempdir_in(parent)
         .expect("the new root's mount point");
     let script = format!(
-        "{SETUP}\nexport {NETNS_ENV}=1 TMPDIR=/scratch\n\
+        "{PRELUDE}{network}{NEW_ROOT}\nexport {NETNS_ENV}=1 TMPDIR=/scratch\n\
          exec \"$IW_TEST_EXE\" --exact \"$IW_TEST_NAME\" --include-ignored --nocapture --test-threads 1"
     );
     // Every process the inner copy starts dies with this test, whichever

@@ -115,6 +115,8 @@ An agent, a bot or a gateway is a consumer with the human client's standing; the
 - Security: the transport authenticates the PeerId and nothing above it; the silent drop is an availability fact, not a boundary; no claim about a second host or Byzantine profiles.
 - Keywords: automated client, machine client, agent client, first-party consumer, fleet deployment, loopback deployment, identity init, service unit, ingress bucket, dedup window
 - The fleet's record (Amendment 2026-10-23): the deployment of the fleet's own agents is agent-fabric ADR-064, accepted 2026-10-23; the Context had cited ADR-062, another subject.
+- The cross-account port rule is measured (Amendment 2026-10-27, decision 5): another account's daemon is refused the held port and its unit retries every 5 s, the next retry listening once the holder stops — a host record of 2026-10-27 (`packaging/linux/evidence/2026-10-27-second-uid-port.md`); the suite stays one-uid.
+- Two hosts over a private overlay (Amendment 2026-10-27, decision 5b): a daemon listens on a wildcard, never the overlay literal alone (its loss is no network change, measured), and its peer's overlay address is a static-bootstrap entry through ADR-0052 rule 9's door, whatever the class; the overlay is the deployment's; no Kademlia, no connectivity role; proved by a two-namespace case of `tests/automated-client` with its limits named (one kernel, no NAT, no second uid, no real second host in CI), the owner's acceptance for the first remote host recorded when given.
 
 ### 0021 — Rust workspace dependency boundaries (Accepted)
 Neutral contracts stay separate from concrete runtime, libp2p, platform, and application crates.

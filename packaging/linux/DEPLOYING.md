@@ -31,7 +31,9 @@ have no safe place to live (`NoRuntimeDir`).
   `loginctl show-user "$USER" -p Linger` says `Linger=yes`.
 - A TCP port for the profile that no other account on the host uses.
   Another account's daemon on the same port fails to start and its unit
-  retries every 5 s; two profiles of one account on one port both start
+  retries every 5 s (measured between two accounts:
+  [`evidence/2026-10-27-second-uid-port.md`](evidence/2026-10-27-second-uid-port.md));
+  two profiles of one account on one port both start
   silently (`SO_REUSEPORT`), so give every profile its own.
 - The XDG base directories at their defaults, or set where the user
   manager reads them. The paths below (`~/.config`, `~/.local/share`,

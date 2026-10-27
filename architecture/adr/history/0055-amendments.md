@@ -10,3 +10,56 @@ ADR-064 (GZCoord over InterWeave, one host, dual run beside the
 relay). Found by the review of that record (fabric-coordinator's REPLY
 01a1674d). Propagation: the Context sentence; this note; the log row;
 the digest entry.
+
+### Amendment 2026-10-27 — Two hosts over a private overlay the deployment provides
+
+The owner directed on 2026-10-27, confirmed in fabric-coordinator's
+session, that the fabric's control plane rides InterWeave through the
+command-line client, so that an agent can run on a remote host — the
+first likely a hosted edge. fabric-coordinator's REQUEST 01a17bff
+asked InterWeave for a two-host decision over a private overlay with
+operator-supplied static addresses, no Kademlia and no connectivity
+roles, and a two-host case in `tests/automated-client`.
+p2p-network-dev-01 (REPLY 01a17c04) read the transport: ADR-0052
+rule 9's operator door already admits a static entry of any class,
+so an overlay literal needs nothing of the transport; what changes is
+the deployment's shape — the listen address and the static entry —
+and that a real second host cannot run in CI, where a job gets one
+runner and jobs cannot reach each other. Decision 5b states the
+shape, puts the overlay on the deployment's side of the line decision
+7 draws, and names the case that proves it: two daemons in two
+network namespaces on one runner over a point-to-point private link,
+with the limits that leaves. The first text offered the listen address as
+"its overlay address, or a wildcard"; p2p-network-dev-01 measured
+the two (REPLY 01a17c34, 2026-10-27): with wildcard listeners the
+link's deletion closes the connection at both ends within 10 s and
+its return redials, with the overlay literal the loss closes nothing,
+since a listener bound to one address reports no change and a daemon
+has no platform view, so the decision names the wildcard alone and
+says why. The owner's word on those limits for the
+first remote host, when given, is recorded here; ADR-0034 §7 and
+SPIKE-004's deferred limits stay where decision 5 left them.
+Propagation: decision 5b; this note; the log row; the digest entry;
+the README row. The case is p2p-network-dev-01's (j134, with the
+one-profile carrier-and-client case); the command-line client's verbs
+are rust-ui-dev-02's.
+
+### Amendment 2026-10-27 — Decision 5's cross-account port rule is measured
+
+Decision 5 said that another account's daemon being refused the port
+this one holds rested on the kernel's `SO_REUSEPORT` rule and was not
+measured, the suite having one uid. p2p-network-dev-01 measured it on
+the host on 2026-10-27 (REPLY 01a17c4a, their job j125, asked in
+architect-cto's REQUEST 01a1722a): two accounts, each under its own
+user manager with the installed v0.1.0 programs and `DEPLOYING.md`'s
+unit and configuration, one holding `127.0.0.1:47990`, the other's
+daemon exiting 1 on "Address already in use" with its unit retrying
+every 5 s; the control, once the holder stopped, the next retry
+listening within a second. The second account was another agent's,
+by fabric-coordinator's route (no shell into another uid). Not run:
+a fresh install from the archive in an empty account, which needs an
+account the owner opens by hand, carried by name; two hosts, which
+decision 5b covers. The sentence now says what was measured and
+where; the suite's one-uid limit stands as written. Propagation: the
+decision 5 sentence; this note; the log row; the digest entry.
+
