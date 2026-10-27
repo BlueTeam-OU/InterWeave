@@ -38,7 +38,7 @@ use interweave_human_store::{HumanStore, StoreError};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_profile_config::ProfileLock;
-use interweave_transport_api::MAX_PAYLOAD_BYTES;
+use interweave_transport_api::{EndpointId, MAX_PAYLOAD_BYTES};
 
 /// The workspace version with the commit as build metadata (ADR-0065
 /// decision 6; `tools/stamp/commit_stamp.rs`).
@@ -169,12 +169,30 @@ fn stopped() -> std::io::Result<impl std::future::Future<Output = ()>> {
     })
 }
 
-fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
+fn run(
+    profile: &str,
+    verb: &cli::Verb,
+    json: bool,
+    wait: Duration,
+    endpoint: Option<&EndpointId>,
+) -> Outcome {
     let until = Instant::now() + wait;
-    let profile = match startup::resolve(profile) {
+    let mut profile = match startup::resolve(profile) {
         Ok(profile) => profile,
         Err(failure) => return failure.into(),
     };
+    // `--endpoint`: one of the profile's human endpoints is leased in place
+    // of the first. Never one it does not offer: no endpoint is made here
+    // (G2; ENDPOINTS.md, configured only).
+    if let Some(endpoint) = endpoint {
+        if !profile.endpoints.contains(endpoint) {
+            return Failure::Refused(
+                "that endpoint is not one a human client may use in this profile".to_owned(),
+            )
+            .into();
+        }
+        profile.endpoints = vec![endpoint.clone()];
+    }
     // One worker, as the desktop's facade runtime: the IPC client's reader
     // task runs there, so a store call blocking this thread cannot starve
     // the session's keepalive.
@@ -187,7 +205,7 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
         Err(e) => return Failure::Refused(format!("the runtime: {e}")).into(),
     };
     // Before the lock: from here a signal is `listen`'s to answer.
-    let stop = if *verb == cli::Verb::Listen {
+    let stop = if matches!(verb, cli::Verb::Listen { .. }) {
         let _entered = runtime.enter();
         match stopped() {
             Ok(stop) => Some(stop),
@@ -254,7 +272,16 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
         })?;
         let mut session = session::Session::new(facade, move || ProfileLock::is_held(&paths).ok())?;
         let result = if let Some(stop) = stop {
-            verbs::listen(&mut session, json, &mut std::io::stdout(), stop).await
+            let (input, consume) = match verb {
+                cli::Verb::Listen { input, consume } => (*input, *consume),
+                _ => (false, false),
+            };
+            let mode = verbs::ListenMode {
+                json,
+                consume,
+                input: input.then(stdin_lines),
+            };
+            verbs::listen(&mut session, mode, &mut std::io::stdout(), stop).await
         } else {
             let r = verbs::Run {
                 profile: &name,
@@ -267,6 +294,14 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
         result
     });
     Outcome { out, result }
+}
+
+/// `listen --input`'s lines, read from stdin on a thread of its own so a
+/// blocked read never holds the session's turns (G1).
+fn stdin_lines() -> tokio::sync::mpsc::UnboundedReceiver<verbs::InputLine> {
+    let (send, lines) = tokio::sync::mpsc::unbounded_channel();
+    std::thread::spawn(move || verbs::read_input(std::io::stdin().lock(), &send));
+    lines
 }
 
 /// The text `send ... -` reads: stdin, less the one trailing newline the
@@ -309,6 +344,7 @@ fn main() -> ExitCode {
             mut verb,
             json,
             wait,
+            endpoint,
         } => {
             if let cli::Verb::Send {
                 text: text @ None, ..
@@ -320,7 +356,7 @@ fn main() -> ExitCode {
                 };
                 *text = Some(read);
             }
-            run(&profile, &verb, json, wait)
+            run(&profile, &verb, json, wait, endpoint.as_ref())
         }
     };
     let mut stdout = std::io::stdout().lock();

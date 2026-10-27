@@ -19,7 +19,9 @@
 //!
 //! The second case (A 2026-10-27): while a platform view is present, a
 //! listener bound on a private-range address the view does not hold is
-//! on no local network too ([`is_outside_the_view`]). The scope holds
+//! on no local network too ([`is_outside_the_view`]); and so, with or
+//! without a view, is one in the shared address space, `100.64.0.0/10`
+//! (A 2026-10-27, [`lies_on_no_local_network`]). The scope holds
 //! the view itself and judges each `NewListenAddr` against it as the
 //! Swarm reports it, so a listener the wildcard reports after the view
 //! never reaches the crate -- deciding it later, from the runtime's next
@@ -45,7 +47,9 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 
-use interweave_transport_runtime::reachability::{is_private_range, literal_host};
+use interweave_transport_runtime::reachability::{
+    is_private_range, is_shared_address_space, literal_host,
+};
 
 /// ADR-0052 rule 10's second case (A 2026-10-27): whether a private-range
 /// IP this host binds lies on no local network because the platform's
@@ -57,6 +61,17 @@ use interweave_transport_runtime::reachability::{is_private_range, literal_host}
 pub(crate) fn is_outside_the_view(ip: IpAddr, view: &BTreeSet<IpAddr>) -> bool {
     let ip = ip.to_canonical();
     is_private_range(ip) && !view.iter().any(|held| held.to_canonical() == ip)
+}
+
+/// ADR-0052 rule 10 for a DIRECT listener's IP, apart from the view's
+/// own classification: in the shared address space (RFC 6598) whatever
+/// the platform says, since a provider numbers it between its
+/// translator and its subscribers and no LAN a person is on is numbered
+/// from it (A 2026-10-27); else, while `view` is present, a private IP
+/// outside it ([`is_outside_the_view`]). The one predicate the runtime's
+/// detector (`NetworkSet::derive_off_local`) and this door apply.
+pub(crate) fn lies_on_no_local_network(ip: IpAddr, view: Option<&BTreeSet<IpAddr>>) -> bool {
+    is_shared_address_space(ip) || view.is_some_and(|view| is_outside_the_view(ip, view))
 }
 
 /// A behaviour told of this node's listen addresses less those on a
@@ -93,20 +108,21 @@ impl<B> ListenScope<B> {
 
     fn is_withheld(&self, address: &Multiaddr) -> bool {
         host_ip(address).is_some_and(|ip| self.withheld.contains(&ip))
-            || self.view.as_ref().is_some_and(|view| {
-                literal_host(&address.to_string()).is_some_and(|ip| is_outside_the_view(ip, view))
-            })
+            || literal_host(&address.to_string())
+                .is_some_and(|ip| lies_on_no_local_network(ip, self.view.as_ref()))
     }
 }
 
 impl<B: NetworkBehaviour> ListenScope<B> {
-    /// Withhold the listen addresses on `ips` from now on, and while
-    /// `view` is `Some` every direct one on a private IP it does not
-    /// hold, releasing any no longer withheld: the crate is told each
-    /// bound address that moved, as an expiry or a new listen address.
-    /// Returns how many moved. Pinned by
-    /// `a_withheld_listen_address_is_never_advertised` and
-    /// `a_private_listen_address_outside_the_view_is_never_advertised`.
+    /// Withhold the listen addresses on `ips` from now on, and every
+    /// direct one [`lies_on_no_local_network`] names under `view` -- in
+    /// the shared address space whatever `view` is, and while `view` is
+    /// `Some` on a private IP it does not hold -- releasing any no longer
+    /// withheld: the crate is told each bound address that moved, as an
+    /// expiry or a new listen address. Returns how many moved. Pinned by
+    /// `a_withheld_listen_address_is_never_advertised`,
+    /// `a_private_listen_address_outside_the_view_is_never_advertised`
+    /// and `a_shared_address_space_listen_address_is_never_advertised`.
     pub fn withhold(&mut self, ips: &BTreeSet<IpAddr>, view: Option<&BTreeSet<IpAddr>>) -> usize {
         let before: Vec<(Multiaddr, ListenerId, bool)> = self
             .bound
@@ -361,6 +377,45 @@ mod tests {
         assert_eq!(told(&scope), set(&[wifi, quic]));
         expire(&mut scope, wifi);
         assert_eq!(told(&scope), set(&[quic]));
+    }
+
+    /// The shared address space (A 2026-10-27): a direct listen address in
+    /// `100.64.0.0/10` is withheld at the door with no view and with a
+    /// view naming it, an IPv4-mapped form included; a private one with
+    /// no view is told -- THE CONTROL -- and so is a circuit through a
+    /// relay at a shared IP.
+    #[test]
+    fn a_shared_address_space_listen_address_is_never_advertised() {
+        let mut scope = ListenScope::new(Told::default());
+        let listener = ListenerId::next();
+        let bind = |scope: &mut ListenScope<Told>, addr: &str| {
+            let addr: Multiaddr = addr.parse().expect("an address");
+            scope.on_swarm_event(FromSwarm::NewListenAddr(NewListenAddr {
+                listener_id: listener,
+                addr: &addr,
+            }));
+        };
+        let (lan, shared, mapped) = (
+            "/ip4/192.168.1.5/tcp/4001",
+            "/ip4/100.64.3.9/tcp/4001",
+            "/ip6/::ffff:100.64.3.9/tcp/4002",
+        );
+        let circuit = "/ip4/100.100.1.1/tcp/4001/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN/p2p-circuit";
+        bind(&mut scope, lan);
+        bind(&mut scope, shared);
+        bind(&mut scope, mapped);
+        bind(&mut scope, circuit);
+        assert_eq!(told(&scope), set(&[lan, circuit]), "no view");
+        let view: BTreeSet<IpAddr> = ["192.168.1.5", "100.64.3.9"]
+            .iter()
+            .map(|ip| ip.parse().expect("an IP"))
+            .collect();
+        assert_eq!(
+            scope.withhold(&BTreeSet::new(), Some(&view)),
+            0,
+            "a view moves nothing"
+        );
+        assert_eq!(told(&scope), set(&[lan, circuit]));
     }
 
     /// The second case (A 2026-10-27): with no view a private listener

@@ -110,14 +110,17 @@ pub(super) struct NetworkSet {
     /// private-range IP a direct listener binds that the view does not
     /// hold, since a network the platform withholds from the app is one
     /// no peer reaches it on (a cellular network kept in the background,
-    /// a carrier-restricted one). Known and bound like any other -- a
-    /// dial, a reservation and the carrier NAT's public address run over
-    /// it -- but never this node's address toward anyone
+    /// a carrier-restricted one); and, with or without a view, every
+    /// shared-address-space IP (`100.64.0.0/10`) a direct listener binds,
+    /// which a provider numbers and no LAN is. Known and bound like any
+    /// other -- a dial, a reservation and the carrier NAT's public address
+    /// run over it -- but never this node's address toward anyone
     /// ([`Self::offers`]). Derived from the view and the listeners after
     /// every observation of either ([`Self::derive_off_local`]), so
-    /// neither order of the two decides it. Empty with no view, so the
-    /// desktop classifies nothing; bounded by the view's addresses and
-    /// the listeners this process binds.
+    /// neither order of the two decides it. With no view it holds only
+    /// shared-address-space listeners, so the desktop withholds no
+    /// private one; bounded by the view's addresses and the listeners
+    /// this process binds.
     off_local: BTreeSet<IpAddr>,
     /// Whether the known set has ever held an address: the first time
     /// it fills is not a change.
@@ -211,7 +214,8 @@ impl NetworkSet {
     /// (`NetworkView::off_local_network`): its private-range members
     /// that are among the view's addresses join [`Self::off_local`],
     /// replacing the last view's, beside the bound private IPs the view
-    /// does not hold. It moves nothing in the known set, so a
+    /// does not hold and the bound shared-address-space ones. It moves
+    /// nothing in the known set, so a
     /// classification alone is no change.
     pub(super) fn observe_view(
         &mut self,
@@ -233,9 +237,9 @@ impl NetworkSet {
         self.apply(&before, &now, &BTreeSet::new())
     }
 
-    /// The private-range IPs on no local network ([`Self::offers`]
-    /// withholds them): what the view classifies, and the bound ones it
-    /// does not hold.
+    /// The IPs on no local network ([`Self::offers`] withholds them):
+    /// the private ones the view classifies, the bound private ones it
+    /// does not hold, and the bound shared-address-space ones.
     pub(super) const fn off_local(&self) -> &BTreeSet<IpAddr> {
         &self.off_local
     }
@@ -248,21 +252,23 @@ impl NetworkSet {
     }
 
     /// [`Self::off_local`] from what the two sources last said: the
-    /// view's classification, and each direct listener's IP outside the
-    /// view while there is one (`listen_scope::is_outside_the_view`, the
-    /// predicate Identify's door applies too). A circuit listener is not
+    /// view's classification, and each direct listener's IP that lies on
+    /// no local network by itself -- in the shared address space with or
+    /// without a view, or private and outside the view while there is one
+    /// (`listen_scope::lies_on_no_local_network`, the predicate
+    /// Identify's door applies too). A circuit listener is not
     /// among them: its leading IP is the relay's, which no view of this
     /// host's holds. Pinned by
-    /// `a_bound_private_ip_no_view_holds_is_on_no_local_network_in_either_order`.
+    /// `a_bound_private_ip_no_view_holds_is_on_no_local_network_in_either_order`
+    /// and `a_shared_address_space_listener_is_on_no_local_network_with_or_without_a_view`.
     fn derive_off_local(&mut self) {
-        let outside: Vec<IpAddr> = self.platform.as_ref().map_or_else(Vec::new, |view| {
-            self.direct_listeners
-                .iter()
-                .copied()
-                .filter(|ip| crate::listen_scope::is_outside_the_view(*ip, view))
-                .collect()
-        });
-        self.off_local = self.classified.iter().copied().chain(outside).collect();
+        let view = self.platform.as_ref();
+        let by_itself = self
+            .direct_listeners
+            .iter()
+            .copied()
+            .filter(|ip| crate::listen_scope::lies_on_no_local_network(*ip, view));
+        self.off_local = self.classified.iter().copied().chain(by_itself).collect();
     }
 
     /// The IPs that are not this node's address toward anyone, bound or
@@ -335,9 +341,10 @@ impl NetworkSet {
     }
 
     /// Whether `address` is THIS NODE'S ADDRESS TOWARD ANYONE: one it
-    /// [`holds`](Self::holds), and not on a private-range IP on no local
-    /// network ([`Self::off_local`]: the view's classification, and a
-    /// bound one outside a present view; ADR-0052 rule 10). What is shown (`own_addresses::select`), offered to DCUtR,
+    /// [`holds`](Self::holds), and not on an IP on no local network
+    /// ([`Self::off_local`]: the view's classification, a bound private
+    /// one outside a present view, and a bound shared-address-space one;
+    /// ADR-0052 rule 10). What is shown (`own_addresses::select`), offered to DCUtR,
     /// and counted as an own private listener for rule 3 -- the three
     /// sites the rule names beside Identify, which is told
     /// [`Self::not_offered`] through its own wrapper (`listen_scope`).
@@ -757,6 +764,45 @@ mod tests {
 
         let _ = set.observe_listeners(bound[..1].iter());
         assert!(set.not_offered().is_empty(), "the listener let it go");
+    }
+
+    /// ADR-0052 rule 10 for the shared address space (A 2026-10-27): a
+    /// direct listener on a `100.64.0.0/10` IP is on no local network
+    /// with NO VIEW -- the desktop with a cellular modem -- and with a
+    /// view that names it, held and in the known set throughout. THE
+    /// CONTROL is a private listener beside it with no view, offered as
+    /// before the rule; a circuit through a relay at a shared IP is the
+    /// relay's address and is offered.
+    #[test]
+    fn a_shared_address_space_listener_is_on_no_local_network_with_or_without_a_view() {
+        let held = crate::held_listeners::HeldListeners::new();
+        let mut set = NetworkSet::publishing_to(held.clone());
+        let lan = "/ip4/192.168.1.5/tcp/4001";
+        let shared = "/ip4/100.64.3.9/tcp/4001";
+        let circuit = "/ip4/100.100.1.1/tcp/4001/p2p/12D3KooWCLxLXFHqvfsHVLDcNsSpZBQq1M1KMRgQRLLLnHTv7oQD/p2p-circuit";
+        let bound = addrs(&[lan, shared, circuit]);
+        let cgnat = ip("100.64.3.9");
+
+        let _ = set.observe_listeners(bound.iter());
+        assert_eq!(set.off_local(), &BTreeSet::from([cgnat]), "no view");
+        assert!(set.holds(&bound[1]), "held: bound and known");
+        assert!(!set.offers(&bound[1]));
+        assert_eq!(set.not_offered(), BTreeSet::from([cgnat]), "Identify's");
+        assert!(
+            set.offers(&bound[0]),
+            "the control: a private listener, no view"
+        );
+        assert!(set.offers(&bound[2]), "a circuit names the relay");
+        assert!(held.holds(&bound[0]));
+
+        let _ = set.observe_view(&[ip("192.168.1.5"), cgnat], &[]);
+        assert_eq!(
+            set.off_local(),
+            &BTreeSet::from([cgnat]),
+            "a view naming it lifts nothing"
+        );
+        let _ = set.observe_listeners(bound.iter().filter(|a| **a != bound[1]));
+        assert!(set.off_local().is_empty(), "unbound: dropped");
     }
 
     /// ADR-0052 rule 10's second case (A 2026-10-27): while a view is

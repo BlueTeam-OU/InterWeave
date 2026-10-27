@@ -600,12 +600,17 @@ fn the_own_reader_reads_a_card_signed_for_another_peer_id() {
 }
 
 /// The own reader's caller rule (HUMAN-CHAT.md section Contact card, A
-/// 2026-10-27): outside this crate, only app-core's listing of this
-/// node's pending outbound rows calls it, so a received text never enters
-/// it. A new caller fails here and is judged on its own. Mutation: a
-/// second caller anywhere in the workspace's crates or apps.
+/// 2026-10-27): only app-core's listing of this node's pending outbound
+/// rows uses it, so a received text never enters it. Every use of the
+/// identifier counts -- a call, a function value, an alias -- in every
+/// crate and app, this crate's own source included, where the receiver's
+/// `classify` lives. Excused: this crate's tests, the reader's own
+/// definition and doc lines in `src/card.rs`, and its re-export in
+/// `src/lib.rs`. Mutations: a second use anywhere, `src/card.rs`
+/// included.
 #[test]
 fn only_the_pending_listing_calls_the_own_reader() {
+    const NAME: &str = "read_own_card_unverified";
     fn walk(dir: &std::path::Path, found: &mut Vec<PathBuf>) {
         for entry in std::fs::read_dir(dir).expect("readable").flatten() {
             let path = entry.path();
@@ -615,8 +620,7 @@ fn only_the_pending_listing_calls_the_own_reader() {
                 }
                 walk(&path, found);
             } else if path.extension().is_some_and(|e| e == "rs")
-                && std::fs::read_to_string(&path)
-                    .is_ok_and(|text| text.contains("read_own_card_unverified("))
+                && std::fs::read_to_string(&path).is_ok_and(|text| text.contains(NAME))
             {
                 found.push(path);
             }
@@ -627,15 +631,42 @@ fn only_the_pending_listing_calls_the_own_reader() {
         .nth(3)
         .expect("the workspace root")
         .to_path_buf();
+    let own = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut found = Vec::new();
     for top in ["crates", "apps"] {
         walk(&root.join(top), &mut found);
     }
-    let own = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let callers: Vec<_> = found.into_iter().filter(|p| !p.starts_with(&own)).collect();
+    let mut users = Vec::new();
+    for path in found {
+        if path.starts_with(own.join("tests")) {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).expect("readable");
+        let excused = |line: &str| {
+            let line = line.trim();
+            if path == own.join("src/card.rs") {
+                line.starts_with("//") || line.starts_with(&format!("pub fn {NAME}("))
+            } else if path == own.join("src/lib.rs") {
+                // The re-export list: names and commas only.
+                line.split(',').all(|word| {
+                    word.trim()
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                })
+            } else {
+                false
+            }
+        };
+        if text
+            .lines()
+            .any(|line| line.contains(NAME) && !excused(line))
+        {
+            users.push(path);
+        }
+    }
     assert_eq!(
-        callers,
+        users,
         vec![root.join("crates/human/app-core/src/listing.rs")],
-        "the own reader's callers"
+        "the own reader's users"
     );
 }

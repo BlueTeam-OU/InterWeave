@@ -18,7 +18,7 @@ use interweave_human_ui_model::ConversationKey;
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::Failure;
 use crate::cli::Verb;
@@ -104,6 +104,7 @@ fn send(key: &ConversationKey, text: &str) -> Verb {
     Verb::Send {
         conversation: key.clone(),
         text: Some(text.to_owned()),
+        pending: true,
     }
 }
 
@@ -386,7 +387,11 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
     let mut out = Vec::new();
     verbs::listen(
         &mut bob,
-        true,
+        verbs::ListenMode {
+            json: true,
+            consume: false,
+            input: None,
+        },
         &mut out,
         tokio::time::sleep(Duration::from_millis(500)),
     )
@@ -401,6 +406,199 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
     assert_eq!(message["text"], "while listening");
     assert_eq!(message["status"], "unread");
     assert!(message["conversation"].is_string());
+    assert_eq!(
+        message["local_endpoint"], "human",
+        "G6: the endpoint it reached"
+    );
+}
+
+/// G1: `listen --input` sends each JSON line over the lease it holds and
+/// answers each with its `ref`: an outbound event for a send, an
+/// input-refused one for a line it cannot read, and it goes on after
+/// both and after EOF. Mutations: a refused line ending listen; the
+/// answer losing its ref.
+#[tokio::test]
+async fn listen_input_sends_each_line_and_answers_with_its_ref() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
+    // As stdin hands them over: a line that is not UTF-8 among them, and
+    // two sends, answered in the order read.
+    let mut stdin = Vec::new();
+    stdin.extend_from_slice(b"not json\n");
+    stdin.extend_from_slice(br#"{"send":{"conversation":"x","ref":"bad"}}"#);
+    stdin.extend_from_slice(b"\n\xff\xfe{\"send\"}\r\n");
+    stdin.extend_from_slice(
+        format!(
+            "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"x\",\"ref\":\"ep\",\"endpoint\":\"other\"}}}}\n"
+        )
+        .as_bytes(),
+    );
+    for (text, reference) in [("over the lease", 7), ("and after it", 8)] {
+        stdin.extend_from_slice(
+            format!(
+                "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"{text}\",\"ref\":{reference}}}}}\n"
+            )
+            .as_bytes(),
+        );
+    }
+    verbs::read_input(stdin.as_slice(), &lines_in);
+    drop(lines_in);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_500)),
+    )
+    .await
+    .expect("listened past EOF");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    let refused: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "input-refused")
+        .collect();
+    let refs: Vec<&Value> = refused.iter().map(|e| &e["ref"]).collect();
+    assert_eq!(
+        refs,
+        [&Value::Null, &json!("bad"), &Value::Null, &json!("ep")],
+        "{out}"
+    );
+    assert_eq!(refused[2]["reason"], "not UTF-8 text", "{out}");
+    let answered: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "outbound" && e["ref"].is_number())
+        .map(|e| &e["ref"])
+        .collect();
+    assert_eq!(answered.first(), Some(&&json!(7)), "{out}");
+    assert!(
+        answered.contains(&&json!(8)),
+        "the second send, after: {out}"
+    );
+    let sent = events
+        .iter()
+        .find(|e| e["event"] == "outbound" && e["ref"] == 7)
+        .unwrap_or_else(|| panic!("an outbound answer for ref 7: {out}"));
+    assert!(
+        sent["id"].as_str().is_some_and(|id| id.starts_with('p')),
+        "{out}"
+    );
+    let of_its_row: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "outbound" && e["id"] == sent["id"])
+        .collect();
+    assert!(
+        of_its_row.iter().all(|e| e["ref"] == 7),
+        "every outbound event of its row names its ref: {out}"
+    );
+    let (out, _) = run(&mut alice, Verb::Messages(to(b.peer())), true).await;
+    for text in ["over the lease", "and after it"] {
+        assert!(
+            lines(&out).iter().any(|m| m["text"] == text),
+            "it reached alice: {out}"
+        );
+    }
+}
+
+/// G5: an outbound event names the send problem its status carries
+/// beside the status, `null` when there is none, so a carrier tells a
+/// refusal from a route that may come back. Mutation: the problem left
+/// out of the event.
+#[tokio::test]
+async fn an_input_sends_outbound_event_names_its_problem() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    b.inject_send(TransportError::UnauthorizedPeer);
+    let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
+    lines_in
+        .send(Ok(format!(
+            r#"{{"send":{{"conversation":"{to_alice}","text":"held","ref":"r1"}}}}"#
+        )))
+        .expect("queued");
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_000)),
+    )
+    .await
+    .expect("listened");
+    drop(lines_in);
+    let out = String::from_utf8(out).expect("utf-8");
+    let outbound: Vec<Value> = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "outbound")
+        .collect();
+    assert!(
+        outbound.iter().all(|e| e.get("problem").is_some()),
+        "every outbound event has the field: {out}"
+    );
+    assert!(
+        outbound.iter().any(|e| e["ref"] == "r1"
+            && e["status"] == "needs-attention"
+            && e["problem"] == "peer-untrusted"),
+        "{out}"
+    );
+}
+
+/// G3: `listen --consume` marks each message read once its line is
+/// written, so the store holds it unread no more. Mutation: consume
+/// marking nothing.
+#[tokio::test]
+async fn listen_consume_marks_each_printed_message_read() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    run(&mut alice, send(&to(b.peer()), "consumed"), false)
+        .await
+        .1
+        .expect("sent");
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(800)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    assert!(lines(&out).iter().any(|e| e["text"] == "consumed"), "{out}");
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert!(unread.is_empty(), "read once printed: {unread:?}");
 }
 
 #[tokio::test]
@@ -516,4 +714,344 @@ async fn a_keep_that_fails_after_the_read_still_prints_what_was_read() {
     assert_eq!(shown.len(), 2, "both are printed: {out}");
     assert_eq!(shown[0]["status"], "read", "{out}");
     assert_eq!(shown[0]["text"], "first");
+}
+
+/// G4: `send --no-pending` that is not accepted by the end of `--wait` is
+/// cancelled, said so with `"pending": false`, and leaves no pending row
+/// for a later run to send; without it the send stays pending (exit 6).
+/// Mutation: --no-pending leaving the send pending.
+#[tokio::test]
+async fn a_send_with_no_pending_is_cancelled_when_its_wait_ends() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let mut alice = session(&a, store(dir.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    // A peer with no address: the send is retried, never accepted.
+    let nobody = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer");
+    let verb = Verb::Send {
+        conversation: to(&nobody),
+        text: Some("ephemeral".to_owned()),
+        pending: false,
+    };
+    let (out, sent) = run(&mut alice, verb, true).await;
+    assert!(matches!(sent, Err(Failure::Refused(_))), "{sent:?}");
+    let line = &lines(&out)[0];
+    assert_eq!(line["status"], "cancelled", "{out}");
+    assert_eq!(line["pending"], false);
+    alice.close().await;
+    let pending = store(dir.path()).pending_outbound().expect("read");
+    assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
+}
+
+/// G4 for a send held for attention: the next run's facade attempts every
+/// pending row again, so `--no-pending` cancels it too, rather than
+/// leaving it for a later run to send once the peer is trusted.
+/// Mutation: the needs-attention arm returning before the cancel.
+#[tokio::test]
+async fn a_send_with_no_pending_that_needs_attention_is_cancelled() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    a.inject_send(TransportError::UnauthorizedPeer);
+    let verb = Verb::Send {
+        conversation: to(b.peer()),
+        text: Some("held".to_owned()),
+        pending: false,
+    };
+    let (out, sent) = run(&mut alice, verb, true).await;
+    assert!(matches!(sent, Err(Failure::Refused(_))), "{sent:?}");
+    let line = &lines(&out)[0];
+    assert_eq!(line["status"], "cancelled", "{out}");
+    assert_eq!(line["pending"], false);
+    alice.close().await;
+    let pending = store(dir_a.path()).pending_outbound().expect("read");
+    assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
+}
+
+/// Bob's store holding `texts` unread from alice, committed by a run that
+/// reads nothing, and bob's session opened afresh over it.
+async fn unread_at_open(
+    texts: &[&str],
+) -> (
+    FakeNode,
+    tempfile::TempDir,
+    Session<FakeNode, FakeNode>,
+    tempfile::TempDir,
+) {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    for text in texts {
+        run(&mut alice, send(&to(b.peer()), text), false)
+            .await
+            .1
+            .expect("sent");
+    }
+    run(&mut bob, Verb::Conversations, true)
+        .await
+        .1
+        .expect("listed");
+    bob.close().await;
+    alice.close().await;
+    assert_eq!(
+        store(dir_b.path()).unread_inbound().expect("read").len(),
+        texts.len()
+    );
+    let bob = session(&b, store(dir_b.path()));
+    (b, dir_b, bob, dir_a)
+}
+
+/// G3: `--consume` drains what the store held unread when it opened --
+/// printed as it would have been, `local_endpoint` `null` since the store
+/// keeps no record of the endpoint that received it -- and the store holds
+/// it unread no more. Mutation: no drain at open.
+#[tokio::test]
+async fn listen_consume_drains_what_the_store_held_unread_at_open() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["held", "and this"])).await;
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let messages: Vec<Value> = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "message")
+        .collect();
+    let texts: Vec<&Value> = messages.iter().map(|m| &m["text"]).collect();
+    assert_eq!(texts.len(), 2, "each once: {out}");
+    assert!(texts.contains(&&json!("held")) && texts.contains(&&json!("and this")));
+    assert!(
+        messages.iter().all(|m| m["local_endpoint"].is_null()),
+        "{out}"
+    );
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert!(unread.is_empty(), "drained: {unread:?}");
+}
+
+/// What `put` is handed, failing every write once `messages` message
+/// lines are written with a broken pipe, and stopping `listen` once a
+/// `message` line is written.
+struct Tap {
+    out: Vec<u8>,
+    messages: Option<usize>,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl std::io::Write for Tap {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let message = buf.windows(17).any(|w| w == br#""event":"message""#);
+        if let Some(left) = self.messages.as_mut()
+            && message
+        {
+            if *left == 0 {
+                return Err(std::io::ErrorKind::BrokenPipe.into());
+            }
+            *left -= 1;
+        }
+        self.out.extend_from_slice(buf);
+        if message && let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A message whose line was written is read before `listen` ends, even
+/// when the stop comes the moment the line is out. Mutation: the read
+/// left for a later step.
+#[tokio::test]
+async fn a_printed_message_is_read_before_listen_ends() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["last words"])).await;
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let mut tap = Tap {
+        out: Vec::new(),
+        messages: None,
+        stop: Some(stop),
+    };
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut tap,
+        // The bound only keeps a broken listen from hanging the test.
+        async {
+            let _ = tokio::time::timeout(Duration::from_secs(5), stopped).await;
+        },
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(tap.out).expect("utf-8");
+    assert!(out.contains("last words"), "{out}");
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert!(unread.is_empty(), "read as written: {unread:?}");
+}
+
+/// A reader that goes away mid-batch: the line written is read, the one
+/// not written stays unread, and `listen` ends as a stop does. Mutation:
+/// the reads of a batch dropped when the pipe breaks.
+#[tokio::test]
+async fn a_line_not_written_leaves_its_message_unread() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["one", "two"])).await;
+    let mut tap = Tap {
+        out: Vec::new(),
+        messages: Some(1),
+        stop: None,
+    };
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut tap,
+        // Ended by the reader going away; the bound only keeps a broken
+        // listen from hanging the test.
+        tokio::time::sleep(Duration::from_secs(5)),
+    )
+    .await
+    .expect("the reader gone ends it");
+    let out = String::from_utf8(tap.out).expect("utf-8");
+    let written = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "message")
+        .count();
+    assert_eq!(written, 1, "{out}");
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert_eq!(unread.len(), 1, "the one not written: {unread:?}");
+}
+
+/// Every read `--consume` asks that the store cannot carry out is said
+/// as a `failed` event naming its row, never dropped: a drain's reads run
+/// in one step. Mutations: listen leaving the model side's problems
+/// untaken; only the first of a step's said.
+#[tokio::test]
+async fn every_read_the_store_refuses_is_said_by_its_row() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["gone", "and gone"])).await;
+    // Gone from the store after the session listed them: each read finds
+    // no row.
+    let conn = rusqlite::Connection::open(dir_b.path().join("human.sqlite3")).expect("open");
+    conn.execute("DELETE FROM unread_inbound", [])
+        .expect("deleted");
+    drop(conn);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    let printed: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "message")
+        .map(|e| &e["id"])
+        .collect();
+    let mut failed: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "failed" && e["reason"].as_str().is_some_and(|r| !r.is_empty()))
+        .map(|e| &e["id"])
+        .collect();
+    failed.sort_by_key(|id| id.as_str().map(str::to_owned));
+    let mut printed = printed;
+    printed.sort_by_key(|id| id.as_str().map(str::to_owned));
+    assert_eq!(printed.len(), 2, "{out}");
+    assert_eq!(failed, printed, "each read refused, by its row: {out}");
+}
+
+/// A send the facade refuses before any row is made answers its own line
+/// `input-refused` with the facade's reason, and the next line is sent.
+/// Mutation: the refusal left unanswered, which stalls the input.
+#[tokio::test]
+async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
+    // Past the payload bound however it is encoded: text that does not
+    // compress.
+    let mut seed: u64 = 1;
+    let symbols = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let big: String = (0..120_000)
+        .map(|_| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            char::from(symbols[usize::try_from(seed >> 58).unwrap_or(0)])
+        })
+        .collect();
+    for (text, reference) in [(big, "big"), ("after".to_owned(), "after")] {
+        let line = json!({"send": {"conversation": to_alice, "text": text, "ref": reference}});
+        lines_in.send(Ok(line.to_string())).expect("queued");
+    }
+    drop(lines_in);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_000)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    assert!(
+        events.iter().any(|e| e["event"] == "input-refused"
+            && e["ref"] == "big"
+            && e["reason"] == "too-large"),
+        "{out}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e["event"] == "outbound" && e["ref"] == "after"),
+        "{out}"
+    );
 }
