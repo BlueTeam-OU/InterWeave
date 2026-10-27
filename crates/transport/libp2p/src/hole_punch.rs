@@ -93,7 +93,8 @@
 //! the replacement is the crate's dial failing, and is handed to the
 //! crate under the id it minted, so the crate answers it as it answers
 //! the failure of a dial never filtered
-//! (`a_reissued_dials_failure_is_the_crates_and_the_far_ends_dial_still_punches`).
+//! (`a_filtered_punch_whose_far_end_cannot_dial_ends_at_the_crates_ceiling`
+//! in `tests/connectivity/tests/dcutr.rs`).
 //! A list with no
 //! survivor ends the attempt `refused_by_class`; removed candidates
 //! are counted by class apart from that; and the wrapper's own dial is
@@ -1155,9 +1156,10 @@ impl NetworkBehaviour for HolePunchScope {
                 return Err(ConnectionDenied::new(RefusedCandidate(class)));
             }
             // The wrapper's own dial, admitted: on the wire from here,
-            // its failure or establishment the attempt's. The crate is
-            // not asked about it, as it would not be asked about any
-            // other behaviour's.
+            // its establishment the punch, its failure the crate's dial's
+            // (handed on under `reissue.crates`, below). The crate is not
+            // asked about the admission, as it would not be asked about
+            // any other behaviour's dial.
             self.reissued_in_flight.insert(id, reissue);
             self.punches.hold(id, target, addresses);
             return Ok(Vec::new());
@@ -1230,32 +1232,53 @@ impl NetworkBehaviour for HolePunchScope {
                 return;
             }
             // THE WRAPPER'S OWN DIAL FAILED: the survivors did not
-            // connect. That is the failure of the crate's dial it stands
-            // for, and it is handed to the crate as such, under that
-            // dial's id, while the attempt is in flight -- what the crate
-            // does with a punch dial's failure is `DCUTR.md`'s step 8
-            // note -- and the attempt ends as one never filtered ends -- on the far
-            // end's dial coming up, on the crate's outcome past its
-            // retry ceiling, or at the horizon. Ended here instead, a
-            // punch the far end's dial completed a moment later was
-            // counted failed and cooled the peer down beside a working
-            // direct path (`DCUTR.md` §6: the filter costs the far end
-            // the refused address, never the punch).
-            // `a_reissued_dials_failure_is_the_crates_and_the_far_ends_dial_still_punches`
-            // pins it.
+            // connect. Three cases, by the attempt it belonged to.
             if let Some(reissue) = self
                 .replacement_dials
                 .remove(&failure.connection_id)
                 .or_else(|| self.reissued_in_flight.remove(&failure.connection_id))
             {
-                if self.attempt_toward(&reissue.target).is_some() {
-                    self.inner.on_swarm_event(FromSwarm::DialFailure(
-                        libp2p::swarm::behaviour::DialFailure {
-                            peer_id: failure.peer_id,
-                            error: failure.error,
-                            connection_id: reissue.crates,
-                        },
-                    ));
+                match self.attempt_toward(&reissue.target) {
+                    // OVER (the far end's dial was the punch, or it ended
+                    // any other way): nothing to hand on. The crate would
+                    // answer with another CONNECT round after the success
+                    // -- the rule the crate's own dials follow below.
+                    // `a_late_failure_of_a_reissued_dial_opens_no_second_round`
+                    // pins it on the wire.
+                    None => {}
+                    // GIVEN UP by a network change: the crate that minted
+                    // the dial was replaced and knows nothing of it, so
+                    // the failure ends the attempt, `Abandoned`
+                    // (`DCUTR.md`'s network change, step 10).
+                    // `a_reissued_dials_failure_ends_a_given_up_attempt`
+                    // pins it.
+                    Some(relayed) if self.attempts.get(&relayed).is_some_and(|a| a.abandoned) => {
+                        self.end(relayed, Ending::Failed(failure.error.to_string()));
+                    }
+                    // IN FLIGHT: the failure of the crate's dial it stands
+                    // for, handed to the crate under that dial's id --
+                    // what the crate does with it is `DCUTR.md`'s step 8
+                    // note, another CONNECT round to its retry ceiling --
+                    // and the attempt ends as one never filtered ends: on
+                    // the far end's dial coming up, the crate's outcome,
+                    // or the horizon. Ended here instead, a punch the far
+                    // end's dial completed a moment later was counted
+                    // failed and cooled the peer down beside a working
+                    // direct path (`DCUTR.md` §6: the filter costs the far
+                    // end the refused address, never the punch).
+                    // `a_filtered_punch_whose_far_end_cannot_dial_ends_at_the_crates_ceiling`
+                    // pins the hand-off on the wire;
+                    // `a_reissued_dials_failure_is_the_crates_and_the_far_ends_dial_still_punches`
+                    // the verdict.
+                    Some(_) => {
+                        self.inner.on_swarm_event(FromSwarm::DialFailure(
+                            libp2p::swarm::behaviour::DialFailure {
+                                peer_id: failure.peer_id,
+                                error: failure.error,
+                                connection_id: reissue.crates,
+                            },
+                        ));
+                    }
                 }
                 return;
             }
@@ -2303,6 +2326,42 @@ mod tests {
         assert!(s.is_punching(&e), "the attempt is the crate's to end");
         assert!(!s.cooldown.contains_key(&e));
         assert!(s.replacement_dials.is_empty());
+    }
+
+    /// A reissued dial that fails after a network change gave its
+    /// attempt up ends the attempt `Abandoned`: the crate that minted
+    /// the dial it stands for was replaced and would answer nothing, and
+    /// held, the attempt kept its per-peer permit until the horizon.
+    #[test]
+    fn a_reissued_dials_failure_ends_a_given_up_attempt() {
+        let mut s = scope(HolePunchBudgets::default());
+        let a = peer();
+        assert!(matches!(relayed_inbound(&mut s, 1, a), Either::Left(_)));
+        let reissued = ConnectionId::new_unchecked(2);
+        s.reissued_in_flight.insert(
+            reissued,
+            Reissue {
+                target: a,
+                crates: ConnectionId::new_unchecked(3),
+            },
+        );
+        s.network_changed(&[]);
+        drain(&mut s);
+        assert_eq!(s.inflight_toward(&a), 1, "given up, the permit kept");
+        let error = libp2p::swarm::DialError::Aborted;
+        s.on_swarm_event(FromSwarm::DialFailure(
+            libp2p::swarm::behaviour::DialFailure {
+                peer_id: Some(a),
+                error: &error,
+                connection_id: reissued,
+            },
+        ));
+        assert_eq!(s.inflight_toward(&a), 0, "and released by the failure");
+        assert!(drain(&mut s).iter().any(|e| matches!(
+            e,
+            HolePunchEvent::Ended { peer, ending: Ending::Abandoned } if *peer == a
+        )));
+        assert!(!s.cooldown.contains_key(&a), "no cooldown for it");
     }
 
     /// A reissued dial that fails on the wire does not end the attempt:
