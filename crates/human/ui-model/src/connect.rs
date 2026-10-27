@@ -88,13 +88,15 @@ pub struct Connect {
     added: Vec<ConnectAdd>,
     /// Show drew this device's addresses during this visit.
     shown: bool,
-    /// The control that opened the add page or Show, for focus on return.
-    opener: Option<ConnectFocus>,
+    /// The control that opened the add page or Show, for focus on return,
+    /// and the line as it read then: one that reads otherwise on the
+    /// return was changed under the page, and is said then.
+    opener: Option<(ConnectFocus, Option<ConnectLine>)>,
     focus: Option<ConnectFocus>,
     focuses: u64,
-    /// Bumped at each return whose page did something §5.1 counts: the
-    /// line is said then, its words unchanged included, and on no other
-    /// return.
+    /// Bumped at each return whose page did something §5.1 counts, its
+    /// words unchanged included, or under which the line changed; and at
+    /// each late read that changes the line with no page up.
     said: u64,
 }
 
@@ -139,16 +141,21 @@ impl Connect {
     }
 
     pub(crate) fn opening(&mut self, from: ConnectFocus) {
-        self.opener = Some(from);
+        self.opener = Some((from, self.line()));
     }
 
-    /// A count bumped at each return whose page did something §5.1
-    /// counts -- an add counted, a Show that drew this device's
-    /// addresses, or a trust decided in step two: the line is said once
-    /// for each bump, after focus lands. A refusal, a failure, an unknown
-    /// add, Back from an add with nothing added, or a Show that drew
-    /// nothing leaves it unchanged, an earlier line still showing
-    /// included.
+    /// A count bumped each time the line is to be said, once per bump,
+    /// after focus lands (§5.1, §8): at a return whose page did something
+    /// §5.1 counts -- an add counted, a Show that drew this device's
+    /// addresses, or a trust decided in step two -- its words unchanged
+    /// included; at a return whose line reads otherwise than when its
+    /// page opened, a late read having changed it meanwhile; and at a
+    /// late read that changes the line's words with no page up. A return
+    /// that did nothing counted with the line as it was -- a refusal, a
+    /// failure, an unknown add, Back from an add with nothing added, a
+    /// Show that drew nothing -- leaves it unchanged, an earlier line
+    /// still showing included, and so does a read that leaves the words
+    /// as they were.
     #[must_use]
     pub const fn said(&self) -> u64 {
         self.said
@@ -158,16 +165,30 @@ impl Connect {
     /// when it did nothing §5.1 counts, whether Show drew this device's
     /// addresses, and focus back on the control that opened it --
     /// Continue in Trust's place once the line no longer offers Trust.
-    pub(crate) fn returned(&mut self, adds: Option<Vec<ConnectAdd>>, shown: bool) {
-        if adds.is_some() || shown {
-            self.said += 1;
-        }
+    /// The adds' trust is read from `trust` at once, so a return's line is
+    /// already what the list confirms and no later turn says it again.
+    pub(crate) fn returned(
+        &mut self,
+        adds: Option<Vec<ConnectAdd>>,
+        shown: bool,
+        trust: &TrustSettings,
+    ) {
+        let counted = adds.is_some() || shown;
+        let before = self.line();
         for add in adds.into_iter().flatten() {
             self.added.retain(|a| a.peer != add.peer);
             self.added.push(add);
         }
         self.shown |= shown;
-        let Some(opener) = self.opener.take() else {
+        self.confirm(trust);
+        // Under a page, against the line as the page opened over it; with
+        // none up -- a sync with nothing to hand over -- a late read's.
+        let page = self.opener.take();
+        let heard = page.map_or(before, |(_, then)| then);
+        if counted || self.line() != heard {
+            self.said += 1;
+        }
+        let Some((opener, _)) = page else {
             return;
         };
         let offers_trust = self.line().is_some_and(ConnectLine::offers_trust);
@@ -179,16 +200,31 @@ impl Connect {
 
     /// Each added peer's trust as the list now confirms it, so the line
     /// and its Trust follow an answer that came after the page closed --
-    /// a Trust whose answer was lost, read back later. A list is
+    /// a Trust whose answer was lost, read back later, or answered as
+    /// made with no list read back. A list is
     /// confirmed only once no change of it is lost
     /// ([`TrustSettings::confirmed_list`]), so a Trust still lost leaves
-    /// its peer not known here (§5.3).
+    /// its peer not known here (§5.3). A read that changes the line's
+    /// words with no page up is said once ([`Self::said`]); under a page,
+    /// the return says it.
     pub(crate) fn trust_read(&mut self, trust: &TrustSettings) {
-        let Some(list) = trust.confirmed_list() else {
-            return;
-        };
+        let before = self.line();
+        self.confirm(trust);
+        if self.opener.is_none() && self.line() != before {
+            self.said += 1;
+        }
+    }
+
+    fn confirm(&mut self, trust: &TrustSettings) {
         for add in &mut self.added {
-            add.trusted = Some(list.allows(&add.peer));
+            match trust.confirmed_list() {
+                Some(list) => add.trusted = Some(list.allows(&add.peer)),
+                // A late answer saying the Trust was made, its list not
+                // read back: known and trusted, as Peers' row reads it
+                // (§5.1, §5.3).
+                None if trust.trusted_here(&add.peer) => add.trusted = Some(true),
+                None => {}
+            }
         }
     }
 

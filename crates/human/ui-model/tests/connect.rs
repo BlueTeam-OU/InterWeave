@@ -11,6 +11,7 @@
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
     AddressProblem, AddressRefused, PeerAddress, ShowAddresses, TrustList, TrustProblem, TrustRow,
+    TrustSetFailure,
 };
 use interweave_human_ui_model::{
     AddResult, ConnectFocus, ConnectGate, ConnectInput, ConnectLine, Intent, PeersFocus,
@@ -334,7 +335,6 @@ fn show_alone_says_shown_and_an_add_wins_over_it() {
 fn a_return_is_said_only_when_its_page_did_something_counted() {
     let (me, them, other) = (peer(), peer(), peer());
     let mut m = connect_open(&me);
-    let said = |m: &UiModel| m.connect().expect("Connect open").said();
     let show = |m: &mut UiModel, addresses: Vec<String>| {
         let _ = m.connect_input(ConnectInput::Show);
         m.own_addresses_read(Ok(ShowAddresses {
@@ -493,6 +493,148 @@ fn a_late_trust_answer_moves_connects_line() {
     assert_eq!(line(&n), Some(ConnectLine::NeedsTrust), "read not trusted");
 }
 
+fn said(m: &UiModel) -> u64 {
+    m.connect().expect("Connect open").said()
+}
+
+/// Add `them` from Connect, Trust it in step two, and close the page with
+/// the answer still on its way: lost, the line reads not known.
+fn trust_lost(m: &mut UiModel, them: &TransportIdentity) -> TrustChange {
+    let change = TrustChange {
+        peer: them.clone(),
+        allowed: true,
+    };
+    add_from_connect(m, them, &[added(them)]);
+    assert_eq!(
+        m.peers_input(PeersInput::Trust(them.clone())),
+        vec![Intent::SetTrust(change.clone())]
+    );
+    let _ = m.peers_input(PeersInput::Close);
+    assert_eq!(line(m), Some(ConnectLine::TrustUnknown));
+    change
+}
+
+/// A late read that changes the line's words with no page up is said
+/// once, focus asked nowhere new (§5.1, §8): the lost Trust's answer with
+/// its list read back, its answer as made with no list read back, and a
+/// list read back without the peer. A read that started before the Trust
+/// was sent, or one that fails, changes nothing and says nothing; so does
+/// a later turn reading the same list again.
+#[test]
+fn a_late_read_that_changes_the_line_is_said_once() {
+    let (me, them) = (peer(), peer());
+    let focus = |m: &UiModel| m.connect().expect("Connect open").focus();
+
+    let mut m = connect_open(&me);
+    let change = trust_lost(&mut m, &them);
+    let (start, asked) = (said(&m), focus(&m));
+    assert_eq!(m.connect_turn(), None);
+    assert_eq!(said(&m), start, "nothing read yet");
+    m.trust_settings_mut()
+        .set(change, Ok(trust_list(&me, std::slice::from_ref(&them))));
+    assert_eq!(m.connect_turn(), None);
+    assert_eq!(line(&m), Some(ConnectLine::Trusted), "read back trusted");
+    assert_eq!(said(&m), start + 1, "said once");
+    assert_eq!(focus(&m), asked, "focus asked nowhere new");
+    assert_eq!(m.connect_turn(), None);
+    assert!(m.connect_input(ConnectInput::Trust).is_empty());
+    assert_eq!(said(&m), start + 1, "the same list again says nothing");
+
+    let mut d = connect_open(&me);
+    let change = trust_lost(&mut d, &them);
+    let start = said(&d);
+    d.trust_settings_mut().set(
+        change,
+        Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable)),
+    );
+    assert_eq!(d.connect_turn(), None);
+    assert_eq!(line(&d), Some(ConnectLine::Trusted), "answered as made");
+    assert_eq!(said(&d), start + 1);
+    assert_eq!(
+        d.trust_settings_mut().take_reread(),
+        Some(Intent::ReadTrust)
+    );
+    d.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    assert_eq!(d.connect_turn(), None);
+    assert_eq!(line(&d), Some(ConnectLine::Trusted), "a failed re-read");
+    assert_eq!(said(&d), start + 1);
+
+    let mut n = connect_open(&me);
+    let change = trust_lost(&mut n, &them);
+    let start = said(&n);
+    n.trust_settings_mut().set(change, Ok(trust_list(&me, &[])));
+    assert_eq!(n.connect_turn(), None);
+    assert_eq!(line(&n), Some(ConnectLine::NeedsTrust), "read not trusted");
+    assert_eq!(said(&n), start + 1);
+
+    // A read on its way as the Trust was sent speaks for nothing after.
+    let mut e = connect_open(&me);
+    assert_eq!(e.trust_settings_mut().opened(), Some(Intent::ReadTrust));
+    let _ = trust_lost(&mut e, &them);
+    let start = said(&e);
+    e.trust_settings_mut()
+        .read(Ok(trust_list(&me, std::slice::from_ref(&them))));
+    assert_eq!(e.connect_turn(), None);
+    e.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    assert_eq!(e.connect_turn(), None);
+    assert_eq!(line(&e), Some(ConnectLine::TrustUnknown), "still not known");
+    assert_eq!(said(&e), start, "nothing said");
+}
+
+/// While a page Connect opened is up, a late read that changes the line
+/// says nothing; the return says it once, though that page did nothing
+/// counted, focus back on the control that opened it (§5.1, §8). A
+/// return under which the line did not change says nothing (control).
+#[test]
+fn a_line_changed_under_a_page_is_said_on_the_return() {
+    let (me, them) = (peer(), peer());
+    let mut m = connect_open(&me);
+    let change = trust_lost(&mut m, &them);
+    let start = said(&m);
+    assert!(m.connect_input(ConnectInput::Add).is_empty());
+    assert_eq!(said(&m), start, "Add opened before the read");
+    m.trust_settings_mut()
+        .set(change, Ok(trust_list(&me, std::slice::from_ref(&them))));
+    assert_eq!(m.connect_turn(), None);
+    assert_eq!(said(&m), start, "nothing said while Add is open");
+    let _ = m.peers_input(PeersInput::Close);
+    assert_eq!(line(&m), Some(ConnectLine::Trusted));
+    assert_eq!(said(&m), start + 1, "said once on the return");
+    assert_eq!(connect_focus(&m), Some(ConnectFocus::Add));
+    assert_eq!(m.connect_turn(), None);
+    assert_eq!(said(&m), start + 1);
+
+    let _ = m.connect_input(ConnectInput::Add);
+    let _ = m.peers_input(PeersInput::Close);
+    assert_eq!(said(&m), start + 1, "a return with the line as it was");
+}
+
+/// With two peers added, one known not trusted, a read deciding the
+/// other's lost Trust leaves `ConnectDoneNeedsTrust` showing and says
+/// nothing (§5.1's precedence: what is still to do wins).
+#[test]
+fn a_read_that_leaves_the_words_says_nothing() {
+    let (me, them, other) = (peer(), peer(), peer());
+    let mut m = connect_open(&me);
+    add_from_connect(&mut m, &other, &[added(&other)]);
+    let _ = m.peers_input(PeersInput::NotNow(other.clone()));
+    let change = TrustChange {
+        peer: them.clone(),
+        allowed: true,
+    };
+    add_from_connect(&mut m, &them, &[added(&other), added(&them)]);
+    let _ = m.peers_input(PeersInput::Trust(them.clone()));
+    let _ = m.peers_input(PeersInput::Close);
+    assert_eq!(line(&m), Some(ConnectLine::NeedsTrust));
+    let start = said(&m);
+    m.trust_settings_mut()
+        .set(change, Ok(trust_list(&me, std::slice::from_ref(&them))));
+    assert_eq!(m.connect_turn(), None);
+    assert_eq!(line(&m), Some(ConnectLine::NeedsTrust));
+    assert_eq!(m.connect().expect("open").to_trust(), vec![other]);
+    assert_eq!(said(&m), start, "the words as they were");
+}
+
 /// Add an address on Connect opens the page even when this visit's adds
 /// left the list where Peers' Add would show a note in its place -- a row
 /// not dialled: that note is drawn on Peers' list, not under Connect, so
@@ -530,4 +672,30 @@ fn connect_opens_one_page_at_a_time() {
     assert!(m.peers().show().is_none());
     assert!(m.connect_input(ConnectInput::Leave).is_empty());
     assert!(m.connect().is_some(), "Leave too waits for the page");
+}
+
+/// A Trust in step two answered as made with no list read back, then
+/// Done: the return's line is already `ConnectDoneTrusted`, said once,
+/// and no later turn says the line again -- never "could not check"
+/// first and the peer trusted a turn after (§5.1, §5.3).
+#[test]
+fn a_return_reads_its_adds_trust_before_it_is_said() {
+    let (me, them) = (peer(), peer());
+    let mut m = connect_open(&me);
+    let change = TrustChange {
+        peer: them.clone(),
+        allowed: true,
+    };
+    add_from_connect(&mut m, &them, &[added(&them)]);
+    let _ = m.peers_input(PeersInput::Trust(them.clone()));
+    m.trust_settings_mut().set(
+        change,
+        Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable)),
+    );
+    let start = said(&m);
+    let _ = m.peers_input(PeersInput::Close);
+    assert_eq!(line(&m), Some(ConnectLine::Trusted));
+    assert_eq!(said(&m), start + 1);
+    assert_eq!(m.connect_turn(), None);
+    assert_eq!(said(&m), start + 1, "not said again");
 }

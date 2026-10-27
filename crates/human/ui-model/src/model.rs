@@ -1468,7 +1468,7 @@ impl UiModel {
         }
         let adds = self.peers.take_connect_return();
         let shown = self.peers.take_show_drew();
-        connect.returned(adds, shown);
+        connect.returned(adds, shown, &self.trust);
     }
 
     /// This node's `PeerId`, as the session that became ready knows it.
