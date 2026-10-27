@@ -3642,6 +3642,71 @@ fn an_answer_after_the_editor_closed_and_reopened_changes_nothing() {
     );
 }
 
+/// #483 F3: the editor closed because another page took the pane -- here
+/// a conversation picked -- tells the platform its pick's read is no
+/// longer wanted, as Back does. Mutation: the abandon only on Back and on
+/// another card page.
+#[test]
+fn an_editor_another_page_replaced_abandons_its_pick() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    view.window().invoke_own_card_choose_photo();
+    let _ = intents(&mut view, &mut model);
+    let asked = last_request();
+    view.select(direct(Q));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None,
+        "control: the editor gave the pane up"
+    );
+    assert_eq!(picks().last(), Some(&PhotoPick::Abandon));
+    view.photo_picked(asked, Some(vec![1]));
+    assert!(intents(&mut view, &mut model).is_empty());
+}
+
+/// #483, the judge's aside: requests are unique across views, so a read an
+/// old window's picker started cannot answer a new window's request.
+/// Mutation: a counter of each view's own.
+#[test]
+fn a_new_views_request_is_never_an_old_views() {
+    let (mut old, mut old_model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    old.window().invoke_own_card_choose_photo();
+    let _ = intents(&mut old, &mut old_model);
+    let old_request = last_request();
+    // The new window on a thread of its own, as a platform of its own.
+    let (new_request, raised) = std::thread::spawn(move || {
+        let (mut new, mut new_model) = own_editor(ada(
+            false,
+            interweave_human_ui_model::OwnKey::Ready {
+                fingerprint: "0123456789abcdef".to_owned(),
+            },
+        ));
+        new.window().invoke_own_card_choose_photo();
+        let _ = intents(&mut new, &mut new_model);
+        let request = last_request();
+        new.photo_picked(old_request, Some(vec![1]));
+        (request, intents(&mut new, &mut new_model))
+    })
+    .join()
+    .expect("the new window");
+    assert_ne!(new_request, old_request);
+    assert!(
+        raised.is_empty(),
+        "the old window's read answers nothing here: {raised:?}"
+    );
+}
+
 /// Contact-cards design 5.2 and item 11: Back on the own card's editor
 /// with unsaved changes opens `CardDiscardChanges`, focus on Continue
 /// editing; Back or Continue editing returns to the field that had focus;

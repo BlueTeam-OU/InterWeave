@@ -94,10 +94,10 @@ pub(crate) enum CardsInput {
 }
 
 /// One opening of the photo picker, minted by the editor before the
-/// picker opens and carried back with its answer: only the answer to the
-/// editor's latest request, made while that editor is still open, is
-/// taken, so a slow read cannot replace a newer pick, nor an old editor's
-/// pick reach a new one (j68 P3-2,
+/// picker opens, unique in the process, and carried back with its answer:
+/// only the answer to the editor's latest request, made while that editor
+/// is still open, is taken, so a slow read cannot replace a newer pick,
+/// nor an old editor's pick reach a new one (j68 P3-2,
 /// `a_late_answer_to_an_earlier_pick_changes_nothing`,
 /// `an_answer_after_the_editor_closed_and_reopened_changes_nothing`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,9 +154,12 @@ pub(crate) struct Drawn {
     own_photo_taken: bool,
     /// The photo picker's request the open editor waits on, if any.
     photo_request: Option<PhotoRequest>,
-    /// The last request minted, in this view's life.
-    photo_requests: u64,
 }
+
+/// The last photo request minted in this process: unique across views, so
+/// a read an old window's picker started cannot answer a new window's
+/// request of the same number (#483, the judge's aside).
+static PHOTO_REQUESTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl Drawn {
     /// Whether `input` removes or picks the editor's photo: a change Back
@@ -880,13 +883,10 @@ impl View {
                 vec![Intent::RemoveOwnPhoto]
             }
             CardsInput::ChoosePhoto => {
-                let request = {
-                    let mut shared = self.shared.borrow_mut();
-                    shared.cards.photo_requests += 1;
-                    let request = PhotoRequest(shared.cards.photo_requests);
-                    shared.cards.photo_request = Some(request);
-                    request
-                };
+                let request = PhotoRequest(
+                    PHOTO_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1,
+                );
+                self.shared.borrow_mut().cards.photo_request = Some(request);
                 self.pick_photo(request);
                 Vec::new()
             }
@@ -1047,6 +1047,13 @@ impl View {
             window.set_cards_page(CardsPage::None);
             window.set_contact_confirming_delete(false);
             window.set_own_discard_open(false);
+        }
+        // A pick is waited on only while its editor is shown: whichever way
+        // the editor went -- Back, another card page, another page taking
+        // the pane -- the platform is told its read is no longer wanted
+        // (#483 F3).
+        if self.cards.page != Some(CardsPage::OwnCard) {
+            self.abandon_photo_pick();
         }
         self.render_proposals(model, &window);
         // A contact's page whose contact is gone shows the list.
