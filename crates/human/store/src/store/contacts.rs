@@ -653,7 +653,11 @@ impl HumanStore {
     /// photo, never the photo's bytes: the Contacts list and every
     /// conversation title need every contact's name, and a photo is read
     /// when it is shown ([`Self::contact_photo`]). The cursor of the next
-    /// page is the last contact's id.
+    /// page is the last contact's id. Id order is no order a person sees:
+    /// the pages are read to their end and the model orders the whole
+    /// (human-client-ui.md section 3), while the id keyset keeps paging
+    /// stable as an Accept adds a row (agreed with the start window's
+    /// batch B, 2026-10-27).
     ///
     /// # Errors
     /// A storage error, or a row this build cannot read back.
