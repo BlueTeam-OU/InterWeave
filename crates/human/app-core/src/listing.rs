@@ -9,8 +9,8 @@ use interweave_human_chat_protocol::{
 };
 use interweave_human_client_api::{Destination, Origin, ReceivedCard};
 use interweave_human_store::{
-    Cursor, HumanStore, InboundOrigin, OutboundDestination, Page, PageLimits, PendingOutbound,
-    StoreError, StoredInbound,
+    Cursor, HumanStore, InboundKind, InboundOrigin, OutboundDestination, Page, PageLimits,
+    PendingOutbound, StoreError, StoredInbound,
 };
 use interweave_human_ui_model::{ListedInbound, ListedOutbound};
 use interweave_transport_api::MediaType;
@@ -26,6 +26,40 @@ const PAGE_BYTES: usize = 1024 * 1024;
 pub(crate) fn limits() -> PageLimits {
     // Both non-zero: `new` refuses only a zero ceiling.
     PageLimits::new(PAGE_RECORDS, PAGE_BYTES).unwrap_or_else(|_| unreachable!())
+}
+
+/// The version of [`kind_of`], kept in the store as
+/// `inbound_kind_version` (STATE.md schema v10). A build whose
+/// classification of a stored row differs -- the envelope or card grammar
+/// read another way -- bumps it, and its first listing classifies every
+/// row again before anything is counted.
+pub(crate) const INBOUND_KIND_VERSION: &str = "1";
+
+/// A stored row's kind, by the same steps the listing takes to show it: a
+/// message it shows as text, a card it shows as a proposal, and any other
+/// row one this build cannot show.
+#[must_use]
+pub fn kind_of(row: &StoredInbound) -> InboundKind {
+    if inbound(row).is_some() {
+        InboundKind::Text
+    } else if card(row).is_some() {
+        InboundKind::Card
+    } else {
+        InboundKind::Other
+    }
+}
+
+/// Classify every stored row again when the store's kinds were made by
+/// another version of [`kind_of`], or by none, as after the v10
+/// migration: before the first count is read.
+///
+/// # Errors
+/// The store's; the kinds and their version are then as they were.
+pub(crate) fn reclassify_if_stale(store: &mut HumanStore) -> Result<(), StoreError> {
+    if store.inbound_kind_version()?.as_deref() == Some(INBOUND_KIND_VERSION) {
+        return Ok(());
+    }
+    store.reclassify_inbound(INBOUND_KIND_VERSION, kind_of)
 }
 
 /// Every pending, unread and kept row, decoded.
@@ -201,4 +235,62 @@ fn decode(media_type: Option<&MediaType>, payload: &[u8]) -> Option<HumanChatV2>
     let info = parse_media_type(media_type?.as_str()).ok()?;
     let text = decode_envelope_bytes(payload, info.encoding).ok()?;
     HumanChatV2::parse(&text).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{INBOUND_KIND_VERSION, reclassify_if_stale};
+    use interweave_human_store::{
+        AppMessageId, HumanStore, InboundKind, InboundOrigin, NewInbound, StoreOptions,
+    };
+    use interweave_transport_api::{EndpointId, MediaType, TransportIdentity};
+
+    fn row(n: u8, payload: &[u8]) -> NewInbound {
+        NewInbound {
+            app_message_id: AppMessageId::parse(format!("{n:032x}")).expect("an id"),
+            origin: InboundOrigin {
+                peer: TransportIdentity::parse(
+                    "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+                )
+                .expect("a PeerId"),
+                endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+                channel: None,
+            },
+            media_type: Some(
+                MediaType::parse("application/vnd.interweave-human-chat+json;v=2").expect("media"),
+            ),
+            payload: payload.to_vec(),
+            received_at: u64::from(n),
+            // As the v10 migration leaves every row before a client ran.
+            kind: InboundKind::Other,
+        }
+    }
+
+    /// A store whose kinds no client has classified -- every row `other`,
+    /// as v10 leaves them -- has them classified at the first listing,
+    /// and the version recorded, so the next listing leaves them alone.
+    /// Mutation: the stale store taken for a current one.
+    #[test]
+    fn a_store_classified_by_no_client_is_classified_at_the_first_listing() {
+        let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let text = br#"{"v":2,"kind":"text","app_message_id":"00000000000000000000000000000001","text":"hi"}"#;
+        store
+            .commit_unread_inbound(&row(1, text))
+            .expect("a message");
+        store
+            .commit_unread_inbound(&row(2, b"no envelope"))
+            .expect("a row this build cannot show");
+        reclassify_if_stale(&mut store).expect("classified");
+        let kinds: Vec<_> = store
+            .unread_inbound()
+            .expect("read")
+            .iter()
+            .map(|r| r.kind)
+            .collect();
+        assert_eq!(kinds, [InboundKind::Text, InboundKind::Other]);
+        assert_eq!(
+            store.inbound_kind_version().expect("version").as_deref(),
+            Some(INBOUND_KIND_VERSION)
+        );
+    }
 }

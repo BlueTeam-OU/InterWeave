@@ -980,6 +980,37 @@ async fn a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind() {
     );
 }
 
+/// Schema v10: a card received end to end is stored with the kind the
+/// client's own classification of the stored row gives it, so the badge
+/// counts what the listing shows. Mutation: the transport client
+/// committing a card as text.
+#[tokio::test]
+async fn a_received_cards_stored_kind_is_the_listings_own() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    assert_eq!(
+        bob.model().proposals(&direct(a.peer())).len(),
+        1,
+        "control: the card arrived"
+    );
+    Box::pin(bob.facade.close()).await;
+    drop(bob);
+    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
+    let rows = store.unread_inbound().expect("read");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].kind, interweave_human_store::InboundKind::Card);
+    assert_eq!(
+        interweave_human_app_core::stored_kind(&rows[0]),
+        rows[0].kind
+    );
+}
+
 #[tokio::test]
 async fn a_deleted_contact_is_gone_and_the_next_card_from_its_route_is_a_new_contact() {
     let (a, b) = FakeNetwork::pair(node(), node());
