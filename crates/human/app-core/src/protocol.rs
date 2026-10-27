@@ -454,4 +454,7 @@ pub enum Failure {
     /// Nothing was written, and the proposal is given again as it stands
     /// ([`Update::ProposalJudged`]) for the person to decide.
     ProposalChanged,
+    /// No facade took the command: the service was not running, or was
+    /// stopping. Nothing was carried out (owner's finding P2-2).
+    ServiceStopped,
 }

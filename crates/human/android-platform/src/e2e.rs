@@ -52,7 +52,7 @@ impl HubClient {
 
 impl AppClient for HubClient {
     fn command(&mut self, command: Command) -> bool {
-        self.hub.command(command)
+        self.hub.command(command).is_ok()
     }
 
     fn updates(&mut self, wait: Duration) -> Result<Vec<Update>, String> {

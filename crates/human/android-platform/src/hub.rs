@@ -152,10 +152,21 @@ pub enum StoreRefusal {
     KeyLost,
 }
 
+/// The running facade's generation and where its commands go.
+#[derive(Default)]
+struct Commands {
+    generation: Option<u64>,
+    sender: Option<tokio::sync::mpsc::UnboundedSender<Command>>,
+}
+
 /// The process's one meeting point between the facade and the view.
 pub struct Hub {
     slot: Mutex<Slot>,
-    commands: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Command>>>,
+    /// The running facade's generation and, while it takes commands, where
+    /// they go: withdrawn before it closes, so a command is never accepted
+    /// by a facade that will not carry it out (owner's finding P2-2).
+    commands: Mutex<Commands>,
+    generations: std::sync::atomic::AtomicU64,
     focused: AtomicBool,
     notices: Notices,
 }
@@ -172,7 +183,8 @@ impl Hub {
     pub fn new() -> Self {
         Self {
             slot: Mutex::new(Slot::default()),
-            commands: Mutex::new(None),
+            commands: Mutex::new(Commands::default()),
+            generations: std::sync::atomic::AtomicU64::new(0),
             focused: AtomicBool::new(false),
             notices: Notices::default(),
         }
@@ -235,27 +247,84 @@ impl Hub {
         &self.notices
     }
 
-    /// Carry out `command` on the facade. False while no facade runs: the
-    /// view then shows the service as not running, and offers nothing that
-    /// sends one.
-    #[must_use]
-    pub fn command(&self, command: Command) -> bool {
-        self.commands
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-            .is_some_and(|commands| commands.send(command).is_ok())
+    /// Carry out `command` on the facade, or hand it back while no facade
+    /// takes commands -- none runs, or the one that runs is closing -- for
+    /// the view to fail it explicitly (owner's finding P2-2). A command
+    /// accepted here is carried out: the facade withdraws before it
+    /// closes and runs every command it accepted first.
+    ///
+    /// # Errors
+    /// The command, when no facade takes it.
+    pub fn command(&self, command: Command) -> Result<(), Command> {
+        let commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
+        match commands.sender.as_ref() {
+            Some(sender) => sender.send(command).map_err(|e| e.0),
+            None => Err(command),
+        }
     }
 
     // --- the facade's side -------------------------------------------------
 
-    /// The facade started (`Some`, with where its commands go) or stopped.
+    /// The facade started (`Some`, with where its commands go) or stopped:
+    /// the latest generation, whichever it is. The tests' shorthand; a
+    /// facade starts, withdraws and stops by its own generation.
+    #[cfg(test)]
     pub(crate) fn set_running(
         &self,
         commands: Option<tokio::sync::mpsc::UnboundedSender<Command>>,
     ) {
-        let running = commands.is_some();
-        *self.commands.lock().unwrap_or_else(PoisonError::into_inner) = commands;
+        if let Some(sender) = commands {
+            self.started(sender);
+            return;
+        }
+        let current = self
+            .commands
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .generation;
+        if let Some(generation) = current {
+            self.stopped(generation);
+        }
+    }
+
+    /// A facade started, taking commands at `sender`: its generation, which
+    /// alone may withdraw or stop it.
+    pub(crate) fn started(&self, sender: tokio::sync::mpsc::UnboundedSender<Command>) -> u64 {
+        let generation = self
+            .generations
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1);
+        *self.commands.lock().unwrap_or_else(PoisonError::into_inner) = Commands {
+            generation: Some(generation),
+            sender: Some(sender),
+        };
+        self.say_running(true);
+        generation
+    }
+
+    /// Facade `generation` is closing: it takes no more commands. A later
+    /// generation is left as it is.
+    pub(crate) fn withdraw(&self, generation: u64) {
+        let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
+        if commands.generation == Some(generation) {
+            commands.sender = None;
+        }
+    }
+
+    /// Facade `generation` stopped: said, unless a later one runs -- an old
+    /// facade's late stop never clears a new one.
+    pub(crate) fn stopped(&self, generation: u64) {
+        {
+            let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
+            if commands.generation != Some(generation) {
+                return;
+            }
+            *commands = Commands::default();
+        }
+        self.say_running(false);
+    }
+
+    fn say_running(&self, running: bool) {
         let mut slot = self.slot();
         slot.running = running;
         if let Some(viewer) = slot.viewer.as_mut() {
@@ -618,13 +687,43 @@ mod tests {
     #[test]
     fn a_command_goes_nowhere_while_no_facade_runs() {
         let hub = Hub::new();
-        assert!(!hub.command(Command::Reopen));
+        assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
         let (commands, mut rx) = tokio::sync::mpsc::unbounded_channel();
         hub.set_running(Some(commands));
-        assert!(hub.command(Command::Reopen));
+        assert_eq!(hub.command(Command::Reopen), Ok(()));
         assert!(matches!(rx.try_recv(), Ok(Command::Reopen)));
         hub.set_running(None);
-        assert!(!hub.command(Command::Reopen));
+        assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
+    }
+
+    /// Owner's finding P2-2: a closing facade takes no command -- it is
+    /// handed back for the view to fail -- and an old facade's withdraw or
+    /// late stop never touches a newer one. Mutations: withdraw leaving the
+    /// sender; a stop of any generation clearing the current one.
+    #[test]
+    fn a_closing_facade_takes_no_command_and_an_old_one_never_stops_a_new_one() {
+        let hub = Hub::new();
+        let (first, _rx1) = tokio::sync::mpsc::unbounded_channel();
+        let old = hub.started(first);
+        hub.withdraw(old);
+        assert_eq!(
+            hub.command(Command::Reopen),
+            Err(Command::Reopen),
+            "closing"
+        );
+        let (second, mut rx2) = tokio::sync::mpsc::unbounded_channel();
+        let new = hub.started(second);
+        assert_ne!(old, new);
+        hub.withdraw(old);
+        hub.stopped(old);
+        assert_eq!(
+            hub.command(Command::Reopen),
+            Ok(()),
+            "the new one still takes it"
+        );
+        assert!(matches!(rx2.try_recv(), Ok(Command::Reopen)));
+        hub.stopped(new);
+        assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
     }
 
     /// Every answer is said and counted, an unchanged one included: a
