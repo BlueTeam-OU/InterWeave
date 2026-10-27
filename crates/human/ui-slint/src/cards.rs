@@ -271,7 +271,7 @@ fn key_reason(problem: &KeyProblem) -> &'static str {
 
 /// A name's initials, as the look spec draws an avatar without a photo:
 /// the first character of its first word and of its last, uppercased.
-fn initials(name: &str) -> String {
+pub(crate) fn initials(name: &str) -> String {
     let words: Vec<&str> = name.split_whitespace().collect();
     let first = words.first().and_then(|w| w.chars().next());
     let last = (words.len() > 1)
@@ -304,7 +304,7 @@ fn contact_hue(contact: &ContactView) -> i32 {
     })
 }
 
-fn image(photo: &Photo) -> Image {
+pub(crate) fn image(photo: &Photo) -> Image {
     Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
         &photo.rgba,
         photo.width,

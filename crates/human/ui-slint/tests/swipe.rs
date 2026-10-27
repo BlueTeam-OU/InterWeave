@@ -1777,3 +1777,109 @@ fn a_row_whose_actions_change_under_its_open_menu_closes_it() {
     assert_eq!(view.window().get_row_menu(), -1, "closed");
     assert_eq!(view.window().get_focus_id().as_str(), format!("item:{row}"));
 }
+
+/// One's own card, queued to `to` as pending `row`.
+fn own_card(model: &mut UiModel, row: i64, to: &TransportIdentity, name: &str) {
+    model.card_queued(
+        RowId::from_stored(row),
+        direct(to),
+        format!("{:032x}", u128::try_from(row).expect("positive") + 9_000),
+        interweave_human_ui_model::SentCard {
+            name: name.to_owned(),
+            photo: None,
+        },
+        u64::try_from(row).expect("positive"),
+    );
+}
+
+/// Contact-cards 5.5 and its answers of 2026-10-27: one's own card row
+/// draws the card as it went and reads "You shared your card", the name,
+/// then status and time; its menu holds Retry and Cancel and no Show
+/// source; once accepted it has no menu at all, by Enter or by a screen
+/// reader's activation. Mutations: Show source offered on a card row;
+/// an accepted card row opening a menu.
+#[test]
+fn an_own_card_row_draws_the_card_and_its_menu_holds_only_its_actions() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    own_card(&mut model, 1, &alice, "Ada Lovelace");
+    model.client_event(outbound(
+        1,
+        OutboundStatus::NeedsAttention {
+            problem: interweave_human_client_api::SendProblem::PeerUntrusted,
+            may_have_reached: false,
+        },
+    ));
+    open(&mut view, &mut model, &direct(&alice));
+    let row = view.window().get_messages().row_data(0).expect("a row");
+    assert!(row.card, "drawn as a card");
+    assert_eq!(row.card_name.as_str(), "Ada Lovelace");
+    assert_eq!(row.card_letters.as_str(), "AL");
+    assert!(
+        row.label
+            .as_str()
+            .starts_with(&format!("{}: Ada Lovelace. ", text(UiText::CardSentLabel))),
+        "{}",
+        row.label
+    );
+    assert!(!row.card_has_photo);
+    let preview = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a conversation")
+        .preview;
+    assert_eq!(
+        preview.as_str(),
+        text(UiText::CardSentLabel),
+        "the list's preview"
+    );
+
+    menu_by_keyboard(&view, row.handle);
+    assert_eq!(view.window().get_row_menu(), row.handle, "control: open");
+    let entries: Vec<String> = i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .find_all()
+        .into_iter()
+        .filter(|e| e.accessible_description().as_deref() == Some(row.label.as_str()))
+        .filter_map(|e| e.accessible_label().map(|l| l.to_string()))
+        .collect();
+    assert_eq!(
+        entries,
+        vec![
+            text(UiText::Retry).to_owned(),
+            text(UiText::Cancel).to_owned()
+        ],
+        "Retry, Cancel, and no Show source"
+    );
+    key(&view, Key::Escape);
+    slint::platform::update_timers_and_animations();
+
+    // Accepted: no menu at all.
+    model.client_event(outbound(1, OutboundStatus::Accepted { endpoint: human() }));
+    let _ = turn(&mut view, &mut model);
+    let row = view.window().get_messages().row_data(0).expect("a row");
+    assert!(!row.has_menu);
+    tab_to(&view, &format!("item:{}", row.handle));
+    press_focused(&view);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_row_menu(), -1, "Enter opens nothing");
+    let item = i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .match_accessible_role(i_slint_backend_testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some(row.label.as_str()))
+        .expect("the row's item");
+    item.invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_row_menu(), -1, "activation opens nothing");
+}
+
+fn outbound(row: i64, status: OutboundStatus) -> ClientEvent {
+    ClientEvent::Outbound(OutboundUpdate {
+        row: RowId::from_stored(row),
+        app_message_id: AppMessageId::parse(format!("{row:032x}")).expect("id"),
+        status,
+        last_code: None,
+    })
+}
