@@ -255,7 +255,8 @@ fn on_network_change(
 /// this node's addresses, after EVERY observation of the view or the
 /// listeners -- each can move what is on no local network, the second
 /// case (A 2026-10-27) by a listener binding a private IP the view does
-/// not hold: Identify's listen set, told what is not offered and the view
+/// not hold, and the shared address space by a listener binding there:
+/// Identify's listen set, told what is not offered and the view
 /// it judges a new listen address against itself; and DCUtR's two doors,
 /// told the off-local IPs (the crate is built again when it holds an
 /// address on one) and then offered every listener this node offers,

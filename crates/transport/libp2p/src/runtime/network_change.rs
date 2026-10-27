@@ -214,7 +214,8 @@ impl NetworkSet {
     /// (`NetworkView::off_local_network`): its private-range members
     /// that are among the view's addresses join [`Self::off_local`],
     /// replacing the last view's, beside the bound private IPs the view
-    /// does not hold. It moves nothing in the known set, so a
+    /// does not hold and the bound shared-address-space ones. It moves
+    /// nothing in the known set, so a
     /// classification alone is no change.
     pub(super) fn observe_view(
         &mut self,

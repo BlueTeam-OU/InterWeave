@@ -114,13 +114,15 @@ impl<B> ListenScope<B> {
 }
 
 impl<B: NetworkBehaviour> ListenScope<B> {
-    /// Withhold the listen addresses on `ips` from now on, and while
-    /// `view` is `Some` every direct one on a private IP it does not
-    /// hold, releasing any no longer withheld: the crate is told each
-    /// bound address that moved, as an expiry or a new listen address.
-    /// Returns how many moved. Pinned by
-    /// `a_withheld_listen_address_is_never_advertised` and
-    /// `a_private_listen_address_outside_the_view_is_never_advertised`.
+    /// Withhold the listen addresses on `ips` from now on, and every
+    /// direct one [`lies_on_no_local_network`] names under `view` -- in
+    /// the shared address space whatever `view` is, and while `view` is
+    /// `Some` on a private IP it does not hold -- releasing any no longer
+    /// withheld: the crate is told each bound address that moved, as an
+    /// expiry or a new listen address. Returns how many moved. Pinned by
+    /// `a_withheld_listen_address_is_never_advertised`,
+    /// `a_private_listen_address_outside_the_view_is_never_advertised`
+    /// and `a_shared_address_space_listen_address_is_never_advertised`.
     pub fn withhold(&mut self, ips: &BTreeSet<IpAddr>, view: Option<&BTreeSet<IpAddr>>) -> usize {
         let before: Vec<(Multiaddr, ListenerId, bool)> = self
             .bound
