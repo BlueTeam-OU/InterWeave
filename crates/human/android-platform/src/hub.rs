@@ -294,11 +294,16 @@ impl Hub {
             .generations
             .fetch_add(1, Ordering::SeqCst)
             .wrapping_add(1);
-        *self.commands.lock().unwrap_or_else(PoisonError::into_inner) = Commands {
+        let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
+        *commands = Commands {
             generation: Some(generation),
             sender: Some(sender),
         };
+        // Said under the commands lock, as `stopped` says its own: an old
+        // facade's stop cannot then say "not running" after this start
+        // (#483 F2). The order is commands, then the slot, everywhere.
         self.say_running(true);
+        drop(commands);
         generation
     }
 
@@ -314,14 +319,14 @@ impl Hub {
     /// Facade `generation` stopped: said, unless a later one runs -- an old
     /// facade's late stop never clears a new one.
     pub(crate) fn stopped(&self, generation: u64) {
-        {
-            let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
-            if commands.generation != Some(generation) {
-                return;
-            }
-            *commands = Commands::default();
+        let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
+        if commands.generation != Some(generation) {
+            return;
         }
+        *commands = Commands::default();
+        // Under the lock that decided it (see `started`).
         self.say_running(false);
+        drop(commands);
     }
 
     fn say_running(&self, running: bool) {
@@ -724,6 +729,34 @@ mod tests {
         assert!(matches!(rx2.try_recv(), Ok(Command::Reopen)));
         hub.stopped(new);
         assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
+    }
+
+    /// #483 F2: an old facade's stop racing a new facade's start never
+    /// leaves the hub saying "not running" while the new one takes
+    /// commands: what is said is what holds the commands. Many rounds of the
+    /// race, since its window is narrow. Mutation: `say_running` after the
+    /// commands lock is released (caught in most runs, not every one).
+    #[test]
+    fn a_racing_old_stop_never_says_not_running_over_a_new_start() {
+        for _ in 0..2_000 {
+            let hub = Arc::new(Hub::new());
+            let (first, _rx1) = tokio::sync::mpsc::unbounded_channel();
+            let old = hub.started(first);
+            let gate = Arc::new(std::sync::Barrier::new(2));
+            let stopping = {
+                let (hub, gate) = (Arc::clone(&hub), Arc::clone(&gate));
+                std::thread::spawn(move || {
+                    gate.wait();
+                    hub.stopped(old);
+                })
+            };
+            let (second, _rx2) = tokio::sync::mpsc::unbounded_channel();
+            gate.wait();
+            let _new = hub.started(second);
+            stopping.join().expect("the stop");
+            assert!(hub.slot().running, "the new facade runs and is said to");
+            assert_eq!(hub.command(Command::Reopen), Ok(()));
+        }
     }
 
     /// Every answer is said and counted, an unchanged one included: a
