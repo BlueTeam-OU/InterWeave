@@ -1639,6 +1639,85 @@ async fn a_new_key_withdraws_the_not_sent_card_and_lists_both_pending_conversati
     assert_eq!(pending, vec![stranger], "only D is left, to arrive");
 }
 
+/// Acceptance item 8 at the facade: the app killed during `KeyMaking`,
+/// at each point the step can be cut, leaves on disk what the step had
+/// done by then, built here with the store's own calls, and the next
+/// start shows: before the removal, the state as before; after it and
+/// before the new key is stored -- a half-written temporary beside the
+/// file included, as a kill inside the write leaves it -- "missing" with
+/// no key made for an identity that shared its card, and a key with no
+/// state for one that never shared; after, the new key's fingerprint.
+#[tokio::test]
+async fn a_new_key_cut_at_each_point_starts_as_far_as_the_step_got() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    drop(alice);
+    let file = identity_key::key_path(&pa.paths, &human());
+    std::fs::write(&file, "not a record\n").expect("damage");
+    let start = |at: &'static str| {
+        let side = facade_with_source(&a, &pa, Box::new(FilesystemCustody));
+        async move {
+            let mut root = Root::new(side);
+            root.pump(1).await;
+            let key = own_key(&root);
+            drop(root);
+            (at, key)
+        }
+    };
+
+    // Cut before the removal.
+    assert_eq!(
+        start("before").await,
+        ("before", OwnKey::Unusable(KeyProblem::Damaged))
+    );
+
+    // Cut after the removal, inside the new key's write.
+    identity_key::remove(&pa.paths, &human(), &FilesystemCustody).expect("removed");
+    let mut temp = file.clone().into_os_string();
+    temp.push(".4242.0.00000000deadbeef.tmp");
+    std::fs::write(&temp, "IDK1 half").expect("a half-written temporary");
+    assert_eq!(
+        start("between").await,
+        ("between", OwnKey::Unusable(KeyProblem::Missing))
+    );
+    assert!(!file.exists(), "no key made by itself");
+
+    // Cut after the new key is stored.
+    let made = identity_key::create(&pa.paths, &human(), &FilesystemCustody).expect("stored");
+    assert_eq!(
+        start("after").await,
+        (
+            "after",
+            OwnKey::Ready {
+                fingerprint: made.fingerprint().to_string()
+            }
+        )
+    );
+
+    // An identity that never shared, cut between: a key, no state.
+    let pc = profile();
+    let mut carol = Root::new(facade_with_source(&a, &pc, Box::new(FilesystemCustody)));
+    carol.pump(0).await;
+    drop(carol);
+    identity_key::remove(&pc.paths, &human(), &FilesystemCustody).expect("removed");
+    let mut carol = Root::new(facade_with_source(&a, &pc, Box::new(FilesystemCustody)));
+    carol.pump(1).await;
+    let OwnKey::Ready { fingerprint } = own_key(&carol) else {
+        panic!("a key with no state: {:?}", own_key(&carol))
+    };
+    assert_eq!(
+        fingerprint,
+        key_of(&pc).fingerprint().to_string(),
+        "the key shown is the one stored"
+    );
+}
+
 /// A cipher at the desktop's custody that cannot seal: a new key cannot
 /// be stored under it.
 struct NoSeal;
