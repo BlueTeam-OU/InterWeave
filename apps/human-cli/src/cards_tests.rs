@@ -479,7 +479,11 @@ async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
     let mut out = Vec::new();
     verbs::listen(
         &mut b_run,
-        true,
+        verbs::ListenMode {
+            json: true,
+            consume: false,
+            input: None,
+        },
         &mut out,
         tokio::time::sleep(Duration::from_millis(500)),
     )

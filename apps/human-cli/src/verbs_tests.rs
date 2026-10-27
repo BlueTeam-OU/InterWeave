@@ -104,6 +104,7 @@ fn send(key: &ConversationKey, text: &str) -> Verb {
     Verb::Send {
         conversation: key.clone(),
         text: Some(text.to_owned()),
+        pending: true,
     }
 }
 
@@ -386,7 +387,11 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
     let mut out = Vec::new();
     verbs::listen(
         &mut bob,
-        true,
+        verbs::ListenMode {
+            json: true,
+            consume: false,
+            input: None,
+        },
         &mut out,
         tokio::time::sleep(Duration::from_millis(500)),
     )
@@ -401,6 +406,115 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
     assert_eq!(message["text"], "while listening");
     assert_eq!(message["status"], "unread");
     assert!(message["conversation"].is_string());
+    assert_eq!(
+        message["local_endpoint"], "human",
+        "G6: the endpoint it reached"
+    );
+}
+
+/// G1: `listen --input` sends each JSON line over the lease it holds and
+/// answers each with its `ref`: an outbound event for a send, an
+/// input-refused one for a line it cannot read, and it goes on after
+/// both and after EOF. Mutations: a refused line ending listen; the
+/// answer losing its ref.
+#[tokio::test]
+async fn listen_input_sends_each_line_and_answers_with_its_ref() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
+    for line in [
+        "not json".to_owned(),
+        r#"{"send":{"conversation":"x","ref":"bad"}}"#.to_owned(),
+        format!(r#"{{"send":{{"conversation":"{to_alice}","text":"over the lease","ref":7}}}}"#),
+    ] {
+        lines_in.send(line).expect("queued");
+    }
+    drop(lines_in);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_500)),
+    )
+    .await
+    .expect("listened past EOF");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    let refused: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "input-refused")
+        .collect();
+    assert_eq!(refused.len(), 2, "{out}");
+    assert_eq!(refused[0]["ref"], Value::Null);
+    assert_eq!(refused[1]["ref"], "bad");
+    let sent = events
+        .iter()
+        .find(|e| e["event"] == "outbound" && e["ref"] == 7)
+        .unwrap_or_else(|| panic!("an outbound answer for ref 7: {out}"));
+    assert!(
+        sent["id"].as_str().is_some_and(|id| id.starts_with('p')),
+        "{out}"
+    );
+    let of_its_row: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "outbound" && e["id"] == sent["id"])
+        .collect();
+    assert!(
+        of_its_row.iter().all(|e| e["ref"] == 7),
+        "every outbound event of its row names its ref: {out}"
+    );
+    let (out, _) = run(&mut alice, Verb::Messages(to(b.peer())), true).await;
+    assert!(
+        lines(&out).iter().any(|m| m["text"] == "over the lease"),
+        "it reached alice: {out}"
+    );
+}
+
+/// G3: `listen --consume` marks each message read once its line is
+/// written, so the store holds it unread no more. Mutation: consume
+/// marking nothing.
+#[tokio::test]
+async fn listen_consume_marks_each_printed_message_read() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    run(&mut alice, send(&to(b.peer()), "consumed"), false)
+        .await
+        .1
+        .expect("sent");
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(800)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    assert!(lines(&out).iter().any(|e| e["text"] == "consumed"), "{out}");
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert!(unread.is_empty(), "read once printed: {unread:?}");
 }
 
 #[tokio::test]
@@ -516,4 +630,36 @@ async fn a_keep_that_fails_after_the_read_still_prints_what_was_read() {
     assert_eq!(shown.len(), 2, "both are printed: {out}");
     assert_eq!(shown[0]["status"], "read", "{out}");
     assert_eq!(shown[0]["text"], "first");
+}
+
+/// G4: `send --no-pending` that is not accepted by the end of `--wait` is
+/// cancelled, said so with `"pending": false`, and leaves no pending row
+/// for a later run to send; without it the send stays pending (exit 6).
+/// Mutation: --no-pending leaving the send pending.
+#[tokio::test]
+async fn a_send_with_no_pending_is_cancelled_when_its_wait_ends() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let mut alice = session(&a, store(dir.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    // A peer with no address: the send is retried, never accepted.
+    let nobody = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer");
+    let verb = Verb::Send {
+        conversation: to(&nobody),
+        text: Some("ephemeral".to_owned()),
+        pending: false,
+    };
+    let (out, sent) = run(&mut alice, verb, true).await;
+    assert!(matches!(sent, Err(Failure::Refused(_))), "{sent:?}");
+    let line = &lines(&out)[0];
+    assert_eq!(line["status"], "cancelled", "{out}");
+    assert_eq!(line["pending"], false);
+    alice.close().await;
+    let pending = store(dir.path()).pending_outbound().expect("read");
+    assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
 }

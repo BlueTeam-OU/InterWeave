@@ -13,11 +13,11 @@ use std::time::Instant;
 use interweave_human_app_core::{Command, Failure as Why, Problem, Update};
 use interweave_human_client_api::{ClientEvent, OutboundStatus, SessionState, TrustProblem};
 use interweave_human_ui_model::{
-    ConversationKey, Direction, EntryProblem, Intent, ItemKey, ItemStatus, TrustInput,
+    ConversationKey, Direction, EntryProblem, Intent, ItemKey, ItemStatus, RowId, TrustInput,
     TrustOutcome, ViewEvent,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
-use interweave_transport_api::TransportIdentity;
+use interweave_transport_api::{EndpointId, TransportIdentity};
 use serde_json::json;
 
 use crate::Failure;
@@ -65,7 +65,8 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         Verb::Send {
             conversation,
             text: Some(text),
-        } => send(s, r, conversation, text, out).await,
+            pending,
+        } => send(s, r, conversation, text, *pending, out).await,
         Verb::Cancel(id) => row_action(s, r, RowVerb::Cancel, id, out).await,
         Verb::Retry(id) => row_action(s, r, RowVerb::Retry, id, out).await,
         Verb::Unkeep(id) => row_action(s, r, RowVerb::Unkeep, id, out).await,
@@ -111,7 +112,7 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
             crate::cards::contact_edit(s, id, None, Some(photo), out).await
         }
         Verb::Send { text: None, .. }
-        | Verb::Listen
+        | Verb::Listen { .. }
         | Verb::PeersList
         | Verb::PeerAdd(_)
         | Verb::PeerAddList(_)
@@ -382,6 +383,7 @@ async fn send<B: DataSessionBinding, A: AdminBinding>(
     r: &Run<'_>,
     key: &ConversationKey,
     text: &str,
+    pending: bool,
     out: &mut String,
 ) -> Result<(), Failure> {
     if text.is_empty() {
@@ -416,7 +418,7 @@ async fn send<B: DataSessionBinding, A: AdminBinding>(
         .model()
         .item_named(&format!("p{}", row.get()))
         .ok_or_else(|| Failure::Refused("the message sent is not shown".to_owned()))?;
-    until_done(s, r, key, item, out).await
+    until_done(s, r, key, item, pending, out).await
 }
 
 /// Turn until `item`, an outbound message, is accepted or published, needs
@@ -426,6 +428,7 @@ async fn until_done<B: DataSessionBinding, A: AdminBinding>(
     r: &Run<'_>,
     key: &ConversationKey,
     item: ItemKey,
+    pending: bool,
     out: &mut String,
 ) -> Result<(), Failure> {
     loop {
@@ -464,6 +467,12 @@ async fn until_done<B: DataSessionBinding, A: AdminBinding>(
                 line(out);
                 return Err(Failure::Refused(format!("{item} was cancelled")));
             }
+            // `--no-pending` (G4): not accepted by the end of `--wait`, the
+            // send is cancelled -- RETENTION.md's explicit cancel, with no
+            // Undo -- so no later run ever sends it.
+            _ if Instant::now() >= r.until && !pending => {
+                return cancel_unaccepted(s, r, key, item, out).await;
+            }
             _ if Instant::now() >= r.until => {
                 line(out);
                 return Err(Failure::Pending(format!(
@@ -476,6 +485,53 @@ async fn until_done<B: DataSessionBinding, A: AdminBinding>(
         s.step().await;
         tokio::time::sleep(STEP).await;
     }
+}
+
+/// `--no-pending`'s end: `item`, still on its way, is cancelled. One the
+/// transport accepted while the cancel was asked is said as accepted.
+async fn cancel_unaccepted<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+    key: &ConversationKey,
+    item: ItemKey,
+    out: &mut String,
+) -> Result<(), Failure> {
+    if let Some(cancel) = s
+        .model()
+        .actions(item)
+        .into_iter()
+        .find(|i| matches!(i, Intent::Cancel(_)))
+    {
+        s.will(move |_| vec![ViewEvent::Intent(cancel)]);
+        s.step().await;
+        problems(s)?;
+    }
+    let status = s
+        .model()
+        .messages(key)
+        .into_iter()
+        .find(|m| m.key == item)
+        .map(|m| m.status);
+    let accepted = matches!(
+        status,
+        Some(ItemStatus::Outbound(
+            OutboundStatus::Accepted { .. } | OutboundStatus::Published
+        ))
+    );
+    let token = if accepted { "accepted" } else { "cancelled" };
+    if r.json {
+        out.push_str(&output::json_line(
+            &json!({ "id": item.to_string(), "status": token, "pending": false }),
+        ));
+    } else {
+        let _ = writeln!(out, "{item} {token}");
+    }
+    if accepted {
+        return Ok(());
+    }
+    Err(Failure::Refused(format!(
+        "{item} was not accepted within --wait and is cancelled: no later run sends it"
+    )))
 }
 
 #[derive(Clone, Copy)]
@@ -522,7 +578,7 @@ async fn row_action<B: DataSessionBinding, A: AdminBinding>(
                 )
         })
     {
-        return until_done(s, r, &key, item, out).await;
+        return until_done(s, r, &key, item, true, out).await;
     }
     let intent = offered.ok_or_else(|| {
         Failure::Refused(format!(
@@ -541,7 +597,7 @@ async fn row_action<B: DataSessionBinding, A: AdminBinding>(
         RowVerb::Retry => {
             let key = conversation_of(s, item)
                 .ok_or_else(|| Failure::Refused(format!("{item} is no longer shown")))?;
-            return until_done(s, r, &key, item, out).await;
+            return until_done(s, r, &key, item, true, out).await;
         }
         RowVerb::Cancel => "cancelled",
         RowVerb::Unkeep => "unkept",
@@ -721,6 +777,14 @@ async fn set_trust<B: DataSessionBinding, A: AdminBinding>(
     })
 }
 
+/// The endpoint this session's lease holds, while it holds one.
+fn leased<B: DataSessionBinding, A: AdminBinding>(s: &Session<B, A>) -> Option<&EndpointId> {
+    match s.state() {
+        Some(SessionState::Ready { endpoint }) => endpoint.as_ref(),
+        _ => None,
+    }
+}
+
 /// One event `listen` prints, or `None` for what it does not.
 fn event_line<B: DataSessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
@@ -749,6 +813,9 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
             let mut value = output::message_value(&message);
             value["event"] = json!("message");
             value["conversation"] = json!(conversation_text(&key));
+            // The local endpoint that received it: the one this session's
+            // lease holds, beside the author and the peer's endpoint (G6).
+            value["local_endpoint"] = json!(leased(s).map(EndpointId::as_str));
             return Some(output::json_line(&value));
         }
         Update::ReceivedCard(card) => {
@@ -808,33 +875,215 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
     Some(line)
 }
 
+/// How `listen` runs: its output form, whether it consumes what it
+/// prints, and the input lines it sends from.
+pub(crate) struct ListenMode {
+    /// One JSON object per line.
+    pub(crate) json: bool,
+    /// Each message marked read, not kept, once its line is written and
+    /// flushed (G3). A line that cannot be written leaves its message
+    /// unread.
+    pub(crate) consume: bool,
+    /// JSON lines to send over the lease listen holds (G1); the channel
+    /// closing at EOF ends the input, never listen.
+    pub(crate) input: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
+}
+
+/// One input line `listen --input` sends, as read.
+struct InputSend {
+    conversation: ConversationKey,
+    text: String,
+    reference: serde_json::Value,
+}
+
+/// An input line read, or why it is refused with the `ref` it carried.
+fn input_send<B: DataSessionBinding, A: AdminBinding>(
+    s: &Session<B, A>,
+    line: &str,
+) -> Result<InputSend, (serde_json::Value, String)> {
+    let value: serde_json::Value = serde_json::from_str(line)
+        .map_err(|_| (serde_json::Value::Null, "not a JSON object".to_owned()))?;
+    let send = value.get("send").filter(|v| v.is_object());
+    let reference = send
+        .and_then(|v| v.get("ref"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let refused = |why: &str| (reference.clone(), why.to_owned());
+    let send = send.ok_or_else(|| refused("not a send: {\"send\": {...}}"))?;
+    let conversation = send
+        .get("conversation")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| refused("no conversation"))?;
+    let conversation = crate::cli::conversation(conversation).map_err(|e| refused(&e))?;
+    let text = send
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| refused("no text, or an empty one"))?;
+    // One lease, one source endpoint: a line may name it, never another
+    // (G2), since this session sends as the endpoint it holds.
+    if let Some(named) = send.get("endpoint") {
+        let held = leased(s).map(EndpointId::as_str);
+        if named.as_str() != held {
+            return Err(refused("this listen holds another endpoint"));
+        }
+    }
+    Ok(InputSend {
+        conversation,
+        text: text.to_owned(),
+        reference,
+    })
+}
+
+/// Write `line` and flush it: `Ok(false)` when the reader went away,
+/// which ends `listen` as a stop does.
+fn put(out: &mut dyn std::io::Write, line: &str) -> Result<bool, Failure> {
+    match out.write_all(line.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(false),
+        Err(e) => Err(Failure::Refused(format!("stdout: {e}"))),
+    }
+}
+
 /// Hold the session open and print one line (one JSON object with
-/// `--json`) per event, until `stop`. Received messages stay unread.
+/// `--json`) per event, until `stop`. Received messages stay unread unless
+/// `--consume`; `--input` sends each line it reads.
 ///
 /// # Errors
 /// [`Failure::Refused`] when stdout cannot be written; a reader that went
 /// away ends it as `stop` does.
 pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
-    json: bool,
+    mode: ListenMode,
     out: &mut dyn std::io::Write,
     stop: impl Future<Output = ()>,
 ) -> Result<(), Failure> {
+    let ListenMode {
+        json,
+        consume,
+        mut input,
+    } = mode;
     let mut stop = std::pin::pin!(stop);
+    let mut waiting: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    // The `ref` each input line carried, by the pending row its send made:
+    // every outbound event of that row names it.
+    let mut refs: std::collections::HashMap<RowId, serde_json::Value> =
+        std::collections::HashMap::new();
+    // The input line whose send was issued and is not yet answered.
+    let mut issued: Option<serde_json::Value> = None;
     loop {
         s.step().await;
+        let mut read = Vec::new();
         for update in s.take_updates() {
-            let Some(line) = event_line(s, &update, json) else {
+            let line = match &update {
+                Update::Sent { row, .. } if issued.is_some() => {
+                    let reference = issued.take().unwrap_or(serde_json::Value::Null);
+                    refs.insert(*row, reference.clone());
+                    let status = s
+                        .model()
+                        .item_named(&format!("p{}", row.get()))
+                        .and_then(|item| {
+                            s.model().conversations().into_iter().find_map(|c| {
+                                s.model()
+                                    .messages(&c.key)
+                                    .into_iter()
+                                    .find(|m| m.key == item)
+                                    .map(|m| m.status)
+                            })
+                        })
+                        .map_or("sending", |status| output::status(&status));
+                    Some(output::json_line(&json!({
+                        "event": "outbound",
+                        "ref": reference,
+                        "id": format!("p{}", row.get()),
+                        "status": status,
+                    })))
+                }
+                Update::SendRefused { error, .. } if issued.is_some() => {
+                    let reference = issued.take().unwrap_or(serde_json::Value::Null);
+                    Some(output::json_line(&json!({
+                        "event": "input-refused",
+                        "ref": reference,
+                        "reason": output::send_error(error),
+                    })))
+                }
+                Update::Client(ClientEvent::Outbound(o)) if refs.contains_key(&o.row) => {
+                    let reference = if o.status.is_terminal() {
+                        refs.remove(&o.row)
+                    } else {
+                        refs.get(&o.row).cloned()
+                    };
+                    event_line(s, &update, json).map(|line| {
+                        let mut value: serde_json::Value =
+                            serde_json::from_str(&line).unwrap_or_default();
+                        value["ref"] = reference.unwrap_or_default();
+                        output::json_line(&value)
+                    })
+                }
+                _ => event_line(s, &update, json),
+            };
+            let Some(line) = line else {
                 continue;
             };
-            match out.write_all(line.as_bytes()).and_then(|()| out.flush()) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => return Ok(()),
-                Err(e) => return Err(Failure::Refused(format!("stdout: {e}"))),
+            if !put(out, &line)? {
+                return Ok(());
             }
+            // Read once its line is written and flushed, never before:
+            // the line is its presentation to the program reading (G3).
+            if consume && let Update::Received(received) = &update {
+                read.push(received.row);
+            }
+        }
+        if !read.is_empty() {
+            s.will(move |_| {
+                read.into_iter()
+                    .map(|row| ViewEvent::Intent(Intent::MarkRead(row)))
+                    .collect()
+            });
+        }
+        // One input send at a time: the next is issued once this one is
+        // answered, sent or refused, so each answer names its own line.
+        if issued.is_none()
+            && let Some(line) = waiting.pop_front()
+        {
+            match input_send(s, &line) {
+                Err((reference, reason)) => {
+                    let refused = output::json_line(&json!({
+                        "event": "input-refused",
+                        "ref": reference,
+                        "reason": reason,
+                    }));
+                    if !put(out, &refused)? {
+                        return Ok(());
+                    }
+                }
+                Ok(send) => {
+                    let (typed, pressed) = (send.conversation.clone(), send.conversation);
+                    let draft = send.text;
+                    s.will(move |_| vec![ViewEvent::DraftChanged { key: typed, draft }]);
+                    s.will(move |m| {
+                        m.send_draft(&pressed)
+                            .map(ViewEvent::Intent)
+                            .into_iter()
+                            .collect()
+                    });
+                    issued = Some(send.reference);
+                }
+            }
+            continue;
         }
         tokio::select! {
             () = &mut stop => return Ok(()),
+            line = async {
+                match input.as_mut() {
+                    Some(lines) => lines.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => match line {
+                Some(line) => waiting.push_back(line),
+                // EOF: no more input; listen goes on.
+                None => input = None,
+            },
             () = tokio::time::sleep(STEP) => {}
         }
     }

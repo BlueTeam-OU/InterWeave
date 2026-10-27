@@ -20,9 +20,11 @@ usage:
   interweave-human --profile <name> conversations [--json]
   interweave-human --profile <name> messages <conversation> [--json]
   interweave-human --profile <name> read <conversation> [--keep <id>]... [--json]
-  interweave-human --profile <name> send <conversation> <text>|- [--json]
+  interweave-human --profile <name> send <conversation> <text>|- [--no-pending]
+                   [--endpoint <endpoint>] [--json]
   interweave-human --profile <name> cancel|retry|unkeep <id> [--json]
-  interweave-human --profile <name> listen [--json]
+  interweave-human --profile <name> listen [--input] [--consume]
+                   [--endpoint <endpoint>] [--json]
   interweave-human --profile <name> trust list [--json]
   interweave-human --profile <name> trust allow|revoke <peer>
   interweave-human --profile <name> identities list [--json]
@@ -92,6 +94,9 @@ pub(crate) enum Command {
         json: bool,
         /// How long to wait for the session and for an answer.
         wait: Duration,
+        /// The one of the profile's human endpoints to lease, in place of
+        /// the first (`--endpoint`, G2).
+        endpoint: Option<EndpointId>,
     },
 }
 
@@ -118,6 +123,9 @@ pub(crate) enum Verb {
         conversation: ConversationKey,
         /// The text, or `None` to read it from stdin.
         text: Option<String>,
+        /// Whether a send still on its way when `--wait` ends stays pending
+        /// for a later run to send; `--no-pending` cancels it instead (G4).
+        pending: bool,
     },
     /// Cancel a pending message.
     Cancel(String),
@@ -126,7 +134,14 @@ pub(crate) enum Verb {
     /// Release a kept message.
     Unkeep(String),
     /// Hold the session open, printing what happens until a signal.
-    Listen,
+    Listen {
+        /// Sends read as JSON lines on stdin, over the lease listen holds
+        /// (`--input`, G1).
+        input: bool,
+        /// Each message marked read, not kept, once its line is written
+        /// and flushed (`--consume`, G3).
+        consume: bool,
+    },
     /// The daemon's trust list.
     TrustList,
     /// Allow a peer, or revoke it.
@@ -242,6 +257,10 @@ pub(crate) const DEFAULT_WAIT: Duration = Duration::from_millis(5_000);
 /// The flags, collected; each verb takes what it accepts and refuses the
 /// rest.
 #[derive(Default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "one bool per switch the command line takes"
+)]
 struct Flags {
     profile: Option<String>,
     json: bool,
@@ -255,6 +274,10 @@ struct Flags {
     decline: Vec<String>,
     confirm: Option<String>,
     file: Option<String>,
+    input: bool,
+    consume: bool,
+    no_pending: bool,
+    endpoint: Option<String>,
 }
 
 /// Parse a conversation's text: `<peer>`, `<peer>/<endpoint>` or
@@ -362,6 +385,15 @@ fn flags_and_words(args: Vec<String>) -> Result<Option<(Flags, Vec<String>)>, St
                 }
             }
             "--json" => flags.json = true,
+            "--input" => flags.input = true,
+            "--consume" => flags.consume = true,
+            "--no-pending" => flags.no_pending = true,
+            "--endpoint" => {
+                let v = value("--endpoint")?;
+                if flags.endpoint.replace(v).is_some() {
+                    return Err("--endpoint given twice".to_owned());
+                }
+            }
             "--none" => flags.none = true,
             // A lone "-" is send's stdin marker, a word.
             "-" => words.push(arg),
@@ -407,6 +439,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             Verb::Send {
                 conversation: conversation(c)?,
                 text: None,
+                pending: !std::mem::take(&mut flags.no_pending),
             },
             true,
         ),
@@ -414,13 +447,20 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             Verb::Send {
                 conversation: conversation(c)?,
                 text: Some((*text).to_owned()),
+                pending: !std::mem::take(&mut flags.no_pending),
             },
             true,
         ),
         ["cancel", id] => (Verb::Cancel((*id).to_owned()), true),
         ["retry", id] => (Verb::Retry((*id).to_owned()), true),
         ["unkeep", id] => (Verb::Unkeep((*id).to_owned()), true),
-        ["listen"] => (Verb::Listen, true),
+        ["listen"] => (
+            Verb::Listen {
+                input: std::mem::take(&mut flags.input),
+                consume: std::mem::take(&mut flags.consume),
+            },
+            true,
+        ),
         ["trust", "list"] => (Verb::TrustList, true),
         ["trust", "allow", id] => (Verb::SetTrust(peer(id)?, true), false),
         ["trust", "revoke", id] => (Verb::SetTrust(peer(id)?, false), false),
@@ -515,6 +555,14 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         _ => return Err("an unknown command (see --help)".to_owned()),
     };
     let json = std::mem::take(&mut flags.json);
+    if matches!(verb, Verb::Listen { input: true, .. }) && !json {
+        return Err("--input reads JSON lines and answers in them: it needs --json".to_owned());
+    }
+    let endpoint = match flags.endpoint.take() {
+        Some(id) if matches!(verb, Verb::Listen { .. } | Verb::Send { .. }) => Some(endpoint(&id)?),
+        Some(_) => return Err("--endpoint applies to listen and send only".to_owned()),
+        None => None,
+    };
     if json && !json_allowed {
         return Err(
             "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share, store discard and identity new-key"
@@ -527,6 +575,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         verb,
         json,
         wait,
+        endpoint,
     })
 }
 
@@ -592,6 +641,12 @@ fn unused(flags: &Flags) -> Result<(), String> {
     }
     if flags.file.is_some() {
         return Err("--file applies to peers add, in place of its address".to_owned());
+    }
+    if flags.input || flags.consume {
+        return Err("--input and --consume apply to listen only".to_owned());
+    }
+    if flags.no_pending {
+        return Err("--no-pending applies to send only".to_owned());
     }
     Ok(())
 }
@@ -778,6 +833,7 @@ mod tests {
             Verb::Send {
                 conversation: conversation(&c).expect("parses"),
                 text: Some("-1 is a number".to_owned()),
+                pending: true,
             }
         );
         assert_eq!(
@@ -972,6 +1028,50 @@ mod tests {
         ));
     }
 
+    /// The carrier's flags (G1-G4): each where it applies and nowhere
+    /// else, `--input` only with `--json`, `--endpoint` parsed and carried.
+    /// Mutations: a flag accepted on another verb; --input without --json.
+    #[test]
+    fn the_carriers_flags_go_where_they_apply() {
+        let c = format!("{PEER}/human");
+        assert!(matches!(
+            run(&["--profile", "p", "listen", "--input", "--consume", "--json"]),
+            Ok(Command::Run {
+                verb: Verb::Listen {
+                    input: true,
+                    consume: true
+                },
+                ..
+            })
+        ));
+        assert!(
+            run(&["--profile", "p", "listen", "--input"]).is_err(),
+            "--input needs --json"
+        );
+        assert!(matches!(
+            run(&["--profile", "p", "send", &c, "x", "--no-pending"]),
+            Ok(Command::Run {
+                verb: Verb::Send { pending: false, .. },
+                ..
+            })
+        ));
+        assert!(matches!(
+            run(&["--profile", "p", "listen", "--endpoint", "fabric-control"]),
+            Ok(Command::Run {
+                endpoint: Some(e),
+                ..
+            }) if e.as_str() == "fabric-control"
+        ));
+        for wrong in [
+            vec!["--profile", "p", "status", "--input"],
+            vec!["--profile", "p", "status", "--consume"],
+            vec!["--profile", "p", "listen", "--no-pending"],
+            vec!["--profile", "p", "status", "--endpoint", "human"],
+        ] {
+            assert!(run(&wrong).is_err(), "{wrong:?}");
+        }
+    }
+
     #[test]
     fn help_wins_anywhere_and_wait_defaults() {
         assert_eq!(run(&["status", "--help"]), Ok(Command::Help));
@@ -982,6 +1082,7 @@ mod tests {
                 verb: Verb::Status,
                 json: false,
                 wait: DEFAULT_WAIT,
+                endpoint: None,
             })
         );
     }
