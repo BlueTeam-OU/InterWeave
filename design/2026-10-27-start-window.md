@@ -521,10 +521,11 @@ The words are language-culture's; these say what each must do.
 | `RowsNotShown` | one: 1 message is saved on this device, but this version of InterWeave cannot show it. other: {count} messages are saved on this device, but this version of InterWeave cannot show them. | the line at the end of Chats (§6.1) | that these messages (received unread, kept, or the person's own still waiting to send) are still stored and this app version cannot show them; must not use "kept" in the sense of Keep; a plural by count; must not blame a sender or suggest tampering |
 | `EarlierAtLimit` | If you choose Show more messages, InterWeave makes room for more messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again. | the limit row (§7.1), at the top edge or in a gap (§5.1) | before anything happens: what showing more messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
 | `EarlierShowAnyway` | Show more messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
-| `EarlierLoading` | Loading more messages | the progress row's accessible name (§5), at the top edge or in a gap (§5.1); never visible text | that more rows are on their way |
+| `EarlierLoading` | Loading more messages | the progress row's accessible name (§5), at the top edge or in a gap (§5.1); never visible text; not on Contacts, whose progress row is named `ContactsLoading` | that more rows are on their way |
 | `EarlierLoadFailed` | Could not load more messages. | the failure row (§5), at the top edge or in a gap (§5.1), and its announcement | that the rows could not be read; must not suggest they are lost |
 | `CardContactsUnread` | InterWeave could not check this card against your contacts, so you cannot accept it yet. | a proposal's case line while the contacts are unread (§11) | that the comparison with the person's contacts could not be made and why Accept is missing; must not suggest the card is unsafe or the contacts lost |
 | `NamingContactsUnread` | InterWeave could not read your contacts, so you cannot add this person as a contact yet. | Details, in place of naming by hand, while the contacts are unread (§11) | that the contacts could not be read and that adding a contact waits for that; names no card; must not suggest the contacts are lost |
+| `ContactsLoading` | Loading your contacts | the accessible name of the Contacts list's progress row during Try again (§11); never visible text | that the contacts are being read |
 | `ContactsLoadFailed` | Could not load your contacts. | the Contacts list's failure row, when the read of every contact fails (§11), and its announcement | that the contacts could not be read just now; must not suggest they are lost or that there are none |
 
 `TryAgain` exists and is reused.
@@ -622,7 +623,9 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     syntax. A first line of combining marks or emoji sequences is cut
     between whole characters, within 1 KiB; one whose first character
     alone exceeds 1 KiB previews as the ellipsis alone. A first line
-    under 160 characters shows whole, with no ellipsis. A 300-character
+    under 160 characters and under 1 KiB shows whole, with no ellipsis;
+    100 emoji sequences of about 25 bytes each are cut at 1 KiB, with
+    the ellipsis. A 300-character
     Hebrew first line previews its first 160 characters with the
     ellipsis on the left, and one whose cut falls in a Latin word at
     the end of a Hebrew line keeps the ellipsis on the left too.
@@ -811,7 +814,7 @@ line. Two of five failing is enough to reopen §6.
   again. The failure row goes at once, and focus goes to the page's
   title as app-placed focus (the title is where Contacts puts focus on
   opening, contact-cards §9 item 1). Its place stays empty until §5's
-  progress row shows there after 250 ms, if the read has not answered
+  progress row, named `ContactsLoading` here, shows there after 250 ms, if the read has not answered
   by then. With the button gone, no second read can start while one
   is in flight. Success shows the list, with focus on its first row,
   else on `ContactsEmpty` when the store holds no contact (contact-cards
