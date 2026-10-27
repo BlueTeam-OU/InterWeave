@@ -85,7 +85,7 @@ use libp2p::Multiaddr;
 use libp2p::core::ConnectedPoint;
 use libp2p::multiaddr::Protocol;
 
-use interweave_transport_runtime::reachability::is_private_range;
+use interweave_transport_runtime::reachability::{is_private_range, literal_host};
 
 use super::messages::PeerPath;
 
@@ -116,9 +116,15 @@ pub(super) struct NetworkSet {
     /// Where what this node does not offer ([`Self::not_offered`]) is
     /// published, for rule 3 at the root funnel ([`crate::held_listeners`]).
     published: crate::held_listeners::HeldListeners,
-    /// The private-range listener IPs this node offered at the last
-    /// observation: rule 3's own-listener boundary, kept to count each
-    /// widening of it ([`Self::publish`]): a subset of `listeners`.
+    /// The IPs of the bound addresses rule 3 reads as an own listener:
+    /// those `literal_host` takes, as `is_punchable_address` reads an
+    /// own listener -- not a circuit listener, whose leading IP is the
+    /// relay's report and which rule 3 never counts, though `listeners`
+    /// holds its first IP for the known set.
+    direct_listeners: BTreeSet<IpAddr>,
+    /// The private-range IPs of `direct_listeners` this node offered at
+    /// the last observation: rule 3's own-listener boundary, kept to
+    /// count each widening of it ([`Self::publish`]).
     offered_private: BTreeSet<IpAddr>,
 }
 
@@ -166,7 +172,13 @@ impl NetworkSet {
         &mut self,
         bound: impl Iterator<Item = &'a Multiaddr>,
     ) -> Option<NetworkChange> {
+        let bound: Vec<&Multiaddr> = bound.collect();
+        self.direct_listeners = bound
+            .iter()
+            .filter_map(|a| literal_host(&a.to_string()))
+            .collect();
         let now: BTreeSet<IpAddr> = bound
+            .into_iter()
             .filter(|a| !is_interface_scoped(a))
             .filter_map(first_ip)
             .collect();
@@ -332,9 +344,12 @@ impl NetworkSet {
     /// when this node now offers a private-range listener IP it did not
     /// at the last observation -- a listener reporting its LAN address
     /// after its loopback one, an IP joining the known set, the view
-    /// lifting a rule 10 classification. Every input `offers` reads
-    /// reaches the known set or `off_local` through `apply`, which ends
-    /// here, so no widening goes uncounted
+    /// lifting a rule 10 classification. Read from `direct_listeners`,
+    /// the addresses rule 3 itself counts, so a circuit listener on a
+    /// relay-reported IP neither widens nor masks a later direct
+    /// listener on that IP (review F1 of #468, second engine). Every
+    /// input `offers` reads reaches the known set or `off_local` through
+    /// `apply`, which ends here
     /// (`every_way_rule_3s_boundary_widens_is_counted_and_nothing_else`).
     /// Counted per IP, a superset of rule 3's per-family answer turning
     /// yes: a second LAN of a family already held counts too, and costs
@@ -342,7 +357,7 @@ impl NetworkSet {
     fn publish(&mut self) {
         self.published.set_unheld(self.not_offered());
         let offered: BTreeSet<IpAddr> = self
-            .listeners
+            .direct_listeners
             .iter()
             .copied()
             .filter(|ip| is_private_range(*ip) && self.offers_ip(*ip))
@@ -571,6 +586,7 @@ mod tests {
         let lan = "/ip4/192.168.1.5/tcp/4001";
         let global = "/ip6/2a00:1450::7/tcp/4001";
         let second_lan = "/ip4/10.0.0.9/tcp/4001";
+        let circuit = "/ip4/192.168.1.5/tcp/4002/p2p/12D3KooWCLxLXFHqvfsHVLDcNsSpZBQq1M1KMRgQRLLLnHTv7oQD/p2p-circuit";
         let mut bound: Vec<Multiaddr> = Vec::new();
         let mut was_admitted = false;
         let mut last = 0;
@@ -593,6 +609,15 @@ mod tests {
         bound.extend(addrs(&[lo]));
         let _ = set.observe_listeners(bound.iter());
         assert!(!step(&mut set, &bound, "loopback alone", false), "refused");
+        // A circuit listener whose relay reported this host's LAN IP:
+        // rule 3 counts no circuit as an own listener, so neither does
+        // the count, and the direct listener on that IP still widens.
+        bound.extend(addrs(&[circuit]));
+        let _ = set.observe_listeners(bound.iter());
+        assert!(
+            !step(&mut set, &bound, "a circuit listener on the LAN IP", false),
+            "refused"
+        );
         bound.extend(addrs(&[lan]));
         let _ = set.observe_listeners(bound.iter());
         assert!(
