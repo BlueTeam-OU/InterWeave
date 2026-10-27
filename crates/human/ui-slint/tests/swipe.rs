@@ -1856,6 +1856,38 @@ fn an_own_card_row_draws_the_card_and_its_menu_holds_only_its_actions() {
         with_photo.label
     );
     assert!(!with_photo.label.contains(".."), "{}", with_photo.label);
+    // A name ending in its own full stop is not followed by a second one,
+    // with a photo or without (#471 R1 F1).
+    for (row, photo) in [(3, false), (4, true)] {
+        model.card_queued(
+            RowId::from_stored(row),
+            direct(&alice),
+            format!("{:032x}", 9_000 + row),
+            interweave_human_ui_model::SentCard {
+                name: "Ada L.".to_owned(),
+                photo: photo.then(|| interweave_human_ui_model::Photo {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![0, 0, 0, 255],
+                }),
+            },
+            u64::try_from(row).expect("positive"),
+        );
+    }
+    let _ = turn(&mut view, &mut model);
+    for index in [2, 3] {
+        let label = view
+            .window()
+            .get_messages()
+            .row_data(index)
+            .expect("a row")
+            .label;
+        assert!(
+            label.starts_with(&format!("{}: Ada L. ", text(UiText::CardSentLabel))),
+            "{label}"
+        );
+        assert!(!label.contains(".."), "{label}");
+    }
     let preview = view
         .window()
         .get_conversations()

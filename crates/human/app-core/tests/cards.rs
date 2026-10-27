@@ -1628,6 +1628,17 @@ async fn a_new_key_withdraws_the_not_sent_card_and_lists_both_pending_conversati
         })
         .collect();
     assert_eq!(withdrawn, vec![false], "one row withdrawn, with no Undo");
+    // The withdrawn row leaves the conversation; the one left to arrive
+    // stays, as its own card row (#471 R1 F4).
+    assert!(
+        alice.model().messages(&to_bob).is_empty(),
+        "C's row is gone"
+    );
+    assert_eq!(
+        alice.model().messages(&to_stranger).len(),
+        1,
+        "D's row stays"
+    );
 
     // A restart: C is not in the store to be sent, and Bob never sees it;
     // D is still pending, left to arrive.

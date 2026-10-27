@@ -3374,10 +3374,20 @@ fn message_row(
     // not said twice.
     let (said_author, body) = match &item.card {
         Some(card) => {
+            // A name may end in its own full stop ("Ada L."): no second
+            // one is added after it, and the template's own after the body
+            // is not doubled (#471 R1 F1).
+            let ends_a_sentence = |s: &str| s.ends_with(['.', '!', '?', '\u{2026}']);
             let mut body = card.name.clone();
             if card.photo.is_some() {
-                body.push_str(". ");
-                body.push_str(placeholder_en::text(UiText::CardSentPhoto).trim_end_matches('.'));
+                if !ends_a_sentence(&body) {
+                    body.push('.');
+                }
+                body.push(' ');
+                body.push_str(placeholder_en::text(UiText::CardSentPhoto));
+            }
+            if ends_a_sentence(&body) {
+                body.pop();
             }
             (placeholder_en::text(UiText::CardSentLabel).to_owned(), body)
         }

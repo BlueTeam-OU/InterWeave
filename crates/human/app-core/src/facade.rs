@@ -1170,7 +1170,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             .map_err(|_| Failure::CardNotSent)?;
         self.card_rows.insert(row, key.clone());
         // What went, for its own card row: never the card as edited later
-        // (contact-cards section 5.5, `CardSharedStays`).
+        // (contact-cards section 5.5, `CardSharedStays`; tests/cards.rs
+        // `a_shared_card_is_its_own_card_row_as_it_went`).
         let card = cards::sent_card(
             &own_card.name,
             own_card.surname.as_deref(),

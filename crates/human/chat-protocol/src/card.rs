@@ -277,7 +277,9 @@ pub struct OwnCardFields {
 /// that is not a card, or one this grammar refuses.
 ///
 /// For the sender's own stored rows only. A received text never enters
-/// it: the receiver's path is [`classify`] alone, which verifies the card
+/// it -- a rule of its callers, held by review alone: its one caller is
+/// app-core's listing of this node's pending outbound rows. The
+/// receiver's path is [`classify`] alone, which verifies the card
 /// over the route it arrived on (ADR-0063 decision 3). Reading one's own
 /// write back verifies nothing the encrypted store does not, and cannot be
 /// done before this node's `PeerId` is known (HUMAN-CHAT.md section Contact
