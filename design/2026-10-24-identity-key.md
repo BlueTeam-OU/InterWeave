@@ -247,8 +247,10 @@ says so first (`KeyNewPending`), shown when any such row exists.
 fingerprint, and under it `KeyMade`: "This identity has a new key.
 Your contacts have the new key only after you share your card with them again."
 Then, when any conversation of this identity holds or may hold the old
-key — `card_shared_at` set, or an own-card row not yet Accepted by
-remote transport when the step ran (withdrawn or on its way):
+key — `card_shared_at` set, an own-card row not yet Accepted by
+remote transport when the step ran (withdrawn or on its way), or a card
+of it that may have left this device, cancelled after an attempt
+whose outcome is unknown (ADR-0063 decision 1, A 2026-10-27):
 `KeyShareAgainTitle`
 ("Share your card again in these conversations") and one row per such conversation, by
 the conversation's title, most recently shared first, each opening that
@@ -290,10 +292,11 @@ actions; with another kind: that kind's block.
 - **A missing key file** (Q-missing, architect-cto's): a key is made
   silently only for an identity whose card no conversation holds or
   may hold — `card_shared_at` absent on every conversation that speaks
-  as it, and no own-card row of it pending outbound (Sending, or Not
-  sent with Retry): the share record and the pending rows, the
-  predicate §5.3's share-again list reads (architect-cto's Q-route,
-  A 2026-10-27).
+  as it, no own-card row of it pending outbound (Sending, or Not
+  sent with Retry), and no conversation recording that a card of it
+  may have left this device (ADR-0063 decision 1): the share record,
+  the pending rows and that record, the predicate §5.3's share-again
+  list reads (architect-cto's Q-route, A 2026-10-27).
   Any other identity without its file is in this state as "missing",
   so its contacts are never shown a key change the person was not told
   of first. The same holds when the whole `identity-keys/` directory is
