@@ -124,7 +124,10 @@ Evidence and hypotheses behind the choices below:
   clusters) and at most 1 KiB of UTF-8, whichever comes first, cut
   only between two whole characters. A cut text ends in an ellipsis
   at its logical end, even when the row has room for more, so it never
-  passes for the whole first line. Rows the window holds and rows it
+  passes for the whole first line. The ellipsis is added after the cut
+  and counts in neither bound. A first character larger than 1 KiB on
+  its own (a base with hundreds of combining marks) leaves nothing
+  that fits: the preview is the ellipsis alone. Rows the window holds and rows it
   does not are cut the same way, so a preview does not change when its
   row loads. The row's accessible description (look §9,
   `ConversationDescription`) carries the same cut text. 160 is the
@@ -611,8 +614,12 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     before and after the row loads. A first line that holds a link
     across the 160th character shows the link's text, never its
     syntax. A first line of combining marks or emoji sequences is cut
-    between whole characters, within 1 KiB. A first line under 160
-    characters shows whole, with no ellipsis.
+    between whole characters, within 1 KiB; one whose first character
+    alone exceeds 1 KiB previews as the ellipsis alone. A first line
+    under 160 characters shows whole, with no ellipsis. A 300-character
+    Hebrew first line previews its first 160 characters with the
+    ellipsis on the left, and one whose cut falls in a Latin word at
+    the end of a Hebrew line keeps the ellipsis on the left too.
 12. **The bound while open**: with a test bound small enough to reach
     (the builder's hook), read B's unread row, then open A and page up.
     With room left for fewer session-only rows than a page holds, the
