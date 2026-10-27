@@ -60,6 +60,18 @@ impl SwarmRuntime {
         self.network_monitor().report(view);
     }
 
+    /// How many times ADR-0052 rule 3's own-listener boundary has
+    /// widened ([`crate::held_listeners::HeldListeners::widenings`]): a
+    /// [`Self::learn`] refused as `private_without_private_listener`
+    /// before a move may be admitted after it, so a caller remembering
+    /// what it offered offers again once the count differs from the one
+    /// it read before offering. A clone of a shared atomic, read with a
+    /// load: no command goes to the Swarm task.
+    #[must_use]
+    pub fn listener_widenings(&self) -> crate::held_listeners::ListenerWidenings {
+        self.listener_widenings.clone()
+    }
+
     /// A cloneable handle for session-scoped commands (`SwarmCommander`).
     #[must_use]
     pub fn commander(&self) -> SwarmCommander {

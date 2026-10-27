@@ -179,6 +179,28 @@ impl Sources {
     }
 }
 
+/// The two sides' logs for a failure message: each under its own
+/// heading on devices, and on the stand-ins the one capture they share,
+/// once and named for what it is (`Device::log_is_process_wide`) -- the
+/// same lines under both headings read as two logs agreeing.
+fn both_logs<D: Device>(a: &Side<D>, b: &Side<D>) -> String {
+    if a.device.log_is_process_wide() {
+        // The longer reading starts earlier: the sides' fresh-log marks
+        // may differ.
+        let (on_a, on_b) = (a.device.log(), b.device.log());
+        return format!(
+            "--- A and B: one capture for this test process, every concurrent test's lines \
+             included ---\n{}",
+            if on_a.len() >= on_b.len() { on_a } else { on_b }
+        );
+    }
+    format!(
+        "--- A ---\n{}\n--- B ---\n{}",
+        a.device.log(),
+        b.device.log()
+    )
+}
+
 fn passed(out: &serde_json::Map<String, serde_json::Value>, what: &str, log: &str) {
     assert_eq!(
         out.get(keys::RESULT).and_then(serde_json::Value::as_str),
@@ -201,13 +223,7 @@ async fn added_address_across<D: Device>(
 ) {
     let mut between = Some(between);
     let (a_peer, b_peer) = (a.device.peer(), b.device.peer());
-    let log = |a: &Side<D>, b: &Side<D>| {
-        format!(
-            "--- A ---\n{}\n--- B ---\n{}",
-            a.device.log(),
-            b.device.log()
-        )
-    };
+    let log = both_logs::<D>;
     let cache = |a: &Side<D>, forget| {
         let out = a
             .device
@@ -375,13 +391,7 @@ fn fresh_pair_connects_after_trust<D: Device>(a: &mut Side<D>, b: &mut Side<D>, 
     let (a_peer, b_peer) = (a.device.peer(), b.device.peer());
     a.device.start(&profile(&b_peer, a.at.port(), false));
     b.device.start(&profile(&a_peer, b.at.port(), false));
-    let log = |a: &Side<D>, b: &Side<D>| {
-        format!(
-            "--- A ---\n{}\n--- B ---\n{}",
-            a.device.log(),
-            b.device.log()
-        )
-    };
+    let log = both_logs::<D>;
     let step = |peer: &TransportIdentity, address: Option<String>, trust, expect| PairArgs {
         peer: peer.clone(),
         address,
