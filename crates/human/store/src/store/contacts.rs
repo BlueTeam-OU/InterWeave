@@ -640,15 +640,15 @@ impl HumanStore {
         // the identity-key index, each excluding the contact Accept
         // updates. `a_cards_standing_reads_no_contact_but_the_one_it_updates`
         // counts the statements.
-        let updated = updates.as_ref().map(|u| u.contact_id.as_str());
-        let shares_node = self.contact_names(SHARES_NODE, params![card.peer.as_str(), updated])?;
+        let excluded = updates.as_ref().map(|u| u.contact_id.as_str());
+        let shares_node = self.contact_names(SHARES_NODE, params![card.peer.as_str(), excluded])?;
         let same_name = self.contact_names(
             SAME_NAME,
-            params![name_key(&card.display_name()), updated, card.peer.as_str()],
+            params![name_key(&card.display_name()), excluded, card.peer.as_str()],
         )?;
         let key_matches = self.contact_names(
             KEY_MATCHES,
-            params![card.identity_key.as_slice(), card.peer.as_str(), updated],
+            params![card.identity_key.as_slice(), card.peer.as_str(), excluded],
         )?;
         Ok(CardStanding {
             updates,
