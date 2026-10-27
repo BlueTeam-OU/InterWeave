@@ -164,6 +164,15 @@ impl Root {
         }
     }
 
+    /// A command run on the facade side directly, its updates applied:
+    /// what no view offers yet, an own card row's Cancel and its Undo.
+    async fn run(&mut self, command: Command, now: u64) {
+        for update in self.facade.execute(command, now).await {
+            self.updates.push(update.clone());
+            self.model.apply(update);
+        }
+    }
+
     fn will(&mut self, intent: Intent) {
         self.model
             .surface_mut()
@@ -1718,6 +1727,132 @@ async fn a_new_key_cut_at_each_point_starts_as_far_as_the_step_got() {
         key_of(&pc).fingerprint().to_string(),
         "the key shown is the one stored"
     );
+}
+
+/// The row `queued` named, from the updates since they were cleared.
+fn queued(root: &Root) -> interweave_human_store::RowId {
+    root.updates
+        .iter()
+        .find_map(|u| match u {
+            Update::CardQueued { row, .. } => Some(*row),
+            _ => None,
+        })
+        .expect("a card queued")
+}
+
+/// The share Details names, as the store holds it.
+fn stored_share(profile: &Profile, to: &FakeNode) -> Option<u64> {
+    HumanStore::open_profile(&profile.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen")
+        .card_shared_at(to.peer(), &human())
+        .expect("read")
+}
+
+/// Cards section 5.3, architect-cto's ruling of 2026-10-27: a
+/// conversation's `card_shared_at` is written when the card's row reaches
+/// Accepted by remote transport and by nothing earlier -- not while it is
+/// Not sent, not by a Cancel, and a row pending across a restart is a
+/// share once it is accepted after it. Mutations: the write back at queue
+/// time; the start not listing the pending card rows.
+#[tokio::test]
+async fn a_card_is_shared_when_it_is_accepted_and_not_before() {
+    use interweave_transport_api::TransportError;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: None,
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(1).await;
+    let to_bob = direct(b.peer());
+
+    // Not sent, then cancelled: no share.
+    a.inject_send(TransportError::UnauthorizedPeer);
+    alice.updates.clear();
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(2).await;
+    let row = queued(&alice);
+    assert_eq!(alice.model().card_shared_at(&to_bob), None, "Not sent");
+    alice.run(Command::Cancel(row), 3).await;
+    assert!(
+        alice
+            .updates
+            .iter()
+            .any(|u| matches!(u, Update::Cancelled { row: r, .. } if *r == row)),
+        "cancelled"
+    );
+    alice.pump(3).await;
+    assert_eq!(alice.model().card_shared_at(&to_bob), None, "cancelled");
+
+    // Sending across a restart, accepted after it: a share.
+    a.inject_send(TransportError::Overloaded);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(4).await;
+    assert_eq!(alice.model().card_shared_at(&to_bob), None, "Sending");
+    drop(alice);
+    assert_eq!(
+        stored_share(&pa, &b),
+        None,
+        "nothing written before it went"
+    );
+    a.restart();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    for at in 5..9 {
+        alice.pump(at * 60_000).await;
+    }
+    assert_eq!(
+        alice.model().card_shared_at(&to_bob),
+        Some(WALL),
+        "accepted: shared"
+    );
+    bob.pump(10 * 60_000).await;
+    assert!(
+        !bob.model().proposals(&direct(a.peer())).is_empty(),
+        "the card arrived"
+    );
+    drop(alice);
+    assert_eq!(stored_share(&pa, &b), Some(WALL));
+}
+
+/// A cancelled card brought back by its Undo is pending again, and its
+/// Accepted is a share like any other. Mutation: the restored row not
+/// held as a card.
+#[tokio::test]
+async fn a_card_restored_by_undo_is_shared_when_it_is_accepted() {
+    use interweave_transport_api::TransportError;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let to_bob = direct(b.peer());
+    a.inject_send(TransportError::UnauthorizedPeer);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(1).await;
+    let row = queued(&alice);
+    alice.run(Command::Cancel(row), 2).await;
+    assert_eq!(alice.model().card_shared_at(&to_bob), None, "cancelled");
+    alice.run(Command::Restore(row), 3).await;
+    let restored = alice
+        .updates
+        .iter()
+        .find_map(|u| match u {
+            Update::Restored { row, .. } => Some(*row),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("restored: {:?}", alice.failed()));
+    // Restored as it was, Not sent: the person's Retry sends it.
+    alice.run(Command::Retry(restored), 4).await;
+    for at in 4..7 {
+        alice.pump(at * 60_000).await;
+    }
+    assert_eq!(alice.model().card_shared_at(&to_bob), Some(WALL));
 }
 
 /// Design section 7 and acceptance item 11 as ADR-0063 A 2026-10-27

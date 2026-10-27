@@ -290,12 +290,20 @@ pub enum Update {
     },
     /// The key was opened once more.
     KeyRetried(IdentityView),
-    /// This identity's card was shared on `key` as pending `row`.
-    CardShared {
+    /// This identity's card was queued on `key` as pending `row`: not yet
+    /// a share, which only its Accepted makes ([`Update::CardShared`]).
+    CardQueued {
         /// The conversation.
         key: ConversationKey,
         /// Its pending row.
         row: RowId,
+    },
+    /// The conversation's card row reached Accepted by remote transport,
+    /// and its `card_shared_at` is written (cards section 5.3): the share
+    /// Details names. A card cancelled or never accepted says nothing.
+    CardShared {
+        /// The conversation.
+        key: ConversationKey,
         /// When, on the wall clock.
         at: u64,
     },

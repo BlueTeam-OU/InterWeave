@@ -74,6 +74,12 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// the facade holds as not confirmed reads "Sending" until its next
     /// attempt fails (#304 F10).
     outbound: BTreeMap<RowId, OutboundUpdate>,
+    /// Each own card row still pending, with its conversation: queued by
+    /// Share, listed at start, or brought back by an Undo of its Cancel.
+    /// Held here because the store drops the row before its Accepted is
+    /// told, and that Accepted is what writes `card_shared_at` (cards
+    /// section 5.3).
+    card_rows: BTreeMap<RowId, ConversationKey>,
     /// The identity's own key, which signs its card: opened or made from
     /// the root's [`crate::KeySource`] ([`Self::set_key_source`]), made
     /// anew by `MakeNewKey`, or set directly by a test
@@ -269,6 +275,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             cancelled: VecDeque::new(),
             reported: None,
             outbound: BTreeMap::new(),
+            card_rows: BTreeMap::new(),
             identity: None,
             key_source: None,
             key_problem: None,
@@ -362,6 +369,15 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// The store's, when it cannot be read.
     pub fn listing(&mut self) -> Result<Listing, StoreError> {
         let mut listing = listing::list_all(self.client.store_mut())?;
+        for (row, peer, endpoint) in cards::own_cards_pending(self.client.store_mut())? {
+            self.card_rows.insert(
+                row,
+                ConversationKey::Direct {
+                    peer,
+                    endpoint: Some(endpoint),
+                },
+            );
+        }
         listing.identity = self.own_view()?;
         Ok(listing)
     }
@@ -541,6 +557,14 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         if let ClientEvent::Outbound(update) = &event {
             if update.status.is_terminal() {
                 self.outbound.remove(&update.row);
+                if let Some(key) = self.card_rows.remove(&update.row)
+                    && matches!(
+                        update.status,
+                        interweave_human_client_api::OutboundStatus::Accepted { .. }
+                    )
+                {
+                    self.card_accepted(key, updates);
+                }
             } else {
                 self.outbound.insert(update.row, update.clone());
             }
@@ -648,6 +672,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 None => Err(Failure::NoSuchRow),
                 Some(record) => match Box::pin(self.client.restore(record, now)).await {
                     Ok(restored) => {
+                        self.card_row_restored(restored, &mut updates);
                         updates.push(Update::Restored {
                             cancelled: *row,
                             row: restored,
@@ -1110,16 +1135,52 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let row = Box::pin(self.client.send_card(peer.clone(), to.clone(), &text, now))
             .await
             .map_err(|_| Failure::CardNotSent)?;
-        self.client
-            .store_mut()
-            .mark_card_shared(peer, to, at)
-            .map_err(|e| store_failure(&e))?;
-        updates.push(Update::CardShared {
+        self.card_rows.insert(row, key.clone());
+        updates.push(Update::CardQueued {
             key: key.clone(),
             row,
-            at,
         });
         Ok(())
+    }
+
+    /// An own card row reached Accepted by remote transport: the
+    /// conversation's `card_shared_at` is written now and by nothing
+    /// earlier (cards section 5.3, architect-cto's ruling of 2026-10-27),
+    /// so Details never names a share a cancel could still stop. A write
+    /// that fails is said; the card went all the same.
+    fn card_accepted(&mut self, key: ConversationKey, updates: &mut Vec<Update>) {
+        let ConversationKey::Direct {
+            peer,
+            endpoint: Some(to),
+        } = &key
+        else {
+            return;
+        };
+        let at = (self.wall)();
+        match self.client.store_mut().mark_card_shared(peer, to, at) {
+            Ok(()) => updates.push(Update::CardShared { key, at }),
+            Err(e) => say(updates, Update::CardsNotRead(store_failure(&e))),
+        }
+    }
+
+    /// An Undo of a Cancel committed `row` again: an own card among them
+    /// is pending once more, and its Accepted is a share.
+    fn card_row_restored(&mut self, row: RowId, updates: &mut Vec<Update>) {
+        match self.client.store_mut().pending_outbound_row(row) {
+            Ok(Some(pending)) => {
+                if let Some((peer, endpoint)) = cards::own_card_route(&pending) {
+                    self.card_rows.insert(
+                        row,
+                        ConversationKey::Direct {
+                            peer,
+                            endpoint: Some(endpoint),
+                        },
+                    );
+                }
+            }
+            Ok(None) => {}
+            Err(e) => say(updates, Update::CardsNotRead(store_failure(&e))),
+        }
     }
 
     /// The identity's own card, as the person edited it: held to the bounds
