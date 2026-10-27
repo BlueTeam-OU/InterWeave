@@ -129,7 +129,9 @@ impl View {
         }
         self.connect_focus(connect);
         let said = std::mem::replace(&mut self.peer_lists.connect.said_seen, connect.said());
-        // A return finds focus inside the page it closes, never here.
+        // A return finds focus inside the page it closes, never here
+        // (`a_line_changed_under_add_is_said_on_the_return`,
+        // `a_line_changed_under_show_is_said_on_the_return`).
         let read_in_place = self.window.get_focus_id() == LINE;
         line.filter(|_| said != connect.said() && !read_in_place)
             .map(|l| placeholder_en::text(line_text(l)).to_owned())

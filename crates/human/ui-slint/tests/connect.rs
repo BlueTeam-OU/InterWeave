@@ -282,7 +282,9 @@ fn an_untrusted_add_offers_trust_then_continue() {
 
 /// A return to Connect from a page that did something §5.1 counts says
 /// the line, the same words again included, with no snackbar; a return
-/// that did nothing counted says nothing, a line still showing included.
+/// that did nothing counted, with the line as it was when the page
+/// opened, says nothing, a line still showing included. A line changed
+/// under the page is `a_line_changed_under_add_is_said_on_the_return`'s.
 #[test]
 fn a_return_says_the_line_when_its_page_did_something_counted() {
     let mut view = view();
@@ -458,7 +460,13 @@ fn a_late_read_under_focus_on_the_line_is_read_there() {
     read_not_trusted(&mut view, &mut model, &me, change);
     assert_eq!(view.window().get_connect_line().as_str(), needs);
     assert_eq!(view.window().get_focus_id().as_str(), "connect-line");
-    assert_eq!(labelled(&view, needs).len(), 1, "read there");
+    let read = labelled(&view, needs);
+    assert_eq!(read.len(), 1, "read there");
+    assert_eq!(
+        read[0].accessible_live_region(),
+        Some(i_slint_backend_testing::AccessibleLiveness::Off),
+        "not a live region: the render's announcement is the line's one"
+    );
     assert_eq!(said(&view).trim(), "", "no second status");
 }
 
@@ -483,6 +491,58 @@ fn a_line_changed_under_add_is_said_on_the_return() {
     let _ = intents(&mut view, &mut model);
     assert_eq!(focus(&view), "connect-add");
     assert_eq!(said(&view).matches(needs).count(), 1, "said on the return");
+}
+
+/// Show my address pressed with focus on the line, a late read while
+/// Show is up: the return says the line once, as from Add -- Show took
+/// focus, so the return is no read under focus on the line (§5.1, §8).
+#[test]
+fn a_line_changed_under_show_is_said_on_the_return() {
+    let mut view = view();
+    let (me, them) = (peer(), peer());
+    let needs = text(UiText::ConnectDoneNeedsTrust);
+    let mut model = connect_open(&mut view, &me);
+    let change = trust_lost(&mut view, &mut model, &them);
+    focus_on(&view, "connect-line");
+    press(&view, text(UiText::ShowMyAddress));
+    let _ = intents(&mut view, &mut model);
+    assert!(model.peers().show().is_some(), "Show is up");
+    clear(&view);
+    read_not_trusted(&mut view, &mut model, &me, change);
+    assert_eq!(said(&view).trim(), "", "nothing while Show is up");
+    assert!(view.window().invoke_handle_back(), "Show's Back");
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(focus(&view), "connect-show");
+    assert_eq!(said(&view).matches(needs).count(), 1, "said on the return");
+}
+
+/// A late answer taken by the same turn as a press of Add an address:
+/// the new line is never drawn before Add covers Connect, so nothing is
+/// said while Add is up and Back says it once -- the line the person
+/// last heard was the old one (§5.1, §8).
+#[test]
+fn a_late_read_in_the_turn_that_opens_add_is_said_on_the_return() {
+    let mut view = view();
+    let (me, them) = (peer(), peer());
+    let needs = text(UiText::ConnectDoneNeedsTrust);
+    let mut model = connect_open(&mut view, &me);
+    let change = trust_lost(&mut view, &mut model, &them);
+    clear(&view);
+    model
+        .trust_settings_mut()
+        .set(change, Ok(trust_list(&me, &[])));
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_peers_add_open());
+    assert_eq!(said(&view).trim(), "", "nothing while Add is open");
+    assert!(view.window().invoke_handle_back(), "the add page's Back");
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(view.window().get_connect_line().as_str(), needs);
+    assert_eq!(said(&view).matches(needs).count(), 1, "said on the return");
+    clear(&view);
+    assert_eq!(model.connect_turn(), None);
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(said(&view).trim(), "", "not again");
 }
 
 /// Every element of `view` with a label and a size lies inside `width`.
