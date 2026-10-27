@@ -174,18 +174,20 @@ impl Connect {
         trust: &TrustSettings,
     ) {
         let counted = adds.is_some() || shown;
-        let before = self.line();
+        let page = self.opener.take();
+        // A sync with no page closing and nothing to hand over: a late
+        // read is `trust_read`'s, at the turn that draws it.
+        if !counted && page.is_none() {
+            return;
+        }
         for add in adds.into_iter().flatten() {
             self.added.retain(|a| a.peer != add.peer);
             self.added.push(add);
         }
         self.shown |= shown;
         self.confirm(trust);
-        // Under a page, against the line as the page opened over it; with
-        // none up -- a sync with nothing to hand over -- a late read's.
-        let page = self.opener.take();
-        let heard = page.map_or(before, |(_, then)| then);
-        if counted || self.line() != heard {
+        // Said for what the page did, or for a line changed under it.
+        if counted || page.is_some_and(|(_, then)| then != self.line()) {
             self.said += 1;
         }
         let Some((opener, _)) = page else {
