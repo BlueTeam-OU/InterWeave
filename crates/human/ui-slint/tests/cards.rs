@@ -77,6 +77,7 @@ fn intents(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
                 ViewEvent::DraftChanged { key, draft } => model.draft_changed(key, draft),
                 ViewEvent::Trust(input) => out.extend(model.trust_settings_mut().input(input)),
                 ViewEvent::Peers(input) => out.extend(model.peers_input(input)),
+                ViewEvent::Connect(input) => out.extend(model.connect_input(input)),
                 ViewEvent::Undo(id) => out.extend(model.undo(id)),
                 ViewEvent::SnackbarClosed(id) => model.snackbar_closed(id),
                 ViewEvent::IdentifierCopied(key) => model.identifier_copied(key),
