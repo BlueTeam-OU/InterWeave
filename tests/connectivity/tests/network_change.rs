@@ -1422,7 +1422,7 @@ async fn a_private_address_no_view_holds_is_not_advertised_shown_or_counted() {
     subject.runtime.shutdown().await.expect("shutdown");
 }
 
-/// ADR-0052 rule 10 for the shared address space (A 2026-10-27) between
+/// ADR-0052 rule 10 for the shared address space (A 2026-10-27 (iii)) between
 /// real runtimes, where this host holds a `100.64.0.0/10` address and a
 /// private one and NO VIEW is present -- the desktop with a cellular
 /// modem: a listener on the shared address is not advertised by
