@@ -165,6 +165,17 @@ impl Listener {
     }
 }
 
+/// A case that fails before `stop` leaves no `listen` running: it goes on
+/// after stdin ends, so nothing else would end it.
+impl Drop for Listener {
+    fn drop(&mut self) {
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
 /// Until `daemon` has logged that its runtime serves.
 async fn runtime_up(daemon: &mut Daemon) {
     let deadline = Instant::now() + PATIENCE;
