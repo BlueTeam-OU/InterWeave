@@ -663,8 +663,10 @@ line. Two of five failing is enough to reopen §6.
   arrives: nothing else moves, nothing animates, nothing is announced
   (the avatar is not read, contact-cards §6.1), and the accessible
   label does not change. A photo that cannot be read leaves the
-  initials. A row that has shown its photo does not go back to the
-  initials while it stays in view. Two places are not covered: a
+  initials. A photo shown in a row that stays in view is not released
+  back to the initials; a photo the contact no longer has (Remove
+  photo, an accepted card that removes it) goes at once, as today.
+  Two places are not covered: a
   proposal shows no contact's photo at all (its neutral avatar,
   contact-cards §5.4), so nothing loads there; and a contact page, where the
   person acts on the photo (Remove photo, contact-cards §6.3), opens
