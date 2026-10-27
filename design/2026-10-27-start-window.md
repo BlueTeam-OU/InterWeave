@@ -19,6 +19,12 @@ A provisional answer went to rust-ui-dev-02 as REPLY 01a17bd0; this
 note is the binding one once reviewed, and where they differ the note
 wins.
 
+Revised for rust-ui-dev-02's four further questions (QUESTION
+01a17dc9, U1 to U4, asked while building this note): the held-row
+ceiling and gaps (§5.1), the limit row judged at the bound and not a
+page early (§7.1), photos loaded on demand and the one contact a
+proposal names (§11, and contact-cards §5.4.1).
+
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
 rust-ui-dev in `crates/human/` and the apps. The Chats list and the
@@ -230,6 +236,77 @@ blocked precondition on Android (§7).
 **A new message arriving** while the person is up in the history
 behaves as today; the window does not change it.
 
+### 5.1 The held-row ceiling: rows released, never lost
+
+Asked by rust-ui-dev-02 (QUESTION 01a17dc9, U1). The stored rows the
+app holds in memory (unread and kept rows, which keep their stored
+copy) need a ceiling of their own beside the session bound of §7.1,
+across every conversation's window; the figure is the builder's (about
+1,024). Two cases reach it: paging up through many kept rows, and a
+flood arriving in the open conversation while its app window has no
+focus, so that nothing is read (§1).
+
+**Required.**
+
+- **At the ceiling, held stored rows are released**: the app stops
+  holding them and they stay in the store unchanged. An unread row
+  stays unread (a row not held is not read, §1) and keeps its badge
+  count; a kept row stays kept. Nothing is announced and nothing asks.
+- **Rejected: the limit row here** (U1's option (b)). The limit row
+  exists because what the session bound drops cannot come back, and
+  its text says so (§7.1, `EarlierAtLimit`); a released row comes back
+  when the person reaches it, so the text would be false and the choice
+  would be no choice.
+- **What is released first**: the rows of conversations that are not
+  open (§3 lets the builder keep a closed conversation's window; the
+  person sees none of it). Then the open conversation's held stored
+  rows farthest from the person's place: the item that has focus, if
+  the person moved focus there, else the item at the middle of the
+  view; distance is counted in items along the conversation.
+- **Never released**: a pending row (§3), the conversation's newest row,
+  the focused item, a row any part of which is in view, and a row an
+  open snackbar's Undo needs. A session-only row has no stored copy, so
+  this ceiling never touches it; the session bound (§7.1) is the only
+  rule that drops one. The figure is the builder's on one condition: it
+  is larger than the rows one view shows at the smallest text size on
+  the largest window, so that what is never released always fits.
+
+**Where released rows go.** Released rows at the top end move the top
+edge down: §5 loads them again as older rows, and an unread one among
+them is counted by `EarlierUnread` (§6). Released rows anywhere else
+leave a **gap**: rows still held on both sides, with stored rows
+between them that the app does not hold. Since the newest row is never
+released, a gap always has a held row below it, and the conversation
+has no bottom edge.
+
+A gap behaves as the top edge does (§5), from either side, with
+nothing new for the person to learn:
+
+- **Trigger**: the row just above the gap or the row just below it
+  scrolls into view, or receives focus moved by the person. The gap's
+  rows nearest that side are fetched, a page at a time, once each time
+  that side is reached; no page of a gap is requested while another
+  page of the same gap is in flight.
+- **While it loads, when it fails, at the session bound**: §5's
+  progress row, §5's failure row with Try again, and §7.1's limit row
+  show in the gap, on the side that fetched: the upper side's directly
+  below the row above the gap, the lower side's directly above the
+  gap's `EarlierUnread` line (below), or above the row below the gap
+  when there is no line, as at the top edge.
+- **When rows arrive**: they are added at their place in the gap.
+  Neither the scroll position nor focus moves, as in §5. A gap whose
+  rows have all loaded is gone; nothing marks where it was.
+- **Unread rows in a gap**: an `EarlierUnread` line stands in the gap,
+  directly above the held row below it, with the count of the gap's
+  unread rows. It is §6's line in every respect, and the rows it counts
+  are always above it: rows fetched from below the gap are added
+  between the line and the row below it, rows fetched from above are
+  added above the line. Focus moved onto the line by the person
+  fetches from below, as at the top edge.
+
+A gap is not a `ReadNotShown` run: a run's rows cannot come back
+(§7.1); a gap's rows are stored and come back when it is reached.
+
 ## 6. Unread rows beyond the window
 
 While the conversation is open and the store holds unread rows of it
@@ -244,7 +321,9 @@ proposals together, as the badge counts both, §3).
 - Its count follows the store: as pages load and their unread rows
   are read, the count goes down. At zero the line goes.
 - **It agrees with the conversation's badge on Chats while the app's
-  window has focus**, when every loaded unread row has been read. While
+  window has focus**, when every loaded unread row has been read; where
+  gaps hold unread rows (§5.1), it is this line and each gap's line
+  together that agree with the badge. While
   the app's window does not have focus, loaded rows stay unread (§1), so the
   badge counts them and the line does not: the line counts only what
   has not been loaded, the badge every unread row.
@@ -293,10 +372,11 @@ screen hold for every other case.
 | Focus was on | It disappears when | Focus goes to | Check |
 |---|---|---|---|
 | any row, or the `EarlierUnread` line | a page is added above it or below the line | stays where it was; nothing moves | §10 items 4 and 5 |
-| the `EarlierUnread` line | its count reaches zero | the row that was just below the line, as app-placed focus (no fetch, §5) | §10 item 6 |
+| the `EarlierUnread` line, at the top or in a gap (§5.1) | its count reaches zero | the row that was just below the line, as app-placed focus (no fetch, §5) | §10 items 6 and 14 |
 | the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives | the row that was just below the failure row (the line, else the oldest loaded row), as app-placed focus | §10 item 7 |
 | the limit row's `EarlierShowAnyway` | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the limit row, as app-placed focus | §10 item 12 |
 | a row of the open conversation | the session bound drops it | cannot happen: the focused row is never dropped (§7.1) | §10 item 12 |
+| a row of the open conversation | the held-row ceiling releases it | cannot happen: the focused item is never released (§5.1) | §10 item 14 |
 | a `ReadNotShown` line | a new drop adds to its count | stays on the line, whose count changes | §10 item 12 |
 
 ### 7.1 The session bound while a conversation is open
@@ -314,10 +394,18 @@ requires is that **paging never drops a read row on its own**.
 
 **Required.**
 
-- When fetching the next page would take the session past the bound
-  (the page's rows that would become session-only, counted by the
-  builder), no page is fetched by scrolling or focus. The top edge
-  shows instead a **limit row**: `EarlierAtLimit`, then a button,
+- When the session already holds as many session-only rows as the
+  bound allows, so that the next row read would drop one, no page is
+  fetched by scrolling or focus. Below that, a page brings at most as
+  many rows as can become session-only without dropping one, so near
+  the bound a page may be shorter than the builder's page size; a kept
+  row in it does not count, since it keeps its stored copy. (Asked by
+  rust-ui-dev-02, QUESTION 01a17dc9, U4: judging the bound by a full
+  page, which shows the limit row up to a page early, is rejected: it
+  would ask the person to accept a loss that would not happen, and
+  hold back rows they could see without one.) The top edge, or the side
+  of a gap that fetched (§5.1), shows instead a **limit row**:
+  `EarlierAtLimit`, then a button,
   `EarlierShowAnyway`. The text says, before anything is committed,
   that showing earlier messages removes from the screen the messages
   read or sent first in this session, here and in other conversations, that
@@ -358,7 +446,10 @@ requires is that **paging never drops a read row on its own**.
   (`EarlierLoadFailed`, then Try again), the limit row
   (`EarlierAtLimit`, then `EarlierShowAnyway`), or nothing (the
   progress row is not focusable); then `EarlierUnread` when shown; then
-  the loaded rows. A `ReadNotShown` line is read where it stands. On
+  the loaded rows. A `ReadNotShown` line is read where it stands. In a
+  gap (§5.1), top to bottom: the row above the gap, the upper side's
+  failure or limit row, the lower side's failure or limit row, the
+  gap's `EarlierUnread` line when shown, the row below the gap. On
   Chats, `RowsNotShown` is read after the last conversation.
 - **Look**: the `EarlierUnread`, `ReadNotShown` and `RowsNotShown`
   lines are styled
@@ -394,16 +485,22 @@ The words are language-culture's; these say what each must do.
 
 | Key | Proposed English | Shows | Must say |
 |---|---|---|---|
-| `EarlierUnread` | Earlier unread messages and contact cards: {count} | the line of §6 | how many unread items are above, not yet shown; the count after a colon, one text for every count (below); must not say "messages" if it counts cards too, or must cover both |
+| `EarlierUnread` | Earlier unread messages and contact cards: {count} | the line of §6, and in a gap (§5.1) | how many unread items are above, not yet shown; the count after a colon, one text for every count (below); must not say "messages" if it counts cards too, or must cover both |
 | `ReadNotShown` | one: 1 message that you read or sent is no longer shown. It cannot be shown again. other: {count} messages that you read or sent are no longer shown. They cannot be shown again. | the line of §7.1 | that messages the person already read or sent were removed from this screen and cannot come back; a plural by count; must not suggest they were deleted by anyone else |
 | `RowsNotShown` | one: 1 message is saved on this device, but this version of InterWeave cannot show it. other: {count} messages are saved on this device, but this version of InterWeave cannot show them. | the line at the end of Chats (§6.1) | that these messages (received unread, kept, or the person's own still waiting to send) are still stored and this app version cannot show them; must not use "kept" in the sense of Keep; a plural by count; must not blame a sender or suggest tampering |
-| `EarlierAtLimit` | If you choose Show earlier messages, InterWeave makes room for the earlier messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again. | the limit row (§7.1) | before anything happens: what showing earlier messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
+| `EarlierAtLimit` | If you choose Show earlier messages, InterWeave makes room for the earlier messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again. | the limit row (§7.1), at the top edge or in a gap (§5.1) | before anything happens: what showing earlier messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
 | `EarlierShowAnyway` | Show earlier messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
-| `EarlierLoading` | Loading earlier messages | the progress row's accessible name (§5); never visible text | that older rows are on their way |
-| `EarlierLoadFailed` | Could not load earlier messages. | the failure row (§5), and its announcement | that the older rows could not be read; must not suggest they are lost |
+| `EarlierLoading` | Loading earlier messages | the progress row's accessible name (§5), at the top edge or in a gap (§5.1); never visible text | that older rows are on their way |
+| `EarlierLoadFailed` | Could not load earlier messages. | the failure row (§5), at the top edge or in a gap (§5.1), and its announcement | that the older rows could not be read; must not suggest they are lost |
 | `ContactsLoadFailed` | Could not load all contacts. | the Contacts list's failure row, when a page of a paged list cannot be read (§11), and its announcement | that some contacts could not be read just now; must not suggest they are lost |
 
 `TryAgain` exists and is reused.
+
+The `Earlier…` strings show in a gap too (§5.1), which the person can
+reach scrolling down as well as up. "Earlier" there means earlier than
+the conversation's newest messages, which is true of every row in a
+gap; language-culture is asked to confirm in its pass that the words
+hold when the person scrolls down to a gap, or to say what they need.
 
 `ReadNotShown` and `RowsNotShown` have one text for a count of 1 and
 one for every other count: two templates, never a word joined to a
@@ -467,8 +564,12 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     shows every contact, with no edge or progress row, and every
     conversation title on Chats uses its contact's name.
 12. **The bound while open**: with a test bound small enough to reach
-    (the builder's hook), read B's unread row, then open A and page up
-    until the next page would pass the bound. No page is fetched; the
+    (the builder's hook), read B's unread row, then open A and page up.
+    With room left for fewer session-only rows than a page holds, the
+    next page loads without the limit row and brings no more rows than
+    that room; no read row is dropped. Page up again, with the session
+    holding as many session-only rows as the bound allows: no page is
+    fetched; the
     limit row shows with `EarlierAtLimit` and `EarlierShowAnyway`;
     nothing has been dropped (A's newest rows and B are as they were).
     Press `EarlierShowAnyway`: the page loads, focus is on the item
@@ -490,6 +591,40 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     row, with the app restarted so the session holds none of B's
     rows: B's preview and time are those of its newest row that
     decodes, and `RowsNotShown` shows 3.
+14. **The held-row ceiling** (§5.1), with a test ceiling small enough
+    to reach (the builder's hook) and the session bound out of reach.
+    (a) Open A in a focused app window, at its newest row; take focus
+    away from the app window and deliver more unread rows to A than
+    the ceiling. Nothing is announced and no limit row shows. Give
+    focus back: the rows held are read; A's badge counts the unread
+    rows released; `EarlierUnread` lines, at the top and in each gap,
+    show counts that together equal A's badge. The newest row, the
+    rows in view and the focused item were never released. Scroll up
+    to a gap: its rows load where they belong, the view does not move,
+    and its line's count drops; when the count reaches zero with focus
+    on the line, focus is on the row that was just below it. (b) Fill
+    A with kept rows between read ones, note the order of every row,
+    then page up past the ceiling and come back down, once by
+    scrolling and once by moving focus only (Tab on the desktop,
+    TalkBack's swipe on the phone): every gap loads as it is reached,
+    and the rows are in the noted order, none missing and none twice.
+    Restart the app: the store is as it was before (a) and (b), less
+    the rows read.
+15. **Photos on demand** (§11), with photo loads slowed by a test hook.
+    The Contacts list, Chats and the app bar show a contact's initials
+    on its hue, at the photo's size, then the photo in its place:
+    nothing else in the row moves, nothing animates and nothing is
+    announced. A photo that cannot be read leaves the initials. A
+    contact page opens with its photo, never the initials first. A
+    proposal shows its neutral avatar, as contact-cards §5.4 says.
+16. **One contact named** (§11): with two contacts "Anna Rossi" on
+    other PeerIds, a card "Anna Rossi" from a third PeerId shows
+    `CardSameName` naming the first of the two in the Contacts list's
+    order, and Open your contact opens that one; with three contacts
+    on one PeerId, a card from a fourth route of that PeerId shows
+    `CardSharesDeviceMany` naming the first of them in that order and
+    2 others. Both hold with the Contacts list scrolled to its end and
+    with it never opened.
 
 **Test of §2's hypothesis** (with people, when there is a session to
 run): give a participant the flooded A and ask them to find the first
@@ -508,6 +643,33 @@ line. Two of five failing is enough to reopen §6.
 - **What a proposal shows that depends on other rows** — the
   same-name note, the contact it will update, a key change — comes
   from the store, never from what the window holds.
+- **No list on a proposal to cap** (U3 of QUESTION 01a17dc9). A
+  proposal names one contact: `CardSameName` and its Open your contact
+  link name one, and case P's `CardSharesDeviceMany` names one and the
+  number of the others (contact-cards §5.4.1). Which one, when several
+  match, is the first in the Contacts list's order, read from the
+  store; contact-cards §5.4.1 says so once. On a contact page,
+  `ContactSharesDevice` has one line for each other contact on that
+  PeerId (contact-cards §6.3): all are shown, and they are at most 63,
+  since a PeerId holds at most 64 endpoints
+  (`architecture/contracts/ENDPOINTS.md`).
+- **Photos may load on demand** (U2 of QUESTION 01a17dc9). In the
+  Contacts list, on Chats and in the app bar, a contact whose photo
+  has not arrived shows its initials avatar (contact-cards §6.1), at
+  the photo's size, and the photo replaces it in place when it
+  arrives: nothing else moves, nothing animates, nothing is announced
+  (the avatar is not read, contact-cards §6.1), and the accessible
+  label does not change. A photo that cannot be read leaves the
+  initials. A row that has shown its photo does not go back to the
+  initials while it stays in view. Two places are not covered: a
+  proposal shows no contact's photo at all (its neutral avatar,
+  contact-cards §5.4), so nothing loads there; and a contact page, where the
+  person acts on the photo (Remove photo, contact-cards §6.3), opens
+  with its photo, so that it never shows initials for a
+  contact that has a photo. Evidence: the avatar is decoration, never
+  a trust signal (contact-cards §3), so a moment of initials misleads
+  no one about who a contact is; on the contact page the photo is what
+  the person acts on.
 - **The Contacts list has no visible edge.** It grows only by the
   person's own Accepts. If the builder pages it, the paging is not
   seen: no progress row, no failure row unless a read fails (then
@@ -527,6 +689,12 @@ line. Two of five failing is enough to reopen §6.
 - **A loading state for opening a conversation** (§3), until a
   measurement says it is visible.
 - **How the window is held and its budget figures**: the builder's.
+- **An exact limit row at the bound** (§7.1). With the session at the
+  bound, the limit row shows before the next page is read, so it shows
+  even when every row of that page is kept and showing it would drop
+  nothing; pressing `EarlierShowAnyway` then drops nothing. Accepted:
+  knowing it beforehand needs the page's rows read first, and the cost
+  is one question the person did not need.
   When paging may push read rows past the session bound is §7.1's.
 
 ## 13. Questions
@@ -547,3 +715,10 @@ line. Two of five failing is enough to reopen §6.
 - **Q4, architect-cto**: answered (REPLY 01a17be2). (a) is every
   decodable unread row; the hidden count is the rest, reachable at
   zero (§6.1).
+- **U1 to U4, rust-ui-dev-02** (QUESTION 01a17dc9): answered here. U1,
+  the held-row ceiling, releases rows silently and never shows the
+  limit row (§5.1). U2, initials until the photo arrives, holds in
+  lists and the app bar, not on the contact page (§11). U3, no list on
+  a proposal to cap; which contact is named is contact-cards §5.4.1's
+  rule (§11). U4, the limit row a page early, is rejected: it shows at
+  the bound, and a page near it is shortened (§7.1).
