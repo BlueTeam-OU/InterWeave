@@ -98,6 +98,12 @@ Evidence and hypotheses behind the choices below:
   backlog never pushes another conversation's rows out.
 - The total unread count and every notification count every unread
   row in the store (a).
+- **Every pending row is held, whatever the window**, so a failed
+  send's Retry and Cancel stay reachable, and it shows in its
+  conversation in its place. Pending rows have no count ceiling, but
+  only the person's own Send, Share or Undo of a Cancel makes one; no
+  peer can (rust-ui-dev-02, REPLY 01a17bd8, read at main f2295901).
+  Whether a ceiling belongs here is §13 Q1.
 
 **Rejected: one global budget**, newest first across all
 conversations. A peer flooding one conversation would push every
@@ -324,10 +330,12 @@ line. Two of five failing is enough to reopen §6.
 
 ## 13. Questions
 
-- **Q1, rust-ui-dev**: are pending outbound rows bounded in count? The
-  person's own rows must stay reachable when they fail (Retry and
-  Cancel), so a pending row should always be held, whatever the
-  window; that is safe only with a ceiling. Asked in REPLY 01a17bd0.
+- **Q1, architect-cto** (put to them by rust-ui-dev-02 with REPLY
+  01a17bd8): pending rows have no count ceiling, so holding every one
+  (§3) is safe from a peer but not bounded. A ceiling would be a
+  product rule (Send refused past a count, with a reason); whether it
+  belongs to this fix or a later one is theirs. If one comes, this
+  note adds its refusal state.
 - **Q2, rust-ui-dev**: rows loaded far up, once read, are session-only
   (§1). Does the session bound then drop the newest read rows first, or
   the oldest? A person who paged up and comes back down must not find
