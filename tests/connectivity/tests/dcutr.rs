@@ -1007,10 +1007,13 @@ impl request_response::Codec for StallCodec {
 
 /// A behaviour that announces whatever candidates it is handed, once
 /// each, so a bare peer's CONNECT can carry an address nobody observed
-/// it on.
+/// it on; and that refuses, before any socket, every direct dial toward
+/// `refuse_direct_to`, so a bare peer's own punch dial can be made to
+/// fail while its circuit dials pass.
 #[derive(Default)]
 struct ScriptedCandidates {
     queued: std::collections::VecDeque<Multiaddr>,
+    refuse_direct_to: Option<PeerId>,
 }
 
 impl NetworkBehaviour for ScriptedCandidates {
@@ -1036,6 +1039,25 @@ impl NetworkBehaviour for ScriptedCandidates {
         _: libp2p::core::transport::PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         Ok(libp2p::swarm::dummy::ConnectionHandler)
+    }
+
+    fn handle_pending_outbound_connection(
+        &mut self,
+        _: libp2p::swarm::ConnectionId,
+        peer: Option<PeerId>,
+        addresses: &[Multiaddr],
+        _: libp2p::core::Endpoint,
+    ) -> Result<Vec<Multiaddr>, libp2p::swarm::ConnectionDenied> {
+        let relayed = addresses.iter().any(|a| {
+            a.iter()
+                .any(|p| p == libp2p::multiaddr::Protocol::P2pCircuit)
+        });
+        if peer.is_some() && peer == self.refuse_direct_to && !relayed {
+            return Err(libp2p::swarm::ConnectionDenied::new(std::io::Error::other(
+                "the scripted refusal of a direct dial",
+            )));
+        }
+        Ok(Vec::new())
     }
 
     fn on_swarm_event(&mut self, _: libp2p::swarm::FromSwarm<'_>) {}
@@ -1643,26 +1665,38 @@ async fn a_filtered_punch_from_the_initiating_end_opens_one_connect_round() {
     subject.shutdown().await.expect("shutdown");
 }
 
-/// THE FILTERED PUNCH DIAL FAILS AND THE FAR END'S PUNCHES: the bare
-/// responder's CONNECT carries a loopback candidate and a private one
-/// nothing listens on, and nothing it was observed on (its listener is
-/// confirmed, so the Swarm hands no behaviour the relay's observation).
-/// The subject's dial is filtered to the dead address and refused on
-/// the wire, while the bare peer's own punch dial reaches the subject's
-/// listener. That failure is the crate's dial failing, so the attempt
-/// goes on: it ends when the far end's connection lands, or -- the one
-/// other legal ending -- at the crate's own retry ceiling. Ended on the
-/// first refusal, it was counted failed with the refusal's detail and
-/// the peer cooled down, beside the direct path the far end made.
-#[tokio::test]
-async fn a_filtered_punch_dial_that_fails_leaves_the_far_ends_punch_to_land() {
-    let ip = interweave_test_support::net::require_private_interface_v4();
+/// The subject reserved on the private relay, and a bare responder over
+/// its circuit whose CONNECT carries a loopback candidate, `candidate`,
+/// and nothing it was observed on: its listener is confirmed before the
+/// relay's Identify can observe it, so the Swarm hands no behaviour that
+/// observation. The subject's punch dial is therefore filtered (the
+/// loopback candidate removed) and reissued to `candidate` alone.
+/// `refuse_own` makes the bare peer refuse its own punch dials.
+struct FilteredFarEnd {
+    relay: libp2p::Swarm<RelayBehaviour>,
+    subject: SwarmRuntime,
+    subject_peer: TransportIdentity,
+    bare: libp2p::Swarm<BareInitiator>,
+    bare_peer: TransportIdentity,
+    seen: Seen,
+    /// The subject's events, in order.
+    events: Vec<SwarmEvent>,
+    /// The bare peer's successful punches toward the subject.
+    bare_successes: usize,
+}
+
+async fn filtered_far_end(
+    ip: Ipv4Addr,
+    candidate: &Multiaddr,
+    refuse_own: bool,
+    preauth: Option<interweave_transport_runtime::preauth::PreAuthLimits>,
+) -> FilteredFarEnd {
     let bare_keys = identity::Keypair::generate_ed25519();
     let bare_peer = identity_of(&bare_keys);
     let Reserved {
         mut relay,
         relay_peer: _,
-        target: mut subject,
+        target: subject,
         target_peer: subject_peer,
         circuit,
     } = reserved(
@@ -1670,6 +1704,7 @@ async fn a_filtered_punch_dial_that_fails_leaves_the_far_ends_punch_to_land() {
         |client| SubstrateConfig {
             relay_client: Some(client),
             dcutr: Some(punching()),
+            preauth: preauth.unwrap_or_default(),
             ..SubstrateConfig::default()
         },
         |relay_peer| trust(&[&bare_peer], &[relay_peer]),
@@ -1679,21 +1714,17 @@ async fn a_filtered_punch_dial_that_fails_leaves_the_far_ends_punch_to_land() {
     let mut seen = Seen::default();
     let mut bare = bare_initiator(bare_keys);
     bare.listen_on(any_port(ip)).expect("listens");
-    let dead: Multiaddr = format!(
-        "/ip4/{ip}/tcp/{}",
-        interweave_test_support::net::free_port(ip)
-    )
-    .parse()
-    .expect("an address");
     bare.behaviour_mut().extra.queued.extend([
         "/ip4/127.0.0.1/tcp/4001".parse().expect("an address"),
-        dead.clone(),
+        candidate.clone(),
     ]);
+    if refuse_own {
+        bare.behaviour_mut().extra.refuse_direct_to = Some(pid(&subject_peer));
+    }
     bare.dial(relay_of(&circuit))
         .expect("a relay dial is accepted");
-    // Confirmed before the relay's Identify can observe it, and the
-    // scripted pair handed to the crate; the relay connection up, so
-    // the circuit dial rides it.
+    // Confirmed, the scripted pair handed to the crate, and the relay
+    // connection up, so the circuit dial rides it.
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let (mut confirmed, mut scripted, mut to_relay) = (false, false, false);
     while !(confirmed && scripted && to_relay) {
@@ -1710,7 +1741,7 @@ async fn a_filtered_punch_dial_that_fails_leaves_the_far_ends_punch_to_land() {
                     bare.add_external_address(address);
                     confirmed = true;
                 }
-                Libp2pSwarmEvent::NewExternalAddrCandidate { address } if address == dead => {
+                Libp2pSwarmEvent::NewExternalAddrCandidate { address } if address == *candidate => {
                     scripted = true;
                 }
                 Libp2pSwarmEvent::ConnectionEstablished { .. } => to_relay = true,
@@ -1721,98 +1752,263 @@ async fn a_filtered_punch_dial_that_fails_leaves_the_far_ends_punch_to_land() {
         }
     }
     bare.dial(circuit).expect("a circuit dial is accepted");
+    FilteredFarEnd {
+        relay,
+        subject,
+        subject_peer,
+        bare,
+        bare_peer,
+        seen,
+        events: Vec::new(),
+        bare_successes: 0,
+    }
+}
 
-    // The attempt's ending at the subject, and the bare peer's punch.
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut events = Vec::new();
-    let mut bare_successes = 0_usize;
-    let mut ended = false;
-    while !(ended && bare_successes >= 1) {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(
-            !remaining.is_zero(),
-            "no ending and punch: {events:?} bare successes {bare_successes}"
-        );
-        tokio::select! {
-            event = subject.next_event() => {
-                let event = event.expect("the subject is alive");
-                ended |= matches!(
-                    &event,
-                    SwarmEvent::HolePunch {
-                        peer,
-                        outcome: HolePunchOutcome::Succeeded | HolePunchOutcome::Failed { .. },
-                    } if *peer == bare_peer
-                );
-                events.push(event);
+impl FilteredFarEnd {
+    /// Drive all three until `done` holds, failing past `patience`.
+    async fn until(&mut self, what: &str, patience: Duration, mut done: impl FnMut(&Self) -> bool) {
+        let deadline = tokio::time::Instant::now() + patience;
+        while !done(self) {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "{what}: {:?} bare successes {}",
+                self.events,
+                self.bare_successes
+            );
+            self.step(remaining).await;
+        }
+    }
+
+    /// Drive all three for `window`, whatever happens.
+    async fn settle(&mut self, window: Duration) {
+        let until = tokio::time::Instant::now() + window;
+        loop {
+            let remaining = until.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return;
             }
-            event = bare.select_next_some() => {
+            self.step(remaining).await;
+        }
+    }
+
+    async fn step(&mut self, at_most: Duration) {
+        tokio::select! {
+            event = self.subject.next_event() => {
+                self.events.push(event.expect("the subject is alive"));
+            }
+            event = self.bare.select_next_some() => {
                 if let Libp2pSwarmEvent::Behaviour(BareInitiatorEvent::Dcutr(
                     libp2p::dcutr::Event { remote_peer_id, result: Ok(_) },
                 )) = &event
-                    && *remote_peer_id == pid(&subject_peer)
+                    && *remote_peer_id == pid(&self.subject_peer)
                 {
-                    bare_successes += 1;
+                    self.bare_successes += 1;
                 }
             }
-            event = relay.select_next_some() => note_relay(&mut seen, &event),
-            () = tokio::time::sleep(remaining) => {}
+            event = self.relay.select_next_some() => note_relay(&mut self.seen, &event),
+            () = tokio::time::sleep(at_most) => {}
         }
     }
-    let counters = subject.dcutr_counters().expect("the subject hole punches");
-    // The control: the subject's dial WAS filtered, so the failure is
-    // the reissued dial's.
+
+    /// Where the attempt toward the bare peer ended, and how.
+    fn ending(&self) -> Option<(usize, &HolePunchOutcome)> {
+        self.events.iter().enumerate().find_map(|(i, e)| match e {
+            SwarmEvent::HolePunch { peer, outcome }
+                if *peer == self.bare_peer
+                    && matches!(
+                        outcome,
+                        HolePunchOutcome::Succeeded
+                            | HolePunchOutcome::Failed { .. }
+                            | HolePunchOutcome::TimedOut
+                    ) =>
+            {
+                Some((i, outcome))
+            }
+            _ => None,
+        })
+    }
+
+    /// Where the subject reported a failed dial toward the bare peer at
+    /// `address`'s port.
+    fn refused_at(&self, address: &Multiaddr) -> Option<usize> {
+        let port = address
+            .iter()
+            .find_map(|p| match p {
+                libp2p::multiaddr::Protocol::Tcp(port) => Some(port),
+                _ => None,
+            })
+            .expect("a port");
+        self.events.iter().position(|e| {
+            matches!(e, SwarmEvent::DialFailed { peer: Some(p), detail, .. }
+                if *p == self.bare_peer && detail.contains(&format!("/tcp/{port}/")))
+        })
+    }
+}
+
+/// An address on `ip` nothing listens on: a refused connect, at once.
+fn dead_on(ip: Ipv4Addr) -> Multiaddr {
+    format!(
+        "/ip4/{ip}/tcp/{}",
+        interweave_test_support::net::free_port(ip)
+    )
+    .parse()
+    .expect("an address")
+}
+
+/// THE FILTERED PUNCH DIAL FAILS AND THE FAR END'S PUNCHES: the
+/// subject's reissued dial goes to a dead port while the bare peer's own
+/// punch dial reaches the subject's listener. That failure is the
+/// crate's dial failing, so the attempt goes on: it ends when the far
+/// end's connection lands, or -- the other legal ending -- at the
+/// crate's retry ceiling. Ended on the refusal, it was counted failed
+/// with the refusal's detail and the peer cooled down, beside the direct
+/// path the far end made. Which comes first, the refusal or the far
+/// end's connection, is the crate's `rtt / 2` against a handshake; both
+/// are waited for, and only a refusal while the attempt was in flight
+/// exercises the rule (the usual order: a refused connect on the host is
+/// near-instant).
+#[tokio::test]
+async fn a_filtered_punch_dial_that_fails_leaves_the_far_ends_punch_to_land() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let dead = dead_on(ip);
+    let mut run = filtered_far_end(ip, &dead, false, None).await;
+    run.until("the refusal, the ending and the punch", PATIENCE, |r| {
+        r.refused_at(&dead).is_some() && r.ending().is_some() && r.bare_successes >= 1
+    })
+    .await;
+    let counters = run
+        .subject
+        .dcutr_counters()
+        .expect("the subject hole punches");
+    let (ended_at, outcome) = run.ending().expect("waited for");
+    let refused_at = run.refused_at(&dead).expect("waited for");
+    // The control: the subject's dial WAS filtered, so the refusal is the
+    // reissued dial's.
     assert!(
         counters
             .candidates_removed
             .get("special_use")
             .is_some_and(|n| *n >= 1),
-        "the subject's dial was filtered: {counters:?} {events:?}"
+        "the subject's dial was filtered: {counters:?} {:?}",
+        run.events
     );
-    let dead_port = dead
-        .iter()
-        .find_map(|p| match p {
-            libp2p::multiaddr::Protocol::Tcp(port) => Some(port),
-            _ => None,
-        })
-        .expect("a port");
-    let refused_at = events.iter().position(|e| {
-        matches!(e, SwarmEvent::DialFailed { peer: Some(p), detail, .. }
-            if *p == bare_peer && detail.contains(&format!("/tcp/{dead_port}/")))
-    });
-    let ended_at = events.iter().position(|e| {
-        matches!(e, SwarmEvent::HolePunch {
-            peer,
-            outcome: HolePunchOutcome::Succeeded | HolePunchOutcome::Failed { .. },
-        } if *peer == bare_peer)
-    });
-    assert!(
-        refused_at.is_some_and(|r| ended_at.is_some_and(|e| r < e)),
-        "the reissued dial was refused while the attempt was in flight: {events:?}"
-    );
-    let failed: Vec<&String> = events
-        .iter()
-        .filter_map(|e| match e {
-            SwarmEvent::HolePunch {
-                peer,
-                outcome: HolePunchOutcome::Failed { detail },
-            } if *peer == bare_peer => Some(detail),
-            _ => None,
-        })
-        .collect();
-    assert!(
-        failed.iter().all(|d| d.contains("Giving up after")),
-        "only the crate's retry ceiling may end it failed: {failed:?} {events:?}"
-    );
-    if failed.is_empty() {
-        assert_eq!(
-            counters.attempts_ended.get("succeeded"),
-            Some(&1),
-            "{counters:?} {events:?}"
-        );
-        assert_eq!(counters.cooldown_peers, 0, "a punch cools nothing down");
+    if refused_at < ended_at {
+        match outcome {
+            HolePunchOutcome::Succeeded => {
+                assert_eq!(counters.cooldown_peers, 0, "a punch cools nothing down");
+            }
+            HolePunchOutcome::Failed { detail } => assert!(
+                detail.contains("Giving up after"),
+                "only the crate's retry ceiling may end it failed: {detail} {:?}",
+                run.events
+            ),
+            other => panic!("ended {other:?} inside the patience: {:?}", run.events),
+        }
+    } else {
+        // The far end's punch came first: the attempt was over before the
+        // refusal, which this run therefore does not test.
+        assert_eq!(*outcome, HolePunchOutcome::Succeeded, "{:?}", run.events);
+        eprintln!("the far end's punch landed before the refusal: the rule not exercised");
     }
 
-    subject.shutdown().await.expect("shutdown");
+    run.subject.shutdown().await.expect("shutdown");
+}
+
+/// THE HAND-OFF: the bare peer refuses its own punch dials, so only the
+/// subject's can punch, and every one of those is reissued to a dead
+/// port. Each refusal reaches the crate as its own dial's failure; the
+/// crate opens another CONNECT round to its retry ceiling and gives up,
+/// which ends the attempt failed, inside the patience. Not handed on,
+/// the crate would open no second round and the attempt would wait out
+/// the ninety-second horizon.
+#[tokio::test]
+async fn a_filtered_punch_whose_far_end_cannot_dial_ends_at_the_crates_ceiling() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let dead = dead_on(ip);
+    let mut run = filtered_far_end(ip, &dead, true, None).await;
+    run.until("the attempt's ending", PATIENCE, |r| r.ending().is_some())
+        .await;
+    let counters = run
+        .subject
+        .dcutr_counters()
+        .expect("the subject hole punches");
+    let (_, outcome) = run.ending().expect("waited for");
+    assert!(
+        matches!(outcome, HolePunchOutcome::Failed { detail } if detail.contains("Giving up after 3")),
+        "the crate's ceiling, after its rounds: {outcome:?} {:?}",
+        run.events
+    );
+    // The control: three reissued dials refused, one per round, and the
+    // far end's own punch never made.
+    assert_eq!(
+        counters.candidates_removed.get("special_use"),
+        Some(&3),
+        "{counters:?}"
+    );
+    assert_eq!(run.bare_successes, 0);
+
+    run.subject.shutdown().await.expect("shutdown");
+}
+
+/// THE GUARD: the reissued dial goes to a listener that accepts the
+/// connection and never speaks, so it fails only at the subject's
+/// handshake timeout -- by then the bare peer's own punch has ended the
+/// attempt. A failure after the attempt is over is handed to nobody:
+/// handed to the crate, it opened another CONNECT round after the
+/// success, and the bare peer punched a second time.
+#[tokio::test]
+async fn a_late_failure_of_a_reissued_dial_opens_no_second_round() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let mute = std::net::TcpListener::bind((ip, 0)).expect("a mute listener");
+    let mute_addr: Multiaddr =
+        format!("/ip4/{ip}/tcp/{}", mute.local_addr().expect("bound").port())
+            .parse()
+            .expect("an address");
+    // Accept and hold, never answering a byte.
+    let held = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let holder = std::sync::Arc::clone(&held);
+    std::thread::spawn(move || {
+        for stream in mute.incoming().flatten() {
+            holder.lock().expect("unpoisoned").push(stream);
+        }
+    });
+    let handshake = Duration::from_secs(3);
+    let limits = interweave_transport_runtime::preauth::PreAuthLimitsBuilder {
+        handshake_timeout_ms: u64::try_from(handshake.as_millis()).expect("fits"),
+        ..interweave_transport_runtime::preauth::PreAuthLimitsBuilder::default()
+    }
+    .build()
+    .expect("a shorter handshake narrows the specified policy");
+    let mut run = filtered_far_end(ip, &mute_addr, false, Some(limits)).await;
+    run.until(
+        "the punch, then the reissued dial's late failure",
+        PATIENCE,
+        |r| r.ending().is_some() && r.bare_successes >= 1 && r.refused_at(&mute_addr).is_some(),
+    )
+    .await;
+    let (ended_at, outcome) = run.ending().expect("waited for");
+    let failed_at = run.refused_at(&mute_addr).expect("waited for");
+    // The control: the punch ended the attempt first, and the dial the
+    // subject held on the mute listener failed after it.
+    assert_eq!(*outcome, HolePunchOutcome::Succeeded, "{:?}", run.events);
+    assert!(
+        ended_at < failed_at,
+        "the failure came late: {:?}",
+        run.events
+    );
+    assert!(
+        !held.lock().expect("unpoisoned").is_empty(),
+        "the reissued dial reached the mute listener"
+    );
+    run.settle(WINDOW).await;
+    assert_eq!(
+        run.bare_successes, 1,
+        "one CONNECT round: the late failure reached no crate: {:?}",
+        run.events
+    );
+
+    run.subject.shutdown().await.expect("shutdown");
 }
 
 #[tokio::test]
