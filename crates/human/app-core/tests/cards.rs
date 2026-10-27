@@ -927,6 +927,7 @@ async fn a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind() {
                 payload: br#"{"v":2,"kind":"contact_card","app_message_id":"0000000000000000000000000000000c","name":"Ada"}"#
                     .to_vec(),
                 received_at: 1,
+                kind: interweave_human_store::InboundKind::Text,
             })
             .expect("committed")
     };

@@ -1941,9 +1941,17 @@ mod tests {
         let media =
             MediaType::parse("application/vnd.interweave-human-chat+json;v=2").expect("media");
         let held = br#"{"v":2,"kind":"text","app_message_id":"000000000000000000000000000000aa","text":"held back"}"#;
-        for (id, payload) in [
-            ("000000000000000000000000000000aa", held.to_vec()),
-            ("000000000000000000000000000000ab", b"garbled".to_vec()),
+        for (id, payload, kind) in [
+            (
+                "000000000000000000000000000000aa",
+                held.to_vec(),
+                interweave_human_store::InboundKind::Text,
+            ),
+            (
+                "000000000000000000000000000000ab",
+                b"garbled".to_vec(),
+                interweave_human_store::InboundKind::Other,
+            ),
         ] {
             store
                 .commit_unread_inbound(&NewInbound {
@@ -1956,6 +1964,7 @@ mod tests {
                     media_type: Some(media.clone()),
                     payload,
                     received_at: 1,
+                    kind,
                 })
                 .expect("committed");
         }

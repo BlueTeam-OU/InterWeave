@@ -25,8 +25,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::StoreError;
 use crate::records::{
-    AppMessageId, BackupCursor, BackupTable, Cursor, InboundOrigin, NewInbound, NewOutbound,
-    OutboundDestination, Page, PageLimits, PendingOutbound, ReadEphemeral, RowId, StoredInbound,
+    AppMessageId, BackupCursor, BackupTable, Cursor, InboundKind, InboundOrigin, NewInbound,
+    NewOutbound, OutboundDestination, Page, PageLimits, PendingOutbound, ReadEphemeral, RowId,
+    StoredInbound,
 };
 use crate::schema::{migrate, verify_shape};
 
@@ -97,17 +98,21 @@ const SCRUBBED: &str = "released_content_scrubbed";
 /// whole table on every page; `the_inbound_walk_reads_its_index_not_a_sort`
 /// pins the plan.
 const WALK_UNREAD: &str = "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
-        media_type, payload, received_at, NULL, NULL
+        media_type, payload, received_at, NULL, NULL, kind
    FROM unread_inbound
   WHERE (received_at, row_id) > (?1, ?2)
   ORDER BY received_at, row_id
   LIMIT ?3";
 const WALK_KEPT: &str = "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
-        media_type, payload, received_at, read_at, kept_at
+        media_type, payload, received_at, read_at, kept_at, kind
    FROM kept_inbound
   WHERE (received_at, row_id) > (?1, ?2)
   ORDER BY received_at, row_id
   LIMIT ?3";
+
+/// The `settings` key the client's inbound classification version is
+/// kept under (STATE.md schema v10).
+const INBOUND_KIND_SETTING: &str = "inbound_kind_version";
 
 /// THE CLOSE truncates the WAL too (`RETENTION.md` §8: absent "after a
 /// clean close"). DEFENCE IN DEPTH, NOT SEPARATELY PINNED: SQLite's own
@@ -935,8 +940,8 @@ impl HumanStore {
         let result = self.conn.execute(
             "INSERT INTO unread_inbound
                  (app_message_id, source_peer, source_endpoint, channel_id,
-                  media_type, payload, received_at)
-             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+                  media_type, payload, received_at, kind)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
               WHERE NOT EXISTS (
                     SELECT 1 FROM read_pairs
                      WHERE source_peer = ?2
@@ -957,6 +962,7 @@ impl HumanStore {
                 new.media_type.as_ref().map(MediaType::as_str),
                 new.payload,
                 sql_timestamp("received_at", new.received_at)?,
+                new.kind.as_sql(),
             ],
         );
 
@@ -1008,7 +1014,7 @@ impl HumanStore {
             let row = tx
                 .query_row(
                     "SELECT app_message_id, source_peer, source_endpoint, channel_id,
-                            media_type, payload, received_at
+                            media_type, payload, received_at, kind
                        FROM unread_inbound WHERE row_id = ?1",
                     params![row_id.get()],
                     |r| {
@@ -1020,6 +1026,7 @@ impl HumanStore {
                             media_type: r.get(4)?,
                             payload: r.get(5)?,
                             received_at: r.get(6)?,
+                            kind: r.get(7)?,
                         })
                     },
                 )
@@ -1126,8 +1133,8 @@ impl HumanStore {
         let result = self.conn.query_row(
             "INSERT INTO kept_inbound
                  (app_message_id, source_peer, source_endpoint, channel_id,
-                  media_type, payload, received_at, read_at, kept_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                  media_type, payload, received_at, read_at, kept_at, kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(source_peer, source_endpoint_key, channel_key, app_message_id)
              DO UPDATE SET
                  read_at = excluded.read_at,
@@ -1154,6 +1161,7 @@ impl HumanStore {
                 sql_timestamp("received_at", held.received_at)?,
                 sql_timestamp("read_at", held.read_at)?,
                 sql_timestamp("at_ms", at_ms)?,
+                held.kind.as_sql(),
             ],
             |r| r.get::<_, i64>(0),
         );
@@ -1200,7 +1208,7 @@ impl HumanStore {
             let row = tx
                 .query_row(
                     "SELECT app_message_id, source_peer, source_endpoint, channel_id,
-                            media_type, payload, received_at, read_at
+                            media_type, payload, received_at, read_at, kind
                        FROM kept_inbound WHERE row_id = ?1",
                     params![row_id.get()],
                     |r| {
@@ -1213,6 +1221,7 @@ impl HumanStore {
                                 media_type: r.get(4)?,
                                 payload: r.get(5)?,
                                 received_at: r.get(6)?,
+                                kind: r.get(8)?,
                             },
                             r.get::<_, i64>(7)?,
                         ))
@@ -1305,6 +1314,70 @@ impl HumanStore {
         Ok(page.items)
     }
 
+    /// The client's classification version the inbound kinds were made
+    /// under (`inbound_kind_version`, STATE.md schema v10), or `None`
+    /// when no client has classified them yet, as after the v10 migration.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn inbound_kind_version(&self) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![INBOUND_KIND_SETTING],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Every unread and kept row classified again by `classify`, and
+    /// `version` recorded, in one transaction: the client runs it at open
+    /// when [`Self::inbound_kind_version`] is not its own, before any
+    /// count is read (STATE.md schema v10). Rows are read a page at a
+    /// time, never all at once, and only a kind that changes is written.
+    /// A failure leaves every kind and the old version as they were, and
+    /// the next open runs it again.
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn reclassify_inbound(
+        &mut self,
+        version: &str,
+        mut classify: impl FnMut(&StoredInbound) -> InboundKind,
+    ) -> Result<(), StoreError> {
+        let result = (|| -> Result<(), StoreError> {
+            let tx = self.conn.unchecked_transaction()?;
+            for table in ["unread_inbound", "kept_inbound"] {
+                let mut after = None;
+                loop {
+                    let page = self.read_inbound_table(table, after, PageLimits::default())?;
+                    for row in &page.items {
+                        let kind = classify(row);
+                        if kind != row.kind {
+                            // `table` is one of the two literals above.
+                            tx.execute(
+                                &format!("UPDATE {table} SET kind = ?2 WHERE row_id = ?1"),
+                                params![row.row_id.get(), kind.as_sql()],
+                            )?;
+                        }
+                    }
+                    match page.next {
+                        Some(next) => after = Some(next),
+                        None => break,
+                    }
+                }
+            }
+            tx.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+                params![INBOUND_KIND_SETTING, version],
+            )?;
+            tx.commit()?;
+            Ok(())
+        })();
+        result.map_err(|e| self.note_store_failure(e))
+    }
+
     fn read_inbound_table(
         &self,
         table: &str,
@@ -1331,6 +1404,7 @@ impl HumanStore {
                 r.get::<_, i64>(7)?,
                 r.get::<_, Option<i64>>(8)?,
                 r.get::<_, Option<i64>>(9)?,
+                r.get::<_, String>(10)?,
             ))
         })?;
 
@@ -1338,8 +1412,19 @@ impl HumanStore {
         let mut bytes = 0usize;
         let mut more = false;
         for row in rows {
-            let (id, amid, peer, endpoint, channel, media_type, payload, received, read, keptat) =
-                row?;
+            let (
+                id,
+                amid,
+                peer,
+                endpoint,
+                channel,
+                media_type,
+                payload,
+                received,
+                read,
+                keptat,
+                kind,
+            ) = row?;
             if !out.is_empty()
                 && (out.len() >= limits.max_records()
                     || bytes.saturating_add(payload.len()) > limits.max_bytes())
@@ -1368,6 +1453,7 @@ impl HumanStore {
                 received_at: stored_ms("received_at", received)?,
                 read_at: read.map(|v| stored_ms("read_at", v)).transpose()?,
                 kept_at: keptat.map(|v| stored_ms("kept_at", v)).transpose()?,
+                kind: InboundKind::from_sql(&kind),
             });
         }
         Ok(Page {
@@ -1686,6 +1772,7 @@ struct InboundColumns {
     media_type: Option<String>,
     payload: Vec<u8>,
     received_at: i64,
+    kind: String,
 }
 
 impl InboundColumns {
@@ -1712,6 +1799,7 @@ impl InboundColumns {
             payload: self.payload,
             received_at: stored_ms("received_at", self.received_at)?,
             read_at,
+            kind: InboundKind::from_sql(&self.kind),
         })
     }
 }

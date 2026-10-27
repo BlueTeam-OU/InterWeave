@@ -1092,6 +1092,7 @@ async fn write_the_previous_build_tree() {
                 media_type: Some(MediaType::parse(encoded.media_type).expect("a media type")),
                 payload: encoded.bytes,
                 received_at: wall_ms(),
+                kind: interweave_human_store::InboundKind::Text,
             }
         };
         store

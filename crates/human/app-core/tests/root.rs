@@ -676,6 +676,7 @@ async fn an_undecodable_stored_row_is_not_shown_and_is_counted() {
                 media_type: Some(media.clone()),
                 payload,
                 received_at: 1,
+                kind: interweave_human_store::InboundKind::Text,
             })
             .expect("committed");
     }

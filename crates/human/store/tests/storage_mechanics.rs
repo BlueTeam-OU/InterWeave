@@ -116,6 +116,7 @@ fn inbound(id: &str, payload: Vec<u8>) -> NewInbound {
         media_type: None,
         payload,
         received_at: 2_000,
+        kind: interweave_human_store::InboundKind::Text,
     }
 }
 

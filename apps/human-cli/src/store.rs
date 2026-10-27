@@ -345,6 +345,7 @@ mod tests {
                 media_type: None,
                 payload: b"kept until read".to_vec(),
                 received_at: 1_000,
+                kind: interweave_human_store::InboundKind::Text,
             })
             .expect("commits");
     }

@@ -307,10 +307,17 @@ async fn an_accepted_direct_message_arrives_committed_with_its_route_label() {
         },
         "the asserted source endpoint, as a route label"
     );
+    let kinds: Vec<_> = receiver
+        .store_mut()
+        .unread_inbound()
+        .expect("read")
+        .iter()
+        .map(|r| r.kind)
+        .collect();
     assert_eq!(
-        receiver.store_mut().unread_inbound().expect("read").len(),
-        1,
-        "committed as unread before it was returned"
+        kinds,
+        [interweave_human_store::InboundKind::Text],
+        "committed as unread, as text, before it was returned"
     );
 }
 
@@ -2171,10 +2178,18 @@ async fn a_shared_card_arrives_verified_as_a_card_and_is_held_unread() {
         card.card.identity_key,
         signing_key().verifying_key().to_bytes()
     );
+    // Stored as a card (schema v10's kind), which the badge counts.
+    let kinds: Vec<_> = receiver
+        .store_mut()
+        .unread_inbound()
+        .expect("read")
+        .iter()
+        .map(|r| r.kind)
+        .collect();
     assert_eq!(
-        receiver.store_mut().unread_inbound().expect("read").len(),
-        1,
-        "inbound content under RETENTION.md until the person acts"
+        kinds,
+        [interweave_human_store::InboundKind::Card],
+        "inbound content under RETENTION.md until the person acts, as a card"
     );
 }
 
