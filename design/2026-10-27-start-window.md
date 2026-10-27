@@ -169,8 +169,8 @@ designed now.
 **The top edge** is the `EarlierUnread` line when it shows (§6),
 otherwise the oldest loaded row.
 
-**Trigger.** While a conversation has rows in the store older than the
-oldest one it holds, the next page of older rows is fetched when the
+**Trigger.** While a conversation has rows in the store that the app
+can show (§6.1) older than the oldest one it holds, the next page of older rows is fetched when the
 top edge:
 
 - scrolls into view (a scroll, a fling, a drag of the scroll bar on
@@ -207,7 +207,8 @@ line, the new rows lie below it in reading order and are reached by
 moving focus down; the line remains the top edge. The loaded rows are
 read under §1's rule.
 
-**When the store holds nothing older**, nothing is shown at the top:
+**When the store holds nothing older that the app can show**, nothing
+is shown at the top:
 no "start of the conversation" marker. Read rows that were not kept
 are gone after a restart, so such a marker would claim a beginning
 that is not one.
@@ -265,13 +266,17 @@ loaded.
 architect-cto's condition: the hidden count stays reachable when the
 badge and the line read zero. Today only the command-line client
 shows it (`apps/human-cli`); the desktop and Android apps show it
-nowhere. Required: once the store holds nothing older for an open
-conversation that has such rows, the top edge shows a line,
-`UnreadNotShown`, with their count in this conversation. It looks and
-behaves as the `EarlierUnread` line (§8): text, focusable, not
-announced. It says that these messages are kept, unread, and that
-this version of the app cannot show them; it claims nothing about who
-sent them or why.
+nowhere. A conversation can hold only such rows, which gives it no
+Chats row to open, and a row can lack an origin the app can attribute
+to any conversation (`listing.rs`, `inbound`), so the count is not
+shown inside a conversation. Required: while
+`ModelSide::hidden_rows` is above zero, the Chats list ends with a
+line, `RowsNotShown`, with that count. It is text, not a control,
+focusable, not announced, and styled as the `EarlierUnread` line
+(§8). It says that these stored messages are kept and that this
+version of the app cannot show them; it claims nothing about who sent
+them or why. It is the same count the command-line client prints; no
+per-conversation count is needed.
 
 ## 7. Focus
 
@@ -309,7 +314,7 @@ requires is that **paging never drops a read row on its own**.
   shows instead a **limit row**: `EarlierAtLimit`, then a button,
   `EarlierShowAnyway`. The text says, before anything is committed,
   that showing earlier messages removes from the screen the messages
-  read first in this session, here and in other conversations, that
+  read or sent first in this session, here and in other conversations, that
   they cannot come back, and that a message the person keeps stays.
   Nothing is dropped while the row only shows.
 - Pressing `EarlierShowAnyway` fetches the next page; the bound drops
@@ -320,15 +325,24 @@ requires is that **paging never drops a read row on its own**.
 - The unread rows not loaded stay unread and stored: the badge and
   `EarlierUnread` stay true, and they can be read later (after other
   read rows leave the session, or after a restart).
-- Where rows of the open conversation were dropped, a line stands in
-  their place: `ReadNotShown`, with the count dropped there. Today's
-  order drops them from the newest end of the loaded rows, so the line
-  stands below the remaining rows and above any message that arrived
-  later, never at the top edge. It looks and behaves as the
+- Wherever rows of the open conversation were dropped, a line stands
+  in their place: `ReadNotShown`, with the count dropped there, one
+  line for each run of consecutive dropped rows. Today's order does not
+  drop them as one block: rows read in one batch, messages that
+  arrived while the conversation was open and kept rows (never
+  dropped) can leave several runs, with remaining rows between them.
+  A run that reaches the top edge has its line below the top edge's
+  items; paging past it brings rows older than the run. It looks and behaves as the
   `EarlierUnread` line (§8): text, focusable, not announced. The rows
   it stands for have no stored copy and cannot be loaded again.
 - Rows of other conversations are dropped as today, with nothing said
   in them; their summaries follow §3.
+- **Opening a conversation is not covered by the limit row.** It reads
+  its window at once (§4), as today, and near the bound that can drop
+  other conversations' read rows, and a conversation listed only
+  because of one leaves Chats, with nothing said, as today. This note
+  changes that only for paging; asking before opening is left out
+  (§12).
 - The focused row is never dropped while focused; if today's order
   reaches it, the next row in that order is dropped instead.
 
@@ -337,10 +351,10 @@ requires is that **paging never drops a read row on its own**.
 - **Reading order** at the top of a conversation: the failure row
   (`EarlierLoadFailed`, then Try again), the limit row
   (`EarlierAtLimit`, then `EarlierShowAnyway`), or nothing (the
-  progress row is not focusable); then `EarlierUnread` when shown, or
-  `UnreadNotShown` when the store holds nothing older; then the loaded
-  rows. A `ReadNotShown` line is read where it stands.
-- **Look**: the `EarlierUnread`, `ReadNotShown` and `UnreadNotShown`
+  progress row is not focusable); then `EarlierUnread` when shown; then
+  the loaded rows. A `ReadNotShown` line is read where it stands. On
+  Chats, `RowsNotShown` is read after the last conversation.
+- **Look**: the `EarlierUnread`, `ReadNotShown` and `RowsNotShown`
   lines are styled
   as the day separator (look §6): centred, body small,
   `on-surface-variant`, one item each for a screen reader. The
@@ -357,12 +371,14 @@ requires is that **paging never drops a read row on its own**.
   `EarlierUnread` line and the failure row wrap and are never cut;
   the Try again target is at least 48 by 48 dp.
 - **Contrast**: everything here sits on the conversation's background,
-  `surface`, and on no other surface; each pair is one look §3 already
-  holds:
+  `surface`, except `RowsNotShown`, which sits on Chats' background:
+  `surface`, or `surface-container` in the wide-screen pane. Each pair
+  is one look §3 already holds:
 
   | Mark | Pair | Needs | Dark | Light |
   |---|---|---|---|---|
-  | `EarlierUnread`, `ReadNotShown`, `UnreadNotShown`, `EarlierAtLimit` | `on-surface-variant` on `surface` | 4.5 | 9.9 | 7.6 |
+  | `EarlierUnread`, `ReadNotShown`, `RowsNotShown`, `EarlierAtLimit` | `on-surface-variant` on `surface` | 4.5 | 9.9 | 7.6 |
+  | `RowsNotShown` in the wide-screen pane | `on-surface-variant` on `surface-container` | 4.5 | 9.2 | 7.0 |
   | `EarlierLoadFailed` | `error` on `surface` | 4.5 | 10.6 | 6.2 |
   | Try again, `EarlierShowAnyway`, their focus ring, the progress indicator | `primary` on `surface` | 4.5 (3 for the ring and indicator) | 10.8 | 6.2 |
 
@@ -373,9 +389,9 @@ The words are language-culture's; these say what each must do.
 | Key | Proposed English | Shows | Must say |
 |---|---|---|---|
 | `EarlierUnread` | {count} earlier unread | the line of §6 | how many unread items are above, not yet shown; a plural by count (language-culture's forms); must not say "messages" if it counts cards too, or must cover both |
-| `ReadNotShown` | {count} read messages no longer shown | the line of §7.1 | that messages the person already read were removed from this screen and cannot come back; a plural by count; must not suggest they were deleted by anyone else |
-| `UnreadNotShown` | {count} unread messages here can't be shown by this version of the app | the line of §6.1 | that unread messages of this conversation are kept and this app version cannot show them; a plural by count; must not blame the sender or suggest tampering |
-| `EarlierAtLimit` | To show earlier messages, the first messages you read in this session will be removed from the screen, here and in other chats. They can't come back. Messages you keep stay. | the limit row (§7.1) | before anything happens: what showing earlier messages removes (messages read first, in every conversation), that it cannot be undone, and that kept messages stay |
+| `ReadNotShown` | {count} earlier messages no longer shown | the line of §7.1 | that messages the person already read or sent were removed from this screen and cannot come back; a plural by count; must not suggest they were deleted by anyone else |
+| `RowsNotShown` | {count} stored messages can't be shown by this version of the app | the line at the end of Chats (§6.1) | that stored messages are kept and this app version cannot show them; a plural by count; must not blame a sender or suggest tampering |
+| `EarlierAtLimit` | To show earlier messages, the first messages you read or sent in this session will be removed from the screen, here and in other chats. They can't come back. Messages you keep stay. | the limit row (§7.1) | before anything happens: what showing earlier messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
 | `EarlierShowAnyway` | Show earlier messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
 | `EarlierLoading` | Loading earlier messages | the progress row's accessible name (§5); never visible text | that older rows are on their way |
 | `EarlierLoadFailed` | Couldn't load earlier messages. | the failure row (§5), and its announcement | that the older rows could not be read; must not suggest they are lost |
@@ -444,16 +460,19 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     nothing has been dropped (A's newest rows and B are as they were).
     Press `EarlierShowAnyway`: the page loads, focus is on the item
     that was below the limit row, B's read row goes first (B leaves
-    Chats if it held nothing else), then A's newest rows, and a
-    `ReadNotShown` line with their count stands below A's remaining
-    rows. Paging goes on without asking until A is closed; reopening
+    Chats if it held nothing else), then A's rows in today's order,
+    and each run of dropped rows has one `ReadNotShown` line with its
+    count, where the run was. Paging goes on without asking until A is closed; reopening
     A and reaching the bound shows the limit row again. Keep a row
     before pressing: it stays. A row with an open snackbar is not
     dropped; the focused row is not dropped.
-13. **An undecodable unread row**: add one to A's store. It is not
-    counted on the line or on A's badge; the line goes once every
-    other unread row is loaded; once the store holds nothing older,
-    `UnreadNotShown` shows with 1, with A's badge at 0.
+13. **An undecodable unread row**: add one to A's store, as its oldest
+    row. It is not counted on the line or on A's badge; the line goes
+    once every other unread row is loaded, and paging then stops (no
+    further fetch at the top); with A's badge at 0, Chats ends with
+    `RowsNotShown` showing 1. Add a second undecodable row to a third
+    conversation with no other row: it has no Chats row, and
+    `RowsNotShown` shows 2.
 
 **Test of §2's hypothesis** (with people, when there is a session to
 run): give a participant the flooded A and ask them to find the first
@@ -487,6 +506,8 @@ line. Two of five failing is enough to reopen §6.
   before they scroll to it.
 - **A jump to the first unread, or to the newest from far up.** Not
   designed; §10's test decides whether the first is needed.
+- **A warning before opening a conversation near the session bound**
+  (§7.1): opening drops read rows as it does today.
 - **A loading state for opening a conversation** (§3), until a
   measurement says it is visible.
 - **How the window is held and its budget figures**: the builder's.
