@@ -70,6 +70,15 @@ fn facade(
     profile: &Profile,
     key: Option<IdentityKey>,
 ) -> FacadeSide<FakeNode, FakeNode> {
+    facade_with_wall(node, profile, key, || WALL)
+}
+
+fn facade_with_wall(
+    node: &FakeNode,
+    profile: &Profile,
+    key: Option<IdentityKey>,
+    wall: impl Fn() -> u64 + Send + Sync + 'static,
+) -> FacadeSide<FakeNode, FakeNode> {
     let store =
         HumanStore::open_profile(&profile.paths, &FilesystemCustody, StoreOptions::default())
             .expect("store");
@@ -87,7 +96,7 @@ fn facade(
         0,
     )
     .expect("facade");
-    let mut side = FacadeSide::new(client, || WALL);
+    let mut side = FacadeSide::new(client, wall);
     if let Some(key) = key {
         side.set_identity_key(key);
     }
@@ -159,6 +168,15 @@ impl Root {
 
     async fn facade_turn(&mut self, now: u64) {
         for update in self.facade.turn(now).await {
+            self.updates.push(update.clone());
+            self.model.apply(update);
+        }
+    }
+
+    /// A command run on the facade side directly, its updates applied:
+    /// what no view offers yet, an own card row's Cancel and its Undo.
+    async fn run(&mut self, command: Command, now: u64) {
+        for update in self.facade.execute(command, now).await {
             self.updates.push(update.clone());
             self.model.apply(update);
         }
@@ -1532,6 +1550,569 @@ async fn a_missing_key_after_a_share_is_named_and_a_new_key_not_stored_says_the_
     );
     assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Missing));
     assert!(!file.exists(), "the old file went first");
+}
+
+/// Acceptance item 13 at the facade, in the build's fallback (design
+/// section 5.2): the client cannot tell a Sending row it holds from one
+/// the transport took, so it withdraws the Not sent row (C, to Bob, whom
+/// the node refused) with no Undo and leaves the Sending one (D, to a peer
+/// with no address yet) to arrive. The key becomes unusable at a start,
+/// as only a start opens it, and C is Not sent again by its retry. Both conversations are listed for a share again,
+/// and C is never sent, a restart included. Mutations: the facade
+/// withdrawing nothing, or withdrawing every pending row.
+#[tokio::test]
+async fn a_new_key_withdraws_the_not_sent_card_and_lists_both_pending_conversations() {
+    use interweave_human_store::OutboundDestination;
+    use interweave_human_ui_model::{KeyProblem, KeyStep, OwnKey};
+    use interweave_transport_api::TransportError;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: None,
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(1).await;
+    let to_bob = direct(b.peer());
+    let stranger = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer id");
+    let to_stranger = direct(&stranger);
+    a.inject_send(TransportError::UnauthorizedPeer);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(2).await;
+    alice.will(Intent::ShareCard(to_stranger.clone()));
+    alice.pump(3).await;
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+
+    // The key file is damaged and Alice starts again: her pending rows
+    // are retried, C refused again by the node, D still with no address.
+    drop(alice);
+    std::fs::write(
+        identity_key::key_path(&pa.paths, &human()),
+        "not a record\n",
+    )
+    .expect("damage");
+    a.inject_send(TransportError::UnauthorizedPeer);
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    alice.pump(4).await;
+    assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Damaged));
+    alice.will(Intent::AskNewKey);
+    alice.pump(5).await;
+    assert_eq!(
+        alice.model().key_step(),
+        Some(&KeyStep::Confirming { pending: true }),
+        "KeyNewPending is shown"
+    );
+    alice.updates.clear();
+    alice.will(Intent::MakeNewKey);
+    alice.pump(6).await;
+    let Some(KeyStep::Made { share_again }) = alice.model().key_step() else {
+        panic!("made: {:?}", alice.model().key_step())
+    };
+    let mut listed = share_again.clone();
+    listed.sort_by_key(|k| format!("{k:?}"));
+    let mut both = vec![to_bob.clone(), to_stranger.clone()];
+    both.sort_by_key(|k| format!("{k:?}"));
+    assert_eq!(listed, both, "C and D are in the share-again list");
+    let withdrawn: Vec<bool> = alice
+        .updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::Cancelled { restorable, .. } => Some(*restorable),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(withdrawn, vec![false], "one row withdrawn, with no Undo");
+
+    // A restart: C is not in the store to be sent, and Bob never sees it;
+    // D is still pending, left to arrive.
+    drop(alice);
+    a.restart();
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    for at in 7..10 {
+        alice.pump(at * 60_000).await;
+        bob.pump(at * 60_000).await;
+    }
+    assert!(
+        bob.model().proposals(&direct(a.peer())).is_empty(),
+        "the withdrawn card never arrives"
+    );
+    drop(alice);
+    let store = HumanStore::open_profile(&pa.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
+    let pending: Vec<_> = store
+        .pending_outbound()
+        .expect("read")
+        .into_iter()
+        .map(|row| match row.destination {
+            OutboundDestination::Direct(d) => d.peer,
+            OutboundDestination::Broadcast(c) => panic!("a broadcast: {c:?}"),
+        })
+        .collect();
+    assert_eq!(pending, vec![stranger], "only D is left, to arrive");
+}
+
+/// Acceptance item 8 at the facade: the app killed during `KeyMaking`,
+/// at each point the step can be cut, leaves on disk what the step had
+/// done by then, built here with the store's own calls, and the next
+/// start shows: before the removal, the state as before; after it and
+/// before the new key is stored -- a half-written temporary beside the
+/// file included, as a kill inside the write leaves it -- "missing" with
+/// no key made for an identity whose card a conversation holds or may
+/// hold, and a key with no state for any other; after, the new key's
+/// fingerprint.
+#[tokio::test]
+async fn a_new_key_cut_at_each_point_starts_as_far_as_the_step_got() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    drop(alice);
+    let file = identity_key::key_path(&pa.paths, &human());
+    std::fs::write(&file, "not a record\n").expect("damage");
+    let start = |at: &'static str| {
+        let side = facade_with_source(&a, &pa, Box::new(FilesystemCustody));
+        async move {
+            let mut root = Root::new(side);
+            root.pump(1).await;
+            let key = own_key(&root);
+            drop(root);
+            (at, key)
+        }
+    };
+
+    // Cut before the removal.
+    assert_eq!(
+        start("before").await,
+        ("before", OwnKey::Unusable(KeyProblem::Damaged))
+    );
+
+    // Cut after the removal, inside the new key's write.
+    identity_key::remove(&pa.paths, &human(), &FilesystemCustody).expect("removed");
+    let mut temp = file.clone().into_os_string();
+    temp.push(".4242.0.00000000deadbeef.tmp");
+    std::fs::write(&temp, "IDK1 half").expect("a half-written temporary");
+    assert_eq!(
+        start("between").await,
+        ("between", OwnKey::Unusable(KeyProblem::Missing))
+    );
+    assert!(!file.exists(), "no key made by itself");
+
+    // Cut after the new key is stored.
+    let made = identity_key::create(&pa.paths, &human(), &FilesystemCustody).expect("stored");
+    assert_eq!(
+        start("after").await,
+        (
+            "after",
+            OwnKey::Ready {
+                fingerprint: made.fingerprint().to_string()
+            }
+        )
+    );
+
+    // An identity no conversation holds a card of, cut between: a key, no
+    // state.
+    let pc = profile();
+    let mut carol = Root::new(facade_with_source(&a, &pc, Box::new(FilesystemCustody)));
+    carol.pump(0).await;
+    drop(carol);
+    identity_key::remove(&pc.paths, &human(), &FilesystemCustody).expect("removed");
+    let mut carol = Root::new(facade_with_source(&a, &pc, Box::new(FilesystemCustody)));
+    carol.pump(1).await;
+    let OwnKey::Ready { fingerprint } = own_key(&carol) else {
+        panic!("a key with no state: {:?}", own_key(&carol))
+    };
+    assert_eq!(
+        fingerprint,
+        key_of(&pc).fingerprint().to_string(),
+        "the key shown is the one stored"
+    );
+}
+
+/// The row `queued` named, from the updates since they were cleared.
+fn queued(root: &Root) -> interweave_human_store::RowId {
+    root.updates
+        .iter()
+        .find_map(|u| match u {
+            Update::CardQueued { row, .. } => Some(*row),
+            _ => None,
+        })
+        .expect("a card queued")
+}
+
+/// The share Details names, as the store holds it.
+fn stored_share(profile: &Profile, to: &FakeNode) -> Option<u64> {
+    HumanStore::open_profile(&profile.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen")
+        .card_shared_at(to.peer(), &human())
+        .expect("read")
+}
+
+/// Cards section 5.3, architect-cto's ruling of 2026-10-27: a
+/// conversation's `card_shared_at` is written when the card's row reaches
+/// Accepted by remote transport and by nothing earlier -- not while it is
+/// Not sent, not by a Cancel, and a row pending across a restart is a
+/// share once it is accepted after it. Mutations: the write back at queue
+/// time; the start not listing the pending card rows.
+#[tokio::test]
+async fn a_card_is_shared_when_it_is_accepted_and_not_before() {
+    use interweave_transport_api::TransportError;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: None,
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(1).await;
+    let to_bob = direct(b.peer());
+
+    // Not sent, then cancelled: no share.
+    a.inject_send(TransportError::UnauthorizedPeer);
+    alice.updates.clear();
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(2).await;
+    let row = queued(&alice);
+    assert_eq!(alice.model().card_shared_at(&to_bob), None, "Not sent");
+    alice.run(Command::Cancel(row), 3).await;
+    assert!(
+        alice
+            .updates
+            .iter()
+            .any(|u| matches!(u, Update::Cancelled { row: r, .. } if *r == row)),
+        "cancelled"
+    );
+    alice.pump(3).await;
+    assert_eq!(alice.model().card_shared_at(&to_bob), None, "cancelled");
+
+    // Sending across a restart, accepted after it: a share.
+    a.inject_send(TransportError::Overloaded);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(4).await;
+    assert_eq!(alice.model().card_shared_at(&to_bob), None, "Sending");
+    drop(alice);
+    assert_eq!(
+        stored_share(&pa, &b),
+        None,
+        "nothing written before it went"
+    );
+    a.restart();
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    for at in 5..9 {
+        alice.pump(at * 60_000).await;
+    }
+    assert_eq!(
+        alice.model().card_shared_at(&to_bob),
+        Some(WALL),
+        "accepted: shared"
+    );
+    bob.pump(10 * 60_000).await;
+    assert!(
+        !bob.model().proposals(&direct(a.peer())).is_empty(),
+        "the card arrived"
+    );
+    drop(alice);
+    assert_eq!(stored_share(&pa, &b), Some(WALL));
+}
+
+/// #467 F1: a card row pending from before a restart is a share once it
+/// is accepted, though no view ever listed the store -- the Android
+/// service runs turns from its start and lists only for a view.
+/// Mutation: the pending rows read only by a listing.
+#[tokio::test]
+async fn a_card_pending_across_a_restart_is_shared_with_no_listing() {
+    use interweave_transport_api::TransportError;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    a.inject_send(TransportError::Overloaded);
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(1).await;
+    drop(alice);
+    a.restart();
+    // The service's facade: turns, and never a listing.
+    let mut side = facade(&a, &pa, Some(key_of(&pa)));
+    let mut told = Vec::new();
+    for at in 2..6 {
+        told.extend(side.turn(at * 60_000).await);
+    }
+    assert!(
+        told.iter().any(|u| matches!(u, Update::CardShared { .. })),
+        "told: {told:?}"
+    );
+    drop(side);
+    assert_eq!(stored_share(&pa, &b), Some(WALL));
+}
+
+/// #467 F5: a share the store refuses to record at Accepted is said once
+/// as such and written at the next turn, never lost with its row. The
+/// refusal is a time the store cannot hold; the share is recorded at
+/// the write that holds. Mutation: the owed share dropped.
+#[tokio::test]
+async fn a_share_the_store_refuses_at_accepted_is_written_at_the_next_turn() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let clock = Arc::new(AtomicU64::new(WALL));
+    let wall = Arc::clone(&clock);
+    let mut alice = Root::new(facade_with_wall(&a, &pa, Some(key_of(&pa)), move || {
+        wall.load(Ordering::Relaxed)
+    }));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let to_bob = direct(b.peer());
+    // Not taken at once, so it is accepted at a later turn.
+    a.inject_send(interweave_transport_api::TransportError::Overloaded);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(1).await;
+    assert_eq!(alice.model().card_shared_at(&to_bob), None);
+    alice.updates.clear();
+    // Accepted while the wall reads past what the store holds.
+    clock.store(u64::MAX, Ordering::Relaxed);
+    for at in 2..4 {
+        alice.pump(at * 60_000).await;
+    }
+    let refused = alice
+        .updates
+        .iter()
+        .filter(|u| matches!(u, Update::ShareNotRecorded(_)))
+        .count();
+    assert_eq!(refused, 1, "said once: {:?}", alice.updates);
+    assert_eq!(alice.model().card_shared_at(&to_bob), None);
+    clock.store(WALL, Ordering::Relaxed);
+    alice.pump(5 * 60_000).await;
+    assert_eq!(
+        alice.model().card_shared_at(&to_bob),
+        Some(WALL),
+        "written at the next turn"
+    );
+}
+
+/// #467 F6 and R3 F9: a share owed when Make a new key runs -- accepted
+/// with the old key, refused by the store -- is written by the step before
+/// the key changes when the store takes it then, and is in the share-again
+/// list either way; one still refused is never written afterwards with a
+/// date after the key changed. Mutations: the owed shares not read by the
+/// step; the step not writing them first.
+#[tokio::test]
+async fn a_share_owed_when_a_new_key_is_made_is_listed_to_share_again() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    for store_takes_it_at_the_step in [false, true] {
+        let case = if store_takes_it_at_the_step {
+            "written by the step"
+        } else {
+            "still refused"
+        };
+        let (a, b) = FakeNetwork::pair(node(), node());
+        let (pa, pb) = (profile(), profile());
+        let clock = Arc::new(AtomicU64::new(WALL));
+        let wall = Arc::clone(&clock);
+        let mut side = facade_with_wall(&a, &pa, None, move || wall.load(Ordering::Relaxed));
+        side.set_key_source(interweave_human_app_core::KeySource::new(
+            pa.paths.clone(),
+            human(),
+            Box::new(FilesystemCustody),
+        ));
+        let mut alice = Root::new(side);
+        let mut bob = Root::new(facade(&b, &pb, None));
+        alice.pump(0).await;
+        bob.pump(0).await;
+        let to_bob = direct(b.peer());
+        a.inject_send(interweave_transport_api::TransportError::Overloaded);
+        alice.will(Intent::ShareCard(to_bob.clone()));
+        alice.pump(1).await;
+        clock.store(u64::MAX, Ordering::Relaxed);
+        for at in 2..4 {
+            alice.pump(at * 60_000).await;
+        }
+        assert!(
+            alice
+                .updates
+                .iter()
+                .any(|u| matches!(u, Update::ShareNotRecorded(_))),
+            "{case}: owed"
+        );
+        if store_takes_it_at_the_step {
+            clock.store(WALL, Ordering::Relaxed);
+        }
+        alice.updates.clear();
+        alice.run(Command::MakeNewKey, 5 * 60_000).await;
+        let shared_at = alice
+            .updates
+            .iter()
+            .position(|u| matches!(u, Update::CardShared { .. }));
+        let made_at = alice
+            .updates
+            .iter()
+            .position(|u| matches!(u, Update::KeyMade { .. }));
+        let made = alice.updates.iter().find_map(|u| match u {
+            Update::KeyMade { share_again, .. } => Some(share_again.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            made,
+            Some(vec![to_bob.clone()]),
+            "{case}: {:?}",
+            alice.failed()
+        );
+        if store_takes_it_at_the_step {
+            assert!(
+                shared_at.is_some() && shared_at < made_at,
+                "{case}: written before the key changed: {:?}",
+                alice.updates
+            );
+            assert_eq!(alice.model().card_shared_at(&to_bob), Some(WALL), "{case}");
+        } else {
+            assert_eq!(shared_at, None, "{case}");
+            clock.store(WALL, Ordering::Relaxed);
+            alice.pump(6 * 60_000).await;
+            assert_eq!(
+                alice.model().card_shared_at(&to_bob),
+                None,
+                "{case}: not written after the key changed"
+            );
+        }
+    }
+}
+
+/// #467 R3: an own card row still on its way when a new key is made was
+/// signed with the old key; its Accepted after the change records no share,
+/// whose date would read as a share of the new key -- its conversation is
+/// in the share-again list instead. Mutation: the old key's rows kept in
+/// `card_rows`.
+#[tokio::test]
+async fn a_card_accepted_after_a_new_key_records_no_share() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let to_bob = direct(b.peer());
+    a.inject_send(interweave_transport_api::TransportError::Overloaded);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(1).await;
+    alice.run(Command::MakeNewKey, 2).await;
+    let made = alice.updates.iter().find_map(|u| match u {
+        Update::KeyMade { share_again, .. } => Some(share_again.clone()),
+        _ => None,
+    });
+    assert_eq!(made, Some(vec![to_bob.clone()]), "{:?}", alice.failed());
+    for at in 3..7 {
+        alice.pump(at * 60_000).await;
+        bob.pump(at * 60_000).await;
+    }
+    assert!(
+        !bob.model().proposals(&direct(a.peer())).is_empty(),
+        "the old key's card arrived"
+    );
+    assert_eq!(
+        alice.model().card_shared_at(&to_bob),
+        None,
+        "no share recorded"
+    );
+}
+
+/// A cancelled card brought back by its Undo is pending again, and its
+/// Accepted is a share like any other. Mutation: the restored row not
+/// held as a card.
+#[tokio::test]
+async fn a_card_restored_by_undo_is_shared_when_it_is_accepted() {
+    use interweave_transport_api::TransportError;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let to_bob = direct(b.peer());
+    a.inject_send(TransportError::UnauthorizedPeer);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(1).await;
+    let row = queued(&alice);
+    alice.run(Command::Cancel(row), 2).await;
+    assert_eq!(alice.model().card_shared_at(&to_bob), None, "cancelled");
+    alice.run(Command::Restore(row), 3).await;
+    let restored = alice
+        .updates
+        .iter()
+        .find_map(|u| match u {
+            Update::Restored { row, .. } => Some(*row),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("restored: {:?}", alice.failed()));
+    // Restored as it was, Not sent: the person's Retry sends it.
+    alice.run(Command::Retry(restored), 4).await;
+    for at in 4..7 {
+        alice.pump(at * 60_000).await;
+    }
+    assert_eq!(alice.model().card_shared_at(&to_bob), Some(WALL));
+}
+
+/// Design section 7 and acceptance item 11 as ADR-0063 A 2026-10-27
+/// amends them: an identity that never shared but has an own card row on
+/// its way -- Sending, or Not sent with Retry -- starts "missing" when its
+/// key file is gone, and makes no key by itself, since that card may still
+/// arrive with the old key. Mutation: the start reading the share record
+/// alone.
+#[tokio::test]
+async fn a_key_file_gone_while_a_card_is_pending_is_missing() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    use interweave_transport_api::TransportError;
+    for (case, refused) in [
+        ("Sending", None),
+        ("Not sent", Some(TransportError::UnauthorizedPeer)),
+    ] {
+        let (a, b) = FakeNetwork::pair(node(), node());
+        let pa = profile();
+        let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+        alice.pump(0).await;
+        // Sending: a peer with no address yet; Not sent: the node refuses.
+        let to = match refused {
+            None => direct(
+                &ProfileIdentity::generate()
+                    .transport_identity()
+                    .expect("peer id"),
+            ),
+            Some(error) => {
+                a.inject_send(error);
+                direct(b.peer())
+            }
+        };
+        alice.will(Intent::ShareCard(to));
+        alice.pump(1).await;
+        assert!(alice.failed().is_empty(), "{case}: {:?}", alice.failed());
+        drop(alice);
+        let file = identity_key::key_path(&pa.paths, &human());
+        std::fs::remove_file(&file).expect("lost");
+        let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+        alice.pump(2).await;
+        assert_eq!(
+            own_key(&alice),
+            OwnKey::Unusable(KeyProblem::Missing),
+            "{case}"
+        );
+        assert!(!file.exists(), "{case}: no key made by itself");
+    }
 }
 
 /// A cipher at the desktop's custody that cannot seal: a new key cannot

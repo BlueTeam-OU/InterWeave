@@ -68,3 +68,39 @@ bullets 31 and 33 read with it; `design/2026-10-24-identity-key.md`
 (#411), whose §5.3 states the gap's outcome for an identity that
 never shared.
 
+### Amendment 2026-10-27 — The silent first key also counts an own-card row pending outbound, or one that may have left
+
+Building contact-cards 5.3's leaving and share rules (rust-ui-dev-02's
+j54, QUESTION 01a17abc), two rules met at one column: 5.3 sets a
+conversation's `card_shared_at` when the own-card row reaches Accepted
+by remote transport, while the build wrote it when the card was
+queued, so the 2026-10-24 amendment's "share record alone" agreed with
+the build and not with the design. Written as 5.3 says, a key file
+lost while the first card is still Sending — it survives a restart as
+pending outbound — left no record, the next start made a key silently,
+and the old-key card could still arrive, making the contact's next
+card a key change the person was never told of. Ruled: `card_shared_at`
+stays at Accepted and nothing earlier, since the stored value is
+person-facing and a Sending card can still be cancelled; the silent
+key's predicate gains the pending own-card rows of the identity, the
+predicate the share-again list already reads, so one store predicate
+serves both sites and the two cannot part again; a failed store read
+goes on counting as shared. The alternative of writing `card_shared_at`
+at queue time was refused as naming a disclosure that may never happen.
+The same day, from #467's review (rust-ui-dev-02's QUESTION 01a17afd):
+a card cancelled after an attempt that may have reached the remote
+(`Cancelled { may_have_reached: true }`, the outcome-unknown class of
+the agreed amendment A1, erring toward "may") left neither a share
+record nor a pending row, so the window stayed open for it. Ruled: a
+conversation records that a card of the identity may have left this
+device from the first such attempt, Accepted or not, cancelled or not,
+cleared by nothing short of a store discard; the silent key and the
+share-again list read that record beside the pending rows, and
+`card_shared_at` alone stays what Details shows. The alternative of
+accepting the window was refused: the rule exists for exactly the
+counterparty who may hold the old key. The record is a store change,
+built in rust-ui-dev-02's later batch; until it lands, #467 names the
+window as a limit and the plan's §29 carries it.
+Propagation: decision 1; this note; the log row; the digest entry;
+`design/2026-10-24-identity-key.md` §7 and §8 (ux-designer-01, by
+locator); the code on rust-ui-dev-02's branch, one PR.

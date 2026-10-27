@@ -26,9 +26,20 @@
 //! phone on mobile data alone would admit a far end's private candidate
 //! and punch into the carrier's network. The detector's `offers` is the
 //! runtime's side of the same predicate.
+//!
+//! The record also COUNTS each time rule 3's answer can turn from no to
+//! yes -- an offered private-range listener IP this node did not offer
+//! at the last observation ([`HeldListeners::widenings`]). A refusal
+//! under rule 3 is the one learn-site verdict that depends on what this
+//! node listens on, so an address refused before a wildcard listener
+//! reported its LAN interface may be admitted after it; a caller that
+//! remembers what it offered (composition's discovery memo) offers again
+//! when the count moves, or keeps the refusal for its whole relearn
+//! interval.
 
 use std::collections::BTreeSet;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use libp2p::Multiaddr;
@@ -43,6 +54,26 @@ use libp2p::multiaddr::Protocol;
 #[derive(Clone, Debug, Default)]
 pub struct HeldListeners {
     unheld: Arc<Mutex<BTreeSet<IpAddr>>>,
+    widenings: Arc<AtomicU64>,
+}
+
+/// How many times rule 3's own-listener boundary has widened
+/// ([`HeldListeners::widenings`]): a reader of the count the detector
+/// moves, shared with every clone
+/// (`a_widenings_reader_sees_every_count_a_clone_of_the_record_makes`).
+/// The record's one writer adds to it and nothing lowers it, so a
+/// caller compares two readings rather than reading a value.
+#[derive(Clone, Debug, Default)]
+pub struct ListenerWidenings(Arc<AtomicU64>);
+
+impl ListenerWidenings {
+    /// The count now. Relaxed: nothing is published through it, and a
+    /// caller that reads a count from before a widening offers again at
+    /// its next reading.
+    #[must_use]
+    pub fn count(&self) -> u64 {
+        self.0.load(Ordering::Relaxed)
+    }
 }
 
 impl HeldListeners {
@@ -74,6 +105,20 @@ impl HeldListeners {
             .unwrap_or_else(PoisonError::into_inner)
             .contains(&ip)
     }
+
+    /// Count one widening: this node offers a private-range listener IP
+    /// it did not offer at the last observation. Written by the
+    /// detector alone (`NetworkSet::publish`).
+    pub(crate) fn widen(&self) {
+        self.widenings.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A reader of the widenings count, for a caller outside the Swarm
+    /// task (`SwarmRuntime::listener_widenings`).
+    #[must_use]
+    pub fn widenings(&self) -> ListenerWidenings {
+        ListenerWidenings(Arc::clone(&self.widenings))
+    }
 }
 
 #[cfg(test)]
@@ -100,5 +145,16 @@ mod tests {
         let reader = held.clone();
         held.set_unheld(BTreeSet::new());
         assert!(reader.holds(&lan), "the IP returned");
+    }
+
+    #[test]
+    fn a_widenings_reader_sees_every_count_a_clone_of_the_record_makes() {
+        let held = HeldListeners::new();
+        let reader = held.widenings();
+        assert_eq!(reader.count(), 0, "nothing widened yet");
+        held.clone().widen();
+        held.widen();
+        assert_eq!(reader.count(), 2, "both counts, through a clone");
+        assert_eq!(held.widenings().count(), 2, "a later reader agrees");
     }
 }

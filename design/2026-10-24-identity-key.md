@@ -82,7 +82,7 @@ mapped here, and nothing else refuses at open:
 | not protected | the read's `NotPrivate` for the file (readable or writable by another user, a link, another user's file), or for an `identity-keys/` directory this user owns with a loose mode | both (in practice the desktop) | `KeyExposed` | Make a new key (which first makes such a directory owner-only, §5.2) |
 | key folder not safe | the read's `NotPrivate` for an `identity-keys/` that is a link or not a directory at all; and any read refusal while `identity-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder; no new key |
 | temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but the two in the "damaged" row and an other-owner directory | both | `KeyNotNow` | Try again, then Make a new key |
-| missing | no file, for an identity that has shared its card (§7) | both | `KeyMissing` | Make a new key |
+| missing | no file, for an identity whose card a conversation holds or may hold (§7) | both | `KeyMissing` | Make a new key |
 
 The client must tell these read refusals apart: today `open` turns
 every read error into one string (`IdentityKeyFileError::Persist`),
@@ -217,11 +217,12 @@ would destroy the old wrapping key anyway, one alias per identity); the
 new key is created. **Every point the step can stop at resolves to a
 state the person already knows**: stopped before the removal, the
 identity is in this state as before; after the removal and before the
-new key is stored, the next open finds no file: for an identity that
-has shared its card, the share record is still there and it is the
-"missing" state, never a silent new key (§7), where the person confirms
-again; for one that never shared, §7's silent first key applies at the
-next open, since no contact holds the old key; after, it has its new
+new key is stored, the next open finds no file: for an identity whose
+card a conversation holds or may hold (§7), the share record or the
+pending row is still there and it is the "missing" state, never a
+silent new key, where the person confirms again; for any other, §7's
+silent first key applies at the next open, since no contact holds or
+can receive the old key; after, it has its new
 key.
 The client never shows "made" without a key it can open, and never
 shows a key it holds but cannot open. It never reports success before
@@ -246,8 +247,10 @@ says so first (`KeyNewPending`), shown when any such row exists.
 fingerprint, and under it `KeyMade`: "This identity has a new key.
 Your contacts have the new key only after you share your card with them again."
 Then, when any conversation of this identity holds or may hold the old
-key — `card_shared_at` set, or an own-card row not yet Accepted by
-remote transport when the step ran (withdrawn or on its way):
+key — `card_shared_at` set, an own-card row not yet Accepted by
+remote transport when the step ran (withdrawn or on its way), or a card
+of it that may have left this device, cancelled after an attempt
+whose outcome is unknown (ADR-0063 decision 1, A 2026-10-27):
 `KeyShareAgainTitle`
 ("Share your card again in these conversations") and one row per such conversation, by
 the conversation's title, most recently shared first, each opening that
@@ -263,7 +266,7 @@ actions in `error` and **Make a new key** again:
 - the old file was already removed: the kind is "missing", and the
   line is `KeyNewFailedGone` — the saved key is gone and a new one was
   not made — so the person is not told less than happened. This holds
-  for this session for an identity that never shared too, since the
+  for this session for an identity §7 gives a silent key too, since the
   person asked for a key and must learn it was not made; at its next
   start §7's silent first key applies;
 - the old file is still there (the step stopped before removing it):
@@ -287,9 +290,13 @@ actions; with another kind: that kind's block.
   invalidate identity keys too; after the store's recovery, each such
   identity is in this state, with its own line.
 - **A missing key file** (Q-missing, architect-cto's): a key is made
-  silently only for an identity that has never shared its card —
-  `card_shared_at` absent on every conversation that speaks as it (the
-  share record alone, architect-cto's Q-route).
+  silently only for an identity whose card no conversation holds or
+  may hold — `card_shared_at` absent on every conversation that speaks
+  as it, no own-card row of it pending outbound (Sending, or Not
+  sent with Retry), and no conversation recording that a card of it
+  may have left this device (ADR-0063 decision 1): the share record,
+  the pending rows and that record, the predicate §5.3's share-again
+  list reads (architect-cto's Q-route, A 2026-10-27).
   Any other identity without its file is in this state as "missing",
   so its contacts are never shown a key change the person was not told
   of first. The same holds when the whole `identity-keys/` directory is
@@ -393,8 +400,9 @@ On both clients unless said; Android's screen-reader checks blocked as
 8. Killed during `KeyMaking`, at each point the step can be cut:
    before the removal, the next start shows this state as before;
    after the removal and before the new key is stored, the "missing"
-   state for an identity that had shared its card, with no key made
-   by itself, and a new key with no state for one that never shared;
+   state for an identity whose card a conversation holds or may hold
+   (§7), with no key made by itself, and a new key with no state for
+   any other;
    after, the new key's fingerprint. Never a fingerprint that
    a share then contradicts, and never this state while a key opens.
 9. Making the key fails after the removal (a test seam that fails the
@@ -408,9 +416,11 @@ On both clients unless said; Android's screen-reader checks blocked as
     platform cipher error once): `KeyNotNow` and Try again; Try again
     opens it and shows the fingerprint.
 11. An identity that has shared its card, its key file removed,
-    starts in the "missing" state and makes no key by itself; with the
+    starts in the "missing" state and makes no key by itself; so does
+    one that has never shared but has an own-card row Sending, or Not
+    sent with Retry; with the
     whole `identity-keys/` directory removed, every such identity does the same;
-    an identity that never shared gets a key with no state shown.
+    an identity with neither gets a key with no state shown.
 12. Focus follows §8's table, row by row, by keyboard; on the desktop,
     the screen reader reads §8's order and each announcement once.
 13. The identity has a card row Not sent in conversation C, and one
@@ -529,7 +539,10 @@ architect-cto (REPLY 01a16d93) the same day:
   offer to tighten the file; the reason is one sentence (§3).
 - **Q-route**: the share record alone, `card_shared_at` on any
   conversation that speaks as the identity; the accepted-card clause is
-  gone from the ADR amendment (§7).
+  gone from the ADR amendment (§7). Revised 2026-10-27 (REPLY
+  01a17abe) once cards §5.3 set `card_shared_at` at Accepted: a
+  pending own-card row counts beside the record, since a card on its
+  way may still arrive.
 
 Asked after review round 2, the note built on the reading given:
 
