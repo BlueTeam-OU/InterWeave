@@ -23,7 +23,10 @@ Revised for rust-ui-dev-02's four further questions (QUESTION
 01a17dc9, U1 to U4, asked while building this note): the held-row
 ceiling and gaps (§5.1), the limit row judged at the bound and not a
 page early (§7.1), photos loaded on demand and the one contact a
-proposal names (§11, and contact-cards §5.4.1).
+proposal names (§11, and contact-cards §5.4.1). Revised again for
+rust-ui-dev-02's QUESTION 01a17e5d (U-a, U-b): the preview's bound
+(§3) and the Contacts list when its read fails, with what that
+withholds (§11).
 
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
@@ -116,6 +119,24 @@ Evidence and hypotheses behind the choices below:
   message the conversation holds in this session, received or sent",
   extended to the rows the window has not loaded; it holds unchanged
   otherwise, above all that showing a preview never reads a message.
+- **The preview text is bounded** (rust-ui-dev-02's QUESTION
+  01a17e5d, U-a). The text is look §5.2's: the first line, with
+  markdown marks removed, and a link showing its text. It is computed
+  first and then cut, so a cut never leaves half a mark showing. It
+  holds at most 160 characters as a person counts them (grapheme
+  clusters) and at most 1 KiB of UTF-8, whichever comes first, cut
+  only between two whole characters. A cut text ends in an ellipsis
+  at its logical end, even when the row has room for more, so it never
+  passes for the whole first line. The ellipsis is added after the cut
+  and counts in neither bound. A first character larger than 1 KiB on
+  its own (a base with hundreds of combining marks) leaves nothing
+  that fits: the preview is the ellipsis alone. Rows the window holds and rows it
+  does not are cut the same way, so a preview does not change when its
+  row loads. The row's accessible description (look §9,
+  `ConversationDescription`) carries the same cut text. 160 is the
+  builder's proposal: it is more than a one-line subtitle shows on the
+  widest Chats pane, and it is short enough to keep the start bounded.
+  It is accepted on that reasoning, unmeasured.
 - **Each Chats row's unread badge counts every unread row of the
   conversation in the store** (a), loaded or not, with §6.1's
   exception for rows the app cannot show. Card proposals count in it:
@@ -133,7 +154,7 @@ Evidence and hypotheses behind the choices below:
   another conversation's read rows past it only by the person's
   choice (§7.1).
 - **The number of conversations is bounded, and the person sees
-  nothing at the bound.** A direct conversation is keyed by the remote
+  nothing at the bound from a peer.** A direct conversation is keyed by the remote
   EndpointId (`human-client-ui.md` §4), which the sending peer asserts;
   no conforming profile speaks from more than 64 endpoints
   (`architecture/contracts/ENDPOINTS.md`), and architect-cto rules that
@@ -141,8 +162,30 @@ Evidence and hypotheses behind the choices below:
   a malformed envelope: nothing stored, nothing shown, counted
   (REPLY 01a17be2, Q3; the rule is theirs to write into `HUMAN-CHAT.md`
   and `RETENTION.md` with j68's record). So the summaries held are
-  bounded by the trust list times 64. Nothing is designed for the
-  bound.
+  bounded by the trust list times 64. Nothing is designed for an
+  inbound at the bound.
+- **The person's own send at the bound has words of its own**
+  (rust-ui-dev-02's QUESTION 01a17e74). architect-cto ruled (A2) that
+  the person's own direct send counts toward the same 64: a send that
+  would open a 65th endpoint of one peer is refused before its pending
+  row is written, and shown as any refused send is (Not sent, with
+  the reason). The 64 are what the store holds for that peer
+  (`HUMAN-CHAT.md`, `STATE.md`): the endpoints of its conversations,
+  of every local identity, together with the routes kept under
+  contacts, an endpoint forgotten only when both are gone. So the
+  identity in front may have fewer than 64 conversations with that
+  peer, or none, and the reason must not send the person to
+  conversations that are not there, or that belong to another
+  identity (ADR-0061: the client never leads a person to act as one
+  identity while believing they act as another). The reason is not
+  `NotConfigured`'s "This route or channel is not configured here",
+  which points at a setting, and no setting changes the bound
+  (*help users recognize, diagnose and recover from errors*, Nielsen
+  9). Since a conforming peer speaks from at most 64 endpoints, a
+  65th typed one may well be mistyped, so the reason may suggest
+  checking the route, without blaming the person. Its key is `NotSentEndpointLimit` (§9). Nothing
+  else differs from any refused send: focus and the composer's
+  contents stay as that rule leaves them.
 - Every notification counts as (a) says; a notification is raised on
   receipt, which the window does not change.
 - **Every pending row is held, whatever the window**, so a failed
@@ -382,6 +425,8 @@ screen hold for every other case.
 | a row of the open conversation | the session bound drops it | cannot happen: the focused row is never dropped (§7.1) | §10 item 12 |
 | a row of the open conversation | the held-row ceiling releases it | cannot happen: the focused item is never released (§5.1) | §10 item 14 |
 | a `ReadNotShown` line | a new drop adds to its count | stays on the line, whose count changes | §10 item 12 |
+| the Contacts failure row's Try again (§11) | it is pressed and the row goes | the Contacts page title, as app-placed focus | §10 item 11 |
+| the Contacts page title, placed there by Try again | the read answers | success: the first contact row, else `ContactsEmpty`; failure: the new failure row's Try again | §10 item 11 |
 
 ### 7.1 The session bound while a conversation is open
 
@@ -498,9 +543,13 @@ The words are language-culture's; these say what each must do.
 | `RowsNotShown` | one: 1 message is saved on this device, but this version of InterWeave cannot show it. other: {count} messages are saved on this device, but this version of InterWeave cannot show them. | the line at the end of Chats (§6.1) | that these messages (received unread, kept, or the person's own still waiting to send) are still stored and this app version cannot show them; must not use "kept" in the sense of Keep; a plural by count; must not blame a sender or suggest tampering |
 | `EarlierAtLimit` | If you choose Show more messages, InterWeave makes room for more messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again. | the limit row (§7.1), at the top edge or in a gap (§5.1) | before anything happens: what showing more messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
 | `EarlierShowAnyway` | Show more messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
-| `EarlierLoading` | Loading more messages | the progress row's accessible name (§5), at the top edge or in a gap (§5.1); never visible text | that more rows are on their way |
+| `EarlierLoading` | Loading more messages | the progress row's accessible name (§5), at the top edge or in a gap (§5.1); never visible text; not on Contacts, whose progress row is named `ContactsLoading` | that more rows are on their way |
 | `EarlierLoadFailed` | Could not load more messages. | the failure row (§5), at the top edge or in a gap (§5.1), and its announcement | that the rows could not be read; must not suggest they are lost |
-| `ContactsLoadFailed` | Could not load all contacts. | the Contacts list's failure row, when a page of a paged list cannot be read (§11), and its announcement | that some contacts could not be read just now; must not suggest they are lost |
+| `CardContactsUnread` | InterWeave could not read your contacts to compare this card with them, so you cannot accept it yet. To read your contacts again, choose App options on the Conversations screen, then Contacts, then Try again. | a proposal's case line while the contacts are unread (§11) | that the comparison with the person's contacts could not be made and why Accept is missing, and where to try again, by the controls' own names: the Chats screen's menu (`AppOptions`), then Contacts (`ContactsTitle`), then `TryAgain` (contact-cards §4, §11), never the conversation's own menu; must not suggest the card is unsafe or the contacts lost |
+| `NamingContactsUnread` | InterWeave could not read your contacts, so you cannot add this person as a contact yet. | Details, in place of naming by hand, while the contacts are unread (§11) | that the contacts could not be read and that adding a contact waits for that; names no card; must not suggest the contacts are lost |
+| `NotSentEndpointLimit` | This device already keeps 64 routes of this peer, the limit for all its identities and contacts together, so it cannot open a new route; check that this is the route you want, or send in a conversation with this peer if you have one. | the reason of a refused send that would open a peer's 65th endpoint (§3), after the "Not sent" that every refused send shows, which it does not repeat | that this device keeps at most 64 routes of one peer, over all its identities and contacts, and already has them, so it cannot open another; that an existing conversation with that peer still works, without claiming one exists for the identity in front; may suggest checking the route; must not blame the person, suggest that a setting can change it, or say anything about the peer's intent |
+| `ContactsLoading` | Loading your contacts | the accessible name of the Contacts list's progress row during Try again (§11); never visible text | that the contacts are being read |
+| `ContactsLoadFailed` | Could not load your contacts. | the Contacts list's failure row, when the read of every contact fails (§11), and its announcement | that the contacts could not be read just now; must not suggest they are lost or that there are none |
 
 `TryAgain` exists and is reused.
 
@@ -570,7 +619,55 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     behave as their specs say (d).
 11. **Contacts**: with more contacts than any budget, the Contacts list
     shows every contact, with no edge or progress row, and every
-    conversation title on Chats uses its contact's name.
+    conversation title on Chats uses its contact's name. Make the
+    contacts' read fail at start (a test hook): Chats titles read as
+    for a conversation under no contact; Contacts shows the failure row
+    alone at the top, with Try again and no `ContactsEmpty`, and
+    announces nothing on opening. Press Try again with the read held
+    (a test hook): the row goes at once, focus is on the page title,
+    the progress row shows after 250 ms, its accessible name
+    `ContactsLoading` (the desktop's accessibility tree now; TalkBack
+    blocked), and nothing else can be pressed there. Let it fail again: focus on Try again,
+    `ContactsLoadFailed` announced once. Remove the failure and press
+    Try again: the list shows, focus on its first row, and the titles
+    on Chats take the contacts' names. With a store holding no contact,
+    the same success shows `ContactsEmpty`, with focus on it. With the
+    read failed, a card "Anna Rossi" arriving while a contact "Anna
+    Rossi" exists shows `CardContactsUnread`, no Accept and no
+    `CardSameName`, and a right swipe on it does nothing, while a left
+    swipe declines it as on any proposal, and its menu and its screen
+    reader actions offer Decline and no Accept; Details shows
+    `NamingContactsUnread` and no naming. After Try again succeeds, the row shows
+    `CardSameName` and Accept as a new contact, with nothing announced.
+11a. **Preview bound** (§3): a conversation whose newest row's first
+    line is 300 characters long previews its first 160 characters and
+    an ellipsis, on a window wide enough to show more, and identically
+    before and after the row loads. A first line that holds a link
+    across the 160th character shows the link's text, never its
+    syntax. A first line of combining marks or emoji sequences is cut
+    between whole characters, within 1 KiB; one whose first character
+    alone exceeds 1 KiB previews as the ellipsis alone. A first line
+    under 160 characters and under 1 KiB shows whole, with no ellipsis;
+    100 emoji sequences of about 25 bytes each are cut at 1 KiB, with
+    the ellipsis. A 300-character
+    Hebrew first line previews its first 160 characters with the
+    ellipsis on the left, and one whose cut falls in a Latin word at
+    the end of a Hebrew line keeps the ellipsis on the left too.
+11b. **A send at the endpoint bound** (§3): with a test store
+    holding 64 endpoints of one peer, a send to a 65th endpoint of that
+    peer is refused with `NotSentEndpointLimit`, nothing is pending and
+    nothing is sent; a send in one of the 64 conversations goes as
+    usual. Again with the 64 made of 40 conversations of the identity
+    in front, 20 of another identity and 4 routes kept only under
+    contacts: the same refusal and the same text, which names no
+    conversation of the identity in front that is not there. Again with
+    the identity in front holding no conversation with that peer, the
+    64 being 60 conversations of another identity and 4 routes kept
+    only under contacts: the same refusal, and its text directs the
+    person to no conversation as one they have; it offers the
+    conversation only as a condition ("if you have one"). (Where no
+    surface in the apps addresses a new endpoint yet, a test hook makes
+    the send.)
 12. **The bound while open**: with a test bound small enough to reach
     (the builder's hook), read B's unread row, then open A and page up.
     With room left for fewer session-only rows than a page holds, the
@@ -743,9 +840,58 @@ line. Two of five failing is enough to reopen §6.
   the person acts on.
 - **The Contacts list has no visible edge.** It grows only by the
   person's own Accepts. If the builder pages it, the paging is not
-  seen: no progress row, no failure row unless a read fails (then
-  `EarlierLoadFailed`'s pattern, with `ContactsLoadFailed`). Every contact's name must be known for
+  seen: no progress row, no failure row unless a read fails. Every contact's name must be known for
   conversation titles and for proposals' notes whatever is loaded.
+- **When the contacts cannot be read** (U-b of QUESTION 01a17e5d).
+  All contacts are read at start, page by page, with no paging the
+  person sees, so a failure is the whole read failing. The Contacts
+  list then shows no partial list: one failure row stands alone at
+  the top, under the app bar, in place of the rows and of
+  `ContactsEmpty`, which would claim there are no contacts. The row
+  is `EarlierLoadFailed`'s pattern (§8): `ContactsLoadFailed`, then a
+  Try again button (`TryAgain`). Pressing Try again reads every contact
+  again. The failure row goes at once, and focus goes to the page's
+  title as app-placed focus (the title is where Contacts puts focus on
+  opening, contact-cards §9 item 1). Its place stays empty until §5's
+  progress row, named `ContactsLoading` here, shows there after 250 ms, if the read has not answered
+  by then. With the button gone, no second read can start while one
+  is in flight. Success shows the list, with focus on its first row,
+  else on `ContactsEmpty` when the store holds no contact (contact-cards
+  §9 item 1's rule), if focus was still on the title. A failure shows
+  the failure row again, with focus on Try again if it was still on
+  the title. `ContactsLoadFailed` is announced
+  once, politely, when the failure arises while Contacts is open, a
+  failed Try again included. A Contacts list that opens already
+  showing it announces nothing, because the row is the first item read
+  there. While the contacts are unread, a conversation title on Chats
+  and in the app bar has no contact name to use, so it is the title of
+  a conversation under no contact: the short PeerId, with the route
+  label only where `human-client-ui.md` §4 asks for it (`DirectTitle`). It takes the contact's
+  name once a read succeeds, from Try again or the next start.
+- **Nothing writes a contact while the contacts are unread.** A card
+  proposal's case, its same-name warning (`CardSameName`) and its
+  Accept label are decided by comparing the card with the contacts
+  (contact-cards §5.4.1). That comparison is a security surface
+  (ADR-0059: a second contact with an existing name is shown as such
+  before acceptance), so it is never made against contacts that could
+  not be read. While they are unread, a proposal shows its heading,
+  PeerId and Decline as usual, and in place of its case line
+  `CardContactsUnread`: "InterWeave could not read your contacts to
+  compare this card with them, so you cannot accept it yet. To read
+  your contacts again, choose App options on the Conversations screen,
+  then Contacts, then Try again." It offers no Accept,
+  so its right swipe does nothing (contact-cards §5.4.4, a row with no
+  Accept); a left swipe still declines it, and its menu and its screen
+  reader actions (contact-cards §8) offer no Accept. Details' naming by hand (contact-cards §5.6) is withheld in
+  the same way, with `NamingContactsUnread` in its place, because it writes a
+  contact without knowing whether the route is already under one.
+  When a read succeeds, from Contacts' Try again or the next start,
+  every such proposal shows its case and its Accept. That is a change
+  the person did not ask for: nothing is announced and focus does
+  not move, as for a proposal's other lines. A notification's title
+  falls back as the conversation's title does (contact-cards §5.7.5
+  uses it). Since nothing is written meanwhile, the Contacts list
+  never has to show a contact while its read has failed.
 
 ## 12. Deliberately left out
 
@@ -793,3 +939,8 @@ line. Two of five failing is enough to reopen §6.
   a proposal to cap; which contact is named is contact-cards §5.4.1's
   rule (§11). U4, the limit row a page early, is rejected: it shows at
   the bound, and a page near it is shortened (§7.1).
+- **U-a and U-b, rust-ui-dev-02** (QUESTION 01a17e5d): answered here.
+  U-a, the preview holds at most 160 characters and 1 KiB, cut after
+  it is computed (§3). U-b, a failed contacts read shows its row alone
+  with Try again, and nothing writes a contact until a read succeeds
+  (§11).
