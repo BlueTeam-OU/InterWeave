@@ -531,7 +531,7 @@ pub struct HolePunchScope {
     reissued_in_flight: HashMap<ConnectionId, Reissue>,
     /// Dials to hand the Swarm before the crate's next action.
     actions: VecDeque<libp2p::swarm::dial_opts::DialOpts>,
-    /// The dial ids whose failure `to_crate` handed the crate, for the
+    /// The dial ids whose failure `tell_crate` handed the crate, for the
     /// tests: the crate answers only the failure of a dial it minted,
     /// and no unit test can make it mint one, so what reaches it is
     /// read here or nowhere.
@@ -637,7 +637,7 @@ impl HolePunchScope {
         {
             return false;
         }
-        self.to_crate(FromSwarm::NewExternalAddrCandidate(
+        self.tell_crate(FromSwarm::NewExternalAddrCandidate(
             libp2p::swarm::behaviour::NewExternalAddrCandidate { addr: address },
         ));
         self.publish();
@@ -1021,7 +1021,7 @@ impl HolePunchScope {
     /// hears goes through here, so the tests read which ones it was
     /// handed (`failures_handed`); the candidate replay after a network
     /// change tells the crate directly, holding `observed` borrowed.
-    fn to_crate(&mut self, event: FromSwarm<'_>) {
+    fn tell_crate(&mut self, event: FromSwarm<'_>) {
         #[cfg(test)]
         if let FromSwarm::DialFailure(failure) = &event {
             self.failures_handed.push(failure.connection_id);
@@ -1306,7 +1306,7 @@ impl NetworkBehaviour for HolePunchScope {
                     // `a_reissued_dials_failure_is_the_crates_and_the_far_ends_dial_still_punches`
                     // the verdict.
                     Some(_) => {
-                        self.to_crate(FromSwarm::DialFailure(
+                        self.tell_crate(FromSwarm::DialFailure(
                             libp2p::swarm::behaviour::DialFailure {
                                 peer_id: failure.peer_id,
                                 error: failure.error,
@@ -1353,7 +1353,7 @@ impl NetworkBehaviour for HolePunchScope {
             }
             self.counters.lock().observed_kept = self.observed.len();
         }
-        self.to_crate(event);
+        self.tell_crate(event);
     }
 
     fn on_connection_handler_event(
