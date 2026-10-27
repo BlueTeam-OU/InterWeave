@@ -735,7 +735,8 @@ extern "system" fn Java_org_interweave_human_Native_identityState<'caller>(
 }
 
 /// `Native.waitIdentityAsk(timeoutMs)`: the identity screens' next ask of
-/// the Activity (onboard.rs's `ask`), or 0.
+/// the Activity (onboard.rs's `ask`) in its low `ASK_BITS`, its argument
+/// above them, or 0.
 #[allow(
     unsafe_code,
     reason = "the JVM finds a native method by its unmangled name"
@@ -745,8 +746,8 @@ extern "system" fn Java_org_interweave_human_Native_waitIdentityAsk<'caller>(
     mut env: EnvUnowned<'caller>,
     _class: JClass<'caller>,
     timeout_ms: jlong,
-) -> jint {
-    env.with_env(|_| -> Result<jint, jni::errors::Error> {
+) -> jlong {
+    env.with_env(|_| -> Result<jlong, jni::errors::Error> {
         let timeout = Duration::from_millis(u64::try_from(timeout_ms).unwrap_or(0));
         Ok(crate::onboard::ASKS.wait(timeout))
     })
@@ -882,8 +883,9 @@ extern "system" fn Java_org_interweave_human_Native_cameraDenied<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
-/// `Native.photoPicked(bytes)`: the photo picker's answer, `null` when
-/// nothing was chosen (contact-cards design 5.2).
+/// `Native.photoPicked(request, bytes)`: the photo picker's answer to
+/// `request`, `null` when nothing was chosen, empty when what was chosen
+/// could not be opened (contact-cards design 5.2).
 #[allow(
     unsafe_code,
     reason = "the JVM finds a native method by its unmangled name"
@@ -892,6 +894,7 @@ extern "system" fn Java_org_interweave_human_Native_cameraDenied<'caller>(
 extern "system" fn Java_org_interweave_human_Native_photoPicked<'caller>(
     mut env: EnvUnowned<'caller>,
     _class: JClass<'caller>,
+    request: jlong,
     bytes: JByteArray<'caller>,
 ) {
     env.with_env(|env| -> Result<(), jni::errors::Error> {
@@ -900,7 +903,38 @@ extern "system" fn Java_org_interweave_human_Native_photoPicked<'caller>(
         } else {
             Some(env.convert_byte_array(&bytes)?)
         };
-        crate::activity::photo_picked(chosen);
+        if let Ok(request) = u64::try_from(request) {
+            crate::activity::photo_picked(request, chosen);
+        }
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.photoRead(request, fd)`: the file the picker chose for
+/// `request`, opened, its descriptor handed over to be read here and
+/// closed. BLOCKS until it is read, given up, or past its deadline.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name; the descriptor is owned from here on"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_photoRead<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    request: jlong,
+    fd: jint,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        if fd < 0 {
+            return Ok(());
+        }
+        // SAFETY: `ParcelFileDescriptor.detachFd` gave this descriptor up to
+        // the caller, which hands it here and keeps no copy.
+        let fd = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
+        if let Ok(request) = u64::try_from(request) {
+            crate::activity::photo_read(request, fd);
+        }
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();

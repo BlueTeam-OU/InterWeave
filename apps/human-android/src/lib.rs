@@ -36,6 +36,15 @@ mod store_follow;
     )
 )]
 mod identity_keys;
+// On every target, so the host tests a picked photo's read with a pipe.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; jni.rs reads with it on Android"
+    )
+)]
+mod photo_import;
 // On every target, so the host tests the filter the phone writes with.
 #[cfg_attr(
     not(target_os = "android"),

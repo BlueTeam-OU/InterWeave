@@ -193,27 +193,34 @@ pub(crate) fn camera_denied(for_good: bool) {
     with_view(move |view| view.camera_denied(for_good));
 }
 
-/// `Native.photoPicked`: what the photo picker came to -- the image's
-/// bytes, empty when they could not be read, or `None` when nothing was
-/// chosen.
-pub(crate) fn photo_picked(chosen: Option<Vec<u8>>) {
-    // The request the picker was last opened for; none once the editor
-    // that asked closed, and the answer then reaches nothing.
-    let Some(request) = *PHOTO_REQUEST.lock().unwrap_or_else(PoisonError::into_inner) else {
-        return;
-    };
+/// `Native.photoPicked`: what the photo picker came to for `request` --
+/// the image's bytes, empty when they could not be read, or `None` when
+/// nothing was chosen. The view takes it only as the answer to its latest
+/// request.
+pub(crate) fn photo_picked(request: u64, chosen: Option<Vec<u8>>) {
     // Handed over once: `with_view` may run its task again on a retry.
     let chosen = Mutex::new(Some(chosen));
     with_view(move |view| {
         if let Some(chosen) = chosen.lock().ok().and_then(|mut c| c.take()) {
-            view.photo_picked(request, chosen);
+            view.photo_picked(PhotoRequest(request), chosen);
         }
     });
 }
 
-/// The editor's latest photo picker request, set as the picker is asked
-/// for and cleared when the editor abandons it.
-static PHOTO_REQUEST: Mutex<Option<PhotoRequest>> = Mutex::new(None);
+/// `Native.photoRead`: the chosen file for `request`, read within its
+/// deadline unless a newer pick, the editor's close or the Activity's end
+/// gives it up first (j68 P3-1).
+pub(crate) fn photo_read(request: u64, fd: std::os::fd::OwnedFd) {
+    let deadline = Instant::now() + crate::photo_import::PHOTO_DEADLINE;
+    match PHOTO_IMPORTS.read(request, fd, deadline) {
+        crate::photo_import::Read::Bytes(bytes) => photo_picked(request, Some(bytes)),
+        crate::photo_import::Read::Unusable => photo_picked(request, Some(Vec::new())),
+        crate::photo_import::Read::NotWanted => {}
+    }
+}
+
+/// The own card editor's picks: the latest the only one read.
+static PHOTO_IMPORTS: crate::photo_import::Imports = crate::photo_import::Imports::new();
 
 /// `Native.cameraClosed`: the camera stopped under the scan.
 pub(crate) fn camera_closed() {
@@ -470,7 +477,12 @@ fn android_main(app: AndroidApp) {
     if let Err(e) = init_android(app, |event| match event {
         ActivityEvent::Focus(focused) => focus(focused),
         ActivityEvent::Stop => stopped(),
-        ActivityEvent::Destroy => ServiceHost::global().hub().set_focused(false),
+        ActivityEvent::Destroy => {
+            // The window and its editor go: a read for either is not
+            // wanted (the Activity cancels its open itself).
+            PHOTO_IMPORTS.abandon();
+            ServiceHost::global().hub().set_focused(false);
+        }
     }) {
         log(&format!("the views' platform could not be set: {e}"));
         return;
@@ -518,13 +530,15 @@ fn android_main(app: AndroidApp) {
     // permission (contact-cards design section 3).
     view.photo_picker_hook(|pick| {
         use crate::onboard::{ASKS, ask};
-        let mut request = PHOTO_REQUEST.lock().unwrap_or_else(PoisonError::into_inner);
         match pick {
-            PhotoPick::Open(asked) => {
-                *request = Some(asked);
-                ASKS.push(ask::PICK_PHOTO);
+            PhotoPick::Open(PhotoRequest(request)) => {
+                PHOTO_IMPORTS.begin(request);
+                ASKS.push_with(ask::PICK_PHOTO, request);
             }
-            PhotoPick::Abandon => *request = None,
+            PhotoPick::Abandon => {
+                PHOTO_IMPORTS.abandon();
+                ASKS.push(ask::PHOTO_CANCEL);
+            }
         }
     });
     view.offer_scans(CAMERA_PRESENT.load(Ordering::SeqCst), false, false);

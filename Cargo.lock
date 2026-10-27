@@ -3541,6 +3541,7 @@ dependencies = [
  "interweave-transport-api",
  "jni 0.22.4",
  "ndk-sys 0.6.0+11769913",
+ "rustix 1.1.5",
  "serde_json",
  "tracing",
  "tracing-subscriber",

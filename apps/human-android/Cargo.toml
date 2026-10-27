@@ -37,6 +37,9 @@ interweave-profile-config = { path = "../../crates/config/profile-config" }
 # (src/identity_keys.rs), which the host tests; android-platform brings
 # the crate to the host already.
 interweave-human-store = { path = "../../crates/human/store" }
+# poll(2) for a picked photo's read, given up at its deadline
+# (src/photo_import.rs).
+rustix = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
