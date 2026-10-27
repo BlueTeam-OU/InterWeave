@@ -27,8 +27,10 @@
 //! and punch into the carrier's network. Since A 2026-10-27, while a
 //! view is present, it names too every private-range IP a listener
 //! binds that the view does not hold: a network the platform withholds
-//! from the app, which no peer reaches it on. The detector's `offers` is
-//! the runtime's side of the same predicate.
+//! from the app, which no peer reaches it on; and, with or without a
+//! view, every shared-address-space IP (`100.64.0.0/10`) a listener
+//! binds. The detector's `offers` is the runtime's side of the same
+//! predicate.
 //!
 //! The record also COUNTS each time rule 3's answer can turn from no to
 //! yes -- an offered private-range listener IP this node did not offer
