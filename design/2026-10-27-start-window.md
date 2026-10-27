@@ -386,6 +386,7 @@ requires is that **paging never drops a read row on its own**.
   | `EarlierUnread`, `ReadNotShown`, `RowsNotShown`, `EarlierAtLimit` | `on-surface-variant` on `surface` | 4.5 | 9.9 | 7.6 |
   | `RowsNotShown` in the wide-screen pane | `on-surface-variant` on `surface-container` | 4.5 | 9.2 | 7.0 |
   | `EarlierLoadFailed` | `error` on `surface` | 4.5 | 10.6 | 6.2 |
+| `ContactsLoadFailed` | Could not load all contacts. | the Contacts list's failure row, when a page of a paged list cannot be read (§11), and its announcement | that some contacts could not be read just now; must not suggest they are lost |
   | Try again, `EarlierShowAnyway`, their focus ring, the progress indicator | `primary` on `surface` | 4.5 (3 for the ring and indicator) | 10.8 | 6.2 |
 
 ## 9. Strings
@@ -510,8 +511,7 @@ line. Two of five failing is enough to reopen §6.
 - **The Contacts list has no visible edge.** It grows only by the
   person's own Accepts. If the builder pages it, the paging is not
   seen: no progress row, no failure row unless a read fails (then
-  `EarlierLoadFailed`'s pattern, with the words language-culture
-  chooses for contacts). Every contact's name must be known for
+  `EarlierLoadFailed`'s pattern, with `ContactsLoadFailed`). Every contact's name must be known for
   conversation titles and for proposals' notes whatever is loaded.
 
 ## 12. Deliberately left out
