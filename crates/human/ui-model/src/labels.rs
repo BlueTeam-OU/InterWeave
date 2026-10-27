@@ -1079,6 +1079,10 @@ ui_texts! {
     AddAddress => "Add an address",
     /// Peers and Connect: opens the show page.
     ShowMyAddress => "Show my address",
+    /// The add page's back arrow, its accessible label: one text for
+    /// both openers, since it leaves for whichever of Peers or Connect
+    /// opened the page, and never names conversations.
+    AddClose => "Back",
     /// Under Peers' two actions: an address is not trust.
     PeersNoTrust => "An address lets this device reach a peer. Adding an address does not mean that you trust the peer. Trust is a separate step.",
     /// In `PeersNoTrust`'s place while the trust list is unread or not
