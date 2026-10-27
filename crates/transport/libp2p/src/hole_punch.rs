@@ -87,9 +87,14 @@
 //! the survivors as a dial of the wrapper's own, with every option of
 //! the crate's kept (the peer, `PeerCondition::Always`, and the role
 //! override on the initiating end). The wrapper needs none of the
-//! crate's id-keyed bookkeeping for the outcome: it ends an attempt on
+//! crate's id-keyed bookkeeping for a success: it ends an attempt on
 //! ANY direct connection to the peer (`punched`), so the crate's not
-//! knowing the replacement's id changes nothing. A list with no
+//! knowing the replacement's id changes nothing there. A FAILURE of
+//! the replacement is the crate's dial failing, and is handed to the
+//! crate under the id it minted, so the crate answers it as it answers
+//! the failure of a dial never filtered
+//! (`a_reissued_dials_failure_is_the_crates_and_the_far_ends_dial_still_punches`).
+//! A list with no
 //! survivor ends the attempt `refused_by_class`; removed candidates
 //! are counted by class apart from that; and the wrapper's own dial is
 //! judged at the same hook as the BACKSTOP -- a refused address there
