@@ -6669,9 +6669,12 @@ owner:
   may have reached the remote (`Cancelled { may_have_reached: true }`).
   The share record and the pending rows are read at #467; this record
   is a store change and is not: a card cancelled after such an attempt,
-  then the key file lost, still gets a silent key (#467's named limit,
-  rust-ui-dev-02's QUESTION 01a17afd). rust-ui-dev-02's, the batch
-  after 5.5's or with it.
+  then the key file lost, still gets a silent key, and its conversation
+  is not in Make a new key's share-again list, which `new_key_start`
+  builds from the shares recorded, the own-card rows pending and the
+  shares owed (#467's named limit, rust-ui-dev-02's QUESTION 01a17afd;
+  design 5.3's list text gains the case with the record, ux-designer-
+  01's). rust-ui-dev-02's, the batch after 5.5's or with it.
 - The fresh-pair row's one-sided step in the other direction (B
   trusting first) was not run; which side dialled in its step 3, and
   from which source, is not told apart (the peer cache was on):
