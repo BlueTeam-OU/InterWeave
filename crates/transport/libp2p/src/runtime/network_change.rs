@@ -120,7 +120,9 @@ pub(super) struct NetworkSet {
     /// those `literal_host` takes, as `is_punchable_address` reads an
     /// own listener -- not a circuit listener, whose leading IP is the
     /// relay's report and which rule 3 never counts, though `listeners`
-    /// holds its first IP for the known set.
+    /// holds its first IP for the known set
+    /// (`every_way_rule_3s_boundary_widens_is_counted_and_nothing_else`,
+    /// its circuit step).
     direct_listeners: BTreeSet<IpAddr>,
     /// The private-range IPs of `direct_listeners` this node offered at
     /// the last observation: rule 3's own-listener boundary, kept to
