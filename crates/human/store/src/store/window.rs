@@ -40,6 +40,67 @@ pub struct WindowCursor {
     row_id: RowId,
 }
 
+/// The order a page is read in: newest first from a point downward, or
+/// oldest first from a point upward (a gap read from above, design §5.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Order {
+    /// Newest first.
+    NewestFirst,
+    /// Oldest first.
+    OldestFirst,
+}
+
+/// The rows a page may come from: older than one cursor, newer than
+/// another, either unbounded at `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PageRange {
+    /// Rows older than this one.
+    pub older_than: Option<WindowCursor>,
+    /// Rows newer than this one.
+    pub newer_than: Option<WindowCursor>,
+}
+
+/// What one page of a conversation may hold: its records and bytes, and
+/// at most `unread` unread rows when it is set -- a page shortened to the
+/// room the session has left (design §7.1). Kept rows are not counted
+/// there: reading them makes nothing session-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowLimits {
+    /// Records and bytes.
+    pub page: PageLimits,
+    /// Unread rows, when bounded.
+    pub unread: Option<usize>,
+}
+
+impl WindowCursor {
+    /// The place of `row`, a row a page gave: kept when it has a keep time.
+    #[must_use]
+    pub const fn of(row: &StoredInbound) -> Self {
+        Self {
+            received_at: row.received_at,
+            table: if row.kept_at.is_some() {
+                BackupTable::Kept
+            } else {
+                BackupTable::Unread
+            },
+            row_id: row.row_id,
+        }
+    }
+}
+
+/// A cursor as a bound in `table`'s own terms, `(received_at, row_id)`
+/// compared strictly: a row of a table ranked below the cursor's is on the
+/// cursor's side at its instant too, one ranked above only past it -- the
+/// same whichever side the bound is on.
+fn bound(table: BackupTable, cursor: WindowCursor) -> Result<(i64, i64), StoreError> {
+    let at = sql_timestamp("cursor received_at", cursor.received_at)?;
+    Ok(match rank(table).cmp(&rank(cursor.table)) {
+        std::cmp::Ordering::Equal => (at, cursor.row_id.get()),
+        std::cmp::Ordering::Less => (at, i64::MAX),
+        std::cmp::Ordering::Greater => (at, 0),
+    })
+}
+
 /// A conversation's unread count as the badge counts it (STATE.md schema
 /// v10, architect-cto's A3): distinct message ids among its unread rows of
 /// a kind this build shows, so a message stored twice counts once.
@@ -62,10 +123,14 @@ pub struct HiddenInbound {
     pub kept: u64,
 }
 
-/// Shown rows of one table, by conversation, older than a bound, newest
-/// first. `{table}` and `{read}` are literals of this module;
-/// `{conversation}` is one of the two filters below.
-fn page_sql(table: &str, conversation: &str) -> String {
+/// Shown rows of one table, by conversation, between two bounds, in
+/// `order`. `{table}`, `{read}` and `{direction}` are literals of this
+/// module; `{conversation}` is one of the two filters below.
+fn page_sql(table: &str, conversation: &str, order: Order) -> String {
+    let direction = match order {
+        Order::NewestFirst => "DESC",
+        Order::OldestFirst => "ASC",
+    };
     let read = if table == "kept_inbound" {
         "read_at, kept_at"
     } else {
@@ -77,8 +142,9 @@ fn page_sql(table: &str, conversation: &str) -> String {
            FROM {table}
           WHERE {conversation} AND kind IN ('text', 'card')
             AND (received_at, row_id) < (?3, ?4)
-          ORDER BY received_at DESC, row_id DESC
-          LIMIT ?5"
+            AND (received_at, row_id) > (?5, ?6)
+          ORDER BY received_at {direction}, row_id {direction}
+          LIMIT ?7"
     )
 }
 
@@ -137,35 +203,64 @@ impl HumanStore {
         before: Option<WindowCursor>,
         limits: PageLimits,
     ) -> Result<Page<StoredInbound, WindowCursor>, StoreError> {
+        self.conversation_range(
+            conversation,
+            PageRange {
+                older_than: before,
+                newer_than: None,
+            },
+            Order::NewestFirst,
+            WindowLimits {
+                page: limits,
+                unread: None,
+            },
+        )
+    }
+
+    /// One page of `conversation`'s shown rows within `range`, in `order`,
+    /// unread and kept together: within `limits`, and the cursor of the
+    /// next page in the same order when the range holds more. A page holds
+    /// at least one row, unless its unread room is used up and the next
+    /// row is unread: then it holds none, and the cursor says more rows
+    /// remain (design §7.1).
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn conversation_range(
+        &self,
+        conversation: &StoreConversation,
+        range: PageRange,
+        order: Order,
+        limits: WindowLimits,
+    ) -> Result<Page<StoredInbound, WindowCursor>, StoreError> {
         let (filter, first, second) = match conversation {
             StoreConversation::Direct { peer, endpoint } => {
                 (DIRECT, peer.as_str(), endpoint.as_str())
             }
             StoreConversation::Channel(channel) => (CHANNEL, channel.as_str(), ""),
         };
-        let fetch = i64::try_from(limits.max_records().saturating_add(1)).unwrap_or(i64::MAX);
+        let fetch = i64::try_from(limits.page.max_records().saturating_add(1)).unwrap_or(i64::MAX);
         let mut merged: Vec<(BackupTable, StoredInbound, usize)> = Vec::new();
         for table in [BackupTable::Unread, BackupTable::Kept] {
             let name = match table {
                 BackupTable::Unread => "unread_inbound",
                 BackupTable::Kept => "kept_inbound",
             };
-            // The bound in this table's own terms: a row of a table ranked
-            // before the cursor's is older at the cursor's instant too, one
-            // ranked after it only before that instant.
-            let (at, row) = match before {
+            let (older_at, older_row) = match range.older_than {
                 None => (i64::MAX, i64::MAX),
-                Some(c) => {
-                    let at = sql_timestamp("cursor received_at", c.received_at)?;
-                    match rank(table).cmp(&rank(c.table)) {
-                        std::cmp::Ordering::Equal => (at, c.row_id.get()),
-                        std::cmp::Ordering::Less => (at, i64::MAX),
-                        std::cmp::Ordering::Greater => (at, 0),
-                    }
-                }
+                Some(c) => bound(table, c)?,
             };
-            let mut stmt = self.conn.prepare(&page_sql(name, filter))?;
-            let rows = stmt.query_map(params![first, second, at, row, fetch], InboundRow::read)?;
+            let (newer_at, newer_row) = match range.newer_than {
+                None => (i64::MIN, i64::MIN),
+                Some(c) => bound(table, c)?,
+            };
+            let mut stmt = self.conn.prepare(&page_sql(name, filter, order))?;
+            let rows = stmt.query_map(
+                params![
+                    first, second, older_at, older_row, newer_at, newer_row, fetch
+                ],
+                InboundRow::read,
+            )?;
             for row in rows {
                 let row = row?;
                 let bytes = row.payload.len();
@@ -173,25 +268,33 @@ impl HumanStore {
             }
         }
         merged.sort_by(|(ta, a, _), (tb, b, _)| {
-            (b.received_at, rank(*tb), b.row_id.get()).cmp(&(
-                a.received_at,
-                rank(*ta),
-                a.row_id.get(),
-            ))
+            let ka = (a.received_at, rank(*ta), a.row_id.get());
+            let kb = (b.received_at, rank(*tb), b.row_id.get());
+            match order {
+                Order::NewestFirst => kb.cmp(&ka),
+                Order::OldestFirst => ka.cmp(&kb),
+            }
         });
         let mut items = Vec::new();
         let mut bytes = 0usize;
+        let mut unread = 0usize;
         let mut last: Option<WindowCursor> = None;
         let mut more = false;
         for (table, row, size) in merged {
-            if !items.is_empty()
-                && (items.len() >= limits.max_records()
-                    || bytes.saturating_add(size) > limits.max_bytes())
+            let past_room =
+                table == BackupTable::Unread && limits.unread.is_some_and(|room| unread >= room);
+            if past_room
+                || (!items.is_empty()
+                    && (items.len() >= limits.page.max_records()
+                        || bytes.saturating_add(size) > limits.page.max_bytes()))
             {
                 more = true;
                 break;
             }
             bytes = bytes.saturating_add(size);
+            if table == BackupTable::Unread {
+                unread += 1;
+            }
             last = Some(WindowCursor {
                 received_at: row.received_at,
                 table,
@@ -201,7 +304,15 @@ impl HumanStore {
         }
         Ok(Page {
             items,
-            next: if more { last } else { None },
+            // With nothing taken, the next page starts where this one did.
+            next: if more {
+                last.or(match order {
+                    Order::NewestFirst => range.older_than,
+                    Order::OldestFirst => range.newer_than,
+                })
+            } else {
+                None
+            },
         })
     }
 
@@ -300,9 +411,12 @@ mod tests {
         ] {
             let plan: Vec<String> = store
                 .conn
-                .prepare(&format!("EXPLAIN QUERY PLAN {}", page_sql(table, filter)))
+                .prepare(&format!(
+                    "EXPLAIN QUERY PLAN {}",
+                    page_sql(table, filter, super::Order::NewestFirst)
+                ))
                 .expect("plan")
-                .query_map(rusqlite::params!["p", "e", 1, 1, 1], |r| {
+                .query_map(rusqlite::params!["p", "e", 1, 1, 0, 0, 1], |r| {
                     r.get::<_, String>(3)
                 })
                 .expect("rows")

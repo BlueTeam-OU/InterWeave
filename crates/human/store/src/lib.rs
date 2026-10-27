@@ -64,7 +64,10 @@ pub use store::contacts::{
     ContactRestored, ContactRoute, DeletedContact, KeyStanding, OwnCard, PhotoAccepted,
     RemovedPhoto, RouteDeleted, ValueSource, direct_conversation_id, name_key,
 };
-pub use store::window::{ConversationUnread, HiddenInbound, StoreConversation, WindowCursor};
+pub use store::window::{
+    ConversationUnread, HiddenInbound, Order, PageRange, StoreConversation, WindowCursor,
+    WindowLimits,
+};
 pub use store::{HumanStore, READ_PAIR_CAP, STORE_FILE, StoreOptions};
 
 // Re-exported so a caller acting on retention does not need a second
