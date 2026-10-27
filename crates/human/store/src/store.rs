@@ -120,6 +120,17 @@ const WALK_KEPT: &str = "SELECT row_id, app_message_id, source_peer, source_endp
 /// kept under (STATE.md schema v10).
 const INBOUND_KIND_SETTING: &str = "inbound_kind_version";
 
+/// How long a statement waits for another connection's write before it
+/// fails busy. Two connections of one process may hold one store: on
+/// Android a facade left running past its stop's grace finishes its
+/// accepted commands while the next start's facade opens the same file
+/// (`human-client-android.md`, a facade past its stop, rule 3), and the
+/// two are serialised here, never by a failed write. rusqlite sets the
+/// same five seconds at open; it is said here so a change of that default
+/// is not a change of this store
+/// (`a_second_connection_waits_for_a_write_rather_than_failing`).
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// THE CLOSE truncates the WAL too (`RETENTION.md` §8: absent "after a
 /// clean close"). DEFENCE IN DEPTH, NOT SEPARATELY PINNED: SQLite's own
 /// close of the last connection checkpoints and removes the WAL as well,
@@ -297,6 +308,7 @@ impl HumanStore {
         if let Some(key) = key {
             crate::at_rest::apply_key(&conn, key)?;
         }
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         // The database and its WAL/SHM companions hold the same message
         // content as the directory, and SQLite creates the companions
         // itself with the process umask. Checked after the connection so

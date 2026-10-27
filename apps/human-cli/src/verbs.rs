@@ -931,43 +931,119 @@ pub(crate) struct ListenMode {
     /// unread.
     pub(crate) consume: bool,
     /// JSON lines to send over the lease listen holds (G1); the channel
-    /// closing at EOF ends the input, never listen.
-    pub(crate) input: Option<tokio::sync::mpsc::UnboundedReceiver<InputLine>>,
+    /// closing at EOF ends the input, never listen. Bounded
+    /// ([`INPUT_QUEUE`]); listen holds one line taken from it at a time.
+    pub(crate) input: Option<tokio::sync::mpsc::Receiver<InputLine>>,
 }
 
 /// One line `listen --input` read: its text, or why it could not be read
 /// as text, which is answered `input-refused` like any line it cannot read.
 pub(crate) type InputLine = Result<String, String>;
 
+/// The most bytes one `listen --input` line may hold before its newline,
+/// checked as the bytes arrive, before UTF-8 and JSON: a line past it is
+/// drained through its newline, kept nowhere, and refused.
+///
+/// Derived from the largest legal input, so it moves with it: a
+/// message's text is at most the envelope's decompressed ceiling, which
+/// JSON's worst escaping (`\u00XX` for a byte) makes six times as long,
+/// beside the line's other fields -- 1,245,184 bytes today, the figure
+/// the README states (#495 review F4).
+pub(crate) const MAX_INPUT_LINE_BYTES: usize =
+    6 * interweave_human_chat_protocol::MAX_DECOMPRESSED_BYTES + INPUT_ROOM_BYTES;
+
+/// The line's fields beside the text: the conversation, the endpoint,
+/// the `ref` and the JSON around them.
+const INPUT_ROOM_BYTES: usize = 64 << 10;
+
+// The README states this figure: a ceiling that moves fails here until it
+// is changed there too.
+const _: () = assert!(MAX_INPUT_LINE_BYTES == 1_245_184);
+
+/// The most bytes an input line's `ref` may take, serialised as listen
+/// echoes it: one is kept for every row the line's send left pending, so
+/// what the refs hold is this times the store's pending rows
+/// (`a_ref_past_its_cap_is_refused_and_one_at_it_is_echoed`).
+pub(crate) const MAX_INPUT_REF_BYTES: usize = 256;
+
+/// The lines read and not yet taken by `listen`: past it the reading
+/// thread waits, so a producer faster than the sends holds the pipe, not
+/// this process's memory (`a_reader_ahead_of_listen_waits_rather_than_growing`).
+pub(crate) const INPUT_QUEUE: usize = 4;
+
 /// Read `reader`'s lines into `lines` until EOF, or until a read fails or
-/// the receiver is gone. A line that is not UTF-8 is passed on as a
-/// refusal and the reading goes on: one bad line never silences those
-/// after it (`a_line_that_is_not_utf8_is_refused_and_the_next_is_read`).
+/// the receiver is gone, waiting while [`INPUT_QUEUE`] lines are not yet
+/// taken. A line that is not UTF-8, or longer than
+/// [`MAX_INPUT_LINE_BYTES`], is passed on as a refusal and the reading
+/// goes on: one bad line never silences those after it
+/// (`a_line_that_is_not_utf8_is_refused_and_the_next_is_read`,
+/// `a_line_past_the_ceiling_is_refused_and_the_next_is_read`).
+///
+/// BLOCKS; run it on a thread of its own, never on the runtime.
 pub(crate) fn read_input(
-    mut reader: impl std::io::BufRead,
-    lines: &tokio::sync::mpsc::UnboundedSender<InputLine>,
+    reader: impl std::io::BufRead,
+    lines: &tokio::sync::mpsc::Sender<InputLine>,
 ) {
-    let mut bytes = Vec::new();
+    read_input_under(reader, lines, MAX_INPUT_LINE_BYTES);
+}
+
+/// [`read_input`] under another ceiling: the tests', at a size a test can
+/// cross.
+pub(crate) fn read_input_under(
+    mut reader: impl std::io::BufRead,
+    lines: &tokio::sync::mpsc::Sender<InputLine>,
+    ceiling: usize,
+) {
     loop {
-        bytes.clear();
-        match reader.read_until(b'\n', &mut bytes) {
-            Ok(0) => return,
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("interweave-human: stdin: {e}; no more input is read");
-                return;
+        let mut bytes = Vec::new();
+        let mut seen = false;
+        let mut over = false;
+        let mut ended = false;
+        loop {
+            let buf = match reader.fill_buf() {
+                Ok(buf) => buf,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    eprintln!("interweave-human: stdin: {e}; no more input is read");
+                    return;
+                }
+            };
+            if buf.is_empty() {
+                break;
             }
+            seen = true;
+            let (content, taken) = match buf.iter().position(|b| *b == b'\n') {
+                Some(at) => {
+                    ended = true;
+                    (at, at + 1)
+                }
+                None => (buf.len(), buf.len()),
+            };
+            if !over && bytes.len() + content > ceiling {
+                over = true;
+                bytes = Vec::new();
+            }
+            if !over {
+                bytes.extend_from_slice(&buf[..content]);
+            }
+            reader.consume(taken);
+            if ended {
+                break;
+            }
+        }
+        if !seen {
+            return;
         }
         // As `BufRead::lines` ends a line: "\n" or "\r\n".
-        if bytes.last() == Some(&b'\n') {
+        if ended && bytes.last() == Some(&b'\r') {
             bytes.pop();
-            if bytes.last() == Some(&b'\r') {
-                bytes.pop();
-            }
         }
-        let line =
-            String::from_utf8(std::mem::take(&mut bytes)).map_err(|_| "not UTF-8 text".to_owned());
-        if lines.send(line).is_err() {
+        let line = if over {
+            Err(format!("longer than {ceiling} bytes"))
+        } else {
+            String::from_utf8(bytes).map_err(|_| "not UTF-8 text".to_owned())
+        };
+        if lines.blocking_send(line).is_err() {
             return;
         }
     }
@@ -992,6 +1068,13 @@ fn input_send<B: DataSessionBinding, A: AdminBinding>(
         .and_then(|v| v.get("ref"))
         .cloned()
         .unwrap_or(serde_json::Value::Null);
+    // A ref not taken cannot be echoed: refused with none.
+    if serde_json::to_string(&reference).map_or(usize::MAX, |r| r.len()) > MAX_INPUT_REF_BYTES {
+        return Err((
+            serde_json::Value::Null,
+            format!("a ref longer than {MAX_INPUT_REF_BYTES} bytes"),
+        ));
+    }
     let refused = |why: &str| (reference.clone(), why.to_owned());
     let send = send.ok_or_else(|| refused("not a send: {\"send\": {...}}"))?;
     let conversation = send
@@ -1097,7 +1180,8 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         mut input,
     } = mode;
     let mut stop = std::pin::pin!(stop);
-    let mut waiting: std::collections::VecDeque<InputLine> = std::collections::VecDeque::new();
+    // The one line taken from the input and not yet issued.
+    let mut waiting: Option<InputLine> = None;
     // The `ref` each input line carried, by the pending row its send made:
     // every outbound event of that row names it.
     let mut refs: std::collections::HashMap<RowId, serde_json::Value> =
@@ -1293,7 +1377,7 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         // One input send at a time: the next is issued once this one is
         // answered, sent or refused, so each answer names its own line.
         if issued.is_none()
-            && let Some(line) = waiting.pop_front()
+            && let Some(line) = waiting.take()
         {
             let read = line.map_err(|reason| (serde_json::Value::Null, reason));
             match read.and_then(|line| input_send(s, &line)) {
@@ -1322,15 +1406,20 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
             }
             continue;
         }
+        // While a line waits nothing more is taken, since a second would
+        // overwrite it: what is read ahead waits in the channel. A send is
+        // answered in the step that issues it, over the daemon as over the
+        // fake, so no test reaches this select with a line waiting.
+        let take = waiting.is_none();
         tokio::select! {
             () = &mut stop => return Ok(()),
             line = async {
                 match input.as_mut() {
-                    Some(lines) => lines.recv().await,
-                    None => std::future::pending().await,
+                    Some(lines) if take => lines.recv().await,
+                    _ => std::future::pending().await,
                 }
             } => match line {
-                Some(line) => waiting.push_back(line),
+                Some(line) => waiting = Some(line),
                 // EOF: no more input; listen goes on.
                 None => input = None,
             },
