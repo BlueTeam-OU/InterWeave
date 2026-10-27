@@ -66,6 +66,24 @@ enum Woke {
     Poll,
 }
 
+/// A facade closing: withdrawn from the hub, so a command sent from now
+/// on is handed back to the view to fail, then every command the hub
+/// accepted before, for the loop to carry out. Withdrawn first, so none
+/// can arrive after the drain (owner's finding P2-2;
+/// `closing_hands_back_every_command_accepted_before_it`).
+fn closing(
+    hub: &Hub,
+    generation: u64,
+    waiting: &mut mpsc::UnboundedReceiver<Command>,
+) -> Vec<Command> {
+    hub.withdraw(generation);
+    let mut accepted = Vec::new();
+    while let Ok(command) = waiting.try_recv() {
+        accepted.push(command);
+    }
+    accepted
+}
+
 /// The running facade loop.
 pub struct FacadeLoop {
     close: Option<oneshot::Sender<()>>,
@@ -117,7 +135,7 @@ impl FacadeLoop {
                         return;
                     }
                 };
-                hub.set_running(Some(commands));
+                let generation = hub.started(commands);
                 let _ = report.send(Ok(()));
                 let start = Instant::now();
                 let now = || u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -142,16 +160,30 @@ impl FacadeLoop {
                                 hub.update(update);
                             }
                         }
+                        // A close is taken first when both are ready: what
+                        // was accepted before it is carried out by the
+                        // close's own drain below, never dropped.
                         let woke = tokio::select! {
-                            command = waiting.recv() => command.map_or(Woke::Closed, Woke::Command),
+                            biased;
                             _ = &mut closed => Woke::Closed,
+                            command = waiting.recv() => command.map_or(Woke::Closed, Woke::Command),
                             () = tokio::time::sleep(POLL) => Woke::Poll,
                         };
                         // Every command waiting now rather than one per
                         // turn, as the desktop does: a burst of reads is
                         // carried out before the next turn.
                         let mut batch = match woke {
-                            Woke::Closed => break,
+                            Woke::Closed => {
+                                // Every command accepted before the close
+                                // is carried out, never dropped unanswered
+                                // (owner's finding P2-2).
+                                for command in closing(&hub, generation, &mut waiting) {
+                                    for update in side.execute(command, now()).await {
+                                        hub.update(update);
+                                    }
+                                }
+                                break;
+                            }
                             Woke::Command(command) => vec![command],
                             Woke::Poll => Vec::new(),
                         };
@@ -169,7 +201,9 @@ impl FacadeLoop {
                     }
                     side.close().await;
                 });
-                hub.set_running(None);
+                // Its own generation only: a facade that outlived its close
+                // never stops one started after it.
+                hub.stopped(generation);
             });
         let thread = spawned.map_err(SpawnError::Thread)?;
         match reported.recv() {
@@ -212,5 +246,28 @@ impl FacadeLoop {
         }
         let _ = thread.join();
         true
+    }
+}
+
+#[cfg(test)]
+mod closing_tests {
+    use super::closing;
+    use crate::hub::Hub;
+    use interweave_human_app_core::Command;
+
+    /// Every command the hub accepted before the close is handed to the
+    /// loop to carry out, and none is accepted after it. Mutation: the
+    /// close not draining what waits.
+    #[test]
+    fn closing_hands_back_every_command_accepted_before_it() {
+        let hub = Hub::new();
+        let (sender, mut waiting) = tokio::sync::mpsc::unbounded_channel();
+        let generation = hub.started(sender);
+        for _ in 0..3 {
+            assert_eq!(hub.command(Command::Reopen), Ok(()));
+        }
+        let accepted = closing(&hub, generation, &mut waiting);
+        assert_eq!(accepted, vec![Command::Reopen; 3]);
+        assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
     }
 }

@@ -12,7 +12,7 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide};
-use interweave_human_app_core::{ModelSide, Opener, Problem, Surface};
+use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent};
 use interweave_human_ui_slint::{
     ActivityEvent, AndroidApp, TouchSettings, View, defer, init_android, invoke_on_window,
@@ -377,8 +377,15 @@ impl Root {
             return;
         }
         for command in self.side.side_mut().turn() {
-            if !hub.command(command) {
+            if let Err(command) = hub.command(command) {
+                // Failed explicitly, so the model lets go of it and says so,
+                // rather than holding it in flight with no answer (owner's
+                // finding P2-2).
                 log("a command found no running network service");
+                self.side.side_mut().apply(Update::Failed {
+                    command,
+                    why: Failure::ServiceStopped,
+                });
             }
         }
         for problem in self.side.side_mut().take_problems() {
