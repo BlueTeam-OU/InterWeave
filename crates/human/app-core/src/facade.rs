@@ -86,6 +86,10 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// Android waits for a view while the facade runs (#467 F1) -- and
     /// read again at the next while a read fails.
     card_rows_read: bool,
+    /// The cancelled rows that were own cards, while their records are held
+    /// for an Undo: what Make a new key lets go, so no Undo sends a card of
+    /// a key the person no longer has (#467 R4).
+    cancelled_cards: std::collections::BTreeSet<RowId>,
     /// Shares accepted whose `card_shared_at` write failed: written again
     /// at each turn until it holds (#467 F5), since the row that told it
     /// is gone, at the wall clock of the write that holds.
@@ -287,6 +291,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             outbound: BTreeMap::new(),
             card_rows: BTreeMap::new(),
             card_rows_read: false,
+            cancelled_cards: std::collections::BTreeSet::new(),
             shares_owed: Vec::new(),
             identity: None,
             key_source: None,
@@ -563,13 +568,16 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         if let ClientEvent::Outbound(update) = &event {
             if update.status.is_terminal() {
                 self.outbound.remove(&update.row);
-                if let Some(key) = self.card_rows.remove(&update.row)
-                    && matches!(
-                        update.status,
-                        interweave_human_client_api::OutboundStatus::Accepted { .. }
-                    )
-                {
-                    self.card_accepted(key, updates);
+                if let Some(key) = self.card_rows.remove(&update.row) {
+                    match update.status {
+                        interweave_human_client_api::OutboundStatus::Accepted { .. } => {
+                            self.card_accepted(key, updates);
+                        }
+                        interweave_human_client_api::OutboundStatus::Cancelled { .. } => {
+                            self.cancelled_cards.insert(update.row);
+                        }
+                        _ => {}
+                    }
                 }
             } else {
                 self.outbound.insert(update.row, update.clone());
@@ -666,6 +674,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                             self.cancelled.pop_front();
                         }
                     }
+                    self.cancelled_cards_held();
                     Ok(())
                 }
                 Err(e) => Err(row_failure(&e)),
@@ -679,6 +688,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 None => Err(Failure::NoSuchRow),
                 Some(record) => match Box::pin(self.client.restore(record, now)).await {
                     Ok(restored) => {
+                        self.cancelled_cards_held();
                         self.card_row_restored(restored, &mut updates);
                         updates.push(Update::Restored {
                             cancelled: *row,
@@ -691,6 +701,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             },
             Command::ForgetCancelled(row) => {
                 self.cancelled.retain(|c| c.row() != *row);
+                self.cancelled_cards_held();
                 Ok(())
             }
             Command::ForgetCopy(from) => {
@@ -973,6 +984,12 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 // `a_card_accepted_after_a_new_key_records_no_share`).
                 self.shares_owed.clear();
                 self.card_rows.clear();
+                // The step read the pending rows itself, so a start read that
+                // failed never brings an old-key row back (#467 R4 F12); and
+                // a cancelled card's Undo is let go with them.
+                self.card_rows_read = true;
+                let cards = std::mem::take(&mut self.cancelled_cards);
+                self.cancelled.retain(|c| !cards.contains(&c.row()));
                 let identity = self.own_view_or_said(updates);
                 updates.push(Update::KeyMade {
                     identity,
@@ -1241,6 +1258,14 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         if let Err(e) = self.read_card_rows() {
             say(updates, Update::CardsNotRead(store_failure(&e)));
         }
+    }
+
+    /// `cancelled_cards` cut to the records still held, so it is bounded by
+    /// [`CANCELLED_CAP`] as they are.
+    fn cancelled_cards_held(&mut self) {
+        let held: std::collections::BTreeSet<RowId> =
+            self.cancelled.iter().map(CancelledSend::row).collect();
+        self.cancelled_cards.retain(|row| held.contains(row));
     }
 
     /// An Undo of a Cancel committed `row` again: an own card among them
