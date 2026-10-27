@@ -455,11 +455,18 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     unrendered = true;
                 }
                 // Once both start reads answered: Connect opens, is
-                // settled, or waits for the next start.
-                match self.model.connect_turn() {
-                    Some(ConnectGate::Open) => unrendered = true,
-                    Some(ConnectGate::Settled) => self.opener.connect_settled(),
-                    Some(ConnectGate::Deferred) | None => {}
+                // settled, or waits for the next start. While it is open
+                // its line follows a trust answer this turn took after
+                // its render, which may ask the facade nothing -- its
+                // `Done` came in the same batch -- so a Connect that
+                // changed is drawn again, as Peers is
+                // (`a_late_trust_answer_is_drawn_on_connect_by_the_turn_that_takes_it`).
+                let before = self.model.connect().cloned();
+                if self.model.connect_turn() == Some(ConnectGate::Settled) {
+                    self.opener.connect_settled();
+                }
+                if self.model.connect() != before.as_ref() {
+                    unrendered = true;
                 }
                 if std::mem::take(&mut unrendered) {
                     self.surface.render(&self.model);
