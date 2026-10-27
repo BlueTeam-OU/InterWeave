@@ -16,10 +16,21 @@
 
 [tag]
 # The tag key's primary-key fingerprint: 40 hex digits, no spaces.
-fingerprint = ""
+fingerprint = "220728A8B44731A93CFF8969FA651DF333C31A0C"
 # Its public key, ASCII-armoured (`gpg --armor --export <fingerprint>`),
 # holding that one key and no other.
-public_key = ""
+public_key = """
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+mDMEauDSoRYJKwYBBAHaRw8BAQdAhDyI+o+7NdCvu3BDpI8GIHJRtdrkDLyM1HUq
+jHRxtCG0KUludGVyV2VhdmUgcmVsZWFzZSB0YWdzIDx5b3VAZXhhbXBsZS5vcmc+
+iJMEExYKADsWIQQiByiotEcxqTz/iWn6ZR3zM8MaDAUCauDSoQIbAwULCQgHAgIi
+AgYVCgkICwIEFgIDAQIeBwIXgAAKCRD6ZR3zM8MaDFYrAQDTtXUHGoV+xKPF4w6a
+ZbIqZ5yJ0Jt1mnTD1MSjTl00ugD/UNGMNvRQWRF0ziXK+asQPusIzXAmJA8ZbCsM
+tf2JfgA=
+=cAXy
+-----END PGP PUBLIC KEY BLOCK-----
+"""
 
 [archive]
 # The minisign public key that signs the Linux archive: the second line
