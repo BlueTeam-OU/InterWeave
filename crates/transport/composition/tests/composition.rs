@@ -537,7 +537,11 @@ async fn a_cache_route_refused_under_rule_3_is_offered_again_when_the_boundary_w
     .await
     .expect("the view was read: the LAN row withdrawn");
 
-    admin.set_trust(b.clone(), true).await.expect("b allowed");
+    assert_eq!(
+        admin.set_trust(b.clone(), true).await.expect("answered"),
+        interweave_local_client_api::TrustChange::Set,
+        "b allowed"
+    );
     let early = tokio::time::timeout(Duration::from_secs(4), async {
         loop {
             match restarted.next_event().await {
