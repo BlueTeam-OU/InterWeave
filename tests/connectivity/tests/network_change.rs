@@ -1304,3 +1304,118 @@ async fn a_listener_bound_after_its_ip_is_classified_is_not_advertised() {
     );
     subject.runtime.shutdown().await.expect("shutdown");
 }
+
+/// ADR-0052 rule 10's second case (A 2026-10-27) between real runtimes,
+/// over this host's private address standing for a phone's carrier
+/// address on a network the platform never reports to the app: with NO
+/// VIEW -- THE CONTROL, the desktop -- a listener on it is advertised by
+/// Identify, shown, and counted as an own private listener; once a view
+/// is present that never names it, that listener and a second one bound
+/// on the same IP after the view are none of the three, though both stay
+/// bound and the first still answers the observer's dial; a view naming
+/// the IP gives all three back. The loopback listener is advertised
+/// throughout, the in-exchange control.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_private_address_no_view_holds_is_not_advertised_shown_or_counted() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (subject_id, far_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
+    let far_peer = far_id.transport_identity().expect("peer id");
+    let observer = libp2p::identity::Keypair::generate_ed25519();
+    let observer_peer = TransportIdentity::parse(observer.public().to_peer_id().to_base58())
+        .expect("a canonical identity");
+    let mut subject = node(&[&far_peer, &observer_peer], &subject_id);
+    let carrier = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the carrier-address listener");
+    let loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("the loopback listener");
+    let (other, third): (std::net::IpAddr, std::net::IpAddr) = (
+        std::net::Ipv4Addr::new(10, 255, 0, 8).into(),
+        std::net::Ipv4Addr::new(10, 255, 0, 9).into(),
+    );
+    let shown = |own: &interweave_local_client_api::OwnAddresses, address: &Multiaddr| {
+        own.addresses
+            .iter()
+            .any(|row| row.address.starts_with(&address.to_string()))
+    };
+    let mut candidate = 0u8;
+    let mut learns = async |subject: &mut Node| {
+        candidate += 1;
+        subject
+            .runtime
+            .learn(
+                far_peer.clone(),
+                [format!("/ip4/10.1.3.{candidate}/tcp/4001")],
+            )
+            .await
+            .expect("reaches the task")
+    };
+
+    // THE CONTROL: no view has arrived.
+    let told = advertised(&observer, &subject.peer, carrier.clone()).await;
+    assert!(told.contains(&carrier), "no view: advertised, {told:?}");
+    assert!(told.contains(&loopback));
+    assert!(
+        shown(
+            &subject.runtime.own_addresses().await.expect("own"),
+            &carrier
+        ),
+        "no view: shown"
+    );
+    assert_eq!(
+        learns(&mut subject).await,
+        1,
+        "no view: an own private listener"
+    );
+
+    // A view that never names the IP; it moves the known set by `other`,
+    // so its reading is a change the test waits for.
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![other]));
+    until_changed(&mut subject.runtime, |_| true).await;
+    let late = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("a listener bound on the IP after the view");
+    let told = advertised(&observer, &subject.peer, carrier.clone()).await;
+    assert!(
+        !told.contains(&carrier),
+        "outside the view: not advertised, though it answered this dial, {told:?}"
+    );
+    assert!(
+        !told.contains(&late),
+        "bound after the view: not advertised, {told:?}"
+    );
+    assert!(told.contains(&loopback), "the same exchange's control");
+    let own = subject.runtime.own_addresses().await.expect("own");
+    assert!(!shown(&own, &carrier), "outside the view: not shown");
+    assert!(!shown(&own, &late), "bound after the view: not shown");
+    assert_eq!(
+        learns(&mut subject).await,
+        0,
+        "outside the view: no own private listener"
+    );
+
+    // A view naming the IP; `third` makes its reading a change, since the
+    // IP is already known from the listeners.
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), other, third]));
+    until_changed(&mut subject.runtime, |_| true).await;
+    let told = advertised(&observer, &subject.peer, carrier.clone()).await;
+    assert!(
+        told.contains(&carrier) && told.contains(&late),
+        "named by the view: advertised, {told:?}"
+    );
+    let own = subject.runtime.own_addresses().await.expect("own");
+    assert!(shown(&own, &carrier) && shown(&own, &late), "named: shown");
+    assert_eq!(learns(&mut subject).await, 1, "named: counted again");
+    subject.runtime.shutdown().await.expect("shutdown");
+}
