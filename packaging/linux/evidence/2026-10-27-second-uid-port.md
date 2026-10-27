@@ -10,28 +10,51 @@ asked by architect-cto in REQUEST 01a1722a. The second account was
 another agent's, by fabric-coordinator's route (REPLY 01a17c3d: one
 agent per account, no shell into another uid), the owner's choice.
 
-- Build: both accounts ran the installed v0.1.0 programs,
-  `0.1.0+7196157887c2`, the tag's build. Each account runs the fleet's
-  `gzcoord` profile on it too, untouched throughout: both `@gzcoord`
-  units were active before and after.
-- Release archive: the second account downloaded
-  `interweave-0.1.0-x86_64-unknown-linux-gnu.tar.gz` and its sha256 was
-  `77fcc622473016a5232bf10783c67581b8404cdeb910a9cd29855412c67e5115`,
-  the published `.sha256`. It was not extracted and `install.sh` was
-  not run, since its programs are the ones the account's `gzcoord`
-  units use.
+Uid 1016's lines below are this account's own commands and their
+output. Uid 1022's are as that account's agent reported them over
+GZCoord (REPLY 01a17c44 and 01a17c46), quoted, not re-run here.
+
 - Accounts: uid 1016 (`p2p-network-dev-01`) held the port; uid 1022
-  (`p2p-network-dev-02`) tried it. Both are lingering and run their own
-  `user@<uid>.service`.
-- Profiles: `j125-hold` (uid 1016) and `j125-try` (uid 1022), one
-  `config.yaml` shape for both: no allowed peer, one endpoint, no
-  discovery provider, `listen: ["/ip4/127.0.0.1/tcp/47990"]`. Each
-  ran as `interweave-daemon@<profile>`, started, never enabled, and
-  was removed after the run with its config, state and data
-  directories.
+  (`p2p-network-dev-02`) tried it, each in its own user manager (uid
+  1022's unit runs "under user@1022.service", its status said).
+- Build: uid 1016 ran `~/.local/bin/transport-daemon --version`, which
+  printed `transport-daemon 0.1.0+7196157887c2`. Uid 1022 reported
+  `transportctl 0.1.0+7196157887c2`. Both are the v0.1.0 tag's build.
+- Release archive, uid 1016's copy and its published checksum file:
+
+  ```
+  $ cat interweave-0.1.0-x86_64-unknown-linux-gnu.tar.gz.sha256
+  77fcc622473016a5232bf10783c67581b8404cdeb910a9cd29855412c67e5115  interweave-0.1.0-x86_64-unknown-linux-gnu.tar.gz
+  ```
+
+  Uid 1022 reported its own download hashing to the same line. It did
+  not extract the archive or run `install.sh`: its installed programs
+  serve its `gzcoord` units.
+- The configuration, uid 1016's file. Uid 1022 reported using it
+  verbatim under its own profile name:
+
+  ```yaml
+  schema_version: 2
+  profile: { name: j125-hold }
+  trust: { policy: static-allowlist, allowed_peers: [] }
+  endpoints:
+    entries:
+      - { id: probe, enabled: true, advertise: false, allowed_client_kinds: [probe] }
+  channels: { desired: [] }
+  discovery: { providers: [] }
+  transport: { listen: { addresses: ["/ip4/127.0.0.1/tcp/47990"] } }
+  observability: { log_level: info }
+  ```
+
+- Profiles `j125-hold` (uid 1016) and `j125-try` (uid 1022), each run as
+  `interweave-daemon@<profile>` with `systemctl --user start`, never
+  `enable`.
 - Port 47990 was chosen as one no profile on the host uses. The
   `gzcoord` ports were left alone on purpose: had the rule failed, a
-  second daemon there would have split the fleet's traffic.
+  second daemon there would have split the fleet's traffic. Uid 1016's
+  `systemctl --user is-active interweave-daemon@gzcoord` printed
+  `active` after `j125-hold` started and again after it stopped. Uid
+  1022 reported its `@gzcoord` daemon and client active before and after.
 
 ## The refusal: uid 1022 against the port uid 1016 holds
 
@@ -89,6 +112,12 @@ profile or the unit: the same daemon, with the same configuration,
 listened once the port was free.
 
 ## What this does not show
+
+- Uid 1022's half re-run by this account: it is quoted as reported.
+- Lingering for either account: not shown here.
+- The cleanup of uid 1022's profile: it reported its directories
+  removed. Uid 1016's `j125-hold` config, state and data directories
+  were removed by this account after the run.
 
 - A fresh install from the archive in an empty account: `install.sh`
   was not run, by the reason above. The archive's hash was checked.
