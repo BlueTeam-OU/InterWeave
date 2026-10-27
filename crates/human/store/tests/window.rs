@@ -89,14 +89,15 @@ fn walk(store: &HumanStore, conversation: &StoreConversation, records: usize) ->
 /// fetched later. Walked a page at a time, a conversation gives every row
 /// it shows exactly once, newest first, unread and kept together -- rows
 /// received at the same instant in both tables included -- and nothing of
-/// another conversation, nor any row this build cannot show. Mutations:
-/// the bound `<` read as `<=` (a row twice); the kept table not read.
+/// another conversation, nor any row this build cannot show. At one
+/// instant a kept row orders before an unread one. Mutations: the bound
+/// `<` read as `<=` (a row twice); the kept table not read; the
+/// cross-table bounds swapped.
 #[test]
 fn a_conversation_is_paged_newest_first_with_every_row_once() {
     let (_dir, mut store) = store();
-    // Unread 1..=7 at times 10..=70; 4 is read and kept, so kept and unread
-    // share instants with each other's neighbours; 8 at the same instant as
-    // 7; 9 cannot be shown; 100 is Q's.
+    // Unread 1..=7 at times 10..=70; 4 is read and kept; 8 at the same
+    // instant as 7 in the same table; 9 cannot be shown; 100 is Q's.
     for n in 1..=7 {
         store
             .commit_unread_inbound(&direct(n, P, u64::from(n) * 10, InboundKind::Text))
@@ -111,6 +112,11 @@ fn a_conversation_is_paged_newest_first_with_every_row_once() {
     store
         .commit_unread_inbound(&direct(100, Q, 90, InboundKind::Text))
         .expect("another conversation");
+    // 11 at 40 beside the kept 4: one unread and one kept row at one
+    // instant, so a cursor falls between the tables (#489 review F4).
+    store
+        .commit_unread_inbound(&direct(11, P, 40, InboundKind::Text))
+        .expect("the same instant as the kept row");
     let four = store
         .unread_inbound()
         .expect("read")
@@ -130,7 +136,7 @@ fn a_conversation_is_paged_newest_first_with_every_row_once() {
         let all: Vec<u32> = pages.iter().flatten().copied().collect();
         assert_eq!(
             all,
-            [8, 7, 6, 5, 4, 3, 2, 1],
+            [8, 7, 6, 5, 4, 11, 3, 2, 1],
             "pages of {records}: {pages:?}"
         );
         assert!(
