@@ -386,7 +386,6 @@ requires is that **paging never drops a read row on its own**.
   | `EarlierUnread`, `ReadNotShown`, `RowsNotShown`, `EarlierAtLimit` | `on-surface-variant` on `surface` | 4.5 | 9.9 | 7.6 |
   | `RowsNotShown` in the wide-screen pane | `on-surface-variant` on `surface-container` | 4.5 | 9.2 | 7.0 |
   | `EarlierLoadFailed` | `error` on `surface` | 4.5 | 10.6 | 6.2 |
-| `ContactsLoadFailed` | Could not load all contacts. | the Contacts list's failure row, when a page of a paged list cannot be read (§11), and its announcement | that some contacts could not be read just now; must not suggest they are lost |
   | Try again, `EarlierShowAnyway`, their focus ring, the progress indicator | `primary` on `surface` | 4.5 (3 for the ring and indicator) | 10.8 | 6.2 |
 
 ## 9. Strings
@@ -395,13 +394,14 @@ The words are language-culture's; these say what each must do.
 
 | Key | Proposed English | Shows | Must say |
 |---|---|---|---|
-| `EarlierUnread` | Earlier unread messages and contact cards: {count} | the line of §6 | how many unread items are above, not yet shown; a plural by count (language-culture's forms); must not say "messages" if it counts cards too, or must cover both |
+| `EarlierUnread` | Earlier unread messages and contact cards: {count} | the line of §6 | how many unread items are above, not yet shown; the count after a colon, one text for every count (below); must not say "messages" if it counts cards too, or must cover both |
 | `ReadNotShown` | one: 1 message that you read or sent is no longer shown. It cannot be shown again. other: {count} messages that you read or sent are no longer shown. They cannot be shown again. | the line of §7.1 | that messages the person already read or sent were removed from this screen and cannot come back; a plural by count; must not suggest they were deleted by anyone else |
 | `RowsNotShown` | one: 1 message is saved on this device, but this version of InterWeave cannot show it. other: {count} messages are saved on this device, but this version of InterWeave cannot show them. | the line at the end of Chats (§6.1) | that these messages (received unread, kept, or the person's own still waiting to send) are still stored and this app version cannot show them; must not use "kept" in the sense of Keep; a plural by count; must not blame a sender or suggest tampering |
 | `EarlierAtLimit` | If you choose Show earlier messages, InterWeave makes room for the earlier messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again. | the limit row (§7.1) | before anything happens: what showing earlier messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
 | `EarlierShowAnyway` | Show earlier messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
 | `EarlierLoading` | Loading earlier messages | the progress row's accessible name (§5); never visible text | that older rows are on their way |
 | `EarlierLoadFailed` | Could not load earlier messages. | the failure row (§5), and its announcement | that the older rows could not be read; must not suggest they are lost |
+| `ContactsLoadFailed` | Could not load all contacts. | the Contacts list's failure row, when a page of a paged list cannot be read (§11), and its announcement | that some contacts could not be read just now; must not suggest they are lost |
 
 `TryAgain` exists and is reused.
 
