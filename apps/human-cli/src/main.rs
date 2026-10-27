@@ -428,4 +428,34 @@ mod tests {
             .await
             .expect("the signal was caught and ends the wait");
     }
+
+    /// `send -`'s bound is on the read, not only on what was read: a
+    /// stdin far past it is refused having read at most the bound and a
+    /// byte, so the process's peak memory grows by much less than the
+    /// stdin (#495 review F5). Read from the kernel's high-water mark,
+    /// which a stdin read whole raises by its size. Mutation: the read's
+    /// `take` removed.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_stdin_far_past_its_bound_is_refused_without_being_read_whole() {
+        use std::io::Read as _;
+        fn peak_kib() -> u64 {
+            std::fs::read_to_string("/proc/self/status")
+                .expect("status")
+                .lines()
+                .find_map(|l| l.strip_prefix("VmHWM:"))
+                .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
+                .expect("VmHWM")
+        }
+        const STDIN: u64 = 256 << 20;
+        let before = peak_kib();
+        let read = super::stdin_text(std::io::repeat(b'a').take(STDIN));
+        let grown = peak_kib().saturating_sub(before);
+        assert!(matches!(read, Err((1, _))), "{read:?}");
+        assert!(
+            grown < (STDIN >> 10) / 4,
+            "peak memory grew {grown} KiB for a {} KiB stdin",
+            STDIN >> 10
+        );
+    }
 }

@@ -1197,3 +1197,39 @@ fn a_reader_ahead_of_listen_waits_rather_than_growing() {
     assert_eq!(taken, 100, "none dropped");
     reading.join().expect("the reader");
 }
+
+/// The line ceiling is checked as the bytes arrive: a line far past it is
+/// drained without being held, so the process's peak memory grows by much
+/// less than the line, and the next line is read (#495 review F5). Read
+/// from the kernel's high-water mark, which a line held whole before it is
+/// judged raises by its size. Mutation: a `read_until` of the whole line,
+/// then the length check.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_over_long_line_is_refused_without_being_held() {
+    use std::io::Read as _;
+    fn peak_kib() -> u64 {
+        std::fs::read_to_string("/proc/self/status")
+            .expect("status")
+            .lines()
+            .find_map(|l| l.strip_prefix("VmHWM:"))
+            .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
+            .expect("VmHWM")
+    }
+    const LINE: u64 = 256 << 20;
+    let before = peak_kib();
+    let input = std::io::repeat(b'a')
+        .take(LINE)
+        .chain(std::io::Cursor::new(b"\nnext\n".to_vec()));
+    let read = read_all(std::io::BufReader::new(input), 8);
+    let grown = peak_kib().saturating_sub(before);
+    assert_eq!(
+        read,
+        [Err("longer than 8 bytes".to_owned()), Ok("next".to_owned())]
+    );
+    assert!(
+        grown < (LINE >> 10) / 4,
+        "peak memory grew {grown} KiB for a {} KiB line",
+        LINE >> 10
+    );
+}
