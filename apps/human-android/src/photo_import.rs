@@ -376,7 +376,11 @@ mod tests {
         let given_up = Instant::now();
         imports.begin(3);
         assert_eq!(waiting.join().expect("the wait"), Read::NotWanted);
-        assert!(given_up.elapsed() < CANCEL_SLICE * 10, "within a slice");
+        // A few slices, and under a second whatever the slice is set to.
+        assert!(
+            given_up.elapsed() < CANCEL_SLICE * 10 && given_up.elapsed() < Duration::from_secs(1),
+            "within a few slices"
+        );
         let _ = (release.send(()), release_2.send(()));
     }
 
@@ -472,16 +476,24 @@ mod tests {
         assert_eq!(read, Read::NotWanted);
         assert!(ended - set < CANCEL_SLICE * 10, "within a few slices");
 
-        let (fd, _held) = stalled(b"part");
-        let quiet = AtomicBool::new(false);
-        let started = Instant::now();
-        assert_eq!(
-            read_bounded(fd, started + Duration::from_millis(300), &quiet, 10),
-            Read::Unusable
-        );
+        // On a thread of its own too: a deadline not kept fails the test
+        // rather than hanging it.
+        let (fd, held) = stalled(b"part");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _held = held;
+            let quiet = AtomicBool::new(false);
+            let started = Instant::now();
+            let read = read_bounded(fd, started + Duration::from_millis(300), &quiet, 10);
+            let _ = tx.send((read, started.elapsed()));
+        });
+        let (read, took) = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the worker stopped at its deadline");
+        assert_eq!(read, Read::Unusable);
         assert!(
-            started.elapsed() < Duration::from_secs(5),
-            "at its deadline"
+            took >= Duration::from_millis(300),
+            "not before it: {took:?}"
         );
     }
 
