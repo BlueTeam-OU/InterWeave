@@ -12,8 +12,13 @@
 //! What the case checks, beside what `tests/desktop-e2e`'s
 //! `the_control_plane_carrier_sends_consumes_and_names_its_endpoint` already
 //! shows of the CLI alone:
-//! - both leases held on one daemon at once, and each client's traffic
-//!   reaching only its own endpoint at the peer;
+//! - both leases held on one daemon at once, and each carrier holding
+//!   exactly the frames sent to its endpoint, so no `fabric-control` line
+//!   reaches `gzcoord`. The other direction is not observable here: the
+//!   CLI's facade drops, unprinted, a payload that is not a HumanChatV2
+//!   envelope, so a carrier frame misrouted to `fabric-control` would show
+//!   nothing; that direction rests on direct v2 resolving to exactly one
+//!   destination endpoint;
 //! - no message row left in either profile's human store once the lines
 //!   were consumed and the sends accepted;
 //! - a `send --no-pending` that expired while the peer's daemon was down
@@ -324,14 +329,35 @@ impl Listener {
     }
 }
 
+/// A listener the test did not stop -- it panicked first -- is killed and
+/// reaped: stdin's end does not end `listen`.
+impl Drop for Listener {
+    fn drop(&mut self) {
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
 /// No message row in `home`'s store for `conversation`, as `messages`
-/// lists the store's rows of it.
+/// lists the store's rows of it, and none unread or pending in the whole
+/// store, as `status` counts them (the key is the one the peer's message
+/// event named, asserted where it was printed).
 fn no_rows(home: &Home, conversation: &str) {
     let out = human(home, &["messages", conversation, "--json"]);
     assert!(out.status.success(), "{}", said(&out));
     assert!(
         json_lines(&out).is_empty(),
         "rows left for {conversation}: {}",
+        said(&out)
+    );
+    let out = human(home, &["status", "--json"]);
+    let status = json_lines(&out);
+    assert_eq!(
+        (&status[0]["unread"], &status[0]["pending"]),
+        (&Value::from(0), &Value::from(0)),
+        "{}",
         said(&out)
     );
 }
@@ -392,24 +418,23 @@ async fn the_carrier_and_the_control_cli_share_one_profile_and_leave_no_row() {
     });
     assert_eq!(at_a["local_endpoint"], CONTROL, "{at_a}");
 
-    // Neither client saw the other's traffic.
+    assert_eq!(at_b["conversation"], a.control(), "{at_b}");
+    assert_eq!(at_a["conversation"], b.control(), "{at_a}");
+
+    // Each carrier holds exactly what was sent to its endpoint: a CLI
+    // line routed to gzcoord too would be one more inbound, whatever its
+    // bytes.
     carrier_b.pump(PATIENCE).await.expect("pumped");
     carrier_a.pump(PATIENCE).await.expect("pumped");
-    for (carrier, text) in [
-        (&carrier_a, "control b to a"),
-        (&carrier_b, "control a to b"),
-    ] {
-        assert!(
-            carrier
-                .received
-                .inbound
-                .iter()
-                .all(|m| m.bytes != text.as_bytes()),
-            "a fabric-control line reached the carrier: {:?}",
-            carrier.received.inbound
-        );
-    }
-    assert!(!cli_b.heard("carrier frame"), "{:?}", cli_b.seen);
+    let ids = |c: &Client| -> Vec<MessageId> {
+        c.received.inbound.iter().map(|m| m.message_id).collect()
+    };
+    assert_eq!(ids(&carrier_b), [id(1)], "{:?}", carrier_b.received.inbound);
+    assert!(
+        ids(&carrier_a).is_empty(),
+        "{:?}",
+        carrier_a.received.inbound
+    );
 
     // Consumed and accepted: no row left on either side.
     cli_a.stop();
