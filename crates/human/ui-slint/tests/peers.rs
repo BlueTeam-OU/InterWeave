@@ -3161,3 +3161,187 @@ fn the_viewfinder_keeps_focus_and_keeps_no_frame() {
         "the last frame went with the viewfinder"
     );
 }
+
+/// A one-block step 2 whose Trust was left unknown, focus on its Trust,
+/// then decided trusted by a read the person did not ask for: its Trust
+/// and Not now go, Done shows below it as the page's exit and focus goes
+/// there (design sections 5.3 and 8).
+#[test]
+fn a_one_block_page_decided_by_an_unasked_read_sends_trusts_focus_to_done() {
+    decided_unasked(false, Held2::Trust);
+}
+
+/// The same with focus on the block's Not now.
+#[test]
+fn a_one_block_page_decided_by_an_unasked_read_sends_not_nows_focus_to_done() {
+    decided_unasked(false, Held2::NotNow);
+}
+
+/// The same with focus on the block's problem line, where the unknown
+/// Trust put it: the new line takes its place and focus, and is read
+/// there rather than said as well.
+#[test]
+fn a_block_decided_by_an_unasked_read_moves_its_lines_focus_to_the_new_line() {
+    decided_unasked(false, Held2::Problem);
+}
+
+/// A block of several, focus on its Trust: the next undecided block's
+/// title.
+#[test]
+fn a_block_of_several_decided_by_an_unasked_read_sends_focus_to_the_next() {
+    decided_unasked(true, Held2::Trust);
+}
+
+/// The control: focus on the block's title, which stays, stays.
+#[test]
+fn a_block_decided_by_an_unasked_read_leaves_focus_elsewhere_alone() {
+    decided_unasked(false, Held2::Title);
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Held2 {
+    Trust,
+    NotNow,
+    Problem,
+    Title,
+}
+
+fn decided_unasked(several: bool, held: Held2) {
+    use interweave_human_client_api::{TrustProblem, TrustSetFailure};
+    use interweave_human_ui_model::PeersInput;
+    let settle = |view: &mut View, model: &mut UiModel| {
+        view.render(model);
+        for _ in 0..3 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        }
+        view.render(model);
+    };
+    let block_of = |view: &View, i: usize| {
+        view.window()
+            .get_trust_blocks()
+            .row_data(i)
+            .expect("a block")
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b) = (peer(), peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    if several {
+        let _ = model.peers_input(PeersInput::FieldChanged(format!("{}\n{}", at(&a), at(&b))));
+        let _ = model.peers_input(PeersInput::Add);
+        model.addresses_added(
+            &[at(&a), at(&b)],
+            Ok(AddressAnswer {
+                outcome: AddressOutcome::Added { peer: None },
+                list: Ok(AddressList {
+                    addresses: vec![added(&a), added(&b)],
+                }),
+            }),
+        );
+    } else {
+        let _ = model.peers_input(PeersInput::FieldChanged(at(&a)));
+        let _ = model.peers_input(PeersInput::Add);
+        model.addresses_added(
+            &[at(&a)],
+            Ok(AddressAnswer {
+                outcome: AddressOutcome::Added {
+                    peer: Some(a.clone()),
+                },
+                list: Ok(AddressList {
+                    addresses: vec![added(&a)],
+                }),
+            }),
+        );
+    }
+    let _ = model.peers_turn();
+    settle(&mut view, &mut model);
+    let _ = model.peers_input(PeersInput::Trust(a.clone()));
+    model.trust_settings_mut().set(
+        TrustChange {
+            peer: a.clone(),
+            allowed: true,
+        },
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    let _ = model.peers_turn();
+    let _ = model.trust_settings_mut().take_reread();
+    model
+        .trust_settings_mut()
+        .read(Err(TrustProblem::Unavailable));
+    let _ = model.peers_turn();
+    settle(&mut view, &mut model);
+    let first = block_of(&view, 0);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("block-problem:{}", first.handle),
+        "the unknown Trust put focus on its line"
+    );
+    assert_eq!(
+        view.window().get_blocks_done_shown(),
+        several,
+        "one undecided block: no Done"
+    );
+    // Reached from the line as a person reaches them: Shift+Tab to Not
+    // now, again to Trust; the title by the app's own request.
+    let backtabs = match held {
+        Held2::Trust => 2,
+        Held2::NotNow => 1,
+        Held2::Problem | Held2::Title => 0,
+    };
+    for _ in 0..backtabs {
+        let text: slint::SharedString = slint::platform::Key::Backtab.into();
+        let window = view.window().window();
+        window.dispatch_event(slint::platform::WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(slint::platform::WindowEvent::KeyReleased { text });
+        slint::platform::update_timers_and_animations();
+    }
+    if held == Held2::Title {
+        let key = format!("block:{}", first.handle);
+        view.window().set_focus_target(key.into());
+        view.window()
+            .set_focus_seq(view.window().get_focus_seq().wrapping_add(1));
+        settle(&mut view, &mut model);
+    }
+    let on = match held {
+        Held2::Trust => "block-trust",
+        Held2::NotNow => "block-later",
+        Held2::Problem => "block-problem",
+        Held2::Title => "block",
+    };
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("{on}:{}", first.handle),
+        "on A's control"
+    );
+    // The daemon back: Peers reads the trust list again, unasked.
+    let _ = model.trust_settings_mut().opened();
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me.clone()),
+        allowed: vec![TrustRow::added_here(a.clone())],
+    }));
+    let _ = model.peers_turn();
+    settle(&mut view, &mut model);
+    assert!(model.peers().add_open(), "the page stays open");
+    let first = block_of(&view, 0);
+    assert!(!first.buttons, "A's Trust and Not now went");
+    assert_eq!(first.state.as_str(), text(UiText::TrustStepDone));
+    assert!(view.window().get_blocks_done_shown(), "Done shows");
+    assert_eq!(labelled(&view, text(UiText::IdDone)).len(), 1, "Done drawn");
+    let expected = match held {
+        Held2::Trust | Held2::NotNow if several => {
+            format!("block:{}", block_of(&view, 1).handle)
+        }
+        Held2::Trust | Held2::NotNow => "peers-done".to_owned(),
+        Held2::Problem => format!("block-state:{}", first.handle),
+        Held2::Title => format!("block:{}", first.handle),
+    };
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        expected,
+        "{held:?}, several {several}"
+    );
+    // Read on focus there, the new line is not said by its live region
+    // as well; anywhere else it is the announcement.
+    assert_eq!(first.state_live, held != Held2::Problem, "{held:?}");
+}
