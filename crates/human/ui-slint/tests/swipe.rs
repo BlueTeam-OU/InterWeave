@@ -1793,7 +1793,7 @@ fn own_card(model: &mut UiModel, row: i64, to: &TransportIdentity, name: &str) {
 }
 
 /// Contact-cards 5.5 and its answers of 2026-10-27: one's own card row
-/// draws the card as it went and reads "You shared your card", the name,
+/// draws the card as it went and reads its line (`CardSentLabel`), the name,
 /// then status and time; its menu holds Retry and Cancel and no Show
 /// source; once accepted it has no menu at all, by Enter or by a screen
 /// reader's activation. Mutations: Show source offered on a card row;
@@ -1824,6 +1824,38 @@ fn an_own_card_row_draws_the_card_and_its_menu_holds_only_its_actions() {
         row.label
     );
     assert!(!row.card_has_photo);
+    // A card that carried a photo says so as a sentence of its own, with
+    // one period (language-culture-en's delivery of 2026-10-27).
+    model.card_queued(
+        RowId::from_stored(2),
+        direct(&alice),
+        format!("{:032x}", 9_002),
+        interweave_human_ui_model::SentCard {
+            name: "Ada Lovelace".to_owned(),
+            photo: Some(interweave_human_ui_model::Photo {
+                width: 1,
+                height: 1,
+                rgba: vec![0, 0, 0, 255],
+            }),
+        },
+        2,
+    );
+    let _ = turn(&mut view, &mut model);
+    let with_photo = view
+        .window()
+        .get_messages()
+        .row_data(1)
+        .expect("a second row");
+    let photo_sentence = text(UiText::CardSentPhoto);
+    assert!(
+        with_photo.label.as_str().starts_with(&format!(
+            "{}: Ada Lovelace. {photo_sentence} ",
+            text(UiText::CardSentLabel)
+        )),
+        "{}",
+        with_photo.label
+    );
+    assert!(!with_photo.label.contains(".."), "{}", with_photo.label);
     let preview = view
         .window()
         .get_conversations()

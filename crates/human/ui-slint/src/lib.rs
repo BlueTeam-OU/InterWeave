@@ -2107,7 +2107,10 @@ impl View {
         }
         let first = body::first_line(&last.body, &image_text);
         // One's own card row has no text: its line is the preview, and
-        // already says whose (contact-cards 5.5).
+        // already says whose (contact-cards 5.5). The design's
+        // CardPreviewSent reads the same words, and no two interface texts
+        // may (`labels::tests::every_ui_text_appears_once_in_all`), so it is
+        // this key.
         let text = if last.card {
             placeholder_en::text(UiText::CardSentLabel).to_owned()
         } else if last.direction == Direction::Outbound {
@@ -3364,15 +3367,17 @@ fn message_row(
         Some(Reply::Unavailable(_)) => placeholder_en::text(UiText::ReplyUnavailable),
         None => "",
     };
-    // One's own card row is read as "You shared your card", the name as
-    // sent and whether a photo went (contact-cards 5.5), then status and
-    // time, as any item's.
+    // One's own card row is read as its line, the name as sent, and, when
+    // the card carried a photo, CardSentPhoto as a sentence of its own
+    // (contact-cards 5.5), then status and time, as any item's. The
+    // template ends the body with its period, so CardSentPhoto's own is
+    // not said twice.
     let (said_author, body) = match &item.card {
         Some(card) => {
             let mut body = card.name.clone();
             if card.photo.is_some() {
-                body.push_str(", ");
-                body.push_str(placeholder_en::text(UiText::CardSentPhoto));
+                body.push_str(". ");
+                body.push_str(placeholder_en::text(UiText::CardSentPhoto).trim_end_matches('.'));
             }
             (placeholder_en::text(UiText::CardSentLabel).to_owned(), body)
         }
