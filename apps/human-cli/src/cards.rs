@@ -322,7 +322,7 @@ pub(crate) async fn card_share<B: DataSessionBinding, A: AdminBinding>(
     let row = first
         .iter()
         .find_map(|u| match u {
-            Update::CardShared { row, .. } => Some(*row),
+            Update::CardQueued { row, .. } => Some(*row),
             _ => None,
         })
         .ok_or_else(|| Failure::Refused("the card was not shared".to_owned()))?;

@@ -76,9 +76,12 @@ pub enum Problem {
     },
     /// The store's unread rows could not be listed again.
     UnreadNotListed(Failure),
-    /// A card's answer or its Undo was carried out, and the cards or
-    /// contacts could not be read back afterwards.
+    /// The cards could not be read: back after an answer or its Undo, or
+    /// the own cards on their way ([`Update::CardsNotRead`]).
     CardsNotRead(Failure),
+    /// An own card was accepted and its share could not be recorded yet;
+    /// the facade writes it again at each turn.
+    ShareNotRecorded(Failure),
 }
 
 /// How many problems wait for [`ModelSide::take_problems`], at most; past
@@ -213,6 +216,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::ProposalRestored(proposal) => self.model.card_restored(*proposal),
             Update::ProposalNotRestored(row) => self.model.card_not_restored(row),
             Update::CardsNotRead(why) => self.problem(Problem::CardsNotRead(why)),
+            Update::ShareNotRecorded(why) => self.problem(Problem::ShareNotRecorded(why)),
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
             Update::ContactChanged {
                 contact_id,
@@ -237,7 +241,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 gone,
             } => self.model.key_not_made(identity, problem, gone),
             Update::KeyRetried(identity) => self.model.key_retried(identity),
-            Update::CardShared { key, at, .. } => self.model.card_shared(key, at),
+            Update::CardShared { key, at } => self.model.card_shared(key, at),
+            // The row shows from the facade's outbound events; a queued
+            // card is no share until its Accepted.
+            Update::CardQueued { .. } => {}
             Update::Client(event) => {
                 // Every session that becomes ready reads both lists: the
                 // no-reach notice needs both, a runtime that was not up at

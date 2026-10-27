@@ -226,9 +226,15 @@ pub enum Update {
     /// An Undo of this row's answer was carried out, but its card could not
     /// be judged again, so its proposal does not return.
     ProposalNotRestored(RowId),
-    /// A card's answer or its Undo was carried out, and reading the cards
-    /// or contacts back afterwards failed: what is shown may lag the store.
+    /// Reading the cards failed: the cards or contacts after an answer or
+    /// its Undo, so what is shown may lag the store; or the own cards on
+    /// their way, before a turn or command, so a share accepted until the
+    /// read holds may not be recorded.
     CardsNotRead(Failure),
+    /// An own card was accepted and the store refused to record the share
+    /// (`card_shared_at`): the facade writes it again at each turn until
+    /// it holds, and says this once.
+    ShareNotRecorded(Failure),
     /// The contacts, after a change to them.
     ContactsListed(Vec<ContactView>),
     /// A contact was deleted, or its photo removed, and the facade side
@@ -290,12 +296,20 @@ pub enum Update {
     },
     /// The key was opened once more.
     KeyRetried(IdentityView),
-    /// This identity's card was shared on `key` as pending `row`.
-    CardShared {
+    /// This identity's card was queued on `key` as pending `row`: not yet
+    /// a share, which only its Accepted makes ([`Update::CardShared`]).
+    CardQueued {
         /// The conversation.
         key: ConversationKey,
         /// Its pending row.
         row: RowId,
+    },
+    /// The conversation's card row reached Accepted by remote transport,
+    /// and its `card_shared_at` is written (cards section 5.3): the share
+    /// Details names. A card cancelled or never accepted says nothing.
+    CardShared {
+        /// The conversation.
+        key: ConversationKey,
         /// When, on the wall clock.
         at: u64,
     },

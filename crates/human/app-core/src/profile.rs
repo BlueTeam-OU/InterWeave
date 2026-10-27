@@ -56,7 +56,8 @@ pub fn identity_key(
 
 /// The own key of the identity in front under `cipher`'s custody: the
 /// first of `endpoints`', opened from its file, or made when it has none
-/// and `store` records no share of its card. The desktop's custody is
+/// and no conversation holds or may hold its card (a share `store`
+/// records, or an own card row it holds pending). The desktop's custody is
 /// [`identity_key`]'s; Android's service passes the Keystore, whose alias
 /// is the identity's own (ADR-0063 decision 2). `Ok(None)` when
 /// `endpoints` is empty.
@@ -65,13 +66,15 @@ pub fn identity_key(
 /// A file this build refuses -- another identity's, a seed record, one
 /// below or above `cipher`'s custody, one whose wrapping key is gone --
 /// or one that cannot be made; [`IdentityKeyFileError::Missing`] when the
-/// file is gone after a share, or the store cannot say there was none
-/// (architect-cto's ruling of 2026-10-24: counterparties hold that key,
-/// so a new one is the person's confirmed act). The file is left as it
+/// file is gone after a share or while a card is on its way, or the
+/// store cannot say neither (architect-cto's rulings of 2026-10-24 and
+/// 2026-10-27: counterparties hold or may receive that key, so a new
+/// one is the person's confirmed act). The file is left as it
 /// is: a new key is the person's act, never this function's
 /// (`a_key_file_this_build_refuses_is_left_as_it_is`,
 /// `a_record_below_the_platforms_custody_is_refused_and_left`,
-/// `a_key_file_gone_after_a_share_is_missing_and_none_is_made`).
+/// `a_key_file_gone_after_a_share_is_missing_and_none_is_made`,
+/// and `tests/cards.rs`'s `a_key_file_gone_while_a_card_is_pending_is_missing`).
 pub fn identity_key_under(
     paths: &ProfilePaths,
     endpoints: &[EndpointId],
@@ -84,7 +87,7 @@ pub fn identity_key_under(
     if let Some(key) = identity_key::open(paths, endpoint, cipher)? {
         return Ok(Some(key));
     }
-    if store.card_ever_shared().unwrap_or(true) {
+    if crate::cards::card_may_be_held(store) {
         return Err(IdentityKeyFileError::Missing);
     }
     identity_key::create(paths, endpoint, cipher).map(Some)
