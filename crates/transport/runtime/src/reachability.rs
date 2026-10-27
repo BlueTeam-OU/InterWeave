@@ -1086,6 +1086,30 @@ pub fn is_private_range(ip: IpAddr) -> bool {
     }
 }
 
+/// Whether `ip` sits in the SHARED ADDRESS SPACE, `100.64.0.0/10`
+/// (RFC 6598), a v4-mapped v6 address judged as v4, whoever numbered
+/// it: a carrier's cellular or IMS interface and a mesh overlay alike.
+/// Rule 2's floor refuses it as special-use in every address a peer
+/// supplies ([`is_public_v4`] reads this one definition), so no peer
+/// learns such an address of this node through the peer door -- one
+/// that reaches it does so from an entry its own operator wrote (rule
+/// 9) -- and that is why ADR-0052 rule 10 (A 2026-10-27 (iii)) puts this
+/// host's address in it on no local network with or without a platform
+/// view. Pinned by
+/// `the_shared_address_space_is_100_64_slash_10_and_a_mapped_v4_is_v4`.
+#[must_use]
+pub fn is_shared_address_space(ip: IpAddr) -> bool {
+    let v4 = match ip {
+        IpAddr::V4(ip) => ip,
+        IpAddr::V6(ip) => match ip.to_ipv4_mapped() {
+            Some(v4) => v4,
+            None => return false,
+        },
+    };
+    let [a, b, _, _] = v4.octets();
+    a == 100 && (64..=127).contains(&b)
+}
+
 /// Whether a hole-punch candidate the far end named may be dialled
 /// (`DCUTR.md` §6, ADR-0052's DCUtR instance), given the addresses
 /// this node itself listens on.
@@ -1256,7 +1280,7 @@ pub fn is_advertised_address<'a>(
 
 fn is_public_v4(ip: Ipv4Addr) -> bool {
     let [a, b, c, _] = ip.octets();
-    let shared = a == 100 && (64..=127).contains(&b);
+    let shared = is_shared_address_space(IpAddr::V4(ip));
     let benchmarking = a == 198 && (b == 18 || b == 19);
     let reserved = a >= 240;
     // `is_unspecified` is the single address 0.0.0.0; the whole 0.0.0.0/8
@@ -3000,6 +3024,36 @@ mod tests {
             "fbff::1",
         ] {
             assert!(!is_private_range(other.parse().expect("ip")), "{other}");
+        }
+    }
+
+    #[test]
+    fn the_shared_address_space_is_100_64_slash_10_and_a_mapped_v4_is_v4() {
+        for shared in [
+            "100.64.0.0",
+            "100.64.0.1",
+            "100.100.1.2",
+            "100.127.255.255",
+            "::ffff:100.64.3.9",
+        ] {
+            assert!(
+                is_shared_address_space(shared.parse().expect("ip")),
+                "{shared}"
+            );
+        }
+        for other in [
+            "100.63.255.255",
+            "100.128.0.0",
+            "10.64.0.1",
+            "192.168.1.1",
+            "8.8.8.8",
+            "64:ff9b::6440:1",
+            "::ffff:100.128.0.1",
+        ] {
+            assert!(
+                !is_shared_address_space(other.parse().expect("ip")),
+                "{other}"
+            );
         }
     }
 

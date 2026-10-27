@@ -65,7 +65,7 @@ picks one, as `Palette.dark` does today.
 | `outline` | outlined field borders | `#6b7396` | `#767c95` |
 | `primary` | Send, the focus ring, links, icons in menu items | `#5fdccd` | `#006a61` |
 | `on-primary` | text and icons on `primary` | `#00201d` | `#ffffff` |
-| `primary-container` | a sent bubble, the selected conversation | `#004d46` | `#9ff2e5` |
+| `primary-container` | a sent bubble, the selected conversation, a tonal button (add-a-peer §5.1, §5.2) | `#004d46` | `#9ff2e5` |
 | `on-primary-container` | text on `primary-container` | `#b8fff4` | `#00201d` |
 | `tertiary` | the unread badge | `#ffb547` | `#ffb547` |
 | `on-tertiary` | the badge's number | `#2a1800` | `#2a1800` |

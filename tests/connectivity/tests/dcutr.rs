@@ -1683,6 +1683,10 @@ async fn a_filtered_punch_from_the_initiating_end_opens_one_connect_round() {
     subject.shutdown().await.expect("shutdown");
 }
 
+/// How often `FilteredFarEnd::until` reads its condition again when no
+/// swarm has an event.
+const RECHECK: Duration = Duration::from_millis(50);
+
 /// The subject reserved on the private relay, and a bare responder over
 /// its circuit whose CONNECT carries a loopback candidate, `candidate`,
 /// and nothing it was observed on: its listener is confirmed before the
@@ -1793,6 +1797,12 @@ async fn filtered_far_end(
 
 impl FilteredFarEnd {
     /// Drive all three until `done` holds, failing past `patience`.
+    /// `done` is read again on a tick as well as after each event,
+    /// because it may read what no swarm reports: the mute listener's
+    /// sockets, which its own thread pushes. Read after events alone, a
+    /// socket accepted after the subject's last event went unseen until
+    /// the held dial's own timeout ten seconds later -- once in a full
+    /// suite, and every time with the push delayed past that event.
     async fn until(&mut self, what: &str, patience: Duration, mut done: impl FnMut(&Self) -> bool) {
         let deadline = tokio::time::Instant::now() + patience;
         while !done(self) {
@@ -1803,7 +1813,7 @@ impl FilteredFarEnd {
                 self.events,
                 self.bare_successes
             );
-            self.step(remaining).await;
+            self.step(remaining.min(RECHECK)).await;
         }
     }
 

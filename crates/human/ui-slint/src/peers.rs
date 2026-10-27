@@ -12,13 +12,13 @@ use std::time::Duration;
 
 use interweave_human_client_api::{AddressOrigin, TrustProblem};
 use interweave_human_ui_model::{
-    ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, CODE_LINES, HostText,
-    LineSelection, ListProblem, Peers, PeersFocus, PeersInput, PeersSnack, Refusal, RowState,
-    RuntimeHost, ScanControl, ShowProblem, ShowState, TYPED_LINES, TrustLine, TrustSettings,
-    UiModel, UiText, fill, placeholder_en, short_peer,
+    ADDRESS_BOUND, AddNote, AddResult, Barred, BlockHeld, BlockProblem, BlockState, CODE_LINES,
+    HostText, LineSelection, ListProblem, Peers, PeersFocus, PeersInput, PeersSnack, Refusal,
+    RowState, RuntimeHost, ScanControl, ShowProblem, ShowState, TYPED_LINES, TrustLine,
+    TrustSettings, UiModel, UiText, fill, placeholder_en, short_peer,
 };
 use interweave_transport_api::TransportIdentity;
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 use crate::generated::{AppWindow, PeerAddressRow, PeerTrustBlock};
 use crate::{Input, Page, Shared, View, enqueue, update_by_key};
@@ -245,6 +245,14 @@ pub(crate) struct PeerLists {
     /// and no older request of the model's re-judged over it before it
     /// applies (`a_row_reached_without_an_act_a_later_read_drops_is_said`).
     gone_move: Option<String>,
+    /// The block whose problem line focus left for its new state line,
+    /// and that line's words: drawn without its live region while they
+    /// stand, since focus reads it (design section 5.3).
+    quiet_state: Option<(TransportIdentity, String)>,
+    /// The block whose control, taken away by an unasked read, has its
+    /// focus move scheduled: no older request of the model's is re-judged
+    /// over it before it applies, as for `gone_move`.
+    block_move: Option<TransportIdentity>,
     /// The row read back last acted on, by the model's count.
     read_back_seen: u64,
     /// The add page's note last drawn, by the model's count, and its text.
@@ -364,6 +372,7 @@ impl PeerLists {
         window.set_not_removable_label(set(UiText::PeerConfigNotRemovable));
         window.set_trust_this_label(set(UiText::TrustThisPeer));
         window.set_add_title(set(UiText::AddAddress));
+        window.set_add_close_label(set(UiText::AddClose));
         window.set_address_field_label(set(UiText::AddressField));
         window.set_address_help(set(UiText::AddressHelp));
         window.set_scan_code_label(set(UiText::ScanCode));
@@ -396,6 +405,8 @@ impl PeerLists {
             focus_sent: String::new(),
             focus_gone_said: false,
             gone_move: None,
+            quiet_state: None,
+            block_move: None,
             read_back_seen: 0,
             note_seen: 0,
             trust_line_seen: 0,
@@ -424,9 +435,11 @@ impl View {
         let (peers, trust) = (model.peers(), model.trust_settings());
         // The row focus is in, read before the list retires its handle.
         let held_row = self.focused_peer_row();
+        let held_block = self.focused_block_control();
         // Its move applied, or replaced by another request.
         if self.focus_wanted.borrow().as_deref() != Some(self.peer_lists.focus_sent.as_str()) {
             self.peer_lists.gone_move = None;
+            self.peer_lists.block_move = None;
         }
         self.render_peer_list(peers, trust, model);
         self.render_add_page(peers, trust);
@@ -494,6 +507,7 @@ impl View {
         let pending = !fresh
             && !self.peer_lists.focus_sent.is_empty()
             && self.peer_lists.gone_move.is_none()
+            && self.peer_lists.block_move.is_none()
             && self.focus_wanted.borrow().as_deref() == Some(self.peer_lists.focus_sent.as_str())
             && !matches!(focus, Some(PeersFocus::Field { .. }));
         if on_page && (fresh || pending) {
@@ -501,6 +515,7 @@ impl View {
             if fresh {
                 self.peer_lists.focus_gone_said = false;
                 self.peer_lists.gone_move = None;
+                self.peer_lists.block_move = None;
             }
             if let Some(focus) = focus {
                 let target = self.focus_target(&focus, peers.field());
@@ -530,6 +545,30 @@ impl View {
         }
         let handled = on_page && (fresh || pending);
         let free = on_page && !handled && !peers.add_open();
+        // Focus on a block's Trust, Not now or problem line, which went as
+        // a read the person did not ask for decided the block: where the
+        // model says (design sections 5.3 and 8). Focus anywhere else
+        // stays. Moved to the new line that took the problem line's
+        // place, it is read there, so its live region says nothing more.
+        if on_page
+            && !handled
+            && let Some((peer, held)) = held_block
+            && let Some(target) = peers.focus_after_block_decided(trust, &peer, held)
+        {
+            let key = self.focus_target(&target, peers.field());
+            // Judged against the move still waiting, not the last key
+            // sent: an earlier move to the same place has applied and is
+            // no reason to skip this one
+            // (`a_move_to_the_title_an_earlier_act_sent_focus_to_is_made_again`).
+            if self.focus_wanted.borrow().as_deref() != Some(key.as_str()) {
+                if held == BlockHeld::Problem {
+                    self.quieten_state_line(&peer);
+                }
+                self.peer_lists.focus_sent.clone_from(&key);
+                self.peer_lists.block_move = Some(peer.clone());
+                self.focus_key_after_draw(key);
+            }
+        }
         // A row's own Remove or Undo a read decided: focus on that row,
         // or a control of it, goes where the decision says, with neither
         // row-gone text; focus anywhere else stays (design section 8, the
@@ -608,6 +647,38 @@ impl View {
         .parse::<i32>()
         .ok()?;
         self.peer_lists.row_handles.key_of(handle).cloned()
+    }
+
+    /// Draw `peer`'s block's state line without its live region, as it
+    /// now reads, until its words change.
+    fn quieten_state_line(&mut self, peer: &TransportIdentity) {
+        let blocks = &self.peer_lists.blocks;
+        let Some(at) = self.peer_lists.block_keys.iter().position(|k| k == peer) else {
+            return;
+        };
+        let Some(mut row) = blocks.row_data(at) else {
+            return;
+        };
+        self.peer_lists.quiet_state = Some((peer.clone(), row.state.to_string()));
+        row.state_live = false;
+        blocks.set_row_data(at, row);
+    }
+
+    /// The peer of the step-two block whose Trust, Not now or problem
+    /// line focus is on, and which, by the window's `focus-id`, while its
+    /// handle lives. The id stays after the control goes, which is how a
+    /// decided block is found.
+    fn focused_block_control(&self) -> Option<(TransportIdentity, BlockHeld)> {
+        let id = self.window.get_focus_id();
+        let (handle, held) = [
+            ("block-trust:", BlockHeld::Choice),
+            ("block-later:", BlockHeld::Choice),
+            ("block-problem:", BlockHeld::Problem),
+        ]
+        .iter()
+        .find_map(|(prefix, held)| Some((id.strip_prefix(prefix)?, *held)))?;
+        let handle = handle.parse::<i32>().ok()?;
+        Some((self.peer_lists.block_handles.key_of(handle).cloned()?, held))
     }
 
     /// Peers' list, or why it is not on show.
@@ -1011,9 +1082,27 @@ impl View {
                         .map(|p| block_problem(host, p, &short))
                         .unwrap_or_default()
                         .into(),
+                    state_live: true,
                 }
             })
             .collect();
+        // The line focus moved to stays quiet while its words stand; once
+        // they change, or the block goes, it is a live region again.
+        let quiet = self.peer_lists.quiet_state.take().filter(|(peer, said)| {
+            blocks
+                .iter()
+                .zip(&drawn)
+                .any(|(b, d)| &b.peer == peer && d.state.as_str() == said)
+        });
+        let drawn: Vec<PeerTrustBlock> = drawn
+            .into_iter()
+            .zip(&blocks)
+            .map(|(d, b)| PeerTrustBlock {
+                state_live: quiet.as_ref().is_none_or(|(peer, _)| peer != &b.peer),
+                ..d
+            })
+            .collect();
+        self.peer_lists.quiet_state = quiet;
         self.shared.borrow_mut().blocks = drawn
             .iter()
             .zip(&block_keys)
@@ -1025,7 +1114,7 @@ impl View {
             &block_keys,
             &drawn,
         );
-        window.set_blocks_done_shown(blocks.len() > 1);
+        window.set_blocks_done_shown(peers.done_shown(trust));
     }
 
     /// Peers' snackbar and its timeout, a later one replacing it: its text

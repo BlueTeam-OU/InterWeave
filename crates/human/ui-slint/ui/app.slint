@@ -313,6 +313,10 @@ export struct PeerTrustBlock {
     trust-offered: bool,
     // Its state once decided, or its Trust on its way.
     state: string,
+    // The state line is a polite live region, except the line focus
+    // moved to in place of the problem line it replaced: read there on
+    // focus, it is not said a second time (design section 5.3).
+    state-live: bool,
     // Why its last Trust did not trust it.
     problem: string,
 }
@@ -2934,6 +2938,9 @@ export component AppWindow inherits Window {
     in property <bool> connect-line-trust;
     in property <string> continue-label;
     in property <string> add-title;
+    // The back arrow of the add page and of Show, which go back to Peers
+    // or Connect, so it never takes the conversations' Back.
+    in property <string> add-close-label;
     in property <string> address-field-label;
     in property <string> address-help;
     in-out property <string> address-text;
@@ -4312,7 +4319,7 @@ export component AppWindow inherits Window {
                 spacing: 8px;
                 // The top app bar, as Trust's: the back arrow at the line's
                 // start and the screen's title, which takes focus when Peers
-                // opens. The add page's back arrow is its Close.
+                // opens. The add page's and Show's back arrow is their close.
                 HorizontalLayout {
                     min-height: 64px;
                     spacing: 8px;
@@ -4322,7 +4329,7 @@ export component AppWindow inherits Window {
                             glyph: Glyph.back;
                             rtl: root.rtl;
                             ink: Palette.on-surface;
-                            label: root.back-label;
+                            label: root.peers-list-shown ? root.back-label : root.add-close-label;
                             focus-key: "close-peers";
                             pressed => {
                                 if (root.peers-add-open) { root.peers-add-closed(); } else if (root.peers-show-open) { root.peers-show-closed(); } else { root.close-peers-page(); }
@@ -4350,7 +4357,7 @@ export component AppWindow inherits Window {
                             glyph: Glyph.back;
                             rtl: root.rtl;
                             ink: Palette.on-surface;
-                            label: root.back-label;
+                            label: root.peers-list-shown ? root.back-label : root.add-close-label;
                             focus-key: "close-peers";
                             pressed => {
                                 if (root.peers-add-open) { root.peers-add-closed(); } else if (root.peers-show-open) { root.peers-show-closed(); } else { root.close-peers-page(); }
@@ -5025,7 +5032,7 @@ export component AppWindow inherits Window {
                             text: block.state;
                             font-weight: 500;
                             rtl: root.rtl;
-                            live: true;
+                            live: block.state-live;
                             focus-key: "block-state:" + block.handle;
                             focus-seq: root.focus-seq;
                             focus-wanted: root.focus-target == "block-state:" + block.handle;

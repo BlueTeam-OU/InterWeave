@@ -167,11 +167,17 @@ observability: { log_level: info }
 
 - **Listen.** `127.0.0.1` keeps the profile on this host: other
   profiles here reach it, nothing off the host does. A profile other
-  hosts must reach listens on an interface address instead
-  (`/ip4/0.0.0.0/tcp/<port>` for all of them) and is reachable as far as
-  the host's firewall allows; reaching it across NAT is AutoNAT, relay
-  and hole punching, configured under `transport.connectivity` and not
-  covered here. An empty `listen` list starts a daemon that accepts no
+  hosts must reach listens on the wildcard, `/ip4/0.0.0.0/tcp/<port>`,
+  and is reachable as far as the host's firewall allows. That includes
+  two hosts on a private overlay the deployment provides, where each
+  host's static-bootstrap entry names the other's overlay address
+  (ADR-0055 decision 5b). Never listen on the overlay address alone:
+  a listener bound to one address reports nothing when its interface
+  goes, so the daemon keeps a dead connection open past the seconds in
+  which a wildcard listener closes and redials it
+  (`tests/automated-client/tests/two_hosts.rs`).
+  Reaching a host across NAT is AutoNAT, relay and hole punching,
+  configured under `transport.connectivity` and not covered here. An empty `listen` list starts a daemon that accepts no
   connection.
 - **Endpoints.** One row per local client. The bridge claims the row
   that admits `claude-channel`; a desktop client on the same profile
@@ -187,9 +193,16 @@ observability: { log_level: info }
   <address>/p2p/<PeerId>`, `peers remove` and `peers addresses`, kept in
   the state directory's `bootstrap-overlay.json` and effective without
   a restart. It refuses a loopback or other special-use address, so a
-  peer on this host stays an entry here; a peer on another host is
-  better added at run time. If the provider is written here at all, write it `enabled:
-  true`: a disabled one refuses every run-time add.
+  peer on this host stays an entry here. A peer on another host reached
+  over a private overlay the deployment provides is an entry here too,
+  whatever its address class (ADR-0055 decision 5b): it changes when
+  the deployment renders this file again, never by a run-time add. One
+  numbered from the shared address space, `100.64.0.0/10`, as
+  carrier-grade overlays are, could not be added at run time anyway:
+  `peers add` refuses it (`special_use_host`, ADR-0052 rule 2's floor).
+  Any other peer on another host is better added at run time. If the
+  provider is written here at all, write it `enabled: true`: a disabled
+  one refuses every run-time add.
 - **Trust.** `allowed_peers` is where trust starts. It changes at run
   time with `transportctl --profile <profile> trust allow|revoke <PeerId>`,
   which the daemon keeps in its state directory and never writes into
@@ -297,6 +310,10 @@ journal.
 - **Not a shared home.** One profile on two hosts at once, as an NFS
   home allows, is refused only where the NFS server grants locks
   (`README.md`).
-- **Reaching other hosts** is not covered: a listen address on an
-  interface, the firewall, and the connectivity block for NAT. What has
-  been measured across hosts is SPIKE-004's record, with its limits.
+- **Reaching other hosts** is covered only as far as section 3's
+  listen note: the wildcard listener and the peer's static entry over a
+  private overlay (ADR-0055 decision 5b), proved between two network
+  namespaces on one host, not two machines. The overlay itself, the
+  firewall, and the connectivity block for NAT are not covered. What
+  has been measured across real hosts is SPIKE-004's record, with its
+  limits.

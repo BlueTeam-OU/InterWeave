@@ -307,6 +307,31 @@ impl Client {
             .await
     }
 
+    /// One attempt of a direct send of `payload` as given -- its own media
+    /// type and bytes -- to `endpoint` at `peer`, for a case that needs a
+    /// frame another kind of client would read.
+    ///
+    /// # Errors
+    /// The daemon's refusal, or `EndpointNotRegistered` with no session.
+    pub async fn send_payload_once(
+        &self,
+        peer: &TransportIdentity,
+        endpoint: EndpointId,
+        message_id: MessageId,
+        payload: Payload,
+    ) -> Result<EndpointId, TransportError> {
+        self.session()?
+            .send_direct(
+                DirectDestination {
+                    peer: peer.clone(),
+                    endpoint: Some(endpoint),
+                },
+                message_id,
+                payload,
+            )
+            .await
+    }
+
     /// A direct send under one `message_id`, every retryable refusal
     /// retried until it is accepted or `patience` runs out; a refusal no
     /// retry mends ends it at once. A session lost on the way is opened

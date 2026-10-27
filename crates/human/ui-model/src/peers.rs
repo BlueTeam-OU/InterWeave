@@ -551,6 +551,15 @@ pub struct RowReadBack {
     pub focus: PeersFocus,
 }
 
+/// The control of a step-two block holding focus, as the view finds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockHeld {
+    /// Its Trust or its Not now.
+    Choice,
+    /// Its problem line.
+    Problem,
+}
+
 /// Where focus goes, as the view is asked (§8 item 1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PeersFocus {
@@ -2711,7 +2720,9 @@ impl Peers {
             }
             // A block whose Trust was pressed and left not known: a read
             // the person did not ask for decides it in place -- the page
-            // stays open and focus stays where it is (§5.3, §8).
+            // stays open and the model asks no focus move; focus on a
+            // control the decision took away is the view's to move, by
+            // `focus_after_block_decided` (§5.3, §8).
             let left_unknown = matches!(
                 block.problem,
                 Some(BlockProblem::Unknown | BlockProblem::SupersededUnread)
@@ -2737,8 +2748,10 @@ impl Peers {
             // (§5.7): a confirmed list not naming the peer says it was not
             // made, and its block offers Trust again
             // (`an_unknown_trust_a_later_read_decides_is_no_longer_unknown`).
-            // Focus stays where it is: §8 names no move for a read the
-            // person did not ask for (asked of ux-designer-01).
+            // The model asks no focus move for a read the person did not
+            // ask for: focus stays, save where it was on a control the
+            // decision took away, which the view finds and moves through
+            // `focus_after_block_decided` (§8).
             // A superseded Trust left unread is decided the same way by a
             // read started after its refusal, in its own lines (§5.3).
             if matches!(
@@ -2982,6 +2995,54 @@ impl Peers {
             return None;
         }
         Some(self.drawn_focus(&PeersFocus::Row(address.to_owned())))
+    }
+
+    /// Whether step two shows Done: with several blocks always; with one,
+    /// only once it is decided -- a read the person did not ask for
+    /// decided it and the page stays open, Done its exit -- since Done on
+    /// an undecided block would do what its Not now does (§5.3).
+    #[must_use]
+    pub fn done_shown(&self, trust: &TrustSettings) -> bool {
+        self.page
+            .as_ref()
+            .is_some_and(|page| match page.blocks.as_slice() {
+                [] => false,
+                [only] => matches!(
+                    only.state(trust),
+                    BlockState::Trusted | BlockState::Later | BlockState::LaterUnknown
+                ),
+                _ => true,
+            })
+    }
+
+    /// Where focus goes from `peer`'s block's control `held`, holding
+    /// focus when it went with no move asked for -- a read the person did
+    /// not ask for decided the block trusted (§5.3, §8's row for that
+    /// read): from its Trust or Not now, the next undecided block's title,
+    /// else Done; from its problem line, the line that replaced it, the
+    /// block's new one (asked of ux-designer-01). `None` while the block
+    /// is not decided trusted, or no add page shows it, since then the
+    /// control is still drawn.
+    #[must_use]
+    pub fn focus_after_block_decided(
+        &self,
+        trust: &TrustSettings,
+        peer: &TransportIdentity,
+        held: BlockHeld,
+    ) -> Option<PeersFocus> {
+        let page = self.page.as_ref()?;
+        let block = page.blocks.iter().find(|b| &b.peer == peer)?;
+        if block.state(trust) != BlockState::Trusted {
+            return None;
+        }
+        Some(match held {
+            BlockHeld::Problem => PeersFocus::BlockState(peer.clone()),
+            BlockHeld::Choice => page
+                .blocks
+                .iter()
+                .find(|b| b.state(trust) == BlockState::Undecided)
+                .map_or(PeersFocus::Done, |b| PeersFocus::Block(b.peer.clone())),
+        })
     }
 
     /// Whether the focus asked for after the person's act on a row is

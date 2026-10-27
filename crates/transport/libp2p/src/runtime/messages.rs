@@ -423,7 +423,10 @@ pub struct NetworkView {
     /// private listener on an IP `addresses` does not hold is on no local
     /// network all the same (A 2026-10-27). With no view at all, the
     /// desktop, every private listener counts as local, as before the
-    /// rule. An entry absent from `addresses` names nothing.
+    /// rule. A listener in the shared address space, `100.64.0.0/10`, is
+    /// on no local network whatever this field and the view say (A
+    /// 2026-10-27 (iii), `listen_scope::lies_on_no_local_network`). An entry
+    /// absent from `addresses` names nothing.
     pub off_local_network: Vec<std::net::IpAddr>,
 }
 

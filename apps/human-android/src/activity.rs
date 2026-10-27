@@ -12,10 +12,11 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboarding};
-use interweave_human_app_core::{ModelSide, Opener, Problem, Surface};
+use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent};
 use interweave_human_ui_slint::{
-    ActivityEvent, AndroidApp, TouchSettings, View, defer, init_android, invoke_on_window,
+    ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, TouchSettings, View, defer, init_android,
+    invoke_on_window,
 };
 
 use crate::jni::{PROFILE, log};
@@ -192,18 +193,36 @@ pub(crate) fn camera_denied(for_good: bool) {
     with_view(move |view| view.camera_denied(for_good));
 }
 
-/// `Native.photoPicked`: what the photo picker came to -- the image's
-/// bytes, empty when they could not be read, or `None` when nothing was
-/// chosen.
-pub(crate) fn photo_picked(chosen: Option<Vec<u8>>) {
+/// `Native.photoPicked`: what the photo picker came to for `request` --
+/// the image's bytes, empty when they could not be read, or `None` when
+/// nothing was chosen. The view takes it only as the answer to its latest
+/// request.
+pub(crate) fn photo_picked(request: u64, chosen: Option<Vec<u8>>) {
     // Handed over once: `with_view` may run its task again on a retry.
     let chosen = Mutex::new(Some(chosen));
     with_view(move |view| {
         if let Some(chosen) = chosen.lock().ok().and_then(|mut c| c.take()) {
-            view.photo_picked(chosen);
+            view.photo_picked(PhotoRequest(request), chosen);
         }
     });
 }
+
+/// `Native.photoRead`: the chosen file for `request`, read within what
+/// the open left of the pick's deadline (`left`) unless a newer pick, the
+/// editor's close or the Activity's end gives it up first (j68 P3-1;
+/// #483 F4: one deadline for the open and the read).
+pub(crate) fn photo_read(request: u64, fd: std::os::fd::OwnedFd, left: Duration) {
+    let deadline = Instant::now() + left.min(crate::photo_import::PHOTO_DEADLINE);
+    match PHOTO_IMPORTS.read(request, fd, deadline) {
+        crate::photo_import::Read::Bytes(bytes) => photo_picked(request, Some(bytes)),
+        crate::photo_import::Read::Unusable => photo_picked(request, Some(Vec::new())),
+        crate::photo_import::Read::NotWanted => {}
+    }
+}
+
+/// The own card editor's picks: the latest the only one read.
+static PHOTO_IMPORTS: std::sync::LazyLock<crate::photo_import::Imports> =
+    std::sync::LazyLock::new(crate::photo_import::Imports::new);
 
 /// `Native.cameraClosed`: the camera stopped under the scan.
 pub(crate) fn camera_closed() {
@@ -396,8 +415,15 @@ impl Root {
             return;
         }
         for command in self.side.side_mut().turn() {
-            if !hub.command(command) {
+            if let Err(command) = hub.command(command) {
+                // Failed explicitly, so the model lets go of it and says so,
+                // rather than holding it in flight with no answer (owner's
+                // finding P2-2).
                 log("a command found no running network service");
+                self.side.side_mut().apply(Update::Failed {
+                    command,
+                    why: Failure::ServiceStopped,
+                });
             }
         }
         for problem in self.side.side_mut().take_problems() {
@@ -472,7 +498,12 @@ fn android_main(app: AndroidApp) {
     if let Err(e) = init_android(app, |event| match event {
         ActivityEvent::Focus(focused) => focus(focused),
         ActivityEvent::Stop => stopped(),
-        ActivityEvent::Destroy => ServiceHost::global().hub().set_focused(false),
+        ActivityEvent::Destroy => {
+            // The window and its editor go: a read for either is not
+            // wanted (the Activity cancels its open itself).
+            PHOTO_IMPORTS.abandon();
+            ServiceHost::global().hub().set_focused(false);
+        }
     }) {
         log(&format!("the views' platform could not be set: {e}"));
         return;
@@ -518,9 +549,18 @@ fn android_main(app: AndroidApp) {
     });
     // The own card's photo: Android's photo picker, which needs no
     // permission (contact-cards design section 3).
-    view.photo_picker_hook(|| {
+    view.photo_picker_hook(|pick| {
         use crate::onboard::{ASKS, ask};
-        ASKS.push(ask::PICK_PHOTO);
+        match pick {
+            PhotoPick::Open(PhotoRequest(request)) => {
+                PHOTO_IMPORTS.begin(request);
+                ASKS.push_with(ask::PICK_PHOTO, request);
+            }
+            PhotoPick::Abandon => {
+                PHOTO_IMPORTS.abandon();
+                ASKS.push(ask::PHOTO_CANCEL);
+            }
+        }
     });
     view.offer_scans(CAMERA_PRESENT.load(Ordering::SeqCst), false, false);
     let view = Rc::new(RefCell::new(view));

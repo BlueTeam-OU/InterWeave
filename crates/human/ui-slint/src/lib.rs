@@ -51,6 +51,7 @@ mod scan_images;
 mod store_screen;
 mod swipe;
 
+pub use cards::{PhotoPick, PhotoRequest};
 pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
 pub use identity::{
     IdentityInput, apply as apply_identity, grouped as grouped_peer, page as identity_page,
@@ -523,7 +524,7 @@ impl Shared {
     fn push(&mut self, input: Input) -> Option<Rc<dyn Fn()>> {
         let closes = self.snack.as_ref().is_some_and(|s| s.closed_by(&input));
         let refused = self.refused;
-        let photo = cards::changes_own_photo(&input);
+        let photo = self.cards.changes_own_photo(&input);
         let wake = self.queue(input);
         // Only a change the queue accepted is waiting to be drawn.
         self.cards.own_photo_queued |= photo && self.refused == refused;
@@ -1393,19 +1394,23 @@ impl View {
 
     /// Give the own card's editor the platform's photo picker (contact-
     /// cards design 5.2: Android's Photo Picker, images only, one item):
-    /// `pick()` opens it, and the root answers with [`Self::photo_picked`].
-    /// Without one, the desktop build opens its file dialog.
-    pub fn photo_picker_hook(&mut self, pick: impl Fn() + 'static) {
+    /// `pick(PhotoPick::Open(request))` opens it, and the root answers with
+    /// [`Self::photo_picked`] for that request; `pick(PhotoPick::Abandon)`
+    /// when the editor that asked closed, or a newer `Open`, says the
+    /// outstanding read is no longer wanted. Without one, the desktop
+    /// build opens its file dialog.
+    pub fn photo_picker_hook(&mut self, pick: impl Fn(PhotoPick) + 'static) {
         self.cards.photo_picker = Some(Rc::new(pick));
     }
 
-    /// The picker's answer: the image as its file holds it, or `None` when
-    /// the person chose nothing. An image that could not be read is handed
-    /// on empty, so the editor says it cannot be used.
-    pub fn photo_picked(&self, chosen: Option<Vec<u8>>) {
+    /// The picker's answer to `request`: the image as its file holds it,
+    /// or `None` when the person chose nothing. An image that could not be
+    /// read is handed on empty, so the editor says it cannot be used. Only
+    /// the answer to the request the open editor waits on is taken.
+    pub fn photo_picked(&self, request: PhotoRequest, chosen: Option<Vec<u8>>) {
         enqueue(
             &self.shared,
-            Input::Cards(cards::CardsInput::PhotoPicked(chosen)),
+            Input::Cards(cards::CardsInput::PhotoPicked(request, chosen)),
         );
     }
 

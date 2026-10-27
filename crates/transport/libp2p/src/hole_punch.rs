@@ -51,12 +51,14 @@
 //! crate issues, FILTERED
 //! (ADR-0052 rule 5): the far end loses only the refused address, never
 //! the punch. Beside the boundary, both doors to the crate withhold an
-//! address on a private-range IP on no local network (ADR-0052 rule 10,
-//! `withhold_off_local`) -- one the platform's view classifies so, or,
-//! while a view is present, one this host binds that the view does not
-//! hold (A 2026-10-27): a carrier's address is inside the boundary and
-//! still no candidate of this node's, nor an own private listener for the
-//! punch dial's filter.
+//! address on an IP on no local network (ADR-0052 rule 10,
+//! `withhold_off_local`) -- a private one the platform's view classifies
+//! so, or, while a view is present, one this host binds that the view
+//! does not hold (A 2026-10-27): a carrier's private address is inside
+//! the boundary and still no candidate of this node's, nor an own
+//! private listener for the punch dial's filter; and one this host binds
+//! in the shared address space with or without a view (A 2026-10-27
+//! (iii)), which the boundary already refuses.
 //!
 //! THE CRATE'S OWN CACHE. libp2p-dcutr 0.15.0 keeps every candidate it
 //! is offered in a cache nothing here can reach (an LRU of 20), and each
@@ -399,8 +401,9 @@ const MAX_DEPARTED_IPS: usize = 64;
 
 /// The most off-local IPs the wrapper withholds
 /// (`HolePunchScope::off_local`): a phone's carrier addresses, one or two
-/// per network in practice, from the view's classification and the
-/// private IPs this host's own listeners bind outside the view. Past it
+/// per network in practice, from the view's classification, the private
+/// IPs this host's own listeners bind outside the view, and the
+/// shared-address-space IPs they bind with or without one. Past it
 /// the highest are not withheld -- the cost of a bound, on a view and an
 /// interface list no phone reaches.
 const MAX_OFF_LOCAL_IPS: usize = 64;
@@ -413,7 +416,7 @@ fn on_departed_ip(address: &Multiaddr, departed: &VecDeque<IpAddr>) -> bool {
     host_ip(address).is_some_and(|ip| departed.contains(&ip))
 }
 
-/// Whether `address` names a private-range IP on no local network
+/// Whether `address` names an IP on no local network
 /// (ADR-0052 rule 10, the runtime's `NetworkSet::off_local`): the
 /// third predicate both doors to the crate ask, beside the boundary and
 /// [`on_departed_ip`].
@@ -484,7 +487,7 @@ pub struct HolePunchScope {
     /// (`on_departed_ip`). `a_departed_ip_is_neither_replayed_nor_learned_again_until_it_returns`
     /// pins it.
     departed: VecDeque<IpAddr>,
-    /// The private-range IPs on no local network (ADR-0052 rule 10, A
+    /// The IPs on no local network (ADR-0052 rule 10, A
     /// 2026-10-26 and A 2026-10-27; the runtime's
     /// `NetworkSet::off_local`, canonical), at most
     /// [`MAX_OFF_LOCAL_IPS`]: an address on one is offered at neither
