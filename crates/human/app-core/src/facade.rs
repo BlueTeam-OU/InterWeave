@@ -966,9 +966,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 self.identity = Some(key);
                 self.key_problem = None;
                 // The old key's shares are over: one still owed, or an own
-                // card row still on its way, is never recorded from here,
+                // card row still on its way, is not recorded from here,
                 // since a date after the change would read as a share of
-                // the new key; each is in the list instead (#467 F6 and R3;
+                // the new key; each is in the list instead. Not covered: a
+                // card cancelled before the step and restored by its Undo
+                // after it is pending again and recorded at its Accepted --
+                // carried to contact-cards 5.5's batch, which offers that
+                // Cancel (#467 F6, R3, R6 F17;
                 // `a_share_owed_when_a_new_key_is_made_is_listed_to_share_again`,
                 // `a_card_accepted_after_a_new_key_records_no_share`).
                 self.shares_owed.clear();
