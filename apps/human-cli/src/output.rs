@@ -210,6 +210,12 @@ pub(crate) fn message_value(item: &MessageItem) -> Value {
         "local_at_ms": item.local_at,
         "reply_to": reply,
         "text": item.source,
+        // One's own card row (contact-cards 5.5): the card as it went, and
+        // no text; `null` for a message.
+        "card": item.card.as_ref().map(|c| json!({
+            "name": c.name,
+            "has_photo": c.photo.is_some(),
+        })),
     })
 }
 
@@ -231,6 +237,11 @@ pub(crate) fn message(item: &MessageItem, json: bool) -> String {
         utc(item.local_at),
         one_line(&from),
     );
+    if let Some(card) = &item.card {
+        out.push_str("    card: ");
+        out.push_str(&one_line(&card.name));
+        out.push('\n');
+    }
     for line in printable(&item.source).lines() {
         out.push_str("    ");
         out.push_str(line);
@@ -292,6 +303,38 @@ mod tests {
         assert_eq!(line.matches('\n').count(), 1, "one line: {line:?}");
         let back: Value = serde_json::from_str(&line).expect("still JSON");
         assert_eq!(back["text"], hostile, "the escapes mean the same text");
+    }
+
+    /// One's own card row prints its card, in JSON and as text, and no
+    /// text of its own. Mutation: the card left out of either form.
+    #[test]
+    fn an_own_card_row_prints_its_card() {
+        use interweave_human_ui_model::{ConversationKey, SentCard, UiModel};
+        let peer = interweave_transport_api::TransportIdentity::parse(
+            "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+        )
+        .expect("a PeerId");
+        let key = ConversationKey::Direct {
+            peer,
+            endpoint: Some(interweave_transport_api::EndpointId::parse("human").expect("valid")),
+        };
+        let mut model = UiModel::new();
+        model.card_queued(
+            interweave_human_ui_model::RowId::from_stored(1),
+            key.clone(),
+            "0".repeat(32),
+            SentCard {
+                name: "Ada Lovelace".to_owned(),
+                photo: None,
+            },
+            1,
+        );
+        let item = &model.messages(&key)[0];
+        let value = message_value(item);
+        assert_eq!(value["card"]["name"], "Ada Lovelace");
+        assert_eq!(value["card"]["has_photo"], false);
+        assert_eq!(value["text"], "");
+        assert!(message(item, false).contains("    card: Ada Lovelace\n"));
     }
 
     #[test]

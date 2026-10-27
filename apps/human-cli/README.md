@@ -44,6 +44,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
   - `listen`'s `event` is one of `message`, `proposal`, `outbound`, `session`, `connectivity`, `path`, `disconnected`.
 - `accepted` means the remote endpoint's bounded queue admitted the message (`AcceptedV2`). It does not mean a person read it.
 - Times are Unix milliseconds in JSON (`local_at_ms`, `sent_at_ms`, `last_activity_ms`). `sent_at_ms` is what the sender asserts: shown, never an order.
+- A card this identity shared is a message of its own in `messages`, `read` and `listen`, with no text and `"card": {"name", "has_photo"}` the card as it went (`null` on every other message); as text, a `card:` line with its name.
 - Text output is for a person and may change. Text from a peer is printed with every control character but newline and tab replaced, and every line separator and bidirectional control, so a message cannot drive the terminal or reorder what it shows. A field printed on a line (a name, an address, a path, an error on stderr) has its newlines and tabs replaced too, so it never splits the line.
 
 ### A conversation and a message id
