@@ -188,7 +188,7 @@ fn on_network_change(
         stores,
         operator,
     };
-    held_back.relearn(network.widenings(), manager, &mut boundary, open, now);
+    held_back.relearn(network.widenings(), manager, &mut boundary, now);
     // THE FIRST FILL is no change, but a runtime started offline failed
     // its first dials before it: the lift runs (ADR-0011 A 2026-10-09).
     let filled = network.take_filled();

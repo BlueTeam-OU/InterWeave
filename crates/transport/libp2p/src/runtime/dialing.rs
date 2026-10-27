@@ -945,10 +945,17 @@ fn learn_advertised(
 /// crate's default, as composition's discovery memo waited its relearn
 /// interval for the same refusal (j133).
 ///
-/// BOUNDED by the peers connected at the last hold or re-judgement --
-/// both prune to [`OpenConnection`]'s peers, so a peer gone, revoked
-/// and closed included, leaves at the next one -- and by
-/// `MAX_ADDRESSES_PER_PEER` per peer, the most the book keeps for one.
+/// KEYED BY THE OPEN CONNECTIONS: a peer with none is not held
+/// ([`HeldBack::hold`]), and a peer leaves when its last connection
+/// closes ([`HeldBack::closed`], from `settle_outcome`'s close arm,
+/// which a revocation's eviction reaches too) -- so the map is bounded
+/// by the connected peers and holds no state for a peer gone
+/// (`an_identify_address_refused_by_rule_3_enters_the_book_when_the_boundary_widens`,
+/// and on the wire
+/// `a_peer_that_left_is_not_judged_again_when_a_private_listener_binds`).
+/// Per peer, at most `MAX_ADDRESSES_PER_PEER`, the most the book keeps
+/// for one
+/// (`a_peer_advertising_more_private_addresses_than_the_book_keeps_is_held_to_the_cap`).
 /// Each Identify replaces the peer's entry.
 #[derive(Debug, Default)]
 pub(super) struct HeldBack {
@@ -958,25 +965,32 @@ pub(super) struct HeldBack {
 }
 
 impl HeldBack {
-    /// Hold what `peer`'s Identify had refused, replacing what was held.
+    /// Hold what `peer`'s Identify had refused, replacing what was held;
+    /// nothing for a peer with no open connection -- an Identify that
+    /// arrived on a connection refused or already closed.
     fn hold(
         &mut self,
         peer: &TransportIdentity,
         mut refused: Vec<Multiaddr>,
         open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>,
     ) {
-        self.prune(open);
         refused.truncate(interweave_transport_runtime::connection_manager::MAX_ADDRESSES_PER_PEER);
-        if refused.is_empty() {
+        if refused.is_empty() || !connects(open, peer) {
             self.by_peer.remove(peer);
         } else {
             self.by_peer.insert(peer.clone(), refused);
         }
     }
 
-    fn prune(&mut self, open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>) {
-        let connected: BTreeSet<&TransportIdentity> = open.values().map(|c| &c.peer).collect();
-        self.by_peer.retain(|peer, _| connected.contains(peer));
+    /// `peer`'s connection closed: forget it once no other is open.
+    fn closed(
+        &mut self,
+        peer: &TransportIdentity,
+        open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>,
+    ) {
+        if !connects(open, peer) {
+            self.by_peer.remove(peer);
+        }
     }
 
     /// Judge every held address again when the widenings count moved
@@ -987,14 +1001,12 @@ impl HeldBack {
         widenings: u64,
         manager: &mut ConnectionManager,
         boundary: &mut AdvertisedBoundary<'_>,
-        open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>,
         now_ms: u64,
     ) {
         if widenings == self.seen {
             return;
         }
         self.seen = widenings;
-        self.prune(open);
         for (peer, held) in std::mem::take(&mut self.by_peer) {
             let still = learn_advertised(manager, &peer, &held, boundary, now_ms);
             if !still.is_empty() {
@@ -1007,6 +1019,13 @@ impl HeldBack {
     fn held(&self, peer: &TransportIdentity) -> usize {
         self.by_peer.get(peer).map_or(0, Vec::len)
     }
+}
+
+fn connects(
+    open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>,
+    peer: &TransportIdentity,
+) -> bool {
+    open.values().any(|c| &c.peer == peer)
 }
 
 /// Put a discovery candidate's addresses into the book: the `Learn`
@@ -1248,6 +1267,7 @@ pub(super) fn settle_outcome(
                 return Announce::Suppress;
             };
             manager.record_connection_closed(connection.slot);
+            held_back.closed(&connection.peer, open);
         }
         Libp2pSwarmEvent::OutgoingConnectionError {
             connection_id,
@@ -3590,13 +3610,16 @@ mod tests {
     /// HELD, and enters the book when the widenings count moves with
     /// one now offered -- not before (the same count: the control), and
     /// not while the boundary still refuses it. A loopback address is
-    /// refused for its class and never held; a peer no longer connected
-    /// is dropped at the next hold (j133's Identify sibling).
+    /// refused for its class and never held. And the hold follows the
+    /// open connections: a peer with none is not held, and a peer whose
+    /// last connection closes is forgotten while another stays held
+    /// (j133's Identify sibling; review F1/F2 of #468).
     #[test]
     fn an_identify_address_refused_by_rule_3_enters_the_book_when_the_boundary_widens() {
         use super::HeldBack;
         let mut m = admitting_manager();
         let peer = ident(RELAY);
+        let other = ident(FAR);
         let mut open = HashMap::new();
         open.insert(ConnectionId::new_unchecked(1), open_to(&peer, &mut m));
         let stores = crate::store_refusals::StoreRefusals::new();
@@ -3623,27 +3646,58 @@ mod tests {
         );
         assert_eq!(m.known_addresses(&peer), 0);
 
-        held.relearn(1, &mut m, &mut boundary(&none), &open, 1);
+        held.relearn(1, &mut m, &mut boundary(&none), 1);
         assert_eq!(
             m.known_addresses(&peer),
             0,
             "widened elsewhere, still refused here"
         );
         assert_eq!(held.held(&peer), 1, "and still held");
-        held.relearn(1, &mut m, &mut boundary(&lan), &open, 2);
+        held.relearn(1, &mut m, &mut boundary(&lan), 2);
         assert_eq!(
             m.known_addresses(&peer),
             0,
             "the same count: nothing judged again (the control)"
         );
-        held.relearn(2, &mut m, &mut boundary(&lan), &open, 3);
+        held.relearn(2, &mut m, &mut boundary(&lan), 3);
         assert_eq!(m.known_addresses(&peer), 1, "admitted once the count moved");
         assert_eq!(held.held(&peer), 0, "and no longer held");
 
-        let refused = learn_advertised(&mut m, &peer, &advertised, &mut boundary(&none), 4);
-        held.hold(&peer, refused, &HashMap::new());
-        held.hold(&ident(RELAY), Vec::new(), &HashMap::new());
-        assert_eq!(held.held(&peer), 0, "a peer with no connection is not held");
+        // THE EXITS, each for a peer other than the one acted on, so no
+        // removal of the acted-on peer's own entry stands in for them.
+        let refused = learn_advertised(&mut m, &other, &advertised, &mut boundary(&none), 4);
+        held.hold(&other, refused, &open);
+        assert_eq!(
+            held.held(&other),
+            0,
+            "a peer with no open connection is not held"
+        );
+        open.insert(ConnectionId::new_unchecked(2), open_to(&other, &mut m));
+        let refused = learn_advertised(&mut m, &other, &advertised, &mut boundary(&none), 5);
+        held.hold(&other, refused, &open);
+        let refused = learn_advertised(&mut m, &peer, &advertised, &mut boundary(&none), 6);
+        held.hold(&peer, refused, &open);
+        assert_eq!(
+            (held.held(&peer), held.held(&other)),
+            (1, 1),
+            "both held while connected"
+        );
+        open.insert(ConnectionId::new_unchecked(3), open_to(&peer, &mut m));
+        let _ = open.remove(&ConnectionId::new_unchecked(1));
+        held.closed(&peer, &open);
+        assert_eq!(
+            held.held(&peer),
+            1,
+            "one of two connections closed: still held"
+        );
+        let _ = open.remove(&ConnectionId::new_unchecked(3));
+        held.closed(&peer, &open);
+        assert_eq!(held.held(&peer), 0, "its last connection closed: forgotten");
+        assert_eq!(
+            held.held(&other),
+            1,
+            "the control: the peer still connected stays held"
+        );
     }
 
     /// What a peer's Identify had refused is held up to
