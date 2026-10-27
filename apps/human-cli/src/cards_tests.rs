@@ -888,3 +888,81 @@ async fn a_key_folder_not_safe_is_refused_naming_the_folder() {
     std::fs::rename(&real, &keys).expect("moved back");
     assert_eq!(alice.key().fingerprint().to_string(), fingerprint);
 }
+
+/// `listen --consume` declines a card the store held unread when it
+/// opened, and says it as `declined` once that is done: the carrier keeps
+/// nothing a roster peer sends it. Mutation: the drain leaving proposals.
+#[tokio::test]
+async fn listen_consume_declines_a_card_held_at_open() {
+    let (_alice, bob, mut b_run) = Box::pin(shared()).await;
+    // Committed unread by a run that lists it and reads nothing.
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    assert_eq!(lines(&out).len(), 1, "held: {out}");
+    b_run.close().await;
+    let mut b_run = bob.session();
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut b_run,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let card = lines(&out)
+        .into_iter()
+        .find(|e| e["event"] == "proposal")
+        .unwrap_or_else(|| panic!("a proposal event: {out}"));
+    assert_eq!(card["status"], "declined", "{out}");
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    assert!(out.is_empty(), "none held: {out}");
+}
+
+/// And one that arrives while it listens. Mutation: a card that arrives
+/// printed unread under `--consume`.
+#[tokio::test]
+async fn listen_consume_declines_a_card_as_it_arrives() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (alice, bob) = (Side::new(a), Side::new(b));
+    let mut b_run = bob.session();
+    run(&mut b_run, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    let mut a_run = alice.session();
+    run(&mut a_run, set("Ada", None), false)
+        .await
+        .1
+        .expect("set");
+    run(&mut a_run, Verb::CardShare(bob.route()), false)
+        .await
+        .1
+        .expect("shared");
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut b_run,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let cards: Vec<Value> = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "proposal")
+        .collect();
+    assert_eq!(cards.len(), 1, "said once: {out}");
+    assert_eq!(cards[0]["status"], "declined", "{out}");
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    assert!(out.is_empty(), "none held: {out}");
+}

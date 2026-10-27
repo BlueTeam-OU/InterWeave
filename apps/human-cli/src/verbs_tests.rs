@@ -774,3 +774,211 @@ async fn a_send_with_no_pending_that_needs_attention_is_cancelled() {
     let pending = store(dir_a.path()).pending_outbound().expect("read");
     assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
 }
+
+/// Bob's store holding `texts` unread from alice, committed by a run that
+/// reads nothing, and bob's session opened afresh over it.
+async fn unread_at_open(
+    texts: &[&str],
+) -> (
+    FakeNode,
+    tempfile::TempDir,
+    Session<FakeNode, FakeNode>,
+    tempfile::TempDir,
+) {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    for text in texts {
+        run(&mut alice, send(&to(b.peer()), text), false)
+            .await
+            .1
+            .expect("sent");
+    }
+    run(&mut bob, Verb::Conversations, true)
+        .await
+        .1
+        .expect("listed");
+    bob.close().await;
+    alice.close().await;
+    assert_eq!(
+        store(dir_b.path()).unread_inbound().expect("read").len(),
+        texts.len()
+    );
+    let bob = session(&b, store(dir_b.path()));
+    (b, dir_b, bob, dir_a)
+}
+
+/// G3: `--consume` drains what the store held unread when it opened --
+/// printed as it would have been, `local_endpoint` `null` since the store
+/// keeps no record of the endpoint that received it -- and the store holds
+/// it unread no more. Mutation: no drain at open.
+#[tokio::test]
+async fn listen_consume_drains_what_the_store_held_unread_at_open() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["held", "and this"])).await;
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let messages: Vec<Value> = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "message")
+        .collect();
+    let texts: Vec<&Value> = messages.iter().map(|m| &m["text"]).collect();
+    assert_eq!(texts.len(), 2, "each once: {out}");
+    assert!(texts.contains(&&json!("held")) && texts.contains(&&json!("and this")));
+    assert!(
+        messages.iter().all(|m| m["local_endpoint"].is_null()),
+        "{out}"
+    );
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert!(unread.is_empty(), "drained: {unread:?}");
+}
+
+/// What `put` is handed, failing every write once `messages` message
+/// lines are written with a broken pipe, and stopping `listen` once a
+/// `message` line is written.
+struct Tap {
+    out: Vec<u8>,
+    messages: Option<usize>,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl std::io::Write for Tap {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let message = buf.windows(17).any(|w| w == br#""event":"message""#);
+        if let Some(left) = self.messages.as_mut()
+            && message
+        {
+            if *left == 0 {
+                return Err(std::io::ErrorKind::BrokenPipe.into());
+            }
+            *left -= 1;
+        }
+        self.out.extend_from_slice(buf);
+        if message && let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A message whose line was written is read before `listen` ends, even
+/// when the stop comes the moment the line is out. Mutation: the read
+/// left for a later step.
+#[tokio::test]
+async fn a_printed_message_is_read_before_listen_ends() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["last words"])).await;
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let mut tap = Tap {
+        out: Vec::new(),
+        messages: None,
+        stop: Some(stop),
+    };
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut tap,
+        // The bound only keeps a broken listen from hanging the test.
+        async {
+            let _ = tokio::time::timeout(Duration::from_secs(5), stopped).await;
+        },
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(tap.out).expect("utf-8");
+    assert!(out.contains("last words"), "{out}");
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert!(unread.is_empty(), "read as written: {unread:?}");
+}
+
+/// A reader that goes away mid-batch: the line written is read, the one
+/// not written stays unread, and `listen` ends as a stop does. Mutation:
+/// the reads of a batch dropped when the pipe breaks.
+#[tokio::test]
+async fn a_line_not_written_leaves_its_message_unread() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["one", "two"])).await;
+    let mut tap = Tap {
+        out: Vec::new(),
+        messages: Some(1),
+        stop: None,
+    };
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut tap,
+        // Ended by the reader going away; the bound only keeps a broken
+        // listen from hanging the test.
+        tokio::time::sleep(Duration::from_secs(5)),
+    )
+    .await
+    .expect("the reader gone ends it");
+    let out = String::from_utf8(tap.out).expect("utf-8");
+    let written = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "message")
+        .count();
+    assert_eq!(written, 1, "{out}");
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert_eq!(unread.len(), 1, "the one not written: {unread:?}");
+}
+
+/// A read `--consume` asks that the store cannot carry out is said as a
+/// `failed` event, never dropped. Mutation: listen leaving the model
+/// side's problems untaken.
+#[tokio::test]
+async fn a_read_the_store_refuses_is_said() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["gone"])).await;
+    // Gone from the store after the session listed it: the read finds no
+    // row.
+    let conn = rusqlite::Connection::open(dir_b.path().join("human.sqlite3")).expect("open");
+    conn.execute("DELETE FROM unread_inbound", [])
+        .expect("deleted");
+    drop(conn);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    assert!(
+        lines(&out)
+            .iter()
+            .any(|e| e["event"] == "failed" && e["reason"].as_str().is_some_and(|r| !r.is_empty())),
+        "{out}"
+    );
+}

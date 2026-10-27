@@ -13,8 +13,8 @@ use std::time::Instant;
 use interweave_human_app_core::{Command, Failure as Why, Problem, Update};
 use interweave_human_client_api::{ClientEvent, OutboundStatus, SessionState, TrustProblem};
 use interweave_human_ui_model::{
-    ConversationKey, Direction, EntryProblem, Intent, ItemKey, ItemStatus, RowId, TrustInput,
-    TrustOutcome, ViewEvent,
+    ConversationKey, Direction, EntryProblem, Intent, ItemKey, ItemStatus, ProposalItem, RowId,
+    TrustInput, TrustOutcome, ViewEvent,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -810,30 +810,10 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
 ) -> Option<String> {
     let model = s.model();
     let (event, fields) = match update {
+        // The local endpoint that received it: the one this session's lease
+        // holds, beside the author and the peer's endpoint (G6).
         Update::Received(received) => {
-            let id = format!("u{}", received.row.get());
-            let item = model.item_named(&id)?;
-            let (key, message) = model.conversations().into_iter().find_map(|c| {
-                model
-                    .messages(&c.key)
-                    .into_iter()
-                    .find(|m| m.key == item)
-                    .map(|m| (c.key, m))
-            })?;
-            if !json {
-                return Some(format!(
-                    "message {}\n{}",
-                    conversation_text(&key),
-                    output::message(&message, false)
-                ));
-            }
-            let mut value = output::message_value(&message);
-            value["event"] = json!("message");
-            value["conversation"] = json!(conversation_text(&key));
-            // The local endpoint that received it: the one this session's
-            // lease holds, beside the author and the peer's endpoint (G6).
-            value["local_endpoint"] = json!(leased(s).map(EndpointId::as_str));
-            return Some(output::json_line(&value));
+            return message_line(s, received.row, json, leased(s).map(EndpointId::as_str));
         }
         Update::ReceivedCard(card) => {
             // Said as the proposals list says it, read by no one: the card
@@ -846,7 +826,7 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
                 .proposals(&key)
                 .into_iter()
                 .find(|p| p.row == card.row)?;
-            return Some(crate::cards::proposal_line(&item, &key, json));
+            return Some(crate::cards::proposal_line(&item, &key, "unread", json));
         }
         Update::Client(ClientEvent::Outbound(update)) => (
             "outbound",
@@ -900,6 +880,38 @@ fn outbound_fields(row: RowId, status: &ItemStatus) -> serde_json::Value {
         "status": output::status(status),
         "problem": output::outbound_problem(status),
     })
+}
+
+/// The `message` event of unread row `row`, naming `local_endpoint` as
+/// the endpoint that received it, or `None` when the model does not
+/// show the row.
+fn message_line<B: DataSessionBinding, A: AdminBinding>(
+    s: &Session<B, A>,
+    row: RowId,
+    json: bool,
+    local_endpoint: Option<&str>,
+) -> Option<String> {
+    let model = s.model();
+    let item = model.item_named(&format!("u{}", row.get()))?;
+    let (key, message) = model.conversations().into_iter().find_map(|c| {
+        model
+            .messages(&c.key)
+            .into_iter()
+            .find(|m| m.key == item)
+            .map(|m| (c.key, m))
+    })?;
+    if !json {
+        return Some(format!(
+            "message {}\n{}",
+            conversation_text(&key),
+            output::message(&message, false)
+        ));
+    }
+    let mut value = output::message_value(&message);
+    value["event"] = json!("message");
+    value["conversation"] = json!(conversation_text(&key));
+    value["local_endpoint"] = json!(local_endpoint);
+    Some(output::json_line(&value))
 }
 
 /// How `listen` runs: its output form, whether it consumes what it
@@ -1010,6 +1022,51 @@ fn put(out: &mut dyn std::io::Write, line: &str) -> Result<bool, Failure> {
     }
 }
 
+/// What `listen --consume` has done with the store's unread rows, so
+/// that each is printed once and decided once.
+#[derive(Default)]
+struct Consumed {
+    /// Unread message rows printed: each is marked read, and never printed
+    /// again by a later drain of the store.
+    printed: std::collections::HashSet<RowId>,
+    /// Proposals asked to be declined, by row, with the line that says so:
+    /// printed once the decline is carried out.
+    declining: std::collections::HashMap<RowId, String>,
+    /// Proposals whose decline was answered, done or failed: not asked again
+    /// this run.
+    decided: std::collections::HashSet<RowId>,
+}
+
+/// The rows `--consume` has yet to take from the model: each unread
+/// message not yet printed, by row, and each proposal not yet declined.
+/// The store keeps no record of which endpoint received a row, so a row
+/// found here is printed with `local_endpoint` `null`
+/// (`listen_consume_drains_what_the_store_held_unread_at_open`).
+fn undrained<B: DataSessionBinding, A: AdminBinding>(
+    s: &Session<B, A>,
+    consumed: &Consumed,
+) -> (Vec<RowId>, Vec<(ConversationKey, ProposalItem)>) {
+    let model = s.model();
+    let mut messages = Vec::new();
+    for c in model.conversations() {
+        for intent in model.conversation_viewed(&c.key, true) {
+            if let Intent::MarkRead(row) = intent
+                && !consumed.printed.contains(&row)
+                && !messages.contains(&row)
+            {
+                messages.push(row);
+            }
+        }
+    }
+    let proposals = crate::cards::every_proposal(s)
+        .into_iter()
+        .filter(|(_, p)| {
+            !consumed.declining.contains_key(&p.row) && !consumed.decided.contains(&p.row)
+        })
+        .collect();
+    (messages, proposals)
+}
+
 /// Hold the session open and print one line (one JSON object with
 /// `--json`) per event, until `stop`. Received messages stay unread unless
 /// `--consume`; `--input` sends each line it reads.
@@ -1017,6 +1074,10 @@ fn put(out: &mut dyn std::io::Write, line: &str) -> Result<bool, Failure> {
 /// # Errors
 /// [`Failure::Refused`] when stdout cannot be written; a reader that went
 /// away ends it as `stop` does.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one loop: what is printed, consumed and sent each step, in order"
+)]
 pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     mode: ListenMode,
@@ -1036,11 +1097,55 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         std::collections::HashMap::new();
     // The input line whose send was issued and is not yet answered.
     let mut issued: Option<serde_json::Value> = None;
+    let mut consumed = Consumed::default();
+    // What the store held unread when the session opened is the first
+    // drain; a relist the facade asks for (`UnreadInStore`) is the next.
+    let mut drain = consume;
     loop {
         s.step().await;
-        let mut read = Vec::new();
+        // A command the model side could not carry out -- a read or a
+        // decline `--consume` asked -- is said, never dropped: its row
+        // stays unread in the store.
+        if let Err(failure) = problems(s) {
+            let line = if json {
+                output::json_line(&json!({ "event": "failed", "reason": failure.message() }))
+            } else {
+                format!("failed {}\n", output::one_line(failure.message()))
+            };
+            if !put(out, &line)? {
+                return Ok(());
+            }
+        }
+        let mut read: Vec<RowId> = Vec::new();
+        let mut decline: Vec<RowId> = Vec::new();
+        // Set once the reader is gone or stdout fails: what was written
+        // before is still marked read, then listen ends.
+        let mut ended: Option<Result<(), Failure>> = None;
+        let mut lines: Vec<(String, Option<RowId>)> = Vec::new();
         for update in s.take_updates() {
             let line = match &update {
+                Update::Client(ClientEvent::UnreadInStore { .. }) | Update::UnreadListed { .. }
+                    if consume =>
+                {
+                    drain = true;
+                    event_line(s, &update, json)
+                }
+                Update::Received(received) if consume => {
+                    if consumed.printed.contains(&received.row) {
+                        None
+                    } else {
+                        event_line(s, &update, json)
+                    }
+                }
+                // Declined as it arrives, and said once the decline is done.
+                Update::ReceivedCard(_) if consume => {
+                    drain = true;
+                    None
+                }
+                Update::CardResolved { row, .. } if consumed.declining.contains_key(row) => {
+                    consumed.decided.insert(*row);
+                    consumed.declining.remove(row)
+                }
                 Update::Sent { row, .. } if issued.is_some() => {
                     let reference = issued.take().unwrap_or(serde_json::Value::Null);
                     refs.insert(*row, reference.clone());
@@ -1089,24 +1194,71 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
                 }
                 _ => event_line(s, &update, json),
             };
-            let Some(line) = line else {
-                continue;
-            };
-            if !put(out, &line)? {
-                return Ok(());
+            if let Some(line) = line {
+                let row = match &update {
+                    Update::Received(received) if consume => Some(received.row),
+                    _ => None,
+                };
+                lines.push((line, row));
+            }
+        }
+        if consume && drain && ended.is_none() {
+            drain = false;
+            let (messages, proposals) = undrained(s, &consumed);
+            for row in messages {
+                if let Some(line) = message_line(s, row, json, None) {
+                    lines.push((line, Some(row)));
+                }
+            }
+            for (key, p) in proposals {
+                if s.model()
+                    .card_actions(p.row)
+                    .contains(&Intent::DeclineCard(p.row))
+                {
+                    let said = crate::cards::proposal_line(&p, &key, "declined", json);
+                    consumed.declining.insert(p.row, said);
+                    decline.push(p.row);
+                }
+            }
+        }
+        for (line, row) in lines {
+            match put(out, &line) {
+                Ok(true) => {}
+                Ok(false) => {
+                    ended = Some(Ok(()));
+                    break;
+                }
+                Err(failure) => {
+                    ended = Some(Err(failure));
+                    break;
+                }
             }
             // Read once its line is written and flushed, never before:
             // the line is its presentation to the program reading (G3).
-            if consume && let Update::Received(received) = &update {
-                read.push(received.row);
+            if let Some(row) = row {
+                consumed.printed.insert(row);
+                read.push(row);
             }
         }
-        if !read.is_empty() {
-            s.will(move |_| {
-                read.into_iter()
-                    .map(|row| ViewEvent::Intent(Intent::MarkRead(row)))
-                    .collect()
-            });
+        if !read.is_empty() || !decline.is_empty() {
+            let intents: Vec<ViewEvent> = read
+                .into_iter()
+                .map(Intent::MarkRead)
+                .chain(decline.into_iter().map(Intent::DeclineCard))
+                .map(ViewEvent::Intent)
+                .collect();
+            s.will(move |_| intents);
+            // Carried out in the step that follows at once, before a stop
+            // or the end is looked at: a line written is a row read
+            // (`a_printed_message_is_read_before_listen_ends`).
+            if let Some(ended) = ended {
+                s.step().await;
+                return ended;
+            }
+            continue;
+        }
+        if let Some(ended) = ended {
+            return ended;
         }
         // One input send at a time: the next is issued once this one is
         // answered, sent or refused, so each answer names its own line.

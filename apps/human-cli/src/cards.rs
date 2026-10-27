@@ -246,17 +246,23 @@ pub(crate) const fn key_problem_name(problem: &KeyProblem) -> &'static str {
     }
 }
 
-/// A proposal as `listen` prints it: an event, unread.
-pub(crate) fn proposal_line(p: &ProposalItem, key: &ConversationKey, json: bool) -> String {
+/// A proposal as `listen` prints it: an event, with what became of it
+/// (`unread`, or `declined` under `--consume`).
+pub(crate) fn proposal_line(
+    p: &ProposalItem,
+    key: &ConversationKey,
+    status: &str,
+    json: bool,
+) -> String {
     if json {
-        let mut value = proposal_value(p, key, "unread");
+        let mut value = proposal_value(p, key, status);
         value["event"] = json!("proposal");
         return json_line(&value);
     }
     format!(
         "proposal {}\n{}",
         conversation_text(key),
-        proposal(p, key, "unread", false)
+        proposal(p, key, status, false)
     )
 }
 
@@ -380,7 +386,7 @@ pub(crate) async fn card_share<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// Every proposal held, read or not, in conversation order.
-fn every_proposal<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) fn every_proposal<B: DataSessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
 ) -> Vec<(ConversationKey, ProposalItem)> {
     let model = s.model();
