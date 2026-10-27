@@ -2393,3 +2393,173 @@ async fn a_card_received_over_broadcast_is_ignored_and_shows_nothing() {
     );
     assert_eq!(receiver.diagnostics().card_over_broadcast, 1);
 }
+
+/// A file store holding 64 of `peer`'s endpoints: 63 direct
+/// conversations, `agent` among them, and one contact's route.
+fn store_at_the_bound(path: &std::path::Path, peer: &TransportIdentity) -> HumanStore {
+    use interweave_human_store::{
+        AcceptedCard, AppMessageId, InboundKind, InboundOrigin, NewInbound,
+    };
+    let mut store = HumanStore::open(path, StoreOptions::default()).expect("store");
+    let names: Vec<EndpointId> = std::iter::once(agent())
+        .chain((1..63).map(|n| EndpointId::parse(format!("e{n}")).expect("an endpoint")))
+        .collect();
+    for (n, endpoint) in names.iter().enumerate() {
+        store
+            .commit_unread_inbound(&NewInbound {
+                app_message_id: AppMessageId::parse(format!("{:032x}", 9_000 + n)).expect("id"),
+                origin: InboundOrigin {
+                    peer: peer.clone(),
+                    endpoint: Some(endpoint.clone()),
+                    channel: None,
+                },
+                media_type: None,
+                payload: vec![1],
+                received_at: 1,
+                kind: InboundKind::Text,
+            })
+            .expect("a conversation");
+    }
+    store
+        .accept_card(
+            &AcceptedCard {
+                peer,
+                endpoint: &EndpointId::parse("e63").expect("an endpoint"),
+                name: "Ada",
+                surname: None,
+                identity_key: [1; 32],
+                photo: None,
+            },
+            1,
+        )
+        .expect("a contact's route");
+    assert_eq!(store.remote_endpoints(peer).expect("count"), 64, "control");
+    store
+}
+
+/// HUMAN-CHAT.md's malformed rule, its receive side: with 64 of a peer's
+/// endpoints held -- conversations and a contact's route together -- a
+/// message from one of them is stored and one from a 65th is discarded
+/// unstored and counted under its reason, and stays refused after the
+/// facade reopens on the same store. Mutations: the check removed; `<`
+/// read as `<=` against the profile's most endpoints.
+#[tokio::test]
+async fn a_65th_source_endpoint_of_a_peer_is_discarded_and_counted() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut receiver = client(&b, human(), store_at_the_bound(&path, a.peer()));
+    ready(&mut receiver, 0).await;
+    let unread = |c: &mut Client| c.store_mut().unread_inbound().expect("read").len();
+    let before = unread(&mut receiver);
+
+    let mut from_held = client(&a, agent(), memory());
+    ready(&mut from_held, 0).await;
+    from_held
+        .send(to(b.peer()), &envelope("from a held endpoint"), 0)
+        .await
+        .expect("sent");
+    from_held.tick(0).await;
+    assert_eq!(
+        receiver.drain(16, 1).await.len(),
+        1,
+        "a held endpoint's message"
+    );
+    assert_eq!(unread(&mut receiver), before + 1);
+
+    let mut from_new = client(&a, human(), memory());
+    ready(&mut from_new, 0).await;
+    from_new
+        .send(to(b.peer()), &envelope("from a 65th"), 0)
+        .await
+        .expect("sent");
+    from_new.tick(0).await;
+    assert!(receiver.drain(16, 2).await.is_empty(), "nothing presented");
+    assert_eq!(unread(&mut receiver), before + 1, "nothing stored");
+    assert_eq!(receiver.diagnostics().malformed_endpoint_bound, 1);
+
+    receiver.close().await;
+    let mut reopened = client(
+        &b,
+        human(),
+        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+    );
+    ready(&mut reopened, 3).await;
+    from_new
+        .send(to(b.peer()), &envelope("from a 65th again"), 3)
+        .await
+        .expect("sent");
+    from_new.tick(3).await;
+    assert!(reopened.drain(16, 4).await.is_empty(), "still refused");
+    assert_eq!(reopened.diagnostics().malformed_endpoint_bound, 1);
+}
+
+/// The bound's send side: the person's own send to a 65th endpoint of a
+/// peer is refused before a pending row is written, while one to a held
+/// endpoint or to the peer's default endpoint is not. Mutation: the
+/// send-side check removed.
+#[tokio::test]
+async fn a_send_that_would_open_a_65th_endpoint_is_refused_before_a_row() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut sender = client(&b, human(), store_at_the_bound(&path, a.peer()));
+    ready(&mut sender, 0).await;
+    let pending = |c: &mut Client| c.store_mut().pending_outbound().expect("read").len();
+    let at_a = |endpoint: Option<EndpointId>| Destination::Direct {
+        peer: a.peer().clone(),
+        endpoint,
+    };
+
+    assert_eq!(
+        sender
+            .send(at_a(Some(human())), &envelope("to a 65th"), 0)
+            .await,
+        Err(SendError::EndpointBound)
+    );
+    assert_eq!(pending(&mut sender), 0, "no row written");
+    sender
+        .send(at_a(Some(agent())), &envelope("to a held one"), 0)
+        .await
+        .expect("a held endpoint");
+    sender
+        .send(at_a(None), &envelope("to the default"), 0)
+        .await
+        .expect("the default names no endpoint");
+    assert_eq!(pending(&mut sender), 2);
+}
+
+/// A store read the bound's check needs that fails is a commit failure,
+/// as RETENTION.md's degrade rule says: the inbound is discarded unstored
+/// and counted so, never committed past the check. The read is made to
+/// fail by taking the contacts' routes, which the check reads and the
+/// commit does not write, from under the open store. Mutation: a failed
+/// read taken as admitting the endpoint.
+#[tokio::test]
+async fn a_failed_read_behind_the_endpoint_check_stores_nothing() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut receiver = client(
+        &b,
+        human(),
+        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+    );
+    ready(&mut receiver, 0).await;
+    rusqlite::Connection::open(&path)
+        .expect("a second connection")
+        .execute_batch("DROP TABLE contact_routes;")
+        .expect("the read's table gone");
+
+    let mut sender = client(&a, agent(), memory());
+    ready(&mut sender, 0).await;
+    sender
+        .send(to(b.peer()), &envelope("behind a failing read"), 0)
+        .await
+        .expect("sent");
+    sender.tick(0).await;
+    assert!(receiver.drain(16, 1).await.is_empty(), "nothing presented");
+    let d = receiver.diagnostics();
+    assert_eq!(d.dropped_unstored, 1, "counted as a commit failure");
+    assert_eq!(d.malformed_endpoint_bound, 0, "not as the bound");
+}

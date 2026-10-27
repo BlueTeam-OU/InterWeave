@@ -438,20 +438,23 @@ pub fn name_key(name: &str) -> String {
 /// card's `PeerId` by the route index, those whose name key is the card's
 /// by the name-key index, and those holding its key on another `PeerId`
 /// by the identity-key index, each but the contact Accept updates.
-/// `the_standing_reads_use_their_indexes` reads their plans.
+/// `the_standing_reads_use_their_indexes` reads their plans. Each in the
+/// store's id order, which no person sees: SQLite cannot collate a name,
+/// so the model orders what a proposal names (human-client-ui.md
+/// section 3, "How contacts are ordered").
 const SHARES_NODE: &str = "SELECT DISTINCT c.contact_id, c.display_name
                FROM contact_routes r JOIN contacts c ON c.contact_id = r.contact_id
               WHERE r.peer_id = ?1 AND c.contact_id IS NOT ?2
-              ORDER BY c.display_name, c.contact_id";
+              ORDER BY c.contact_id";
 const SAME_NAME: &str = "SELECT c.contact_id, c.display_name FROM contacts c
               WHERE c.name_key = ?1 AND c.contact_id IS NOT ?2
                 AND NOT EXISTS (SELECT 1 FROM contact_routes r
                                  WHERE r.contact_id = c.contact_id AND r.peer_id = ?3)
-              ORDER BY c.display_name, c.contact_id";
+              ORDER BY c.contact_id";
 const KEY_MATCHES: &str = "SELECT DISTINCT c.contact_id, c.display_name
                FROM contact_routes r JOIN contacts c ON c.contact_id = r.contact_id
               WHERE r.identity_key = ?1 AND r.peer_id <> ?2 AND c.contact_id IS NOT ?3
-              ORDER BY c.display_name, c.contact_id";
+              ORDER BY c.contact_id";
 
 /// The version of [`name_key`]'s output, kept in `settings` as
 /// `name_key_version` (STATE.md, schema v10). A build whose key differs
@@ -532,14 +535,16 @@ fn key_of(blob: Option<Vec<u8>>) -> Result<Option<[u8; 32]>, StoreError> {
 }
 
 impl HumanStore {
-    /// Every contact, with its routes, ordered by name.
+    /// Every contact, with its routes, in the store's id order: a person
+    /// sees them in the model's collated order (human-client-ui.md
+    /// section 3), which no SQL here can give.
     ///
     /// # Errors
     /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
     pub fn contacts(&self) -> Result<Vec<Contact>, StoreError> {
         let ids: Vec<String> = self
             .conn
-            .prepare("SELECT contact_id FROM contacts ORDER BY display_name, contact_id")?
+            .prepare("SELECT contact_id FROM contacts ORDER BY contact_id")?
             .query_map([], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
         ids.iter()
@@ -648,7 +653,11 @@ impl HumanStore {
     /// photo, never the photo's bytes: the Contacts list and every
     /// conversation title need every contact's name, and a photo is read
     /// when it is shown ([`Self::contact_photo`]). The cursor of the next
-    /// page is the last contact's id.
+    /// page is the last contact's id. Id order is no order a person sees
+    /// (human-client-ui.md section 3): a caller reads every page before
+    /// anything is shown, and the model orders the whole
+    /// (`UiModel::contacts_listed`). No production caller pages contacts
+    /// yet.
     ///
     /// # Errors
     /// A storage error, or a row this build cannot read back.

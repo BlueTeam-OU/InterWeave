@@ -1018,3 +1018,41 @@ async fn a_message_received_with_a_card_is_printed_once() {
         "no second read refused: {out}"
     );
 }
+
+/// `contacts` prints the client's one order (human-client-ui.md section
+/// 3), the shared fixture's, whatever order the store holds them in.
+/// Mutation: the model's `contacts_listed` keeping the store's order
+/// (`contact_id`, random here) prints them in that order, which is this
+/// one only once in 120 runs.
+#[tokio::test]
+async fn contacts_are_printed_in_the_collated_order() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (alice, bob) = (Side::new(a), Side::new(b));
+    let fixture = ["Zoe", "Ben", "Chloe", "Åke", "ben"];
+    {
+        let mut held = store(bob.dir.path());
+        for (i, name) in fixture.iter().enumerate() {
+            let at = EndpointId::parse(format!("e{i}")).expect("a label");
+            held.accept_card(
+                &interweave_human_store::AcceptedCard {
+                    peer: alice.node.peer(),
+                    endpoint: &at,
+                    name,
+                    surname: None,
+                    identity_key: [u8::try_from(i).expect("small") + 1; 32],
+                    photo: None,
+                },
+                WALL,
+            )
+            .expect("accepted");
+        }
+    }
+    let mut b_run = bob.session();
+    let (out, listed) = run(&mut b_run, Verb::Contacts, true).await;
+    listed.expect("listed");
+    let names: Vec<String> = lines(&out)
+        .iter()
+        .map(|c| c["name"].as_str().expect("a name").to_owned())
+        .collect();
+    assert_eq!(names, ["Åke", "ben", "Ben", "Chloe", "Zoe"], "{out}");
+}

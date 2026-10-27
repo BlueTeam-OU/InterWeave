@@ -1803,7 +1803,10 @@ fn delete_contact_asks_first_and_deletes_only_on_its_confirmation() {
 }
 
 /// Contacts with none says how one is made; every row is a control
-/// labelled by the name.
+/// labelled by the name, in the client's one order (human-client-ui.md
+/// section 3): the root's collation, so case stands together and an
+/// accent never sends a name past "Zoe". Mutation: the view sorting the
+/// rows again by lowercase then code point ("Åke" drawn last).
 #[test]
 fn contacts_with_none_say_how_one_is_made_and_each_row_opens_its_contact() {
     let mut view = view();
@@ -1813,15 +1816,32 @@ fn contacts_with_none_say_how_one_is_made_and_each_row_opens_its_contact() {
     press(&view, text(UiText::ContactsTitle));
     let _ = intents(&mut view, &mut model);
     assert!(shows(&view, text(UiText::ContactsEmpty)));
-    model.contacts_listed(vec![contact("c2", "Bob", Q), contact("c1", "Ada", P)]);
+    // The fixture every site's test orders, as the store reads it.
+    let fixture = ["Zoe", "Ben", "Chloe", "Åke", "ben"];
+    model.contacts_listed(
+        fixture
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                // A route of its own for each contact, as the store keeps them.
+                let mut c = contact(&format!("c{i}"), n, P);
+                c.routes[0].endpoint = EndpointId::parse(format!("e{i}")).expect("an endpoint");
+                c
+            })
+            .collect(),
+    );
     view.render(&model);
     assert!(!shows(&view, text(UiText::ContactsEmpty)));
     let rows = view.window().get_contact_rows();
     let names: Vec<String> = rows.iter().map(|r| r.name.to_string()).collect();
-    assert_eq!(names, vec![isolated("Ada"), isolated("Bob")], "by name");
-    press(&view, &isolated("Bob"));
+    let order: Vec<String> = ["Åke", "ben", "Ben", "Chloe", "Zoe"]
+        .iter()
+        .map(|n| isolated(n))
+        .collect();
+    assert_eq!(names, order, "by name, collated");
+    press(&view, &isolated("ben"));
     let _ = intents(&mut view, &mut model);
-    assert_eq!(view.window().get_contact_title(), isolated("Bob"));
+    assert_eq!(view.window().get_contact_title(), isolated("ben"));
 }
 
 /// Section 13 bullet 5: a contact's page shows each conversation's
