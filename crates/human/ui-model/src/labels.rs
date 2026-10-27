@@ -1548,11 +1548,11 @@ pub mod placeholder_en {
             ErrorClass::AlreadyPending => "This message is already waiting to be sent.",
             ErrorClass::EndpointInUse => "Another app or window is already using this endpoint.",
             ErrorClass::EndpointNotAvailable => "This endpoint is not available to this app.",
-            // PLACEHOLDER (en): ux-designer-01's wording (start-window
-            // item 11b, PR #491); language-culture-en writes the final text.
             ErrorClass::NotSentEndpointLimit => {
-                "This device already has conversations with 64 different endpoints of this \
-                 peer, which is the most it keeps. Send from one of those conversations instead."
+                "This device already keeps 64 routes of this peer, the limit for all its \
+                 identities and contacts together, so it cannot open a new route; check that \
+                 this is the route you want, or send in a conversation with this peer if you \
+                 have one."
             }
             ErrorClass::Internal => "Something went wrong.",
         }
