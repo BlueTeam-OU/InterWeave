@@ -283,12 +283,16 @@ succeeded first, counts as done.
 - **The step left it, or was not taken** (§7, where the store cannot
   be written). The Cancel's answer applies as message-swipe §8 says:
   a refusal returns the row in the state the facade reports, with the
-  storage notice and the refusal announcement; the card may then
-  arrive with the old key, and its conversation is in the share-again
-  list as for any row the transport took. Two things differ: the
-  announcement waits for the step's own, as above, and focus stays
-  where it is (on the card page, or on the sheet after Back), as
-  message-swipe §8 has it for a person who has left the conversation.
+  storage notice and the refusal announcement. Only where the step ended
+  in Made (§5.3) may the card then arrive with the old key, its
+  conversation in the share-again list as for any row the transport
+  took; where the step was not taken, or ended in Failed, §5.3's
+  Failed shows no list, and where it was not taken no key changed and
+  the old key still stands. Two things
+  differ from message-swipe §8: the announcement waits for the step's
+  own, as above, and focus stays where it is (on the card page, or on
+  the sheet after Back), as message-swipe §8 has it for a person who
+  has left the conversation.
 
 ### 5.3 The result
 
@@ -498,13 +502,18 @@ On both clients unless said; Android's screen-reader checks blocked as
     of these runs, after Make a new key, returning to E (the first) or
     Back to the sheet and closing it (the others) shows no snackbar,
     and E's card is not sent, a restart included.
-    Two runs of a Cancel refused by the seam after Make a new key, by
+    Three runs of a Cancel refused by the seam after Make a new key, by
     the sheet route: E's row Not sent (held, so withdrawn): it does
-    not return and no refusal is announced; E's row Sending and taken
-    by the transport (D's seam): it returns in the state the facade
-    reports, the storage notice and the refusal announcement follow
-    `KeyMade`, focus stays on the card page, and E is in the
-    share-again list.
+    not return and no refusal is announced; E's row Sending, handed to
+    the transport and held there in flight, as message-swipe acceptance
+    8 holds an attempt (a test build or a slowed link): it returns in the state the facade reports,
+    the storage notice and the refusal announcement follow `KeyMade`,
+    focus stays on the card page, and E is in the share-again list.
+    A third, with the store made unwritable by a seam before the
+    confirmation and E's row Not sent: the step is not taken and
+    `KeyNewFailed` shows (§7), E's row returns Not sent, the storage
+    notice and the refusal announcement follow the failure line, focus
+    stays on the card page, and no share-again list is shown.
     Where the client cannot tell a Sending row it holds from one the
     transport took (§5.2's fallback), D is instead left to arrive, and
     D is still in the share-again list; the build states which of the
