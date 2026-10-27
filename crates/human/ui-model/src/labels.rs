@@ -1548,6 +1548,12 @@ pub mod placeholder_en {
             ErrorClass::AlreadyPending => "This message is already waiting to be sent.",
             ErrorClass::EndpointInUse => "Another app or window is already using this endpoint.",
             ErrorClass::EndpointNotAvailable => "This endpoint is not available to this app.",
+            // PLACEHOLDER (en): ux-designer-01's wording (start-window
+            // item 11b, PR #491); language-culture-en writes the final text.
+            ErrorClass::NotSentEndpointLimit => {
+                "This device already has conversations with 64 different endpoints of this \
+                 peer, which is the most it keeps. Send from one of those conversations instead."
+            }
             ErrorClass::Internal => "Something went wrong.",
         }
     }
@@ -1772,6 +1778,9 @@ pub enum ErrorClass {
     EndpointInUse,
     /// The endpoint is not available to this client.
     EndpointNotAvailable,
+    /// A send that would open a peer's 65th endpoint: the device keeps at
+    /// most 64 of one peer's (HUMAN-CHAT.md's malformed rule).
+    NotSentEndpointLimit,
     /// Anything else; the raw code is in diagnostics.
     Internal,
 }
@@ -1813,6 +1822,7 @@ pub const fn send_error_class(error: &SendError) -> ErrorClass {
         SendError::NotConfigured => ErrorClass::NotConfigured,
         SendError::StorageUnavailable => ErrorClass::StorageUnavailable,
         SendError::AlreadyPending => ErrorClass::AlreadyPending,
+        SendError::EndpointBound => ErrorClass::NotSentEndpointLimit,
     }
 }
 
@@ -1896,7 +1906,7 @@ mod tests {
     /// Every error class. The exhaustive match fails to compile on a
     /// class added to the enum until it is named there; the array must
     /// gain it too, which nothing enforces.
-    fn every_class() -> [ErrorClass; 14] {
+    fn every_class() -> [ErrorClass; 15] {
         const fn listed(class: ErrorClass) -> ErrorClass {
             match class {
                 ErrorClass::PeerNotTrusted
@@ -1912,6 +1922,7 @@ mod tests {
                 | ErrorClass::AlreadyPending
                 | ErrorClass::EndpointInUse
                 | ErrorClass::EndpointNotAvailable
+                | ErrorClass::NotSentEndpointLimit
                 | ErrorClass::Internal => class,
             }
         }
@@ -1929,6 +1940,7 @@ mod tests {
             ErrorClass::AlreadyPending,
             ErrorClass::EndpointInUse,
             ErrorClass::EndpointNotAvailable,
+            ErrorClass::NotSentEndpointLimit,
             ErrorClass::Internal,
         ]
         .map(listed)

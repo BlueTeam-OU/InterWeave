@@ -105,6 +105,7 @@ pub(crate) const fn send_error(error: &SendError) -> &'static str {
         SendError::NotConfigured => "not-configured",
         SendError::StorageUnavailable => "storage-unavailable",
         SendError::AlreadyPending => "already-pending",
+        SendError::EndpointBound => "endpoint-bound",
     }
 }
 
