@@ -242,16 +242,30 @@ the next share shows the counterparty the new key. The confirmation
 says so first (`KeyNewPending`), shown when any such row exists.
 
 A card the person cancelled before the step cannot be restored with the
-old key either. A Cancel's snackbar, and its Undo, are gone before
-Make a new key can be reached: the button is on the identity's card
-page; opening that page leaves the conversation, and leaving the
-conversation closes the snackbar (message-swipe §5's closing list; on a wide layout the page
-takes the conversation pane's place, cards §4). A Cancel whose success
-arrives after the person has left is only announced, with no Undo
-(message-swipe §6). If a path to Make a new key is ever added that
-keeps a conversation's snackbar open, the step first closes that
-snackbar, and the snackbar's Undo with it. The step's own withdrawals
-have no Undo either.
+old key either. **The step first closes a Cancel snackbar of any of
+this identity's card rows, if one is open, and its Undo with it**,
+before it withdraws anything; the Cancel stands, as when the snackbar
+times out (message-swipe §5). It is needed on one route and harmless
+on the other:
+
+- From the Chats ⋮ menu's Your card, the page leaves the conversation
+  (on a wide layout it takes the conversation pane's place, cards §4),
+  and leaving the conversation has already closed the snackbar
+  (message-swipe §5's closing list).
+- From the share sheet's Open your card (§4.3), the sheet and the
+  conversation under it stay open, since Back returns to the sheet;
+  nothing on message-swipe §5's list closes the snackbar there, and
+  without this rule its Undo would restore a card signed with the
+  key the step deletes.
+
+The closing makes no announcement: the snackbar is under the sheet
+and the page, and the person returns to a conversation with no
+snackbar. A Cancel of one of this identity's card rows whose success
+arrives after the step has started is only announced, with message-swipe §8's words
+and no snackbar or Undo, by either route: on the sheet route the
+person is still in the conversation, where message-swipe §6 would
+otherwise show it with its Undo. The step's own withdrawals have no
+Undo either.
 
 ### 5.3 The result
 
@@ -441,9 +455,16 @@ On both clients unless said; Android's screen-reader checks blocked as
     `KeyNewPending`; after Make a new key, both rows are withdrawn with
     no Undo, neither is sent afterwards (a restart included), and C
     and D are in the share-again list. A third card row, Not sent in
-    E, cancelled just before opening the card page: the conversation
-    shows no snackbar on return, and E's card is not sent after Make a
-    new key.
+    E, cancelled just before the card page is opened, once by each
+    route: through the Chats ⋮ menu's Your card, and through E's share
+    sheet and Open your card with the Cancel snackbar still open under
+    it (the platform's longest timeout set, message-swipe §6), and a
+    third time by that route with the Cancel's success held by a test
+    seam until after Make a new key: its success is then announced
+    once, with no snackbar. On each run, after Make a new key,
+    returning to E (the first) or Back to the sheet and closing it
+    (the second and third) shows no snackbar, and E's card is not
+    sent, a restart included.
     Where the client cannot tell a Sending row it holds from one the
     transport took (§5.2's fallback), D is instead left to arrive, and
     D is still in the share-again list; the build states which of the
