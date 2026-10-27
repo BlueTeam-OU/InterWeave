@@ -538,6 +538,28 @@ pub struct ListedOutbound {
     pub card: Option<cards::SentCard>,
 }
 
+impl ListedOutbound {
+    /// A pending row holding the identity's own card, read back as it went:
+    /// held under an envelope that carries only the card's id, as
+    /// [`UiModel::card_queued`] holds one queued this session.
+    #[must_use]
+    pub fn own_card(
+        row: RowId,
+        destination: Destination,
+        app_message_id: String,
+        card: cards::SentCard,
+        created_at: u64,
+    ) -> Self {
+        Self {
+            row,
+            destination,
+            envelope: card_envelope(app_message_id),
+            created_at,
+            card: Some(card),
+        }
+    }
+}
+
 /// An inbound message the store holds, as the root read it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListedInbound {
