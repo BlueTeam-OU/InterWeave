@@ -397,6 +397,8 @@ screen hold for every other case.
 | a row of the open conversation | the session bound drops it | cannot happen: the focused row is never dropped (§7.1) | §10 item 12 |
 | a row of the open conversation | the held-row ceiling releases it | cannot happen: the focused item is never released (§5.1) | §10 item 14 |
 | a `ReadNotShown` line | a new drop adds to its count | stays on the line, whose count changes | §10 item 12 |
+| the Contacts failure row's Try again (§11) | it is pressed and the row goes | the Contacts page title, as app-placed focus | §10 item 11 |
+| the Contacts page title, placed there by Try again | the read answers | success: the first contact row, else `ContactsEmpty`; failure: the new failure row's Try again | §10 item 11 |
 
 ### 7.1 The session bound while a conversation is open
 
