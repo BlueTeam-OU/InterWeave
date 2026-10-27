@@ -869,6 +869,15 @@ identity's contacts are never read for a case, a warning or a link
 (ADR-0061 d. 9), and the same counterparty saved under two identities
 is two contacts (d. 4).
 
+Where a line names one contact and more than one matches — X in case
+P's `CardSharesDevice` and `CardSharesDeviceMany`, and the contact
+`CardSameName` and its Open your contact link name — it names the first
+of them in the Contacts list's order (§6.2), read from the store,
+whatever the list has loaded (start-window §11). The facts the line
+states hold for each of them: in case D no route of the card's PeerId
+is under any contact, so each contact of that name has a different
+PeerId.
+
 The cases are tested in this order: the route under X (S, E, U), then P,
 then D, then N. E applies per value (name, photo). A card whose route
 is already under X updates X rather than creating a contact, since X is
