@@ -49,6 +49,8 @@ Pending outbound content is **not eligible for cross-device/system backup** in s
 
 ## 3. Inbound state machine
 
+A direct envelope from a trusted peer's 65th distinct source endpoint — distinct among the direct conversations the store indexes for that PeerId and the routes it keeps under contacts for it (STATE.md; the check in the client's commit path, built by the start window's second batch) — is malformed under HUMAN-CHAT.md (A 2026-10-27): the client stores nothing and presents nothing, counts it under one fixed reason, and no unread row is created for it; a store read the check needs that fails is a commit failure, the inbound discarded unstored and the failure reported as any commit failure is.
+
 After the human client consumes a valid inbound application event, it commits the message as unread before normal UI presentation/notification:
 
 ```text
