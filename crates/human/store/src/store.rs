@@ -32,6 +32,7 @@ use crate::records::{
 use crate::schema::{migrate, verify_shape};
 
 pub mod contacts;
+pub mod window;
 
 /// A stored timestamp, refusing a negative one rather than flattening it.
 ///
@@ -1399,69 +1400,22 @@ impl HumanStore {
         let (sort_key, row_id) = cursor_bounds(after)?;
         let fetch = i64::try_from(limits.max_records().saturating_add(1)).unwrap_or(i64::MAX);
         let mut stmt = self.conn.prepare(sql)?;
-        let rows = stmt.query_map(params![sort_key, row_id, fetch], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, Option<String>>(3)?,
-                r.get::<_, Option<String>>(4)?,
-                r.get::<_, Option<String>>(5)?,
-                r.get::<_, Vec<u8>>(6)?,
-                r.get::<_, i64>(7)?,
-                r.get::<_, Option<i64>>(8)?,
-                r.get::<_, Option<i64>>(9)?,
-                r.get::<_, String>(10)?,
-            ))
-        })?;
+        let rows = stmt.query_map(params![sort_key, row_id, fetch], InboundRow::read)?;
 
         let mut out = Vec::new();
         let mut bytes = 0usize;
         let mut more = false;
         for row in rows {
-            let (
-                id,
-                amid,
-                peer,
-                endpoint,
-                channel,
-                media_type,
-                payload,
-                received,
-                read,
-                keptat,
-                kind,
-            ) = row?;
+            let row = row?;
             if !out.is_empty()
                 && (out.len() >= limits.max_records()
-                    || bytes.saturating_add(payload.len()) > limits.max_bytes())
+                    || bytes.saturating_add(row.payload.len()) > limits.max_bytes())
             {
                 more = true;
                 break;
             }
-            bytes = bytes.saturating_add(payload.len());
-            out.push(StoredInbound {
-                row_id: RowId::from_stored(id),
-                app_message_id: AppMessageId::parse(amid)?,
-                origin: InboundOrigin {
-                    peer: TransportIdentity::parse(peer)
-                        .map_err(|e| StoreError::Corrupt(e.to_string()))?,
-                    endpoint: endpoint
-                        .map(EndpointId::parse)
-                        .transpose()
-                        .map_err(|e| StoreError::Corrupt(e.to_string()))?,
-                    channel: channel
-                        .map(ChannelId::parse)
-                        .transpose()
-                        .map_err(|e| StoreError::Corrupt(e.to_string()))?,
-                },
-                media_type: parse_media_type(media_type)?,
-                payload,
-                received_at: stored_ms("received_at", received)?,
-                read_at: read.map(|v| stored_ms("read_at", v)).transpose()?,
-                kept_at: keptat.map(|v| stored_ms("kept_at", v)).transpose()?,
-                kind: InboundKind::from_sql(&kind),
-            });
+            bytes = bytes.saturating_add(row.payload.len());
+            out.push(row.parse()?);
         }
         Ok(Page {
             next: more.then(|| Cursor {
@@ -1766,6 +1720,69 @@ fn record_pair(
         )?;
     }
     Ok(())
+}
+
+/// One inbound row as the walks and the window select it: `row_id,
+/// app_message_id, source_peer, source_endpoint, channel_id, media_type,
+/// payload, received_at, read_at, kept_at, kind`, in that order.
+pub(crate) struct InboundRow {
+    id: i64,
+    app_message_id: String,
+    peer: String,
+    endpoint: Option<String>,
+    channel: Option<String>,
+    media_type: Option<String>,
+    pub(crate) payload: Vec<u8>,
+    received_at: i64,
+    read_at: Option<i64>,
+    kept_at: Option<i64>,
+    kind: String,
+}
+
+impl InboundRow {
+    pub(crate) fn read(r: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: r.get(0)?,
+            app_message_id: r.get(1)?,
+            peer: r.get(2)?,
+            endpoint: r.get(3)?,
+            channel: r.get(4)?,
+            media_type: r.get(5)?,
+            payload: r.get(6)?,
+            received_at: r.get(7)?,
+            read_at: r.get(8)?,
+            kept_at: r.get(9)?,
+            kind: r.get(10)?,
+        })
+    }
+
+    /// The row as the store hands it out, its identifiers checked.
+    pub(crate) fn parse(self) -> Result<StoredInbound, StoreError> {
+        Ok(StoredInbound {
+            row_id: RowId::from_stored(self.id),
+            app_message_id: AppMessageId::parse(self.app_message_id)?,
+            origin: InboundOrigin {
+                peer: TransportIdentity::parse(self.peer)
+                    .map_err(|e| StoreError::Corrupt(e.to_string()))?,
+                endpoint: self
+                    .endpoint
+                    .map(EndpointId::parse)
+                    .transpose()
+                    .map_err(|e| StoreError::Corrupt(e.to_string()))?,
+                channel: self
+                    .channel
+                    .map(ChannelId::parse)
+                    .transpose()
+                    .map_err(|e| StoreError::Corrupt(e.to_string()))?,
+            },
+            media_type: parse_media_type(self.media_type)?,
+            payload: self.payload,
+            received_at: stored_ms("received_at", self.received_at)?,
+            read_at: self.read_at.map(|v| stored_ms("read_at", v)).transpose()?,
+            kept_at: self.kept_at.map(|v| stored_ms("kept_at", v)).transpose()?,
+            kind: InboundKind::from_sql(&self.kind),
+        })
+    }
 }
 
 /// An inbound row's columns as SQLite holds them, before validation: what
