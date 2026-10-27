@@ -399,8 +399,10 @@ const MAX_DEPARTED_IPS: usize = 64;
 
 /// The most off-local IPs the wrapper withholds
 /// (`HolePunchScope::off_local`): a phone's carrier addresses, one or two
-/// per network in practice. Past it the highest are not withheld -- the
-/// cost of a bound, on a platform view no phone reaches.
+/// per network in practice, from the view's classification and the
+/// private IPs this host's own listeners bind outside the view. Past it
+/// the highest are not withheld -- the cost of a bound, on a view and an
+/// interface list no phone reaches.
 const MAX_OFF_LOCAL_IPS: usize = 64;
 
 /// Whether `address` names an IP in `departed` -- one that left this

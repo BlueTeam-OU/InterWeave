@@ -3289,23 +3289,6 @@ impl SwarmRuntime {
                         // it.
                         let translated = match announce {
                             Announce::Yes => {
-                                // A LISTENER THAT JUST BOUND is a DCUtR
-                                // candidate from this moment, not from
-                                // the next tick: a circuit can arrive
-                                // between the two, and its CONNECT would
-                                // carry only what a peer had observed.
-                                // Offered below, AFTER the detector has
-                                // observed the bind, and only if the host
-                                // holds its IP: a second port on an IP the
-                                // platform's view said departed is bound,
-                                // and is no candidate (ADR-0052 A
-                                // 2026-10-09).
-                                let just_bound = match &event {
-                                    libp2p::swarm::SwarmEvent::NewListenAddr { address, .. } => {
-                                        Some(address.clone())
-                                    }
-                                    _ => None,
-                                };
                                 match &event {
                                     // And forgotten as they go, so the
                                     // offered set holds what is bound.
@@ -3339,6 +3322,19 @@ impl SwarmRuntime {
                                 // the listeners' bound set made, seen
                                 // here, once, as the listener event that
                                 // made it lands (`on_network_change`).
+                                //
+                                // A LISTENER THAT JUST BOUND is a DCUtR
+                                // candidate from this moment, not from
+                                // the next tick: a circuit can arrive
+                                // between the two, and its CONNECT would
+                                // carry only what a peer had observed.
+                                // `withhold_not_offered` offers it, AFTER
+                                // the detector has observed the bind, and
+                                // only if this node offers it: a second
+                                // port on an IP the platform's view said
+                                // departed is bound and is no candidate
+                                // (ADR-0052 A 2026-10-09), nor one on no
+                                // local network (rule 10).
                                 if listener_event {
                                     let change = network.observe_listeners(active.values().flatten());
                                     withhold_not_offered(&mut swarm, &network, &active);
@@ -3357,12 +3353,6 @@ impl SwarmRuntime {
                                         &mut held_back,
                                         &task_stores,
                                         &task_operator,
-                                    );
-                                }
-                                if let Some(address) = just_bound.filter(|a| network.offers(a)) {
-                                    dcutr_driver::offer_listeners(
-                                        swarm.dcutr_mut(),
-                                        std::iter::once(&address),
                                     );
                                 }
                                 translated
