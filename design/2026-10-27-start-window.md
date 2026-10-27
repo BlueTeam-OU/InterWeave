@@ -374,9 +374,10 @@ screen hold for every other case.
 | Focus was on | It disappears when | Focus goes to | Check |
 |---|---|---|---|
 | any row, or the `EarlierUnread` line | a page is added above it or below the line | stays where it was; nothing moves | §10 items 4 and 5 |
+| the row just above a gap, or any row above it | a page of the gap is added below it, from the gap's upper side (§5.1) | stays where it was; nothing moves | §10 item 14 |
 | the `EarlierUnread` line, at the top or in a gap (§5.1) | its count reaches zero | the row that was just below the line, as app-placed focus (no fetch, §5) | §10 items 6 and 14 |
-| the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives | the row that was just below the failure row (the line, else the oldest loaded row), as app-placed focus | §10 item 7 |
-| the limit row's `EarlierShowAnyway` | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the limit row, as app-placed focus | §10 item 12 |
+| the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the failure row, as app-placed focus: at the top edge the line, else the oldest loaded row; in a gap, the lower side's row if it shows, else the gap's line, else the row below the gap (§5.1) | §10 items 7 and 14 |
+| the limit row's `EarlierShowAnyway` | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the limit row, as app-placed focus, at the top edge or in a gap as for Try again | §10 items 12 and 14 |
 | a row of the open conversation | the session bound drops it | cannot happen: the focused row is never dropped (§7.1) | §10 item 12 |
 | a row of the open conversation | the held-row ceiling releases it | cannot happen: the focused item is never released (§5.1) | §10 item 14 |
 | a `ReadNotShown` line | a new drop adds to its count | stays on the line, whose count changes | §10 item 12 |
@@ -612,7 +613,16 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     TalkBack's swipe on the phone): every gap loads as it is reached,
     and the rows are in the noted order, none missing and none twice.
     Restart the app: the store is as it was before (a) and (b), less
-    the rows read.
+    the rows read. (c) In a gap, coming from above: make the gap's
+    next read fail (a test hook). The failure row shows directly below
+    the row above the gap and its text is announced once; focus on
+    that row stays where it was. Remove the failure, move focus to Try
+    again and press it: the page loads below the row above the gap,
+    and focus is on the item that was just below the failure row. With
+    the session bound brought within reach (the hook of item 12), the
+    gap's next page shows the limit row on the side that fetched,
+    with nothing dropped; `EarlierShowAnyway` behaves as in item 12,
+    and focus follows the table of §7.
 15. **Photos on demand** (§11), with photo loads slowed by a test hook.
     The Contacts list, Chats and the app bar show a contact's initials
     on its hue, at the photo's size, then the photo in its place:
