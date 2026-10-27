@@ -462,6 +462,103 @@ async fn a_reached_peer_survives_a_restart_through_the_peer_cache() {
     target.shutdown().await.expect("clean shutdown");
 }
 
+/// A cache route the book refused under ADR-0052 rule 3 is offered again
+/// once the boundary WIDENS, not after the discovery memo's five-minute
+/// relearn (j133). The race that found it -- a wildcard listener
+/// reporting loopback before its LAN address, the cache's private route
+/// offered in between -- is not reproducible on demand, so the same
+/// refusal is made here with rule 10: the restarted A's platform view
+/// classifies its LAN address as on no local network, which leaves A no
+/// private listener, and only then is B allowed, which makes the memo
+/// offer B's cached route at once (`set_trust`) and the book refuse it.
+/// B stays unconnected for a window under that view (the control that
+/// the refusal is real); the view lifting the classification widens the
+/// boundary, and A reaches B from the cache within `PATIENCE`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cache_route_refused_under_rule_3_is_offered_again_when_the_boundary_widens() {
+    use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let scratch = tempfile::tempdir().expect("scratch");
+    let cache = scratch.path().join("peers.json");
+    let options = || CompositionOptions {
+        listen: vec![format!("/ip4/{ip}/tcp/0")],
+        peer_cache_file: Some(cache.clone()),
+        ..CompositionOptions::default()
+    };
+    let with_cache = "    - type: peer-cache\n      enabled: true\n      priority: 20\n";
+    let (b_id, b) = id();
+    let (a_id, a) = id();
+    let target = ComposedRuntime::start(
+        &b_id,
+        &profile(&[&a], &[], ""),
+        CompositionOptions {
+            listen: vec![format!("/ip4/{ip}/tcp/0")],
+            ..CompositionOptions::default()
+        },
+    )
+    .await
+    .expect("b composes");
+    let b_addr = format!("{}/p2p/{}", target.listening()[0], b.as_str());
+    let mut first =
+        ComposedRuntime::start(&a_id, &profile(&[&b], &[b_addr], with_cache), options())
+            .await
+            .expect("a composes");
+    wait_connected(&mut first, &b).await;
+    first.shutdown().await.expect("clean shutdown");
+
+    // The restart trusts nobody: the cache's route for B is offered and
+    // refused as unclassified, and the memo holds that offer.
+    let mut restarted = ComposedRuntime::start(&a_id, &profile(&[], &[], with_cache), options())
+        .await
+        .expect("a composes again");
+    let admin = restarted
+        .sessions()
+        .admin([AdminCapability::Trust, AdminCapability::Peers].into())
+        .await
+        .expect("a port");
+    let shows_lan = |own: &interweave_local_client_api::OwnAddresses| {
+        own.addresses
+            .iter()
+            .any(|row| row.address.starts_with(&format!("/ip4/{ip}/")))
+    };
+    assert!(
+        shows_lan(&admin.own_addresses().await.expect("answered")),
+        "the control: the LAN listener is shown before the view"
+    );
+    restarted
+        .network_changed(NetworkView::new(vec![ip.into()]).with_off_local_network(vec![ip.into()]));
+    // READ, not sent: the classification withdraws the row, so its absence
+    // is the proof the substrate holds the view before B is allowed.
+    tokio::time::timeout(PATIENCE, async {
+        while shows_lan(&admin.own_addresses().await.expect("answered")) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the view was read: the LAN row withdrawn");
+
+    admin.set_trust(b.clone(), true).await.expect("b allowed");
+    let early = tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            match restarted.next_event().await {
+                Some(TransportEvent::PeerConnected { peer, .. }) if peer == b => return,
+                Some(_) => {}
+                None => std::future::pending::<()>().await,
+            }
+        }
+    })
+    .await;
+    assert!(
+        early.is_err(),
+        "connected with no private listener offered: rule 3 did not refuse the route"
+    );
+
+    restarted.network_changed(NetworkView::new(vec![ip.into()]));
+    wait_connected(&mut restarted, &b).await;
+    restarted.shutdown().await.expect("clean shutdown");
+    target.shutdown().await.expect("clean shutdown");
+}
+
 /// The supported flags the cache file holds for `peer`'s capabilities.
 fn capability_flags(file: &std::path::Path, peer: &TransportIdentity) -> Vec<bool> {
     fn find(value: &serde_json::Value, peer: &str, out: &mut Vec<bool>) {
