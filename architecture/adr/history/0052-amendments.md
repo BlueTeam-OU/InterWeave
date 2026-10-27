@@ -379,10 +379,12 @@ for a fact the runtime already holds); keeping the rule and widening
 the listen alone (the IMS network is withheld whatever the listen
 asks, so the rule 3 probe stays).
 
-Propagation: rule 10; this note; the log row; the digest entry;
-ADR-0062 decision 4 and its note; `CONNECTIVITY.md` §14; `DCUTR.md`
-§6; `human-client-android.md` §Android network lifecycle. The code is
-p2p-network-dev-02's (the off-local set in `network_change.rs`, read
+Propagation: rule 10 and rule 3's own-listener clause, which names
+the second case beside the first; this note; the log row; the digest
+entry; ADR-0062 decision 4 and its note; `CONNECTIVITY.md` §14;
+`DCUTR.md` §6; `human-client-android.md` §Android network lifecycle.
+The code is p2p-network-dev-02's (the off-local set in
+`network_change.rs`, read
 by the four sites as before; j82) with rust-ui-dev-01's bridge half
 (the listen, the tethering read if one exists, the Pixel rows), one
 PR; the stage record says gate (e) passes only on the re-run row.
