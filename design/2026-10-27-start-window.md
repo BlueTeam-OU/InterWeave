@@ -169,11 +169,21 @@ Evidence and hypotheses behind the choices below:
   the person's own direct send counts toward the same 64: a send that
   would open a 65th endpoint of one peer is refused before its pending
   row is written, and shown as any refused send is (Not sent, with
-  the reason). The reason is not `NotConfigured`'s "This route or
-  channel is not configured here": a person who typed the endpoint
-  would read that as their own mistake, or as a setting to change,
-  and neither is so (*help users recognize, diagnose and recover from
-  errors*, Nielsen 9). Its key is `NotSentEndpointLimit` (§9). Nothing
+  the reason). The 64 are what the store holds for that peer
+  (`HUMAN-CHAT.md`, `STATE.md`): the endpoints of its conversations,
+  of every local identity, together with the routes kept under
+  contacts, an endpoint forgotten only when both are gone. So the
+  identity in front may have fewer than 64 conversations with that
+  peer, or none, and the reason must not send the person to
+  conversations that are not there, or that belong to another
+  identity (ADR-0061: the client never leads a person to act as one
+  identity while believing they act as another). The reason is not
+  `NotConfigured`'s "This route or channel is not configured here",
+  which points at a setting, and no setting changes the bound
+  (*help users recognize, diagnose and recover from errors*, Nielsen
+  9). Since a conforming peer speaks from at most 64 endpoints, a
+  65th typed one may well be mistyped, so the reason may suggest
+  checking the route, without blaming the person. Its key is `NotSentEndpointLimit` (§9). Nothing
   else differs from any refused send: focus and the composer's
   contents stay as that rule leaves them.
 - Every notification counts as (a) says; a notification is raised on
@@ -537,7 +547,7 @@ The words are language-culture's; these say what each must do.
 | `EarlierLoadFailed` | Could not load more messages. | the failure row (§5), at the top edge or in a gap (§5.1), and its announcement | that the rows could not be read; must not suggest they are lost |
 | `CardContactsUnread` | InterWeave could not read your contacts to compare this card with them, so you cannot accept it yet. To try again, choose Contacts in InterWeave's menu, then choose Try again. | a proposal's case line while the contacts are unread (§11) | that the comparison with the person's contacts could not be made and why Accept is missing, and where to try again (the Contacts list's Try again, §11); must not suggest the card is unsafe or the contacts lost |
 | `NamingContactsUnread` | InterWeave could not read your contacts, so you cannot add this person as a contact yet. | Details, in place of naming by hand, while the contacts are unread (§11) | that the contacts could not be read and that adding a contact waits for that; names no card; must not suggest the contacts are lost |
-| `NotSentEndpointLimit` | This device already has conversations with 64 routes of this peer, the most it can keep, so send from one of those conversations instead. | the reason of a refused send that would open a peer's 65th endpoint (§3), after the "Not sent" that every refused send shows, which it does not repeat | that this device keeps at most 64 endpoints of one peer and already has them; that the conversations it has with that peer still work, and to send from one of them; must not suggest the person typed something wrong, that a setting can change it, or anything about the peer's intent |
+| `NotSentEndpointLimit` | This device already keeps 64 routes of this peer, the most it can, so it cannot open another; check the route, or send in a conversation you already have with this peer. | the reason of a refused send that would open a peer's 65th endpoint (§3), after the "Not sent" that every refused send shows, which it does not repeat | that this device keeps at most 64 routes of one peer, over all its identities and contacts, and already has them, so it cannot open another; that an existing conversation with that peer still works, without claiming one exists for the identity in front; may suggest checking the route; must not blame the person, suggest that a setting can change it, or say anything about the peer's intent |
 | `ContactsLoading` | Loading your contacts | the accessible name of the Contacts list's progress row during Try again (§11); never visible text | that the contacts are being read |
 | `ContactsLoadFailed` | Could not load your contacts. | the Contacts list's failure row, when the read of every contact fails (§11), and its announcement | that the contacts could not be read just now; must not suggest they are lost or that there are none |
 
@@ -647,7 +657,12 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     holding 64 endpoints of one peer, a send to a 65th endpoint of that
     peer is refused with `NotSentEndpointLimit`, nothing is pending and
     nothing is sent; a send in one of the 64 conversations goes as
-    usual.
+    usual. Again with the 64 made of 40 conversations of the identity
+    in front, 20 of another identity and 4 routes kept only under
+    contacts: the same refusal and the same text, which names no
+    conversation of the identity in front that is not there. (Where no
+    surface in the apps addresses a new endpoint yet, a test hook makes
+    the send.)
 12. **The bound while open**: with a test bound small enough to reach
     (the builder's hook), read B's unread row, then open A and page up.
     With room left for fewer session-only rows than a page holds, the
