@@ -29,7 +29,7 @@
 //! binds that the view does not hold: a network the platform withholds
 //! from the app, which no peer reaches it on; and, with or without a
 //! view, every shared-address-space IP (`100.64.0.0/10`) a listener
-//! binds. The detector's `offers` is the runtime's side of the same
+//! binds (A 2026-10-27 (iii)). The detector's `offers` is the runtime's side of the same
 //! predicate.
 //!
 //! The record also COUNTS each time rule 3's answer can turn from no to
