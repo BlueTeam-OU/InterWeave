@@ -100,14 +100,14 @@ Evidence and hypotheses behind the choices below:
   listed, as are the
   conversations the session holds read rows of (look §5.2: listed
   while the app holds one of its messages). No budget leaves a
-  conversation out. A conversation whose stored rows the app can show
-  none of is not listed, as today; its rows are counted by §6.1's
-  line.
+  conversation out. A conversation with no row the app can show,
+  stored or held in the session, is not listed, as today; its
+  undecodable rows are counted by §6.1's line.
 - **Each Chats row's last message and time are those of the newest
   message the conversation has, held in the session or stored**:
   whichever is newer of the newest row the session holds (a message
   read or sent and accepted this session, which has no stored copy)
-  and the newest stored row. That is look §5.2's rule, "the last
+  and the newest stored row the app can show (§6.1). That is look §5.2's rule, "the last
   message the conversation holds in this session, received or sent",
   extended to the rows the window has not loaded; it holds unchanged
   otherwise, above all that showing a preview never reads a message.
