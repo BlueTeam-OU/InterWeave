@@ -833,10 +833,7 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
         }
         Update::Client(ClientEvent::Outbound(update)) => (
             "outbound",
-            json!({
-                "id": format!("p{}", update.row.get()),
-                "status": output::status(&ItemStatus::Outbound(update.status.clone())),
-            }),
+            outbound_fields(update.row, &ItemStatus::Outbound(update.status.clone())),
         ),
         Update::Client(ClientEvent::Session(state)) => {
             let no_daemon =
@@ -866,13 +863,26 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
     }
     let mut line = event.to_owned();
     if let Some(map) = fields.as_object() {
-        for value in map.values() {
+        // A field with no value (an outbound `problem` while there is
+        // none) is left out of the line, not printed empty.
+        for value in map.values().filter_map(serde_json::Value::as_str) {
             line.push(' ');
-            line.push_str(&output::one_line(value.as_str().unwrap_or_default()));
+            line.push_str(&output::one_line(value));
         }
     }
     line.push('\n');
     Some(line)
+}
+
+/// An outbound event's fields: the row's id, its status, and the send
+/// problem it carries (G5) -- `null` when it carries none, so a script
+/// reads one shape.
+fn outbound_fields(row: RowId, status: &ItemStatus) -> serde_json::Value {
+    json!({
+        "id": format!("p{}", row.get()),
+        "status": output::status(status),
+        "problem": output::outbound_problem(status),
+    })
 }
 
 /// How `listen` runs: its output form, whether it consumes what it
@@ -991,13 +1001,15 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
                                     .map(|m| m.status)
                             })
                         })
-                        .map_or("sending", |status| output::status(&status));
-                    Some(output::json_line(&json!({
-                        "event": "outbound",
-                        "ref": reference,
-                        "id": format!("p{}", row.get()),
-                        "status": status,
-                    })))
+                        .unwrap_or(ItemStatus::Outbound(OutboundStatus::Sending {
+                            attempts: 0,
+                            next_retry_at: None,
+                            last_problem: None,
+                        }));
+                    let mut value = outbound_fields(*row, &status);
+                    value["event"] = json!("outbound");
+                    value["ref"] = reference;
+                    Some(output::json_line(&value))
                 }
                 Update::SendRefused { error, .. } if issued.is_some() => {
                     let reference = issued.take().unwrap_or(serde_json::Value::Null);

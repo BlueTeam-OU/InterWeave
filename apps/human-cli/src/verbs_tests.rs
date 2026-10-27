@@ -483,6 +483,60 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
     );
 }
 
+/// G5: an outbound event names the send problem its status carries
+/// beside the status, `null` when there is none, so a carrier tells a
+/// refusal from a route that may come back. Mutation: the problem left
+/// out of the event.
+#[tokio::test]
+async fn an_input_sends_outbound_event_names_its_problem() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    b.inject_send(TransportError::UnauthorizedPeer);
+    let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
+    lines_in
+        .send(format!(
+            r#"{{"send":{{"conversation":"{to_alice}","text":"held","ref":"r1"}}}}"#
+        ))
+        .expect("queued");
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_000)),
+    )
+    .await
+    .expect("listened");
+    drop(lines_in);
+    let out = String::from_utf8(out).expect("utf-8");
+    let outbound: Vec<Value> = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "outbound")
+        .collect();
+    assert!(
+        outbound.iter().all(|e| e.get("problem").is_some()),
+        "every outbound event has the field: {out}"
+    );
+    assert!(
+        outbound.iter().any(|e| e["ref"] == "r1"
+            && e["status"] == "needs-attention"
+            && e["problem"] == "peer-untrusted"),
+        "{out}"
+    );
+}
+
 /// G3: `listen --consume` marks each message read once its line is
 /// written, so the store holds it unread no more. Mutation: consume
 /// marking nothing.

@@ -77,6 +77,26 @@ pub(crate) const fn send_problem(problem: SendProblem) -> &'static str {
     }
 }
 
+/// The send problem an outbound status carries, as its token: the one
+/// that holds it for attention, or the last attempt's while it is
+/// retried; none once it is terminal.
+pub(crate) const fn outbound_problem(status: &ItemStatus) -> Option<&'static str> {
+    match status {
+        ItemStatus::Outbound(
+            OutboundStatus::Sending {
+                last_problem: Some(problem),
+                ..
+            }
+            | OutboundStatus::Unconfirmed {
+                last_problem: Some(problem),
+                ..
+            }
+            | OutboundStatus::NeedsAttention { problem, .. },
+        ) => Some(send_problem(*problem)),
+        _ => None,
+    }
+}
+
 /// A refused send's token.
 pub(crate) const fn send_error(error: &SendError) -> &'static str {
     match error {
