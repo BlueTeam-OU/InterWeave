@@ -322,6 +322,7 @@ fn restore_into(path: &Path, backup: &[StoredInbound]) {
                 media_type: record.media_type.clone(),
                 payload: record.payload.clone(),
                 received_at: record.received_at,
+                kind: interweave_human_store::InboundKind::Text,
             })
             .expect("restored");
         if let (Some(read_at), Some(kept_at)) = (record.read_at, record.kept_at) {

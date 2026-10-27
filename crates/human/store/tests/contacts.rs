@@ -9,8 +9,8 @@
 mod common;
 
 use interweave_human_store::{
-    AcceptedCard, ContactRestored, HumanStore, KeyStanding, OwnCard, PhotoAccepted, RouteDeleted,
-    StoreOptions, ValueSource, name_key,
+    AcceptedCard, ContactListing, ContactRestored, HumanStore, KeyStanding, OwnCard, PhotoAccepted,
+    RouteDeleted, StoreOptions, ValueSource, name_key,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -147,7 +147,7 @@ fn a_second_card_from_the_same_route_updates_it_and_overwrites_no_local_edit() {
 fn two_same_name_cards_from_two_peer_ids_are_two_contacts_and_each_names_the_other() {
     let (_dir, mut store) = store();
     let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
-    store
+    let from_p = store
         .accept_card(&card(&p, &human, "Ada", 1), 10)
         .expect("from P");
     let from_q = card(&q, &human, "Ada", 2);
@@ -161,7 +161,7 @@ fn two_same_name_cards_from_two_peer_ids_are_two_contacts_and_each_names_the_oth
         1,
         "the same-name note names P's contact"
     );
-    assert_eq!(standing.same_name[0].routes[0].peer, p);
+    assert_eq!(standing.same_name[0].contact_id, from_p.contact_id, "P's");
     let second = store.accept_card(&from_q, 20).expect("from Q");
     assert!(second.created, "a second contact, never a merge");
     assert_eq!(store.contacts().expect("read").len(), 2);
@@ -970,4 +970,118 @@ fn a_removed_photo_leaves_both_files_before_the_call_returns() {
         "the control: the search sees the contact's name"
     );
     drop(store);
+}
+
+/// Schema v10: every writer of a contact's display name -- a new
+/// contact, a card's update, an accept undone, the person's rename, a
+/// deleted contact restored -- leaves `name_key` the key of the name it
+/// wrote, as the file holds it. Mutation: the rename without `name_key`.
+#[test]
+fn every_writer_of_a_name_keeps_its_name_key() {
+    let (dir, mut store) = store();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let keys_agree = |what: &str| {
+        let conn = rusqlite::Connection::open(&path).expect("a reader beside the store");
+        let rows: Vec<(String, String)> = conn
+            .prepare("SELECT display_name, name_key FROM contacts")
+            .expect("prepare")
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .expect("query")
+            .collect::<Result<_, _>>()
+            .expect("rows");
+        assert!(!rows.is_empty(), "{what}: control, a contact");
+        for (name, key) in rows {
+            assert_eq!(key, name_key(&name), "{what}: {name:?}");
+        }
+    };
+    let (p, human) = (peer(P), endpoint("human"));
+    let first = store
+        .accept_card(&card(&p, &human, "\u{ff21}da", 1), 10)
+        .expect("a new contact");
+    keys_agree("a new contact");
+    let second = store
+        .accept_card(&card(&p, &human, "Ada Lovelace", 1), 20)
+        .expect("an update");
+    keys_agree("a card's update");
+    assert!(store.undo_accept(&second.undo).expect("undone"));
+    keys_agree("an accept undone");
+    assert!(
+        store
+            .set_contact_name(&first.contact_id, "Countess", 30)
+            .expect("renamed")
+    );
+    keys_agree("the person's rename");
+    let deleted = store
+        .delete_contact_for_undo(&first.contact_id)
+        .expect("deleted")
+        .expect("it existed");
+    assert_eq!(
+        store.restore_contact(&deleted).expect("restored"),
+        ContactRestored::Restored
+    );
+    keys_agree("a deleted contact restored");
+}
+
+/// The Contacts list's read (j68 P2-1): every contact once, in id order,
+/// a page at a time, each with its routes and whether it has a photo but
+/// never the photo's bytes, which are read one contact at a time.
+/// Mutations: the cursor read as `>=` (a contact twice); `has_photo`
+/// always false.
+#[test]
+fn the_contact_directory_is_paged_without_photos() {
+    let (_dir, mut store) = store();
+    let human = endpoint("human");
+    let peers = [P, Q, "12D3KooWRBy97UB99e3J6hiPesre1MZeuNQvfan4gBziswrRJsNK"];
+    let mut ids = Vec::new();
+    for (n, p) in peers.iter().enumerate() {
+        let p = peer(p);
+        let photo: &[u8] = b"jpeg";
+        let accepted = store
+            .accept_card(
+                &AcceptedCard {
+                    photo: (n == 1).then_some(photo),
+                    ..card(&p, &human, &format!("Contact {n}"), 1)
+                },
+                10,
+            )
+            .expect("a contact");
+        ids.push(accepted.contact_id);
+    }
+    ids.sort();
+    let mut seen: Vec<ContactListing> = Vec::new();
+    let mut after: Option<String> = None;
+    loop {
+        let page = store
+            .contact_directory_page(after.as_deref(), 2)
+            .expect("a page");
+        assert!(page.items.len() <= 2);
+        seen.extend(page.items);
+        assert!(seen.len() <= 10, "the walk does not end");
+        match page.next {
+            Some(next) => after = Some(next),
+            None => break,
+        }
+    }
+    let seen_ids: Vec<&str> = seen.iter().map(|c| c.contact_id.as_str()).collect();
+    assert_eq!(seen_ids, ids.iter().map(String::as_str).collect::<Vec<_>>());
+    let with_photo: Vec<&str> = seen
+        .iter()
+        .filter(|c| c.has_photo)
+        .map(|c| c.display_name.as_str())
+        .collect();
+    assert_eq!(with_photo, ["Contact 1"]);
+    assert!(
+        seen.iter().all(|c| c.routes.len() == 1),
+        "each with its route"
+    );
+    let one = seen.iter().find(|c| c.has_photo).expect("one");
+    assert_eq!(
+        store
+            .contact_photo(&one.contact_id)
+            .expect("read")
+            .as_deref(),
+        Some(b"jpeg".as_slice())
+    );
+    let other = seen.iter().find(|c| !c.has_photo).expect("another");
+    assert_eq!(store.contact_photo(&other.contact_id).expect("read"), None);
 }

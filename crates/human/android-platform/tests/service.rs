@@ -761,6 +761,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
                     media_type: Some(MediaType::parse(&encoded.media_type).expect("media type")),
                     payload: encoded.bytes,
                     received_at: u64::from(serial),
+                    kind: interweave_human_store::InboundKind::Text,
                 })
                 .expect("committed unread");
         }

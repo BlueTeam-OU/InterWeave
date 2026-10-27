@@ -380,6 +380,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// # Errors
     /// The store's, when it cannot be read.
     pub fn listing(&mut self) -> Result<Listing, StoreError> {
+        // The first read of a session: kinds another build made are
+        // classified again before anything counts them.
+        listing::reclassify_if_stale(self.client.store_mut())?;
         let mut listing = listing::list_all(self.client.store_mut())?;
         self.read_card_rows()?;
         listing.identity = self.own_view()?;
@@ -1922,6 +1925,78 @@ mod tests {
     use interweave_profile_identity::ProfileIdentity;
     use interweave_transport_api::MediaType;
 
+    /// The session's first listing classifies rows no client has
+    /// classified -- every row `other`, as schema v10 leaves them -- before
+    /// anything counts them. Mutation: `listing` without the
+    /// reclassification.
+    #[test]
+    fn the_first_listing_classifies_the_stored_rows() {
+        let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
+        let config = || FakeConfig {
+            peer: ProfileIdentity::generate()
+                .transport_identity()
+                .expect("peer"),
+            endpoints: vec![FakeEndpoint::open(human.clone(), false)],
+            default_endpoint: Some(human.clone()),
+            queue_bound: 4,
+        };
+        let (node, _) = FakeNetwork::pair(config(), config());
+        let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let media =
+            MediaType::parse("application/vnd.interweave-human-chat+json;v=2").expect("media");
+        let text = br#"{"v":2,"kind":"text","app_message_id":"000000000000000000000000000000aa","text":"a"}"#;
+        for (id, payload) in [
+            ("000000000000000000000000000000aa", text.to_vec()),
+            ("000000000000000000000000000000ab", b"garbled".to_vec()),
+        ] {
+            store
+                .commit_unread_inbound(&NewInbound {
+                    app_message_id: AppMessageId::parse(id.to_owned()).expect("id"),
+                    origin: InboundOrigin {
+                        peer: node.peer().clone(),
+                        endpoint: Some(human.clone()),
+                        channel: None,
+                    },
+                    media_type: Some(media.clone()),
+                    payload,
+                    received_at: 1,
+                    kind: interweave_human_store::InboundKind::Other,
+                })
+                .expect("committed");
+        }
+        let client = TransportClient::new(
+            node.clone(),
+            node,
+            store,
+            ClientConfig {
+                client_kind: "human-client".to_owned(),
+                endpoints: vec![human],
+                channels: vec![],
+                max_payload_bytes: 49_152,
+            },
+            Box::new(|| 1),
+            0,
+        )
+        .expect("facade");
+        let mut side = FacadeSide::new(client, || 1);
+        side.listing().expect("listed");
+        let kinds: Vec<_> = side
+            .client
+            .store_mut()
+            .unread_inbound()
+            .expect("read")
+            .iter()
+            .map(|r| r.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                interweave_human_store::InboundKind::Text,
+                interweave_human_store::InboundKind::Other
+            ]
+        );
+    }
+
     /// The facade reports unread content it holds but did not hand over:
     /// the facade side lists the unread rows again, decoded, with the
     /// undecodable ones counted.
@@ -1941,9 +2016,17 @@ mod tests {
         let media =
             MediaType::parse("application/vnd.interweave-human-chat+json;v=2").expect("media");
         let held = br#"{"v":2,"kind":"text","app_message_id":"000000000000000000000000000000aa","text":"held back"}"#;
-        for (id, payload) in [
-            ("000000000000000000000000000000aa", held.to_vec()),
-            ("000000000000000000000000000000ab", b"garbled".to_vec()),
+        for (id, payload, kind) in [
+            (
+                "000000000000000000000000000000aa",
+                held.to_vec(),
+                interweave_human_store::InboundKind::Text,
+            ),
+            (
+                "000000000000000000000000000000ab",
+                b"garbled".to_vec(),
+                interweave_human_store::InboundKind::Other,
+            ),
         ] {
             store
                 .commit_unread_inbound(&NewInbound {
@@ -1956,6 +2039,7 @@ mod tests {
                     media_type: Some(media.clone()),
                     payload,
                     received_at: 1,
+                    kind,
                 })
                 .expect("committed");
         }

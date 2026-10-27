@@ -11,7 +11,7 @@ use interweave_human_chat_protocol::{
 use interweave_human_client_api::ReceivedCard;
 use interweave_human_store::identity_key::Fingerprint;
 use interweave_human_store::{
-    AcceptedCard, CardStanding, Contact, HumanStore, InboundOrigin, KeyStanding,
+    AcceptedCard, CardStanding, Contact, ContactName, HumanStore, InboundOrigin, KeyStanding,
     OutboundDestination, PendingOutbound, ReadEphemeral, RowId, StoreError, ValueSource,
 };
 use interweave_human_ui_model::{
@@ -40,7 +40,7 @@ fn fingerprint(key: &[u8; 32]) -> String {
     Fingerprint::of(key).to_string()
 }
 
-fn refs(contacts: &[Contact]) -> Vec<ContactRef> {
+fn refs(contacts: &[ContactName]) -> Vec<ContactRef> {
     contacts
         .iter()
         .map(|c| ContactRef {
