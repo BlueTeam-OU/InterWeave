@@ -70,6 +70,15 @@ fn facade(
     profile: &Profile,
     key: Option<IdentityKey>,
 ) -> FacadeSide<FakeNode, FakeNode> {
+    facade_with_wall(node, profile, key, || WALL)
+}
+
+fn facade_with_wall(
+    node: &FakeNode,
+    profile: &Profile,
+    key: Option<IdentityKey>,
+    wall: impl Fn() -> u64 + Send + Sync + 'static,
+) -> FacadeSide<FakeNode, FakeNode> {
     let store =
         HumanStore::open_profile(&profile.paths, &FilesystemCustody, StoreOptions::default())
             .expect("store");
@@ -87,7 +96,7 @@ fn facade(
         0,
     )
     .expect("facade");
-    let mut side = FacadeSide::new(client, || WALL);
+    let mut side = FacadeSide::new(client, wall);
     if let Some(key) = key {
         side.set_identity_key(key);
     }
@@ -1817,6 +1826,84 @@ async fn a_card_is_shared_when_it_is_accepted_and_not_before() {
     );
     drop(alice);
     assert_eq!(stored_share(&pa, &b), Some(WALL));
+}
+
+/// #467 F1: a card row pending from before a restart is a share once it
+/// is accepted, though no view ever listed the store -- the Android
+/// service runs turns from its start and lists only for a view.
+/// Mutation: the pending rows read only by a listing.
+#[tokio::test]
+async fn a_card_pending_across_a_restart_is_shared_with_no_listing() {
+    use interweave_transport_api::TransportError;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    a.inject_send(TransportError::Overloaded);
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(1).await;
+    drop(alice);
+    a.restart();
+    // The service's facade: turns, and never a listing.
+    let mut side = facade(&a, &pa, Some(key_of(&pa)));
+    let mut told = Vec::new();
+    for at in 2..6 {
+        told.extend(side.turn(at * 60_000).await);
+    }
+    assert!(
+        told.iter().any(|u| matches!(u, Update::CardShared { .. })),
+        "told: {told:?}"
+    );
+    drop(side);
+    assert_eq!(stored_share(&pa, &b), Some(WALL));
+}
+
+/// #467 F5: a share the store refuses to record at Accepted is said once
+/// as such and written at the next turn, never lost with its row. The
+/// refusal is a time the store cannot hold; the share is recorded at
+/// the write that holds. Mutation: the owed share dropped.
+#[tokio::test]
+async fn a_share_the_store_refuses_at_accepted_is_written_at_the_next_turn() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let clock = Arc::new(AtomicU64::new(WALL));
+    let wall = Arc::clone(&clock);
+    let mut alice = Root::new(facade_with_wall(&a, &pa, Some(key_of(&pa)), move || {
+        wall.load(Ordering::Relaxed)
+    }));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let to_bob = direct(b.peer());
+    // Not taken at once, so it is accepted at a later turn.
+    a.inject_send(interweave_transport_api::TransportError::Overloaded);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(1).await;
+    assert_eq!(alice.model().card_shared_at(&to_bob), None);
+    alice.updates.clear();
+    // Accepted while the wall reads past what the store holds.
+    clock.store(u64::MAX, Ordering::Relaxed);
+    for at in 2..4 {
+        alice.pump(at * 60_000).await;
+    }
+    let refused = alice
+        .updates
+        .iter()
+        .filter(|u| matches!(u, Update::ShareNotRecorded(_)))
+        .count();
+    assert_eq!(refused, 1, "said once: {:?}", alice.updates);
+    assert_eq!(alice.model().card_shared_at(&to_bob), None);
+    clock.store(WALL, Ordering::Relaxed);
+    alice.pump(5 * 60_000).await;
+    assert_eq!(
+        alice.model().card_shared_at(&to_bob),
+        Some(WALL),
+        "written at the next turn"
+    );
 }
 
 /// A cancelled card brought back by its Undo is pending again, and its

@@ -79,6 +79,9 @@ pub enum Problem {
     /// A card's answer or its Undo was carried out, and the cards or
     /// contacts could not be read back afterwards.
     CardsNotRead(Failure),
+    /// An own card was accepted and its share could not be recorded yet;
+    /// the facade writes it again at each turn.
+    ShareNotRecorded(Failure),
 }
 
 /// How many problems wait for [`ModelSide::take_problems`], at most; past
@@ -213,6 +216,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::ProposalRestored(proposal) => self.model.card_restored(*proposal),
             Update::ProposalNotRestored(row) => self.model.card_not_restored(row),
             Update::CardsNotRead(why) => self.problem(Problem::CardsNotRead(why)),
+            Update::ShareNotRecorded(why) => self.problem(Problem::ShareNotRecorded(why)),
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
             Update::ContactChanged {
                 contact_id,

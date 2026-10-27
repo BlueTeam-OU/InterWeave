@@ -392,6 +392,11 @@ impl Root {
                         "cards or contacts could not be read back: {why:?}"
                     ));
                 }
+                Problem::ShareNotRecorded(why) => {
+                    log(&format!(
+                        "a card was accepted and its share could not be recorded yet: {why:?}"
+                    ));
+                }
             }
         }
     }

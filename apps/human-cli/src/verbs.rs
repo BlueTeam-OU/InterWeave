@@ -176,6 +176,7 @@ pub(crate) fn problems<B: DataSessionBinding, A: AdminBinding>(
         Problem::Command { command, why } => (command_name(&command), why),
         Problem::UnreadNotListed(why) => ("listing the unread messages", why),
         Problem::CardsNotRead(why) => ("reading the cards and contacts back", why),
+        Problem::ShareNotRecorded(why) => ("recording a card's share", why),
     };
     Err(match why {
         Why::StorageUnavailable => {

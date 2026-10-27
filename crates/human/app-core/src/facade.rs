@@ -74,12 +74,22 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// the facade holds as not confirmed reads "Sending" until its next
     /// attempt fails (#304 F10).
     outbound: BTreeMap<RowId, OutboundUpdate>,
-    /// Each own card row still pending, with its conversation: queued by
-    /// Share, listed at start, or brought back by an Undo of its Cancel.
-    /// Held here because the store drops the row before its Accepted is
-    /// told, and that Accepted is what writes `card_shared_at` (cards
-    /// section 5.3).
+    /// Each own card row still pending, with its conversation: read from
+    /// the store before the facade's first turn or command sends anything
+    /// (`card_rows_read`), queued by Share, or brought back by an Undo of
+    /// its Cancel. Held here because the store drops the row before its
+    /// Accepted is told, and that Accepted is what writes `card_shared_at`
+    /// (cards section 5.3).
     card_rows: BTreeMap<RowId, ConversationKey>,
+    /// Whether the store's pending own card rows are in `card_rows`: read
+    /// once, at the first turn or command -- not by a listing, which on
+    /// Android waits for a view while the facade runs (#467 F1) -- and
+    /// read again at the next while a read fails.
+    card_rows_read: bool,
+    /// Shares accepted whose `card_shared_at` write failed: written again
+    /// at each turn until it holds (#467 F5), since the row that told it
+    /// is gone, at the wall clock of the write that holds.
+    shares_owed: Vec<ConversationKey>,
     /// The identity's own key, which signs its card: opened or made from
     /// the root's [`crate::KeySource`] ([`Self::set_key_source`]), made
     /// anew by `MakeNewKey`, or set directly by a test
@@ -276,6 +286,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             reported: None,
             outbound: BTreeMap::new(),
             card_rows: BTreeMap::new(),
+            card_rows_read: false,
+            shares_owed: Vec::new(),
             identity: None,
             key_source: None,
             key_problem: None,
@@ -369,15 +381,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// The store's, when it cannot be read.
     pub fn listing(&mut self) -> Result<Listing, StoreError> {
         let mut listing = listing::list_all(self.client.store_mut())?;
-        for (row, peer, endpoint) in cards::own_cards_pending(self.client.store_mut())? {
-            self.card_rows.insert(
-                row,
-                ConversationKey::Direct {
-                    peer,
-                    endpoint: Some(endpoint),
-                },
-            );
-        }
+        self.read_card_rows()?;
         listing.identity = self.own_view()?;
         Ok(listing)
     }
@@ -387,6 +391,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// caller's monotonic clock in milliseconds.
     pub async fn turn(&mut self, now: u64) -> Vec<Update> {
         let mut updates = Vec::new();
+        self.card_rows_due(&mut updates);
+        self.shares_due(&mut updates);
         // Boxed: the facade's futures are large.
         Box::pin(self.client.tick(now)).await;
         let received = Box::pin(self.client.drain_inbound(DRAIN_PER_TURN, now)).await;
@@ -597,6 +603,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// [`Update::Failed`] for it, whatever happened.
     pub async fn execute(&mut self, command: Command, now: u64) -> Vec<Update> {
         let mut updates = Vec::new();
+        self.card_rows_due(&mut updates);
         let outcome: Result<(), Failure> = match &command {
             Command::Send { key, draft } => {
                 updates.push(self.send(key, draft, now).await);
@@ -1086,7 +1093,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
 
     /// Share: the identity's own card, signed by its key for the route it
     /// leaves on, this node's `PeerId` and the leased endpoint, sent to
-    /// the conversation's route and recorded as shared there.
+    /// the conversation's route; the share is recorded when its row is
+    /// accepted ([`Self::card_accepted`]).
     async fn share_card(
         &mut self,
         key: &ConversationKey,
@@ -1147,19 +1155,74 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// conversation's `card_shared_at` is written now and by nothing
     /// earlier (cards section 5.3, architect-cto's ruling of 2026-10-27),
     /// so Details never names a share a cancel could still stop. A write
-    /// that fails is said; the card went all the same.
+    /// that fails is said as such and owed: written again at each turn
+    /// ([`Self::shares_due`]), since the card went all the same.
     fn card_accepted(&mut self, key: ConversationKey, updates: &mut Vec<Update>) {
+        if let Err(why) = self.record_share(&key, updates) {
+            updates.push(Update::ShareNotRecorded(why));
+            self.shares_owed.push(key);
+        }
+    }
+
+    /// Write a share now and tell it: `Err` when the store refused the
+    /// write.
+    fn record_share(
+        &mut self,
+        key: &ConversationKey,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
         let ConversationKey::Direct {
             peer,
             endpoint: Some(to),
-        } = &key
+        } = key
         else {
-            return;
+            return Ok(());
         };
         let at = (self.wall)();
-        match self.client.store_mut().mark_card_shared(peer, to, at) {
-            Ok(()) => updates.push(Update::CardShared { key, at }),
-            Err(e) => say(updates, Update::CardsNotRead(store_failure(&e))),
+        self.client
+            .store_mut()
+            .mark_card_shared(peer, to, at)
+            .map_err(|e| store_failure(&e))?;
+        updates.push(Update::CardShared {
+            key: key.clone(),
+            at,
+        });
+        Ok(())
+    }
+
+    /// Every owed share written again, quietly: its failure was said once
+    /// when it was accepted. Recorded at this write's time, at most a turn
+    /// after its Accepted while the store takes writes.
+    fn shares_due(&mut self, updates: &mut Vec<Update>) {
+        for key in std::mem::take(&mut self.shares_owed) {
+            if self.record_share(&key, updates).is_err() {
+                self.shares_owed.push(key);
+            }
+        }
+    }
+
+    /// The store's pending own card rows, read into `card_rows` once.
+    fn read_card_rows(&mut self) -> Result<(), StoreError> {
+        if self.card_rows_read {
+            return Ok(());
+        }
+        for (row, peer, endpoint) in cards::own_cards_pending(self.client.store_mut())? {
+            self.card_rows
+                .entry(row)
+                .or_insert(ConversationKey::Direct {
+                    peer,
+                    endpoint: Some(endpoint),
+                });
+        }
+        self.card_rows_read = true;
+        Ok(())
+    }
+
+    /// [`Self::read_card_rows`] before a turn or a command can send, a
+    /// failure said and the read tried again at the next.
+    fn card_rows_due(&mut self, updates: &mut Vec<Update>) {
+        if let Err(e) = self.read_card_rows() {
+            say(updates, Update::CardsNotRead(store_failure(&e)));
         }
     }
 
@@ -1464,16 +1527,15 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// copies. The model replaces each it still holds, by its row
     /// ([`Update::ProposalJudged`]).
     fn proposals_again(&mut self, updates: &mut Vec<Update>) {
-        match listing::list_unread(self.client.store_mut()) {
-            Ok((_, unshown, _)) => {
-                for card in unshown {
-                    say(
-                        updates,
-                        judged(cards::proposal(self.client.store_mut(), card)),
-                    );
-                }
+        if let Some((_, unshown, _)) =
+            read_or_said(listing::list_unread(self.client.store_mut()), updates)
+        {
+            for card in unshown {
+                say(
+                    updates,
+                    judged(cards::proposal(self.client.store_mut(), card)),
+                );
             }
-            Err(e) => say(updates, Update::CardsNotRead(store_failure(&e))),
         }
         let shown: Vec<_> = self
             .copies
@@ -1768,6 +1830,18 @@ fn undo_answer<S: CardStore>(
         say(updates, contacts_update(store));
     }
     Ok(restored)
+}
+
+/// A read of the cards after a change, or `None` with its failure said:
+/// what is shown may lag the store, said once per command (#467 F4).
+fn read_or_said<T>(read: Result<T, StoreError>, updates: &mut Vec<Update>) -> Option<T> {
+    match read {
+        Ok(read) => Some(read),
+        Err(e) => {
+            say(updates, Update::CardsNotRead(store_failure(&e)));
+            None
+        }
+    }
 }
 
 /// Push `update`, unless it is a [`Update::CardsNotRead`] and the
@@ -2187,6 +2261,22 @@ mod tests {
             "every share, then the cards on their way, once each"
         );
         assert!(said.is_empty());
+    }
+
+    /// #467 F4: the unread listing that fails while proposals are judged
+    /// again is a card read failure, said once per command.
+    #[test]
+    fn a_failed_listing_of_proposals_is_one_card_read_failure() {
+        let failed = || Err::<(), _>(StoreError::Corrupt("told to".to_owned()));
+        let mut said = Vec::new();
+        assert_eq!(super::read_or_said(failed(), &mut said), None);
+        assert_eq!(said, vec![Update::CardsNotRead(Failure::Corrupt)]);
+        assert_eq!(super::read_or_said(failed(), &mut said), None);
+        assert_eq!(said.len(), 1, "said once");
+        assert_eq!(
+            super::read_or_said(Ok::<_, StoreError>(7), &mut said),
+            Some(7)
+        );
     }
 
     /// A proposal the store cannot judge again is a failure to read the

@@ -197,6 +197,11 @@ impl<S: Surface, O: Opener> App<S, O> {
                 Problem::CardsNotRead(why) => {
                     eprintln!("human-desktop: cards or contacts could not be read back: {why:?}");
                 }
+                Problem::ShareNotRecorded(why) => {
+                    eprintln!(
+                        "human-desktop: a card was accepted and its share could not be recorded yet: {why:?}"
+                    );
+                }
             }
         }
     }

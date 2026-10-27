@@ -229,6 +229,10 @@ pub enum Update {
     /// A card's answer or its Undo was carried out, and reading the cards
     /// or contacts back afterwards failed: what is shown may lag the store.
     CardsNotRead(Failure),
+    /// An own card was accepted and the store refused to record the share
+    /// (`card_shared_at`): the facade writes it again at each turn until
+    /// it holds, and says this once.
+    ShareNotRecorded(Failure),
     /// The contacts, after a change to them.
     ContactsListed(Vec<ContactView>),
     /// A contact was deleted, or its photo removed, and the facade side
