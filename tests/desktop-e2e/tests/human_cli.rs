@@ -1514,8 +1514,7 @@ async fn the_control_plane_carrier_sends_consumes_and_names_its_endpoint() {
         l["event"] == "message" && l["text"] == "consumed by the carrier"
     });
     assert_eq!(message["local_endpoint"], "human", "G6");
-    // Read once printed: wait for the mark, then stop.
-    std::thread::sleep(Duration::from_millis(500));
+    // Read as printed, before listen looks at the stop: no wait here.
     drop(input);
     listener.stop();
     let out = human(&b, &["store", "health", "--json"], "");
