@@ -2191,7 +2191,7 @@ and are for them to write.
 | `CardNotification` | You received a contact card. | notification body; never the name |
 | `AnnounceCard` | New contact card | live announcement |
 | `CardSentLabel` | You shared your card | own card row |
-| `CardSentPhoto` | The card includes your photo. | own card row, accessible description only, when the card as sent carried a photo (§8), read in every state of the row, so it claims no delivery; proposal, language-culture's to word |
+| `CardSentPhoto` | The card includes your photo. | own card row, accessible description only, when the card as sent carried a photo (§8), read in every state of the row, so it claims no delivery |
 | `AddAsContact` / `OpenContact` | Add as a contact / Open contact | Details |
 | `DetailsNoCard` | You have not shared your card here. | Details |
 | `ContactsEmpty` | One identity: You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. Two or more: {front} has no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty; with two or more identities it is this identity's list that is empty, and the text must not suggest the person has no contacts at all (language-culture to judge whether it needs saying) |
