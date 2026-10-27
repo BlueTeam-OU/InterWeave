@@ -984,10 +984,9 @@ async fn a_peer_that_left_is_not_judged_again_when_a_private_listener_binds() {
         "the far end dials the subject over loopback"
     );
     let deadline = tokio::time::Instant::now() + PATIENCE;
-    while book(&subject.runtime)
+    while !book(&subject.runtime)
         .refused
-        .get("private_without_private_listener")
-        .is_none()
+        .contains_key("private_without_private_listener")
     {
         assert!(
             tokio::time::Instant::now() < deadline,
