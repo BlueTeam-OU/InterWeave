@@ -801,7 +801,7 @@ async fn a_private_listener_bound_after_a_refusal_widens_the_boundary_and_admits
     let ip = interweave_test_support::net::require_private_interface_v4();
     let (subject_id, far_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
     let far_peer = far_id.transport_identity().expect("peer id");
-    let mut subject = node(&[&far_peer], &subject_id);
+    let subject = node(&[&far_peer], &subject_id);
     let widenings = subject.runtime.listener_widenings();
     let candidate = || ["/ip4/10.1.2.3/tcp/4001".to_owned()];
     let _loopback = subject
