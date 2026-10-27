@@ -531,6 +531,12 @@ pub struct HolePunchScope {
     reissued_in_flight: HashMap<ConnectionId, Reissue>,
     /// Dials to hand the Swarm before the crate's next action.
     actions: VecDeque<libp2p::swarm::dial_opts::DialOpts>,
+    /// The dial ids whose failure `to_crate` handed the crate, for the
+    /// tests: the crate answers only the failure of a dial it minted,
+    /// and no unit test can make it mint one, so what reaches it is
+    /// read here or nowhere.
+    #[cfg(test)]
+    failures_handed: Vec<ConnectionId>,
 }
 
 /// A dial this wrapper issued in place of one of the crate's: the peer,
@@ -567,6 +573,8 @@ impl HolePunchScope {
             replacement_dials: HashMap::new(),
             reissued_in_flight: HashMap::new(),
             actions: VecDeque::new(),
+            #[cfg(test)]
+            failures_handed: Vec::new(),
         }
     }
 
@@ -629,10 +637,9 @@ impl HolePunchScope {
         {
             return false;
         }
-        self.inner
-            .on_swarm_event(FromSwarm::NewExternalAddrCandidate(
-                libp2p::swarm::behaviour::NewExternalAddrCandidate { addr: address },
-            ));
+        self.to_crate(FromSwarm::NewExternalAddrCandidate(
+            libp2p::swarm::behaviour::NewExternalAddrCandidate { addr: address },
+        ));
         self.publish();
         true
     }
@@ -1009,6 +1016,18 @@ impl HolePunchScope {
         c.cooldown_peers = self.cooldown.len();
         c.listeners_offered = self.offered.len();
     }
+
+    /// A swarm event told to the crate. Every `DialFailure` the crate
+    /// hears goes through here, so the tests read which ones it was
+    /// handed (`failures_handed`); the candidate replay after a network
+    /// change tells the crate directly, holding `observed` borrowed.
+    fn to_crate(&mut self, event: FromSwarm<'_>) {
+        #[cfg(test)]
+        if let FromSwarm::DialFailure(failure) = &event {
+            self.failures_handed.push(failure.connection_id);
+        }
+        self.inner.on_swarm_event(event);
+    }
 }
 
 fn is_relayed(address: &Multiaddr) -> bool {
@@ -1255,7 +1274,8 @@ impl NetworkBehaviour for HolePunchScope {
                     // `a_reissued_dial_leaves_the_map_with_its_attempt`),
                     // so its late failure is found in neither map; this
                     // arm serves a reissue the Swarm refused before the
-                    // hook after its attempt ended, which no test reaches.
+                    // hook after its attempt ended
+                    // (`a_reissue_refused_before_the_hook_after_its_attempt_ended_hands_the_crate_nothing`).
                     // The property on the wire, for an admitted one:
                     // `a_late_failure_of_a_reissued_dial_opens_no_second_round`.
                     None => {}
@@ -1286,7 +1306,7 @@ impl NetworkBehaviour for HolePunchScope {
                     // `a_reissued_dials_failure_is_the_crates_and_the_far_ends_dial_still_punches`
                     // the verdict.
                     Some(_) => {
-                        self.inner.on_swarm_event(FromSwarm::DialFailure(
+                        self.to_crate(FromSwarm::DialFailure(
                             libp2p::swarm::behaviour::DialFailure {
                                 peer_id: failure.peer_id,
                                 error: failure.error,
@@ -1333,7 +1353,7 @@ impl NetworkBehaviour for HolePunchScope {
             }
             self.counters.lock().observed_kept = self.observed.len();
         }
-        self.inner.on_swarm_event(event);
+        self.to_crate(event);
     }
 
     fn on_connection_handler_event(
@@ -2384,6 +2404,81 @@ mod tests {
             s.reissued_in_flight.is_empty(),
             "but not held: no attempt bounds it"
         );
+    }
+
+    /// A reissued dial the Swarm refused before the hook -- a sibling
+    /// behaviour denied it first -- whose failure arrives after the far
+    /// end's punch ended its attempt hands the crate nothing, under
+    /// either id: the crate would answer the failure of the dial it
+    /// minted with another CONNECT round after the success. The control
+    /// beside it: the same failure while the attempt is in flight is
+    /// handed on under the crate's dial id.
+    #[test]
+    fn a_reissue_refused_before_the_hook_after_its_attempt_ended_hands_the_crate_nothing() {
+        for in_flight in [true, false] {
+            let mut s = scope(HolePunchBudgets::default());
+            let a = peer();
+            assert!(matches!(relayed_inbound(&mut s, 1, a), Either::Left(_)));
+            let crates = ConnectionId::new_unchecked(2);
+            s.punch_dials.insert(crates, a);
+            assert!(
+                s.handle_pending_outbound_connection(
+                    crates,
+                    Some(a),
+                    &[direct(), loopback()],
+                    Endpoint::Listener
+                )
+                .is_err(),
+                "the crate's dial is filtered"
+            );
+            let reissued = next_dial(&mut s).connection_id();
+            assert!(s.replacement_dials.contains_key(&reissued), "and reissued");
+            if !in_flight {
+                direct_inbound(&mut s, 3, a);
+                assert!(!s.is_punching(&a), "the far end's punch ended it");
+            }
+            drain(&mut s);
+            let aborted = libp2p::swarm::DialError::Aborted;
+            s.on_swarm_event(FromSwarm::DialFailure(
+                libp2p::swarm::behaviour::DialFailure {
+                    peer_id: Some(a),
+                    error: &aborted,
+                    connection_id: crates,
+                },
+            ));
+            let denied = libp2p::swarm::DialError::Denied {
+                cause: ConnectionDenied::new(std::io::Error::other("a sibling's refusal")),
+            };
+            s.on_swarm_event(FromSwarm::DialFailure(
+                libp2p::swarm::behaviour::DialFailure {
+                    peer_id: Some(a),
+                    error: &denied,
+                    connection_id: reissued,
+                },
+            ));
+            assert!(s.replacement_dials.is_empty(), "the reissue is forgotten");
+            assert!(s.reissued_in_flight.is_empty());
+            assert!(!s.cooldown.contains_key(&a), "nothing cools down");
+            assert!(
+                !drain(&mut s)
+                    .iter()
+                    .any(|e| matches!(e, HolePunchEvent::Ended { .. })),
+                "and nothing ends"
+            );
+            if in_flight {
+                assert_eq!(
+                    s.failures_handed,
+                    vec![crates],
+                    "in flight, the crate's dial failed"
+                );
+                assert!(s.is_punching(&a), "the attempt is the crate's to end");
+            } else {
+                assert!(
+                    s.failures_handed.is_empty(),
+                    "over, the crate is handed nothing"
+                );
+            }
+        }
     }
 
     /// A reissued dial that fails after a network change gave its
