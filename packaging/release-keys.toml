@@ -35,4 +35,4 @@ tf2JfgA=
 [archive]
 # The minisign public key that signs the Linux archive: the second line
 # of the .pub file `minisign -G` writes, RW followed by 54 characters.
-minisign_public_key = ""
+minisign_public_key = "RWThBWgfksKOWwyUdI0RKNXvsbRU5wqjGS3PPQc0oJ6R9rjV1kPoiJs4"
