@@ -626,16 +626,22 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     that was just below the limit row, and the bound drops rows as in
     item 12. With focus on the row above the gap, let a further page of
     the gap arrive from the upper side: focus stays on that row and the
-    view does not move. (d) Close A and reopen it, so that paging asks
-    again (§7.1); make a gap with more unread rows than two pages
-    bring (the two this step loads), as in (a), with the bound within reach. Coming from below,
-    make the gap's next read fail. The failure row shows
-    directly above the gap's line; press Try again with focus on it:
-    focus is on the gap's line, and stays there once the page arrives,
-    since the gap still holds unread rows. With the bound within reach, the limit
-    row shows directly above the line; press `EarlierShowAnyway` with
-    focus on it: focus is on the line. In a gap with no unread rows,
-    the same steps put focus on the row below the gap.
+    view does not move. (d) Set the session bound out of reach again (the hook of
+    item 12). Close A and reopen it, so that paging asks again (§7.1),
+    and make a gap holding more unread rows than two pages bring, as in
+    (a). Make the gap's next read fail, and scroll up until the row
+    below the gap comes into view. The failure row shows directly above
+    the gap's line. Remove the failure, move focus to Try again and
+    press it: focus is on the gap's line, and stays there once the page
+    arrives, since the gap still holds unread rows. Now set the bound
+    so that the session holds as many session-only rows as it allows,
+    as in item 12, and move focus down from the line to the row below
+    the gap and back up to the line. The limit row shows directly above
+    the line, with nothing dropped. Press `EarlierShowAnyway` with
+    focus on it: focus is on the line. Repeat (d) with a gap holding no
+    unread rows, made as in (b): the failure row and the limit row show
+    directly above the row below the gap, and both presses put focus on
+    the row below the gap.
 15. **Photos on demand** (§11), with photo loads slowed by a test hook.
     The Contacts list, Chats and the app bar show a contact's initials
     on its hue, at the photo's size, then the photo in its place:
