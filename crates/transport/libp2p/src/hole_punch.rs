@@ -1242,9 +1242,13 @@ impl NetworkBehaviour for HolePunchScope {
                     // OVER (the far end's dial was the punch, or it ended
                     // any other way): nothing to hand on. The crate would
                     // answer with another CONNECT round after the success
-                    // -- the rule the crate's own dials follow below.
-                    // `a_late_failure_of_a_reissued_dial_opens_no_second_round`
-                    // pins it on the wire.
+                    // -- the rule the crate's own dials follow below. An
+                    // ADMITTED reissue never gets here, since the
+                    // attempt's end takes it out of `reissued_in_flight`
+                    // (`a_reissued_dial_leaves_the_map_with_its_attempt`);
+                    // this arm is for one the Swarm refused before the
+                    // hook. The property on the wire, through either:
+                    // `a_late_failure_of_a_reissued_dial_opens_no_second_round`.
                     None => {}
                     // GIVEN UP by a network change: the crate that minted
                     // the dial was replaced and knows nothing of it, so

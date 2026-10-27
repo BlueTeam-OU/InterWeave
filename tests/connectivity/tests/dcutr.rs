@@ -1671,7 +1671,8 @@ async fn a_filtered_punch_from_the_initiating_end_opens_one_connect_round() {
 /// relay's Identify can observe it, so the Swarm hands no behaviour that
 /// observation. The subject's punch dial is therefore filtered (the
 /// loopback candidate removed) and reissued to `candidate` alone.
-/// `refuse_own` makes the bare peer refuse its own punch dials.
+/// `refuse_own` makes the bare peer refuse its own punch dials;
+/// `dcutr` is the subject's DCUtR settings.
 struct FilteredFarEnd {
     relay: libp2p::Swarm<RelayBehaviour>,
     subject: SwarmRuntime,
@@ -1689,6 +1690,7 @@ async fn filtered_far_end(
     ip: Ipv4Addr,
     candidate: &Multiaddr,
     refuse_own: bool,
+    dcutr: DcutrSettings,
     preauth: Option<interweave_transport_runtime::preauth::PreAuthLimits>,
 ) -> FilteredFarEnd {
     let bare_keys = identity::Keypair::generate_ed25519();
@@ -1703,7 +1705,7 @@ async fn filtered_far_end(
         ip,
         |client| SubstrateConfig {
             relay_client: Some(client),
-            dcutr: Some(punching()),
+            dcutr: Some(dcutr),
             preauth: preauth.unwrap_or_default(),
             ..SubstrateConfig::default()
         },
@@ -1872,7 +1874,7 @@ fn dead_on(ip: Ipv4Addr) -> Multiaddr {
 async fn a_filtered_punch_dial_that_fails_leaves_the_far_ends_punch_to_land() {
     let ip = interweave_test_support::net::require_private_interface_v4();
     let dead = dead_on(ip);
-    let mut run = filtered_far_end(ip, &dead, false, None).await;
+    let mut run = filtered_far_end(ip, &dead, false, punching(), None).await;
     run.until("the refusal, the ending and the punch", PATIENCE, |r| {
         r.refused_at(&dead).is_some() && r.ending().is_some() && r.bare_successes >= 1
     })
@@ -1926,7 +1928,7 @@ async fn a_filtered_punch_dial_that_fails_leaves_the_far_ends_punch_to_land() {
 async fn a_filtered_punch_whose_far_end_cannot_dial_ends_at_the_crates_ceiling() {
     let ip = interweave_test_support::net::require_private_interface_v4();
     let dead = dead_on(ip);
-    let mut run = filtered_far_end(ip, &dead, true, None).await;
+    let mut run = filtered_far_end(ip, &dead, true, punching(), None).await;
     run.until("the attempt's ending", PATIENCE, |r| r.ending().is_some())
         .await;
     let counters = run
@@ -1956,7 +1958,9 @@ async fn a_filtered_punch_whose_far_end_cannot_dial_ends_at_the_crates_ceiling()
 /// handshake timeout -- by then the bare peer's own punch has ended the
 /// attempt. A failure after the attempt is over is handed to nobody:
 /// handed to the crate, it opened another CONNECT round after the
-/// success, and the bare peer punched a second time.
+/// success, and the bare peer punched a second time. The stability
+/// interval is set past the handshake timeout so the relayed connection,
+/// which a stable punch retires, is still there to carry such a round.
 #[tokio::test]
 async fn a_late_failure_of_a_reissued_dial_opens_no_second_round() {
     let ip = interweave_test_support::net::require_private_interface_v4();
@@ -1980,7 +1984,11 @@ async fn a_late_failure_of_a_reissued_dial_opens_no_second_round() {
     }
     .build()
     .expect("a shorter handshake narrows the specified policy");
-    let mut run = filtered_far_end(ip, &mute_addr, false, Some(limits)).await;
+    let held_relay = DcutrSettings {
+        direct_stability_period_ms: 4 * u64::try_from(handshake.as_millis()).expect("fits"),
+        ..DcutrSettings::default()
+    };
+    let mut run = filtered_far_end(ip, &mute_addr, false, held_relay, Some(limits)).await;
     run.until(
         "the punch, then the reissued dial's late failure",
         PATIENCE,
@@ -2000,6 +2008,13 @@ async fn a_late_failure_of_a_reissued_dial_opens_no_second_round() {
     assert!(
         !held.lock().expect("unpoisoned").is_empty(),
         "the reissued dial reached the mute listener"
+    );
+    assert!(
+        !run.events[..failed_at]
+            .iter()
+            .any(|e| matches!(e, SwarmEvent::RelayedConnectionRetired { .. })),
+        "the relayed connection was there to carry a second round: {:?}",
+        run.events
     );
     run.settle(WINDOW).await;
     assert_eq!(
