@@ -6109,7 +6109,9 @@ export component AppWindow inherits Window {
                         }
                         Timer {
                             interval: Touch.long-press;
-                            running: row-touch.pressed && !row-touch.drifted
+                            // No tick on a row with no menu: an accepted
+                            // own card row (contact-cards 5.5, item 27).
+                            running: row.has-menu && row-touch.pressed && !row-touch.drifted
                                 && !row-touch.fired && root.row-menu != row.handle && !root.swipe-tracking;
                             triggered => {
                                 row-touch.fired = true;
