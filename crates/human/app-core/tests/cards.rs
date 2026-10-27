@@ -1906,25 +1906,104 @@ async fn a_share_the_store_refuses_at_accepted_is_written_at_the_next_turn() {
     );
 }
 
-/// #467 F6: a share owed when Make a new key runs -- accepted with the
-/// old key, refused by the store -- is in the share-again list, never
-/// written afterwards with a date after the key changed. Mutation: the
-/// owed shares not read by the step.
+/// #467 F6 and R3 F9: a share owed when Make a new key runs -- accepted
+/// with the old key, refused by the store -- is written by the step before
+/// the key changes when the store takes it then, and is in the share-again
+/// list either way; one still refused is never written afterwards with a
+/// date after the key changed. Mutations: the owed shares not read by the
+/// step; the step not writing them first.
 #[tokio::test]
 async fn a_share_owed_when_a_new_key_is_made_is_listed_to_share_again() {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
+    for store_takes_it_at_the_step in [false, true] {
+        let case = if store_takes_it_at_the_step {
+            "written by the step"
+        } else {
+            "still refused"
+        };
+        let (a, b) = FakeNetwork::pair(node(), node());
+        let (pa, pb) = (profile(), profile());
+        let clock = Arc::new(AtomicU64::new(WALL));
+        let wall = Arc::clone(&clock);
+        let mut side = facade_with_wall(&a, &pa, None, move || wall.load(Ordering::Relaxed));
+        side.set_key_source(interweave_human_app_core::KeySource::new(
+            pa.paths.clone(),
+            human(),
+            Box::new(FilesystemCustody),
+        ));
+        let mut alice = Root::new(side);
+        let mut bob = Root::new(facade(&b, &pb, None));
+        alice.pump(0).await;
+        bob.pump(0).await;
+        let to_bob = direct(b.peer());
+        a.inject_send(interweave_transport_api::TransportError::Overloaded);
+        alice.will(Intent::ShareCard(to_bob.clone()));
+        alice.pump(1).await;
+        clock.store(u64::MAX, Ordering::Relaxed);
+        for at in 2..4 {
+            alice.pump(at * 60_000).await;
+        }
+        assert!(
+            alice
+                .updates
+                .iter()
+                .any(|u| matches!(u, Update::ShareNotRecorded(_))),
+            "{case}: owed"
+        );
+        if store_takes_it_at_the_step {
+            clock.store(WALL, Ordering::Relaxed);
+        }
+        alice.updates.clear();
+        alice.run(Command::MakeNewKey, 5 * 60_000).await;
+        let shared_at = alice
+            .updates
+            .iter()
+            .position(|u| matches!(u, Update::CardShared { .. }));
+        let made_at = alice
+            .updates
+            .iter()
+            .position(|u| matches!(u, Update::KeyMade { .. }));
+        let made = alice.updates.iter().find_map(|u| match u {
+            Update::KeyMade { share_again, .. } => Some(share_again.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            made,
+            Some(vec![to_bob.clone()]),
+            "{case}: {:?}",
+            alice.failed()
+        );
+        if store_takes_it_at_the_step {
+            assert!(
+                shared_at.is_some() && shared_at < made_at,
+                "{case}: written before the key changed: {:?}",
+                alice.updates
+            );
+            assert_eq!(alice.model().card_shared_at(&to_bob), Some(WALL), "{case}");
+        } else {
+            assert_eq!(shared_at, None, "{case}");
+            clock.store(WALL, Ordering::Relaxed);
+            alice.pump(6 * 60_000).await;
+            assert_eq!(
+                alice.model().card_shared_at(&to_bob),
+                None,
+                "{case}: not written after the key changed"
+            );
+        }
+    }
+}
+
+/// #467 R3: an own card row still on its way when a new key is made was
+/// signed with the old key; its Accepted after the change records no share,
+/// whose date would read as a share of the new key -- its conversation is
+/// in the share-again list instead. Mutation: the old key's rows kept in
+/// `card_rows`.
+#[tokio::test]
+async fn a_card_accepted_after_a_new_key_records_no_share() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let (pa, pb) = (profile(), profile());
-    let clock = Arc::new(AtomicU64::new(WALL));
-    let wall = Arc::clone(&clock);
-    let mut side = facade_with_wall(&a, &pa, None, move || wall.load(Ordering::Relaxed));
-    side.set_key_source(interweave_human_app_core::KeySource::new(
-        pa.paths.clone(),
-        human(),
-        Box::new(FilesystemCustody),
-    ));
-    let mut alice = Root::new(side);
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
@@ -1932,29 +2011,24 @@ async fn a_share_owed_when_a_new_key_is_made_is_listed_to_share_again() {
     a.inject_send(interweave_transport_api::TransportError::Overloaded);
     alice.will(Intent::ShareCard(to_bob.clone()));
     alice.pump(1).await;
-    clock.store(u64::MAX, Ordering::Relaxed);
-    for at in 2..4 {
-        alice.pump(at * 60_000).await;
-    }
-    assert!(
-        alice
-            .updates
-            .iter()
-            .any(|u| matches!(u, Update::ShareNotRecorded(_))),
-        "owed"
-    );
-    alice.run(Command::MakeNewKey, 5 * 60_000).await;
+    alice.run(Command::MakeNewKey, 2).await;
     let made = alice.updates.iter().find_map(|u| match u {
         Update::KeyMade { share_again, .. } => Some(share_again.clone()),
         _ => None,
     });
     assert_eq!(made, Some(vec![to_bob.clone()]), "{:?}", alice.failed());
-    clock.store(WALL, Ordering::Relaxed);
-    alice.pump(6 * 60_000).await;
+    for at in 3..7 {
+        alice.pump(at * 60_000).await;
+        bob.pump(at * 60_000).await;
+    }
+    assert!(
+        !bob.model().proposals(&direct(a.peer())).is_empty(),
+        "the old key's card arrived"
+    );
     assert_eq!(
         alice.model().card_shared_at(&to_bob),
         None,
-        "not written after the key changed"
+        "no share recorded"
     );
 }
 

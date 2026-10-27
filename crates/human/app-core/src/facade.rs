@@ -925,11 +925,12 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         // A share owed from an Accepted of the old key's card is written
         // now, dated before the key changes, so the list below reads it
         // (#467 F6); one the store still refuses is listed from the owed
-        // set itself.
+        // set itself (`a_share_owed_when_a_new_key_is_made_is_listed_to_share_again`).
         self.shares_due(updates);
         let start = new_key_start(
             cards::own_cards_pending(self.client.store_mut()),
             self.client.store_mut().cards_shared(),
+            &self.shares_owed,
             updates,
         );
         let Some((pending, shared)) = start else {
@@ -964,19 +965,19 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 let fingerprint = key.fingerprint().to_string();
                 self.identity = Some(key);
                 self.key_problem = None;
-                // Never written now: a date after the change would read as
-                // a share of the new key. Listed, which is what it is owed.
-                let mut share_again = shared;
-                for owed in std::mem::take(&mut self.shares_owed) {
-                    if !share_again.contains(&owed) {
-                        share_again.push(owed);
-                    }
-                }
+                // The old key's shares are over: one still owed, or an own
+                // card row still on its way, is never recorded from here,
+                // since a date after the change would read as a share of
+                // the new key; each is in the list instead (#467 F6 and R3;
+                // `a_share_owed_when_a_new_key_is_made_is_listed_to_share_again`,
+                // `a_card_accepted_after_a_new_key_records_no_share`).
+                self.shares_owed.clear();
+                self.card_rows.clear();
                 let identity = self.own_view_or_said(updates);
                 updates.push(Update::KeyMade {
                     identity,
                     fingerprint,
-                    share_again,
+                    share_again: shared,
                 });
             }
             Some(Err(failed)) => {
@@ -1713,13 +1714,15 @@ type PendingCard = (RowId, TransportIdentity, EndpointId);
 /// (#423 F4, F5): `None` when the own cards on their way cannot be read --
 /// none can be withdrawn, so no key is made -- else those cards and where
 /// to share the card again. The list is every conversation that recorded a
-/// share, newest first, then the conversations of own cards on their way;
+/// share, newest first, then the conversations of own cards on their way,
+/// then those whose share the store refused to record (`owed`, #467 F6);
 /// when the shares cannot be read there is no list at all, never a part of
-/// one passed off as whole (section 5.3's "those, and nobody else"). A read
-/// that fails is said in `updates` as [`Update::CardsNotRead`].
+/// one passed off as whole (section 5.3's "those, and nobody else", #467
+/// F8). A read that fails is said in `updates` as [`Update::CardsNotRead`].
 fn new_key_start(
     pending: Result<Vec<PendingCard>, StoreError>,
     shared: Result<Vec<(TransportIdentity, EndpointId, u64)>, StoreError>,
+    owed: &[ConversationKey],
     updates: &mut Vec<Update>,
 ) -> Option<(Vec<PendingCard>, Vec<ConversationKey>)> {
     let pending = match pending {
@@ -1739,8 +1742,10 @@ fn new_key_start(
                 .iter()
                 .map(|(peer, endpoint, _)| direct(peer, endpoint))
                 .collect();
-            for (_, peer, endpoint) in &pending {
-                let key = direct(peer, endpoint);
+            let on_their_way = pending
+                .iter()
+                .map(|(_, peer, endpoint)| direct(peer, endpoint));
+            for key in on_their_way.chain(owed.iter().cloned()) {
                 if !list.contains(&key) {
                     list.push(key);
                 }
@@ -2227,7 +2232,8 @@ mod tests {
     /// #423 F4, F5: Make a new key starts from its two reads -- no key
     /// when the own cards on their way cannot be read, no list when the
     /// shares cannot be, each failure said; otherwise every share newest
-    /// first and then the conversations of cards on their way, once each.
+    /// first, then the conversations of cards on their way, then the owed
+    /// shares, once each (#467 F8).
     #[test]
     fn a_new_key_starts_from_its_two_reads() {
         use super::new_key_start;
@@ -2236,6 +2242,7 @@ mod tests {
             peer("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"),
             peer("12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5"),
         );
+        let r = peer("12D3KooWETGXpqbjJk2qkXWxotXiunJn2y4iySRzyCkqKc6DuMdb");
         let human = EndpointId::parse("human").expect("an endpoint");
         let key = |p: &TransportIdentity| ConversationKey::Direct {
             peer: p.clone(),
@@ -2249,16 +2256,16 @@ mod tests {
 
         let mut said = Vec::new();
         assert_eq!(
-            new_key_start(Err(corrupt()), Ok(Vec::new()), &mut said),
+            new_key_start(Err(corrupt()), Ok(Vec::new()), &[], &mut said),
             None
         );
         assert_eq!(said, vec![Update::CardsNotRead(Failure::Corrupt)]);
 
         let mut said = Vec::new();
         assert_eq!(
-            new_key_start(Ok(pending.clone()), Err(corrupt()), &mut said),
+            new_key_start(Ok(pending.clone()), Err(corrupt()), &[key(&p)], &mut said),
             Some((pending.clone(), Vec::new())),
-            "no list, never the pending part of one"
+            "no list, never the pending or owed part of one"
         );
         assert_eq!(
             said,
@@ -2271,9 +2278,10 @@ mod tests {
             new_key_start(
                 Ok(pending.clone()),
                 Ok(vec![(p.clone(), human.clone(), 20)]),
+                &[key(&q), key(&r)],
                 &mut said
             ),
-            Some((pending, vec![key(&p), key(&q)])),
+            Some((pending, vec![key(&p), key(&q), key(&r)])),
             "every share, then the cards on their way, once each"
         );
         assert!(said.is_empty());
