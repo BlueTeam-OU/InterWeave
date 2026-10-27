@@ -41,7 +41,7 @@ the builder's message gives them:
 Unchanged by this note, and relied on by it:
 
 - **Read is what it is today.** A row is read when it is held in a
-  conversation that is open in a focused window
+  conversation that is open in an app window that has focus
   (`UiModel::conversation_viewed`): read is a retention act, never
   raised on receipt, from a notification or from a preview (look
   §5.2). The window changes which rows are held, so it changes which
@@ -95,18 +95,17 @@ Evidence and hypotheses behind the choices below:
 
 **Required.**
 
-- **The Chats list is complete.** Every conversation the store holds
-  a row of that the app can show (§6.1) — pending, unread or kept — is
-  listed, as are the
-  conversations the session holds read rows of (look §5.2: listed
-  while the app holds one of its messages). No budget leaves a
+- **The Chats list is complete.** A conversation is listed if the
+  store holds a row of it that the app can show (§6.1): pending, unread
+  or kept. A conversation is also listed if the session holds read rows
+  of it (look §5.2: listed while the app holds one of its messages). No budget leaves a
   conversation out. A conversation with no row the app can show,
   stored or held in the session, is not listed, as today; its
   undecodable rows are counted by §6.1's line.
 - **Each Chats row's last message and time are those of the newest
-  message the conversation has, held in the session or stored**:
-  whichever is newer of the newest row the session holds (a message
-  read or sent and accepted this session, which has no stored copy)
+  message the conversation has, held in the session or stored**. It
+  is the newer of two rows: the newest row the session holds (a message
+  read or sent and accepted this session, which has no stored copy),
   and the newest stored row the app can show (§6.1). That is look §5.2's rule, "the last
   message the conversation holds in this session, received or sent",
   extended to the rows the window has not loaded; it holds unchanged
@@ -155,8 +154,8 @@ vanish from Chats, or show a badge with nothing behind it.
 **The builder's**: the budget figures; how a summary and a window are
 held in memory, and whether a closed conversation's window is dropped
 at once or kept for a while (it must be reloadable, and the person
-sees no difference). One condition: if opening a conversation can take a time a
-person sees (more than about 100 ms on the Pixel 9a with a full
+sees no difference). One condition: if opening a conversation can take long enough for a
+person to notice (more than about 100 ms on the Pixel 9a with a full
 budget), say so and I add a loading state to this note; none is
 designed now.
 
@@ -172,9 +171,9 @@ designed now.
 **The top edge** is the `EarlierUnread` line when it shows (§6),
 otherwise the oldest loaded row.
 
-**Trigger.** While a conversation has rows in the store that the app
-can show (§6.1) older than the oldest one it holds, the next page of older rows is fetched when the
-top edge:
+**Trigger.** While the store holds rows of the conversation that the
+app can show (§6.1) and that are older than the oldest loaded row, the
+next page of older rows is fetched when the top edge:
 
 - scrolls into view (a scroll, a fling, a drag of the scroll bar on
   the desktop), or
@@ -183,10 +182,11 @@ top edge:
 
 At the session bound, the limit row of §7.1 shows in place of a
 fetch. Focus the app places (§7) triggers nothing, and no page is requested
-while one is in flight. A page is requested once per arrival: focus or
+while one is in flight. A page is requested once each time the top edge is reached: focus or
 the view must leave the top edge and come back before the next page is
 fetched, except that a page arriving below a focused line (below) makes
-its rows reachable by moving focus down, with no new arrival needed.
+its rows reachable by moving focus down, without reaching the top edge
+again.
 
 The second trigger is the non-gesture equivalent of the first: a
 person who never scrolls reaches the top by moving focus, and the
@@ -243,9 +243,9 @@ proposals together, as the badge counts both, §3).
   person triggers the load of §5.
 - Its count follows the store: as pages load and their unread rows
   are read, the count goes down. At zero the line goes.
-- **It agrees with the conversation's badge on Chats while the window
-  has focus**, when every loaded unread row has been read. While the
-  window does not have focus, loaded rows stay unread (§1), so the
+- **It agrees with the conversation's badge on Chats while the app's
+  window has focus**, when every loaded unread row has been read. While
+  the app's window does not have focus, loaded rows stay unread (§1), so the
   badge counts them and the line does not: the line counts only what
   has not been loaded, the badge every unread row.
 - It is not announced: opening a conversation announces nothing today
@@ -394,15 +394,21 @@ The words are language-culture's; these say what each must do.
 
 | Key | Proposed English | Shows | Must say |
 |---|---|---|---|
-| `EarlierUnread` | {count} earlier unread | the line of §6 | how many unread items are above, not yet shown; a plural by count (language-culture's forms); must not say "messages" if it counts cards too, or must cover both |
-| `ReadNotShown` | {count} earlier messages no longer shown | the line of §7.1 | that messages the person already read or sent were removed from this screen and cannot come back; a plural by count; must not suggest they were deleted by anyone else |
-| `RowsNotShown` | {count} stored messages can't be shown by this version of the app | the line at the end of Chats (§6.1) | that these messages (received unread, kept, or the person's own still waiting to send) are still stored and this app version cannot show them; must not use "kept" in the sense of Keep; a plural by count; must not blame a sender or suggest tampering |
-| `EarlierAtLimit` | To show earlier messages, the first messages you read or sent in this session will be removed from the screen, here and in other chats. They can't come back. Messages you keep stay. | the limit row (§7.1) | before anything happens: what showing earlier messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
+| `EarlierUnread` | Earlier unread messages and contact cards: {count} | the line of §6 | how many unread items are above, not yet shown; a plural by count (language-culture's forms); must not say "messages" if it counts cards too, or must cover both |
+| `ReadNotShown` | one: 1 message that you read or sent is no longer shown. It cannot be shown again. other: {count} messages that you read or sent are no longer shown. They cannot be shown again. | the line of §7.1 | that messages the person already read or sent were removed from this screen and cannot come back; a plural by count; must not suggest they were deleted by anyone else |
+| `RowsNotShown` | one: 1 message is saved on this device, but this version of InterWeave cannot show it. other: {count} messages are saved on this device, but this version of InterWeave cannot show them. | the line at the end of Chats (§6.1) | that these messages (received unread, kept, or the person's own still waiting to send) are still stored and this app version cannot show them; must not use "kept" in the sense of Keep; a plural by count; must not blame a sender or suggest tampering |
+| `EarlierAtLimit` | If you choose Show earlier messages, InterWeave makes room for the earlier messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again. | the limit row (§7.1) | before anything happens: what showing earlier messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
 | `EarlierShowAnyway` | Show earlier messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
 | `EarlierLoading` | Loading earlier messages | the progress row's accessible name (§5); never visible text | that older rows are on their way |
-| `EarlierLoadFailed` | Couldn't load earlier messages. | the failure row (§5), and its announcement | that the older rows could not be read; must not suggest they are lost |
+| `EarlierLoadFailed` | Could not load earlier messages. | the failure row (§5), and its announcement | that the older rows could not be read; must not suggest they are lost |
 
 `TryAgain` exists and is reused.
+
+`ReadNotShown` and `RowsNotShown` have one text for a count of 1 and
+one for every other count: two templates, never a word joined to a
+number. `EarlierUnread` puts the count after a colon, so it needs one
+text only. A conversation can hold card proposals as well as messages,
+which is why it names both.
 
 ## 10. Acceptance
 
@@ -419,7 +425,7 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
    shows 1; B's preview is its newest row.
 2. **Preview reads nothing**: with Chats shown, restart the app. Both
    badges are unchanged (look §5.2).
-3. **Opening**: open A in a focused window. It opens at its newest
+3. **Opening**: open A in an app window that has focus. It opens at its newest
    row, and nothing is announced. `EarlierUnread` shows at the top of
    the loaded rows with the count of unread rows not loaded; A's badge
    on Chats equals it.
