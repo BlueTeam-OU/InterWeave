@@ -2081,8 +2081,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     That its role is not announced as activatable is **blocked by the
     toolkit**, not passed: Slint 1.18 advertises a default action for
     every element that declares a handler, whatever the handler does
-    (`crates/human/ui-slint/README.md`, stated by rust-ui-dev
-    2026-10-27), so the desktop screen reader still offers one; it is
+    (stated by rust-ui-dev on 2026-10-27, and in
+    `crates/human/ui-slint/README.md` on their branch for the row,
+    commit 72e58dbe, not yet on main), so the desktop screen reader still offers one; it is
     checked again when the toolkit lets an action be offered
     conditionally. TalkBack offers no custom action and no "double tap
     to activate" (TalkBack blocked, §8, until the device run). The
