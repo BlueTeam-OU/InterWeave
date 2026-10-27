@@ -6669,8 +6669,9 @@ owner:
   §Contact card, A 2026-10-27, since the node's PeerId is unknown
   before a session), Retry and Cancel with no Show source, no menu
   once Accepted, the list's preview and the command-line client's
-  additive `card` member; `CardSentLabel` and `CardSentPhoto` are
-  placeholders until language-culture-en's read. Still not built: the
+  additive `card` member; `CardSentLabel` and `CardSentPhoto` carry
+  language-culture-en's final words (2264bba7, the same branch),
+  not placeholders. Still not built: the
   "may have left" record (the next bullet) and the share date of a
   card Accepted after a restart.
 - The silent first key's third record (ADR-0063 decision 1, A
