@@ -1007,10 +1007,13 @@ impl request_response::Codec for StallCodec {
 
 /// A behaviour that announces whatever candidates it is handed, once
 /// each, so a bare peer's CONNECT can carry an address nobody observed
-/// it on.
+/// it on; and that refuses, before any socket, every direct dial toward
+/// `refuse_direct_to`, so a bare peer's own punch dial can be made to
+/// fail while its circuit dials pass.
 #[derive(Default)]
 struct ScriptedCandidates {
     queued: std::collections::VecDeque<Multiaddr>,
+    refuse_direct_to: Option<PeerId>,
 }
 
 impl NetworkBehaviour for ScriptedCandidates {
@@ -1036,6 +1039,25 @@ impl NetworkBehaviour for ScriptedCandidates {
         _: libp2p::core::transport::PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         Ok(libp2p::swarm::dummy::ConnectionHandler)
+    }
+
+    fn handle_pending_outbound_connection(
+        &mut self,
+        _: libp2p::swarm::ConnectionId,
+        peer: Option<PeerId>,
+        addresses: &[Multiaddr],
+        _: libp2p::core::Endpoint,
+    ) -> Result<Vec<Multiaddr>, libp2p::swarm::ConnectionDenied> {
+        let relayed = addresses.iter().any(|a| {
+            a.iter()
+                .any(|p| p == libp2p::multiaddr::Protocol::P2pCircuit)
+        });
+        if peer.is_some() && peer == self.refuse_direct_to && !relayed {
+            return Err(libp2p::swarm::ConnectionDenied::new(std::io::Error::other(
+                "the scripted refusal of a direct dial",
+            )));
+        }
+        Ok(Vec::new())
     }
 
     fn on_swarm_event(&mut self, _: libp2p::swarm::FromSwarm<'_>) {}
@@ -1092,6 +1114,71 @@ fn bare_initiator(keys: identity::Keypair) -> libp2p::Swarm<BareInitiator> {
         .build()
 }
 
+/// The relay's address in `circuit`, its `/p2p` included: what a bare
+/// peer dials to reach the relay before it dials the circuit.
+fn relay_of(circuit: &Multiaddr) -> Multiaddr {
+    circuit
+        .iter()
+        .take_while(|p| *p != libp2p::multiaddr::Protocol::P2pCircuit)
+        .collect()
+}
+
+/// Drive the bare peer and the relay until the bare peer has been
+/// observed on `ip` -- and, with `reservation`, until its reservation is
+/// accepted too. The crate fills its CONNECT from the candidates it
+/// holds when the relayed connection comes up, and the relay's Identify
+/// is where the bare peer learns its own address; nothing orders that
+/// round trip before the circuit. A bare peer that loses the race sends
+/// a CONNECT without it: with no candidate at all, a protocol error at
+/// the subject; with a scripted loopback candidate alone, a punch
+/// refused whole, which counts no removal. Both were seen in one full
+/// local run (2026-10-26). The Swarm reports a candidate only after
+/// every behaviour has been handed it, so the event seen here is the
+/// crate holding it.
+async fn until_observed(
+    bare: &mut libp2p::Swarm<BareInitiator>,
+    relay: &mut libp2p::Swarm<RelayBehaviour>,
+    seen: &mut Seen,
+    ip: Ipv4Addr,
+    reservation: bool,
+) {
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let mut observed = false;
+    let mut reserved = !reservation;
+    let mut seen_by_bare = Vec::new();
+    while !(observed && reserved) {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        assert!(
+            !remaining.is_zero(),
+            "the bare peer was never observed on {ip} (observed {observed}, reserved {reserved}): {seen_by_bare:?}"
+        );
+        tokio::select! {
+            event = bare.select_next_some() => match event {
+                Libp2pSwarmEvent::NewListenAddr { ref address, .. } => {
+                    seen_by_bare.push(format!("listening {address}"));
+                }
+                Libp2pSwarmEvent::OutgoingConnectionError { ref error, .. } => {
+                    seen_by_bare.push(format!("dial failed: {error}"));
+                }
+                Libp2pSwarmEvent::ConnectionClosed { ref endpoint, ref cause, .. } => {
+                    seen_by_bare.push(format!("closed {endpoint:?}: {cause:?}"));
+                }
+                Libp2pSwarmEvent::NewExternalAddrCandidate { address }
+                    if address.iter().next() == Some(libp2p::multiaddr::Protocol::Ip4(ip)) =>
+                {
+                    observed = true;
+                }
+                Libp2pSwarmEvent::Behaviour(BareInitiatorEvent::Relay(
+                    relay::client::Event::ReservationReqAccepted { .. },
+                )) => reserved = true,
+                _ => {}
+            },
+            event = relay.select_next_some() => note_relay(seen, &event),
+            () = tokio::time::sleep(remaining) => {}
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_loopback_candidate_is_refused_before_any_socket() {
     // THE SUBJECT NEEDS ONE CANDIDATE OF ITS OWN inside the boundary,
@@ -1142,28 +1229,8 @@ async fn a_loopback_candidate_is_refused_before_any_socket() {
 
     // Drive the bare peer and the relay until the bare peer's
     // reservation is accepted, then dial the circuit.
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut reserved_on_relay = false;
     let mut bare_direct_inbounds = 0_usize;
-    while !reserved_on_relay {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(
-            !remaining.is_zero(),
-            "the bare peer's reservation was never accepted"
-        );
-        tokio::select! {
-            event = bare.select_next_some() => {
-                if let Libp2pSwarmEvent::Behaviour(BareInitiatorEvent::Relay(
-                    relay::client::Event::ReservationReqAccepted { .. },
-                )) = event
-                {
-                    reserved_on_relay = true;
-                }
-            }
-            event = relay.select_next_some() => note_relay(&mut seen, &event),
-            () = tokio::time::sleep(remaining) => {}
-        }
-    }
+    until_observed(&mut bare, &mut relay, &mut seen, LOOPBACK, true).await;
     subject
         .dial(bare_peer.clone(), circuit)
         .await
@@ -1420,27 +1487,7 @@ async fn a_punch_dial_is_filtered_rather_than_refused_whole() {
     .expect("the subject starts");
     let _subject_direct = listening(&subject, ip).await;
 
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut reserved_on_relay = false;
-    while !reserved_on_relay {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(
-            !remaining.is_zero(),
-            "the bare peer's reservation was never accepted"
-        );
-        tokio::select! {
-            event = bare.select_next_some() => {
-                if let Libp2pSwarmEvent::Behaviour(BareInitiatorEvent::Relay(
-                    relay::client::Event::ReservationReqAccepted { .. },
-                )) = event
-                {
-                    reserved_on_relay = true;
-                }
-            }
-            event = relay.select_next_some() => note_relay(&mut seen, &event),
-            () = tokio::time::sleep(remaining) => {}
-        }
-    }
+    until_observed(&mut bare, &mut relay, &mut seen, ip, true).await;
     subject
         .dial(bare_peer.clone(), circuit)
         .await
@@ -1549,6 +1596,9 @@ async fn a_filtered_punch_from_the_initiating_end_opens_one_connect_round() {
         .extra
         .queued
         .push_back("/ip4/127.0.0.1/tcp/4001".parse().expect("an address"));
+    bare.dial(relay_of(&circuit))
+        .expect("a relay dial is accepted");
+    until_observed(&mut bare, &mut relay, &mut seen, ip, false).await;
     bare.dial(circuit).expect("a circuit dial is accepted");
 
     // The subject's punch is made (its path moves to direct), and the
@@ -1606,15 +1656,403 @@ async fn a_filtered_punch_from_the_initiating_end_opens_one_connect_round() {
             () = tokio::time::sleep(remaining) => {}
         }
     }
-    assert_eq!(
-        bare_successes, 1,
-        "one CONNECT round, one punch: the denied dial's failure reached no crate: {events:?}"
+    // One CONNECT round, one punch, for the denial: its failure reaches
+    // no crate. A reissued dial that fails ON THE WIRE is the crate's
+    // dial failing and may open one more round each (a simultaneous open
+    // under load does it), so the rounds are bounded by those failures.
+    let failed_dials = events
+        .iter()
+        .filter(|e| matches!(e, SwarmEvent::DialFailed { peer: Some(p), .. } if *p == bare_peer))
+        .count();
+    assert!(
+        bare_successes >= 1 && bare_successes <= 1 + failed_dials,
+        "{bare_successes} punches for {failed_dials} failed dials: the denied dial's failure reached no crate: {events:?}"
     );
     let counters = subject.dcutr_counters().expect("the subject hole punches");
-    assert_eq!(counters.candidates_removed.get("special_use"), Some(&1));
-    assert_eq!(counters.attempts_ended.get("succeeded"), Some(&1));
+    assert_eq!(
+        counters.candidates_removed.get("special_use"),
+        Some(&1),
+        "{counters:?} {events:?}"
+    );
+    assert_eq!(
+        counters.attempts_ended.get("succeeded"),
+        Some(&1),
+        "{counters:?} {events:?}"
+    );
 
     subject.shutdown().await.expect("shutdown");
+}
+
+/// The subject reserved on the private relay, and a bare responder over
+/// its circuit whose CONNECT carries a loopback candidate, `candidate`,
+/// and nothing it was observed on: its listener is confirmed before the
+/// relay's Identify can observe it, so the Swarm hands no behaviour that
+/// observation. The subject's punch dial is therefore filtered (the
+/// loopback candidate removed) and reissued to `candidate` alone.
+/// `refuse_own` makes the bare peer refuse its own punch dials;
+/// `dcutr` is the subject's DCUtR settings.
+struct FilteredFarEnd {
+    relay: libp2p::Swarm<RelayBehaviour>,
+    subject: SwarmRuntime,
+    subject_peer: TransportIdentity,
+    bare: libp2p::Swarm<BareInitiator>,
+    bare_peer: TransportIdentity,
+    seen: Seen,
+    /// The subject's events, in order.
+    events: Vec<SwarmEvent>,
+    /// The bare peer's successful punches toward the subject.
+    bare_successes: usize,
+}
+
+async fn filtered_far_end(
+    ip: Ipv4Addr,
+    candidate: &Multiaddr,
+    refuse_own: bool,
+    dcutr: DcutrSettings,
+    preauth: Option<interweave_transport_runtime::preauth::PreAuthLimits>,
+) -> FilteredFarEnd {
+    let bare_keys = identity::Keypair::generate_ed25519();
+    let bare_peer = identity_of(&bare_keys);
+    let Reserved {
+        mut relay,
+        relay_peer: _,
+        target: subject,
+        target_peer: subject_peer,
+        circuit,
+    } = reserved(
+        ip,
+        |client| SubstrateConfig {
+            relay_client: Some(client),
+            dcutr: Some(dcutr),
+            preauth: preauth.unwrap_or_default(),
+            ..SubstrateConfig::default()
+        },
+        |relay_peer| trust(&[&bare_peer], &[relay_peer]),
+    )
+    .await;
+    let _subject_direct = listening(&subject, ip).await;
+    let mut seen = Seen::default();
+    let mut bare = bare_initiator(bare_keys);
+    bare.listen_on(any_port(ip)).expect("listens");
+    bare.behaviour_mut().extra.queued.extend([
+        "/ip4/127.0.0.1/tcp/4001".parse().expect("an address"),
+        candidate.clone(),
+    ]);
+    if refuse_own {
+        bare.behaviour_mut().extra.refuse_direct_to = Some(pid(&subject_peer));
+    }
+    bare.dial(relay_of(&circuit))
+        .expect("a relay dial is accepted");
+    // Confirmed, the scripted pair handed to the crate, and the relay
+    // connection up, so the circuit dial rides it.
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let (mut confirmed, mut scripted, mut to_relay) = (false, false, false);
+    let mut seen_by_bare = Vec::new();
+    while !(confirmed && scripted && to_relay) {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        assert!(
+            !remaining.is_zero(),
+            "the bare peer was never ready (confirmed {confirmed}, scripted {scripted}, relay {to_relay}): {seen_by_bare:?}"
+        );
+        tokio::select! {
+            event = bare.select_next_some() => match event {
+                Libp2pSwarmEvent::OutgoingConnectionError { ref error, .. } => {
+                    seen_by_bare.push(format!("dial failed: {error}"));
+                }
+                Libp2pSwarmEvent::ConnectionClosed { ref endpoint, ref cause, .. } => {
+                    seen_by_bare.push(format!("closed {endpoint:?}: {cause:?}"));
+                }
+                Libp2pSwarmEvent::NewListenAddr { address, .. }
+                    if address.iter().next() == Some(libp2p::multiaddr::Protocol::Ip4(ip)) =>
+                {
+                    bare.add_external_address(address);
+                    confirmed = true;
+                }
+                Libp2pSwarmEvent::NewExternalAddrCandidate { address } if address == *candidate => {
+                    scripted = true;
+                }
+                Libp2pSwarmEvent::ConnectionEstablished { .. } => to_relay = true,
+                _ => {}
+            },
+            event = relay.select_next_some() => note_relay(&mut seen, &event),
+            () = tokio::time::sleep(remaining) => {}
+        }
+    }
+    bare.dial(circuit).expect("a circuit dial is accepted");
+    FilteredFarEnd {
+        relay,
+        subject,
+        subject_peer,
+        bare,
+        bare_peer,
+        seen,
+        events: Vec::new(),
+        bare_successes: 0,
+    }
+}
+
+impl FilteredFarEnd {
+    /// Drive all three until `done` holds, failing past `patience`.
+    async fn until(&mut self, what: &str, patience: Duration, mut done: impl FnMut(&Self) -> bool) {
+        let deadline = tokio::time::Instant::now() + patience;
+        while !done(self) {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "{what}: {:?} bare successes {}",
+                self.events,
+                self.bare_successes
+            );
+            self.step(remaining).await;
+        }
+    }
+
+    /// Drive all three for `window`, whatever happens.
+    async fn settle(&mut self, window: Duration) {
+        let until = tokio::time::Instant::now() + window;
+        loop {
+            let remaining = until.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return;
+            }
+            self.step(remaining).await;
+        }
+    }
+
+    async fn step(&mut self, at_most: Duration) {
+        tokio::select! {
+            event = self.subject.next_event() => {
+                self.events.push(event.expect("the subject is alive"));
+            }
+            event = self.bare.select_next_some() => {
+                if let Libp2pSwarmEvent::Behaviour(BareInitiatorEvent::Dcutr(
+                    libp2p::dcutr::Event { remote_peer_id, result: Ok(_) },
+                )) = &event
+                    && *remote_peer_id == pid(&self.subject_peer)
+                {
+                    self.bare_successes += 1;
+                }
+            }
+            event = self.relay.select_next_some() => note_relay(&mut self.seen, &event),
+            () = tokio::time::sleep(at_most) => {}
+        }
+    }
+
+    /// Where the attempt toward the bare peer ended, and how.
+    fn ending(&self) -> Option<(usize, &HolePunchOutcome)> {
+        self.events.iter().enumerate().find_map(|(i, e)| match e {
+            SwarmEvent::HolePunch { peer, outcome }
+                if *peer == self.bare_peer
+                    && matches!(
+                        outcome,
+                        HolePunchOutcome::Succeeded
+                            | HolePunchOutcome::Failed { .. }
+                            | HolePunchOutcome::TimedOut
+                    ) =>
+            {
+                Some((i, outcome))
+            }
+            _ => None,
+        })
+    }
+
+    /// Where the subject reported a failed dial toward the bare peer at
+    /// `address`'s port.
+    fn refused_at(&self, address: &Multiaddr) -> Option<usize> {
+        let port = address
+            .iter()
+            .find_map(|p| match p {
+                libp2p::multiaddr::Protocol::Tcp(port) => Some(port),
+                _ => None,
+            })
+            .expect("a port");
+        self.events.iter().position(|e| {
+            matches!(e, SwarmEvent::DialFailed { peer: Some(p), detail, .. }
+                if *p == self.bare_peer && detail.contains(&format!("/tcp/{port}/")))
+        })
+    }
+}
+
+/// An address on `ip` nothing listens on: a refused connect, at once.
+fn dead_on(ip: Ipv4Addr) -> Multiaddr {
+    format!(
+        "/ip4/{ip}/tcp/{}",
+        interweave_test_support::net::free_port(ip)
+    )
+    .parse()
+    .expect("an address")
+}
+
+/// THE FILTERED PUNCH DIAL FAILS AND THE FAR END'S PUNCHES: the
+/// subject's reissued dial goes to a dead port while the bare peer's own
+/// punch dial reaches the subject's listener. That failure is the
+/// crate's dial failing, so the attempt goes on: it ends when the far
+/// end's connection lands, or -- the other legal ending -- at the
+/// crate's retry ceiling. Ended on the refusal, it was counted failed
+/// with the refusal's detail and the peer cooled down, beside the direct
+/// path the far end made. Which comes first, the refusal or the far
+/// end's connection, is the crate's `rtt / 2` against a handshake; both
+/// are waited for, and only a refusal while the attempt was in flight
+/// exercises the rule (the usual order: a refused connect on the host is
+/// near-instant).
+#[tokio::test]
+async fn a_filtered_punch_dial_that_fails_leaves_the_far_ends_punch_to_land() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let dead = dead_on(ip);
+    let mut run = filtered_far_end(ip, &dead, false, punching(), None).await;
+    run.until("the refusal, the ending and the punch", PATIENCE, |r| {
+        r.refused_at(&dead).is_some() && r.ending().is_some() && r.bare_successes >= 1
+    })
+    .await;
+    let counters = run
+        .subject
+        .dcutr_counters()
+        .expect("the subject hole punches");
+    let (ended_at, outcome) = run.ending().expect("waited for");
+    let refused_at = run.refused_at(&dead).expect("waited for");
+    // The control: the subject's dial WAS filtered, so the refusal is the
+    // reissued dial's.
+    assert!(
+        counters
+            .candidates_removed
+            .get("special_use")
+            .is_some_and(|n| *n >= 1),
+        "the subject's dial was filtered: {counters:?} {:?}",
+        run.events
+    );
+    if refused_at < ended_at {
+        match outcome {
+            HolePunchOutcome::Succeeded => {
+                assert_eq!(counters.cooldown_peers, 0, "a punch cools nothing down");
+            }
+            HolePunchOutcome::Failed { detail } => assert!(
+                detail.contains("Giving up after"),
+                "only the crate's retry ceiling may end it failed: {detail} {:?}",
+                run.events
+            ),
+            other => panic!("ended {other:?} inside the patience: {:?}", run.events),
+        }
+    } else {
+        // The far end's punch came first: the attempt was over before the
+        // refusal, which this run therefore does not test.
+        assert_eq!(*outcome, HolePunchOutcome::Succeeded, "{:?}", run.events);
+        eprintln!("the far end's punch landed before the refusal: the rule not exercised");
+    }
+
+    run.subject.shutdown().await.expect("shutdown");
+}
+
+/// THE HAND-OFF: the bare peer refuses its own punch dials, so only the
+/// subject's can punch, and every one of those is reissued to a dead
+/// port. Each refusal reaches the crate as its own dial's failure; the
+/// crate opens another CONNECT round to its retry ceiling and gives up,
+/// which ends the attempt failed, inside the patience. Not handed on,
+/// the crate would open no second round and the attempt would wait out
+/// the ninety-second horizon.
+#[tokio::test]
+async fn a_filtered_punch_whose_far_end_cannot_dial_ends_at_the_crates_ceiling() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let dead = dead_on(ip);
+    let mut run = filtered_far_end(ip, &dead, true, punching(), None).await;
+    run.until("the attempt's ending", PATIENCE, |r| r.ending().is_some())
+        .await;
+    let counters = run
+        .subject
+        .dcutr_counters()
+        .expect("the subject hole punches");
+    let (_, outcome) = run.ending().expect("waited for");
+    assert!(
+        matches!(outcome, HolePunchOutcome::Failed { detail } if detail.contains("Giving up after 3")),
+        "the crate's ceiling, after its rounds: {outcome:?} {:?}",
+        run.events
+    );
+    // The control: three reissued dials refused, one per round, and the
+    // far end's own punch never made.
+    assert_eq!(
+        counters.candidates_removed.get("special_use"),
+        Some(&3),
+        "{counters:?}"
+    );
+    assert_eq!(run.bare_successes, 0);
+
+    run.subject.shutdown().await.expect("shutdown");
+}
+
+/// THE GUARD: the reissued dial goes to a listener that accepts the
+/// connection and says nothing until the test has seen the bare peer's
+/// own punch end the attempt; then it resets the connection, and the
+/// subject's dial fails, late. A failure after the attempt is over is
+/// handed to nobody: handed to the crate, it opened another CONNECT
+/// round after the success, and the bare peer punched a second time.
+/// The stability interval is set past the handshake timeout so the
+/// relayed connection, which a stable punch retires, is still there to
+/// carry such a round.
+#[tokio::test]
+async fn a_late_failure_of_a_reissued_dial_opens_no_second_round() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    // Exclusive: a std listener sets no SO_REUSEPORT.
+    let mute = std::net::TcpListener::bind((ip, 0)).expect("a mute listener");
+    let mute_addr: Multiaddr =
+        format!("/ip4/{ip}/tcp/{}", mute.local_addr().expect("bound").port())
+            .parse()
+            .expect("an address");
+    let held = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::net::TcpStream>::new()));
+    let holder = std::sync::Arc::clone(&held);
+    std::thread::spawn(move || {
+        for stream in mute.incoming().flatten() {
+            holder.lock().expect("unpoisoned").push(stream);
+        }
+    });
+    let handshake = Duration::from_millis(
+        interweave_transport_runtime::preauth::PreAuthLimits::default().handshake_timeout_ms(),
+    );
+    let held_relay = DcutrSettings {
+        direct_stability_period_ms: 4 * u64::try_from(handshake.as_millis()).expect("fits"),
+        ..DcutrSettings::default()
+    };
+    let mut run = filtered_far_end(ip, &mute_addr, false, held_relay, None).await;
+    run.until(
+        "the punch, with the reissued dial held on the mute listener",
+        PATIENCE,
+        |r| {
+            r.ending().is_some()
+                && r.bare_successes >= 1
+                && !held.lock().expect("unpoisoned").is_empty()
+        },
+    )
+    .await;
+    let (ended_at, outcome) = run.ending().expect("waited for");
+    assert_eq!(*outcome, HolePunchOutcome::Succeeded, "{:?}", run.events);
+    assert!(
+        run.refused_at(&mute_addr).is_none(),
+        "the held dial had not failed yet (the handshake timeout is {handshake:?}): {:?}",
+        run.events
+    );
+    // Now the late failure.
+    for stream in held.lock().expect("unpoisoned").iter() {
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+    }
+    run.until("the reissued dial's late failure", PATIENCE, |r| {
+        r.refused_at(&mute_addr).is_some()
+    })
+    .await;
+    let failed_at = run.refused_at(&mute_addr).expect("waited for");
+    assert!(ended_at < failed_at);
+    assert!(
+        !run.events[..failed_at]
+            .iter()
+            .any(|e| matches!(e, SwarmEvent::RelayedConnectionRetired { .. })),
+        "the relayed connection was there to carry a second round: {:?}",
+        run.events
+    );
+    run.settle(WINDOW).await;
+    assert_eq!(
+        run.bare_successes, 1,
+        "one CONNECT round: the late failure reached no crate: {:?}",
+        run.events
+    );
+
+    run.subject.shutdown().await.expect("shutdown");
 }
 
 #[tokio::test]
@@ -1642,6 +2080,9 @@ async fn a_punched_connection_that_dies_within_the_interval_leaves_the_relay_pre
     let mut seen = Seen::default();
     let mut bare = bare_initiator(bare_keys);
     bare.listen_on(any_port(ip)).expect("listens");
+    bare.dial(relay_of(&circuit))
+        .expect("a relay dial is accepted");
+    until_observed(&mut bare, &mut relay, &mut seen, ip, false).await;
     bare.dial(circuit).expect("a circuit dial is accepted");
 
     // The bare responder's punch dial lands; the crate hands it the
@@ -1840,27 +2281,7 @@ async fn a_retirement_waits_for_an_exchange_in_flight() {
     let _subject_direct = listening(&subject, ip).await;
     let lease = configure_human(&subject).await;
 
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut reserved_on_relay = false;
-    while !reserved_on_relay {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(
-            !remaining.is_zero(),
-            "the bare peer's reservation was never accepted"
-        );
-        tokio::select! {
-            event = bare.select_next_some() => {
-                if let Libp2pSwarmEvent::Behaviour(BareInitiatorEvent::Relay(
-                    relay::client::Event::ReservationReqAccepted { .. },
-                )) = event
-                {
-                    reserved_on_relay = true;
-                }
-            }
-            event = relay.select_next_some() => note_relay(&mut seen, &event),
-            () = tokio::time::sleep(remaining) => {}
-        }
-    }
+    until_observed(&mut bare, &mut relay, &mut seen, ip, true).await;
     subject
         .dial(bare_peer.clone(), circuit)
         .await
@@ -2449,6 +2870,9 @@ async fn connect_outcome(ip: Ipv4Addr, views: Vec<NetworkView>) -> Result<(), St
         .set_trust(trust(&[&bare_peer], &[&relay_peer]))
         .await
         .expect("trust installs");
+    bare.dial(relay_of(&circuit))
+        .expect("a relay dial is accepted");
+    until_observed(&mut bare, &mut relay, &mut seen, LOOPBACK, false).await;
     bare.dial(circuit)
         .expect("a circuit dial is accepted by the transport");
     let deadline = tokio::time::Instant::now() + PATIENCE;
