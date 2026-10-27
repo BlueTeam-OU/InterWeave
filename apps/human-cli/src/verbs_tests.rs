@@ -982,3 +982,65 @@ async fn a_read_the_store_refuses_is_said() {
         "{out}"
     );
 }
+
+/// A send the facade refuses before any row is made answers its own line
+/// `input-refused` with the facade's reason, and the next line is sent.
+/// Mutation: the refusal left unanswered, which stalls the input.
+#[tokio::test]
+async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    let (lines_in, input) = tokio::sync::mpsc::unbounded_channel();
+    // Past the payload bound however it is encoded: text that does not
+    // compress.
+    let mut seed: u64 = 1;
+    let symbols = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let big: String = (0..120_000)
+        .map(|_| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            char::from(symbols[usize::try_from(seed >> 58).unwrap_or(0)])
+        })
+        .collect();
+    for (text, reference) in [(big, "big"), ("after".to_owned(), "after")] {
+        let line = json!({"send": {"conversation": to_alice, "text": text, "ref": reference}});
+        lines_in.send(Ok(line.to_string())).expect("queued");
+    }
+    drop(lines_in);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_000)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    assert!(
+        events.iter().any(|e| e["event"] == "input-refused"
+            && e["ref"] == "big"
+            && e["reason"] == "too-large"),
+        "{out}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e["event"] == "outbound" && e["ref"] == "after"),
+        "{out}"
+    );
+}
