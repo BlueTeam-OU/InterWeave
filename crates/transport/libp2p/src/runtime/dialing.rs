@@ -953,9 +953,12 @@ fn learn_advertised(
 /// (`an_identify_address_refused_by_rule_3_enters_the_book_when_the_boundary_widens`,
 /// and on the wire
 /// `a_peer_that_left_is_not_judged_again_when_a_private_listener_binds`).
-/// Per peer, at most `MAX_ADDRESSES_PER_PEER`, the most the book keeps
-/// for one
-/// (`a_peer_advertising_more_private_addresses_than_the_book_keeps_is_held_to_the_cap`).
+/// Per peer and per address family, at most `MAX_ADDRESSES_PER_PEER`,
+/// the most the book keeps for one: rule 3's refusal is per family, so
+/// a family's widening finds that family's addresses held however many
+/// of the other the peer listed first
+/// (`a_peer_advertising_more_private_addresses_than_the_book_keeps_is_held_to_the_cap`,
+/// review F1 of #468 by the second engine).
 /// Each Identify replaces the peer's entry.
 #[derive(Debug, Default)]
 pub(super) struct HeldBack {
@@ -974,7 +977,17 @@ impl HeldBack {
         mut refused: Vec<Multiaddr>,
         open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>,
     ) {
-        refused.truncate(interweave_transport_runtime::connection_manager::MAX_ADDRESSES_PER_PEER);
+        let cap = interweave_transport_runtime::connection_manager::MAX_ADDRESSES_PER_PEER;
+        let (mut v4, mut v6) = (0, 0);
+        refused.retain(|address| {
+            let kept = if is_v6_family(address) {
+                &mut v6
+            } else {
+                &mut v4
+            };
+            *kept += 1;
+            *kept <= cap
+        });
         if refused.is_empty() || !connects(open, peer) {
             self.by_peer.remove(peer);
         } else {
@@ -1019,6 +1032,17 @@ impl HeldBack {
     fn held(&self, peer: &TransportIdentity) -> usize {
         self.by_peer.get(peer).map_or(0, Vec::len)
     }
+}
+
+/// The family rule 3 judges `address` under: v6 for an IPv6 literal
+/// that is not v4-mapped, v4 otherwise -- `reachability::private_literal`'s
+/// rule, which that crate keeps private. Every held address passed it,
+/// being refused as `private_without_private_listener`.
+fn is_v6_family(address: &Multiaddr) -> bool {
+    matches!(
+        address.iter().next(),
+        Some(Protocol::Ip6(ip)) if ip.to_ipv4_mapped().is_none()
+    )
 }
 
 fn connects(
@@ -3722,6 +3746,26 @@ mod tests {
         let mut held = HeldBack::default();
         held.hold(&peer, many.clone(), &open);
         assert_eq!(held.held(&peer), MAX_ADDRESSES_PER_PEER, "held to the cap");
+        // A full family ahead of the other does not crowd it out: rule
+        // 3 refuses per family, and an IPv6 widening must find the ULA.
+        let ula: Multiaddr = "/ip6/fd00::1/tcp/4001".parse().expect("valid");
+        let mut mixed = many.clone();
+        mixed.push(ula.clone());
+        held.hold(&peer, mixed, &open);
+        assert_eq!(
+            held.held(&peer),
+            MAX_ADDRESSES_PER_PEER + 1,
+            "the v4 family at its cap, and the ULA held beside it"
+        );
+        let mapped: Multiaddr = "/ip6/::ffff:10.0.0.1/tcp/4001".parse().expect("valid");
+        let mut with_mapped = many[..MAX_ADDRESSES_PER_PEER].to_vec();
+        with_mapped.push(mapped);
+        held.hold(&peer, with_mapped, &open);
+        assert_eq!(
+            held.held(&peer),
+            MAX_ADDRESSES_PER_PEER,
+            "a v4-mapped address is the v4 family's, as rule 3 judges it"
+        );
         held.hold(&peer, many[..2].to_vec(), &open);
         assert_eq!(
             held.held(&peer),
