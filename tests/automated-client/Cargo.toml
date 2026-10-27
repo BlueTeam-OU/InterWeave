@@ -32,6 +32,7 @@ interweave-transport-api = { path = "../../crates/api/transport-api" }
 tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 interweave-test-support = { path = "../support", features = ["e2e"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

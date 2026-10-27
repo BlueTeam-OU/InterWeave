@@ -10,11 +10,15 @@
 //! a static-bootstrap entry at its overlay address, admitted under
 //! ADR-0052 rule 9's operator door although the literal is carrier-grade;
 //! no other discovery provider, no Kademlia and no connectivity role.
+//! The third case is why 5b names the wildcard alone: a listener on the
+//! overlay literal keeps its connection when the link goes.
 //!
 //! What this does NOT prove, by name (5b's known limits): one kernel, so
 //! no real latency, loss, MTU or clock skew from a tunnel and no real
-//! overlay in the path; no NAT; no second uid, so decision 5's port rule
-//! stays unmeasured; a real second host, which needs a runner on a
+//! overlay in the path; no NAT; no second uid in the case itself
+//! (decision 5's port rule is measured on the host,
+//! `packaging/linux/evidence/2026-10-27-second-uid-port.md`, and still
+//! owed as a CI case); a real second host, which needs a runner on a
 //! second machine or the hosted edge itself as a test peer.
 
 #![cfg(target_os = "linux")]
@@ -45,6 +49,15 @@ const CLOSE: Duration = Duration::from_secs(10);
 /// other: a static entry is dialled at start, so a pair that could
 /// connect does within it (measured: well under a second here).
 const WATCH: Duration = Duration::from_secs(5);
+
+/// What a host's daemon listens on.
+#[derive(Clone, Copy)]
+enum Listen {
+    /// `0.0.0.0`, 5b's shape.
+    Wildcard,
+    /// The host's own overlay address alone, the shape 5b rules out.
+    OverlayLiteral,
+}
 
 fn config() -> ClientConfig {
     ClientConfig::new(ENDPOINT, CLIENT_KIND, CHANNEL)
@@ -83,10 +96,14 @@ impl Host {
         }
     }
 
-    /// The other host allowed, a wildcard listener on this one's port,
-    /// and -- when `entry` -- the other's overlay address as the one
+    /// The other host allowed, a listener on this one's port as `listen`
+    /// says, and -- when `entry` -- the other's overlay address as the one
     /// static-bootstrap entry; without it, no provider at all.
-    fn render(&self, other: &Self, entry: bool) {
+    fn render(&self, other: &Self, entry: bool, listen: Listen) {
+        let ip = match listen {
+            Listen::Wildcard => Ipv4Addr::UNSPECIFIED,
+            Listen::OverlayLiteral => self.ip,
+        };
         let providers = if entry {
             format!(
                 "[ {{ type: static-bootstrap, enabled: true, priority: 5, config: {{ peers: \
@@ -107,7 +124,7 @@ endpoints:
     - {{ id: {ENDPOINT}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
 channels: {{ desired: [] }}
 discovery: {{ providers: {providers} }}
-transport: {{ listen: {{ addresses: [\"/ip4/0.0.0.0/tcp/{port}\"] }} }}
+transport: {{ listen: {{ addresses: [\"/ip4/{ip}/tcp/{port}\"] }} }}
 observability: {{ log_level: debug }}
 ",
             name = self.home.paths.profile(),
@@ -157,12 +174,12 @@ observability: {{ log_level: debug }}
 
 /// A and B minted under one scratch tree, each rendered against the
 /// other, and started.
-async fn hosts(entry: bool) -> (tempfile::TempDir, Host, Host) {
+async fn hosts(entry: bool, listen: Listen) -> (tempfile::TempDir, Host, Host) {
     let base = private_tempdir();
     let mut a = Host::mint(base.path(), "host-a", Net::A, netns::OVERLAY_A);
     let mut b = Host::mint(base.path(), "host-b", Net::B, netns::OVERLAY_B);
-    a.render(&b, entry);
-    b.render(&a, entry);
+    a.render(&b, entry, listen);
+    b.render(&a, entry, listen);
     a.start().await;
     b.start().await;
     (base, a, b)
@@ -231,7 +248,7 @@ async fn two_hosts_talk_over_the_overlay_and_redial_when_its_link_returns() {
     if !netns::in_overlay(OVER_THE_OVERLAY) {
         return;
     }
-    let (_base, mut a, mut b) = hosts(true).await;
+    let (_base, mut a, mut b) = hosts(true, Listen::Wildcard).await;
     let mut from_a = a.client().await;
     let mut from_b = b.client().await;
 
@@ -306,7 +323,7 @@ async fn without_the_static_entry_the_two_hosts_never_connect() {
     if !netns::in_overlay(WITHOUT_THE_ENTRY) {
         return;
     }
-    let (_base, mut a, mut b) = hosts(false).await;
+    let (_base, mut a, mut b) = hosts(false, Listen::Wildcard).await;
     for (from, to) in [(&a, &b), (&b, &a)] {
         let at = SocketAddrV4::new(to.ip, to.port);
         let deadline = tokio::time::Instant::now() + PATIENCE;
@@ -334,6 +351,39 @@ async fn without_the_static_entry_the_two_hosts_never_connect() {
     assert!(refused.is_err(), "a send with no route: {refused:?}");
 
     drop(from_a);
+    a.stop().await;
+    b.stop().await;
+}
+
+const ON_THE_LITERAL: &str =
+    "a_listener_on_the_overlay_literal_keeps_its_connection_past_the_close_window";
+
+/// Why 5b names the wildcard alone: the same two hosts, each listening on
+/// its overlay literal instead, keep the connection when the link is
+/// deleted, past the window the wildcard case closes within. A listener
+/// bound to one address reports no change when that address leaves, and
+/// a daemon has no platform view, so the detector never sees the loss.
+/// The wildcard case above is the positive control. This case failing --
+/// the connection closed in the window -- means the stack now sees a
+/// literal listener's loss, and 5b's reason is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listener_on_the_overlay_literal_keeps_its_connection_past_the_close_window() {
+    if !netns::in_overlay(ON_THE_LITERAL) {
+        return;
+    }
+    let (_base, mut a, mut b) = hosts(true, Listen::OverlayLiteral).await;
+    until_both(&a, &b, true, PATIENCE, "connected over the overlay").await;
+
+    netns::overlay_down();
+    tokio::time::sleep(CLOSE).await;
+    assert!(
+        a.connected_to(&b.peer).await && b.connected_to(&a.peer).await,
+        "a literal listener's connection closed within {CLOSE:?} of the link's loss\nA:\n{}\nB:\n{}",
+        a.log(),
+        b.log()
+    );
+
+    netns::overlay_up();
     a.stop().await;
     b.stop().await;
 }

@@ -63,3 +63,41 @@ decision 5b covers. The sentence now says what was measured and
 where; the suite's one-uid limit stands as written. Propagation: the
 decision 5 sentence; this note; the log row; the digest entry.
 
+### Amendment 2026-10-27 (ii) — The two amendments of the day read against each other
+
+The blind review of #475 (head 38db9e38) read the two amendments of
+2026-10-27 together and found what neither had checked against the
+other (F1, F2, both P3; p2p-network-dev-01's OBSERVATION 01a17c62).
+Decision 5 had been amended to say the cross-account port rule was
+measured while decision 5b's limit sentence, written hours earlier,
+still said it stayed unmeasured; decision 5's last sentence and the
+Revisit condition still spoke of "a second host" as the day the
+release gate and SPIKE-004's limits are consumed, which 5b's private
+overlay is not; and 5b's wildcard parenthesis cited a measurement the
+kept case did not render, `two_hosts.rs` running the wildcard shape
+alone. #475 landed on the owner's word without waiting; this note
+follows on p2p-network-dev-01's next branch, which adds the third
+case the parenthesis now cites
+(`a_listener_on_the_overlay_literal_keeps_its_connection_past_the_close_window`,
+35a324f3: both daemons on their overlay literal, the link deleted,
+the connection still reported 10 s later; mutated to the wildcard it
+fails at "closed within 10s"). A fourth sentence came from the same review's carried risk
+(p2p-network-dev-01's OBSERVATION 01a17c8a): the first 5b text said
+the operator door admits the overlay literal "whatever its class",
+but rule 9's door has two halves, and only the configuration half
+is outside rule 2's floor; the run-time add (`peers add`,
+`admin.peers.add_address`) is a person's door and keeps ADR-0062
+decision 1's special-use floor, which refuses `100.64.0.0/10`
+(`reachability::special_use_host` and its unit test
+`the_add_floor_refuses_every_special_use_class_and_admits_private_and_public`).
+Ruled: the floor stays; a 5b peer is a configuration entry changed by
+a re-render, which is the fleet's own mechanism (agent-fabric ADR-064
+rule 2), so the deployment loses nothing; a person's mesh peer on
+that range is the revisit, with ADR-0052 rule 10's reading of the
+range. `DEPLOYING.md` says the same (7d7b65e5). No decision changes;
+the sentences now agree. Propagation: decision 5's last sentence; 5b's limit sentence
+and parenthesis; the Revisit condition; this note; the log row; the
+digest entry. The lesson for the record's author: two amendments of
+one record on one day are read against each other before the second
+leaves.
+

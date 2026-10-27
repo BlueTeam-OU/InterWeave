@@ -3333,6 +3333,7 @@ dependencies = [
  "interweave-test-support",
  "interweave-transport-api",
  "interweave-transport-runtime",
+ "serde_json",
  "tempfile",
  "tokio",
 ]
