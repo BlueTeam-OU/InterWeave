@@ -5378,6 +5378,20 @@ loop was closing was dropped with no update — fixed on #483
 `Failure::ServiceStopped`, b156191f the failure), host-tested, not run
 on a phone, so the service-restart interleaving on a device stays
 carried to the release gate with the cases above.
+The owner's second review of the client (2026-10-27, judged by the
+review class at 1b37e0ef) found, in the same place, that a facade
+whose command outlasts the stop's 2 s grace is left running with no
+generation on what it publishes, so it can list for, mark listed and
+publish into the view of the next service start — and that the stop
+retires nothing at the hub, so a generation check alone would still
+let it through between the stop and the start. Ruled the same day,
+human-client-android.md "A facade past its stop": the stop retires
+the generation before it returns, every facade-to-hub operation
+carries one and is refused unless current, a retired facade finishes
+its accepted commands against the store without publishing and its
+late end makes the newer facade list again, a discard refuses while a
+facade thread is alive. rust-ui-dev-02 builds; until built, the
+restart interleaving above carries this too.
 
 ## 21. Stage 18 — full adversarial/security gate
 
@@ -6923,6 +6937,37 @@ owner:
   said. Until then the test #483 holds
   for the window's constraint (b), a pending row that does not decode
   resent after a restart (b046573a), is the only part of it on main.
+- Found after the close, from the owner's second review of the client
+  (2026-10-27, judged by the review class at 1b37e0ef), three of this
+  stage's, each P3 and none reaching a screen in a way the review
+  class found wrong today. The store's channel badge
+  (`unread_counts`, #489) counted distinct application ids per
+  channel, merging two publishers' reuse of one id that the page and
+  the model show as two items: architect-cto's STATE.md sentence said
+  so and is corrected (A 2026-10-27 (ii), rows of a decodable kind,
+  one per row); the query and its test change with it in the start
+  window's second batch, before any screen reads the count,
+  rust-ui-dev-02's. `interweave-human send … -` reads stdin whole with
+  no ceiling before the session opens, and `listen --input` reads
+  lines with no line ceiling into an unbounded channel and an
+  unbounded waiting queue, so a pipeline can grow the process without
+  reaching the chat's bounded encoding — a local exhaustion, not a
+  network one: bounded as the same crate bounds `peers add -` and
+  `--photo` (read the ceiling plus one byte, refuse), the line ceiling
+  derived from the largest legal encoded line as the bridge's host
+  input derives its own, an over-long line drained and answered
+  `input-refused`, the channel bounded with the reader blocking on it;
+  rust-ui-dev-02's, the README stating the bounds. And no site orders
+  contacts under the locale's collation the contact-cards design §6.2
+  requires — the Contacts list sorts by Unicode lowercase then code
+  point with a contact-id tie the design does not have, the Peers
+  rows' names the same way by the add-a-peer design's interim, and
+  the store, the model and the command line by byte order, four
+  orders that disagree on case: ruled 2026-10-27, human-client-ui.md
+  §3 "How contacts are ordered" (one collation function of the model,
+  ICU4X's collator, the root order until the localisation contract
+  gives a locale, §6.2's route tie, pages of that order);
+  rust-ui-dev-01 builds, ux-designer-01 revises the add-a-peer note.
 - The fresh-pair row's one-sided step in the other direction (B
   trusting first) was not run; which side dialled in its step 3, and
   from which source, is not told apart (the peer cache was on):
