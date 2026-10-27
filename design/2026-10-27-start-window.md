@@ -660,7 +660,12 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     usual. Again with the 64 made of 40 conversations of the identity
     in front, 20 of another identity and 4 routes kept only under
     contacts: the same refusal and the same text, which names no
-    conversation of the identity in front that is not there. (Where no
+    conversation of the identity in front that is not there. Again with
+    the identity in front holding no conversation with that peer, the
+    64 being 60 conversations of another identity and 4 routes kept
+    only under contacts: the same refusal, and its text directs the
+    person to no conversation as one they have; it offers the
+    conversation only as a condition ("if you have one"). (Where no
     surface in the apps addresses a new endpoint yet, a test hook makes
     the send.)
 12. **The bound while open**: with a test bound small enough to reach
