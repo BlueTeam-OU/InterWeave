@@ -44,6 +44,17 @@ pub struct Photo {
     pub rgba: Vec<u8>,
 }
 
+/// The identity's own card as one share sent it, shown in its own card
+/// row (contact-cards section 5.5): what went, never the card as it is
+/// now -- an edit after the share does not rewrite the row.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SentCard {
+    /// The name and surname it carried, as one line.
+    pub name: String,
+    /// Its photo, decoded from the bytes it carried, if any.
+    pub photo: Option<Photo>,
+}
+
 /// Why a name typed for a card or a contact cannot be saved, checked on
 /// Save and shown under its field (design section 5.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -232,6 +232,9 @@ pub struct MessageItem {
     pub sent_at_ms: Option<u64>,
     /// The local wall-clock time the list is ordered by.
     pub local_at: u64,
+    /// The identity's own card this row sent, drawn in place of a text
+    /// (contact-cards section 5.5); `None` for a message.
+    pub card: Option<cards::SentCard>,
 }
 
 /// One conversation in the list.
@@ -526,10 +529,13 @@ pub struct ListedOutbound {
     pub row: RowId,
     /// Where it is going.
     pub destination: Destination,
-    /// The envelope it carries.
+    /// The envelope it carries: for an own card, one holding only the
+    /// card's id, its text empty.
     pub envelope: HumanChatV2,
     /// When it was composed, on the wall clock.
     pub created_at: u64,
+    /// The identity's own card it carries, as sent; `None` for a message.
+    pub card: Option<cards::SentCard>,
 }
 
 /// An inbound message the store holds, as the root read it.
@@ -578,6 +584,8 @@ struct Item {
     /// Hidden by the person (Hide, a conversation hide, a cancel): not
     /// shown, and dropped once the snackbar that could undo it closes.
     hidden: bool,
+    /// The own card an outbound row carries, as sent.
+    card: Option<cards::SentCard>,
 }
 
 impl Item {
@@ -823,7 +831,21 @@ impl UiModel {
             }
             composer.refused = None;
         }
-        self.outbound(row, conversation, envelope, at);
+        self.outbound(row, conversation, envelope, None, at);
+    }
+
+    /// Share queued the identity's own card on `key` as pending `row`: its
+    /// own card row (contact-cards section 5.5), the card as it went,
+    /// with the status of any outbound message from here.
+    pub fn card_queued(
+        &mut self,
+        row: RowId,
+        key: ConversationKey,
+        app_message_id: String,
+        card: cards::SentCard,
+        at: u64,
+    ) {
+        self.outbound(row, key, card_envelope(app_message_id), Some(card), at);
     }
 
     /// The person pressed Send in conversation `key`, for the draft as it
@@ -851,7 +873,13 @@ impl UiModel {
     pub fn pending_listed(&mut self, rows: Vec<ListedOutbound>) {
         for row in rows {
             let conversation = conversation_of(&row.destination);
-            self.outbound(row.row, conversation, row.envelope, row.created_at);
+            self.outbound(
+                row.row,
+                conversation,
+                row.envelope,
+                row.card,
+                row.created_at,
+            );
         }
         self.held.clear();
         self.held_order.clear();
@@ -1143,6 +1171,7 @@ impl UiModel {
                 reply: self.reply(&i.conversation, i.envelope.reply_to.as_deref()),
                 sent_at_ms: i.envelope.sent_at_ms,
                 local_at: i.local_at,
+                card: i.card.clone(),
             })
             .collect();
         list.sort_by(|a, b| a.local_at.cmp(&b.local_at).then_with(|| a.key.cmp(&b.key)));
@@ -1497,6 +1526,7 @@ impl UiModel {
                 released_from: None,
                 last_pending: None,
                 hidden: false,
+                card: None,
             },
         );
         self.arrived_in(&conversation_key);
@@ -1507,6 +1537,7 @@ impl UiModel {
         row: RowId,
         conversation: ConversationKey,
         envelope: HumanChatV2,
+        card: Option<cards::SentCard>,
         at: u64,
     ) {
         // Merged by row, and a row already terminal is not listed back by
@@ -1550,6 +1581,7 @@ impl UiModel {
                 released_from: None,
                 last_pending: Some(row),
                 hidden: false,
+                card,
             },
         );
         self.arrived_in(&conversation_key);
@@ -1731,5 +1763,20 @@ fn title(key: &ConversationKey, shared: &BTreeSet<&TransportIdentity>) -> String
                 },
             )
         }
+    }
+}
+
+/// The envelope an own card row is held under: the card's id, which the
+/// item is keyed by as any outbound row is, and no text -- the row draws
+/// the card ([`MessageItem::card`]).
+fn card_envelope(app_message_id: String) -> HumanChatV2 {
+    HumanChatV2 {
+        v: 2,
+        kind: interweave_human_chat_protocol::MessageKind::Text,
+        app_message_id,
+        text: String::new(),
+        reply_to: None,
+        sent_at_ms: None,
+        from_endpoint: None,
     }
 }

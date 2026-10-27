@@ -40,7 +40,7 @@ pub use model::cards::{
     AcceptLine, CardAnswer, CardOutcome, CardSwipe, ContactRef, ContactView, IdentityView,
     KeyProblem, KeyStep, KeyView, NameProblem, OwnKey, OwnPhotoStep, Photo, PhotoBasis,
     PhotoChange, PhotoEdit, Proposal, ProposalContext, ProposalItem, ProposalNote,
-    READ_PROPOSAL_CAP, RouteView, ValueChanges, name_problem,
+    READ_PROPOSAL_CAP, RouteView, SentCard, ValueChanges, name_problem,
 };
 pub use model::{
     Announce, Composer, Confirmation, ContactChange, ConversationKey, ConversationSummary,

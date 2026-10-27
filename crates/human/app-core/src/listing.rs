@@ -140,6 +140,7 @@ fn outbound(row: &PendingOutbound) -> Option<ListedOutbound> {
         },
         envelope: decode(row.media_type.as_ref(), &row.payload)?,
         created_at: row.created_at,
+        card: None,
     })
 }
 
