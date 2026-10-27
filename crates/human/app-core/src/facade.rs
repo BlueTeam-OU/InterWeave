@@ -968,11 +968,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 // The old key's shares are over: one still owed, or an own
                 // card row still on its way, is not recorded from here,
                 // since a date after the change would read as a share of
-                // the new key; each is in the list instead. Not covered: a
-                // card cancelled before the step and restored by its Undo
-                // after it is pending again and recorded at its Accepted --
-                // carried to contact-cards 5.5's batch, which offers that
-                // Cancel (#467 F6, R3, R6 F17;
+                // the new key; each is in the list instead. A card cancelled
+                // before the step has no Undo after it: confirming the step
+                // closes that snackbar first (ui-model's
+                // `confirming_a_new_key_closes_an_own_cards_cancel_undo`;
+                // #467 F6, R3, R6 F17, #471 R2 F1;
                 // `a_share_owed_when_a_new_key_is_made_is_listed_to_share_again`,
                 // `a_card_accepted_after_a_new_key_records_no_share`).
                 self.shares_owed.clear();

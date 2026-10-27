@@ -3386,7 +3386,10 @@ fn message_row(
                 body.push(' ');
                 body.push_str(placeholder_en::text(UiText::CardSentPhoto));
             }
-            if ends_a_sentence(&body) {
+            // Only a full stop goes: the template ends the body with one.
+            // A name's own "!", "?" or "…" stays, as a message's does
+            // (#471 R2 F2).
+            if body.ends_with('.') {
                 body.pop();
             }
             (placeholder_en::text(UiText::CardSentLabel).to_owned(), body)

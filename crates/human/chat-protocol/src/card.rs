@@ -277,8 +277,9 @@ pub struct OwnCardFields {
 /// that is not a card, or one this grammar refuses.
 ///
 /// For the sender's own stored rows only. A received text never enters
-/// it -- a rule of its callers, held by review alone: its one caller is
-/// app-core's listing of this node's pending outbound rows. The
+/// it -- a rule of its callers: its one caller is app-core's listing of
+/// this node's pending outbound rows, which `tests/frozen_cards.rs`'s
+/// `only_the_pending_listing_calls_the_own_reader` holds. The
 /// receiver's path is [`classify`] alone, which verifies the card
 /// over the route it arrived on (ADR-0063 decision 3). Reading one's own
 /// write back verifies nothing the encrypted store does not, and cannot be

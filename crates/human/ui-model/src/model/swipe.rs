@@ -848,6 +848,26 @@ impl UiModel {
         }
     }
 
+    /// Make a new key is about to run: an open snackbar whose Undo would
+    /// restore one of the identity's own cards closes now, its Undo with
+    /// it, since that card carries a key the person is replacing
+    /// (identity-key design 5.2; #471 R2 F1). Any other snackbar stays.
+    pub(crate) fn close_own_card_undo(&mut self) {
+        let card_undo = self
+            .swipe
+            .open
+            .as_ref()
+            .is_some_and(|open| match open.undo {
+                Undo::Restore { item, .. } => {
+                    self.items.get(&item).is_some_and(|i| i.card.is_some())
+                }
+                _ => false,
+            });
+        if card_undo && let Some(open) = self.swipe.open.as_ref().map(|o| o.id) {
+            self.snackbar_closed(open);
+        }
+    }
+
     /// Snackbar `id` closed -- its timeout, a swipe away, leaving the
     /// conversation, the app leaving the foreground -- with no Undo. The
     /// action already happened; only what its Undo needed is let go.

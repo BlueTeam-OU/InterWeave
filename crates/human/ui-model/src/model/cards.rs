@@ -46,7 +46,8 @@ pub struct Photo {
 
 /// The identity's own card as one share sent it, shown in its own card
 /// row (contact-cards section 5.5): what went, never the card as it is
-/// now -- an edit after the share does not rewrite the row.
+/// now -- an edit after the share does not rewrite the row (app-core's
+/// `a_shared_card_is_its_own_card_row_as_it_went`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SentCard {
     /// The name and surname it carried, as one line.
@@ -945,10 +946,12 @@ impl UiModel {
     /// The confirmation's Make a new key: the key is made from here.
     #[must_use]
     pub fn confirm_new_key(&mut self) -> Option<Intent> {
-        matches!(self.cards.key_step, Some(KeyStep::Confirming { .. })).then(|| {
-            self.cards.key_step = Some(KeyStep::Making);
-            Intent::MakeNewKey
-        })
+        if !matches!(self.cards.key_step, Some(KeyStep::Confirming { .. })) {
+            return None;
+        }
+        self.close_own_card_undo();
+        self.cards.key_step = Some(KeyStep::Making);
+        Some(Intent::MakeNewKey)
     }
 
     /// The new key was made: the identity with its fingerprint -- or, when
@@ -2212,6 +2215,49 @@ mod tests {
             fingerprint: "0123456789abcdef".to_owned(),
         }));
         assert_eq!(model.key_step(), None, "opened");
+    }
+
+    /// Identity-key design 5.2 (#471 R2 F1): confirming Make a new key
+    /// closes an open Cancel snackbar of one of the identity's own cards,
+    /// its Undo with it -- that card carries the key being replaced -- and
+    /// lets its record go. Mutation: the confirmation leaving the snackbar
+    /// open.
+    #[test]
+    fn confirming_a_new_key_closes_an_own_cards_cancel_undo() {
+        use interweave_human_client_api::{ClientEvent, OutboundStatus, OutboundUpdate};
+        let cancel = |model: &mut UiModel, row: i64| {
+            model.client_event(ClientEvent::Outbound(OutboundUpdate {
+                row: RowId::from_stored(row),
+                app_message_id: interweave_human_core::AppMessageId::parse(format!("{row:032x}"))
+                    .expect("id"),
+                status: OutboundStatus::Cancelled {
+                    may_have_reached: false,
+                },
+                last_code: None,
+            }));
+            model.cancelled(RowId::from_stored(row), true);
+        };
+        let mut model = UiModel::new();
+        model.identity_shown(own(OwnKey::Unusable(KeyProblem::Damaged)));
+        model.card_queued(
+            RowId::from_stored(1),
+            direct(P, "human"),
+            format!("{:032x}", 1),
+            SentCard {
+                name: "Ada".to_owned(),
+                photo: None,
+            },
+            1,
+        );
+        cancel(&mut model, 1);
+        assert!(
+            model.snackbar().is_some_and(|s| s.undo),
+            "control: the card's Cancel offers its Undo"
+        );
+        assert_eq!(model.ask_new_key(), Some(Intent::AskNewKey));
+        model.new_key_asked(false);
+        assert_eq!(model.confirm_new_key(), Some(Intent::MakeNewKey));
+        assert!(model.snackbar().is_none(), "closed, its Undo with it");
     }
 
     /// #423 F1: a key step the facade refused, or one whose identity could

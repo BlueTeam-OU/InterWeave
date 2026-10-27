@@ -174,7 +174,8 @@ impl Root {
     }
 
     /// A command run on the facade side directly, its updates applied:
-    /// what no view offers yet, an own card row's Cancel and its Undo.
+    /// a test that drives the facade's own card rule with no view between,
+    /// an own card row's Cancel and its Undo among them.
     async fn run(&mut self, command: Command, now: u64) {
         for update in self.facade.execute(command, now).await {
             self.updates.push(update.clone());
@@ -2105,6 +2106,54 @@ async fn a_shared_card_is_its_own_card_row_as_it_went() {
         }),
         "listed at start as it went"
     );
+}
+
+/// A pending row whose card the grammar refuses -- a name past its
+/// bound -- is not read back as an own card row: it stays undecodable,
+/// counted and never shown (#471 R2 F5). Mutation: the listing reading a
+/// card by a laxer parse than the grammar.
+#[tokio::test]
+async fn a_pending_card_the_grammar_refuses_stays_undecodable() {
+    use interweave_human_store::{NewOutbound, OutboundDestination};
+    use interweave_transport_api::DirectDestination;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    {
+        let mut store =
+            HumanStore::open_profile(&pa.paths, &FilesystemCustody, StoreOptions::default())
+                .expect("store");
+        let card = format!(
+            r#"{{"v":2,"kind":"contact_card","app_message_id":"{id}","card":{{"name":"{name}","identity_key":"{key}","signature":"{sig}"}}}}"#,
+            id = "a".repeat(32),
+            name = "A".repeat(65),
+            key = base64::engine::general_purpose::STANDARD.encode([1u8; 32]),
+            sig = base64::engine::general_purpose::STANDARD.encode([2u8; 64]),
+        );
+        store
+            .commit_pending_outbound(&NewOutbound {
+                app_message_id: AppMessageId::parse("a".repeat(32)).expect("id"),
+                transport_message_id: interweave_transport_api::MessageId::parse_hex(
+                    &"b".repeat(32),
+                )
+                .expect("id"),
+                destination: OutboundDestination::Direct(DirectDestination::to_default(
+                    b.peer().clone(),
+                )),
+                media_type: Some(
+                    interweave_transport_api::MediaType::parse(
+                        "application/vnd.interweave-human-chat+json;v=2",
+                    )
+                    .expect("media type"),
+                ),
+                payload: card.into_bytes(),
+                created_at: 1,
+            })
+            .expect("committed");
+    }
+    let mut side = facade(&a, &pa, None);
+    let listing = side.listing().expect("listed");
+    assert!(listing.pending.is_empty(), "{:?}", listing.pending);
+    assert_eq!(listing.undecodable_other, 1);
 }
 
 /// A cancelled card brought back by its Undo is pending again, and its

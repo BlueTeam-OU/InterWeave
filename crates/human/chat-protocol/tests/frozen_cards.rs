@@ -598,3 +598,44 @@ fn the_own_reader_reads_a_card_signed_for_another_peer_id() {
     );
     assert!(read_own_card_unverified(&wire(v)).is_some());
 }
+
+/// The own reader's caller rule (HUMAN-CHAT.md section Contact card, A
+/// 2026-10-27): outside this crate, only app-core's listing of this
+/// node's pending outbound rows calls it, so a received text never enters
+/// it. A new caller fails here and is judged on its own. Mutation: a
+/// second caller anywhere in the workspace's crates or apps.
+#[test]
+fn only_the_pending_listing_calls_the_own_reader() {
+    fn walk(dir: &std::path::Path, found: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("readable").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|n| n == "target") {
+                    continue;
+                }
+                walk(&path, found);
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && std::fs::read_to_string(&path)
+                    .is_ok_and(|text| text.contains("read_own_card_unverified("))
+            {
+                found.push(path);
+            }
+        }
+    }
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("the workspace root")
+        .to_path_buf();
+    let mut found = Vec::new();
+    for top in ["crates", "apps"] {
+        walk(&root.join(top), &mut found);
+    }
+    let own = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let callers: Vec<_> = found.into_iter().filter(|p| !p.starts_with(&own)).collect();
+    assert_eq!(
+        callers,
+        vec![root.join("crates/human/app-core/src/listing.rs")],
+        "the own reader's callers"
+    );
+}
