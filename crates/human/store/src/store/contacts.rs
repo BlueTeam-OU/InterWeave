@@ -1063,7 +1063,9 @@ impl HumanStore {
     }
 
     /// Record that the conversation on this route shared its identity's
-    /// card at `at_ms` (`conversation_index.card_shared_at`).
+    /// card at `at_ms` (`conversation_index.card_shared_at`): the caller's
+    /// to call when the card's row reached Accepted by remote transport
+    /// (cards section 5.3), never when it is queued.
     ///
     /// # Errors
     /// A storage error.
@@ -1087,8 +1089,9 @@ impl HumanStore {
     }
 
     /// Whether any conversation ever recorded a share of the identity's
-    /// card: what tells a first start from a key file lost after
-    /// counterparties got its key. `card_shared_at` is cleared by nothing
+    /// card: with the own card rows still pending, what tells a first
+    /// start from a key file lost after counterparties got, or may still
+    /// get, its key (app-core's `card_may_be_held`). `card_shared_at` is cleared by nothing
     /// short of a discard of the whole store.
     ///
     /// # Errors

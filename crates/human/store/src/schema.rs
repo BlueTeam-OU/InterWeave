@@ -175,7 +175,8 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
 ///   before v9, so no row can break it; one that did would fail the
 ///   migration loudly, never be dropped.
 /// - `conversation_index.card_shared_at`: when the conversation's
-///   identity last shared its card there.
+///   identity last shared its card there -- when its card row reached
+///   Accepted by remote transport (cards section 5.3).
 /// - `own_cards`: each identity's own card, keyed by its `EndpointId` —
 ///   what the person writes about themselves, outside ADR-0044's three
 ///   states, and nobody else's content.
