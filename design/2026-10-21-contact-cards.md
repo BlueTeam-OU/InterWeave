@@ -1112,8 +1112,8 @@ may-have-reached text of a Cancel included. The Undo restores the
 cancelled record itself, the card exactly as it was signed and sent,
 never the identity's card as it is now. The row's menu (message-swipe
 §7) holds those actions in that order and **no Show source**: a card
-has no markdown source to show, like the proposal's menu (§5.4.4). Copy,
-Reply and Keep are not offered, as on any outbound row.
+has no markdown source to show, like the proposal's menu (§5.4.4).
+Keep is not offered, as on any outbound row (message-swipe §7).
 
 **Accepted.** Once the row reaches Accepted by remote transport it
 stays as any accepted outbound message does (kind D): the card,
@@ -1775,7 +1775,11 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | Accept (button, menu item, custom action or swipe) | the confirmation row (focusable), read once with `CardUndoHint`: no live announcement of `ConfirmContactSaved` or `ConfirmContactUpdated` follows (§8 Announcements); the snackbar's timeout waits while focus is between the row and the snackbar, for at most 2 minutes (§5.4.2) | keyboard: with three or more rows after the confirmation row, wait past 6 s on the row, then move one stop at a time, more than 6 s apart, to Undo, and Undo is still reached; move focus to something before the row, then back to the row within 6 s, wait past 6 s, and Undo is still reached; pointer Accept with no further input: the snackbar closes by 2 minutes; desktop screen reader: in a case N and a case U accept, the row is read with `CardUndoHint` and neither "Contact saved" nor "Contact updated" follows; TalkBack blocked (§8); swipe with TalkBack cannot occur |
    | Decline, by button, menu item or keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
    | Decline by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set elsewhere first, then a swipe |
-   | own card row: Cancel (menu, keyboard or swipe), its Undo, a refused Undo, Retry from the menu (§5.5) | message-swipe §7's rule for a sent message in each case: the removal rule; the restored row's bubble; the next row, else the previous, else the header title; the row's bubble | keyboard: Shift+F10 on a Not sent card row, Cancel, then Undo |
+   | own card row: Cancel from its menu or by keyboard (§5.5) | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title | keyboard: Shift+F10 on a Not sent card row, Cancel; once with a row after it, once as the conversation's last row |
+   | own card row: Cancel by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set on another row first, then a swipe |
+   | own card row: the Cancel's Undo | the restored row's bubble, its first control | keyboard: after the Cancel above, Undo from the snackbar |
+   | own card row: the Cancel's Undo refused | the next row's first control, else the previous row's, else the conversation's header title (message-swipe §7) | keyboard, with the store degraded before Undo |
+   | own card row: Retry from its menu | the row's bubble | keyboard: Shift+F10 on a Not sent card row, Retry |
    | own card row Accepted while its menu is open | the row's bubble, the menu closed | keyboard, with a test seam holding the row until the menu is open |
    | own card row Accepted: Enter, Menu key or Shift+F10 on its bubble | stays on the bubble; no menu opens | keyboard |
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
@@ -2064,6 +2068,19 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     on an added identity with the change, Remove this identity opens
     only its own dialog, and its Cancel returns to the editor with the
     change still there.
+27. **One's own card row offers only what §5.5 gives it.** On a Not
+    sent card row, the menu opened by each of long press (Android),
+    secondary click (desktop), the Menu key and Shift+F10 holds Retry
+    then Cancel and nothing else, no Show source; the Android custom
+    actions are the same two. On an Accepted card row, a long press
+    opens nothing and plays no haptic tick (a long press on a message
+    row beside it plays one, the control), and a secondary click and
+    the desktop screen reader's activate open nothing; the desktop screen reader reads its role as not
+    activatable, and TalkBack offers no custom action and no "double
+    tap to activate" (TalkBack blocked, §8, until the device run). The
+    desktop screen reader reads the row as §8 says, with
+    `CardSentPhoto` for a card sent with a photo and without it for
+    one sent with none.
 
 ### 9.1 `human-client-ui.md` §13 criteria
 
