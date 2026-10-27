@@ -1655,8 +1655,6 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
     );
 }
 
-/// The words' `{max}` is the configuration's bound, which the runtime
-/// enforces: one value, held equal here.
 /// Onboarding's Connect owed and settled at the start -- the pair's trust
 /// lists each hold the other, so the device can reach someone -- is said
 /// to the platform once, and turns after say nothing more; a start that
@@ -1684,6 +1682,8 @@ async fn connect_settled_reaches_the_platform_once_and_only_when_owed() {
     }
 }
 
+/// The words' `{max}` is the configuration's bound, which the runtime
+/// enforces: one value, held equal here.
 #[test]
 fn the_address_bound_in_the_words_is_the_configurations() {
     assert_eq!(
