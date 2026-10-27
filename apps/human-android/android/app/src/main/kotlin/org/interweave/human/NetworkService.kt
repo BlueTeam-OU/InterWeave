@@ -153,8 +153,8 @@ class NetworkService : Service() {
         // below it that address is rule 10's recorded limit. A VPN
         // included: the default request leaves it out. Restricted and
         // untrusted networks stay out, as the platform keeps them from an
-        // app, and a background network is never heard (the platform adds
-        // FOREGROUND to an app's listen).
+        // app; and the platform adds FOREGROUND to an app's listen, so a
+        // background network is not reported to it.
         val request = NetworkRequest.Builder()
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
