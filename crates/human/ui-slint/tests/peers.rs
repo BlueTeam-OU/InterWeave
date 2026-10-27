@@ -3192,6 +3192,15 @@ fn a_block_of_several_decided_by_an_unasked_read_sends_focus_to_the_next() {
     decided_unasked(true, Held2::Trust);
 }
 
+/// A block of several decided by Not now, which sent focus to the next
+/// block's title, then reached again at its Trust by Shift+Tab: the
+/// read's move to that same title is made again, never taken for the
+/// one already carried out (#482 review F1).
+#[test]
+fn a_move_to_the_title_an_earlier_act_sent_focus_to_is_made_again() {
+    decided_unasked(true, Held2::TrustAfterNotNow);
+}
+
 /// The control: focus on the block's title, which stays, stays.
 #[test]
 fn a_block_decided_by_an_unasked_read_leaves_focus_elsewhere_alone() {
@@ -3201,6 +3210,7 @@ fn a_block_decided_by_an_unasked_read_leaves_focus_elsewhere_alone() {
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Held2 {
     Trust,
+    TrustAfterNotNow,
     NotNow,
     Problem,
     Title,
@@ -3284,8 +3294,19 @@ fn decided_unasked(several: bool, held: Held2) {
     );
     // Reached from the line as a person reaches them: Shift+Tab to Not
     // now, again to Trust; the title by the app's own request.
+    if held == Held2::TrustAfterNotNow {
+        // Not now on A: focus to B's title, as the model asks.
+        let _ = model.peers_input(PeersInput::NotNow(a.clone()));
+        settle(&mut view, &mut model);
+        assert_eq!(
+            view.window().get_focus_id().as_str(),
+            format!("block:{}", block_of(&view, 1).handle),
+            "Not now sent focus to B's title"
+        );
+    }
     let backtabs = match held {
-        Held2::Trust => 2,
+        // Back from B's title: A's line, then A's Trust, kept after Not now.
+        Held2::Trust | Held2::TrustAfterNotNow => 2,
         Held2::NotNow => 1,
         Held2::Problem | Held2::Title => 0,
     };
@@ -3304,7 +3325,7 @@ fn decided_unasked(several: bool, held: Held2) {
         settle(&mut view, &mut model);
     }
     let on = match held {
-        Held2::Trust => "block-trust",
+        Held2::Trust | Held2::TrustAfterNotNow => "block-trust",
         Held2::NotNow => "block-later",
         Held2::Problem => "block-problem",
         Held2::Title => "block",
@@ -3321,6 +3342,9 @@ fn decided_unasked(several: bool, held: Held2) {
         allowed: vec![TrustRow::added_here(a.clone())],
     }));
     let _ = model.peers_turn();
+    // Drawn twice before the move applies, as a turn can: the model's
+    // older request is not re-judged over the move (#482 review).
+    view.render(&model);
     settle(&mut view, &mut model);
     assert!(model.peers().add_open(), "the page stays open");
     let first = block_of(&view, 0);
@@ -3329,10 +3353,10 @@ fn decided_unasked(several: bool, held: Held2) {
     assert!(view.window().get_blocks_done_shown(), "Done shows");
     assert_eq!(labelled(&view, text(UiText::IdDone)).len(), 1, "Done drawn");
     let expected = match held {
-        Held2::Trust | Held2::NotNow if several => {
+        Held2::Trust | Held2::NotNow | Held2::TrustAfterNotNow if several => {
             format!("block:{}", block_of(&view, 1).handle)
         }
-        Held2::Trust | Held2::NotNow => "peers-done".to_owned(),
+        Held2::Trust | Held2::NotNow | Held2::TrustAfterNotNow => "peers-done".to_owned(),
         Held2::Problem => format!("block-state:{}", first.handle),
         Held2::Title => format!("block:{}", first.handle),
     };

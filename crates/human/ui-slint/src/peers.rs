@@ -249,6 +249,10 @@ pub(crate) struct PeerLists {
     /// and that line's words: drawn without its live region while they
     /// stand, since focus reads it (design section 5.3).
     quiet_state: Option<(TransportIdentity, String)>,
+    /// The block whose control, taken away by an unasked read, has its
+    /// focus move scheduled: no older request of the model's is re-judged
+    /// over it before it applies, as for `gone_move`.
+    block_move: Option<TransportIdentity>,
     /// The row read back last acted on, by the model's count.
     read_back_seen: u64,
     /// The add page's note last drawn, by the model's count, and its text.
@@ -399,6 +403,7 @@ impl PeerLists {
             focus_gone_said: false,
             gone_move: None,
             quiet_state: None,
+            block_move: None,
             read_back_seen: 0,
             note_seen: 0,
             trust_line_seen: 0,
@@ -428,6 +433,7 @@ impl View {
         // Its move applied, or replaced by another request.
         if self.focus_wanted.borrow().as_deref() != Some(self.peer_lists.focus_sent.as_str()) {
             self.peer_lists.gone_move = None;
+            self.peer_lists.block_move = None;
         }
         self.render_peer_list(peers, trust, model);
         self.render_add_page(peers, trust);
@@ -495,6 +501,7 @@ impl View {
         let pending = !fresh
             && !self.peer_lists.focus_sent.is_empty()
             && self.peer_lists.gone_move.is_none()
+            && self.peer_lists.block_move.is_none()
             && self.focus_wanted.borrow().as_deref() == Some(self.peer_lists.focus_sent.as_str())
             && !matches!(focus, Some(PeersFocus::Field { .. }));
         if on_page && (fresh || pending) {
@@ -502,6 +509,7 @@ impl View {
             if fresh {
                 self.peer_lists.focus_gone_said = false;
                 self.peer_lists.gone_move = None;
+                self.peer_lists.block_move = None;
             }
             if let Some(focus) = focus {
                 let target = self.focus_target(&focus, peers.field());
@@ -542,11 +550,16 @@ impl View {
             && let Some(target) = peers.focus_after_block_decided(trust, &peer, held)
         {
             let key = self.focus_target(&target, peers.field());
-            if key != self.peer_lists.focus_sent {
+            // Judged against the move still waiting, not the last key
+            // sent: an earlier move to the same place has applied and is
+            // no reason to skip this one
+            // (`a_move_to_the_title_an_earlier_act_sent_focus_to_is_made_again`).
+            if self.focus_wanted.borrow().as_deref() != Some(key.as_str()) {
                 if held == BlockHeld::Problem {
                     self.quieten_state_line(&peer);
                 }
                 self.peer_lists.focus_sent.clone_from(&key);
+                self.peer_lists.block_move = Some(peer.clone());
                 self.focus_key_after_draw(key);
             }
         }
