@@ -99,9 +99,6 @@ pub(crate) mod ask {
     pub(crate) const PHOTO_CANCEL: jint = 15;
 }
 
-/// The bits of a waited ask that name it; the rest carry its argument.
-pub(crate) const ASK_BITS: u32 = 8;
-
 /// The asks, in order, for one waiting Kotlin thread: each with its
 /// argument, 0 where it takes none.
 pub(crate) struct Asks {
@@ -122,7 +119,7 @@ impl Asks {
     }
 
     /// `ask` with an argument, which `wait` hands over above its
-    /// [`ASK_BITS`].
+    /// [`ASK_BITS`](crate::ask_word::ASK_BITS).
     pub(crate) fn push_with(&self, ask: jni::sys::jint, arg: u64) {
         self.queue
             .lock()
@@ -142,24 +139,17 @@ impl Asks {
     }
 
     /// The next ask within `timeout`, its argument above its
-    /// [`ASK_BITS`], or 0.
+    /// [`ASK_BITS`](crate::ask_word::ASK_BITS), or 0.
     pub(crate) fn wait(&self, timeout: Duration) -> jni::sys::jlong {
         let queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
         let (mut queue, _) = self
             .changed
             .wait_timeout_while(queue, timeout, |queue| queue.is_empty())
             .unwrap_or_else(PoisonError::into_inner);
-        queue.pop_front().map_or(0, |(ask, arg)| pack(ask, arg))
+        queue
+            .pop_front()
+            .map_or(0, |(ask, arg)| crate::ask_word::pack(ask, arg))
     }
-}
-
-/// An ask and its argument as `Native.waitIdentityAsk` hands them over.
-fn pack(ask: jni::sys::jint, arg: u64) -> jni::sys::jlong {
-    debug_assert!((0..1 << ASK_BITS).contains(&ask), "an ask fits its bits");
-    // An argument is a request counted from 1 in one view's life: it never
-    // nears the 55 bits left.
-    let arg = jni::sys::jlong::try_from(arg & ((1 << (63 - ASK_BITS)) - 1)).unwrap_or(0);
-    (arg << ASK_BITS) | jni::sys::jlong::from(ask)
 }
 
 pub(crate) static ASKS: Asks = Asks::new();

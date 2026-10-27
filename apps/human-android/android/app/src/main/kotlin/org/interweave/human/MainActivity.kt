@@ -325,7 +325,8 @@ class MainActivity : NativeActivity() {
         photoOpening = signal
         val expire = Runnable { signal.cancel() }
         val main = Handler(Looper.getMainLooper())
-        main.postDelayed(expire, PHOTO_OPEN_DEADLINE_MS)
+        val openedAt = android.os.SystemClock.elapsedRealtime()
+        main.postDelayed(expire, PHOTO_DEADLINE_MS)
         photoOpens.incrementAndGet()
         Thread {
             try {
@@ -341,7 +342,10 @@ class MainActivity : NativeActivity() {
                 if (opened == null) {
                     Native.photoPicked(request, ByteArray(0))
                 } else {
-                    Native.photoRead(request, opened.detachFd())
+                    // One deadline for the open and the read: what the
+                    // open left of it, nothing once it has passed.
+                    val left = PHOTO_DEADLINE_MS - (android.os.SystemClock.elapsedRealtime() - openedAt)
+                    Native.photoRead(request, opened.detachFd(), left.coerceAtLeast(0L))
                 }
             } finally {
                 photoOpens.decrementAndGet()
@@ -769,8 +773,8 @@ class MainActivity : NativeActivity() {
         private const val PHOTO_REQUEST = 4
         /** MediaStore.ACTION_PICK_IMAGES, by its value: an API 33 constant also served by the R extension 2. */
         private const val PICK_IMAGES = "android.provider.action.PICK_IMAGES"
-        /** How long a provider may take to open a chosen photo: src/photo_import.rs's PHOTO_DEADLINE. */
-        private const val PHOTO_OPEN_DEADLINE_MS = 30_000L
+        /** How long a pick may take, its open and its read together: src/photo_import.rs's PHOTO_DEADLINE. */
+        private const val PHOTO_DEADLINE_MS = 30_000L
         /** The opens a provider may hold past their cancel before a pick is refused (j68 P3-1). */
         private const val MAX_PHOTO_OPENS = 2
         private val photoOpens = java.util.concurrent.atomic.AtomicInteger()

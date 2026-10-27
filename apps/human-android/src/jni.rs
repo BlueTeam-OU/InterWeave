@@ -911,9 +911,10 @@ extern "system" fn Java_org_interweave_human_Native_photoPicked<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
-/// `Native.photoRead(request, fd)`: the file the picker chose for
+/// `Native.photoRead(request, fd, leftMs)`: the file the picker chose for
 /// `request`, opened, its descriptor handed over to be read here and
-/// closed. BLOCKS until it is read, given up, or past its deadline.
+/// closed within `leftMs`, what the open left of the pick's deadline.
+/// BLOCKS until it is read, given up, or past that deadline.
 #[allow(
     unsafe_code,
     reason = "the JVM finds a native method by its unmangled name; the descriptor is owned from here on"
@@ -924,6 +925,7 @@ extern "system" fn Java_org_interweave_human_Native_photoRead<'caller>(
     _class: JClass<'caller>,
     request: jlong,
     fd: jint,
+    left_ms: jlong,
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         if fd < 0 {
@@ -933,7 +935,8 @@ extern "system" fn Java_org_interweave_human_Native_photoRead<'caller>(
         // the caller, which hands it here and keeps no copy.
         let fd = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
         if let Ok(request) = u64::try_from(request) {
-            crate::activity::photo_read(request, fd);
+            let left = Duration::from_millis(u64::try_from(left_ms).unwrap_or(0));
+            crate::activity::photo_read(request, fd, left);
         }
         Ok(())
     })

@@ -207,11 +207,12 @@ pub(crate) fn photo_picked(request: u64, chosen: Option<Vec<u8>>) {
     });
 }
 
-/// `Native.photoRead`: the chosen file for `request`, read within its
-/// deadline unless a newer pick, the editor's close or the Activity's end
-/// gives it up first (j68 P3-1).
-pub(crate) fn photo_read(request: u64, fd: std::os::fd::OwnedFd) {
-    let deadline = Instant::now() + crate::photo_import::PHOTO_DEADLINE;
+/// `Native.photoRead`: the chosen file for `request`, read within what
+/// the open left of the pick's deadline (`left`) unless a newer pick, the
+/// editor's close or the Activity's end gives it up first (j68 P3-1;
+/// #483 F4: one deadline for the open and the read).
+pub(crate) fn photo_read(request: u64, fd: std::os::fd::OwnedFd, left: Duration) {
+    let deadline = Instant::now() + left.min(crate::photo_import::PHOTO_DEADLINE);
     match PHOTO_IMPORTS.read(request, fd, deadline) {
         crate::photo_import::Read::Bytes(bytes) => photo_picked(request, Some(bytes)),
         crate::photo_import::Read::Unusable => photo_picked(request, Some(Vec::new())),
@@ -220,7 +221,8 @@ pub(crate) fn photo_read(request: u64, fd: std::os::fd::OwnedFd) {
 }
 
 /// The own card editor's picks: the latest the only one read.
-static PHOTO_IMPORTS: crate::photo_import::Imports = crate::photo_import::Imports::new();
+static PHOTO_IMPORTS: std::sync::LazyLock<crate::photo_import::Imports> =
+    std::sync::LazyLock::new(crate::photo_import::Imports::new);
 
 /// `Native.cameraClosed`: the camera stopped under the scan.
 pub(crate) fn camera_closed() {

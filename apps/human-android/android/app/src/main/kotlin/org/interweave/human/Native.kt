@@ -206,10 +206,10 @@ internal object Native {
 
     /**
      * The photo chosen for `request`, opened: its descriptor, detached and
-     * owned by the native side from here, read there within its deadline.
-     * BLOCKS until read or given up.
+     * owned by the native side from here, read there within `leftMs`, what
+     * the open left of the pick's deadline. BLOCKS until read or given up.
      */
-    @JvmStatic external fun photoRead(request: Long, fd: Int)
+    @JvmStatic external fun photoRead(request: Long, fd: Int, leftMs: Long)
 
     /** True when Back found no way back: finish. BLOCKS. */
     @JvmStatic external fun waitLeave(timeoutMs: Long): Boolean
@@ -247,7 +247,8 @@ internal object Ask {
     // The editor that asked for a photo closed: its open is cancelled.
     const val PHOTO_CANCEL = 15
 
-    // The bits of a waited ask that name it (onboard.rs's ASK_BITS).
+    // The bits of a waited ask that name it: src/ask_word.rs's ASK_BITS,
+    // which its test holds to this line.
     const val BITS = 8
 }
 
