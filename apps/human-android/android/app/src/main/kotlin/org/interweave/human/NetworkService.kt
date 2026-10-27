@@ -141,13 +141,20 @@ class NetworkService : Service() {
     private fun watchNetworks() {
         networkThread.start()
         val handler = Handler(networkThread.looper)
-        // Every network the platform lets this app use, whether or not it
-        // reaches the Internet: a Wi-Fi with no uplink or a local-only
-        // hotspot is a LAN its peers are on, and an address of this host
-        // outside the view counts as on no local network (ADR-0052 rule
-        // 10, A 2026-10-27). A VPN included: the default request leaves it
-        // out. Restricted and untrusted networks stay out, as the
-        // platform keeps them from an app.
+        // Every network the platform reports to this app, with INTERNET or
+        // without: an address of this host outside the view counts as on
+        // no local network (ADR-0052 rule 10, A 2026-10-27), so a LAN the
+        // request dropped would be hidden. What the INTERNET removal
+        // admits, measured on the Pixel 9a (2026-10-27): not a Wi-Fi with
+        // no uplink -- one carries INTERNET, unvalidated, and was heard
+        // before -- but a network the platform marks LOCAL_NETWORK, which
+        // has no INTERNET: this phone's own hotspot, reported to an app
+        // only from target SDK 37 (ENABLE_MATCH_NON_THREAD_LOCAL_NETWORKS);
+        // below it that address is rule 10's recorded limit. A VPN
+        // included: the default request leaves it out. Restricted and
+        // untrusted networks stay out, as the platform keeps them from an
+        // app, and a background network is never heard (the platform adds
+        // FOREGROUND to an app's listen).
         val request = NetworkRequest.Builder()
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
