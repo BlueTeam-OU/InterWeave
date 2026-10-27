@@ -1548,9 +1548,28 @@ async fn the_control_plane_carrier_sends_consumes_and_names_its_endpoint() {
         said(&out)
     );
 
-    // G2: an endpoint the profile does not offer is refused, none made.
+    // G2: an endpoint the profile does not offer is refused, none made --
+    // and refused before the store or a lease is asked for: with another
+    // client holding both, the refusal is the endpoint's (exit 1), not the
+    // held store's (exit 4). A lease the refused run took would end with
+    // it, so only that order shows it took none (#477 F11).
+    let holder = Listener::start(&a);
+    holder.until("the holder's session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
     let out = human(&a, &["listen", "--endpoint", "not-offered"], "");
-    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert_eq!(
+        code(&out),
+        Some(1),
+        "the endpoint's refusal: {}",
+        said(&out)
+    );
+    assert!(
+        said(&out).contains("not one a human client may use"),
+        "{}",
+        said(&out)
+    );
+    holder.stop();
     let listed = a.transportctl(&["endpoints", "list", "--json"], "");
     let listed: Value = serde_json::from_slice(&listed.stdout).expect("the list");
     assert!(
@@ -1558,8 +1577,8 @@ async fn the_control_plane_carrier_sends_consumes_and_names_its_endpoint() {
             .as_array()
             .expect("rows")
             .iter()
-            .all(|row| row["id"] != "not-offered" && row["lease"].is_null()),
-        "none made, none leased: {listed}"
+            .all(|row| row["id"] != "not-offered"),
+        "none made: {listed}"
     );
 
     a_daemon.terminate().await;
