@@ -183,11 +183,12 @@ fn a_page_keeps_to_its_byte_budget() {
     assert_eq!(one.items.len(), 1, "one row, whatever its size");
 }
 
-/// The badge's counts (architect-cto's A3): distinct message ids among a
-/// conversation's unread rows it shows, a channel being one conversation
-/// whoever published on it; a row this build cannot show is not counted
-/// but counted apart, and a kept row is not unread. Mutation: `COUNT(*)`
-/// for the distinct count.
+/// The badge's counts (STATE.md, A 2026-10-27 (ii)): a conversation's
+/// unread rows it shows, one per row, a channel being one conversation
+/// whoever published on it, so one id published by two peers on it is two
+/// items; a row this build cannot show is not counted but counted apart,
+/// and a kept row is not unread. Mutation: `COUNT(DISTINCT
+/// app_message_id)` for the row count.
 #[test]
 fn the_unread_counts_are_the_badges() {
     let (_dir, mut store) = store();
@@ -206,7 +207,8 @@ fn the_unread_counts_are_the_badges() {
         .commit_unread_inbound(&direct(6, Q, 6, InboundKind::Text))
         .expect("Q's");
     let room = ChannelId::parse("room").expect("a channel");
-    // One message id published by two peers on the channel: one item.
+    // One message id published by two peers on the channel: two items,
+    // as the conversation shows them.
     store
         .commit_unread_inbound(&on_channel(7, P, &room))
         .expect("on the channel");
@@ -245,7 +247,7 @@ fn the_unread_counts_are_the_badges() {
         },
         ConversationUnread {
             conversation: StoreConversation::Channel(room),
-            unread: 2,
+            unread: 3,
         },
     ];
     expected.sort_by(|a, b| a.conversation.cmp(&b.conversation));

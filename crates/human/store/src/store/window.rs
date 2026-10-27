@@ -102,8 +102,10 @@ fn bound(table: BackupTable, cursor: WindowCursor) -> Result<(i64, i64), StoreEr
 }
 
 /// A conversation's unread count as the badge counts it (STATE.md schema
-/// v10, architect-cto's A3): distinct message ids among its unread rows of
-/// a kind this build shows, so a message stored twice counts once.
+/// v10, A 2026-10-27 (ii)): its unread rows of a kind this build shows,
+/// one per row. The table's key already makes two rows of one direct
+/// conversation two messages, and two publishers reusing one id on a
+/// channel are two items, so no distinct count is taken.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConversationUnread {
     /// The conversation.
@@ -165,11 +167,11 @@ const CHANNEL: &str = "channel_key = ?1 AND ?2 = ''";
 /// statistics picks a narrower index and reads the rows. A kind this build
 /// does not know -- a newer build's -- is
 /// neither text nor card, so it is hidden rather than counted.
-const DIRECT_COUNTS: &str = "SELECT source_peer, source_endpoint, COUNT(DISTINCT app_message_id)
+const DIRECT_COUNTS: &str = "SELECT source_peer, source_endpoint, COUNT(*)
    FROM unread_inbound INDEXED BY unread_inbound_by_kind
   WHERE channel_id IS NULL AND source_endpoint IS NOT NULL AND kind IN ('text', 'card')
   GROUP BY source_peer, source_endpoint";
-const CHANNEL_COUNTS: &str = "SELECT channel_id, COUNT(DISTINCT app_message_id)
+const CHANNEL_COUNTS: &str = "SELECT channel_id, COUNT(*)
    FROM unread_inbound INDEXED BY unread_inbound_by_kind
   WHERE channel_id IS NOT NULL AND kind IN ('text', 'card')
   GROUP BY channel_id";
