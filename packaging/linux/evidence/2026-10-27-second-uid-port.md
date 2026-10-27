@@ -20,11 +20,14 @@ GZCoord (REPLY 01a17c44 and 01a17c46), quoted, not re-run here.
 - Build: uid 1016 ran `~/.local/bin/transport-daemon --version`, which
   printed `transport-daemon 0.1.0+7196157887c2`. Uid 1022 reported
   `transportctl 0.1.0+7196157887c2`. Both are the v0.1.0 tag's build.
-- Release archive, uid 1016's copy and its published checksum file:
+- Release archive, uid 1016's copy, checked against its published
+  checksum file (run after the measurement, the same day):
 
   ```
   $ cat interweave-0.1.0-x86_64-unknown-linux-gnu.tar.gz.sha256
   77fcc622473016a5232bf10783c67581b8404cdeb910a9cd29855412c67e5115  interweave-0.1.0-x86_64-unknown-linux-gnu.tar.gz
+  $ sha256sum -c interweave-0.1.0-x86_64-unknown-linux-gnu.tar.gz.sha256
+  interweave-0.1.0-x86_64-unknown-linux-gnu.tar.gz: OK
   ```
 
   Uid 1022 reported its own download hashing to the same line. It did
@@ -49,6 +52,22 @@ GZCoord (REPLY 01a17c44 and 01a17c46), quoted, not re-run here.
 - Profiles `j125-hold` (uid 1016) and `j125-try` (uid 1022), each run as
   `interweave-daemon@<profile>` with `systemctl --user start`, never
   `enable`.
+- Uid 1016's `j125-hold` config, state and data directories were
+  removed after the run; what is left of uid 1016's profiles is the
+  fleet's:
+
+  ```
+  $ ls ~/.config/interweave/profiles/ ~/.local/state/interweave/profiles/ ~/.local/share/interweave/profiles/
+  ~/.config/interweave/profiles/:
+  gzcoord
+
+  ~/.local/share/interweave/profiles/:
+  gzcoord
+
+  ~/.local/state/interweave/profiles/:
+  gzcoord
+  ```
+
 - Port 47990 was chosen as one no profile on the host uses. The
   `gzcoord` ports were left alone on purpose: had the rule failed, a
   second daemon there would have split the fleet's traffic. Uid 1016's
@@ -116,11 +135,11 @@ listened once the port was free.
 - Uid 1022's half re-run by this account: it is quoted as reported.
 - Lingering for either account: not shown here.
 - The cleanup of uid 1022's profile: it reported its directories
-  removed. Uid 1016's `j125-hold` config, state and data directories
-  were removed by this account after the run.
+  removed, which is not re-checked here.
 
 - A fresh install from the archive in an empty account: `install.sh`
-  was not run, by the reason above. The archive's hash was checked.
+  was not run, by the reason above. Both accounts' copies of the archive
+  hashed to its published checksum (uid 1022's as it reported).
 - Two accounts on two hosts, or a host other than this one (Fedora,
   this kernel).
 - A long refusal: the counter reached 17 in about 90 s without the
