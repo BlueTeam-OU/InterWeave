@@ -289,10 +289,11 @@ nothing new for the person to learn:
   page of the same gap is in flight.
 - **While it loads, when it fails, at the session bound**: §5's
   progress row, §5's failure row with Try again, and §7.1's limit row
-  show in the gap, on the side that fetched: the upper side's directly
-  below the row above the gap, the lower side's directly above the
-  gap's `EarlierUnread` line (below), or above the row below the gap
-  when there is no line, as at the top edge.
+  show in the gap, on the side that fetched. The upper side's row
+  shows directly below the row above the gap. The lower side's row
+  shows directly above the gap's `EarlierUnread` line (below), or, when
+  there is no line, directly above the row below the gap, as at the top
+  edge.
 - **When rows arrive**: they are added at their place in the gap.
   Neither the scroll position nor focus moves, as in §5. A gap whose
   rows have all loaded is gone; nothing marks where it was.
@@ -407,7 +408,7 @@ requires is that **paging never drops a read row on its own**.
   of a gap that fetched (§5.1), shows instead a **limit row**:
   `EarlierAtLimit`, then a button,
   `EarlierShowAnyway`. The text says, before anything is committed,
-  that showing earlier messages removes from the screen the messages
+  that showing more messages removes from the screen the messages
   read or sent first in this session, here and in other conversations, that
   they cannot come back, and that a message the person keeps stays.
   Nothing is dropped while the row only shows.
@@ -485,22 +486,22 @@ The words are language-culture's; these say what each must do.
 
 | Key | Proposed English | Shows | Must say |
 |---|---|---|---|
-| `EarlierUnread` | Earlier unread messages and contact cards: {count} | the line of §6, and in a gap (§5.1) | how many unread items are above, not yet shown; the count after a colon, one text for every count (below); must not say "messages" if it counts cards too, or must cover both |
+| `EarlierUnread` | Unread messages and contact cards not shown yet: {count} | the line of §6, and in a gap (§5.1) | how many unread items are above, not yet shown; the count after a colon, one text for every count (below); must not say "messages" if it counts cards too, or must cover both |
 | `ReadNotShown` | one: 1 message that you read or sent is no longer shown. It cannot be shown again. other: {count} messages that you read or sent are no longer shown. They cannot be shown again. | the line of §7.1 | that messages the person already read or sent were removed from this screen and cannot come back; a plural by count; must not suggest they were deleted by anyone else |
 | `RowsNotShown` | one: 1 message is saved on this device, but this version of InterWeave cannot show it. other: {count} messages are saved on this device, but this version of InterWeave cannot show them. | the line at the end of Chats (§6.1) | that these messages (received unread, kept, or the person's own still waiting to send) are still stored and this app version cannot show them; must not use "kept" in the sense of Keep; a plural by count; must not blame a sender or suggest tampering |
-| `EarlierAtLimit` | If you choose Show earlier messages, InterWeave makes room for the earlier messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again. | the limit row (§7.1), at the top edge or in a gap (§5.1) | before anything happens: what showing earlier messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
-| `EarlierShowAnyway` | Show earlier messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
-| `EarlierLoading` | Loading earlier messages | the progress row's accessible name (§5), at the top edge or in a gap (§5.1); never visible text | that older rows are on their way |
-| `EarlierLoadFailed` | Could not load earlier messages. | the failure row (§5), at the top edge or in a gap (§5.1), and its announcement | that the older rows could not be read; must not suggest they are lost |
+| `EarlierAtLimit` | If you choose Show more messages, InterWeave makes room for more messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again. | the limit row (§7.1), at the top edge or in a gap (§5.1) | before anything happens: what showing earlier messages removes (messages read, and the person's own once accepted, first in this session, in every conversation), that it cannot be undone, and that kept messages stay |
+| `EarlierShowAnyway` | Show more messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
+| `EarlierLoading` | Loading more messages | the progress row's accessible name (§5), at the top edge or in a gap (§5.1); never visible text | that older rows are on their way |
+| `EarlierLoadFailed` | Could not load more messages. | the failure row (§5), at the top edge or in a gap (§5.1), and its announcement | that the older rows could not be read; must not suggest they are lost |
 | `ContactsLoadFailed` | Could not load all contacts. | the Contacts list's failure row, when a page of a paged list cannot be read (§11), and its announcement | that some contacts could not be read just now; must not suggest they are lost |
 
 `TryAgain` exists and is reused.
 
 The `Earlier…` strings show in a gap too (§5.1), which the person can
-reach scrolling down as well as up. "Earlier" there means earlier than
-the conversation's newest messages, which is true of every row in a
-gap; language-culture is asked to confirm in its pass that the words
-hold when the person scrolls down to a gap, or to say what they need.
+reach scrolling down as well as up. A gap reached from above holds
+rows later than the row the person has just read, so the texts name no
+direction: "more" and "not shown yet" hold on either side of a gap and
+at the top edge. The keys keep their names.
 
 `ReadNotShown` and `RowsNotShown` have one text for a count of 1 and
 one for every other count: two templates, never a word joined to a
