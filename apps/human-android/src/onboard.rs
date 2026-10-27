@@ -650,6 +650,7 @@ fn one(effect: Effect) -> Vec<Effect> {
                 };
                 if outcome.is_ok() {
                     o.creation = None;
+                    connect_owed(o);
                 }
                 o.flow.sealed(outcome)
             }
@@ -664,6 +665,9 @@ fn one(effect: Effect) -> Vec<Effect> {
                     o.lock.as_ref(),
                 )
                 .map_err(|why| failed(&why));
+                if outcome.is_ok() {
+                    connect_owed(o);
+                }
                 o.flow.restored(outcome)
             }
             Effect::RestoreConfirmed(text, peer) => {
@@ -676,6 +680,9 @@ fn one(effect: Effect) -> Vec<Effect> {
                     o.lock.as_ref(),
                 )
                 .map_err(|why| failed(&why));
+                if outcome.is_ok() {
+                    connect_owed(o);
+                }
                 o.flow.restored(outcome)
             }
             Effect::Hold => {
@@ -704,6 +711,15 @@ fn one(effect: Effect) -> Vec<Effect> {
             Effect::OpenChats | Effect::OpenSettings => Vec::new(),
         }
     })
+}
+
+/// A new or restored identity owes onboarding's Connect on the first
+/// start that reaches Chats (add-a-peer §5.1). A marker that could not be
+/// written costs only Connect: Chats opens, with its no-reach notice.
+fn connect_owed(o: &Onboarding) {
+    if let Err(why) = onboarding::set_connect_owed(&o.app_data_dir, PROFILE, true) {
+        log(&format!("the connect-owed marker: {why:?}"));
+    }
 }
 
 /// Show the page for the flow's screen, or hand over once it is done.
