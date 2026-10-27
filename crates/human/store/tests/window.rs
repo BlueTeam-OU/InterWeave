@@ -472,6 +472,50 @@ fn a_page_keeps_to_its_unread_room() {
     assert_eq!(numbers, [7, 2, 1]);
 }
 
+/// A first page opened with no unread room left, in either order: it
+/// takes no unread row, and its cursor says more remain -- never `None`,
+/// which reads as a finished conversation -- so the pages from it hold
+/// every row once, in order (#492 review F1). Mutation: the first page's
+/// cursor taken from its absent bound.
+#[test]
+fn a_first_page_with_no_room_still_says_more_remain() {
+    let (_dir, store, conversation) = ranged();
+    let limits = |unread: usize| WindowLimits {
+        page: PageLimits::new(64, 1024 * 1024).expect("limits"),
+        unread: Some(unread),
+    };
+    for (order, all) in [
+        (Order::NewestFirst, [6, 5, 4, 3, 7, 2, 1]),
+        (Order::OldestFirst, [1, 2, 7, 3, 4, 5, 6]),
+    ] {
+        let first = store
+            .conversation_range(&conversation, PageRange::default(), order, limits(0))
+            .expect("a page");
+        let next = first.next.expect("more remain, with no room taken");
+        let range = match order {
+            Order::NewestFirst => PageRange {
+                older_than: Some(next),
+                newer_than: None,
+            },
+            Order::OldestFirst => PageRange {
+                older_than: None,
+                newer_than: Some(next),
+            },
+        };
+        let rest = store
+            .conversation_range(&conversation, range, order, limits(64))
+            .expect("a page");
+        let numbers: Vec<u32> = first
+            .items
+            .iter()
+            .chain(&rest.items)
+            .map(|r| number(&r.payload))
+            .collect();
+        assert_eq!(numbers, all, "{order:?}");
+        assert!(rest.next.is_none(), "{order:?}: the end");
+    }
+}
+
 /// The conversations the Chats list holds from the store: every one with
 /// a row this build shows, unread or kept -- a kept-only one included --
 /// and a channel once whoever published; one holding only rows this build

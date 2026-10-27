@@ -444,6 +444,20 @@ impl HumanStore {
         for (table, row, size) in merged {
             let past_room =
                 table == BackupTable::Unread && limits.unread.is_some_and(|room| unread >= room);
+            if past_room && items.is_empty() {
+                // Nothing taken: the next page starts at this row, so the
+                // cursor stands just before it in the page's order -- a
+                // first page has no bound to hand back, and no cursor
+                // would read as a finished conversation (#492 review F1).
+                last = Some(WindowCursor {
+                    received_at: row.received_at,
+                    table,
+                    row_id: RowId::from_stored(match order {
+                        Order::NewestFirst => row.row_id.get().saturating_add(1),
+                        Order::OldestFirst => row.row_id.get().saturating_sub(1),
+                    }),
+                });
+            }
             if past_room
                 || (!items.is_empty()
                     && (items.len() >= limits.page.max_records()
@@ -465,15 +479,7 @@ impl HumanStore {
         }
         Ok(Page {
             items,
-            // With nothing taken, the next page starts where this one did.
-            next: if more {
-                last.or(match order {
-                    Order::NewestFirst => range.older_than,
-                    Order::OldestFirst => range.newer_than,
-                })
-            } else {
-                None
-            },
+            next: if more { last } else { None },
         })
     }
 
