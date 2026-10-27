@@ -376,10 +376,7 @@ mod tests {
         let given_up = Instant::now();
         imports.begin(3);
         assert_eq!(waiting.join().expect("the wait"), Read::NotWanted);
-        assert!(
-            given_up.elapsed() < Duration::from_secs(2),
-            "within a slice"
-        );
+        assert!(given_up.elapsed() < CANCEL_SLICE * 10, "within a slice");
         let _ = (release.send(()), release_2.send(()));
     }
 
@@ -447,6 +444,44 @@ mod tests {
             imports.read(2, whole(b"new"), Instant::now() + PHOTO_DEADLINE),
             Read::NotWanted,
             "nor one the editor gave up"
+        );
+    }
+
+    /// The worker itself, waiting in `poll` on a pipe that stalls, stops
+    /// within a few slices of its flag, and at its deadline: what frees its
+    /// place among the read workers. Mutations: the flag not looked at;
+    /// `poll` waiting with no timeout.
+    #[test]
+    fn a_worker_waiting_in_poll_stops_at_its_flag_and_its_deadline() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let (fd, _held) = stalled(b"part");
+        let (tx, rx) = std::sync::mpsc::channel();
+        {
+            let flag = Arc::clone(&flag);
+            std::thread::spawn(move || {
+                let read = read_bounded(fd, Instant::now() + Duration::from_secs(60), &flag, 10);
+                let _ = tx.send((read, Instant::now()));
+            });
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        let set = Instant::now();
+        flag.store(true, Ordering::SeqCst);
+        let (read, ended) = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the worker stopped");
+        assert_eq!(read, Read::NotWanted);
+        assert!(ended - set < CANCEL_SLICE * 10, "within a few slices");
+
+        let (fd, _held) = stalled(b"part");
+        let quiet = AtomicBool::new(false);
+        let started = Instant::now();
+        assert_eq!(
+            read_bounded(fd, started + Duration::from_millis(300), &quiet, 10),
+            Read::Unusable
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "at its deadline"
         );
     }
 
