@@ -283,12 +283,12 @@ succeeded first, counts as done.
 - **The step left it, or was not taken** (§7, where the store cannot
   be written). The Cancel's answer applies as message-swipe §8 says:
   a refusal returns the row in the state the facade reports, with the
-  storage notice and the refusal announcement. Only where the step ended
-  in Made (§5.3) may the card then arrive with the old key, its
-  conversation in the share-again list as for any row the transport
-  took; where the step was not taken, or ended in Failed, §5.3's
-  Failed shows no list, and where it was not taken no key changed and
-  the old key still stands. Two things
+  storage notice and the refusal announcement. A row the step left is
+  one the transport took, and like any such row it may still arrive,
+  however the step ended (above); whether the key it carries is still
+  the identity's, and where its conversation is listed to share again,
+  is §5.3's, by how the step ended. Where the step was not taken, no
+  key changed and the old key still stands. Two things
   differ from message-swipe §8: the announcement waits for the step's
   own, as above, and focus stays where it is (on the card page, or on
   the sheet after Back), as message-swipe §8 has it for a person who
