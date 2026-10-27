@@ -28,7 +28,8 @@ pub mod render;
 pub use card::{
     CARD_BYTES_PREFIX, CARD_PHOTO_MEDIA_TYPES, CONTACT_CARD_KIND, Card, CardBuildError, CardDraft,
     CardFault, CardPhoto, CardRoute, Classified, MAX_CARD_NAME_SCALARS, MAX_CARD_PHOTO_BYTES,
-    build_card, canonical_card_bytes, check_draft, classify, is_card,
+    OwnCardFields, build_card, canonical_card_bytes, check_draft, classify, is_card,
+    read_own_card_unverified,
 };
 pub use decode::{
     CONTENT_ENCODING_BROTLI, ContentEncoding, DecodeError, MAX_DECOMPRESSED_BYTES, MEDIA_TYPE_V2,
