@@ -675,6 +675,56 @@ fn a_payload_transport_could_not_carry_is_not_a_pending_row() {
     );
 }
 
+/// The open's own writes run above the quota (STATE.md, Store health,
+/// #492's review F3): a store an earlier build wrote, vacuumed to its
+/// quota, still needs the conversation index backfilled, and that write
+/// once failed the open. It now opens, degraded since it is over the quota
+/// once the writes are done, its rows readable and its conversations
+/// indexed. Mutation: the quota applied before the open's writes.
+#[test]
+fn an_open_that_must_write_runs_above_its_quota_and_opens_degraded() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    for n in 0..60_u32 {
+        store
+            .commit_unread_inbound(&inbound_via(
+                &format!("e{n}"),
+                &format!("{n:032x}"),
+                vec![1],
+            ))
+            .expect("committed");
+    }
+    drop(store);
+    // As an earlier build left it: rows and no index, compacted to its size.
+    let conn = rusqlite::Connection::open(&path).expect("a second connection");
+    conn.execute_batch(
+        "DELETE FROM conversation_index;
+         DELETE FROM settings WHERE key = 'conversation_index_version';
+         VACUUM;",
+    )
+    .expect("back before the index");
+    let size: u32 = conn
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .expect("page_count");
+    drop(conn);
+
+    let store = HumanStore::open(
+        &path,
+        StoreOptions {
+            max_pages: Some(size),
+        },
+    )
+    .expect("an open that must write is not refused by the quota");
+    assert_eq!(
+        store.health(),
+        StorageHealth::Degraded,
+        "over it once written"
+    );
+    assert_eq!(store.unread_inbound().expect("readable").len(), 60);
+    assert_eq!(store.remote_endpoints(&peer()).expect("indexed"), 60);
+}
+
 /// Review R5 on fa3eab8: `max_page_count` ATTEMPTS the change and
 /// answers with the ceiling it set, so a successful pragma was taken as
 /// the quota while SQLite enforced another. A ceiling it IGNORES -- zero,
