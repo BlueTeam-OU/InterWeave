@@ -258,7 +258,7 @@ fn a_command_accepted_before_a_stop_is_answered() {
 /// holds is the command, at the loop; the interleaving on a device is not
 /// this test's. Mutations: the close not retiring; the plan and the
 /// discard each not asking for a live facade; an update not asking its
-/// generation; the late end not marking the view unlisted.
+/// generation; the late end not owing the view a listing.
 #[test]
 fn a_facade_past_its_stop_publishes_nothing_and_holds_the_store_until_it_ends() {
     use interweave_human_android_platform::StoreActionRefused;

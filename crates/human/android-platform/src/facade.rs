@@ -162,8 +162,8 @@ impl FacadeLoop {
                     let now = || u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
                     executor.block_on(async {
                     loop {
-                        if hub.wants_listing(generation) {
-                            hub.listed(generation, match side.listing() {
+                        if let Some(relists) = hub.wants_listing(generation) {
+                            hub.listed(generation, relists, match side.listing() {
                                 Ok(listing) => ToView::Update(Box::new(Update::Listed(listing))),
                                 Err(_) => ToView::ListingFailed,
                             });
@@ -226,7 +226,7 @@ impl FacadeLoop {
                     side.close().await;
                 });
                     // Its own generation only: a facade that outlived its close
-                    // never stops one started after it, and makes it list again.
+                    // never stops one started after it, and owes it a listing.
                     drop(ends);
                 });
         let thread = spawned.map_err(SpawnError::Thread)?;
