@@ -618,6 +618,11 @@ pub enum PeersInput {
     TrustReadAgain,
     /// Add an address pressed.
     OpenAdd,
+    /// Connect's Add an address pressed (§5.1).
+    OpenAddFromConnect,
+    /// Connect's Trust pressed: step two for these peers, each one
+    /// Connect's line holds as not trusted or not known (§5.1).
+    TrustFromConnect(Vec<TransportIdentity>),
     /// The field now reads this.
     FieldChanged(String),
     /// Add pressed.
@@ -739,6 +744,12 @@ struct AddPage {
     scan_from: Option<ScanControl>,
     /// Opened from this row's Trust, not from Add an address.
     from_row: Option<String>,
+    /// Opened from Connect (§5.1): an add answered unchanged reads as
+    /// checked, and what it came to is kept for Connect's line.
+    from_connect: bool,
+    /// The peers the add's lines carry, this device's own left out: what
+    /// Connect counts as added once the page closes.
+    add_peers: Vec<TransportIdentity>,
     /// The lines an add left unknown -- its answer lost and the read back
     /// failed: a retry of them that writes nothing leaves them so (§5.7).
     unknown: Option<Vec<String>>,
@@ -839,6 +850,19 @@ pub struct Peers {
     /// The `PeerId` whose addresses Show drew since this was last taken:
     /// Connect's `ConnectDoneShown` (§5.1).
     show_drew: Option<TransportIdentity>,
+    /// What add pages opened from Connect came to, in the order they
+    /// closed, since this was last taken ([`Self::take_connect_adds`]).
+    connect_adds: Vec<ConnectAdd>,
+}
+
+/// A peer an add opened from Connect added, and whether it is trusted
+/// as the page closed (§5.1): `None` when that could not be known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectAdd {
+    /// The peer.
+    pub peer: TransportIdentity,
+    /// Trusted, known not trusted, or not known.
+    pub trusted: Option<bool>,
 }
 
 /// Whether a code's text is an address list at all -- every line, once
@@ -1017,6 +1041,21 @@ impl Peers {
                 self.open_add();
                 Vec::new()
             }
+            PeersInput::OpenAddFromConnect => {
+                // Connect shows only on a list read empty, so no bound or
+                // list-off note can stand in its way: the add's own answer
+                // decides.
+                if self.page.is_none() {
+                    self.add_note = None;
+                    self.page = Some(AddPage {
+                        from_connect: true,
+                        ..AddPage::default()
+                    });
+                    self.ask_focus(PeersFocus::Field { select: None });
+                }
+                Vec::new()
+            }
+            PeersInput::TrustFromConnect(peers) => self.trust_from_connect(peers, trust),
             PeersInput::FieldChanged(text) => {
                 self.field_changed(text);
                 Vec::new()
@@ -1592,6 +1631,9 @@ impl Peers {
         let Some(page) = self.page.take() else {
             return;
         };
+        if page.from_connect {
+            self.keep_for_connect(&page, trust);
+        }
         let all_trusted = !page.blocks.is_empty()
             && page
                 .blocks
@@ -1616,6 +1658,85 @@ impl Peers {
             Some(row) => self.ask_focus(PeersFocus::Row(row)),
             None => self.ask_focus(PeersFocus::Opener),
         }
+    }
+
+    /// What a page opened from Connect came to, as it closes: each peer
+    /// its add carried (none when the add made nothing) and each peer a
+    /// block was opened for, with its trust as the block reads it -- a
+    /// peer with no block was trusted already (§5.3).
+    fn keep_for_connect(&mut self, page: &AddPage, trust: &TrustSettings) {
+        let added = page.result.is_some().then_some(&page.add_peers);
+        let peers = added
+            .into_iter()
+            .flatten()
+            .chain(page.blocks.iter().map(|b| &b.peer));
+        for peer in peers {
+            let trusted = match page.blocks.iter().find(|b| &b.peer == peer) {
+                None => Some(true),
+                Some(b) if b.state(trust) == BlockState::Trusted => Some(true),
+                // A Trust still awaited as the page closed counts as one
+                // whose answer was lost, as does one lost earlier that no
+                // read has answered since: not known (§5.3), whatever the
+                // block last knew.
+                Some(b) if b.trusting || trust.is_pending(peer) => None,
+                Some(b) => b.known(trust),
+            };
+            self.connect_adds.retain(|a| &a.peer != peer);
+            self.connect_adds.push(ConnectAdd {
+                peer: peer.clone(),
+                trusted,
+            });
+        }
+    }
+
+    /// What add pages opened from Connect came to since the last take.
+    pub fn take_connect_adds(&mut self) -> Vec<ConnectAdd> {
+        std::mem::take(&mut self.connect_adds)
+    }
+
+    /// Connect's Trust: step two for `peers`, opened as a row's is, the
+    /// blocks Connect's line counts as not trusted or not known (§5.1). A
+    /// peer read trusted since gets no block; with none left nothing opens.
+    fn trust_from_connect(
+        &mut self,
+        peers: Vec<TransportIdentity>,
+        trust: &mut TrustSettings,
+    ) -> Vec<Intent> {
+        if self.page.is_some() {
+            return Vec::new();
+        }
+        let blocks: Vec<TrustBlock> = peers
+            .into_iter()
+            .filter(|p| !trust_allows(trust, p))
+            .map(|p| TrustBlock::new(p, trust))
+            .collect();
+        let Some(first) = blocks.first().map(|b| b.peer.clone()) else {
+            return Vec::new();
+        };
+        self.page = Some(AddPage {
+            from_connect: true,
+            blocks,
+            ..AddPage::default()
+        });
+        self.ask_focus(PeersFocus::Block(first));
+        if trust.confirmed_list().is_none() {
+            return trust.opened().into_iter().collect();
+        }
+        Vec::new()
+    }
+
+    /// Whether the list's read has answered since the start: `Some(true)`
+    /// when the list is the runtime's word, `Some(false)` when the read
+    /// failed, `None` while it is unread or a change may have altered it.
+    #[must_use]
+    pub fn list_answered(&self) -> Option<bool> {
+        if self.busy() || self.reading {
+            return None;
+        }
+        if self.list_problem.is_some() {
+            return Some(false);
+        }
+        (self.list.is_some() && self.held == Held::AsRead).then_some(true)
     }
 
     /// Remove on an added row: at once, with Undo.
@@ -2169,7 +2290,19 @@ impl Peers {
         let Some(page) = self.page.as_mut() else {
             return;
         };
+        // From Connect a line already there is one this visit's earlier
+        // add wrote (Connect opens on a list read empty), so "Nothing was
+        // added" would contradict Connect's own line (§5.3).
+        let result = match result {
+            AddResult::Unchanged { lines } if page.from_connect => AddResult::Checked { lines },
+            other => other,
+        };
         page.result = Some(result);
+        page.add_peers = peers
+            .iter()
+            .filter(|p| Some(*p) != own.as_ref())
+            .cloned()
+            .collect();
         page.field.clear();
         page.note = None;
         for peer in peers {

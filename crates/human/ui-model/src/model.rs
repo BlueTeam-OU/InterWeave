@@ -24,6 +24,7 @@ use crate::labels::{
     session_problem_class, short_peer,
 };
 use crate::look::Avatar;
+use crate::connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectState};
 use crate::peers::{Peers, PeersInput, ScanVerdict};
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
@@ -116,6 +117,9 @@ pub enum ViewEvent {
     /// The person acted on Peers or its add page: the root passes it to
     /// [`UiModel::peers_input`] and carries out the intents it returns.
     Peers(PeersInput),
+    /// The person acted on onboarding's Connect: the root passes it to
+    /// [`UiModel::connect_input`] and carries out the intents it returns.
+    Connect(ConnectInput),
     /// The person pressed the Undo of the snackbar with this id: the root
     /// passes it to [`UiModel::undo`] and carries out what it returns.
     Undo(u64),
@@ -695,6 +699,8 @@ pub struct UiModel {
     diagnostics: Diagnostics,
     trust: TrustSettings,
     peers: Peers,
+    /// Onboarding's Connect: owed, open, or done with (add-a-peer §5.1).
+    connect: ConnectState,
     /// The snackbar, its Undo and the latest outcome.
     swipe: swipe::SwipeState,
     /// Card proposals, the contacts and the identity in front.
@@ -737,6 +743,7 @@ impl UiModel {
             diagnostics: Diagnostics::default(),
             trust: TrustSettings::default(),
             peers: Peers::default(),
+            connect: ConnectState::NotOwed,
             swipe: swipe::SwipeState::default(),
             cards: cards::Cards::default(),
         }
@@ -1356,7 +1363,105 @@ impl UiModel {
     /// on step two passes through the trust settings, the one way a trust
     /// change is made.
     pub fn peers_input(&mut self, input: PeersInput) -> Vec<Intent> {
-        self.peers.input(input, &mut self.trust)
+        let intents = self.peers.input(input, &mut self.trust);
+        self.connect_sync();
+        intents
+    }
+
+    /// Connect is owed: a new or restored identity's first start, or a
+    /// later one whose earlier start left it undecided (§5.1). The
+    /// platform says so before the session's first reads answer.
+    pub fn connect_owed(&mut self) {
+        if self.connect == ConnectState::NotOwed {
+            self.connect = ConnectState::Owed;
+        }
+    }
+
+    /// What this start does about an owed Connect, said once each: open
+    /// it when both reads succeeded on two empty lists, settle it when
+    /// either list has an entry or once the person left it, defer it
+    /// when a read failed (§5.1, §5.6). `None` while nothing is to say.
+    pub fn connect_turn(&mut self) -> Option<ConnectGate> {
+        match self.connect {
+            ConnectState::Owed => {
+                let list = self.peers.list_answered()?;
+                let trust = self.trust.read_answered()?;
+                if !(list && trust) {
+                    self.connect = ConnectState::Decided;
+                    return Some(ConnectGate::Deferred);
+                }
+                if self.no_reach() {
+                    self.connect = ConnectState::Open(Connect::opened());
+                    Some(ConnectGate::Open)
+                } else {
+                    self.connect = ConnectState::Decided;
+                    Some(ConnectGate::Settled)
+                }
+            }
+            ConnectState::Left => {
+                self.connect = ConnectState::Decided;
+                Some(ConnectGate::Settled)
+            }
+            ConnectState::NotOwed | ConnectState::Open(_) | ConnectState::Decided => None,
+        }
+    }
+
+    /// Connect, while it is open.
+    #[must_use]
+    pub const fn connect(&self) -> Option<&Connect> {
+        match &self.connect {
+            ConnectState::Open(connect) => Some(connect),
+            _ => None,
+        }
+    }
+
+    /// Apply what the person did on Connect: the intents it asks for.
+    pub fn connect_input(&mut self, input: ConnectInput) -> Vec<Intent> {
+        let ConnectState::Open(connect) = &mut self.connect else {
+            return Vec::new();
+        };
+        // One page at a time: a press reaching Connect while a page it
+        // opened is still up is a stale one.
+        if self.peers.add_open() || self.peers.show().is_some() {
+            return Vec::new();
+        }
+        let (from, peers_input) = match input {
+            ConnectInput::Add => (ConnectFocus::Add, PeersInput::OpenAddFromConnect),
+            ConnectInput::Show => (ConnectFocus::Show, PeersInput::OpenShow),
+            ConnectInput::Trust => {
+                let peers = connect.to_trust();
+                if peers.is_empty() {
+                    return Vec::new();
+                }
+                (ConnectFocus::Trust, PeersInput::TrustFromConnect(peers))
+            }
+            ConnectInput::Leave => {
+                self.connect = ConnectState::Left;
+                return Vec::new();
+            }
+        };
+        connect.opening(from);
+        // Show drawn before this visit -- from Peers -- is not this
+        // visit's.
+        self.peers.take_show_drew();
+        let intents = self.peers.input(peers_input, &mut self.trust);
+        self.connect_sync();
+        intents
+    }
+
+    /// Hand Connect what a page it opened came to, once that page is
+    /// gone; with Connect not open, what Show drew is nobody's.
+    fn connect_sync(&mut self) {
+        let ConnectState::Open(connect) = &mut self.connect else {
+            self.peers.take_show_drew();
+            return;
+        };
+        if self.peers.add_open() || self.peers.show().is_some() {
+            return;
+        }
+        let adds = self.peers.take_connect_adds();
+        let shown = self.peers.take_show_drew();
+        connect.returned(adds, shown);
     }
 
     /// This node's `PeerId`, as the session that became ready knows it.
@@ -1392,6 +1497,7 @@ impl UiModel {
         answer: Result<AddressAnswer, AddressChangeFailure>,
     ) {
         self.peers.add_answer(lines, answer, &self.trust);
+        self.connect_sync();
     }
 
     /// The runtime's answer to a removal of `address`.
@@ -1408,6 +1514,7 @@ impl UiModel {
     /// add page once trust's answers decided it.
     pub fn peers_turn(&mut self) -> Option<Intent> {
         let intent = self.peers.turn(&self.trust);
+        self.connect_sync();
         // A trust step an add opened reads the trust set itself, once the
         // turn asks nothing else.
         if intent.is_none() && self.peers.take_trust_read() {
