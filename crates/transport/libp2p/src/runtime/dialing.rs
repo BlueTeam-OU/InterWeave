@@ -856,7 +856,9 @@ pub(super) type InfrastructureOrigin<'a> = dyn Fn(
 /// changes underneath: a node that binds a private interface after the
 /// peer's first Identify must judge the next one against the listeners
 /// it has THEN. Holding a snapshot is how rule 3 would silently answer
-/// yesterday's question.
+/// yesterday's question. And it need not wait for the next one: what
+/// the first refused for want of that listener is judged again at the
+/// widening ([`HeldBack`]).
 pub(super) struct AdvertisedBoundary<'a> {
     /// This node's own bound listeners, for rule 3's
     /// private-with-a-private-listener clause.
