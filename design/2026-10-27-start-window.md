@@ -116,6 +116,21 @@ Evidence and hypotheses behind the choices below:
   message the conversation holds in this session, received or sent",
   extended to the rows the window has not loaded; it holds unchanged
   otherwise, above all that showing a preview never reads a message.
+- **The preview text is bounded** (rust-ui-dev-02's QUESTION
+  01a17e5d, U-a). The text is look §5.2's: the first line, with
+  markdown marks removed, and a link showing its text. It is computed
+  first and then cut, so a cut never leaves half a mark showing. It
+  holds at most 160 characters as a person counts them (grapheme
+  clusters) and at most 1 KiB of UTF-8, whichever comes first, cut
+  only between two whole characters. A cut text ends in an ellipsis
+  at its logical end, even when the row has room for more, so it never
+  passes for the whole first line. Rows the window holds and rows it
+  does not are cut the same way, so a preview does not change when its
+  row loads. The row's accessible description (look §9,
+  `ConversationDescription`) carries the same cut text. 160 is the
+  builder's proposal: it is more than a one-line subtitle shows on the
+  widest Chats pane, and it is short enough to keep the start bounded.
+  It is accepted on that reasoning, unmeasured.
 - **Each Chats row's unread badge counts every unread row of the
   conversation in the store** (a), loaded or not, with §6.1's
   exception for rows the app cannot show. Card proposals count in it:
@@ -500,7 +515,7 @@ The words are language-culture's; these say what each must do.
 | `EarlierShowAnyway` | Show more messages | the limit row's button (§7.1) | the action, which the text above it qualifies |
 | `EarlierLoading` | Loading more messages | the progress row's accessible name (§5), at the top edge or in a gap (§5.1); never visible text | that more rows are on their way |
 | `EarlierLoadFailed` | Could not load more messages. | the failure row (§5), at the top edge or in a gap (§5.1), and its announcement | that the rows could not be read; must not suggest they are lost |
-| `ContactsLoadFailed` | Could not load all contacts. | the Contacts list's failure row, when a page of a paged list cannot be read (§11), and its announcement | that some contacts could not be read just now; must not suggest they are lost |
+| `ContactsLoadFailed` | Could not load your contacts. | the Contacts list's failure row, when the read of every contact fails (§11), and its announcement | that the contacts could not be read just now; must not suggest they are lost or that there are none |
 
 `TryAgain` exists and is reused.
 
@@ -570,7 +585,22 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     behave as their specs say (d).
 11. **Contacts**: with more contacts than any budget, the Contacts list
     shows every contact, with no edge or progress row, and every
-    conversation title on Chats uses its contact's name.
+    conversation title on Chats uses its contact's name. Make the
+    contacts' read fail at start (a test hook): Chats titles read as
+    for a conversation under no contact; Contacts shows the failure row
+    alone at the top, with Try again and no `ContactsEmpty`, and
+    announces nothing on opening. Try again failing again: focus on Try
+    again, `ContactsLoadFailed` announced once. Remove the failure and
+    press Try again: the list shows, focus on its first row, and the
+    titles on Chats take the contacts' names.
+11a. **Preview bound** (§3): a conversation whose newest row's first
+    line is 300 characters long previews its first 160 characters and
+    an ellipsis, on a window wide enough to show more, and identically
+    before and after the row loads. A first line that holds a link
+    across the 160th character shows the link's text, never its
+    syntax. A first line of combining marks or emoji sequences is cut
+    between whole characters, within 1 KiB. A first line under 160
+    characters shows whole, with no ellipsis.
 12. **The bound while open**: with a test bound small enough to reach
     (the builder's hook), read B's unread row, then open A and page up.
     With room left for fewer session-only rows than a page holds, the
@@ -743,9 +773,28 @@ line. Two of five failing is enough to reopen §6.
   the person acts on.
 - **The Contacts list has no visible edge.** It grows only by the
   person's own Accepts. If the builder pages it, the paging is not
-  seen: no progress row, no failure row unless a read fails (then
-  `EarlierLoadFailed`'s pattern, with `ContactsLoadFailed`). Every contact's name must be known for
+  seen: no progress row, no failure row unless a read fails. Every contact's name must be known for
   conversation titles and for proposals' notes whatever is loaded.
+- **When the contacts cannot be read** (U-b of QUESTION 01a17e5d).
+  All contacts are read at start, page by page, with no paging the
+  person sees, so a failure is the whole read failing. The Contacts
+  list then shows no partial list: one failure row stands alone at
+  the top, under the app bar, in place of the rows and of
+  `ContactsEmpty`, which would claim there are no contacts. The row
+  is `EarlierLoadFailed`'s pattern (§8): `ContactsLoadFailed`, then a
+  Try again button (`TryAgain`). Try again reads every contact again;
+  meanwhile §5's progress row stands in its place after 250 ms.
+  Success shows the list, with focus, if it was on Try again, on its
+  first row as app-placed focus. A failure shows the failure row
+  again, with focus on Try again. `ContactsLoadFailed` is announced
+  once, politely, when the failure arises while Contacts is open, a
+  failed Try again included. A Contacts list that opens already
+  showing it announces nothing, because the row is the first item read
+  there. While the contacts are unread, a conversation title on Chats
+  and in the app bar has no contact name to use, so it is the title of
+  a conversation under no contact (`human-client-ui.md` §4, the short
+  PeerId and route as `DirectTitle` builds it). It takes the contact's
+  name once a read succeeds, from Try again or the next start.
 
 ## 12. Deliberately left out
 
