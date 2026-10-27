@@ -280,10 +280,11 @@ fn an_untrusted_add_offers_trust_then_continue() {
     assert_eq!(focus(&view), "heading");
 }
 
-/// Each return to Connect that leaves a line says it, the same words
-/// again included; a return that leaves none says nothing.
+/// A return to Connect from a page that did something §5.1 counts says
+/// the line, the same words again included, with no snackbar; a return
+/// that did nothing counted says nothing, a line still showing included.
 #[test]
-fn every_return_with_a_line_says_it() {
+fn a_return_says_the_line_when_its_page_did_something_counted() {
     let mut view = view();
     let (me, them) = (peer(), peer());
     let mut model = connect_open(&mut view, &me);
@@ -308,6 +309,14 @@ fn every_return_with_a_line_says_it() {
     let _ = intents(&mut view, &mut model);
     let needs = text(UiText::ConnectDoneNeedsTrust);
     assert!(said(&view).contains(needs), "said: {}", said(&view));
+    assert!(!view.window().get_peers_snack_shown(), "no snackbar");
+    clear(&view);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().invoke_handle_back(), "the add page's Back");
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(view.window().get_connect_line().as_str(), needs, "still");
+    assert_eq!(said(&view).trim(), "", "nothing added: nothing said");
     clear(&view);
     press(&view, text(UiText::TrustThisPeer));
     let _ = intents(&mut view, &mut model);
@@ -317,6 +326,7 @@ fn every_return_with_a_line_says_it() {
     let _ = intents(&mut view, &mut model);
     assert_eq!(view.window().get_connect_line().as_str(), needs, "the same");
     assert!(said(&view).contains(needs), "said again: {}", said(&view));
+    assert!(!view.window().get_peers_snack_shown(), "no snackbar");
 }
 
 /// Every element of `view` with a label and a size lies inside `width`.
