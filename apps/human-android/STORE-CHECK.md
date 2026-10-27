@@ -22,7 +22,7 @@ From `android/app/build.gradle.kts` and `android/app/src/main/AndroidManifest.xm
 |---|---|
 | applicationId | `org.interweave.human` |
 | minSdk / targetSdk / compileSdk | 30 / 36 / 36 |
-| versionCode / versionName | 1 / the workspace version (ADR-0065 decision 5: the root `Cargo.toml`'s `[workspace.package] version`, today `0.1.0`); versionCode is a committed counter raised for every published APK (`RELEASE.md`) |
+| versionCode / versionName | 2 / the workspace version (ADR-0065 decision 5: the root `Cargo.toml`'s `[workspace.package] version`, today `0.2.0`); versionCode is a committed counter raised for every published APK (`RELEASE.md`) |
 | permissions | `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_REMOTE_MESSAGING`, `POST_NOTIFICATIONS`, `USE_BIOMETRIC`, `CAMERA` (asked at the first Scan a code) -- the allow-list of plan §29 step 2, held by the check below |
 | features | `android.hardware.camera` and `android.hardware.camera.any`, both `required="false"`: a phone without a camera installs and offers typing |
 | foreground service | `.NetworkService`, `foregroundServiceType="remoteMessaging"`, not exported |

@@ -10,8 +10,10 @@
 //! be two definitions of where a daemon lives.
 //!
 //! The daemon and `transportctl` binaries are the workspace's own build,
-//! found beside the running test's executable: a workspace test run
-//! builds them, and a missing one fails by name rather than skipping.
+//! found beside the running test's executable -- a workspace test run
+//! builds them, and a missing one fails by name rather than skipping --
+//! unless [`PACKAGE_BIN`] names a released package, whose programs are
+//! then started instead.
 
 // A harness helper panics when the case cannot be set up -- that is its
 // failure, by name -- and its value is always used by the case.
@@ -40,14 +42,56 @@ pub mod relay;
 /// fails the case.
 pub const PATIENCE: Duration = Duration::from_secs(30);
 
-/// The workspace's own `transport-daemon`, beside this test's build.
-pub fn daemon_binary() -> PathBuf {
-    workspace_binary("transport-daemon", "interweave-transport-daemon")
+/// The variable naming a released package's executables: one directory
+/// holding them under their own names, as the Linux archive's `bin/` and
+/// `install.sh`'s `~/.local/bin` do. Set, every case that starts a daemon,
+/// `transportctl` or a client through this module runs the package's
+/// build -- the release run's check of a published archive (ADR-0065,
+/// ADR-0066); unset, the workspace's build beside the test, as always.
+/// A suite that also starts a program the archive's `bin/` does not
+/// hold from the workspace (`tests/desktop-e2e`'s `claude_channel.rs`
+/// and `user_units.rs`) would pair it with the package's daemon, so the
+/// release check sets it for `tests/automated-client` alone.
+pub const PACKAGE_BIN: &str = "INTERWEAVE_PACKAGE_BIN";
+
+/// `name` from the package [`PACKAGE_BIN`] names, else the workspace's
+/// build of `package`.
+///
+/// # Panics
+/// When the package lacks `name`: it fails by name and never falls back
+/// to the workspace, which would test a build the package does not ship.
+#[must_use]
+pub fn package_binary(name: &str, package: &str) -> PathBuf {
+    binary_in(std::env::var_os(PACKAGE_BIN).as_deref(), name, package)
 }
 
-/// The workspace's own `transportctl`, beside this test's build.
+/// [`package_binary`] with the variable's value given: `dir`, when there
+/// is one, must hold `name`.
+fn binary_in(dir: Option<&std::ffi::OsStr>, name: &str, package: &str) -> PathBuf {
+    match dir {
+        Some(dir) => {
+            let bin = Path::new(&dir).join(name);
+            assert!(
+                bin.is_file(),
+                "{PACKAGE_BIN} names {}, which holds no {name}",
+                Path::new(&dir).display()
+            );
+            bin
+        }
+        None => workspace_binary(name, package),
+    }
+}
+
+/// `transport-daemon`: the package's when [`PACKAGE_BIN`] names one, else
+/// the workspace's own beside this test's build.
+pub fn daemon_binary() -> PathBuf {
+    package_binary("transport-daemon", "interweave-transport-daemon")
+}
+
+/// `transportctl`: the package's when [`PACKAGE_BIN`] names one, else the
+/// workspace's own beside this test's build.
 pub fn transportctl_binary() -> PathBuf {
-    workspace_binary("transportctl", "interweave-transportctl")
+    package_binary("transportctl", "interweave-transportctl")
 }
 
 /// A workspace binary beside this test's own: cargo builds each package's
@@ -583,7 +627,28 @@ pub fn schema_validator(relative: &str) -> jsonschema::Validator {
 mod tests {
     use std::io::Write as _;
 
-    use super::{create_fresh, new_daemon_log, private_tempdir};
+    use super::{binary_in, create_fresh, new_daemon_log, private_tempdir};
+
+    /// A package that holds the program is where it is taken from.
+    #[test]
+    fn a_named_package_holding_the_program_supplies_it() {
+        let dir = private_tempdir();
+        let bin = dir.path().join("transportctl");
+        std::fs::write(&bin, b"").expect("a file");
+        assert_eq!(
+            binary_in(Some(dir.path().as_os_str()), "transportctl", "unused"),
+            bin
+        );
+    }
+
+    /// A package that lacks it fails by name, never the workspace's build:
+    /// the package is the build under test.
+    #[test]
+    #[should_panic(expected = "INTERWEAVE_PACKAGE_BIN names")]
+    fn a_named_package_without_the_program_fails_rather_than_falls_back() {
+        let dir = private_tempdir();
+        let _ = binary_in(Some(dir.path().as_os_str()), "transportctl", "unused");
+    }
 
     /// Starts in one home, back to back, each get their own log, and none
     /// cuts a log an earlier start is still writing.

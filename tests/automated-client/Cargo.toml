@@ -12,6 +12,8 @@
 # build `interweave-transport-daemon` and `interweave-transportctl` first
 # (every profile's key is minted by `transportctl identity init`) -- a
 # missing binary fails the suite by name rather than skipping it.
+# INTERWEAVE_PACKAGE_BIN naming a released archive's bin/ runs every case
+# against that package's programs instead (the release run's check).
 [package]
 name = "interweave-automated-client-tests"
 version.workspace = true

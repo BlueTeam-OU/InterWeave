@@ -17,7 +17,7 @@ use interweave_local_client_api::{
 use crate::common::{Home, PATIENCE, human};
 
 /// The `human-desktop` these cases run: an installed package's when
-/// `package::PACKAGE_BIN` names one, else the workspace's own, beside
+/// `tests/support`'s `PACKAGE_BIN` names one, else the workspace's own, beside
 /// this test's build.
 pub(crate) fn app_binary() -> PathBuf {
     crate::package::client_binary()

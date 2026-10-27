@@ -6,7 +6,9 @@
 # driven over its sockets. TEST-ONLY; nothing depends on this package.
 # The binaries are the workspace's own build: run the workspace's tests, or
 # build `interweave-transport-daemon` (and `interweave-claude-channel`) first -- a missing binary fails the
-# suite by name rather than skipping it.
+# suite by name rather than skipping it. INTERWEAVE_PACKAGE_BIN naming a
+# package's bin/ makes the daemon and transportctl the package's instead
+# (tests/support's e2e module).
 [package]
 name = "interweave-desktop-e2e-tests"
 version.workspace = true
