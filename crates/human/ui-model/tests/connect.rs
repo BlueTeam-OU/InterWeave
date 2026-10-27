@@ -493,6 +493,33 @@ fn a_late_trust_answer_moves_connects_line() {
     assert_eq!(line(&n), Some(ConnectLine::NeedsTrust), "read not trusted");
 }
 
+/// Add an address on Connect opens the page even when this visit's adds
+/// left the list where Peers' Add would show a note in its place -- a row
+/// not dialled: that note is drawn on Peers' list, not under Connect, so
+/// the add's own answer decides. Control: Peers' own Add is stopped.
+#[test]
+fn connects_add_opens_where_peers_add_would_show_a_note() {
+    let (me, them) = (peer(), peer());
+    let off = PeerAddress {
+        dialled: false,
+        ..added(&them)
+    };
+    let mut m = connect_open(&me);
+    add_from_connect(&mut m, &them, std::slice::from_ref(&off));
+    let _ = m.peers_input(PeersInput::NotNow(them.clone()));
+    assert!(!m.peers().add_open());
+    assert!(m.connect_input(ConnectInput::Add).is_empty());
+    assert!(m.peers().add_open(), "the page, its answer to decide");
+    let _ = m.peers_input(PeersInput::Close);
+
+    let mut p = UiModel::new();
+    let _ = p.peers_input(PeersInput::Opened);
+    p.trust_settings_mut().read(Ok(trust_list(&me, &[])));
+    p.addresses_read(Ok(list(&[off])));
+    let _ = p.peers_input(PeersInput::OpenAdd);
+    assert!(!p.peers().add_open(), "Peers' Add shows its note instead");
+}
+
 /// A press reaching Connect while a page it opened is up opens nothing.
 #[test]
 fn connect_opens_one_page_at_a_time() {

@@ -1053,9 +1053,12 @@ impl Peers {
                 Vec::new()
             }
             PeersInput::OpenAddFromConnect => {
-                // Connect shows only on a list read empty, so no bound or
-                // list-off note can stand in its way: the add's own answer
-                // decides.
+                // No bound or list-off note stops the page as Add an
+                // address does on Peers (`add_blocked`): that note is drawn
+                // on Peers' list, which is not on show under Connect. The
+                // add's own answer decides, and its refusal is drawn on the
+                // page (§5.3). Connect opens on a list read empty, so
+                // whatever rows the list holds are this visit's adds.
                 if self.page.is_none() {
                     self.add_note = None;
                     self.page = Some(AddPage {
