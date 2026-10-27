@@ -118,7 +118,7 @@ pub(super) struct NetworkSet {
     published: crate::held_listeners::HeldListeners,
     /// The private-range listener IPs this node offered at the last
     /// observation: rule 3's own-listener boundary, kept to count each
-    /// widening of it ([`Self::publish`]). Bounded by the listeners.
+    /// widening of it ([`Self::publish`]): a subset of `listeners`.
     offered_private: BTreeSet<IpAddr>,
 }
 

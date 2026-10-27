@@ -3646,6 +3646,36 @@ mod tests {
         assert_eq!(held.held(&peer), 0, "a peer with no connection is not held");
     }
 
+    /// What a peer's Identify had refused is held up to
+    /// `MAX_ADDRESSES_PER_PEER`, the most the book keeps for one peer:
+    /// the list is written by the party being described, so its length
+    /// is the peer's choice and the hold must not be.
+    #[test]
+    fn a_peer_advertising_more_private_addresses_than_the_book_keeps_is_held_to_the_cap() {
+        use super::HeldBack;
+        use interweave_transport_runtime::connection_manager::MAX_ADDRESSES_PER_PEER;
+        let mut m = admitting_manager();
+        let peer = ident(RELAY);
+        let mut open = HashMap::new();
+        open.insert(ConnectionId::new_unchecked(1), open_to(&peer, &mut m));
+        let many: Vec<Multiaddr> = (0..MAX_ADDRESSES_PER_PEER + 5)
+            .map(|i| {
+                format!("/ip4/10.0.0.1/tcp/{}", 4000 + i)
+                    .parse()
+                    .expect("valid")
+            })
+            .collect();
+        let mut held = HeldBack::default();
+        held.hold(&peer, many.clone(), &open);
+        assert_eq!(held.held(&peer), MAX_ADDRESSES_PER_PEER, "held to the cap");
+        held.hold(&peer, many[..2].to_vec(), &open);
+        assert_eq!(
+            held.held(&peer),
+            2,
+            "the control: a short list is held whole"
+        );
+    }
+
     /// THE HOOK, not the predicate: does a refused advertised address
     /// actually stay out of the address book?
     ///
