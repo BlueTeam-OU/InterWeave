@@ -1534,6 +1534,111 @@ async fn a_missing_key_after_a_share_is_named_and_a_new_key_not_stored_says_the_
     assert!(!file.exists(), "the old file went first");
 }
 
+/// Acceptance item 13 at the facade, in the build's fallback (design
+/// section 5.2): the client cannot tell a Sending row it holds from one
+/// the transport took, so it withdraws the Not sent row (C, to Bob, whom
+/// the node refused) with no Undo and leaves the Sending one (D, to a peer
+/// with no address yet) to arrive. The key becomes unusable at a start,
+/// as only a start opens it, and C is Not sent again by its retry. Both conversations are listed for a share again,
+/// and C is never sent, a restart included. Mutations: the facade
+/// withdrawing nothing, or withdrawing every pending row.
+#[tokio::test]
+async fn a_new_key_withdraws_the_not_sent_card_and_lists_both_pending_conversations() {
+    use interweave_human_store::OutboundDestination;
+    use interweave_human_ui_model::{KeyProblem, KeyStep, OwnKey};
+    use interweave_transport_api::TransportError;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: None,
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(1).await;
+    let to_bob = direct(b.peer());
+    let stranger = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer id");
+    let to_stranger = direct(&stranger);
+    a.inject_send(TransportError::UnauthorizedPeer);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(2).await;
+    alice.will(Intent::ShareCard(to_stranger.clone()));
+    alice.pump(3).await;
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+
+    // The key file is damaged and Alice starts again: her pending rows
+    // are retried, C refused again by the node, D still with no address.
+    drop(alice);
+    std::fs::write(
+        identity_key::key_path(&pa.paths, &human()),
+        "not a record\n",
+    )
+    .expect("damage");
+    a.inject_send(TransportError::UnauthorizedPeer);
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    alice.pump(4).await;
+    assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Damaged));
+    alice.will(Intent::AskNewKey);
+    alice.pump(5).await;
+    assert_eq!(
+        alice.model().key_step(),
+        Some(&KeyStep::Confirming { pending: true }),
+        "KeyNewPending is shown"
+    );
+    alice.updates.clear();
+    alice.will(Intent::MakeNewKey);
+    alice.pump(6).await;
+    let Some(KeyStep::Made { share_again }) = alice.model().key_step() else {
+        panic!("made: {:?}", alice.model().key_step())
+    };
+    let mut listed = share_again.clone();
+    listed.sort_by_key(|k| format!("{k:?}"));
+    let mut both = vec![to_bob.clone(), to_stranger.clone()];
+    both.sort_by_key(|k| format!("{k:?}"));
+    assert_eq!(listed, both, "C and D are in the share-again list");
+    let withdrawn: Vec<bool> = alice
+        .updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::Cancelled { restorable, .. } => Some(*restorable),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(withdrawn, vec![false], "one row withdrawn, with no Undo");
+
+    // A restart: C is not in the store to be sent, and Bob never sees it;
+    // D is still pending, left to arrive.
+    drop(alice);
+    a.restart();
+    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
+    for at in 7..10 {
+        alice.pump(at * 60_000).await;
+        bob.pump(at * 60_000).await;
+    }
+    assert!(
+        bob.model().proposals(&direct(a.peer())).is_empty(),
+        "the withdrawn card never arrives"
+    );
+    drop(alice);
+    let store = HumanStore::open_profile(&pa.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
+    let pending: Vec<_> = store
+        .pending_outbound()
+        .expect("read")
+        .into_iter()
+        .map(|row| match row.destination {
+            OutboundDestination::Direct(d) => d.peer,
+            OutboundDestination::Broadcast(c) => panic!("a broadcast: {c:?}"),
+        })
+        .collect();
+    assert_eq!(pending, vec![stranger], "only D is left, to arrive");
+}
+
 /// A cipher at the desktop's custody that cannot seal: a new key cannot
 /// be stored under it.
 struct NoSeal;
