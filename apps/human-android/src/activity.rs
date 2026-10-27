@@ -15,7 +15,8 @@ use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide};
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent};
 use interweave_human_ui_slint::{
-    ActivityEvent, AndroidApp, TouchSettings, View, defer, init_android, invoke_on_window,
+    ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, TouchSettings, View, defer, init_android,
+    invoke_on_window,
 };
 
 use crate::jni::log;
@@ -196,14 +197,23 @@ pub(crate) fn camera_denied(for_good: bool) {
 /// bytes, empty when they could not be read, or `None` when nothing was
 /// chosen.
 pub(crate) fn photo_picked(chosen: Option<Vec<u8>>) {
+    // The request the picker was last opened for; none once the editor
+    // that asked closed, and the answer then reaches nothing.
+    let Some(request) = *PHOTO_REQUEST.lock().unwrap_or_else(PoisonError::into_inner) else {
+        return;
+    };
     // Handed over once: `with_view` may run its task again on a retry.
     let chosen = Mutex::new(Some(chosen));
     with_view(move |view| {
         if let Some(chosen) = chosen.lock().ok().and_then(|mut c| c.take()) {
-            view.photo_picked(chosen);
+            view.photo_picked(request, chosen);
         }
     });
 }
+
+/// The editor's latest photo picker request, set as the picker is asked
+/// for and cleared when the editor abandons it.
+static PHOTO_REQUEST: Mutex<Option<PhotoRequest>> = Mutex::new(None);
 
 /// `Native.cameraClosed`: the camera stopped under the scan.
 pub(crate) fn camera_closed() {
@@ -506,9 +516,16 @@ fn android_main(app: AndroidApp) {
     });
     // The own card's photo: Android's photo picker, which needs no
     // permission (contact-cards design section 3).
-    view.photo_picker_hook(|| {
+    view.photo_picker_hook(|pick| {
         use crate::onboard::{ASKS, ask};
-        ASKS.push(ask::PICK_PHOTO);
+        let mut request = PHOTO_REQUEST.lock().unwrap_or_else(PoisonError::into_inner);
+        match pick {
+            PhotoPick::Open(asked) => {
+                *request = Some(asked);
+                ASKS.push(ask::PICK_PHOTO);
+            }
+            PhotoPick::Abandon => *request = None,
+        }
     });
     view.offer_scans(CAMERA_PRESENT.load(Ordering::SeqCst), false, false);
     let view = Rc::new(RefCell::new(view));

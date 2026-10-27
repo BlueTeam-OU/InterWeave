@@ -20,7 +20,7 @@ use interweave_human_ui_model::{
     PhotoEdit, Proposal, ProposalContext, RouteView, RuntimeHost, UiModel, UiText, fill, isolated,
     placeholder_en,
 };
-use interweave_human_ui_slint::{View, ViewEvent};
+use interweave_human_ui_slint::{PhotoPick, PhotoRequest, View, ViewEvent};
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
 use slint::{ComponentHandle as _, Model as _};
 
@@ -55,6 +55,43 @@ fn view() -> View {
     view.set_clock(|| NOW, |_| 0);
     view.window().show().expect("shown");
     view
+}
+
+thread_local! {
+    /// What the editor asked of the photo picker, in order, as
+    /// [`record_picks`] hooks it.
+    static PICKS: std::cell::RefCell<Vec<PhotoPick>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The platform's picker, as a root hooks it: each ask recorded.
+fn record_picks(view: &mut View) {
+    view.photo_picker_hook(|pick| PICKS.with(|p| p.borrow_mut().push(pick)));
+}
+
+/// What the editor asked of the picker so far.
+fn picks() -> Vec<PhotoPick> {
+    PICKS.with(|p| p.borrow().clone())
+}
+
+/// The request the picker was last opened for.
+fn last_request() -> PhotoRequest {
+    picks()
+        .into_iter()
+        .rev()
+        .find_map(|pick| match pick {
+            PhotoPick::Open(request) => Some(request),
+            PhotoPick::Abandon => None,
+        })
+        .expect("the picker opened")
+}
+
+/// Add a photo or Change photo pressed and taken, and the picker's answer
+/// to it handed back, as the root runs it: the answer is queued, not yet
+/// taken.
+fn pick(view: &mut View, model: &mut UiModel, chosen: Option<Vec<u8>>) {
+    view.window().invoke_own_card_choose_photo();
+    let _ = intents(view, model);
+    view.photo_picked(last_request(), chosen);
 }
 
 /// The root's loop: take, apply, take again, until empty.
@@ -899,7 +936,7 @@ fn the_photo_buttons_and_the_unusable_line_stand_under_the_circle() {
         },
     ));
     // A picked image that cannot be used, as the root runs it.
-    view.photo_picked(Some(vec![1, 2, 3]));
+    pick(&mut view, &mut model, Some(vec![1, 2, 3]));
     for event in view.take_events(&model) {
         if let ViewEvent::Intent(Intent::ChooseOwnPhoto(_)) = event {
             let seq = model.own_photo_chosen();
@@ -1082,7 +1119,7 @@ fn wide_editor_with_a_change() -> (View, UiModel, String) {
     view.window()
         .window()
         .set_size(slint::LogicalSize::new(1200.0, 1600.0));
-    view.photo_picker_hook(|| {});
+    record_picks(&mut view);
     let mut model = UiModel::new();
     model.identity_shown(ada(
         false,
@@ -2854,9 +2891,7 @@ fn announced(view: &View) -> Vec<String> {
 #[test]
 fn the_editor_chooses_a_photo_through_the_platforms_picker() {
     let mut view = view();
-    let asked = std::rc::Rc::new(std::cell::Cell::new(0));
-    let counted = std::rc::Rc::clone(&asked);
-    view.photo_picker_hook(move || counted.set(counted.get() + 1));
+    record_picks(&mut view);
     let mut model = UiModel::new();
     model.identity_shown(IdentityView {
         endpoint: human(),
@@ -2887,14 +2922,14 @@ fn the_editor_chooses_a_photo_through_the_platforms_picker() {
 
     press(&view, text(UiText::AddPhoto));
     let _ = intents(&mut view, &mut model);
-    assert_eq!(asked.get(), 1, "the platform's picker");
-    view.photo_picked(None);
+    assert_eq!(picks().len(), 1, "the platform's picker");
+    view.photo_picked(last_request(), None);
     assert!(
         intents(&mut view, &mut model).is_empty(),
         "a cancel: nothing"
     );
 
-    view.photo_picked(Some(vec![1, 2, 3]));
+    pick(&mut view, &mut model, Some(vec![1, 2, 3]));
     assert_eq!(
         intents(&mut view, &mut model),
         vec![Intent::ChooseOwnPhoto(vec![1, 2, 3])]
@@ -2919,7 +2954,8 @@ fn the_editor_chooses_a_photo_through_the_platforms_picker() {
     assert_eq!(view.window().get_focus_id(), "own-choose-photo");
 
     press(&view, text(UiText::ChangePhoto));
-    view.photo_picked(Some(vec![9]));
+    let _ = intents(&mut view, &mut model);
+    view.photo_picked(last_request(), Some(vec![9]));
     let _ = intents(&mut view, &mut model);
     let second = model.own_photo_chosen();
     view.render(&model);
@@ -3008,7 +3044,7 @@ fn a_matching_card_says_it_matches_only_when_nothing_is_kept() {
 #[test]
 fn the_editor_draws_the_saved_photo_and_follows_a_new_one() {
     let mut view = view();
-    view.photo_picker_hook(|| {});
+    record_picks(&mut view);
     let mut model = UiModel::new();
     let identity = |photo: Option<Photo>| IdentityView {
         endpoint: human(),
@@ -3054,7 +3090,7 @@ fn the_editor_draws_the_saved_photo_and_follows_a_new_one() {
 #[test]
 fn while_a_photo_is_prepared_the_editor_stays_as_it_was_before() {
     let mut view = view();
-    view.photo_picker_hook(|| {});
+    record_picks(&mut view);
     let mut model = UiModel::new();
     model.identity_shown(IdentityView {
         endpoint: human(),
@@ -3124,7 +3160,7 @@ fn own_editor(identity: IdentityView) -> (View, UiModel) {
     view.window()
         .window()
         .set_size(slint::LogicalSize::new(390.0, 1600.0));
-    view.photo_picker_hook(|| {});
+    record_picks(&mut view);
     let mut model = UiModel::new();
     model.identity_shown(identity);
     view.render(&model);
@@ -3432,7 +3468,7 @@ fn back_after_a_second_unusable_pick_closes_at_once() {
     // As a root runs it: a render opens each turn, the take follows, the
     // model applies what was taken, and the facade's answer renders.
     let unusable_pick = |view: &mut View, model: &mut UiModel| {
-        view.photo_picked(Some(vec![1, 2, 3]));
+        pick(view, model, Some(vec![1, 2, 3]));
         view.render(model);
         for event in view.take_events(model) {
             if let interweave_human_ui_slint::ViewEvent::Intent(Intent::ChooseOwnPhoto(_)) = event {
@@ -3489,7 +3525,7 @@ fn back_after_a_queued_pick_asks_and_after_a_cancel_does_not() {
             fingerprint: "0123456789abcdef".to_owned(),
         },
     ));
-    view.photo_picked(None);
+    pick(&mut view, &mut model, None);
     assert!(view.window().invoke_handle_back());
     assert!(
         !view.window().get_own_discard_open(),
@@ -3502,9 +3538,108 @@ fn back_after_a_queued_pick_asks_and_after_a_cancel_does_not() {
     press(&view, text(UiText::OwnCardTitle));
     let _ = intents(&mut view, &mut model);
     settle();
-    view.photo_picked(Some(vec![1, 2, 3]));
+    pick(&mut view, &mut model, Some(vec![1, 2, 3]));
     assert!(view.window().invoke_handle_back());
     assert!(view.window().get_own_discard_open(), "a queued photo");
+}
+
+/// j68 P3-2: the picker opened twice, the first read slow. Each opening
+/// carries its own request, and only the answer to the latest is taken,
+/// whichever order they arrive in: the earlier one's late answer replaces
+/// nothing, and is no change Back asks about. Mutation: the answer taken
+/// without its request compared.
+#[test]
+fn a_late_answer_to_an_earlier_pick_changes_nothing() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    view.window().invoke_own_card_choose_photo();
+    let _ = intents(&mut view, &mut model);
+    let first = last_request();
+    view.window().invoke_own_card_choose_photo();
+    let _ = intents(&mut view, &mut model);
+    let second = last_request();
+    assert_ne!(first, second, "a request of its own each time");
+    assert_eq!(
+        picks(),
+        vec![PhotoPick::Open(first), PhotoPick::Open(second)],
+        "the second opening tells the platform the first is not wanted"
+    );
+
+    // The first read finishes after the second, and before it.
+    view.photo_picked(second, Some(vec![2]));
+    view.photo_picked(first, Some(vec![1]));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::ChooseOwnPhoto(vec![2])],
+        "the latest pick, and only it"
+    );
+    view.photo_picked(first, Some(vec![1]));
+    assert!(
+        view.window().invoke_handle_back(),
+        "control: Back is the editor's"
+    );
+    let raised = intents(&mut view, &mut model);
+    assert!(
+        !raised.contains(&Intent::ChooseOwnPhoto(vec![1])),
+        "the earlier pick never replaces the later: {raised:?}"
+    );
+}
+
+/// j68 P3-2: an answer that comes after the editor that asked closed is
+/// not the reopened editor's: the close tells the platform the read is no
+/// longer wanted, the answer changes nothing, and a new pick in the new
+/// editor is taken. Mutation: the request kept across the close.
+#[test]
+fn an_answer_after_the_editor_closed_and_reopened_changes_nothing() {
+    let (mut view, mut model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    view.window().invoke_own_card_choose_photo();
+    let _ = intents(&mut view, &mut model);
+    let asked = last_request();
+    assert!(view.window().invoke_handle_back());
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::None,
+        "control: the editor closed"
+    );
+    assert_eq!(picks().last(), Some(&PhotoPick::Abandon));
+
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    view.photo_picked(asked, Some(vec![1]));
+    assert!(
+        intents(&mut view, &mut model).is_empty(),
+        "the closed editor's pick reaches nothing"
+    );
+    assert!(view.window().invoke_handle_back());
+    assert!(
+        !view.window().get_own_discard_open(),
+        "and is no change to ask about"
+    );
+    let _ = intents(&mut view, &mut model);
+    settle();
+
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    pick(&mut view, &mut model, Some(vec![2]));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::ChooseOwnPhoto(vec![2])],
+        "a pick of the open editor's own is taken"
+    );
 }
 
 /// Contact-cards design 5.2 and item 11: Back on the own card's editor
@@ -3518,7 +3653,7 @@ fn back_after_a_queued_pick_asks_and_after_a_cancel_does_not() {
 fn back_with_unsaved_changes_asks_before_the_editor_closes() {
     use interweave_human_ui_slint::CardsPage;
     let mut view = view();
-    view.photo_picker_hook(|| {});
+    record_picks(&mut view);
     let mut model = UiModel::new();
     model.identity_shown(IdentityView {
         endpoint: human(),

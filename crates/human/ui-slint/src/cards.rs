@@ -63,9 +63,10 @@ pub(crate) enum CardsInput {
     ProposalContact(i32, i32),
     /// The own card's Add a photo or Change photo: the platform's picker.
     ChoosePhoto,
-    /// What the picker came to: the image as its file holds it, or `None`
-    /// when nothing was chosen (or it could not be read).
-    PhotoPicked(Option<Vec<u8>>),
+    /// What the picker came to for its request: the image as its file
+    /// holds it, or `None` when nothing was chosen (or it could not be
+    /// read).
+    PhotoPicked(PhotoRequest, Option<Vec<u8>>),
     /// A contact's name saved: the contact, and the field as typed.
     SaveName(String, String),
     /// A contact's photo removed.
@@ -90,6 +91,27 @@ pub(crate) enum CardsInput {
     ShareAgain(i32),
     /// The share sheet's Open your card, while the key cannot be used.
     OpenCardFromShare,
+}
+
+/// One opening of the photo picker, minted by the editor before the
+/// picker opens and carried back with its answer: only the answer to the
+/// editor's latest request, made while that editor is still open, is
+/// taken, so a slow read cannot replace a newer pick, nor an old editor's
+/// pick reach a new one (j68 P3-2,
+/// `a_late_answer_to_an_earlier_pick_changes_nothing`,
+/// `an_answer_after_the_editor_closed_and_reopened_changes_nothing`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhotoRequest(pub u64);
+
+/// What the editor asks of the platform's photo picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhotoPick {
+    /// Open the picker for this request. An earlier request's read still
+    /// running is no longer wanted.
+    Open(PhotoRequest),
+    /// The editor that asked closed: the outstanding request's read is no
+    /// longer wanted.
+    Abandon,
 }
 
 /// Which card page the app's options opened.
@@ -130,15 +152,25 @@ pub(crate) struct Drawn {
     pub(crate) own_photo_queued: bool,
     /// Such a change has been taken since the last render outside a take.
     own_photo_taken: bool,
+    /// The photo picker's request the open editor waits on, if any.
+    photo_request: Option<PhotoRequest>,
+    /// The last request minted, in this view's life.
+    photo_requests: u64,
 }
 
-/// Whether `input` removes or picks the editor's photo: a change Back
-/// asks about before the model has it.
-pub(crate) fn changes_own_photo(input: &Input) -> bool {
-    matches!(
-        input,
-        Input::Cards(CardsInput::RemoveOwnPhoto | CardsInput::PhotoPicked(Some(_)))
-    )
+impl Drawn {
+    /// Whether `input` removes or picks the editor's photo: a change Back
+    /// asks about before the model has it. An answer to any request but
+    /// the one waited on changes nothing.
+    pub(crate) fn changes_own_photo(&self, input: &Input) -> bool {
+        match input {
+            Input::Cards(CardsInput::RemoveOwnPhoto) => true,
+            Input::Cards(CardsInput::PhotoPicked(request, Some(_))) => {
+                self.photo_request == Some(*request)
+            }
+            _ => false,
+        }
+    }
 }
 
 /// The card screens' callbacks: each becomes an input, taken as the others
@@ -558,7 +590,7 @@ pub(crate) struct CardScreens {
     focus_link: Option<(RowId, i32)>,
     /// The platform's photo picker, when the root gives one (Android's
     /// Photo Picker); the desktop build has its file dialog.
-    pub(crate) photo_picker: Option<Rc<dyn Fn()>>,
+    pub(crate) photo_picker: Option<Rc<dyn Fn(PhotoPick)>>,
     /// The editor's photo step as last drawn: what a change of it says.
     own_step_drawn: Option<OwnPhotoStep>,
     /// The photo the editor's circle was last given, once it was given
@@ -665,7 +697,7 @@ impl View {
                 self.focus_key_after_draw("close-cards".to_owned());
             }
             CardsInput::Open(opened) => {
-                self.cards.forget_returns();
+                self.forget_page();
                 let page = match opened {
                     Opened::Contacts => CardsPage::Contacts,
                     Opened::OwnCard => CardsPage::OwnCard,
@@ -804,7 +836,7 @@ impl View {
             }
             photo @ (CardsInput::RemoveOwnPhoto
             | CardsInput::ChoosePhoto
-            | CardsInput::PhotoPicked(_)) => return self.take_own_photo(model, photo),
+            | CardsInput::PhotoPicked(..)) => return self.take_own_photo(model, photo),
             CardsInput::Share(key) => {
                 // Shared only for the conversation still shown, by the
                 // model's own offer: never a channel, never on its own.
@@ -818,12 +850,25 @@ impl View {
 
     /// The own card editor's photo (contact-cards design 5.2).
     fn take_own_photo(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
-        if matches!(
-            input,
-            CardsInput::RemoveOwnPhoto | CardsInput::PhotoPicked(Some(_))
-        ) {
-            self.shared.borrow_mut().cards.own_photo_taken = true;
-        }
+        let input = {
+            let mut shared = self.shared.borrow_mut();
+            let drawn = &mut shared.cards;
+            if drawn.changes_own_photo(&Input::Cards(input.clone())) {
+                drawn.own_photo_taken = true;
+            }
+            match input {
+                // Not the answer the editor waits on: an earlier request's,
+                // or one made before the editor closed.
+                CardsInput::PhotoPicked(request, _) if drawn.photo_request != Some(request) => {
+                    return Vec::new();
+                }
+                CardsInput::PhotoPicked(..) => {
+                    drawn.photo_request = None;
+                    input
+                }
+                input => input,
+            }
+        };
         if self.cards.page != Some(CardsPage::OwnCard) {
             return Vec::new();
         }
@@ -835,12 +880,19 @@ impl View {
                 vec![Intent::RemoveOwnPhoto]
             }
             CardsInput::ChoosePhoto => {
-                self.pick_photo();
+                let request = {
+                    let mut shared = self.shared.borrow_mut();
+                    shared.cards.photo_requests += 1;
+                    let request = PhotoRequest(shared.cards.photo_requests);
+                    shared.cards.photo_request = Some(request);
+                    request
+                };
+                self.pick_photo(request);
                 Vec::new()
             }
             // Focus is on the button that opened the picker, chosen or
             // not; a cancel changes nothing.
-            CardsInput::PhotoPicked(picked) => {
+            CardsInput::PhotoPicked(_, picked) => {
                 self.focus_key("own-choose-photo".to_owned());
                 picked.map(Intent::ChooseOwnPhoto).into_iter().collect()
             }
@@ -852,29 +904,49 @@ impl View {
     /// dialog on a thread of its own, whose answer comes back as
     /// [`CardsInput::PhotoPicked`]. With neither, nothing opens; the page
     /// then offers no control that asks.
-    fn pick_photo(&self) {
+    fn pick_photo(&self, request: PhotoRequest) {
         if let Some(pick) = self.cards.photo_picker.as_ref() {
-            pick();
+            pick(PhotoPick::Open(request));
         } else {
-            self.pick_photo_file();
+            self.pick_photo_file(request);
+        }
+    }
+
+    /// A card page opening in place of the one shown: the ways back are
+    /// forgotten, and what an editor before it asked the picker is
+    /// dropped.
+    fn forget_page(&mut self) {
+        self.abandon_photo_pick();
+        self.cards.forget_returns();
+    }
+
+    /// The editor closing: the request it waits on, if any, is no longer
+    /// wanted. The desktop's file dialog cannot be called back; its answer
+    /// is dropped when it comes.
+    fn abandon_photo_pick(&self) {
+        let waited = self.shared.borrow_mut().cards.photo_request.take();
+        if waited.is_some()
+            && let Some(pick) = self.cards.photo_picker.as_ref()
+        {
+            pick(PhotoPick::Abandon);
         }
     }
 
     /// The desktop's file dialog, on a thread of its own.
     #[cfg(not(feature = "desktop"))]
     #[allow(clippy::unused_self, reason = "the desktop build's has a self to use")]
-    const fn pick_photo_file(&self) {}
+    const fn pick_photo_file(&self, _: PhotoRequest) {}
 
     /// The desktop's file dialog, on a thread of its own.
     #[cfg(feature = "desktop")]
-    fn pick_photo_file(&self) {
+    fn pick_photo_file(&self, request: PhotoRequest) {
         {
             let slot = std::sync::Arc::clone(&self.shared.borrow().photo_pick);
             let window = slint::ComponentHandle::as_weak(&self.window);
             let filter = text(UiText::CodeImageFilter).to_owned();
             let answer = move |picked: Option<Vec<u8>>| {
                 if let Ok(mut held) = slot.lock() {
-                    *held = Some(CardsInput::PhotoPicked(picked));
+                    *held = Some(CardsInput::PhotoPicked(request, picked));
                 }
                 let _ = window.upgrade_in_event_loop(|w| w.invoke_own_photo_picked_done());
             };
@@ -882,7 +954,10 @@ impl View {
                 .name("photo-dialog".to_owned())
                 .spawn(move || answer(crate::scan_images::photo_file(&filter)));
             if spawned.is_err() {
-                enqueue(&self.shared, Input::Cards(CardsInput::PhotoPicked(None)));
+                enqueue(
+                    &self.shared,
+                    Input::Cards(CardsInput::PhotoPicked(request, None)),
+                );
             }
         }
     }
@@ -921,6 +996,7 @@ impl View {
     }
 
     fn close_cards(&mut self, window: &AppWindow) {
+        self.abandon_photo_pick();
         self.page = crate::Page::Conversation;
         self.cards.page = None;
         self.cards.contact = None;
@@ -1521,7 +1597,11 @@ impl View {
             )
         });
         if !self.cards.rendering_in_take && std::mem::take(&mut shared.cards.own_photo_taken) {
-            shared.cards.own_photo_queued = shared.inputs.iter().any(changes_own_photo);
+            let queued = shared
+                .inputs
+                .iter()
+                .any(|i| shared.cards.changes_own_photo(i));
+            shared.cards.own_photo_queued = queued;
         }
         drop(shared);
         window.set_add_photo_label(text(UiText::AddPhoto).into());
