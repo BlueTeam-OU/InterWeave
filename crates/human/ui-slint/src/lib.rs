@@ -919,6 +919,7 @@ impl View {
         window.set_composer_label(text(UiText::Composer));
         window.set_send_label(text(UiText::Send));
         window.set_show_source_label(text(UiText::ShowSource));
+        window.set_card_sent_label(text(UiText::CardSentLabel));
         window.set_show_formatted_label(text(UiText::ShowFormatted));
         window.set_code_font(code_font());
         window.set_app_options_label(text(UiText::AppOptions));
@@ -2105,7 +2106,14 @@ impl View {
             return text.clone();
         }
         let first = body::first_line(&last.body, &image_text);
-        let text = if last.direction == Direction::Outbound {
+        // One's own card row has no text: its line is the preview, and
+        // already says whose (contact-cards 5.5). The design's
+        // CardPreviewSent reads the same words, and no two interface texts
+        // may (`labels::tests::every_ui_text_appears_once_in_all`), so it is
+        // this key.
+        let text = if last.card {
+            placeholder_en::text(UiText::CardSentLabel).to_owned()
+        } else if last.direction == Direction::Outbound {
             fill(
                 placeholder_en::text(UiText::OwnLastMessage),
                 &[("message", &first)],
@@ -3359,10 +3367,40 @@ fn message_row(
         Some(Reply::Unavailable(_)) => placeholder_en::text(UiText::ReplyUnavailable),
         None => "",
     };
+    // One's own card row is read as its line, the name as sent, and, when
+    // the card carried a photo, CardSentPhoto as a sentence of its own
+    // (contact-cards 5.5), then status and time, as any item's. The
+    // template ends the body with its period, so CardSentPhoto's own is
+    // not said twice.
+    let (said_author, body) = match &item.card {
+        Some(card) => {
+            // A name may end in its own full stop ("Ada L."): no second
+            // one is added after it, and the template's own after the body
+            // is not doubled (#471 R1 F1).
+            let ends_a_sentence = |s: &str| s.ends_with(['.', '!', '?', '\u{2026}']);
+            let mut body = card.name.clone();
+            if card.photo.is_some() {
+                if !ends_a_sentence(&body) {
+                    body.push('.');
+                }
+                body.push(' ');
+                body.push_str(placeholder_en::text(UiText::CardSentPhoto));
+            }
+            // Only a full stop goes: the template ends the body with one.
+            // A name's own "!", "?" or "…" stays, as a message's does
+            // (#471 R2 F2).
+            if body.ends_with('.') {
+                body.pop();
+            }
+            (placeholder_en::text(UiText::CardSentLabel).to_owned(), body)
+        }
+        None => (author.clone(), drawn.plain.clone()),
+    };
+    let has_actions = actions.row_count() > 0;
     let mut values = vec![
-        ("author", author.as_str()),
+        ("author", said_author.as_str()),
         ("status", status.text.as_str()),
-        ("body", drawn.plain.as_str()),
+        ("body", body.as_str()),
         ("time", placed.time.as_str()),
     ];
     let template = match status.reason {
@@ -3408,6 +3446,27 @@ fn message_row(
             .unwrap_or_default()
             .into(),
         leaving: false,
+        card: item.card.is_some(),
+        card_name: item
+            .card
+            .as_ref()
+            .map(|c| c.name.as_str())
+            .unwrap_or_default()
+            .into(),
+        card_letters: item
+            .card
+            .as_ref()
+            .map(|c| cards::initials(&c.name))
+            .unwrap_or_default()
+            .into(),
+        card_has_photo: item.card.as_ref().is_some_and(|c| c.photo.is_some()),
+        card_photo: item
+            .card
+            .as_ref()
+            .and_then(|c| c.photo.as_ref())
+            .map(cards::image)
+            .unwrap_or_default(),
+        has_menu: item.card.is_none() || has_actions,
     }
 }
 

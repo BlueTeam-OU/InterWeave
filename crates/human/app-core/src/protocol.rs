@@ -303,6 +303,12 @@ pub enum Update {
         key: ConversationKey,
         /// Its pending row.
         row: RowId,
+        /// The card's application id.
+        app_message_id: String,
+        /// The card as it went, for its own card row.
+        card: interweave_human_ui_model::SentCard,
+        /// When, on the wall clock.
+        at: u64,
     },
     /// The conversation's card row reached Accepted by remote transport,
     /// and its `card_shared_at` is written (cards section 5.3): the share

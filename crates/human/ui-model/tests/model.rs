@@ -722,6 +722,7 @@ fn an_update_before_its_row_is_listed_is_held_and_applied_when_listed() {
         },
         envelope: envelope(3, "x"),
         created_at: 1,
+        card: None,
     }]);
     assert_eq!(model.messages(&key(&p))[0].label, LabelKey::NotConfirmed);
     assert_eq!(model.held_updates(), 0);
@@ -790,6 +791,7 @@ fn a_held_update_keeps_the_latest_per_row_and_the_cap_drops_the_oldest() {
         },
         envelope: envelope(u32::try_from(row).expect("small"), "x"),
         created_at: 1,
+        card: None,
     };
     // Latest wins per row.
     let mut model = UiModel::new();
@@ -931,6 +933,7 @@ fn a_stale_pending_listing_does_not_revive_a_terminal_row() {
         },
         envelope: envelope(7, "sent"),
         created_at: 1,
+        card: None,
     };
     model.pending_listed(vec![out.clone()]);
     model.client_event(update(7, OutboundStatus::Published));
@@ -1032,4 +1035,72 @@ fn a_contacts_conversation_lists_its_title_plain_and_its_drawn_title_isolated() 
     let [summary] = model.conversations().try_into().expect("one conversation");
     assert_eq!(summary.title, "Ada Lovelace");
     assert_eq!(summary.drawn_title, "\u{2068}Ada Lovelace\u{2069}");
+}
+
+/// Contact-cards section 5.5: Share's queued card is its own card row,
+/// the card as it went, with a sent message's status and actions --
+/// Retry and Cancel while Not sent, none once accepted -- and a card the
+/// store lists at start is the same row. Mutation: the card not carried
+/// to the item.
+#[test]
+fn a_queued_or_listed_own_card_is_a_row_with_a_sent_messages_actions() {
+    use interweave_human_client_api::SendProblem;
+    use interweave_human_ui_model::{Intent, SentCard};
+    let p = peer();
+    let to = key(&p);
+    let card = SentCard {
+        name: "Ada Lovelace".to_owned(),
+        photo: None,
+    };
+    let mut model = UiModel::new();
+    model.card_queued(
+        RowId::from_stored(4),
+        to.clone(),
+        "a".repeat(32),
+        card.clone(),
+        10,
+    );
+    let item = &model.messages(&to)[0];
+    assert_eq!(item.card.as_ref(), Some(&card));
+    assert_eq!(
+        item.direction,
+        interweave_human_ui_model::Direction::Outbound
+    );
+    assert_eq!(item.source, "", "a card has no text to show or copy");
+    model.client_event(update(
+        4,
+        OutboundStatus::NeedsAttention {
+            problem: SendProblem::PeerUntrusted,
+            may_have_reached: false,
+        },
+    ));
+    let item = model.messages(&to)[0].key;
+    assert_eq!(
+        model.actions(item),
+        vec![
+            Intent::Retry(RowId::from_stored(4)),
+            Intent::Cancel(RowId::from_stored(4))
+        ]
+    );
+    model.client_event(update(
+        4,
+        OutboundStatus::Accepted {
+            endpoint: endpoint("human"),
+        },
+    ));
+    assert!(model.actions(item).is_empty(), "accepted: nothing left");
+
+    // Listed at start, after a restart.
+    let mut model = UiModel::new();
+    model.pending_listed(vec![interweave_human_ui_model::ListedOutbound {
+        row: RowId::from_stored(5),
+        destination: Destination::Direct {
+            peer: p.clone(),
+            endpoint: Some(endpoint("human")),
+        },
+        envelope: envelope(5, ""),
+        created_at: 1,
+        card: Some(card.clone()),
+    }]);
+    assert_eq!(model.messages(&to)[0].card, Some(card));
 }

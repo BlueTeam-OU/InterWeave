@@ -249,6 +249,18 @@ export struct MessageRow {
     start-label: string,
     // The row is leaving the list: its space closes.
     leaving: bool,
+    // One's own card row (contact-cards design 5.5): the card as it was
+    // sent, drawn in place of a text -- its name, its photo or the
+    // identity's initials, and `CardSentLabel` under them.
+    card: bool,
+    card-name: string,
+    card-letters: string,
+    card-has-photo: bool,
+    card-photo: image,
+    // Whether the row has a menu: a message always does (Show source at
+    // least); an own card row only while it has an action (5.5: an
+    // accepted one has none, and nothing opens).
+    has-menu: bool,
 }
 
 // A trusted peer: its full PeerId, exact, where it comes from (the
@@ -2218,9 +2230,14 @@ component ProposalCard inherits Rectangle {
     // menu; an answered row has none.
     card-touch := TouchArea {
         property <bool> drifted;
+        // This press's long press has fired. Never `running = false` in
+        // the timer: that assignment drops the binding for good, and the
+        // row's next long press would open nothing (seen in a test).
+        property <bool> fired;
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {
                 self.drifted = false;
+                self.fired = false;
                 FocusMode.keyboard = false;
                 if (event.button == PointerEventButton.right && !root.card.answered) {
                     root.menu(false, false);
@@ -2235,10 +2252,10 @@ component ProposalCard inherits Rectangle {
         }
         Timer {
             interval: Touch.long-press;
-            running: card-touch.pressed && !card-touch.drifted && !root.menu-open
-                && !root.swipe-tracking && !root.card.answered;
+            running: card-touch.pressed && !card-touch.drifted && !card-touch.fired
+                && !root.menu-open && !root.swipe-tracking && !root.card.answered;
             triggered => {
-                self.running = false;
+                card-touch.fired = true;
                 root.menu(true, false);
             }
         }
@@ -2993,6 +3010,7 @@ export component AppWindow inherits Window {
     in-out property <int> row-menu: -1;
     property <[ActionRow]> row-menu-actions;
     property <string> row-menu-source;
+    in property <string> card-sent-label;
     property <string> row-menu-detail;
     property <length> row-menu-x;
     property <length> row-menu-y;
@@ -5994,14 +6012,15 @@ export component AppWindow inherits Window {
                     // long-press, Enter, the Menu key, Shift+F10, a secondary
                     // click, or the default action a screen reader activates.
                     function open-menu() {
-                        root.open-row-menu(row.handle, row.actions, item.source-label, row.label,
+                        if (!row.has-menu) { return; }
+                        root.open-row-menu(row.handle, row.actions, row.card ? "" : item.source-label, row.label,
                             bubble-column.absolute-position.x, bubble-column.absolute-position.y,
                             bubble-column.width, bubble-column.height);
                     }
                     accessible-action-default => { self.open-menu(); }
                     key-pressed(event) => {
-                        if (event.text == Key.Return || event.text == Key.Menu
-                            || (event.text == Key.F10 && event.modifiers.shift)) {
+                        if (row.has-menu && (event.text == Key.Return || event.text == Key.Menu
+                            || (event.text == Key.F10 && event.modifiers.shift))) {
                             self.open-menu();
                             return accept;
                         }
@@ -6071,9 +6090,13 @@ export component AppWindow inherits Window {
                     // and a secondary click opens it at once (section 4).
                     row-touch := TouchArea {
                         property <bool> drifted;
+                        // This press's long press has fired; as the
+                        // proposal's, never `running = false`.
+                        property <bool> fired;
                         pointer-event(event) => {
                             if (event.kind == PointerEventKind.down) {
                                 self.drifted = false;
+                                self.fired = false;
                                 FocusMode.keyboard = false;
                                 if (event.button == PointerEventButton.right) { item.open-menu(); }
                             }
@@ -6086,10 +6109,12 @@ export component AppWindow inherits Window {
                         }
                         Timer {
                             interval: Touch.long-press;
-                            running: row-touch.pressed && !row-touch.drifted && root.row-menu != row.handle
-                                && !root.swipe-tracking;
+                            // No tick on a row with no menu: an accepted
+                            // own card row (contact-cards 5.5, item 27).
+                            running: row.has-menu && row-touch.pressed && !row-touch.drifted
+                                && !row-touch.fired && root.row-menu != row.handle && !root.swipe-tracking;
                             triggered => {
-                                self.running = false;
+                                row-touch.fired = true;
                                 root.menu-haptic();
                                 item.open-menu();
                             }
@@ -6176,7 +6201,60 @@ export component AppWindow inherits Window {
                                             background: item.ink;
                                         }
                                     }
-                                    if !item.show-source: VerticalLayout {
+                                    // One's own card row: the card as it went, the
+                                    // identity's photo or initials, its name, and
+                                    // under it `CardSentLabel` (contact-cards 5.5).
+                                    if row.card: HorizontalLayout {
+                                        spacing: 12px;
+                                        alignment: start;
+                                        // Ringed in the bubble's ink: the
+                                        // identity's hue can be the bubble's
+                                        // own fill, and the initials then float
+                                        // with no edge (seen rendered at 390 px).
+                                        Rectangle {
+                                            width: 42px;
+                                            height: 42px;
+                                            border-radius: 21px;
+                                            border-width: 1px;
+                                            border-color: item.ink;
+                                            PhotoCircle {
+                                                x: 1px;
+                                                y: 1px;
+                                                has-photo: row.card-has-photo;
+                                                photo: row.card-photo;
+                                                letters: row.card-letters;
+                                                hue: root.own-hue;
+                                                backdrop: Palette.primary-container;
+                                            }
+                                        }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            spacing: 2px;
+                                            horizontal-stretch: 1;
+                                            Text {
+                                                text: row.card-name;
+                                                wrap: word-wrap;
+                                                min-width: 0;
+                                                min-height: self.preferred-height;
+                                                color: item.ink;
+                                                font-size: Type.body-large;
+                                                font-weight: 700;
+                                                horizontal-alignment: item.text-alignment;
+                                                accessible-role: none;
+                                            }
+                                            Text {
+                                                text: root.card-sent-label;
+                                                wrap: word-wrap;
+                                                min-width: 0;
+                                                min-height: self.preferred-height;
+                                                color: item.ink;
+                                                font-size: Type.body-medium;
+                                                horizontal-alignment: item.text-alignment;
+                                                accessible-role: none;
+                                            }
+                                        }
+                                    }
+                                    if !item.show-source && !row.card: VerticalLayout {
                                         spacing: 4px;
                                         // Mirrored right to left (section 7): the
                                         // indent, the quote bar and a list's marker
@@ -6740,7 +6818,9 @@ export component AppWindow inherits Window {
                 closed => { root.close-row-menu(); }
                 focused(k) => { root.focus-id = k; }
             }
-            MenuItem {
+            // No Show source on an own card row: a card has no markdown
+            // source (contact-cards 5.5), so its menu passes none.
+            if root.row-menu-source != "": MenuItem {
                 text: root.row-menu-source;
                 detail: root.row-menu-detail;
                 iconed: true;

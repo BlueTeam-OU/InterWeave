@@ -494,6 +494,7 @@ fn model_from(store: &HumanStore) -> UiModel {
                 },
                 envelope: parse(&p.payload),
                 created_at: p.created_at,
+                card: None,
             })
             .collect(),
     );

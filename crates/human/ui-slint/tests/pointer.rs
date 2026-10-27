@@ -1196,3 +1196,165 @@ fn a_warned_rows_menu_accepts_by_a_tap_never_by_the_long_press_release() {
         "control: a tap on Accept"
     );
 }
+
+/// A point inside the end-side bubble of the message row whose spoken
+/// label starts with `start`: near its top, 40 px in from its end.
+fn row_labelled_at(view: &View, start: &str) -> (f32, f32) {
+    let item = i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .match_accessible_role(i_slint_backend_testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().is_some_and(|l| l.starts_with(start)))
+        .expect("the row is drawn");
+    let (at, size) = (item.absolute_position(), item.size());
+    (at.x + size.width - 40.0, at.y + 10.0)
+}
+
+/// [`hold`] for a message row: whether its menu was open before the lift.
+fn hold_row(view: &View, at: (f32, f32), hold_ms: u64, button: PointerEventButton) -> i32 {
+    let position = LogicalPosition::new(at.0, at.1);
+    event(view, WindowEvent::PointerPressed { position, button });
+    tick(120);
+    tick(hold_ms);
+    let opened = view.window().get_row_menu();
+    event(view, WindowEvent::PointerReleased { position, button });
+    tick(16);
+    opened
+}
+
+/// Contact-cards 5.5 and its item 27: one's own card row opens its menu
+/// by a long press with one haptic tick, holding exactly Retry then
+/// Cancel; once accepted no opener opens anything and no tick plays.
+/// Mutation: the long-press timer running on a row with no menu.
+#[test]
+fn an_own_card_rows_menu_by_long_press_and_none_once_accepted() {
+    use interweave_human_client_api::{ClientEvent, OutboundStatus, OutboundUpdate, SendProblem};
+    let mut view = phone();
+    view.set_touch_settings(TouchSettings {
+        long_press_ms: 400,
+        ..TouchSettings::default()
+    });
+    let ticks = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = std::rc::Rc::clone(&ticks);
+    view.on_haptic(move || counted.set(counted.get() + 1));
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.card_queued(
+        RowId::from_stored(1),
+        direct(&alice),
+        format!("{:032x}", 1),
+        interweave_human_ui_model::SentCard {
+            name: "Ada Lovelace".to_owned(),
+            photo: None,
+        },
+        1,
+    );
+    let status = |s: OutboundStatus| {
+        ClientEvent::Outbound(OutboundUpdate {
+            row: RowId::from_stored(1),
+            app_message_id: interweave_human_core::AppMessageId::parse(format!("{:032x}", 1))
+                .expect("id"),
+            status: s,
+            last_code: None,
+        })
+    };
+    model.client_event(status(OutboundStatus::NeedsAttention {
+        problem: SendProblem::PeerUntrusted,
+        may_have_reached: false,
+    }));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let card_line = placeholder_en::text(UiText::CardSentLabel);
+    let at = row_labelled_at(&view, card_line);
+    let handle = view
+        .window()
+        .get_messages()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    assert_eq!(
+        hold_row(&view, at, 400, PointerEventButton::Left),
+        handle,
+        "control: held, its menu"
+    );
+    assert_eq!(ticks.get(), 1, "one tick as it opens");
+    assert_eq!(
+        menu_items(&view),
+        [
+            placeholder_en::text(UiText::Retry),
+            placeholder_en::text(UiText::Cancel)
+        ]
+    );
+    view.window().invoke_close_row_menu();
+
+    model.client_event(status(OutboundStatus::Accepted { endpoint: human() }));
+    let _ = turn(&mut view, &mut model);
+    let at = row_labelled_at(&view, card_line);
+    assert_eq!(
+        hold_row(&view, at, 400, PointerEventButton::Left),
+        -1,
+        "long press"
+    );
+    assert_eq!(ticks.get(), 1, "no tick");
+    assert_eq!(
+        hold_row(&view, at, 16, PointerEventButton::Right),
+        -1,
+        "secondary click"
+    );
+}
+
+/// A row's long press opens its menu every time, not only the first: the
+/// long-press timer once stopped itself by assigning its own `running`,
+/// which drops its binding, so a second long press on the same row opened
+/// nothing. Mutation: the timer stopping itself that way again.
+#[test]
+fn a_second_long_press_on_a_row_opens_its_menu_again() {
+    let (view, _model) = kept_row();
+    view.set_touch_settings(TouchSettings {
+        long_press_ms: 400,
+        ..TouchSettings::default()
+    });
+    let at = message_text_at(&view, 0);
+    let handle = view
+        .window()
+        .get_messages()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    for n in 1..=2 {
+        assert_eq!(
+            hold_row(&view, at, 400, PointerEventButton::Left),
+            handle,
+            "long press {n}"
+        );
+        view.window().invoke_close_row_menu();
+        tick(16);
+    }
+}
+
+/// A proposal's long press opens its menu every time too, for the same
+/// reason as a message row's. Mutation: its timer stopping itself by
+/// assigning its own `running`.
+#[test]
+fn a_second_long_press_on_a_proposal_opens_its_menu_again() {
+    let mut view = phone();
+    view.set_touch_settings(TouchSettings {
+        long_press_ms: 400,
+        ..TouchSettings::default()
+    });
+    let mut model = UiModel::new();
+    let alice = peer();
+    proposal(&mut model, 1, &alice, judged(None, false, false));
+    view.select(direct(&alice));
+    let _ = turn(&mut view, &mut model);
+    let at = proposal_heading_at(&view, 0);
+    for n in 1..=2 {
+        assert_eq!(
+            hold(&view, at, 0.0, 400, PointerEventButton::Left),
+            0,
+            "long press {n}"
+        );
+        view.window().invoke_close_card_menu();
+        tick(16);
+    }
+}

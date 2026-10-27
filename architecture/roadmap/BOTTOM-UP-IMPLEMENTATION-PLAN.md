@@ -6845,15 +6845,26 @@ owner:
   rust-ui-dev-01's, with the next device record.
 - One's own card row (design 5.5): a shared card is pending outbound
   under RETENTION.md and reaches Accepted, Not sent or Cancel like any
-  sent message, but the client shows it no row — `listing::list_all`
-  decodes a pending row only as a message, the model holds no item for
-  a card row, so Retry and Cancel are never offered on a Not sent card
-  and item 13's withdrawal removes a row nobody sees (rust-ui-dev-02,
-  2026-10-27, QUESTION 01a17ade; the ui-slint README names it on their
-  branch). Not named by this gate, which proves the card's sending and
-  acceptance and not the sender's view of it; rust-ui-dev-02's, j54's
-  next batch, with `CardSentLabel`, the status line and kind C swipes
-  as 5.5 specifies.
+  sent message, but at the close the client showed it no row —
+  `listing::list_all` decoded a pending row only as a message, the
+  model held no item for a card row, so Retry and Cancel were never
+  offered on a Not sent card and item 13's withdrawal removed a row
+  nobody saw (rust-ui-dev-02, 2026-10-27, QUESTION 01a17ade; the
+  ui-slint README named it on their branch). Not named by this gate,
+  which proves the card's sending and acceptance and not the sender's
+  view of it; carried to rust-ui-dev-02 as j54's next batch, with
+  `CardSentLabel`, the status line and kind C swipes as 5.5 specifies.
+  Built on their `feat/j54-own-card-row` branch (2026-10-27, #471): the queued card as its row, a pending card read back
+  after a restart from its stored payload by a reader that skips the
+  signature step for the sender's own rows alone (HUMAN-CHAT.md
+  §Contact card, A 2026-10-27, since the node's PeerId is unknown
+  before a session), Retry and Cancel with no Show source, no menu
+  once Accepted, the list's preview and the command-line client's
+  additive `card` member; `CardSentLabel` and `CardSentPhoto` carry
+  language-culture-en's final words (2264bba7, the same branch),
+  not placeholders. Still not built: the
+  "may have left" record (the next bullet) and the share date of a
+  card Accepted after a restart.
 - The silent first key's third record (ADR-0063 decision 1, A
   2026-10-27): a conversation's record that a card of the identity may
   have left this device, kept through a cancel after an attempt that

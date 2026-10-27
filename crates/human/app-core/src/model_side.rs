@@ -242,9 +242,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             } => self.model.key_not_made(identity, problem, gone),
             Update::KeyRetried(identity) => self.model.key_retried(identity),
             Update::CardShared { key, at } => self.model.card_shared(key, at),
-            // The row shows from the facade's outbound events; a queued
-            // card is no share until its Accepted.
-            Update::CardQueued { .. } => {}
+            // Its own card row (contact-cards section 5.5); a queued card
+            // is no share until its Accepted.
+            Update::CardQueued {
+                key,
+                row,
+                app_message_id,
+                card,
+                at,
+            } => self.model.card_queued(row, key, app_message_id, card, at),
             Update::Client(event) => {
                 // Every session that becomes ready reads both lists: the
                 // no-reach notice needs both, a runtime that was not up at

@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use ed25519_dalek::{Signature, Verifier as _, VerifyingKey};
 use interweave_human_chat_protocol::{
     CardFault, CardRoute, Classified, EnvelopeError, HumanChatV2, canonical_card_bytes, classify,
+    read_own_card_unverified,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -552,4 +553,89 @@ fn every_fault_has_a_distinct_fixed_name() {
     ];
     let names: BTreeSet<&str> = all.iter().map(|f| f.as_str()).collect();
     assert_eq!(names.len(), all.len());
+}
+
+/// The own reader (`read_own_card_unverified`, architect-cto's ruling of
+/// 2026-10-27) is the card grammar without the signature step: every
+/// frozen vector `classify` refuses BEFORE the signature, the own reader
+/// refuses too; every card, and every vector whose only fault is the
+/// signature, it reads, with the fields `classify` would return. Mutation:
+/// the own reader checking less of the grammar than `classify`.
+#[test]
+fn the_own_reader_refuses_what_classify_refuses_before_the_signature() {
+    let doc = fixture();
+    for (name, expect) in CASES {
+        let v = vector(&doc, name);
+        let own = read_own_card_unverified(&wire(v));
+        match expect {
+            Expect::Fault(CardFault::SignatureFails) | Expect::Card => {
+                let fields = own.unwrap_or_else(|| panic!("{name}: read"));
+                if let Classified::Card(card) = classified(v) {
+                    assert_eq!(fields.app_message_id, card.app_message_id, "{name}");
+                    assert_eq!(fields.name, card.name, "{name}");
+                    assert_eq!(fields.surname, card.surname, "{name}");
+                    assert_eq!(fields.photo, card.photo, "{name}");
+                    assert_eq!(fields.identity_key, card.identity_key, "{name}");
+                }
+            }
+            Expect::Fault(_) | Expect::UnknownKind => {
+                assert_eq!(own, None, "{name}: refused before the signature");
+            }
+        }
+    }
+}
+
+/// The one vector that names what the own reader skips: a card signed
+/// for another `PeerId`, which `classify` refuses on its signature alone,
+/// is read -- which is why a received text never enters it.
+#[test]
+fn the_own_reader_reads_a_card_signed_for_another_peer_id() {
+    let doc = fixture();
+    let v = vector(&doc, "signed-for-another-peer-id");
+    assert_eq!(
+        classified(v),
+        Classified::MalformedCard(CardFault::SignatureFails)
+    );
+    assert!(read_own_card_unverified(&wire(v)).is_some());
+}
+
+/// The own reader's caller rule (HUMAN-CHAT.md section Contact card, A
+/// 2026-10-27): outside this crate, only app-core's listing of this
+/// node's pending outbound rows calls it, so a received text never enters
+/// it. A new caller fails here and is judged on its own. Mutation: a
+/// second caller anywhere in the workspace's crates or apps.
+#[test]
+fn only_the_pending_listing_calls_the_own_reader() {
+    fn walk(dir: &std::path::Path, found: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("readable").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|n| n == "target") {
+                    continue;
+                }
+                walk(&path, found);
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && std::fs::read_to_string(&path)
+                    .is_ok_and(|text| text.contains("read_own_card_unverified("))
+            {
+                found.push(path);
+            }
+        }
+    }
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("the workspace root")
+        .to_path_buf();
+    let mut found = Vec::new();
+    for top in ["crates", "apps"] {
+        walk(&root.join(top), &mut found);
+    }
+    let own = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let callers: Vec<_> = found.into_iter().filter(|p| !p.starts_with(&own)).collect();
+    assert_eq!(
+        callers,
+        vec![root.join("crates/human/app-core/src/listing.rs")],
+        "the own reader's callers"
+    );
 }
