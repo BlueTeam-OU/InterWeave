@@ -1092,6 +1092,61 @@ fn bare_initiator(keys: identity::Keypair) -> libp2p::Swarm<BareInitiator> {
         .build()
 }
 
+/// The relay's address in `circuit`, its `/p2p` included: what a bare
+/// peer dials to reach the relay before it dials the circuit.
+fn relay_of(circuit: &Multiaddr) -> Multiaddr {
+    circuit
+        .iter()
+        .take_while(|p| *p != libp2p::multiaddr::Protocol::P2pCircuit)
+        .collect()
+}
+
+/// Drive the bare peer and the relay until the bare peer has been
+/// observed on `ip` -- and, with `reservation`, until its reservation is
+/// accepted too. The crate fills its CONNECT from the candidates it
+/// holds when the relayed connection comes up, and the relay's Identify
+/// is where the bare peer learns its own address; nothing orders that
+/// round trip before the circuit. A bare peer that loses the race sends
+/// a CONNECT without it: with no candidate at all, a protocol error at
+/// the subject; with a scripted loopback candidate alone, a punch
+/// refused whole, which counts no removal. Both were seen in one full
+/// local run (2026-10-26). The Swarm reports a candidate only after
+/// every behaviour has been handed it, so the event seen here is the
+/// crate holding it.
+async fn until_observed(
+    bare: &mut libp2p::Swarm<BareInitiator>,
+    relay: &mut libp2p::Swarm<RelayBehaviour>,
+    seen: &mut Seen,
+    ip: Ipv4Addr,
+    reservation: bool,
+) {
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let mut observed = false;
+    let mut reserved = !reservation;
+    while !(observed && reserved) {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        assert!(
+            !remaining.is_zero(),
+            "the bare peer was never observed on {ip} (observed {observed}, reserved {reserved})"
+        );
+        tokio::select! {
+            event = bare.select_next_some() => match event {
+                Libp2pSwarmEvent::NewExternalAddrCandidate { address }
+                    if address.iter().next() == Some(libp2p::multiaddr::Protocol::Ip4(ip)) =>
+                {
+                    observed = true;
+                }
+                Libp2pSwarmEvent::Behaviour(BareInitiatorEvent::Relay(
+                    relay::client::Event::ReservationReqAccepted { .. },
+                )) => reserved = true,
+                _ => {}
+            },
+            event = relay.select_next_some() => note_relay(seen, &event),
+            () = tokio::time::sleep(remaining) => {}
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_loopback_candidate_is_refused_before_any_socket() {
     // THE SUBJECT NEEDS ONE CANDIDATE OF ITS OWN inside the boundary,
@@ -1142,28 +1197,8 @@ async fn a_loopback_candidate_is_refused_before_any_socket() {
 
     // Drive the bare peer and the relay until the bare peer's
     // reservation is accepted, then dial the circuit.
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut reserved_on_relay = false;
     let mut bare_direct_inbounds = 0_usize;
-    while !reserved_on_relay {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(
-            !remaining.is_zero(),
-            "the bare peer's reservation was never accepted"
-        );
-        tokio::select! {
-            event = bare.select_next_some() => {
-                if let Libp2pSwarmEvent::Behaviour(BareInitiatorEvent::Relay(
-                    relay::client::Event::ReservationReqAccepted { .. },
-                )) = event
-                {
-                    reserved_on_relay = true;
-                }
-            }
-            event = relay.select_next_some() => note_relay(&mut seen, &event),
-            () = tokio::time::sleep(remaining) => {}
-        }
-    }
+    until_observed(&mut bare, &mut relay, &mut seen, LOOPBACK, true).await;
     subject
         .dial(bare_peer.clone(), circuit)
         .await
@@ -1420,27 +1455,7 @@ async fn a_punch_dial_is_filtered_rather_than_refused_whole() {
     .expect("the subject starts");
     let _subject_direct = listening(&subject, ip).await;
 
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut reserved_on_relay = false;
-    while !reserved_on_relay {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(
-            !remaining.is_zero(),
-            "the bare peer's reservation was never accepted"
-        );
-        tokio::select! {
-            event = bare.select_next_some() => {
-                if let Libp2pSwarmEvent::Behaviour(BareInitiatorEvent::Relay(
-                    relay::client::Event::ReservationReqAccepted { .. },
-                )) = event
-                {
-                    reserved_on_relay = true;
-                }
-            }
-            event = relay.select_next_some() => note_relay(&mut seen, &event),
-            () = tokio::time::sleep(remaining) => {}
-        }
-    }
+    until_observed(&mut bare, &mut relay, &mut seen, ip, true).await;
     subject
         .dial(bare_peer.clone(), circuit)
         .await
@@ -1549,6 +1564,9 @@ async fn a_filtered_punch_from_the_initiating_end_opens_one_connect_round() {
         .extra
         .queued
         .push_back("/ip4/127.0.0.1/tcp/4001".parse().expect("an address"));
+    bare.dial(relay_of(&circuit))
+        .expect("a relay dial is accepted");
+    until_observed(&mut bare, &mut relay, &mut seen, ip, false).await;
     bare.dial(circuit).expect("a circuit dial is accepted");
 
     // The subject's punch is made (its path moves to direct), and the
@@ -1611,8 +1629,16 @@ async fn a_filtered_punch_from_the_initiating_end_opens_one_connect_round() {
         "one CONNECT round, one punch: the denied dial's failure reached no crate: {events:?}"
     );
     let counters = subject.dcutr_counters().expect("the subject hole punches");
-    assert_eq!(counters.candidates_removed.get("special_use"), Some(&1));
-    assert_eq!(counters.attempts_ended.get("succeeded"), Some(&1));
+    assert_eq!(
+        counters.candidates_removed.get("special_use"),
+        Some(&1),
+        "{counters:?} {events:?}"
+    );
+    assert_eq!(
+        counters.attempts_ended.get("succeeded"),
+        Some(&1),
+        "{counters:?} {events:?}"
+    );
 
     subject.shutdown().await.expect("shutdown");
 }
@@ -1642,6 +1668,9 @@ async fn a_punched_connection_that_dies_within_the_interval_leaves_the_relay_pre
     let mut seen = Seen::default();
     let mut bare = bare_initiator(bare_keys);
     bare.listen_on(any_port(ip)).expect("listens");
+    bare.dial(relay_of(&circuit))
+        .expect("a relay dial is accepted");
+    until_observed(&mut bare, &mut relay, &mut seen, ip, false).await;
     bare.dial(circuit).expect("a circuit dial is accepted");
 
     // The bare responder's punch dial lands; the crate hands it the
@@ -1840,27 +1869,7 @@ async fn a_retirement_waits_for_an_exchange_in_flight() {
     let _subject_direct = listening(&subject, ip).await;
     let lease = configure_human(&subject).await;
 
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut reserved_on_relay = false;
-    while !reserved_on_relay {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(
-            !remaining.is_zero(),
-            "the bare peer's reservation was never accepted"
-        );
-        tokio::select! {
-            event = bare.select_next_some() => {
-                if let Libp2pSwarmEvent::Behaviour(BareInitiatorEvent::Relay(
-                    relay::client::Event::ReservationReqAccepted { .. },
-                )) = event
-                {
-                    reserved_on_relay = true;
-                }
-            }
-            event = relay.select_next_some() => note_relay(&mut seen, &event),
-            () = tokio::time::sleep(remaining) => {}
-        }
-    }
+    until_observed(&mut bare, &mut relay, &mut seen, ip, true).await;
     subject
         .dial(bare_peer.clone(), circuit)
         .await
@@ -2449,6 +2458,9 @@ async fn connect_outcome(ip: Ipv4Addr, views: Vec<NetworkView>) -> Result<(), St
         .set_trust(trust(&[&bare_peer], &[&relay_peer]))
         .await
         .expect("trust installs");
+    bare.dial(relay_of(&circuit))
+        .expect("a relay dial is accepted");
+    until_observed(&mut bare, &mut relay, &mut seen, LOOPBACK, false).await;
     bare.dial(circuit)
         .expect("a circuit dial is accepted by the transport");
     let deadline = tokio::time::Instant::now() + PATIENCE;
