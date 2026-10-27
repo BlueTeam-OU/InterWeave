@@ -2256,8 +2256,14 @@ mod tests {
         );
         assert_eq!(model.ask_new_key(), Some(Intent::AskNewKey));
         model.new_key_asked(false);
+        let _ = model.take_released();
         assert_eq!(model.confirm_new_key(), Some(Intent::MakeNewKey));
         assert!(model.snackbar().is_none(), "closed, its Undo with it");
+        assert_eq!(
+            model.take_released().cancelled,
+            vec![RowId::from_stored(1)],
+            "its record let go"
+        );
     }
 
     /// #423 F1: a key step the facade refused, or one whose identity could
