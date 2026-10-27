@@ -65,9 +65,10 @@ pub(crate) fn is_outside_the_view(ip: IpAddr, view: &BTreeSet<IpAddr>) -> bool {
 
 /// ADR-0052 rule 10 for a DIRECT listener's IP, apart from the view's
 /// own classification: in the shared address space (RFC 6598) whatever
-/// the platform says, since a provider numbers it between its
-/// translator and its subscribers and no LAN a person is on is numbered
-/// from it (A 2026-10-27); else, while `view` is present, a private IP
+/// the platform says, since rule 2's floor refuses that range at every
+/// learn site, so no peer may learn and dial such an address of this
+/// node and offering it serves nobody, whoever numbered it (A
+/// 2026-10-27); else, while `view` is present, a private IP
 /// outside it ([`is_outside_the_view`]). The one predicate the runtime's
 /// detector (`NetworkSet::derive_off_local`) and this door apply.
 pub(crate) fn lies_on_no_local_network(ip: IpAddr, view: Option<&BTreeSet<IpAddr>>) -> bool {
