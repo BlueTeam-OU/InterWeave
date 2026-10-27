@@ -173,8 +173,9 @@ observability: { log_level: info }
   host's static-bootstrap entry names the other's overlay address
   (ADR-0055 decision 5b). Never listen on the overlay address alone:
   a listener bound to one address reports nothing when its interface
-  goes, so the daemon keeps a dead connection instead of closing and
-  redialling it (`tests/automated-client/tests/two_hosts.rs`).
+  goes, so the daemon keeps a dead connection open past the seconds in
+  which a wildcard listener closes and redials it
+  (`tests/automated-client/tests/two_hosts.rs`).
   Reaching a host across NAT is AutoNAT, relay and hole punching,
   configured under `transport.connectivity` and not covered here. An empty `listen` list starts a daemon that accepts no
   connection.
@@ -192,13 +193,16 @@ observability: { log_level: info }
   <address>/p2p/<PeerId>`, `peers remove` and `peers addresses`, kept in
   the state directory's `bootstrap-overlay.json` and effective without
   a restart. It refuses a loopback or other special-use address, so a
-  peer on this host stays an entry here; a peer on another host is
-  better added at run time, unless its address is special-use. That
-  includes an overlay numbered from the shared address space,
-  `100.64.0.0/10`, as carrier-grade overlays are: `peers add` refuses
-  it (`special_use_host`, ADR-0052 rule 2's floor), so such a peer is
-  an entry here too (ADR-0055 decision 5b). If the provider is written here at all, write it `enabled:
-  true`: a disabled one refuses every run-time add.
+  peer on this host stays an entry here. A peer on another host reached
+  over a private overlay the deployment provides is an entry here too,
+  whatever its address class (ADR-0055 decision 5b): it changes when
+  the deployment renders this file again, never by a run-time add. One
+  numbered from the shared address space, `100.64.0.0/10`, as
+  carrier-grade overlays are, could not be added at run time anyway:
+  `peers add` refuses it (`special_use_host`, ADR-0052 rule 2's floor).
+  Any other peer on another host is better added at run time. If the
+  provider is written here at all, write it `enabled: true`: a disabled
+  one refuses every run-time add.
 - **Trust.** `allowed_peers` is where trust starts. It changes at run
   time with `transportctl --profile <profile> trust allow|revoke <PeerId>`,
   which the daemon keeps in its state directory and never writes into
