@@ -669,8 +669,14 @@ class MainActivity : NativeActivity() {
         }
     }
 
-    /** API 33+: a notification is posted only with the person's leave. */
+    /**
+     * API 33+: a notification is posted only with the person's leave.
+     * Below it the permission does not exist and notifications are on;
+     * asking anyway opened an empty system activity over the window at
+     * every launch (the A40 at API 30, #436 round 4).
+     */
     private fun askNotifications() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATIONS_REQUEST)
         }
