@@ -922,6 +922,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         if self.key_source.is_none() {
             return Err(Failure::NoIdentityKey);
         }
+        // A share owed from an Accepted of the old key's card is written
+        // now, dated before the key changes, so the list below reads it
+        // (#467 F6); one the store still refuses is listed from the owed
+        // set itself.
+        self.shares_due(updates);
         let start = new_key_start(
             cards::own_cards_pending(self.client.store_mut()),
             self.client.store_mut().cards_shared(),
@@ -959,11 +964,19 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 let fingerprint = key.fingerprint().to_string();
                 self.identity = Some(key);
                 self.key_problem = None;
+                // Never written now: a date after the change would read as
+                // a share of the new key. Listed, which is what it is owed.
+                let mut share_again = shared;
+                for owed in std::mem::take(&mut self.shares_owed) {
+                    if !share_again.contains(&owed) {
+                        share_again.push(owed);
+                    }
+                }
                 let identity = self.own_view_or_said(updates);
                 updates.push(Update::KeyMade {
                     identity,
                     fingerprint,
-                    share_again: shared,
+                    share_again,
                 });
             }
             Some(Err(failed)) => {
@@ -1219,7 +1232,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     }
 
     /// [`Self::read_card_rows`] before a turn or a command can send, a
-    /// failure said and the read tried again at the next.
+    /// failure said and the read tried again at the next. The turn still
+    /// sends: holding every send on this read would stall all messaging,
+    /// and the client's own retries read the same pending page, so a read
+    /// that keeps failing stops those sends too.
     fn card_rows_due(&mut self, updates: &mut Vec<Update>) {
         if let Err(e) = self.read_card_rows() {
             say(updates, Update::CardsNotRead(store_failure(&e)));

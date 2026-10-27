@@ -175,7 +175,7 @@ pub(crate) fn problems<B: DataSessionBinding, A: AdminBinding>(
     let (what, why) = match problem {
         Problem::Command { command, why } => (command_name(&command), why),
         Problem::UnreadNotListed(why) => ("listing the unread messages", why),
-        Problem::CardsNotRead(why) => ("reading the cards and contacts back", why),
+        Problem::CardsNotRead(why) => ("reading the cards and contacts", why),
         Problem::ShareNotRecorded(why) => ("recording a card's share", why),
     };
     Err(match why {

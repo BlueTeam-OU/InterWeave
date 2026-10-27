@@ -388,9 +388,7 @@ impl Root {
                     log(&format!("unread messages could not be listed: {why:?}"));
                 }
                 Problem::CardsNotRead(why) => {
-                    log(&format!(
-                        "cards or contacts could not be read back: {why:?}"
-                    ));
+                    log(&format!("cards or contacts could not be read: {why:?}"));
                 }
                 Problem::ShareNotRecorded(why) => {
                     log(&format!(

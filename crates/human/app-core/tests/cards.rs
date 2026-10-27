@@ -1906,6 +1906,58 @@ async fn a_share_the_store_refuses_at_accepted_is_written_at_the_next_turn() {
     );
 }
 
+/// #467 F6: a share owed when Make a new key runs -- accepted with the
+/// old key, refused by the store -- is in the share-again list, never
+/// written afterwards with a date after the key changed. Mutation: the
+/// owed shares not read by the step.
+#[tokio::test]
+async fn a_share_owed_when_a_new_key_is_made_is_listed_to_share_again() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let clock = Arc::new(AtomicU64::new(WALL));
+    let wall = Arc::clone(&clock);
+    let mut side = facade_with_wall(&a, &pa, None, move || wall.load(Ordering::Relaxed));
+    side.set_key_source(interweave_human_app_core::KeySource::new(
+        pa.paths.clone(),
+        human(),
+        Box::new(FilesystemCustody),
+    ));
+    let mut alice = Root::new(side);
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let to_bob = direct(b.peer());
+    a.inject_send(interweave_transport_api::TransportError::Overloaded);
+    alice.will(Intent::ShareCard(to_bob.clone()));
+    alice.pump(1).await;
+    clock.store(u64::MAX, Ordering::Relaxed);
+    for at in 2..4 {
+        alice.pump(at * 60_000).await;
+    }
+    assert!(
+        alice
+            .updates
+            .iter()
+            .any(|u| matches!(u, Update::ShareNotRecorded(_))),
+        "owed"
+    );
+    alice.run(Command::MakeNewKey, 5 * 60_000).await;
+    let made = alice.updates.iter().find_map(|u| match u {
+        Update::KeyMade { share_again, .. } => Some(share_again.clone()),
+        _ => None,
+    });
+    assert_eq!(made, Some(vec![to_bob.clone()]), "{:?}", alice.failed());
+    clock.store(WALL, Ordering::Relaxed);
+    alice.pump(6 * 60_000).await;
+    assert_eq!(
+        alice.model().card_shared_at(&to_bob),
+        None,
+        "not written after the key changed"
+    );
+}
+
 /// A cancelled card brought back by its Undo is pending again, and its
 /// Accepted is a share like any other. Mutation: the restored row not
 /// held as a card.

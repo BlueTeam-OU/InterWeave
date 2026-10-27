@@ -226,8 +226,10 @@ pub enum Update {
     /// An Undo of this row's answer was carried out, but its card could not
     /// be judged again, so its proposal does not return.
     ProposalNotRestored(RowId),
-    /// A card's answer or its Undo was carried out, and reading the cards
-    /// or contacts back afterwards failed: what is shown may lag the store.
+    /// Reading the cards failed: the cards or contacts after an answer or
+    /// its Undo, so what is shown may lag the store; or the own cards on
+    /// their way, before a turn or command, so a share accepted until the
+    /// read holds may not be recorded.
     CardsNotRead(Failure),
     /// An own card was accepted and the store refused to record the share
     /// (`card_shared_at`): the facade writes it again at each turn until

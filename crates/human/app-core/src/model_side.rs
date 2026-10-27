@@ -76,8 +76,8 @@ pub enum Problem {
     },
     /// The store's unread rows could not be listed again.
     UnreadNotListed(Failure),
-    /// A card's answer or its Undo was carried out, and the cards or
-    /// contacts could not be read back afterwards.
+    /// The cards could not be read: back after an answer or its Undo, or
+    /// the own cards on their way ([`Update::CardsNotRead`]).
     CardsNotRead(Failure),
     /// An own card was accepted and its share could not be recorded yet;
     /// the facade writes it again at each turn.
