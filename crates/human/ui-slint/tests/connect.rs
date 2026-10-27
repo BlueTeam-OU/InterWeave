@@ -280,6 +280,45 @@ fn an_untrusted_add_offers_trust_then_continue() {
     assert_eq!(focus(&view), "heading");
 }
 
+/// Each return to Connect that leaves a line says it, the same words
+/// again included; a return that leaves none says nothing.
+#[test]
+fn every_return_with_a_line_says_it() {
+    let mut view = view();
+    let (me, them) = (peer(), peer());
+    let mut model = connect_open(&mut view, &me);
+    let clear = |view: &View| {
+        view.window().set_announcement_a("".into());
+        view.window().set_announcement_b("".into());
+    };
+    press(&view, text(UiText::ShowMyAddress));
+    let _ = intents(&mut view, &mut model);
+    clear(&view);
+    assert!(view.window().invoke_handle_back(), "Show's Back");
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_connect_line().as_str(),
+        "",
+        "nothing drawn"
+    );
+    assert_eq!(said(&view).trim(), "", "no line, nothing said");
+
+    add_from_connect(&mut view, &mut model, &them);
+    press(&view, text(UiText::NotNow));
+    let _ = intents(&mut view, &mut model);
+    let needs = text(UiText::ConnectDoneNeedsTrust);
+    assert!(said(&view).contains(needs), "said: {}", said(&view));
+    clear(&view);
+    press(&view, text(UiText::TrustThisPeer));
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_peers_add_open());
+    assert_eq!(said(&view).trim(), "", "nothing of Connect's while away");
+    press(&view, text(UiText::NotNow));
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(view.window().get_connect_line().as_str(), needs, "the same");
+    assert!(said(&view).contains(needs), "said again: {}", said(&view));
+}
+
 /// Every element of `view` with a label and a size lies inside `width`.
 fn overflowing(view: &View, width: f32) -> Vec<String> {
     i_slint_backend_testing::ElementQuery::from_root(view.window())

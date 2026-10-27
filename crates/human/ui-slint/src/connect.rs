@@ -37,8 +37,9 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
 pub(crate) struct ConnectDrawn {
     /// The focus request last carried out, by the model's count.
     focus_seen: u64,
-    /// The line last drawn, so a new one is said once.
-    line: Option<ConnectLine>,
+    /// A page Connect opened was up at the last render: its close is a
+    /// return, whose line is said.
+    page_was_up: bool,
 }
 
 const fn line_text(line: ConnectLine) -> UiText {
@@ -71,10 +72,12 @@ pub(crate) fn page_up(model: &UiModel) -> bool {
 
 impl View {
     /// Connect, or nothing once it is left: its page set before Peers is
-    /// drawn, since Peers draws the pages Connect opened. A new line is
-    /// returned once, for the render's one announcement: focus goes back
-    /// to the control that opened the page, so the line would otherwise
-    /// go unheard.
+    /// drawn, since Peers draws the pages Connect opened. On each return
+    /// from a page it opened, its line, if it has one, is returned for the
+    /// render's one announcement -- the same words again included, since
+    /// each return is a new outcome: focus goes back to the control that
+    /// opened the page, so the line would otherwise go unheard
+    /// (ux-designer-01's REPLY 01a17cc5-7b6d).
     pub(crate) fn render_connect(&mut self, model: &UiModel) -> Option<String> {
         let Some(connect) = model.connect() else {
             if self.page == Page::Connect {
@@ -102,13 +105,13 @@ impl View {
             .set_connect_line_trust(line.is_some_and(ConnectLine::offers_trust));
         // Nothing of Connect's is on screen while a page it opened is:
         // its requests and its line wait for that page to close.
-        if page_up(model) {
+        let up = page_up(model);
+        let returned = std::mem::replace(&mut self.peer_lists.connect.page_was_up, up) && !up;
+        if up {
             return None;
         }
         self.connect_focus(connect);
-        let fresh = line != self.peer_lists.connect.line;
-        self.peer_lists.connect.line = line;
-        line.filter(|_| fresh)
+        line.filter(|_| returned)
             .map(|l| placeholder_en::text(line_text(l)).to_owned())
     }
 
