@@ -6707,14 +6707,21 @@ export component AppWindow inherits Window {
                         accessible-role: text;
                         accessible-label: self.text;
                     }
-                    if root.connect-line != "": Text {
+                    // Focusable, as a step-two block's state line is: a
+                    // late read that changes the words under focus is
+                    // read there, with no status beside it (add-a-peer
+                    // section 5.1). Never a live region: the render says
+                    // the line once by the announcement (tests/connect.rs,
+                    // a_late_read_under_focus_on_the_line_is_read_there).
+                    if root.connect-line != "": FocusNote {
                         text: root.connect-line;
                         font-size: Type.body-large;
-                        color: Palette.on-surface;
-                        wrap: word-wrap;
-                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                        accessible-role: text;
-                        accessible-label: self.text;
+                        rtl: root.rtl;
+                        live: false;
+                        focus-key: "connect-line";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "connect-line";
+                        focused(k) => { root.focus-id = k; }
                     }
                     if root.connect-line != "" && root.connect-line-trust: HorizontalLayout {
                         alignment: start;
