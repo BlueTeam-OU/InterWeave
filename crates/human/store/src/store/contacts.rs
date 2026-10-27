@@ -87,6 +87,16 @@ pub struct Contact {
     pub routes: Vec<ContactRoute>,
 }
 
+/// A contact as a proposal names it: its id and its name, read without
+/// its photo or its routes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactName {
+    /// The store's id for it.
+    pub contact_id: String,
+    /// Its display name.
+    pub display_name: String,
+}
+
 /// What [`HumanStore::delete_route`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteDeleted {
@@ -149,16 +159,16 @@ pub struct CardStanding {
     pub updates: Option<Contact>,
     /// Contacts holding another endpoint of the card's `PeerId`: Accept
     /// makes a contact of its own, and the proposal names these.
-    pub shares_node: Vec<Contact>,
+    pub shares_node: Vec<ContactName>,
     /// Contacts on other `PeerIds` whose display name is the card's by
     /// [`name_key`], a lookalike spelling included: the same-name note.
-    pub same_name: Vec<Contact>,
+    pub same_name: Vec<ContactName>,
     /// The key against the route's record.
     pub key: KeyStanding,
     /// A contact holding this card's key on another `PeerId`: the same
     /// identity on another node, which the proposal says (ADR-0063
     /// decision 4) and which groups nothing on its own.
-    pub key_matches: Vec<Contact>,
+    pub key_matches: Vec<ContactName>,
 }
 
 /// What Accept did.
@@ -401,6 +411,25 @@ pub fn name_key(name: &str) -> String {
     unicode_security::skeleton(&spaced).collect()
 }
 
+/// A card's standing, read by name (schema v10): the contacts on the
+/// card's `PeerId` by the route index, those whose name key is the card's
+/// by the name-key index, and those holding its key on another `PeerId`
+/// by the identity-key index, each but the contact Accept updates.
+/// `the_standing_reads_use_their_indexes` reads their plans.
+const SHARES_NODE: &str = "SELECT DISTINCT c.contact_id, c.display_name
+               FROM contact_routes r JOIN contacts c ON c.contact_id = r.contact_id
+              WHERE r.peer_id = ?1 AND c.contact_id IS NOT ?2
+              ORDER BY c.display_name, c.contact_id";
+const SAME_NAME: &str = "SELECT c.contact_id, c.display_name FROM contacts c
+              WHERE c.name_key = ?1 AND c.contact_id IS NOT ?2
+                AND NOT EXISTS (SELECT 1 FROM contact_routes r
+                                 WHERE r.contact_id = c.contact_id AND r.peer_id = ?3)
+              ORDER BY c.display_name, c.contact_id";
+const KEY_MATCHES: &str = "SELECT DISTINCT c.contact_id, c.display_name
+               FROM contact_routes r JOIN contacts c ON c.contact_id = r.contact_id
+              WHERE r.identity_key = ?1 AND r.peer_id <> ?2 AND c.contact_id IS NOT ?3
+              ORDER BY c.display_name, c.contact_id";
+
 /// The version of [`name_key`]'s output, kept in `settings` as
 /// `name_key_version` (STATE.md, schema v10). A build whose key differs
 /// for any name -- a new Unicode version in `unicode-normalization`,
@@ -503,6 +532,8 @@ impl HumanStore {
     /// # Errors
     /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
     pub fn contact(&self, contact_id: &str) -> Result<Option<Contact>, StoreError> {
+        #[cfg(test)]
+        self.contact_loads.set(self.contact_loads.get() + 1);
         let row = self
             .conn
             .query_row(
@@ -604,37 +635,21 @@ impl HumanStore {
             Some(k) if k == card.identity_key => KeyStanding::Same,
             Some(recorded) => KeyStanding::Changed { recorded },
         };
-        let others = self.contacts()?;
-        let not_updated = |c: &&Contact| {
-            updates
-                .as_ref()
-                .is_none_or(|u| u.contact_id != c.contact_id)
-        };
-        let shares_node = others
-            .iter()
-            .filter(not_updated)
-            .filter(|c| c.routes.iter().any(|r| &r.peer == card.peer))
-            .cloned()
-            .collect();
-        let name = name_key(&card.display_name());
-        let same_name = others
-            .iter()
-            .filter(not_updated)
-            .filter(|c| {
-                name_key(&c.display_name) == name && c.routes.iter().all(|r| &r.peer != card.peer)
-            })
-            .cloned()
-            .collect();
-        let key_matches = others
-            .iter()
-            .filter(not_updated)
-            .filter(|c| {
-                c.routes
-                    .iter()
-                    .any(|r| &r.peer != card.peer && r.identity_key == Some(card.identity_key))
-            })
-            .cloned()
-            .collect();
+        // Three indexed reads of names, never every contact decoded per
+        // card (schema v10): by the route index, the name-key index and
+        // the identity-key index, each excluding the contact Accept
+        // updates. `a_cards_standing_reads_no_contact_but_the_one_it_updates`
+        // counts the statements.
+        let updated = updates.as_ref().map(|u| u.contact_id.as_str());
+        let shares_node = self.contact_names(SHARES_NODE, params![card.peer.as_str(), updated])?;
+        let same_name = self.contact_names(
+            SAME_NAME,
+            params![name_key(&card.display_name()), updated, card.peer.as_str()],
+        )?;
+        let key_matches = self.contact_names(
+            KEY_MATCHES,
+            params![card.identity_key.as_slice(), card.peer.as_str(), updated],
+        )?;
         Ok(CardStanding {
             updates,
             shares_node,
@@ -642,6 +657,24 @@ impl HumanStore {
             key,
             key_matches,
         })
+    }
+
+    /// The `(contact_id, display_name)` rows `sql` selects.
+    fn contact_names(
+        &self,
+        sql: &str,
+        params: impl rusqlite::Params,
+    ) -> Result<Vec<ContactName>, StoreError> {
+        Ok(self
+            .conn
+            .prepare(sql)?
+            .query_map(params, |r| {
+                Ok(ContactName {
+                    contact_id: r.get(0)?,
+                    display_name: r.get(1)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?)
     }
 
     /// Accept `card`: update the contact holding its route, or create one.
@@ -1303,7 +1336,56 @@ impl HumanStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{NAME_KEY_VERSION, name_key};
+    use super::{
+        AcceptedCard, HumanStore, KEY_MATCHES, NAME_KEY_VERSION, SAME_NAME, SHARES_NODE, name_key,
+    };
+    use interweave_transport_api::{EndpointId, TransportIdentity};
+
+    /// Peer `n`: an Ed25519 `PeerId` over the key bytes `[n; 32]`, the
+    /// identity multihash of its protobuf public key in base58btc.
+    fn peer(n: u8) -> TransportIdentity {
+        const ALPHABET: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+        let mut bytes = vec![0x00, 0x24, 0x08, 0x01, 0x12, 0x20];
+        bytes.extend([n; 32]);
+        let mut digits: Vec<u8> = Vec::new();
+        for byte in &bytes {
+            let mut carry = u32::from(*byte);
+            for digit in &mut digits {
+                carry += u32::from(*digit) << 8;
+                *digit = u8::try_from(carry % 58).expect("a digit");
+                carry /= 58;
+            }
+            while carry > 0 {
+                digits.push(u8::try_from(carry % 58).expect("a digit"));
+                carry /= 58;
+            }
+        }
+        let zeros = bytes.iter().take_while(|b| **b == 0).count();
+        let text: String = std::iter::repeat_n('1', zeros)
+            .chain(
+                digits
+                    .iter()
+                    .rev()
+                    .map(|d| char::from(ALPHABET[usize::from(*d)])),
+            )
+            .collect();
+        TransportIdentity::parse(text).expect("a PeerId")
+    }
+
+    fn card<'a>(
+        peer: &'a TransportIdentity,
+        endpoint: &'a EndpointId,
+        name: &'a str,
+    ) -> AcceptedCard<'a> {
+        AcceptedCard {
+            peer,
+            endpoint,
+            name,
+            surname: None,
+            identity_key: [7; 32],
+            photo: None,
+        }
+    }
 
     /// [`name_key`]'s output, pinned: stored keys are compared with keys
     /// computed now, so an output that moves -- a Unicode update in a
@@ -1331,6 +1413,78 @@ mod tests {
             ("\u{661}\u{662}\u{663}", "l\u{662}\u{663}"),
         ] {
             assert_eq!(name_key(name), key, "{name:?}");
+        }
+    }
+
+    /// A card's standing loads no whole contact but the one Accept would
+    /// update, however many contacts there are: the rest are read by name
+    /// (schema v10), so K unread cards cost K standings of a few indexed
+    /// reads, not K x C contacts decoded with their photos. Mutation: the
+    /// standing reading `contacts()` again.
+    #[test]
+    fn a_cards_standing_reads_no_contact_but_the_one_it_updates() {
+        let mut store = HumanStore::open_in_memory(crate::StoreOptions::default()).expect("store");
+        let human = EndpointId::parse("human").expect("an endpoint");
+        let peers: Vec<TransportIdentity> = (0..40).map(peer).collect();
+        for (n, peer) in peers.iter().enumerate() {
+            store
+                .accept_card(&card(peer, &human, &format!("Contact {n}")), 10)
+                .expect("a contact");
+        }
+        // An update of one of them, and a card from a stranger.
+        for (peer, expected) in [(&peers[3], 1), (&peers[39], 1)] {
+            store.contact_loads.set(0);
+            let standing = store
+                .card_standing(&card(peer, &human, "Contact 1"))
+                .expect("standing");
+            assert!(standing.updates.is_some(), "control: an update");
+            assert_eq!(standing.same_name.len(), 1, "control: the same name, read");
+            assert_eq!(
+                store.contact_loads.get(),
+                expected,
+                "the updated contact alone"
+            );
+        }
+        let stranger = peer(200);
+        store.contact_loads.set(0);
+        let standing = store
+            .card_standing(&card(&stranger, &human, "Contact 1"))
+            .expect("standing");
+        assert!(standing.updates.is_none());
+        assert_eq!(store.contact_loads.get(), 0, "no contact loaded at all");
+    }
+
+    /// Each standing read is planned on its index, never a scan of the
+    /// contacts. Mutation: the name-key index dropped from migration 10.
+    #[test]
+    fn the_standing_reads_use_their_indexes() {
+        let store = HumanStore::open_in_memory(crate::StoreOptions::default()).expect("store");
+        for (sql, index, params) in [
+            (SHARES_NODE, "contact_routes_by_route", 2),
+            (SAME_NAME, "contacts_by_name_key", 3),
+            (KEY_MATCHES, "contact_routes_by_key", 3),
+        ] {
+            let values = ["x", "y", "z"];
+            let plan: Vec<String> = store
+                .conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .expect("plan")
+                .query_map(rusqlite::params_from_iter(&values[..params]), |r| {
+                    r.get::<_, String>(3)
+                })
+                .expect("rows")
+                .collect::<Result<_, _>>()
+                .expect("plan rows");
+            assert!(
+                plan.iter().any(|step| step.contains(index)),
+                "{index} not used: {plan:?}"
+            );
+            assert!(
+                !plan
+                    .iter()
+                    .any(|step| step.starts_with("SCAN c") || step == "SCAN contacts"),
+                "a scan of the contacts: {plan:?}"
+            );
         }
     }
 

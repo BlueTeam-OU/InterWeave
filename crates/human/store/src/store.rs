@@ -85,6 +85,11 @@ pub struct HumanStore {
     /// database's size is raised to that size. While it is, the store is
     /// degraded, whatever a probe finds (`recheck_health`).
     quota: Option<u32>,
+    /// Whole contacts loaded, photo and routes: what a card's standing
+    /// must keep to the one it updates (schema v10). Counted for the
+    /// tests only.
+    #[cfg(test)]
+    contact_loads: std::cell::Cell<usize>,
 }
 
 /// The settings key that marks a store rewritten without the freed space a
@@ -429,6 +434,8 @@ impl HumanStore {
             conn,
             health,
             quota: options.max_pages,
+            #[cfg(test)]
+            contact_loads: std::cell::Cell::new(0),
         })
     }
 

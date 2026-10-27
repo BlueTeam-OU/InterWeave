@@ -147,7 +147,7 @@ fn a_second_card_from_the_same_route_updates_it_and_overwrites_no_local_edit() {
 fn two_same_name_cards_from_two_peer_ids_are_two_contacts_and_each_names_the_other() {
     let (_dir, mut store) = store();
     let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
-    store
+    let from_p = store
         .accept_card(&card(&p, &human, "Ada", 1), 10)
         .expect("from P");
     let from_q = card(&q, &human, "Ada", 2);
@@ -161,7 +161,7 @@ fn two_same_name_cards_from_two_peer_ids_are_two_contacts_and_each_names_the_oth
         1,
         "the same-name note names P's contact"
     );
-    assert_eq!(standing.same_name[0].routes[0].peer, p);
+    assert_eq!(standing.same_name[0].contact_id, from_p.contact_id, "P's");
     let second = store.accept_card(&from_q, 20).expect("from Q");
     assert!(second.created, "a second contact, never a merge");
     assert_eq!(store.contacts().expect("read").len(), 2);
