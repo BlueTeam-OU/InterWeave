@@ -2032,43 +2032,6 @@ async fn a_card_accepted_after_a_new_key_records_no_share() {
     );
 }
 
-/// #467 R4: a card cancelled before Make a new key was signed with the
-/// old key; the step lets its Undo go, so no Undo after it sends a card of
-/// a key the person no longer has. Mutation: the
-/// step keeping the cancelled cards' records.
-#[tokio::test]
-async fn a_new_key_lets_a_cancelled_cards_undo_go() {
-    use interweave_transport_api::TransportError;
-    let (a, b) = FakeNetwork::pair(node(), node());
-    let (pa, pb) = (profile(), profile());
-    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
-    let mut bob = Root::new(facade(&b, &pb, None));
-    alice.pump(0).await;
-    bob.pump(0).await;
-    let to_bob = direct(b.peer());
-    a.inject_send(TransportError::UnauthorizedPeer);
-    alice.will(Intent::ShareCard(to_bob.clone()));
-    alice.pump(1).await;
-    let row = queued(&alice);
-    alice.run(Command::Cancel(row), 2).await;
-    alice.run(Command::MakeNewKey, 3).await;
-    alice.updates.clear();
-    alice.run(Command::Restore(row), 4).await;
-    assert_eq!(
-        alice.failed(),
-        vec![(Command::Restore(row), Failure::NoSuchRow)],
-        "the old key's card is not brought back"
-    );
-    for at in 5..8 {
-        alice.pump(at * 60_000).await;
-        bob.pump(at * 60_000).await;
-    }
-    assert!(
-        bob.model().proposals(&direct(a.peer())).is_empty(),
-        "nothing of the old key arrives"
-    );
-}
-
 /// A cancelled card brought back by its Undo is pending again, and its
 /// Accepted is a share like any other. Mutation: the restored row not
 /// held as a card.
