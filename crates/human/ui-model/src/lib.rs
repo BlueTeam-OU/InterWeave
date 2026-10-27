@@ -19,6 +19,7 @@ mod identity_flow;
 mod labels;
 mod look;
 mod model;
+mod order;
 mod peers;
 mod picker;
 mod presence;
@@ -51,6 +52,7 @@ pub use model::{
     Retention, RouteLabel, RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table,
     Trust, UiModel, UndoClosed, ViewEvent,
 };
+pub use order::{compare_names, contact_order};
 pub use peers::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockHeld, BlockProblem, BlockState, BlockView,
     CODE_LINES, ConnectAdd, LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus,

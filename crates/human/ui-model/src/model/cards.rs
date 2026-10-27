@@ -895,8 +895,11 @@ impl UiModel {
         self.cards.shared.get(key).copied()
     }
 
-    /// The contacts, as the facade listed them after a change.
-    pub fn contacts_listed(&mut self, contacts: Vec<ContactView>) {
+    /// The contacts, as the facade listed them after a change, held in
+    /// the client's one order ([`crate::contact_order`]) whatever order
+    /// the store read them in.
+    pub fn contacts_listed(&mut self, mut contacts: Vec<ContactView>) {
+        contacts.sort_by(crate::contact_order);
         self.cards.contacts = contacts;
     }
 
@@ -1160,21 +1163,30 @@ impl UiModel {
             .filter(|p| &p.peer == peer && &p.endpoint == at)
             .map(|p| {
                 let c = &p.context;
+                // Each kind of note in the contacts' one order, so the
+                // contact a note names first is the list's first; the
+                // context itself stays as the store read it, since Accept
+                // carries it back to be compared.
+                let ordered = |refs: &[ContactRef]| {
+                    let mut refs = refs.to_vec();
+                    crate::order::sort_refs(&mut refs, &self.cards.contacts);
+                    refs
+                };
                 let mut notes = Vec::new();
                 notes.extend(
-                    c.same_name
-                        .iter()
-                        .map(|r| ProposalNote::SameName(r.clone())),
+                    ordered(&c.same_name)
+                        .into_iter()
+                        .map(ProposalNote::SameName),
                 );
                 notes.extend(
-                    c.shares_node
-                        .iter()
-                        .map(|r| ProposalNote::SharesNode(r.name.clone())),
+                    ordered(&c.shares_node)
+                        .into_iter()
+                        .map(|r| ProposalNote::SharesNode(r.name)),
                 );
                 notes.extend(
-                    c.key_matches
-                        .iter()
-                        .map(|r| ProposalNote::KeyMatches(r.name.clone())),
+                    ordered(&c.key_matches)
+                        .into_iter()
+                        .map(|r| ProposalNote::KeyMatches(r.name)),
                 );
                 ProposalItem {
                     row: p.row,
@@ -1303,7 +1315,11 @@ impl UiModel {
             .collect()
     }
 
-    /// The contacts, by name.
+    /// The contacts in the client's one order: by name under the root's
+    /// Unicode collation, then by the smallest route
+    /// ([`crate::contact_order`]; human-client-ui.md section 3). Every
+    /// list of contacts a person sees is this one, a view's and the
+    /// command line's alike.
     #[must_use]
     pub fn contacts(&self) -> &[ContactView] {
         &self.cards.contacts
@@ -1312,24 +1328,16 @@ impl UiModel {
     /// The names of every contact of the identity in front with a route
     /// on `peer`, for Peers' rows (add-a-peer design section 5.2): one
     /// per line, never joined, since a typed name may hold "and" or a
-    /// comma. Ordered case-insensitively, then by the exact name, in
-    /// place of the locale's collation, which no part of the client has
-    /// yet.
+    /// comma. In the contacts' one order ([`UiModel::contacts`]), which
+    /// they are held in.
     #[must_use]
     pub fn contact_names_on(&self, peer: &TransportIdentity) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .cards
+        self.cards
             .contacts
             .iter()
             .filter(|c| c.routes.iter().any(|r| &r.peer == peer))
             .map(|c| c.name.clone())
-            .collect();
-        names.sort_by(|a, b| {
-            a.to_lowercase()
-                .cmp(&b.to_lowercase())
-                .then_with(|| a.cmp(b))
-        });
-        names
+            .collect()
     }
 
     /// One contact.
@@ -1447,6 +1455,62 @@ mod tests {
                 fingerprint: Some("0123456789abcdef".to_owned()),
             }],
         }
+    }
+
+    #[test]
+    fn the_contacts_a_peers_row_and_a_proposals_notes_take_one_order() {
+        // The fixture every site's test orders (human-client-ui.md section
+        // 3): the store reads "Zoe", "Ben", "Chloe", "Åke", "ben" in that
+        // order. Mutations: `contacts_listed` keeping the store's order
+        // (the list and the row read Zoe first); `proposals` sorting
+        // nothing (the notes keep the context's order).
+        let fixture = ["Zoe", "Ben", "Chloe", "Åke", "ben"];
+        let order = ["Åke", "ben", "Ben", "Chloe", "Zoe"];
+        let mut model = UiModel::new();
+        model.contacts_listed(
+            fixture
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    let mut c = contact(&format!("c{i}"), n, P);
+                    c.routes[0].endpoint = endpoint(&format!("e{i}"));
+                    c
+                })
+                .collect(),
+        );
+        let listed: Vec<&str> = model.contacts().iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(listed, order, "the Contacts list");
+        assert_eq!(
+            model.contact_names_on(&peer(P)),
+            order,
+            "a Peers row's names"
+        );
+        let refs: Vec<ContactRef> = fixture
+            .iter()
+            .enumerate()
+            .map(|(i, n)| ContactRef {
+                contact_id: format!("c{i}"),
+                name: (*n).to_owned(),
+            })
+            .collect();
+        let mut standing = context();
+        standing.shares_node = refs.clone();
+        standing.key_matches = refs;
+        model.card_received(proposal(1, P, "Ada", standing));
+        let notes = &model.proposals(&direct(P, "human"))[0].notes;
+        let named = |want: fn(&ProposalNote) -> Option<&str>| -> Vec<&str> {
+            notes.iter().filter_map(want).collect()
+        };
+        let shares = named(|n| match n {
+            ProposalNote::SharesNode(name) => Some(name.as_str()),
+            _ => None,
+        });
+        assert_eq!(shares, order, "a proposal's notes, the first named first");
+        let keys = named(|n| match n {
+            ProposalNote::KeyMatches(name) => Some(name.as_str()),
+            _ => None,
+        });
+        assert_eq!(keys, order);
     }
 
     #[test]
