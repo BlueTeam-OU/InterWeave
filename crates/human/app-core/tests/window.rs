@@ -478,3 +478,57 @@ fn png() -> Vec<u8> {
         .expect("a PNG");
     out
 }
+
+/// A card the drain hands over to a windowed start counts once in its
+/// conversation's badge and is its newest row, as a card: the facade
+/// side's `ReceivedCard` reaches the model as an arrival, not as a stored
+/// card the counts already hold (#498 review F1, carried to this batch).
+/// Mutation: the model side giving a drained card to `card_received`.
+#[tokio::test]
+async fn a_card_the_drain_hands_over_counts_once_in_its_badge() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let mut alice = facade(
+        &a,
+        HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+    );
+    alice.set_identity_key(IdentityKey::generate(human()).expect("a key"));
+    let mut bob = Root::start(facade(
+        &b,
+        HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+    ));
+    for now in 0..3 {
+        alice.turn(now).await;
+        for update in bob.side.turn(now).await {
+            bob.model.apply(update);
+        }
+    }
+    let updates = alice.execute(Command::ShareCard(direct(b.peer())), 3).await;
+    assert!(
+        updates
+            .iter()
+            .any(|u| matches!(u, Update::CardQueued { .. })),
+        "{updates:?}"
+    );
+    for now in 4..8 {
+        alice.turn(now).await;
+        for update in bob.side.turn(now).await {
+            bob.updates.push(update.clone());
+            bob.model.apply(update);
+        }
+    }
+    assert!(
+        bob.updates
+            .iter()
+            .any(|u| matches!(u, Update::ReceivedCard(_))),
+        "control: the card was drained, {:?}",
+        bob.updates
+    );
+    let listed = bob
+        .model()
+        .conversations()
+        .into_iter()
+        .find(|c| c.key == direct(a.peer()))
+        .expect("the conversation is listed");
+    assert_eq!(listed.unread, 1);
+    assert!(listed.last.card);
+}

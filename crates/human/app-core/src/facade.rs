@@ -122,6 +122,9 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     own_saves: VecDeque<OwnSave>,
     /// How many stored rows have been read and decoded ([`Self::rows_read`]).
     rows_read: u64,
+    /// The model was started from summaries ([`Self::start`]): a relist
+    /// reads them again, never every unread row.
+    windowed: bool,
 }
 
 /// What the own card's editor holds of its photo, on the facade side.
@@ -299,6 +302,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             own_photo: OwnPhoto::Held(Held::Card),
             own_saves: VecDeque::new(),
             rows_read: 0,
+            windowed: false,
         }
     }
 
@@ -418,6 +422,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let rows = pending.len() + undecodable_pending;
         self.rows_read += u64::try_from(rows).unwrap_or(u64::MAX) + summarised.read;
         self.read_card_rows()?;
+        self.windowed = true;
         Ok(Start {
             pending,
             summaries: summarised.summaries,
@@ -674,7 +679,22 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             updates.push(Update::ThisDevice(peer.clone()));
         }
         updates.push(Update::Client(event));
-        if relist {
+        if relist && self.windowed {
+            // The rows wait in the store, which the counts and the newest
+            // rows say; the open conversation's window reads them.
+            let store = self.client.store_mut();
+            match listing::summaries(store).and_then(|s| Ok((s, store.hidden_inbound()?))) {
+                Ok((summarised, hidden)) => {
+                    self.rows_read += summarised.read;
+                    updates.push(Update::SummariesListed {
+                        summaries: summarised.summaries,
+                        counted_through: summarised.counted_through,
+                        undecodable: usize::try_from(hidden.unread).unwrap_or(usize::MAX),
+                    });
+                }
+                Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
+            }
+        } else if relist {
             // What the facade committed but could not hand over is in the
             // store: list it, so the person sees it now.
             match listing::list_unread(self.client.store_mut()) {
@@ -2093,6 +2113,80 @@ mod tests {
     /// undecodable ones counted.
     #[test]
     fn unread_in_store_lists_the_unread_rows_again() {
+        let mut side = held_back_side();
+        let mut updates = Vec::new();
+        side.on_event(
+            ClientEvent::UnreadInStore { not_handed_over: 2 },
+            &mut updates,
+        );
+        match updates.as_slice() {
+            [
+                Update::Client(ClientEvent::UnreadInStore { .. }),
+                Update::UnreadListed { rows, undecodable },
+            ] => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].envelope.text, "held back");
+                assert_eq!(*undecodable, 1);
+            }
+            other => panic!("expected the event and a relist: {other:?}"),
+        }
+
+        // Any other event lists nothing.
+        let mut updates = Vec::new();
+        side.on_event(
+            ClientEvent::Connectivity(Connectivity::Unknown),
+            &mut updates,
+        );
+        assert_eq!(
+            updates,
+            [Update::Client(ClientEvent::Connectivity(
+                Connectivity::Unknown
+            ))]
+        );
+    }
+
+    /// Started from summaries, the facade side reads them again when the
+    /// facade reports unread content it did not hand over -- the count and
+    /// newest row the store holds, the rows it cannot show counted -- and
+    /// lists no row of any conversation. Mutation: the windowed side
+    /// listing every unread row as before.
+    #[test]
+    fn unread_in_store_reads_the_summaries_again_when_windowed() {
+        let mut side = held_back_side();
+        side.start().expect("started");
+        let mut updates = Vec::new();
+        side.on_event(
+            ClientEvent::UnreadInStore { not_handed_over: 2 },
+            &mut updates,
+        );
+        match updates.as_slice() {
+            [
+                Update::Client(ClientEvent::UnreadInStore { .. }),
+                Update::SummariesListed {
+                    summaries,
+                    counted_through,
+                    undecodable,
+                },
+            ] => {
+                assert_eq!(summaries.len(), 1);
+                assert_eq!(summaries[0].unread, 1);
+                assert_eq!(
+                    summaries[0]
+                        .newest
+                        .as_ref()
+                        .map(|n| n.preview.shown().into_owned()),
+                    Some("held back".to_owned())
+                );
+                assert!(counted_through.is_some());
+                assert_eq!(*undecodable, 1);
+            }
+            other => panic!("expected the event and the summaries: {other:?}"),
+        }
+    }
+
+    /// A facade side whose store holds an unread message and an unread row
+    /// it cannot show, as a facade that could not hand them over leaves it.
+    fn held_back_side() -> FacadeSide<FakeNode, FakeNode> {
         let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
         let config = || FakeConfig {
             peer: ProfileIdentity::generate()
@@ -2148,37 +2242,7 @@ mod tests {
             0,
         )
         .expect("facade");
-        let mut side = FacadeSide::new(client, || 1);
-
-        let mut updates = Vec::new();
-        side.on_event(
-            ClientEvent::UnreadInStore { not_handed_over: 2 },
-            &mut updates,
-        );
-        match updates.as_slice() {
-            [
-                Update::Client(ClientEvent::UnreadInStore { .. }),
-                Update::UnreadListed { rows, undecodable },
-            ] => {
-                assert_eq!(rows.len(), 1);
-                assert_eq!(rows[0].envelope.text, "held back");
-                assert_eq!(*undecodable, 1);
-            }
-            other => panic!("expected the event and a relist: {other:?}"),
-        }
-
-        // Any other event lists nothing.
-        let mut updates = Vec::new();
-        side.on_event(
-            ClientEvent::Connectivity(Connectivity::Unknown),
-            &mut updates,
-        );
-        assert_eq!(
-            updates,
-            [Update::Client(ClientEvent::Connectivity(
-                Connectivity::Unknown
-            ))]
-        );
+        FacadeSide::new(client, || 1)
     }
 
     /// A facade over a fake network, its store empty.

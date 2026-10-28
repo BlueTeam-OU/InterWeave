@@ -253,9 +253,20 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 // replaced, the start's count of the others stands.
                 self.hidden_unread = undecodable;
             }
+            Update::SummariesListed {
+                summaries,
+                counted_through,
+                undecodable,
+            } => {
+                self.model.summaries_listed(summaries, counted_through);
+                self.hidden_unread = undecodable;
+            }
             Update::UnreadNotListed(why) => self.problem(Problem::UnreadNotListed(why)),
             Update::Received(received) => self.model.received(received),
-            Update::ReceivedCard(proposal) => self.model.card_received(*proposal),
+            // Committed by the drain, or listed again: new to the windowed
+            // counts unless they hold it already, and the listed mode's
+            // proposal either way.
+            Update::ReceivedCard(proposal) => self.model.card_arrived(*proposal),
             Update::ProposalJudged(proposal) => self.model.card_judged(*proposal),
             Update::CardResolved { row, outcome } => self.model.card_resolved(row, outcome),
             Update::ProposalRestored(proposal) => self.model.card_restored(*proposal),

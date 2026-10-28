@@ -263,6 +263,18 @@ pub enum Update {
         /// Rows held but not decodable for display: never shown, counted.
         undecodable: usize,
     },
+    /// The windowed mode's [`Update::UnreadListed`]: each conversation's
+    /// summary read again, with the unread table's mark read beside it,
+    /// and no row of any conversation.
+    SummariesListed {
+        /// Each conversation's count and newest row.
+        summaries: Vec<StoredSummary>,
+        /// The unread table's high-water mark, read with the counts.
+        counted_through: Option<RowId>,
+        /// Unread rows of a kind this build cannot show: never shown,
+        /// counted.
+        undecodable: usize,
+    },
     /// The unread rows could not be listed again: content the store holds
     /// stays unshown until the next listing.
     UnreadNotListed(Failure),
