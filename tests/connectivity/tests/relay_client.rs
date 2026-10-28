@@ -163,6 +163,36 @@ where
     }
 }
 
+/// Where a relay that is down is configured, and where one comes back
+/// up: a port nothing listens on when it is answered, and one that
+/// another test's listener does not take in the meantime -- within what
+/// `free_port` closes, below.
+///
+/// NOT A PORT-0 BIND RELEASED. Another process's port-0 listener can
+/// take a released port, and under a runner that gives each test its own
+/// process that is another test's peer: the subject's next dial then
+/// reaches it, fails as an identity mismatch, and the gate quarantines
+/// the address. That is a different event from the refusal these tests
+/// are about (merge-group run 40676203372 of #501: "Unexpected peer ID"
+/// at the released port, 30 s into
+/// `a_relay_that_is_also_a_data_plane_peer_is_still_retried_by_the_reconnect_scheduler`).
+/// `free_port` answers below the kernel's port-0 range, so no port-0 bind
+/// lands on it (`net::tests::free_port_answers_below_the_port_0_range`),
+/// and holds a claim on it that every other `free_port` caller of this
+/// account and `TMPDIR` is refused
+/// (`free_port_holds_the_claim_on_what_it_answers`,
+/// `a_port_another_process_claims_is_refused_until_it_ends`). What it
+/// does not close -- another account, a fixed-port bind -- is in its own
+/// documentation.
+fn down_relay_address() -> Multiaddr {
+    format!(
+        "/ip4/127.0.0.1/tcp/{}",
+        interweave_test_support::net::free_port(Ipv4Addr::LOCALHOST)
+    )
+    .parse()
+    .expect("an address")
+}
+
 fn identity_of(keys: &identity::Keypair) -> TransportIdentity {
     TransportIdentity::parse(keys.public().to_peer_id().to_base58()).expect("canonical")
 }
@@ -846,8 +876,8 @@ async fn an_addition_asks_a_backed_off_relay_at_once_and_without_one_it_waits() 
     let ip = interweave_test_support::net::require_private_interface_v4();
     let relay_keys = identity::Keypair::generate_ed25519();
     let relay_peer = identity_of(&relay_keys);
-    // Bound once for its address, then gone: the relay is down.
-    let relay_addr = bound(&mut relay_server(relay_keys.clone())).await;
+    // The relay is down.
+    let relay_addr = down_relay_address();
 
     let subject_id = ProfileIdentity::generate();
     let mut relay_settings = settings(
@@ -960,7 +990,7 @@ async fn coming_online_after_an_offline_start_asks_the_backed_off_relay_at_once(
     let ip = interweave_test_support::net::require_private_interface_v4();
     let relay_keys = identity::Keypair::generate_ed25519();
     let relay_peer = identity_of(&relay_keys);
-    let relay_addr = bound(&mut relay_server(relay_keys.clone())).await;
+    let relay_addr = down_relay_address();
 
     let subject_id = ProfileIdentity::generate();
     let mut relay_settings = settings(
@@ -1073,7 +1103,7 @@ async fn an_addition_inside_the_gates_floor_leaves_the_relay_ladder_alone() {
     let ip = interweave_test_support::net::require_private_interface_v4();
     let relay_keys = identity::Keypair::generate_ed25519();
     let relay_peer = identity_of(&relay_keys);
-    let relay_addr = bound(&mut relay_server(relay_keys)).await;
+    let relay_addr = down_relay_address();
     let subject_id = ProfileIdentity::generate();
     let mut relay_settings = settings(
         vec![StaticRelay {
@@ -1145,8 +1175,9 @@ async fn an_addition_inside_the_gates_floor_leaves_the_relay_ladder_alone() {
     subject.shutdown().await.expect("shutdown");
 }
 
-/// What a subject reserving on one static relay that is DOWN -- bound
-/// and dropped, so nothing listens there -- reports in its first 45 s:
+/// What a subject reserving on one static relay that is DOWN -- at
+/// [`down_relay_address`], where nothing listened when it was answered
+/// -- reports in its first 45 s:
 /// past the gate's 30 s retry delay after the first failed ask, with
 /// room for the scheduler's tick.
 async fn while_the_relay_is_down(
@@ -1154,7 +1185,7 @@ async fn while_the_relay_is_down(
 ) -> (TransportIdentity, Vec<SwarmEvent>) {
     let relay_keys = identity::Keypair::generate_ed25519();
     let relay_peer = identity_of(&relay_keys);
-    let relay_addr = bound(&mut relay_server(relay_keys)).await;
+    let relay_addr = down_relay_address();
     let mut relay_settings = settings(
         vec![StaticRelay {
             peer: relay_peer.clone(),
