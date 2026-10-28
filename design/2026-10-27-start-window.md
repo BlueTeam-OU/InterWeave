@@ -26,7 +26,9 @@ page early (§7.1), photos loaded on demand and the one contact a
 proposal names (§11, and contact-cards §5.4.1). Revised again for
 rust-ui-dev-02's QUESTION 01a17e5d (U-a, U-b): the preview's bound
 (§3) and the Contacts list when its read fails, with what that
-withholds (§11).
+withholds (§11). Revised again for rust-ui-dev-02's
+QUESTION 01a180cb: what one conversation's backlog may do to another
+(§3).
 
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
@@ -149,7 +151,17 @@ Evidence and hypotheses behind the choices below:
   its stored rows in memory, only its summary (a preview line, a time,
   a count). Starting the app loads summaries and the pending rows, and
   no conversation's window. One conversation's backlog never pushes
-  another conversation's stored rows out of the list or its window.
+  another conversation's stored rows out of the list, its badge or
+  its preview: the held-row ceiling may release another conversation's
+  held stored rows (§5.1), and they come back when the person reaches
+  them, nothing of them lost (rust-ui-dev-02's QUESTION 01a180cb, which
+  read this sentence so). Read rows that have no stored copy are the
+  session bound's, not this rule's: past it another conversation's read
+  rows are dropped for good, which can change its preview or take it
+  off Chats (§7.1): when paging after the person's choice, when a
+  conversation is opened near the bound (§7.1, §12), and when rows
+  arriving in the open conversation are read as they come (§1), as
+  today.
   The session bound on read rows is shared (§1), and paging may push
   another conversation's read rows past it only by the person's
   choice (§7.1).
