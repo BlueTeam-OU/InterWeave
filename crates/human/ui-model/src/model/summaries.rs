@@ -92,6 +92,11 @@ impl Summaries {
         }
     }
 
+    /// The store's count of `conversation`'s unread rows, as kept current.
+    pub(super) fn unread_of(&self, conversation: &ConversationKey) -> u64 {
+        self.by.get(conversation).map_or(0, |s| s.unread)
+    }
+
     pub(super) fn iter(&self) -> impl Iterator<Item = &StoredSummary> {
         self.by.values()
     }

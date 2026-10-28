@@ -31,6 +31,7 @@ use crate::trust::{TrustChange, TrustInput, TrustSettings};
 pub(crate) mod cards;
 pub(crate) mod summaries;
 mod swipe;
+pub(crate) mod window;
 
 pub use swipe::{
     Announce, Confirmation, ContactChange, FocusTarget, Outcome, Released, RowAction, Snackbar,
@@ -713,6 +714,8 @@ pub struct UiModel {
     /// The windowed mode's summaries, once the model started from them
     /// ([`UiModel::started`]); `None` for a model given a whole listing.
     windowed: Option<summaries::Summaries>,
+    /// The open conversation's window, in the windowed mode.
+    windows: window::Windows,
 }
 
 impl Default for UiModel {
@@ -755,6 +758,7 @@ impl UiModel {
             swipe: swipe::SwipeState::default(),
             cards: cards::Cards::default(),
             windowed: None,
+            windows: window::Windows::default(),
         }
     }
 

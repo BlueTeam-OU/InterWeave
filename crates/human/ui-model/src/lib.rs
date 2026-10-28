@@ -48,6 +48,9 @@ pub use model::cards::{
     READ_PROPOSAL_CAP, RouteView, SentCard, ValueChanges, name_problem,
 };
 pub use model::summaries::{NewestRow, StoredSummary};
+pub use model::window::{
+    Edge, MarkKind, PageAsk, PageEnd, PageMark, PageOrder, PageRows, WindowInput, WindowMark,
+};
 pub use model::{
     Announce, Composer, Confirmation, ContactChange, ConversationKey, ConversationSummary,
     DEDUP_CAP, Direction, FocusTarget, HELD_UPDATE_CAP, Intent, ItemDiagnostics, ItemKey,
