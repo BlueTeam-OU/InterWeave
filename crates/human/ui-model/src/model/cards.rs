@@ -632,6 +632,21 @@ impl Cards {
             .collect()
     }
 
+    /// Stop holding `conversation`'s unread proposals, which stay unread in
+    /// the store for its next opening. A read one has no stored row and
+    /// stays, under [`READ_PROPOSAL_CAP`].
+    pub(super) fn let_go_unread(&mut self, conversation: &ConversationKey) {
+        if let ConversationKey::Direct {
+            peer,
+            endpoint: Some(at),
+        } = conversation
+        {
+            for row in self.unread_in(peer, at) {
+                self.proposals.remove(&row);
+            }
+        }
+    }
+
     /// How many read proposals are held: what [`READ_PROPOSAL_CAP`] bounds.
     pub(super) fn read_count(&self) -> usize {
         self.read.len()
@@ -728,16 +743,21 @@ impl UiModel {
     /// (#498 review F1). The facade hands its drained cards here once it
     /// starts windowed, the next batch.
     pub fn card_arrived(&mut self, proposal: Proposal) {
+        let conversation = ConversationKey::Direct {
+            peer: proposal.peer.clone(),
+            endpoint: Some(proposal.endpoint.clone()),
+        };
         if let Some(windowed) = self.windowed.as_mut()
             && !self.cards.proposals.contains_key(&proposal.row)
         {
             windowed.arrived(
-                &ConversationKey::Direct {
-                    peer: proposal.peer.clone(),
-                    endpoint: Some(proposal.endpoint.clone()),
-                },
+                &conversation,
                 super::summaries::NewestRow::card(proposal.row, proposal.received_at),
             );
+        }
+        // As a message is: a closed conversation holds only its summary.
+        if self.windowed.is_some() && self.windows.open_conversation() != Some(&conversation) {
+            return;
         }
         self.card_received(proposal);
     }

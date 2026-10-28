@@ -822,18 +822,25 @@ impl UiModel {
 
     /// A message `drain` handed over: committed unread already.
     pub fn received(&mut self, received: interweave_human_client_api::Received) {
+        let conversation = conversation_of_origin(&received.origin);
         if let Some(windowed) = self.windowed.as_mut()
             && !self.by_row.contains_key(&(Table::Unread, received.row))
             && !self.released.contains(&(Table::Unread, received.row))
         {
             windowed.arrived(
-                &conversation_of_origin(&received.origin),
+                &conversation,
                 summaries::NewestRow::received(
                     received.row,
                     received.received_at,
                     &received.envelope.text,
                 ),
             );
+        }
+        // A closed conversation holds none of its stored rows in the
+        // windowed mode, only its summary: the row stays unread in the
+        // store and its opening's page brings it (design section 3).
+        if self.windowed.is_some() && self.windows.open_conversation() != Some(&conversation) {
+            return;
         }
         self.inbound(
             received.row,
@@ -1902,6 +1909,24 @@ impl UiModel {
             }
             self.drop_items(&[key]);
         }
+    }
+
+    /// Stop holding `conversation`'s stored rows -- unread and kept -- which
+    /// stay in the store unchanged and load again when reached: not
+    /// released, which would refuse them for good (design sections 3 and
+    /// 5.1). An item a pending row holds stays, as does a session-only one.
+    pub(super) fn let_go(&mut self, conversation: &ConversationKey) {
+        let keys: Vec<ItemKey> = self
+            .items
+            .iter()
+            .filter(|(_, i)| {
+                &i.conversation == conversation
+                    && !i.rows.is_empty()
+                    && i.rows.iter().all(|(t, _)| *t != Table::Pending)
+            })
+            .map(|(k, _)| *k)
+            .collect();
+        self.drop_items(&keys);
     }
 
     /// Forget `keys` entirely: shown nowhere, offered nothing, no reply

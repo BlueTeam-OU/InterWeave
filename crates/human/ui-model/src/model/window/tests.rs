@@ -270,25 +270,38 @@ fn the_listed_mode_asks_no_page() {
     assert!(model.take_page_asks().is_empty());
 }
 
-/// `count` rows of another conversation, received and read: session-only
-/// rows, which the session bound counts. Their rows are numbered from
-/// 100,000 on.
+/// `count` rows of another conversation, read while it was open, then
+/// closed: session-only rows, which the session bound counts. Their rows
+/// are numbered from 100,000 on.
 fn read_elsewhere(model: &mut UiModel, count: usize) {
-    use interweave_human_client_api::Received;
-    for n in 0..count {
-        let n = 100_000 + i64::try_from(n).expect("small");
-        let listed = row(n);
-        model.received(Received {
-            row: listed.row,
-            origin: Origin::Direct {
+    let elsewhere = ConversationKey::Direct {
+        peer: TransportIdentity::parse(Q).expect("a PeerId"),
+        endpoint: Some(human()),
+    };
+    model.window_input(WindowInput::Opened(elsewhere.clone()));
+    let ask = one_ask(model);
+    let rows: Vec<ListedInbound> = (0..count)
+        .map(|n| {
+            let mut listed = row(100_000 + i64::try_from(n).expect("small"));
+            listed.origin = Origin::Direct {
                 peer: TransportIdentity::parse(Q).expect("a PeerId"),
                 endpoint: human(),
-            },
-            envelope: listed.envelope,
-            received_at: 10,
-        });
-        model.read(listed.row);
+            };
+            listed
+        })
+        .collect();
+    let numbers: Vec<RowId> = rows.iter().map(|r| r.row).collect();
+    model.page_arrived(PageRows {
+        ask,
+        unread: rows,
+        kept: Vec::new(),
+        proposals: Vec::new(),
+        end: PageEnd::Exhausted,
+    });
+    for row in numbers {
+        model.read(row);
     }
+    model.window_input(WindowInput::Closed(elsewhere));
 }
 
 /// An opened conversation whose first page held `held` unread rows of
@@ -427,17 +440,24 @@ fn card(row: RowId, p: &str) -> super::super::cards::Proposal {
     }
 }
 
-/// The open conversation's rows, read: rows 1 to `count`, each its own
-/// item, session-only once read.
-fn read_here(model: &mut UiModel, count: i64) -> Vec<crate::model::ItemKey> {
-    let mut asks = model.take_page_asks();
-    let ask = asks.pop().expect("an ask");
-    model.page_arrived(page(
-        &ask,
-        &(1..=count).collect::<Vec<_>>(),
-        PageEnd::Exhausted,
-    ));
-    for n in 1..=count {
+/// A page of the open conversation's rows `rows`, read: each its own
+/// item, session-only once read. The keys of the conversation's items.
+fn read_here(
+    model: &mut UiModel,
+    rows: std::ops::RangeInclusive<i64>,
+) -> Vec<crate::model::ItemKey> {
+    let ask = model.take_page_asks().pop().unwrap_or_else(|| PageAsk {
+        conversation: conversation(),
+        edge: Edge::Top,
+        older_than: None,
+        newer_than: None,
+        order: PageOrder::NewestFirst,
+        unread_room: None,
+        seq: model.windows.open.as_ref().map_or(0, |w| w.seq),
+    });
+    let numbers: Vec<i64> = rows.collect();
+    model.page_arrived(page(&ask, &numbers, PageEnd::More));
+    for n in numbers {
         model.read(RowId::from_stored(n));
     }
     model
@@ -454,19 +474,15 @@ fn read_here(model: &mut UiModel, count: i64) -> Vec<crate::model::ItemKey> {
 fn the_focused_row_is_never_dropped_the_next_one_is() {
     let mut model = started(0);
     model.window_input(WindowInput::Opened(conversation()));
-    let keys = read_here(&mut model, 3);
+    let keys = read_here(&mut model, 1..=3);
     model.window_input(WindowInput::Place {
         conversation: conversation(),
         focused: Some(keys[0]),
     });
-    read_elsewhere(&mut model, SESSION_ITEM_CAP - 2);
-    let held: Vec<_> = model
-        .messages(&conversation())
-        .into_iter()
-        .map(|m| m.key)
-        .collect();
+    let cap = i64::try_from(SESSION_ITEM_CAP).expect("small");
+    let held = read_here(&mut model, 10..=10 + cap - 3);
     assert_eq!(
-        held,
+        held[..2],
         [keys[0], keys[2]],
         "the focused oldest kept, the next dropped"
     );
@@ -474,14 +490,15 @@ fn the_focused_row_is_never_dropped_the_next_one_is() {
 
 /// Each run of the open conversation's rows the bound dropped stands as
 /// one `ReadNotShown` line with the run's count, above the row now below
-/// it: two rows dropped together are one line of 2. Another
-/// conversation's drops say nothing. Mutation: a line for each row.
+/// it: two rows dropped together are one line of 2. Mutation: a line for
+/// each row.
 #[test]
 fn each_run_of_dropped_rows_has_one_line_with_its_count() {
     let mut model = started(0);
     model.window_input(WindowInput::Opened(conversation()));
-    let keys = read_here(&mut model, 4);
-    read_elsewhere(&mut model, SESSION_ITEM_CAP - 2);
+    let keys = read_here(&mut model, 1..=4);
+    let cap = i64::try_from(SESSION_ITEM_CAP).expect("small");
+    read_here(&mut model, 10..=10 + cap - 3);
     let runs: Vec<_> = model
         .window_marks(&conversation())
         .into_iter()
@@ -491,4 +508,67 @@ fn each_run_of_dropped_rows_has_one_line_with_its_count() {
         })
         .collect();
     assert_eq!(runs, [(Some(keys[2]), 2)]);
+}
+
+/// Closed, a conversation holds none of its stored rows in the windowed
+/// mode -- they stay in the store -- but keeps one's own pending row; its
+/// next opening loads the stored rows again (section 3). Mutation: the
+/// rows released rather than let go, which refuses them on the reload.
+#[test]
+fn a_closed_conversation_holds_none_of_its_stored_rows_and_reloads_them() {
+    use interweave_human_client_api::Destination;
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+    model.sent(
+        RowId::from_stored(7),
+        &Destination::Direct {
+            peer: peer(),
+            endpoint: Some(human()),
+        },
+        row(7).envelope,
+        2_000,
+    );
+    assert_eq!(model.len(), 3);
+    model.window_input(WindowInput::Closed(conversation()));
+    assert_eq!(model.len(), 1, "only the pending row");
+
+    model.window_input(WindowInput::Opened(conversation()));
+    let again = one_ask(&mut model);
+    model.page_arrived(page(&again, &[999, 1_000], PageEnd::Exhausted));
+    assert_eq!(model.len(), 3, "loaded again");
+}
+
+/// A message arriving in a closed conversation is counted in its summary
+/// and not held. Mutation: the arrival held whatever the window.
+#[test]
+fn an_arrival_in_a_closed_conversation_is_counted_not_held() {
+    use interweave_human_client_api::Received;
+    let mut model = started(1);
+    let listed = row(2_000);
+    model.received(Received {
+        row: listed.row,
+        origin: listed.origin,
+        envelope: listed.envelope,
+        received_at: 2_000,
+    });
+    assert!(model.is_empty());
+    assert_eq!(model.conversations()[0].unread, 2);
+}
+
+/// Opening another conversation closes the one open before: its stored
+/// rows are let go. Mutation: the earlier window replaced without being
+/// closed.
+#[test]
+fn opening_another_conversation_closes_the_first() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+    model.window_input(WindowInput::Opened(ConversationKey::Direct {
+        peer: TransportIdentity::parse(Q).expect("a PeerId"),
+        endpoint: Some(human()),
+    }));
+    assert!(model.is_empty());
 }

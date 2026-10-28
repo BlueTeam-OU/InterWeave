@@ -320,6 +320,8 @@ mod tests {
             Vec::new(),
             vec![summary(P, 2, Table::Unread, 1, 10, "older")],
         );
+        // Open, so the arrival is held and can be read.
+        model.window_input(crate::model::window::WindowInput::Opened(direct(P)));
         model.received(received(5, P, 20, "just now"));
         let now = listed(&model, P);
         assert_eq!(now.unread, 3);
@@ -370,6 +372,7 @@ mod tests {
     fn a_card_counts_in_the_badge_in_the_windowed_mode_only() {
         let mut model = UiModel::new();
         model.started(Vec::new(), Vec::new());
+        model.window_input(crate::model::window::WindowInput::Opened(direct(P)));
         model.card_arrived(card(3, P, 40));
         let now = listed(&model, P);
         assert_eq!(now.unread, 1);

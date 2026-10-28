@@ -306,6 +306,13 @@ impl UiModel {
         let windows = &mut self.windows;
         match input {
             WindowInput::Opened(conversation) => {
+                // One conversation is open at a time: the one before is
+                // closed, its stored rows let go.
+                if let Some(before) = windows.open.take() {
+                    self.let_go(&before.conversation);
+                    self.cards.let_go_unread(&before.conversation);
+                }
+                let windows = &mut self.windows;
                 windows.next_seq += 1;
                 windows.open = Some(Window {
                     conversation,
@@ -324,6 +331,11 @@ impl UiModel {
             WindowInput::Closed(conversation) => {
                 if windows.open_for(&conversation).is_some() {
                     windows.open = None;
+                    // A closed conversation holds none of its stored rows
+                    // (section 3): they stay in the store for its next
+                    // opening.
+                    self.let_go(&conversation);
+                    self.cards.let_go_unread(&conversation);
                 }
             }
             WindowInput::Reached {
