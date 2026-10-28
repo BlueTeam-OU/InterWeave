@@ -2013,6 +2013,7 @@ impl Driver {
             .map(|gate| PeerGateRow {
                 last_outcome: self.outcomes.get(&gate.peer),
                 connected: gate.connected,
+                last_seen_ms: gate.last_seen_ms,
                 backoff_until_ms: gate.backoff_until_ms,
                 quarantined_until_ms: gate.quarantined_until_ms,
                 route_held_until_ms: gate.route_held_until_ms,

@@ -31,8 +31,8 @@ use interweave_local_client_api::{
     AddressChange, AddressesChange, AdminBinding, AdminCapability, AdminPort, AdminStatus,
     BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort, EndpointAdminView,
     Generation, IngressCounts, LocalAdminPort, LocalDataSession, OwnAddresses, PeerGateView,
-    PreAuthCounts, ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView,
-    TrustChange,
+    PeerLastSeen, PreAuthCounts, ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest,
+    TrustAdminView, TrustChange,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, DirectMessageV2, EndpointDirectoryV1,
@@ -834,6 +834,9 @@ impl AdminPort for InProcessAdmin {
             .map(|row| PeerGateView {
                 peer: row.peer,
                 connected: row.connected,
+                last_seen: row
+                    .last_seen_ms
+                    .map_or(PeerLastSeen::Never, PeerLastSeen::At),
                 backoff_until: row.backoff_until_ms,
                 quarantined_until: row.quarantined_until_ms,
                 route_held_until: row.route_held_until_ms,

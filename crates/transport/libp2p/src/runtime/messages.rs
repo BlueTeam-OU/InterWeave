@@ -472,6 +472,12 @@ pub struct PeerGate {
     pub peer: TransportIdentity,
     /// Whether any connection to it is open.
     pub connected: bool,
+    /// The last moment a retained connection to it was open,
+    /// milliseconds since the Unix epoch: the photograph's own time
+    /// while `connected`, else when the last one closed; absent when
+    /// none has been since the runtime started, which keeps no record of
+    /// it across a restart.
+    pub last_seen_ms: Option<u64>,
     /// Dials to it are refused until then, milliseconds since the Unix
     /// epoch.
     pub backoff_until_ms: Option<u64>,

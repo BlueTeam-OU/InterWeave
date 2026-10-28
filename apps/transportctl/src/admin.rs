@@ -290,6 +290,22 @@ async fn call(port: &IpcAdmin, action: Admin, json: bool) -> Result<String, Tran
                             "not connected"
                         }
                     );
+                    // When a peer not connected was last up (2.12): a
+                    // connected one is up now. Absent from an older
+                    // daemon, which says nothing, so neither does this.
+                    if !row.connected {
+                        match row.last_seen_ms {
+                            Some(Some(at)) => {
+                                let _ = write!(
+                                    out,
+                                    "  last seen {}s ago",
+                                    now.saturating_sub(at) / 1_000
+                                );
+                            }
+                            Some(None) => out += "  not seen since the daemon started",
+                            None => {}
+                        }
+                    }
                     if let Some(until) = row.backoff_until {
                         let _ = write!(out, "  backoff {}s", left(until));
                     }

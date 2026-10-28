@@ -121,6 +121,7 @@ async fn a_refused_dial_is_classed_and_its_retry_is_reported_with_its_delay() {
     let PeerGate {
         peer,
         connected,
+        last_seen_ms,
         backoff_until_ms,
         quarantined_until_ms,
         route_held_until_ms,
@@ -129,10 +130,11 @@ async fn a_refused_dial_is_classed_and_its_retry_is_reported_with_its_delay() {
         (
             peer,
             *connected,
+            *last_seen_ms,
             *quarantined_until_ms,
             *route_held_until_ms
         ),
-        (&target, false, None, None)
+        (&target, false, None, None, None)
     );
     let until = backoff_until_ms.expect("in backoff");
     assert!(
@@ -144,6 +146,7 @@ async fn a_refused_dial_is_classed_and_its_retry_is_reported_with_its_delay() {
         PeerGate {
             peer: other,
             connected: false,
+            last_seen_ms: None,
             backoff_until_ms: None,
             quarantined_until_ms: None,
             route_held_until_ms: None,

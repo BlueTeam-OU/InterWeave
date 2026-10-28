@@ -554,6 +554,7 @@ mod tests {
                     ))
                     .expect("peer"),
                     connected: false,
+                    last_seen: interweave_local_client_api::PeerLastSeen::At(5),
                     backoff_until: Some(1),
                     quarantined_until: None,
                     route_held_until: Some(7),
@@ -572,13 +573,32 @@ mod tests {
                 frame.outcome::<PeerList>().expect("a page")
             }
         };
-        let max = interweave_ipc_protocol::IPC_MAX_MINOR;
-        let first = page(serde_json::json!({}), max).await;
-        assert_eq!(first.peers.len(), MAX_PEER_PAGE_ROWS);
-        let next = first.next.expect("one more remains");
-        let second = page(serde_json::json!({"after": next.as_str()}), max).await;
-        assert_eq!(second.peers.len(), 1);
-        assert_eq!(second.next, None, "the last page");
+        // Each minor's page bound: 512 below 2.12, fewer from it, where
+        // the row is longer.
+        let last_seen = interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR;
+        for (minor, per_page) in [
+            (last_seen - 1, MAX_PEER_PAGE_ROWS),
+            (
+                last_seen,
+                interweave_ipc_protocol::MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN,
+            ),
+        ] {
+            let first = page(serde_json::json!({}), minor).await;
+            assert_eq!(first.peers.len(), per_page, "minor {minor}");
+            let next = first.next.expect("more remain");
+            let second = page(serde_json::json!({"after": next.as_str()}), minor).await;
+            assert_eq!(second.peers.len(), MAX_PEER_PAGE_ROWS + 1 - per_page);
+            assert_eq!(second.next, None, "the last page");
+        }
+        // The last-seen time from 2.12, and not below it.
+        assert_eq!(
+            page(serde_json::json!({}), last_seen).await.peers[0].last_seen_ms,
+            Some(Some(5))
+        );
+        assert_eq!(
+            page(serde_json::json!({}), last_seen - 1).await.peers[0].last_seen_ms,
+            None
+        );
         // The route hold is served on the connection's own minor: from
         // 2.6, and not below it (#329 review F4).
         let since = interweave_ipc_protocol::ROUTE_HELD_SINCE_MINOR;
