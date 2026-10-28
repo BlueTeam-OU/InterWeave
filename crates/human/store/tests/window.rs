@@ -416,6 +416,32 @@ fn a_gap_is_read_from_either_side_and_holds_only_its_rows() {
     );
 }
 
+/// A cursor rebuilt from a row's parts -- its time, kept or not, its id --
+/// is the cursor the row gave, so a page read from it continues where the
+/// row's page did, every row once, a kept and an unread row at one
+/// instant included. Mutation: `at` placing a kept row among the unread.
+#[test]
+fn a_cursor_rebuilt_from_its_parts_continues_the_page() {
+    let (_dir, store, conversation) = ranged();
+    for n in [3, 7] {
+        let r = row(&store, &conversation, n);
+        assert_eq!(
+            WindowCursor::at(r.received_at, r.kept_at.is_some(), r.row_id),
+            WindowCursor::of(&r),
+            "row {n}"
+        );
+    }
+    let kept = row(&store, &conversation, 3);
+    let rebuilt = PageRange {
+        older_than: Some(WindowCursor::at(kept.received_at, true, kept.row_id)),
+        newer_than: None,
+    };
+    assert_eq!(
+        walk_range(&store, &conversation, rebuilt, Order::NewestFirst, 1),
+        [7, 2, 1]
+    );
+}
+
 /// A page shortened to the session's room (design §7.1) stops before its
 /// room+1th unread row, kept rows taking no room; with no room left and
 /// an unread row next it is empty, and its cursor says more remain so the
