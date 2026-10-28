@@ -11,12 +11,13 @@ use interweave_human_chat_protocol::{
 use interweave_human_client_api::ReceivedCard;
 use interweave_human_store::identity_key::Fingerprint;
 use interweave_human_store::{
-    AcceptedCard, CardStanding, Contact, ContactName, HumanStore, InboundOrigin, KeyStanding,
-    OutboundDestination, PendingOutbound, ReadEphemeral, RowId, StoreError, ValueSource,
+    AcceptedCard, CardStanding, Contact, ContactName, ContactRoute, HumanStore, InboundOrigin,
+    KeyStanding, OutboundDestination, PendingOutbound, ReadEphemeral, RowId, StoreError,
+    ValueSource,
 };
 use interweave_human_ui_model::{
-    ContactRef, ContactView, IdentityView, KeyView, OwnKey, Photo, PhotoChange, Proposal,
-    ProposalContext, RouteView, ValueChanges,
+    ContactRef, ContactView, DirectoryContact, IdentityView, KeyView, OwnKey, Photo, PhotoChange,
+    Proposal, ProposalContext, RouteView, ValueChanges,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -184,17 +185,50 @@ pub(crate) fn contact_views(store: &HumanStore) -> Result<Vec<ContactView>, Stor
             photo_from_card: c.photo_source.map(|s| s == ValueSource::Card),
             photo_at: c.photo_at,
             photo: c.photo.as_deref().and_then(shown),
-            routes: c
-                .routes
-                .into_iter()
-                .map(|r| RouteView {
-                    fingerprint: r.identity_key.as_ref().map(fingerprint),
-                    peer: r.peer,
-                    endpoint: r.endpoint,
-                })
-                .collect(),
+            routes: route_views(c.routes),
         })
         .collect())
+}
+
+fn route_views(routes: Vec<ContactRoute>) -> Vec<RouteView> {
+    routes
+        .into_iter()
+        .map(|r| RouteView {
+            fingerprint: r.identity_key.as_ref().map(fingerprint),
+            peer: r.peer,
+            endpoint: r.endpoint,
+        })
+        .collect()
+}
+
+/// Every contact as the windowed mode reads them: names and routes, and
+/// whether each has a photo, never a photo's bytes -- a photo is read when
+/// a view shows it (design/2026-10-27-start-window.md section 11).
+pub(crate) fn contact_directory(store: &HumanStore) -> Result<Vec<DirectoryContact>, StoreError> {
+    /// Contacts per page: a page holds no photo, so a count bounds it.
+    const DIRECTORY_PAGE: usize = 256;
+    let mut contacts = Vec::new();
+    let mut after: Option<String> = None;
+    loop {
+        let page = store.contact_directory_page(after.as_deref(), DIRECTORY_PAGE)?;
+        contacts.extend(page.items.into_iter().map(|c| DirectoryContact {
+            has_photo: c.has_photo,
+            view: ContactView {
+                contact_id: c.contact_id,
+                name: c.display_name,
+                name_from_card: c.name_source == ValueSource::Card,
+                name_at: c.name_at,
+                photo_from_card: c.photo_source.map(|s| s == ValueSource::Card),
+                photo_at: c.photo_at,
+                photo: None,
+                routes: route_views(c.routes),
+            },
+        }));
+        match page.next {
+            Some(next) => after = Some(next),
+            None => return Ok(contacts),
+        }
+    }
 }
 
 /// The identity in front, as the model shows it.

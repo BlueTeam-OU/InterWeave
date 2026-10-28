@@ -8,10 +8,12 @@ use std::collections::{HashSet, VecDeque};
 
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
-use interweave_human_ui_model::{ConnectGate, ConversationKey, Intent, UiModel, ViewEvent};
+use interweave_human_ui_model::{
+    ConnectGate, ConversationKey, Intent, UiModel, ViewEvent, WindowInput,
+};
 
 use crate::facade::CANCELLED_CAP;
-use crate::protocol::{Command, Failure, Update};
+use crate::protocol::{Command, Failure, Update, WindowCommand};
 
 /// A view as the root drives it: show the model, then hand back what the
 /// person did. `ui-slint`'s `View` is one; a test can script one.
@@ -218,15 +220,53 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     self.model.identity_shown(identity);
                 }
             }
+            Update::Started(start) => {
+                let crate::protocol::Start {
+                    pending,
+                    summaries,
+                    counted_through,
+                    undecodable_unread,
+                    undecodable_other,
+                    contacts,
+                    identity,
+                } = *start;
+                self.model.started(pending, summaries, counted_through);
+                self.hidden_unread = undecodable_unread;
+                self.hidden_other = undecodable_other;
+                self.model.contacts_directory(contacts.map_err(|_| ()));
+                if let Some(identity) = identity {
+                    self.model.identity_shown(identity);
+                }
+            }
+            Update::Page(rows) => self.model.page_arrived(*rows),
+            Update::ContactDirectory(answer) => {
+                self.model.contacts_directory(answer.map_err(|_| ()));
+            }
+            Update::ContactPhoto {
+                contact_id,
+                photo_at,
+                photo,
+            } => self.model.photo_arrived(&contact_id, photo_at, photo),
             Update::UnreadListed { rows, undecodable } => {
                 self.model.unread_listed(rows);
                 // A relist reads the unread rows only: their count is
                 // replaced, the start's count of the others stands.
                 self.hidden_unread = undecodable;
             }
+            Update::SummariesListed {
+                summaries,
+                counted_through,
+                undecodable,
+            } => {
+                self.model.summaries_listed(summaries, counted_through);
+                self.hidden_unread = undecodable;
+            }
             Update::UnreadNotListed(why) => self.problem(Problem::UnreadNotListed(why)),
             Update::Received(received) => self.model.received(received),
-            Update::ReceivedCard(proposal) => self.model.card_received(*proposal),
+            // Committed by the drain, or listed again: new to the windowed
+            // counts unless they hold it already, and the listed mode's
+            // proposal either way.
+            Update::ReceivedCard(proposal) => self.model.card_arrived(*proposal),
             Update::ProposalJudged(proposal) => self.model.card_judged(*proposal),
             Update::CardResolved { row, outcome } => self.model.card_resolved(row, outcome),
             Update::ProposalRestored(proposal) => self.model.card_restored(*proposal),
@@ -383,6 +423,16 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 if let Some(intent) = undone {
                     self.model.intent_refused(&intent);
                 }
+                // A read the window waits on ends here too: the edge shows
+                // its failure row, a photo its initials.
+                match &command {
+                    Command::Window(WindowCommand::FetchPage(ask)) => self.model.page_failed(ask),
+                    Command::Window(WindowCommand::ReadPhoto(ask)) => {
+                        self.model
+                            .photo_arrived(&ask.contact_id, ask.photo_at, None);
+                    }
+                    _ => {}
+                }
                 self.problem(Problem::Command { command, why });
             }
         }
@@ -472,6 +522,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     self.surface.render(&self.model);
                     continue;
                 }
+                self.window_reads(&mut commands);
                 return commands;
             }
             for event in events {
@@ -544,6 +595,41 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 }
             }
         }
+    }
+
+    /// What the windowed mode asks to read, since the last turn: its
+    /// pages, the contacts, the photos a view shows.
+    fn window_reads(&mut self, commands: &mut Vec<Command>) {
+        for ask in self.model.take_page_asks() {
+            commands.push(Command::Window(WindowCommand::FetchPage(Box::new(ask))));
+        }
+        if self.model.take_contacts_ask() {
+            commands.push(Command::Window(WindowCommand::ReadContacts));
+        }
+        for ask in self.model.take_photo_asks() {
+            commands.push(Command::Window(WindowCommand::ReadPhoto(ask)));
+        }
+    }
+
+    /// The person moved in the open conversation's window, or opened or
+    /// closed one: what it asks of the store goes at the next turn.
+    pub fn window(&mut self, input: WindowInput) {
+        self.model.window_input(input);
+    }
+
+    /// A view shows `contact_id`'s avatar: its photo is read, once.
+    pub fn photo_shown(&mut self, contact_id: &str) {
+        self.model.photo_shown(contact_id);
+    }
+
+    /// The avatar left the view.
+    pub fn photo_hidden(&mut self, contact_id: &str) {
+        self.model.photo_hidden(contact_id);
+    }
+
+    /// The Contacts list's Try again: the contacts are read once more.
+    pub fn contacts_try_again(&mut self) {
+        self.model.contacts_try_again();
     }
 
     /// The command for `intent`, or `None` when it needs none -- a link is

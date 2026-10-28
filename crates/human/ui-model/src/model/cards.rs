@@ -338,6 +338,13 @@ pub struct ProposalItem {
     pub values: ValueChanges,
     /// When it arrived.
     pub received_at: u64,
+    /// The contacts could not be read: the card was compared with none, so
+    /// it shows `CardContactsUnread` in place of its case, with no notes,
+    /// and offers no Accept (design/2026-10-27-start-window.md section 11).
+    pub contacts_unread: bool,
+    /// Case P: how many contacts on the card's `PeerId` there are besides
+    /// the one its note names (`CardSharesDeviceMany`).
+    pub shares_node_others: usize,
 }
 
 impl ProposalItem {
@@ -382,7 +389,7 @@ impl ProposalItem {
             .iter()
             .any(|n| matches!(n, ProposalNote::SameName(_)));
         CardSwipe {
-            accept: !closes && !warned,
+            accept: !closes && !warned && !self.contacts_unread,
             decline: !closes,
         }
     }
@@ -632,6 +639,26 @@ impl Cards {
             .collect()
     }
 
+    /// Stop holding `conversation`'s unread proposals, which stay unread in
+    /// the store for its next opening. A read one has no stored row and
+    /// stays, under [`READ_PROPOSAL_CAP`].
+    pub(super) fn let_go_unread(&mut self, conversation: &ConversationKey) {
+        if let ConversationKey::Direct {
+            peer,
+            endpoint: Some(at),
+        } = conversation
+        {
+            for row in self.unread_in(peer, at) {
+                self.proposals.remove(&row);
+            }
+        }
+    }
+
+    /// How many read proposals are held: what [`READ_PROPOSAL_CAP`] bounds.
+    pub(super) fn read_count(&self) -> usize {
+        self.read.len()
+    }
+
     /// The conversation of a proposal held unread: `None` once it was read,
     /// or for a row no proposal is.
     pub(super) fn unread_conversation(&self, row: RowId) -> Option<ConversationKey> {
@@ -723,17 +750,28 @@ impl UiModel {
     /// (#498 review F1). The facade hands its drained cards here once it
     /// starts windowed, the next batch.
     pub fn card_arrived(&mut self, proposal: Proposal) {
+        let conversation = ConversationKey::Direct {
+            peer: proposal.peer.clone(),
+            endpoint: Some(proposal.endpoint.clone()),
+        };
         if let Some(windowed) = self.windowed.as_mut()
+            && windowed.handed_over(proposal.row)
             && !self.cards.proposals.contains_key(&proposal.row)
         {
             windowed.arrived(
-                &ConversationKey::Direct {
-                    peer: proposal.peer.clone(),
-                    endpoint: Some(proposal.endpoint.clone()),
-                },
+                &conversation,
                 super::summaries::NewestRow::card(proposal.row, proposal.received_at),
             );
         }
+        // As a message is: a closed conversation holds only its summary.
+        if self.windowed.is_some() && self.windows.open_conversation() != Some(&conversation) {
+            return;
+        }
+        self.windows.seen(super::window::PageMark {
+            received_at: proposal.received_at,
+            kept: false,
+            row: proposal.row,
+        });
         self.card_received(proposal);
     }
 
@@ -1216,15 +1254,23 @@ impl UiModel {
                     crate::order::sort_refs(&mut refs, &self.cards.contacts);
                     refs
                 };
+                // One contact named, the first in the Contacts list's order,
+                // whichever the store gave first (design/2026-10-27-start-
+                // window.md section 11, contact-cards 5.4.1): case P names
+                // the first and counts the others.
                 let mut notes = Vec::new();
                 notes.extend(
                     ordered(&c.same_name)
                         .into_iter()
+                        .take(1)
                         .map(ProposalNote::SameName),
                 );
+                let shares = ordered(&c.shares_node);
+                let shares_node_others = shares.len().saturating_sub(1);
                 notes.extend(
-                    ordered(&c.shares_node)
+                    shares
                         .into_iter()
+                        .take(1)
                         .map(|r| ProposalNote::SharesNode(r.name)),
                 );
                 notes.extend(
@@ -1232,7 +1278,17 @@ impl UiModel {
                         .into_iter()
                         .map(|r| ProposalNote::KeyMatches(r.name)),
                 );
+                let contacts_unread = self.directory.state != super::directory::ContactsState::Read;
+                if contacts_unread {
+                    notes.clear();
+                }
                 ProposalItem {
+                    contacts_unread,
+                    shares_node_others: if contacts_unread {
+                        0
+                    } else {
+                        shares_node_others
+                    },
                     row: p.row,
                     peer: p.peer.clone(),
                     route: RouteLabel::from(&p.endpoint),
@@ -1279,6 +1335,9 @@ impl UiModel {
     #[must_use]
     pub fn card_actions(&self, row: RowId) -> Vec<Intent> {
         match self.cards.proposals.get(&row) {
+            Some(_) if self.directory.state != super::directory::ContactsState::Read => {
+                vec![Intent::DeclineCard(row)]
+            }
             Some(p) if p.context.changes_nothing && p.context.updates.is_some() => {
                 vec![Intent::DeclineCard(row)]
             }
@@ -1505,9 +1564,12 @@ mod tests {
     fn the_contacts_a_peers_row_and_a_proposals_notes_take_one_order() {
         // The fixture every site's test orders (human-client-ui.md section
         // 3): the store reads "Zoe", "Ben", "Chloe", "Åke", "ben" in that
-        // order. Mutations: `contacts_listed` keeping the store's order
-        // (the list and the row read Zoe first); `proposals` sorting
-        // nothing (the notes keep the context's order).
+        // order. A proposal names one contact of a case P, the first in
+        // that order, and counts the others (start-window section 11).
+        // Mutations: `contacts_listed` keeping the store's order (the list
+        // and the row read Zoe first); `proposals` sorting nothing (the
+        // notes keep the context's order); the others counted with the
+        // one named.
         let fixture = ["Zoe", "Ben", "Chloe", "Åke", "ben"];
         let order = ["Åke", "ben", "Ben", "Chloe", "Zoe"];
         let mut model = UiModel::new();
@@ -1549,12 +1611,48 @@ mod tests {
             ProposalNote::SharesNode(name) => Some(name.as_str()),
             _ => None,
         });
-        assert_eq!(shares, order, "a proposal's notes, the first named first");
+        assert_eq!(shares, ["Åke"], "case P names the first in order alone");
+        assert_eq!(
+            model.proposals(&direct(P, "human"))[0].shares_node_others,
+            4
+        );
         let keys = named(|n| match n {
             ProposalNote::KeyMatches(name) => Some(name.as_str()),
             _ => None,
         });
         assert_eq!(keys, order);
+    }
+
+    /// Of two contacts of one name, `CardSameName` names the one first in
+    /// the Contacts list's order: same name, so the one whose route's
+    /// `PeerId` sorts first by code point, whichever the store gave first
+    /// (start-window section 11, contact-cards 6.2). Mutations: the note
+    /// naming the store's first; every contact of the name named.
+    #[test]
+    fn two_contacts_of_one_name_the_note_names_the_one_first_in_order() {
+        let mut model = UiModel::new();
+        model.contacts_listed(vec![
+            contact("on-k", "Anna Rossi", Q),
+            contact("on-d", "Anna Rossi", P),
+        ]);
+        let mut standing = context();
+        standing.same_name = ["on-k", "on-d"]
+            .iter()
+            .map(|id| ContactRef {
+                contact_id: (*id).to_owned(),
+                name: "Anna Rossi".to_owned(),
+            })
+            .collect();
+        model.card_received(proposal(1, P, "Anna", standing));
+        let same: Vec<String> = model.proposals(&direct(P, "human"))[0]
+            .notes
+            .iter()
+            .filter_map(|n| match n {
+                ProposalNote::SameName(r) => Some(r.contact_id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(same, ["on-d"], "D sorts before K");
     }
 
     #[test]

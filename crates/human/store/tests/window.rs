@@ -283,6 +283,34 @@ fn an_unread_row_is_read_by_its_id_while_it_is_unread() {
     );
 }
 
+/// The unread table's high-water mark is the highest id it ever gave: none
+/// before its first row, unmoved when that row is read and gone, and below
+/// every row committed after it. Mutation: the highest id still unread
+/// (`MAX(row_id)`), which falls back once the newest row is read.
+#[test]
+fn the_unread_high_water_mark_is_the_highest_id_ever_given() {
+    let (_dir, mut store) = store();
+    assert_eq!(store.unread_high_water().expect("read"), None);
+    let first = store
+        .commit_unread_inbound(&direct(1, P, 1, InboundKind::Text))
+        .expect("committed");
+    let second = store
+        .commit_unread_inbound(&direct(2, P, 2, InboundKind::Card))
+        .expect("committed");
+    assert_eq!(store.unread_high_water().expect("read"), Some(second));
+    store.mark_read(second, 3).expect("read");
+    assert_eq!(
+        store.unread_high_water().expect("read"),
+        Some(second),
+        "a read row's id is not given again"
+    );
+    let third = store
+        .commit_unread_inbound(&direct(3, P, 4, InboundKind::Text))
+        .expect("committed");
+    assert!(third > second && second > first);
+    assert_eq!(store.unread_high_water().expect("read"), Some(third));
+}
+
 /// The fixture the range tests share: in P's conversation, unread rows
 /// 1..=6 at times 10..=60, then row 3 read and kept, and unread row 7 at
 /// 30 beside it, so the kept row shares an instant with an unread one.
@@ -496,6 +524,47 @@ fn a_page_keeps_to_its_unread_room() {
         .expect("a page");
     let numbers: Vec<u32> = rest.items.iter().map(|r| number(&r.payload)).collect();
     assert_eq!(numbers, [7, 2, 1]);
+}
+
+/// A page says it stopped at its unread room only when it did: the next
+/// row unread and no room for it -- not when it stopped at its records with
+/// the room used up and a kept row next, which the next page takes, nor at
+/// the end. Mutation: the room said used whenever the page took as many
+/// unread rows as its room.
+#[test]
+fn a_page_says_its_room_was_used_only_when_that_stopped_it() {
+    let (_dir, store, conversation) = ranged();
+    let window = |records: usize, unread: usize| {
+        store
+            .conversation_window(
+                &conversation,
+                PageRange::default(),
+                Order::NewestFirst,
+                WindowLimits {
+                    page: PageLimits::new(records, 1024 * 1024).expect("limits"),
+                    unread: Some(unread),
+                },
+            )
+            .expect("a page")
+    };
+    let numbers = |w: &interweave_human_store::WindowPage| -> Vec<u32> {
+        w.page.items.iter().map(|r| number(&r.payload)).collect()
+    };
+    let at_room = window(64, 3);
+    assert_eq!(numbers(&at_room), [6, 5, 4, 3]);
+    assert!(at_room.room_used, "7 is unread, and no room for it");
+
+    let at_records = window(3, 3);
+    assert_eq!(numbers(&at_records), [6, 5, 4]);
+    assert!(at_records.page.next.is_some());
+    assert!(
+        !at_records.room_used,
+        "the kept row 3 is next, not an unread"
+    );
+
+    assert!(window(64, 0).room_used, "an empty page with no room");
+    let whole = window(64, 64);
+    assert!(whole.page.next.is_none() && !whole.room_used);
 }
 
 /// A first page opened with no unread room left, in either order: it

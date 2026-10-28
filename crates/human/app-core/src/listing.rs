@@ -8,11 +8,17 @@ use interweave_human_chat_protocol::{
     CardRoute, Classified, HumanChatV2, classify, decode_envelope_bytes, parse_media_type,
 };
 use interweave_human_client_api::{Destination, Origin, ReceivedCard};
+use std::collections::BTreeMap;
+
 use interweave_human_store::{
-    Cursor, HumanStore, InboundKind, InboundOrigin, OutboundDestination, Page, PageLimits,
-    PendingOutbound, StoreError, StoredInbound,
+    Cursor, HumanStore, InboundKind, InboundOrigin, Order, OutboundDestination, Page, PageLimits,
+    PageRange, PendingOutbound, RowId, StoreConversation, StoreError, StoredInbound, WindowCursor,
+    WindowLimits,
 };
-use interweave_human_ui_model::{ListedInbound, ListedOutbound};
+use interweave_human_ui_model::{
+    ConversationKey, ListedInbound, ListedOutbound, NewestRow, PageAsk, PageEnd, PageMark,
+    PageOrder, PageRows, StoredSummary, Table,
+};
 use interweave_transport_api::MediaType;
 
 use crate::protocol::Listing;
@@ -55,11 +61,166 @@ pub fn kind_of(row: &StoredInbound) -> InboundKind {
 ///
 /// # Errors
 /// The store's; the kinds and their version are then as they were.
-pub(crate) fn reclassify_if_stale(store: &mut HumanStore) -> Result<(), StoreError> {
+/// Each row classified is one read, counted in `read`.
+pub(crate) fn reclassify_if_stale(
+    store: &mut HumanStore,
+    read: &mut u64,
+) -> Result<(), StoreError> {
     if store.inbound_kind_version()?.as_deref() == Some(INBOUND_KIND_VERSION) {
         return Ok(());
     }
-    store.reclassify_inbound(INBOUND_KIND_VERSION, kind_of)
+    store.reclassify_inbound(INBOUND_KIND_VERSION, |row| {
+        *read += 1;
+        kind_of(row)
+    })
+}
+
+/// Every pending row, decoded, and how many could not be.
+///
+/// # Errors
+/// The store's, when a page cannot be read.
+pub(crate) fn list_pending(store: &HumanStore) -> Result<(Vec<ListedOutbound>, usize), StoreError> {
+    let mut pending = Vec::new();
+    let mut undecodable = 0;
+    for row in walk(|after| store.pending_outbound_page(after, limits()))? {
+        match outbound(&row) {
+            Some(listed) => pending.push(listed),
+            None => undecodable += 1,
+        }
+    }
+    Ok((pending, undecodable))
+}
+
+/// What the Chats list needs of the store at a start, read without any
+/// conversation's rows (design/2026-10-27-start-window.md section 3).
+pub(crate) struct Summarised {
+    /// Each conversation's count and newest row.
+    pub(crate) summaries: Vec<StoredSummary>,
+    /// The unread table's high-water mark, read with the counts.
+    pub(crate) counted_through: Option<RowId>,
+    /// The rows the store gave: one per conversation, its newest.
+    pub(crate) read: u64,
+}
+
+/// Every conversation the store shows a row of, with its unread count and
+/// its newest row: counts from the indexes, and one row read per
+/// conversation. The facade alone writes the store and this runs on its
+/// side, so no commit falls between the counts and the mark.
+///
+/// # Errors
+/// The store's, when a count or a row cannot be read.
+pub(crate) fn summaries(store: &HumanStore) -> Result<Summarised, StoreError> {
+    let counts: BTreeMap<StoreConversation, u64> = store
+        .unread_counts()?
+        .into_iter()
+        .map(|c| (c.conversation, c.unread))
+        .collect();
+    let counted_through = store.unread_high_water()?;
+    let newest_only = PageLimits::new(1, PAGE_BYTES).unwrap_or_else(|_| unreachable!());
+    let mut summaries = Vec::new();
+    let mut read = 0;
+    for conversation in store.shown_conversations()? {
+        let page = store.conversation_page(&conversation, None, newest_only)?;
+        read += u64::try_from(page.items.len()).unwrap_or(u64::MAX);
+        let newest = page.items.first().and_then(|row| {
+            let table = if row.kept_at.is_some() {
+                Table::Kept
+            } else {
+                Table::Unread
+            };
+            if let Some(message) = inbound(row) {
+                Some(NewestRow::message(
+                    table,
+                    row.row_id,
+                    row.received_at,
+                    &message.envelope.text,
+                ))
+            } else {
+                card(row).map(|_| NewestRow::card(row.row_id, row.received_at))
+            }
+        });
+        summaries.push(StoredSummary {
+            unread: counts.get(&conversation).copied().unwrap_or(0),
+            conversation: match conversation {
+                StoreConversation::Direct { peer, endpoint } => ConversationKey::Direct {
+                    peer,
+                    endpoint: Some(endpoint),
+                },
+                StoreConversation::Channel(channel) => ConversationKey::Channel(channel),
+            },
+            newest,
+        });
+    }
+    Ok(Summarised {
+        summaries,
+        counted_through,
+        read,
+    })
+}
+
+/// One page of the open conversation as `ask` names it: its rows decoded,
+/// each table apart, its cards as proposals, and whether more remain -- at
+/// the unread room said apart, since the limit row shows only then -- with
+/// how many rows the store gave.
+///
+/// # Errors
+/// The store's, when the page or a proposal's context cannot be read.
+pub(crate) fn page(store: &HumanStore, ask: PageAsk) -> Result<(PageRows, u64), StoreError> {
+    let mut rows = PageRows {
+        ask,
+        unread: Vec::new(),
+        kept: Vec::new(),
+        proposals: Vec::new(),
+        end: PageEnd::Exhausted,
+    };
+    let conversation = match &rows.ask.conversation {
+        ConversationKey::Direct {
+            peer,
+            endpoint: Some(endpoint),
+        } => StoreConversation::Direct {
+            peer: peer.clone(),
+            endpoint: endpoint.clone(),
+        },
+        ConversationKey::Channel(channel) => StoreConversation::Channel(channel.clone()),
+        // The peer's default endpoint: no stored row is under it, since
+        // each records the endpoint its sender asserted.
+        ConversationKey::Direct { endpoint: None, .. } => return Ok((rows, 0)),
+    };
+    let cursor = |m: PageMark| WindowCursor::at(m.received_at, m.kept, m.row);
+    let window = store.conversation_window(
+        &conversation,
+        PageRange {
+            older_than: rows.ask.older_than.map(cursor),
+            newer_than: rows.ask.newer_than.map(cursor),
+        },
+        match rows.ask.order {
+            PageOrder::NewestFirst => Order::NewestFirst,
+            PageOrder::OldestFirst => Order::OldestFirst,
+        },
+        WindowLimits {
+            page: limits(),
+            unread: rows.ask.unread_room,
+        },
+    )?;
+    let read = u64::try_from(window.page.items.len()).unwrap_or(u64::MAX);
+    rows.end = match (window.page.next, window.room_used) {
+        (None, _) => PageEnd::Exhausted,
+        (Some(_), true) => PageEnd::RoomUsed,
+        (Some(_), false) => PageEnd::More,
+    };
+    // A page holds the kinds this build shows, by the same steps as these
+    // (`kind_of`, classified again at the start when another build made
+    // them), so no row of it is left out here.
+    for row in window.page.items {
+        if row.kept_at.is_some() {
+            rows.kept.extend(inbound(&row));
+        } else if let Some(message) = inbound(&row) {
+            rows.unread.push(message);
+        } else if let Some(card) = card(&row) {
+            rows.proposals.push(crate::cards::proposal(store, card)?);
+        }
+    }
+    Ok((rows, read))
 }
 
 /// Every pending, unread and kept row, decoded.
@@ -68,12 +229,9 @@ pub(crate) fn reclassify_if_stale(store: &mut HumanStore) -> Result<(), StoreErr
 /// The store's, when a page cannot be read.
 pub(crate) fn list_all(store: &HumanStore) -> Result<Listing, StoreError> {
     let mut listing = Listing::default();
-    for row in walk(|after| store.pending_outbound_page(after, limits()))? {
-        match outbound(&row) {
-            Some(listed) => listing.pending.push(listed),
-            None => listing.undecodable_other += 1,
-        }
-    }
+    let (pending, undecodable) = list_pending(store)?;
+    listing.pending = pending;
+    listing.undecodable_other = undecodable;
     let (unread, cards, undecodable) = list_unread(store)?;
     listing.unread = unread;
     listing.undecodable_unread = undecodable;
@@ -280,7 +438,7 @@ mod tests {
         store
             .commit_unread_inbound(&row(2, b"no envelope"))
             .expect("a row this build cannot show");
-        reclassify_if_stale(&mut store).expect("classified");
+        reclassify_if_stale(&mut store, &mut 0).expect("classified");
         let kinds: Vec<_> = store
             .unread_inbound()
             .expect("read")
