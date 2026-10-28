@@ -632,9 +632,6 @@ impl Cards {
             .collect()
     }
 
-    /// A row was marked read: if it is a proposal's, it is shown now.
-    /// Past [`READ_PROPOSAL_CAP`], the oldest read one goes: the store no
-    /// longer holds it, and the facade no longer holds its copy either.
     /// The conversation of a proposal held unread: `None` once it was read,
     /// or for a row no proposal is.
     pub(super) fn unread_conversation(&self, row: RowId) -> Option<ConversationKey> {
@@ -647,6 +644,9 @@ impl Cards {
             })
     }
 
+    /// A row was marked read: if it is a proposal's, it is shown now.
+    /// Past [`READ_PROPOSAL_CAP`], the oldest read one goes: the store no
+    /// longer holds it, and the facade no longer holds its copy either.
     pub(super) fn read(&mut self, row: RowId) {
         if self.proposals.contains_key(&row) && self.read.insert(row) {
             self.read_order.push_back(row);
