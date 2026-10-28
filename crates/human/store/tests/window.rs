@@ -283,6 +283,34 @@ fn an_unread_row_is_read_by_its_id_while_it_is_unread() {
     );
 }
 
+/// The unread table's high-water mark is the highest id it ever gave: none
+/// before its first row, unmoved when that row is read and gone, and below
+/// every row committed after it. Mutation: the highest id still unread
+/// (`MAX(row_id)`), which falls back once the newest row is read.
+#[test]
+fn the_unread_high_water_mark_is_the_highest_id_ever_given() {
+    let (_dir, mut store) = store();
+    assert_eq!(store.unread_high_water().expect("read"), None);
+    let first = store
+        .commit_unread_inbound(&direct(1, P, 1, InboundKind::Text))
+        .expect("committed");
+    let second = store
+        .commit_unread_inbound(&direct(2, P, 2, InboundKind::Card))
+        .expect("committed");
+    assert_eq!(store.unread_high_water().expect("read"), Some(second));
+    store.mark_read(second, 3).expect("read");
+    assert_eq!(
+        store.unread_high_water().expect("read"),
+        Some(second),
+        "a read row's id is not given again"
+    );
+    let third = store
+        .commit_unread_inbound(&direct(3, P, 4, InboundKind::Text))
+        .expect("committed");
+    assert!(third > second && second > first);
+    assert_eq!(store.unread_high_water().expect("read"), Some(third));
+}
+
 /// The fixture the range tests share: in P's conversation, unread rows
 /// 1..=6 at times 10..=60, then row 3 read and kept, and unread row 7 at
 /// 30 beside it, so the kept row shares an instant with an unread one.

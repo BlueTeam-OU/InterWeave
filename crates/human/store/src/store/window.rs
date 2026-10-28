@@ -595,6 +595,28 @@ impl HumanStore {
         })
     }
 
+    /// The highest row id the unread table ever gave, `None` before its
+    /// first row: every row committed unread so far has an id at or below
+    /// it, read or not, since the table's ids are `AUTOINCREMENT` and never
+    /// given twice. Read with the counts at a start, it tells a row the
+    /// counts already hold from one committed after them, whenever either
+    /// is handed over (design section 3: a badge counts each row once).
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn unread_high_water(&self) -> Result<Option<RowId>, StoreError> {
+        use rusqlite::OptionalExtension as _;
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'unread_inbound'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .map(RowId::from_stored))
+    }
+
     /// One unread row by its id, if it is still unread.
     ///
     /// # Errors
