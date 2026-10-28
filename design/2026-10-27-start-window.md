@@ -148,8 +148,13 @@ Evidence and hypotheses behind the choices below:
   up to the row and byte budget; a closed conversation holds none of
   its stored rows in memory, only its summary (a preview line, a time,
   a count). Starting the app loads summaries and the pending rows, and
-  no conversation's window. One conversation's backlog never pushes
-  another conversation's stored rows out of the list or its window.
+  no conversation's window. One conversation's backlog never takes
+  another conversation out of the list, never changes another's badge
+  or preview, and never takes from another a row the person can see:
+  the held-row ceiling may release another conversation's held rows
+  (§5.1), and they come back when the person reaches them, nothing of
+  them lost (rust-ui-dev-02's QUESTION 01a180cb, which read this
+  sentence so).
   The session bound on read rows is shared (§1), and paging may push
   another conversation's read rows past it only by the person's
   choice (§7.1).
