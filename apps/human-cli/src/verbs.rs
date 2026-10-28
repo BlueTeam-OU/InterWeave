@@ -122,7 +122,8 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         | Verb::SetDefault(_)
         | Verb::StoreHealth
         | Verb::StoreDiscard(_)
-        | Verb::PeersShow => Err(Failure::Refused(
+        | Verb::PeersShow
+        | Verb::PeersState => Err(Failure::Refused(
             "this verb does not run through the session".to_owned(),
         )),
     }

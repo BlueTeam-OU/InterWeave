@@ -226,6 +226,7 @@ fn run(
         verb,
         cli::Verb::PeersList
             | cli::Verb::PeersShow
+            | cli::Verb::PeersState
             | cli::Verb::PeerAdd(_)
             | cli::Verb::PeerAddList(_)
             | cli::Verb::PeerRemove(_)

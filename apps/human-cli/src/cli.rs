@@ -52,6 +52,7 @@ usage:
   interweave-human --profile <name> peers add|remove <address>
   interweave-human --profile <name> peers add -|--file <file>
   interweave-human --profile <name> peers show [--json]
+  interweave-human --profile <name> peers state [--json]
 
   --wait <ms>   how long to wait for the session and for an answer
                 (default 5000)
@@ -223,6 +224,9 @@ pub(crate) enum Verb {
     /// This node's own addresses, as another node's `peers add` takes
     /// them (ADR-0062 decision 4).
     PeersShow,
+    /// Each trusted peer's state as the daemon's dial gate holds it:
+    /// whether it is connected, and when it was last seen.
+    PeersState,
     /// Add a peer by address, as the person typed it.
     PeerAdd(String),
     /// Add several addresses, all or none, one per line.
@@ -526,6 +530,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         ),
         ["peers"] => (Verb::PeersList, true),
         ["peers", "show"] => (Verb::PeersShow, true),
+        ["peers", "state"] => (Verb::PeersState, true),
         ["peers", "add"] if flags.file.is_some() => (
             Verb::PeerAddList(ListSource::File(
                 flags.file.take().unwrap_or_default().into(),
@@ -708,6 +713,8 @@ mod tests {
             ],
             &["--profile", "p", "store", "discard", "--json"],
             &["--profile", "p", "peers", "show", "--json"],
+            &["--profile", "p", "peers", "state", "--json"],
+            &["--profile", "p", "peers", "state"],
             &[
                 "--profile",
                 "p",
@@ -803,6 +810,7 @@ mod tests {
             "contacts route delete",
             "peers add|remove",
             "peers add -|--file",
+            "peers state",
         ] {
             assert!(USAGE.contains(word), "{word} in the usage");
         }

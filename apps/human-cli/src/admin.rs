@@ -15,7 +15,7 @@ use std::io::Read as _;
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_local_client_api::{
     AddressChange, AddressSource, AddressesChange, AdminBinding as _, AdminCapability,
-    AdminPort as _, MAX_ADDRESSES_PER_ADD, OwnAddresses,
+    AdminPort as _, MAX_ADDRESSES_PER_ADD, OwnAddresses, PeerGateView, PeerLastSeen,
 };
 use interweave_profile_config::ProfileLock;
 use interweave_transport_api::{EndpointId, TransportError};
@@ -225,11 +225,32 @@ pub(crate) async fn peers(
         },
         CLIENT_KIND,
     );
-    let port = match binding.admin([AdminCapability::Peers].into()).await {
+    // A trusted peer's state is the dial gate's, read under
+    // `admin.status` (`admin.peers.list`, IPC 2.2); the addresses are
+    // `admin.peers`'.
+    let capability = if matches!(verb, Verb::PeersState) {
+        AdminCapability::Status
+    } else {
+        AdminCapability::Peers
+    };
+    let port = match binding.admin([capability].into()).await {
         Ok(port) => port,
         Err(TransportError::BackendUnavailable) => return Err(unreachable(profile)),
         Err(e) => return Err(refused(e)),
     };
+    if matches!(verb, Verb::PeersState) {
+        let rows = match port.peers().await {
+            Ok(rows) => rows,
+            Err(TransportError::ProtocolUnsupported) => {
+                return Err(Failure::Refused(
+                    "the daemon does not list its peers (IPC 2.2): is it older?".to_owned(),
+                ));
+            }
+            Err(e) => return Err(refused(e)),
+        };
+        out.push_str(&peer_states(&rows, json));
+        return Ok(());
+    }
     if !port.port().holds(AdminCapability::Peers) {
         return Err(Failure::Refused(
             "the daemon does not grant the peers capability (IPC 2.7): is it older?".to_owned(),
@@ -293,6 +314,45 @@ pub(crate) async fn peers(
         _ => return Err(Failure::Refused("not a peers verb".to_owned())),
     }
     Ok(())
+}
+
+/// Each trusted peer's state, one line per row the daemon's allowlist
+/// gives, in its order: whether a connection to it is open, and when one
+/// last was. `last_seen_ms` is `null` both when the daemon never saw the
+/// peer and when it does not say, and `"last_seen": "unreported"` tells
+/// the second apart, so a reader needs no IPC version to know which.
+pub(crate) fn peer_states(rows: &[PeerGateView], json: bool) -> String {
+    let mut out = String::new();
+    for row in rows {
+        let last_seen_ms = match row.last_seen {
+            PeerLastSeen::At(ms) => Some(ms),
+            PeerLastSeen::Never | PeerLastSeen::Unreported => None,
+        };
+        if json {
+            let mut line = json!({
+                "peer": row.peer.as_str(),
+                "connected": row.connected,
+                "last_seen_ms": last_seen_ms,
+            });
+            if row.last_seen == PeerLastSeen::Unreported {
+                line["last_seen"] = json!("unreported");
+            }
+            out.push_str(&output::json_line(&line));
+        } else {
+            let state = match (row.connected, row.last_seen) {
+                (true, _) => "connected".to_owned(),
+                (false, PeerLastSeen::At(ms)) => {
+                    format!("not connected, last seen {}", output::utc(ms))
+                }
+                (false, PeerLastSeen::Never) => "not connected, last seen never".to_owned(),
+                (false, PeerLastSeen::Unreported) => {
+                    "not connected, last seen not reported by this daemon".to_owned()
+                }
+            };
+            let _ = writeln!(out, "{}  {state}", row.peer.as_str());
+        }
+    }
+    out
 }
 
 /// Carry out an `identities` verb.
@@ -398,6 +458,67 @@ pub(crate) async fn identities(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn gate_row(n: u8, connected: bool, last_seen: PeerLastSeen) -> PeerGateView {
+        PeerGateView {
+            peer: interweave_transport_api::TransportIdentity::parse(match n {
+                1 => "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+                2 => "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5",
+                _ => "12D3KooWNr33yB9DMXYfmRj3A8PXa2zmEKV2BVsdLALW8yQNcxT9",
+            })
+            .expect("a PeerId"),
+            connected,
+            last_seen,
+            backoff_until: None,
+            quarantined_until: None,
+            route_held_until: None,
+            last_outcome: None,
+        }
+    }
+
+    /// Each trusted peer is one line: connected or not, and when last seen
+    /// -- a time, never, or not reported -- with never and not reported
+    /// told apart in the JSON whatever the daemon's IPC version, by the
+    /// `last_seen` member the second alone carries. Mutations: the member
+    /// added for never too; a connected peer's time printed as its state.
+    #[test]
+    fn each_trusted_peer_says_whether_it_is_connected_and_when_it_was_last_seen() {
+        let rows = [
+            gate_row(1, true, PeerLastSeen::At(1_786_600_000_000)),
+            gate_row(2, false, PeerLastSeen::Never),
+            gate_row(3, false, PeerLastSeen::Unreported),
+        ];
+        let lines: Vec<serde_json::Value> = peer_states(&rows, true)
+            .lines()
+            .map(|l| serde_json::from_str(l).expect("a JSON line"))
+            .collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0]["connected"], true);
+        assert_eq!(lines[0]["last_seen_ms"], 1_786_600_000_000_u64);
+        assert!(lines[0].get("last_seen").is_none());
+        assert_eq!(lines[1]["last_seen_ms"], serde_json::Value::Null);
+        assert!(
+            lines[1].get("last_seen").is_none(),
+            "never is no unreported"
+        );
+        assert_eq!(lines[2]["last_seen_ms"], serde_json::Value::Null);
+        assert_eq!(lines[2]["last_seen"], "unreported");
+
+        let text = peer_states(&rows, false);
+        let text: Vec<&str> = text.lines().collect();
+        assert!(text[0].ends_with("  connected"), "{}", text[0]);
+        assert!(
+            text[1].ends_with("  not connected, last seen never"),
+            "{}",
+            text[1]
+        );
+        assert!(text[2].contains("not reported"), "{}", text[2]);
+        let seen = peer_states(
+            &[gate_row(1, false, PeerLastSeen::At(1_786_600_000_000))],
+            false,
+        );
+        assert!(seen.contains("not connected, last seen 2026-"), "{seen}");
+    }
 
     #[test]
     fn an_address_refusal_names_its_rule_and_not_the_detail() {
