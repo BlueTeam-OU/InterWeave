@@ -24,6 +24,7 @@ mod order;
 mod peers;
 mod picker;
 mod presence;
+pub mod preview;
 mod store_recovery;
 mod trust;
 mod waiting;

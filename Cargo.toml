@@ -223,6 +223,10 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 # NFC for the card's name and surname, the form their bounds are checked
 # and signed in. Already in the graph via bip39.
 unicode-normalization = { version = "0.1", default-features = false, features = ["std"] }
+# Grapheme clusters, to cut a Chats preview at 160 characters as a person
+# counts them (design/2026-10-27-start-window.md section 3). unicode-rs,
+# MIT/Apache-2.0, already in the graph through the Slint toolkit.
+unicode-segmentation = { version = "1.13", default-features = false }
 # The card's names refuse format characters (Cf), which no std predicate
 # names. Already in the graph via jsonschema; Apache-2.0, no dependencies.
 unicode-general-category = "1.1"

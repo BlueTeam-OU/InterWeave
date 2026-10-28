@@ -3788,6 +3788,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
