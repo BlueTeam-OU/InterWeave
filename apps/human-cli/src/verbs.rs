@@ -892,9 +892,6 @@ fn outbound_fields(row: RowId, status: &ItemStatus) -> serde_json::Value {
     })
 }
 
-/// The `message` event of unread row `row`, naming `local_endpoint` as
-/// the endpoint that received it, or `None` when the model does not
-/// show the row.
 /// The conversation the item named `name` (`u<row>`, `p<row>`) is in.
 fn conversation_of_item<B: DataSessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
@@ -947,6 +944,9 @@ fn listen_about<B: DataSessionBinding, A: AdminBinding>(
     })
 }
 
+/// The `message` event of unread row `row`, naming `local_endpoint` as
+/// the endpoint that received it, or `None` when the model does not
+/// show the row.
 fn message_line<B: DataSessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
     row: RowId,
