@@ -239,12 +239,10 @@ async fn a_failed_dial_schedules_a_retry_that_is_not_yet_due() {
     let mut runtime =
         SwarmRuntime::start(&subject, SubstrateConfig::default(), trusting(&peer)).expect("starts");
 
-    // A port nothing listens on: bound, read, released.
-    let closed: Multiaddr = {
-        let socket = std::net::TcpListener::bind("127.0.0.1:0").expect("binds");
-        let port = socket.local_addr().expect("bound").port();
-        format!("/ip4/127.0.0.1/tcp/{port}").parse().expect("valid")
-    };
+    // A port nothing listens on, and none of another test's port-0
+    // listeners can take while this one dials it.
+    let port = interweave_test_support::net::free_port(std::net::Ipv4Addr::LOCALHOST);
+    let closed: Multiaddr = format!("/ip4/127.0.0.1/tcp/{port}").parse().expect("valid");
     runtime
         .dial(peer.clone(), closed)
         .await
