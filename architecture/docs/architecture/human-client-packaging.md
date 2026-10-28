@@ -103,7 +103,7 @@ No platform converts crashes into a durable **transport** inbox. Human applicati
 
 A release candidate tests at least:
 
-- Windows/macOS/Linux install, upgrade, rollback, daemon start/stop/autostart and IPC ACLs — the Windows rows conditional on the Windows binding, carried to Stage 19 by the plan's §21 decided (5) and §22 (the owner's word, 2026-10-11): until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android;
+- Linux install, upgrade, rollback, daemon start/stop/autostart and IPC ACLs — the Windows rows conditional on the Windows binding, carried to Stage 19 by the plan's §21 decided (5) and §22 (the owner's word, 2026-10-11), and the Windows and macOS rows postponed indefinitely on the owner's word of 2026-10-28 (plan §22), an option after the whole plan is complete: the standard-v1 release matrix is Linux and Android;
 - Android install/upgrade/process death/background/foreground/network change and Keystore behavior;
 - Android secure recovery screens, in-app mnemonic picker/no-clipboard policy, backup/data-extraction exclusions, and device-to-device reinstall/restore behavior;
 - one desktop human + Claude shared profile routing;
