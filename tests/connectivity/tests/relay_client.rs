@@ -164,8 +164,9 @@ where
 }
 
 /// Where a relay that is down is configured, and where one comes back
-/// up: a port nothing listens on, which stays that way until this test
-/// binds it.
+/// up: a port nothing listens on when it is answered, and one that
+/// another test's listener does not take in the meantime -- within what
+/// `free_port` closes, below.
 ///
 /// NOT A PORT-0 BIND RELEASED. Another process's port-0 listener can
 /// take a released port, and under a runner that gives each test its own
@@ -175,10 +176,13 @@ where
 /// are about (merge-group run 40676203372 of #501: "Unexpected peer ID"
 /// at the released port, 30 s into
 /// `a_relay_that_is_also_a_data_plane_peer_is_still_retried_by_the_reconnect_scheduler`).
-/// `free_port` answers below the kernel's port-0 range and holds a claim
-/// on what it answers, so no port-0 bind and no other `free_port` caller
-/// gets the port (`net::tests::free_port_answers_below_the_port_0_range`,
-/// `free_port_holds_the_claim_on_what_it_answers`).
+/// `free_port` answers below the kernel's port-0 range, so no port-0 bind
+/// lands on it (`net::tests::free_port_answers_below_the_port_0_range`),
+/// and holds a claim on it that every other `free_port` caller of this
+/// account and `TMPDIR` is refused
+/// (`a_port_another_process_claims_is_refused_until_it_ends`). What it
+/// does not close -- another account, a fixed-port bind -- is in its own
+/// documentation.
 fn down_relay_address() -> Multiaddr {
     format!(
         "/ip4/127.0.0.1/tcp/{}",
