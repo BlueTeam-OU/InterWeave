@@ -72,6 +72,7 @@ mod endpoints;
 mod handle;
 mod held_sends;
 pub mod kademlia_driver;
+mod last_seen;
 pub mod mdns_driver;
 mod messages;
 mod network_change;
@@ -1711,6 +1712,9 @@ impl SwarmRuntime {
         // Identify's addresses refused for want of a private listener,
         // judged again when rule 3's boundary widens.
         let mut held_back = dialing::HeldBack::default();
+        // When each peer's last retained connection closed, for the
+        // peer-gate photograph's `last_seen_ms`.
+        let mut last_seen = last_seen::LastSeen::default();
         // The IP set this host is known to hold, for section 14's
         // network change (step 10): the listeners' and the platform's.
         let mut network = network_change::NetworkSet::publishing_to(held_listeners);
@@ -2574,12 +2578,18 @@ impl SwarmRuntime {
                                 // a row reads on the wall's.
                                 let (now, wall) = (now_ms(started), wall_ms());
                                 let on_wall = |until: u64| wall.saturating_add(until.saturating_sub(now));
+                                // A deadline is ahead of `now`, a sighting
+                                // behind it: each needs its own direction,
+                                // since `on_wall` reads a past time as now.
+                                let was_on_wall = |at: u64| wall.saturating_sub(now.saturating_sub(at));
                                 let rows = peers
                                     .into_iter()
                                     .map(|peer| {
                                         let held = manager.peer_gate_state(&peer, now);
+                                        let connected = open.values().any(|c| c.peer == peer);
                                         PeerGate {
-                                            connected: open.values().any(|c| c.peer == peer),
+                                            connected,
+                                            last_seen_ms: last_seen.at(&peer, connected, now).map(was_on_wall),
                                             backoff_until_ms: held.backoff_until_ms.map(on_wall),
                                             quarantined_until_ms: held.quarantined_until_ms.map(on_wall),
                                             route_held_until_ms: held.route_held_until_ms.map(on_wall),
@@ -3140,6 +3150,7 @@ impl SwarmRuntime {
                             &infrastructure_origin,
                             &mut advertised,
                             &mut held_back,
+                            &mut last_seen,
                             settled_at,
                         );
                         // An inbound connection the ceiling cannot

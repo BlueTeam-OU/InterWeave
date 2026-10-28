@@ -1140,6 +1140,7 @@ pub(super) fn settle_outcome(
     infrastructure_origin: &InfrastructureOrigin<'_>,
     boundary: &mut AdvertisedBoundary<'_>,
     held_back: &mut HeldBack,
+    last_seen: &mut super::last_seen::LastSeen,
     now_ms: u64,
 ) -> Announce {
     match event {
@@ -1301,6 +1302,7 @@ pub(super) fn settle_outcome(
                 return Announce::Suppress;
             };
             manager.record_connection_closed(connection.slot);
+            last_seen.closed(&connection.peer, now_ms);
             held_back.closed(&connection.peer, open);
         }
         Libp2pSwarmEvent::OutgoingConnectionError {
