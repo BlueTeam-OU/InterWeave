@@ -70,12 +70,9 @@ async fn a_refused_dial_is_classed_and_its_retry_is_reported_with_its_delay() {
     );
     let mut subject =
         SwarmRuntime::start(&id, SubstrateConfig::default(), trusting(&[&target])).expect("starts");
-    // A port nothing listens on: bound and released.
-    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
-        .expect("binds")
-        .local_addr()
-        .expect("an address")
-        .port();
+    // A port nothing listens on, and none of another test's port-0
+    // listeners can take while this one dials it.
+    let port = interweave_test_support::net::free_port(std::net::Ipv4Addr::LOCALHOST);
     let address: Multiaddr = format!("/ip4/127.0.0.1/tcp/{port}").parse().expect("valid");
     subject
         .dial(target.clone(), address)
