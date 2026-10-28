@@ -50,8 +50,10 @@ pub const PATIENCE: Duration = Duration::from_secs(30);
 /// ADR-0066); unset, the workspace's build beside the test, as always.
 /// A suite that also starts a program the archive's `bin/` does not
 /// hold from the workspace (`tests/desktop-e2e`'s `claude_channel.rs`
-/// and `user_units.rs`) would pair it with the package's daemon, so the
-/// release check sets it for `tests/automated-client` alone.
+/// and `user_units.rs`) would pair it with the package's daemon, so
+/// [`workspace_binary`] refuses while it is set, and the release check
+/// sets it for `tests/automated-client` alone
+/// (`packaging/linux/evidence/2026-10-28-v0.2.0-release-check.md`).
 pub const PACKAGE_BIN: &str = "INTERWEAVE_PACKAGE_BIN";
 
 /// `name` from the package [`PACKAGE_BIN`] names, else the workspace's
@@ -78,7 +80,7 @@ fn binary_in(dir: Option<&std::ffi::OsStr>, name: &str, package: &str) -> PathBu
             );
             bin
         }
-        None => workspace_binary(name, package),
+        None => beside_this_test(name, package),
     }
 }
 
@@ -97,7 +99,28 @@ pub fn transportctl_binary() -> PathBuf {
 /// A workspace binary beside this test's own: cargo builds each package's
 /// binary for its integration tests, so a workspace test run leaves both
 /// there.
+///
+/// # Panics
+/// While [`PACKAGE_BIN`] names a package: a run against a package that
+/// started a workspace program beside it would test neither build.
 pub fn workspace_binary(name: &str, package: &str) -> PathBuf {
+    refuse_beside_a_package(std::env::var_os(PACKAGE_BIN).as_deref(), name);
+    beside_this_test(name, package)
+}
+
+/// [`workspace_binary`]'s refusal, with the variable's value given.
+fn refuse_beside_a_package(package_bin: Option<&std::ffi::OsStr>, name: &str) {
+    if let Some(dir) = package_bin {
+        panic!(
+            "{PACKAGE_BIN} names {}, so this run tests that package, and {name} would be the \
+             workspace's build beside it: run this suite with {PACKAGE_BIN} unset",
+            Path::new(dir).display()
+        );
+    }
+}
+
+/// The workspace's `name` beside the running test, the variable unread.
+fn beside_this_test(name: &str, package: &str) -> PathBuf {
     let exe = std::env::current_exe().expect("this test's path");
     // target/<profile>/deps/<test> -> target/<profile>/<name>
     let bin = exe
@@ -627,7 +650,60 @@ pub fn schema_validator(relative: &str) -> jsonschema::Validator {
 mod tests {
     use std::io::Write as _;
 
-    use super::{binary_in, create_fresh, new_daemon_log, private_tempdir};
+    use super::{
+        binary_in, create_fresh, new_daemon_log, private_tempdir, refuse_beside_a_package,
+    };
+
+    /// With no package named, a workspace program is not refused.
+    #[test]
+    fn a_workspace_program_is_allowed_with_no_package_named() {
+        refuse_beside_a_package(None, "claude-channel");
+    }
+
+    /// The helper [`workspace_binary_refuses_under_a_package`] runs in a
+    /// child process of its own, the variable set there and nowhere else.
+    #[test]
+    #[ignore = "run by workspace_binary_refuses_under_a_package, never alone"]
+    fn workspace_binary_under_a_package_helper() {
+        assert!(
+            std::env::var_os(super::PACKAGE_BIN).is_some(),
+            "run only by workspace_binary_refuses_under_a_package"
+        );
+        let _ = super::workspace_binary("claude-channel", "interweave-claude-channel");
+    }
+
+    /// `workspace_binary` itself, not only its helper, refuses while the
+    /// variable names a package: this test binary is run again with it set,
+    /// the helper case alone, and its failure must be the refusal.
+    #[test]
+    fn workspace_binary_refuses_under_a_package() {
+        let out = std::process::Command::new(std::env::current_exe().expect("this binary"))
+            .args([
+                "--exact",
+                "e2e::tests::workspace_binary_under_a_package_helper",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env(super::PACKAGE_BIN, "/opt/interweave-package/bin")
+            .output()
+            .expect("the helper runs");
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "the helper passed: {said}");
+        assert!(
+            said.contains("so this run tests that package, and claude-channel would be"),
+            "the helper failed, but not on the refusal: {said}"
+        );
+    }
+
+    /// A run against a package never starts a workspace program beside it.
+    #[test]
+    #[should_panic(expected = "run this suite with INTERWEAVE_PACKAGE_BIN unset")]
+    fn a_workspace_program_is_refused_while_a_package_is_named() {
+        refuse_beside_a_package(
+            Some(std::ffi::OsStr::new("/opt/interweave/bin")),
+            "claude-channel",
+        );
+    }
 
     /// A package that holds the program is where it is taken from.
     #[test]
