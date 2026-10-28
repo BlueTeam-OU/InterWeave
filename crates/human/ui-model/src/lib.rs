@@ -34,7 +34,7 @@ pub use identity_flow::{
 /// The store row an intent names, as the model hands it to a view.
 pub use interweave_human_core::RowId;
 pub use labels::{
-    ErrorClass, HostText, LabelKey, RuntimeHost, UiText, attention_class, fill, isolated,
+    ErrorClass, HostText, LabelKey, RuntimeHost, UiText, attention_class, by_count, fill, isolated,
     outbound_label, placeholder_en, send_error_class, send_problem_class, session_problem_class,
     short_peer, visible_destination,
 };
