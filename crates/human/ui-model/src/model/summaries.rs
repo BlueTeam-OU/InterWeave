@@ -55,14 +55,15 @@ pub(super) struct Summaries {
     /// The unread table's high-water mark when the counts were read: a row
     /// at or below it is in them already, though handed over after them.
     counted_through: Option<RowId>,
-    /// The highest row the drain has handed over since. The facade commits
-    /// and hands over unread rows in id order (its held rows first, oldest
-    /// first, then the session's), so a row at or below it was handed
-    /// over and counted then -- one that overflowed is the relist's.
+    /// The highest row the drain has handed over since. A page leaves a row
+    /// at or below it to the drain: handed over, the drain counted it; not
+    /// yet, the drain counts it when it comes. Neither needs the drain to
+    /// hand rows over in any order.
     handed_through: Option<RowId>,
     /// Rows a page brought and counted before the drain handed them over:
-    /// the drain counts them no more. Each leaves once the drain is past it,
-    /// so it holds only rows committed and not yet handed over.
+    /// the drain counts them no more. A row leaves when the drain hands it
+    /// over, or at a relist's re-base, so it holds only rows committed and
+    /// not handed over yet.
     paged_first: BTreeSet<RowId>,
 }
 
@@ -90,8 +91,6 @@ impl Summaries {
     pub(super) fn handed_over(&mut self, row: RowId) -> bool {
         self.handed_through = self.handed_through.max(Some(row));
         let paged = self.paged_first.remove(&row);
-        let handed = self.handed_through;
-        self.paged_first.retain(|r| Some(*r) > handed);
         self.above_mark(row) && !paged
     }
 
@@ -524,22 +523,36 @@ mod tests {
         assert_eq!(listed(&model, P).unread, 3);
     }
 
-    /// A row a page counted first leaves the set once the drain is past
-    /// it, handed over or not: the set holds only rows committed and not
-    /// handed over yet. Mutation: the rows the drain passed kept.
+    /// Each row counts once whatever order the drain hands rows over in:
+    /// a row a page counted first is not counted by the drain even after a
+    /// newer row came first, and leaves the set when it is handed over; a
+    /// row at or below the highest handed over that a page brings is left
+    /// to the drain, which counts it once when it comes (#501 review F4).
+    /// Mutations: the set trimmed past the highest row handed over; a
+    /// handed-over row left in the set.
     #[test]
-    fn a_paged_row_leaves_once_the_drain_is_past_it() {
+    fn a_row_counts_once_whatever_order_the_drain_hands_rows_over_in() {
         let mut summaries = super::Summaries::of(Vec::new(), Some(RowId::from_stored(10)));
         assert!(summaries.paged(RowId::from_stored(11)));
-        assert!(summaries.paged(RowId::from_stored(13)));
-        assert!(!summaries.paged(RowId::from_stored(13)), "once");
-        assert!(summaries.handed_over(RowId::from_stored(12)));
-        assert_eq!(
-            summaries.paged_first.iter().copied().collect::<Vec<_>>(),
-            [RowId::from_stored(13)],
-            "11, passed but never handed over, is gone"
+        assert!(!summaries.paged(RowId::from_stored(11)), "once");
+        assert!(
+            summaries.handed_over(RowId::from_stored(13)),
+            "newer, first"
         );
-        assert!(!summaries.handed_over(RowId::from_stored(13)));
+        assert!(
+            !summaries.handed_over(RowId::from_stored(11)),
+            "the page counted it"
+        );
+        assert!(summaries.paged_first.is_empty(), "handed over, it leaves");
+
+        assert!(
+            !summaries.paged(RowId::from_stored(12)),
+            "below 13: the drain's"
+        );
+        assert!(
+            summaries.handed_over(RowId::from_stored(12)),
+            "counted when it comes"
+        );
         assert!(summaries.paged_first.is_empty());
     }
 
