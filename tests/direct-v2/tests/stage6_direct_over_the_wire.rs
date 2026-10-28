@@ -1934,12 +1934,10 @@ async fn restart_case(step4: Step4) {
         .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
         .await
         .expect("the sender listens");
-    // A port nothing listens on yet: bound and released.
-    let port = std::net::TcpListener::bind((ip, 0))
-        .expect("binds")
-        .local_addr()
-        .expect("an address")
-        .port();
+    // A port nothing listens on yet, and that no other test's port-0
+    // listener can take before the receiver does
+    // (`interweave_test_support::net::free_port`).
+    let port = interweave_test_support::net::free_port(ip);
     let receiver_address = format!("/ip4/{ip}/tcp/{port}");
     assert_eq!(
         sender
