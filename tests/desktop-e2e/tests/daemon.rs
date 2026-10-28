@@ -1624,7 +1624,8 @@ async fn a_peers_restart_is_in_the_connectivity_log_and_third_party_debug_is_not
 /// A trusts and never saw reads `null`. `transportctl peers list` says
 /// the same in words. A connection that negotiated 2.11 is served the
 /// 1.1 row, with no `last_seen_ms` at all -- and its control, the same
-/// request at 2.12 on the same daemon, carries it.
+/// request at 2.12 on the same daemon, carries it. And a restart forgets:
+/// A started again, B still down, reads `null` for the B it had seen.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the_1_1_row() {
     let ip = interweave_test_support::net::require_private_interface_v4();
@@ -1795,6 +1796,17 @@ async fn peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the
         }
     }
 
+    // A restart forgets: B, seen before it, reads `null` after it.
+    assert!(a_daemon.terminate().await.success(), "{}", a_daemon.log());
+    let mut a_daemon = a.start(&[]);
+    a_daemon.serving(&a).await;
+    let after = &rows(&a)[b_peer.as_str()];
+    assert_eq!(after["connected"], false, "{after}");
+    assert_eq!(
+        after.get("last_seen_ms"),
+        Some(&serde_json::Value::Null),
+        "a restart keeps no record: {after}"
+    );
     assert!(a_daemon.terminate().await.success(), "{}", a_daemon.log());
 }
 
