@@ -735,3 +735,53 @@ fn the_focused_the_in_view_and_the_newest_are_never_let_go() {
         assert!(holds(&model, r, Table::Kept), "row {r} stays");
     }
 }
+
+/// The summary with its newest row at `row`.
+fn newest_at(unread: u64, row: i64) -> Vec<StoredSummary> {
+    vec![StoredSummary {
+        conversation: conversation(),
+        unread,
+        newest: Some(NewestRow {
+            table: Table::Unread,
+            row: RowId::from_stored(row),
+            received_at: u64::try_from(row).expect("small"),
+            preview: cut("newest"),
+            card: false,
+        }),
+    }]
+}
+
+/// Asked again after the facade could not hand rows over, the store's
+/// newest row of the open conversation is one its window never held --
+/// newer than all it did, and no edge reads newer rows -- so the window
+/// opens again at the newest row; a newest row it held -- a card that
+/// arrived while it was open among them -- or one older (the newer ones
+/// read and gone) leaves the window as it is. Mutations: the re-base
+/// leaving the open window alone whatever the store holds; every re-base
+/// opening it again; an arrived card not counted as held.
+#[test]
+fn rows_never_handed_over_open_the_window_again_at_the_newest() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+
+    model.summaries_listed(newest_at(2, 1_000), None);
+    assert!(model.take_page_asks().is_empty(), "the newest is held");
+    model.summaries_listed(newest_at(1, 999), None);
+    assert!(model.take_page_asks().is_empty(), "an older newest");
+
+    // A card that arrived while open is held too.
+    let mut arrived = card(RowId::from_stored(1_001), P);
+    arrived.received_at = 1_001;
+    model.card_arrived(arrived);
+    model.summaries_listed(newest_at(3, 1_001), None);
+    assert!(model.take_page_asks().is_empty(), "the card is held");
+
+    model.summaries_listed(newest_at(5, 1_003), None);
+    let again = one_ask(&mut model);
+    assert_eq!((again.older_than, again.newer_than), (None, None));
+    assert!(again.seq > ask.seq, "a new opening");
+    model.page_arrived(page(&again, &[1_001, 1_002, 1_003], PageEnd::More));
+    assert!(model.len() >= 3, "the rows never handed over are held");
+}

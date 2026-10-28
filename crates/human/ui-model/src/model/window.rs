@@ -289,6 +289,9 @@ struct Window {
     /// Each run of the conversation's rows the session bound dropped, by
     /// the item it stands directly above (`None`: below every item).
     runs: BTreeMap<Option<ItemKey>, u64>,
+    /// The newest place of any stored row this opening held, a card's
+    /// included: a stored row newer than it was never handed over.
+    newest_seen: Option<PageMark>,
 }
 
 impl Window {
@@ -366,6 +369,23 @@ impl Windows {
         if let Some(window) = self.open.as_mut() {
             window.marks.insert((table, row), mark);
         }
+        self.seen(mark);
+    }
+
+    /// The open conversation held a stored row at `mark`.
+    pub(super) fn seen(&mut self, mark: PageMark) {
+        if let Some(window) = self.open.as_mut() {
+            window.newest_seen = window.newest_seen.max(Some(mark));
+        }
+    }
+
+    /// Whether the open conversation is `conversation` and the store holds
+    /// a row of it at `newest` that it never held: newer than every one it
+    /// did, so one the facade could not hand over.
+    pub(super) fn missed(&self, conversation: &ConversationKey, newest: PageMark) -> bool {
+        self.open
+            .as_ref()
+            .is_some_and(|w| &w.conversation == conversation && w.newest_seen < Some(newest))
     }
 
     /// A row of the open conversation is no longer a held stored row: read,
@@ -423,6 +443,7 @@ impl UiModel {
                     focused: None,
                     in_view: Vec::new(),
                     runs: BTreeMap::new(),
+                    newest_seen: None,
                 });
                 // The opening reads its window at once, not covered by the
                 // limit row (sections 4 and 7.1).
@@ -554,6 +575,9 @@ impl UiModel {
         self.kept_listed(page.kept);
         for proposal in page.proposals {
             self.card_received(proposal);
+        }
+        if let Some(newest) = newest {
+            self.windows.seen(newest);
         }
         // Each message row the model now holds has its place; a proposal is
         // not an item, and the ceiling counts items' rows.

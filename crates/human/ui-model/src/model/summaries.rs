@@ -189,13 +189,38 @@ impl UiModel {
 
     /// The summaries asked again -- the store said rows are waiting there:
     /// every count and newest row re-based on the store's, and on its mark.
+    /// The open conversation's rows the facade could not hand over are
+    /// newer than any its window held, and no edge reads newer rows: when
+    /// the store's newest is one of them the window opens again, at the
+    /// newest row, as any opening does (design section 4).
     pub fn summaries_listed(
         &mut self,
         summaries: Vec<StoredSummary>,
         counted_through: Option<RowId>,
     ) {
-        if self.windowed.is_some() {
-            self.windowed = Some(Summaries::of(summaries, counted_through));
+        if self.windowed.is_none() {
+            return;
+        }
+        let summaries = Summaries::of(summaries, counted_through);
+        let missed = self.windows.open_conversation().cloned().filter(|open| {
+            summaries
+                .by
+                .get(open)
+                .and_then(|s| s.newest.as_ref())
+                .is_some_and(|n| {
+                    self.windows.missed(
+                        open,
+                        super::window::PageMark {
+                            received_at: n.received_at,
+                            kept: n.table == Table::Kept,
+                            row: n.row,
+                        },
+                    )
+                })
+        });
+        self.windowed = Some(summaries);
+        if let Some(open) = missed {
+            self.window_input(super::window::WindowInput::Opened(open));
         }
     }
 
