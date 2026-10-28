@@ -18,3 +18,20 @@ With ADR-0063 A 2026-10-21: Remove of an added identity deletes
 its key file and its Keystore alias beside the endpoint, the
 conversations, the contacts and the card, since the key is the
 identity's; a counterparty keeps the contact it accepted.
+
+### Amendment 2026-10-28 — An identity's EndpointId is derived from its key, and trust is per identity
+
+ADR-0067, the owner's direction of 2026-10-28: a user identity is an
+endpoint whose EndpointId is derived from its own Ed25519 key pair as
+the PeerId is from the node's, the same for every endpoint kind, and
+trust is per identity. Decision 1 read "a configured EndpointId of the
+profile together with the card" and "one trust set"; it now reads a key
+pair with a derived id and a transport trust set that is the union of
+the identities' own. Decision 2's "configuring an endpoint" is
+generating its key. Decision 7's rename changes the card and the local
+alias, never the id, and a new identity on a freed alias has a new key
+and id. Decision 8's automated endpoint is a key the deployment mints.
+Decision 5 (what two identities share) and decision 9 (one identity at
+a time) are unchanged; the Trust screen is the identity in front's
+under decision 9. Propagation: the Status line; decisions 1, 2, 7, 8;
+this note; the log row; the digest entry.

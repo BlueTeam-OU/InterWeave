@@ -7049,7 +7049,7 @@ on every direct message exist and are tested.
 
 ### Activate
 
-No new crate. The work lands in `crates/human/app-core`,
+First, and in p2p-network-dev's lane as its own PR, ADR-0067 (A 2026-10-28): the `EndpointId` type and grammar derived from the endpoint's key as the PeerId is from the node's, every fixture family that carries an EndpointId regenerated, the profile's endpoint entry by key reference with its local alias and the loader's derivation and refusals, `transportctl endpoint init` and `endpoints list`, the trust methods' endpoint dimension (an IPC minor under ADR-0017, the text architect-cto's) and the union-of-endpoints `PeerTrustPolicy` with per-endpoint `inbound`/`outbound` as the rule — nothing below is built against a label, and the release that carries it is the next MINOR, the fleet re-rendered with keys at the update (the owner's word of 2026-10-28). Then, no new crate. The work lands in `crates/human/app-core`,
 `crates/human/ui-model`, `crates/human/ui-slint`, `crates/human/store`
 (the §Logical tables review: `conversation_index.local_endpoint_id`,
 `contacts.local_endpoint_id` and `contact_routes.local_endpoint_id` with

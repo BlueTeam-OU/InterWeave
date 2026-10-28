@@ -18,27 +18,27 @@ PeerId P
   +-- EndpointId "automation.build"
 ```
 
-`EndpointId` is a routing selector inside the node. It is **not** a second PeerId, a human identity, an organizational role, or an authorization proof.
+`EndpointId` is a routing selector inside the node. It is **not** a second PeerId, an organizational role, or an authorization proof. Since ADR-0067 (A 2026-10-28) it is the name of the endpoint's own key pair, derived as a PeerId is; the names in the diagram are the endpoints' local aliases, never what the wire carries.
 
 ## EndpointId
 
-Canonical grammar:
+**An EndpointId is derived from the endpoint's own Ed25519 public key exactly as a PeerId is from the node's** (ADR-0067, A 2026-10-28): the libp2p identity multihash over the protobuf-encoded public key, written in the canonical base58btc text. Canonical grammar, the PeerId's:
 
 ```regex
-^[a-z][a-z0-9._-]{0,63}$
+^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}$
 ```
 
 Rules:
 
-- ASCII only, 1..64 bytes;
-- case-sensitive, lowercase canonical form;
-- stable while configured, but not cryptographically derived;
+- 52 ASCII bytes, under every 64-byte ceiling the label grammar met (`ipc/hello`, the payload budgets), so no ceiling moves;
+- case-sensitive, one canonical form: the text is a base58btc number, compared byte for byte;
+- derived, never chosen: an id written by hand in a configuration or an administrative add is refused as `EndpointIdNotDerived`, and the daemon or embedded host derives every id from the key the entry names at load;
+- unique by construction within a node and across nodes — two equal ids are one key;
 - no wildcard endpoint exists;
 - no endpoint may be addressed as a broadcast substitute;
-- endpoint IDs are peer-asserted routing metadata when received from the network;
-- a remote `source_endpoint` proves only that the authenticated PeerId claimed that route label.
+- endpoint IDs are peer-asserted routing metadata when received from the network: a remote `source_endpoint` proves that the authenticated PeerId claimed that endpoint, and a signature under the endpoint's key — a contact card's (HUMAN-CHAT.md §Contact card), whose key the receiver checks derives the endpoint — proves the key behind it.
 
-Suggested endpoint IDs such as `human` and `claude` are conventions, not reserved semantics. The complete network route is therefore `EndpointAddress = (TransportIdentity, EndpointId)`; EndpointId uniqueness is required only inside one profile/PeerId.
+The grammar before ADR-0067 — `^[a-z][a-z0-9._-]{0,63}$`, a lowercase ASCII label of 1 to 64 bytes, "stable while configured, but not cryptographically derived" — is retired without a compatibility window on the owner's word, since no installed base exists: the endpoint-id schema's `1.0.0` stays the wire until the release that builds Stage 22 (plan §30), whose batch writes `2.0.0` with this grammar (an `approved` target until served, ADR-0049) and regenerates every fixture family that carries an EndpointId. What a person or an operator types to pick an endpoint — `human`, `claude`, `fabric-control` — is a **local alias** of the configuration entry and of the clients' command lines: it never reaches the wire, is unique only within the profile and proves nothing. The complete network route is `EndpointAddress = (TransportIdentity, EndpointId)`.
 
 ## Configured endpoint set
 
@@ -48,16 +48,19 @@ Conceptually:
 
 ```text
 EndpointConfig {
-  id: EndpointId
+  key: reference to the endpoint's sealed key file   -- <state_dir>/endpoint-keys/<EndpointId>.key, ADR-0067; the id is derived from it at load
+  alias: local display name, never on the wire       -- ADR-0067
   enabled: bool
   advertise: bool
   allowed_client_kinds: bounded list[string]
-  inbound: inherit_profile_trust | static_subset[PeerId]
-  outbound: inherit_profile_trust | static_subset[PeerId]
+  inbound: static_subset[PeerId]                      -- the endpoint's own trusted set, ADR-0067 decision 6
+  outbound: static_subset[PeerId]
 }
 ```
 
-Endpoint policy can only narrow profile trust; it can never authorize a PeerId rejected by `PeerTrustPolicy`.
+Before ADR-0067 the entry carried `id: EndpointId` and `inbound`/`outbound` took `inherit_profile_trust`; an entry by id is refused at load (`EndpointIdNotDerived`), and the endpoint-config schema follows the Stage 22 batch as the endpoint-id schema does. The key is minted where the endpoint is created — by the client on an identity's creation through the administrative add, which takes a key and returns the derived id, or by `transportctl endpoint init --profile <name> [--alias <alias>]` with no daemon, which prints the id for a rendered deployment to record (ADR-0055 decision 4).
+
+**Trust is per endpoint** (ADR-0067 decision 6): each endpoint's `inbound` and `outbound` set is its own trusted set, the person's trust acts being the identity in front's; the profile's `PeerTrustPolicy` is the union of its endpoints' sets, so endpoint policy still never authorizes a PeerId the profile rejects, and a peer trusted by any endpoint may connect while an endpoint that does not trust it refuses its route with the coarse `no_route`. Broadcast admission, subscription and the ingress bucket stay the node's.
 
 `allowed_client_kinds` is an accidental-misbinding guard, not authentication. On desktop the same-OS-user residual threat remains governed by the IPC security model. Android embedded mode treats this field only as in-process configuration hygiene.
 
@@ -312,7 +315,7 @@ Endpoint-directory protocol versioning is independent from direct protocol versi
 - disconnect makes the endpoint unavailable immediately and creates no queue;
 - peer-only destination resolves exactly one configured default endpoint;
 - no default -> coarse remote `no_route`;
-- endpoint-specific allowlist can narrow but never widen profile trust;
+- endpoint-specific allowlist is the endpoint's own trusted set and never widens profile trust, which is the union of the endpoints' sets (ADR-0067);
 - source endpoint is taken from the local-session lease, not caller-controlled payload/params;
 - reply routes back to the original remote source endpoint;
 - stale reply token never falls back to another local route;
