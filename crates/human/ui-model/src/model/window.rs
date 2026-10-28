@@ -742,7 +742,15 @@ impl UiModel {
                 return;
             }
             let order = self.conversation_order(&conversation);
-            let Some(newest) = order.last().copied() else {
+            // The newest item holding a stored row, not the newest item: a
+            // message sent here is newer and holds none, and below the
+            // newest stored row no edge reads rows back.
+            let Some(newest) = order
+                .iter()
+                .rev()
+                .find(|k| held.iter().any(|(h, _)| h == *k))
+                .copied()
+            else {
                 return;
             };
             let place = focused
@@ -778,37 +786,43 @@ impl UiModel {
             let Some((_, _, key, rows)) = victim else {
                 return;
             };
-            self.let_go_item(key, &rows);
+            if !self.let_go_item(key, &rows) {
+                return;
+            }
         }
     }
 
     /// Let go of one held item's stored rows, keeping the window's top and
     /// gaps true: below every other held row, the top moves down to the
     /// oldest one left; between held rows, the rows join a gap, merged with
-    /// a neighbour's.
-    fn let_go_item(&mut self, key: ItemKey, rows: &[(Table, RowId)]) {
+    /// a neighbour's. False, and the item kept, when no held row is newer:
+    /// rows let go there would have no side to be read back from.
+    fn let_go_item(&mut self, key: ItemKey, rows: &[(Table, RowId)]) -> bool {
         let Some(window) = self.windows.open.as_mut() else {
-            return;
+            return false;
         };
         let mut unread = 0;
-        let mut gone: Vec<PageMark> = Vec::new();
+        let gone: Vec<PageMark> = rows
+            .iter()
+            .filter_map(|r| window.marks.get(r).copied())
+            .collect();
+        let (Some(low), Some(high)) = (gone.iter().min().copied(), gone.iter().max().copied())
+        else {
+            self.drop_items(&[key]);
+            return true;
+        };
+        let above = window.marks.values().filter(|m| **m < low).max().copied();
+        let Some(below) = window.marks.values().filter(|m| **m > high).min().copied() else {
+            return false;
+        };
         for (table, row) in rows {
-            if let Some(mark) = window.marks.remove(&(*table, *row)) {
-                gone.push(mark);
-            }
+            window.marks.remove(&(*table, *row));
             if *table == Table::Unread {
                 unread += 1;
             }
         }
-        let (Some(low), Some(high)) = (gone.iter().min().copied(), gone.iter().max().copied())
-        else {
-            self.drop_items(&[key]);
-            return;
-        };
-        let above = window.marks.values().filter(|m| **m < low).max().copied();
-        let below = window.marks.values().filter(|m| **m > high).min().copied();
-        match (above, below) {
-            (None, Some(below)) => {
+        match above {
+            None => {
                 // At the top: the edge moves down to the oldest row left,
                 // and the rows let go are older than it, loaded again from
                 // there.
@@ -828,7 +842,7 @@ impl UiModel {
                     window.gaps.remove(&id);
                 }
             }
-            (Some(above), Some(below)) => {
+            Some(above) => {
                 let touching: Vec<u64> = window
                     .gaps
                     .iter()
@@ -854,11 +868,9 @@ impl UiModel {
                 window.next_gap += 1;
                 window.gaps.insert(window.next_gap, merged);
             }
-            // The newest row is never let go, so there is always a row
-            // below: these cannot happen, and nothing is done.
-            (_, None) => {}
         }
         self.drop_items(&[key]);
+        true
     }
 
     /// The open conversation's items that hold a stored row, with those

@@ -831,3 +831,42 @@ fn a_row_counts_once_whether_the_drain_or_a_page_brings_it_first() {
     handed(&mut model, 1_004);
     assert_eq!(unread(&model), 5);
 }
+
+/// With a message sent in the conversation as its newest item, the ceiling
+/// still never lets the newest stored row go, and the rows it does let go
+/// leave a gap: no edge reads rows newer than the newest one held, so
+/// rows let go below it would be out of reach until the conversation is
+/// opened again. Mutation: the newest item, not the newest stored item,
+/// kept by the ceiling.
+#[test]
+fn a_sent_message_newest_leaves_the_newest_stored_row_held() {
+    use super::HELD_ROW_CAP;
+    use interweave_human_client_api::Destination;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = started(u64::try_from(n).expect("small"));
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, 10, Table::Unread);
+    model.sent(
+        RowId::from_stored(1),
+        &Destination::Direct {
+            peer: peer(),
+            endpoint: Some(human()),
+        },
+        row(1).envelope,
+        u64::MAX,
+    );
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &(1..=n).collect::<Vec<_>>(), PageEnd::More));
+    assert!(
+        holds(&model, n, Table::Unread),
+        "the newest stored row stays"
+    );
+    for gone in n - 4..n {
+        assert!(!holds(&model, gone, Table::Unread), "row {gone} let go");
+    }
+    assert_eq!(
+        gap_lines(&model),
+        [4],
+        "into a gap, read back from either side"
+    );
+}
