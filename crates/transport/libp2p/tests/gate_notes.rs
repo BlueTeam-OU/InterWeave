@@ -73,9 +73,10 @@ async fn a_refused_dial_is_classed_and_its_retry_is_reported_with_its_delay() {
     // A port nothing listens on when answered. It is below the kernel's
     // port-0 range, so no other test's port-0 listener lands on it
     // (`net::tests::free_port_answers_below_the_port_0_range`), and
-    // claimed against every other `free_port` caller of this account
-    // (`free_port_holds_the_claim_on_what_it_answers`,
-    // `a_port_another_process_claims_is_refused_until_it_ends`).
+    // claimed against every other `free_port` caller of this account and
+    // `TMPDIR` (`free_port_holds_the_claim_on_what_it_answers`,
+    // `a_port_another_process_claims_is_refused_until_it_ends`). What it
+    // does not close is in `free_port`'s own documentation.
     let port = interweave_test_support::net::free_port(std::net::Ipv4Addr::LOCALHOST);
     let address: Multiaddr = format!("/ip4/127.0.0.1/tcp/{port}").parse().expect("valid");
     subject
