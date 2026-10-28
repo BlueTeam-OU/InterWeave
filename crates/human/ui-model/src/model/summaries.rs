@@ -365,7 +365,7 @@ mod tests {
     fn a_card_counts_in_the_badge_in_the_windowed_mode_only() {
         let mut model = UiModel::new();
         model.started(Vec::new(), Vec::new());
-        model.card_received(card(3, P, 40));
+        model.card_arrived(card(3, P, 40));
         let now = listed(&model, P);
         assert_eq!(now.unread, 1);
         assert!(now.last.card);
@@ -378,11 +378,31 @@ mod tests {
         assert_eq!(listed(&model, P).unread, 0, "read, it leaves the count");
 
         let mut listed_mode = UiModel::new();
-        listed_mode.card_received(card(3, P, 40));
+        listed_mode.card_arrived(card(3, P, 40));
         assert!(
             listed_mode.conversations().is_empty(),
             "the listed mode lists no card"
         );
+    }
+
+    /// A card the store already counts, handed over with a page or a
+    /// listing, is not counted again; read, it leaves the count at zero
+    /// (#498 review F1). Mutation: `card_received` counting as an arrival.
+    #[test]
+    fn a_stored_card_handed_over_is_counted_once() {
+        let mut model = UiModel::new();
+        model.started(
+            Vec::new(),
+            vec![StoredSummary {
+                conversation: direct(P),
+                unread: 1,
+                newest: Some(NewestRow::card(RowId::from_stored(3), 40)),
+            }],
+        );
+        model.card_received(card(3, P, 40));
+        assert_eq!(listed(&model, P).unread, 1);
+        model.read(RowId::from_stored(3));
+        assert_eq!(listed(&model, P).unread, 0);
     }
 
     /// Asked again, the store's summaries replace the counts the session

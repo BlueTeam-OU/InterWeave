@@ -707,8 +707,22 @@ fn card_name(card: &Card) -> String {
 }
 
 impl UiModel {
-    /// A card the facade committed unread, with its context.
+    /// A card the store holds unread, with its context: listed at a start
+    /// or a relist, or read with a conversation's page. In the windowed
+    /// mode it is already among the store's count, so nothing is counted
+    /// (`a_stored_card_handed_over_is_counted_once`); a card the drain just
+    /// committed is [`UiModel::card_arrived`].
     pub fn card_received(&mut self, proposal: Proposal) {
+        self.cards.proposals.insert(proposal.row, proposal);
+    }
+
+    /// A card the drain just committed unread, with its context: as
+    /// [`UiModel::card_received`], and in the windowed mode new to the
+    /// store's count too, so the conversation's badge takes it and it is
+    /// the newest row -- once, a card already held being counted already
+    /// (#498 review F1). The facade hands its drained cards here once it
+    /// starts windowed, the next batch.
+    pub fn card_arrived(&mut self, proposal: Proposal) {
         if let Some(windowed) = self.windowed.as_mut()
             && !self.cards.proposals.contains_key(&proposal.row)
         {
@@ -720,7 +734,7 @@ impl UiModel {
                 super::summaries::NewestRow::card(proposal.row, proposal.received_at),
             );
         }
-        self.cards.proposals.insert(proposal.row, proposal);
+        self.card_received(proposal);
     }
 
     /// A proposal held here, judged again by the facade after a contact
