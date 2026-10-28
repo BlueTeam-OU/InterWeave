@@ -37,7 +37,7 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
 pub(crate) struct ConnectDrawn {
     /// The focus request last carried out, by the model's count.
     focus_seen: u64,
-    /// The model's count of returns whose line is said, as last said.
+    /// The model's count of times the line is said, as last said.
     said_seen: u64,
 }
 
@@ -61,6 +61,10 @@ pub(crate) const fn focus_key(focus: ConnectFocus) -> &'static str {
     }
 }
 
+/// The line's own `focus-key`: nothing asks focus there, the person's
+/// Tab or pointer puts it there.
+const LINE: &str = "connect-line";
+
 /// Where focus goes once Connect is left: Chats' title (§8).
 const CHATS_TITLE: &str = "heading";
 
@@ -71,13 +75,16 @@ pub(crate) fn page_up(model: &UiModel) -> bool {
 
 impl View {
     /// Connect, or nothing once it is left: its page set before Peers is
-    /// drawn, since Peers draws the pages Connect opened. On a return
-    /// from a page that did something §5.1 counts ([`Connect::said`]),
-    /// its line is returned for the render's one announcement -- the same
-    /// words again included: focus goes back to the control that opened
-    /// the page, so the line would otherwise go unheard. A return that
-    /// did nothing counted says nothing, an earlier line still showing
-    /// included (`design/2026-10-22-add-a-peer.md` §5.1).
+    /// drawn, since Peers draws the pages Connect opened. Each time the
+    /// model says the line ([`Connect::said`]) it is returned for the
+    /// render's one announcement: on a return from a page that did
+    /// something §5.1 counts -- the same words again included, since focus
+    /// goes back to the control that opened the page and the line would
+    /// otherwise go unheard -- or under which the line changed, and when a
+    /// late read changes it with no page up. Nothing while a page is up;
+    /// and nothing for a late read with focus on the line itself, whose
+    /// new words are read there as its one announcement
+    /// (`design/2026-10-22-add-a-peer.md` §5.1, §8).
     pub(crate) fn render_connect(&mut self, model: &UiModel) -> Option<String> {
         let Some(connect) = model.connect() else {
             if self.page == Page::Connect {
@@ -122,7 +129,11 @@ impl View {
         }
         self.connect_focus(connect);
         let said = std::mem::replace(&mut self.peer_lists.connect.said_seen, connect.said());
-        line.filter(|_| said != connect.said())
+        // A return finds focus inside the page it closes, never here
+        // (`a_line_changed_under_add_is_said_on_the_return`,
+        // `a_line_changed_under_show_is_said_on_the_return`).
+        let read_in_place = self.window.get_focus_id() == LINE;
+        line.filter(|_| said != connect.said() && !read_in_place)
             .map(|l| placeholder_en::text(line_text(l)).to_owned())
     }
 
