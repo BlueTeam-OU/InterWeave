@@ -66,7 +66,7 @@ Every provider runs `contracts/DISCOVERY-CONFORMANCE.md` tests. Endpoint routing
 11. same dedup key/message ID with different payload/media fingerprint is rejected and not re-delivered;
 12. concurrent matching same-key retries share one in-flight reservation, yield one local enqueue, and all observe the same acceptance/rejection;
 13. same message ID from one peer but two source endpoints produces independent deliveries;
-14. endpoint-specific trust subset narrows but never widens profile trust (from ADR-0067: profile trust is the admission set the transport derives from the operator's list and the identities' overlay sets, so an identity's set is never asserted to be inside the operator's list);
+14. endpoint-specific trust subset narrows but never widens profile trust (from ADR-0067: profile trust is the admission set the transport derives from the operator's list and every endpoint's overlay set, so an identity's set is never asserted to be inside the operator's list);
 15. endpoint lease disconnect immediately removes route and advertised presence;
 16. endpoint directory shows only active advertise=true routes allowed for querying peer;
 17. endpoint directory disabled/unsupported does not break explicit endpoint send;

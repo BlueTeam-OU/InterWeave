@@ -711,7 +711,8 @@ identity, the authored first identity's seeded at the client's first
 run on the release that builds it, and never inherited; and the
 admission set at the connection is derived by the transport at load
 and on every write to either overlay as the union of the operator's
-list and every identity's set, bounded as one set by the FATAL bound
+list and every endpoint's overlay set (an identity's, or any endpoint
+the operator gave one), bounded as one set by the FATAL bound
 above. An endpoint that is no identity reads the operator's list
 unless it carries an authored subset. Two drafts were rejected in
 review: an identity that inherited the list (the authored first

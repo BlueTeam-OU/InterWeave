@@ -44,8 +44,16 @@ Trust changes can be reloaded locally and audited. Removing a peer disconnects i
 
 ## Implementation implications
 
-Define trust-core without discovery/endpoint dependencies. Query profile data-plane trust at connection admission, outbound direct dispatch, GossipSub source validation, Kademlia routing admission, and local MessageReceived admission. A separate normalized connectivity-infrastructure authorization view is consumed only by the root dial/protocol admission path. EndpointRegistry applies only an additional narrowing filter and must never widen PeerTrustPolicy. Emit `TrustPolicyChanged { revision, at }`; when revocation affects a connection also emit `PeerDisconnected { reason_class: policy, ... }`.
+Define trust-core without discovery/endpoint dependencies. Query profile data-plane trust at connection admission, outbound direct dispatch, GossipSub source validation, Kademlia routing admission, and local MessageReceived admission. A separate normalized connectivity-infrastructure authorization view is consumed only by the root dial/protocol admission path. EndpointRegistry applies only an additional narrowing filter and must never widen PeerTrustPolicy — which, since ADR-0067 (A 2026-10-28), is the admission set the composition derives from the operator's list (`config.yaml` plus the trust overlay, ADR-0028) and the endpoint overlay's per-endpoint sets, handed to trust-core as one set with each endpoint's effective set beside it, so trust-core stays free of endpoint dependencies as this rule asks and an endpoint's policy narrows that set. Emit `TrustPolicyChanged { revision, at }`; when revocation affects a connection also emit `PeerDisconnected { reason_class: policy, ... }`.
 
 ## Revisit conditions
 
 Revisit for enterprise scale or usability after designing signed membership/enterprise policy with explicit revocation and protocol-scoped connection semantics.
+
+## Amendments
+
+Full notes: [`history/0012-amendments.md`](./history/0012-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-28 | PeerTrustPolicy is the admission set the composition derives from the operator's list and the endpoint overlay's sets | With ADR-0067 decision 6: the policy trust-core applies is the union of ADR-0028's operator's list and every endpoint's overlay set, derived by the composition and handed over with each endpoint's effective set; trust-core gains no endpoint dependency, the static allowlist stays the operator's, and endpoint policy still only narrows. |

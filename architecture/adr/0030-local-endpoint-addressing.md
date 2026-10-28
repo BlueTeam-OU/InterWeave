@@ -18,7 +18,7 @@ Adopt Model B as transport contract v2:
 - direct protocol v2 carries both required `source_endpoint` and optional `destination_endpoint`;
 - receiver resolves exactly one local endpoint and sends `Accepted` only after enqueue to that endpoint's bounded event queue;
 - no direct local fan-out occurs in v2;
-- endpoint-specific policy may narrow, never widen, profile PeerTrustPolicy;
+- endpoint-specific policy may narrow, never widen, profile PeerTrustPolicy (since ADR-0067, A 2026-10-28, the admission set the transport derives from the operator's list and the endpoint overlay's per-endpoint sets, an endpoint's own set among them);
 - endpoint leases are runtime-only and disappear on IPC disconnect;
 - endpoint identifiers are routing selectors, not an authorization principal; endpoint ACLs remain PeerId-based — above transport, the human client presents one **user identity** per EndpointId it holds, with a display name and a photo (ADR-0061, A 2026-10-21); since ADR-0067 (A 2026-10-28) an EndpointId is no label but the endpoint's own key derived into the PeerId's form, so it names the key a card is signed with, while what the transport authenticates stays the PeerId alone and a remote `source_endpoint` stays peer-asserted until a signature under its key arrives;
 - no daemon-side buffering exists for an unavailable endpoint;

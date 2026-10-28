@@ -26,7 +26,9 @@ now says the identifier names the endpoint's key, still peer-asserted
 on the wire and still no authorization principal; the operational
 sentence about "stable route names such as `human`" now describes local
 aliases. Endpoint policy, which this record let narrow profile trust,
-is the endpoint's own trusted set under ADR-0067 decision 6, the
-profile's policy their union. Propagation: the Status line; the
-decision bullet; Operational implications; this note; the log row; the
+is the endpoint's own trusted set under ADR-0067 decision 6, and
+"profile PeerTrustPolicy" in the narrowing rule is the admission set
+the transport derives from the operator's list and those sets, the
+rule bullet saying so. Propagation: the Status line; the decision
+bullet; the narrowing rule bullet; Operational implications; this note; the log row; the
 digest entry.
