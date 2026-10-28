@@ -696,3 +696,14 @@ alone when the profile authors none, an authored `enabled: false`
 refusing the add — and a composed count above 64 at start is FATAL
 naming the overlay, never truncated; nothing of trust moves. The methods are p2p-network-dev's,
 an IPC minor under ADR-0017, as the endpoint overlay's were.
+
+### Amendment 2026-10-28 — The effective allowlist is the node's admission list of which every endpoint's set is a subset
+
+ADR-0067 decision 6 makes trust per endpoint while keeping this
+record's list as the transport's admission list: an endpoint's
+`inbound`/`outbound` subset is its own trusted set, an endpoint that
+carries none inherits the list (the option ENDPOINTS.md keeps for
+rendered and existing profiles), the human client keeps the list equal
+to the union of its identities' sets, and the FATAL bound above holds
+the union. Propagation: the allowlist sentence; this note; the log row;
+the digest entry.

@@ -6434,7 +6434,7 @@ decision 6.
    card in settings — one per configured endpoint, the `human` endpoint's
    in this stage (ADR-0059 decision 2 as amended, ADR-0061) — signed by
    its key; `contact_routes.identity_key`; the key-change proposal and
-   the fingerprint on the identity and contact pages; "Share a
+   the fingerprint on the identity and contact pages; "Share a (ADR-0067, A 2026-10-28: `endpoint-keys/` from the Stage 22 release, and no key change from it, a different key being another identity.)
    card" on one conversation sending the conversation's identity's card,
    no chooser, never automatic; the received card held as inbound content under
    RETENTION.md, shown as a proposal with the PeerId beside it and the
@@ -6518,7 +6518,7 @@ conversations is the conversation's identity's each time and nothing
 sent names another identity (the two-identity case is §30's gate); a
 card's signature verifies at the receiver and a card replayed from
 another PeerId is malformed; a card with a changed identity key on a
-known route is shown as a key change and accepted only by the person;
+known route is shown as a key change and accepted only by the person; (until the Stage 22 release; from it, ADR-0067 decision 5: another identity)
 the identity key never enters the store, a log, IPC or a backup; a confirmed discard during a stalled rewrite
 removing the plaintext and keeping the key and the complete copy,
 which the next open promotes, the screen listing the plaintext alone;
@@ -7031,12 +7031,14 @@ not yet; the stage still opens on that word alone.
 
 ### Objective
 
-A person holds several user identities on one node, each a configured
-EndpointId with its own display name and photo; the client presents
+A person holds several user identities on one node, each an endpoint
+whose EndpointId is derived from its own key pair (ADR-0067, A
+2026-10-28) with its own display name and photo; the client presents
 them, every conversation speaks as exactly one and says which, a contact
 is one remote identity, and what identities of one node share is said
 on the identity settings and the contact page. Nothing of this touches
-the wire: the PeerId stays the node's one identity, and the counterparty
+the wire but the EndpointId's grammar, which ADR-0067 derives from the
+key in the batch that comes first under Activate: the PeerId stays the node's one identity, and the counterparty
 learns which identity spoke from the `source_endpoint` the direct
 protocol already carries.
 
@@ -7053,7 +7055,7 @@ First, and in p2p-network-dev's lane as its own PR, ADR-0067 (A 2026-10-28): the
 `crates/human/ui-model`, `crates/human/ui-slint`, `crates/human/store`
 (the §Logical tables review: `conversation_index.local_endpoint_id`,
 `contacts.local_endpoint_id` and `contact_routes.local_endpoint_id` with
-existing rows backfilled with `human`, `own_cards` keyed by EndpointId,
+existing rows backfilled with the first identity's EndpointId, the derived one since ADR-0067, `own_cards` keyed by EndpointId,
 one contact per local identity and route), the two
 graphical clients and the command-line client under `apps/`,
 `profile-config` (the Android profile's authored endpoints as a list,

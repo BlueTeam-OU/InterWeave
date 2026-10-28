@@ -31,7 +31,10 @@ the identities' own. Decision 2's "configuring an endpoint" is
 generating its key. Decision 7's rename changes the card and the local
 alias, never the id, and a new identity on a freed alias has a new key
 and id. Decision 8's automated endpoint is a key the deployment mints.
-Decision 5 (what two identities share) and decision 9 (one identity at
-a time) are unchanged; the Trust screen is the identity in front's
-under decision 9. Propagation: the Status line; decisions 1, 2, 7, 8;
-this note; the log row; the digest entry.
+Decision 5's trust sentence — "an identity inherits the node's
+trust" — is replaced by the per-identity set; decision 6's export
+carries key references and no key; decision 9 (one identity at a
+time) is unchanged and the Trust screen is the identity in front's
+under it. Propagation: the Status line; decisions 1, 2, 5, 6, 7, 8
+and the Security implications; this note; the log row; the digest
+entry.

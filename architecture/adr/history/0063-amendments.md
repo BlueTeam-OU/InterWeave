@@ -120,5 +120,7 @@ the proposal, `--accept-key-change` and the replace rule are withdrawn,
 and decision 6's command-line form becomes the creation of a new
 identity. The key-missing state (A 2026-10-24) and the silent first key
 (A 2026-10-27) stand, resolved by a new identity rather than a new key
-under the old name. Propagation: the Status line; decisions 1, 2, 4,
-6; this note; the log row; the digest entry.
+under the old name. Propagation: the Status line; decisions 1, 2, 4, 5,
+6, the Security and Operational implications (each with a tombstone
+in place); this note; the log row; the digest entry; STATE.md's
+`contact_routes` and key-file sentences; the README row.
