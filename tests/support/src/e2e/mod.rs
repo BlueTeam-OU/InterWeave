@@ -660,6 +660,41 @@ mod tests {
         refuse_beside_a_package(None, "claude-channel");
     }
 
+    /// The helper [`workspace_binary_refuses_under_a_package`] runs in a
+    /// child process of its own, the variable set there and nowhere else.
+    #[test]
+    #[ignore = "run by workspace_binary_refuses_under_a_package, never alone"]
+    fn workspace_binary_under_a_package_helper() {
+        assert!(
+            std::env::var_os(super::PACKAGE_BIN).is_some(),
+            "run only by workspace_binary_refuses_under_a_package"
+        );
+        let _ = super::workspace_binary("claude-channel", "interweave-claude-channel");
+    }
+
+    /// `workspace_binary` itself, not only its helper, refuses while the
+    /// variable names a package: this test binary is run again with it set,
+    /// the helper case alone, and its failure must be the refusal.
+    #[test]
+    fn workspace_binary_refuses_under_a_package() {
+        let out = std::process::Command::new(std::env::current_exe().expect("this binary"))
+            .args([
+                "--exact",
+                "e2e::tests::workspace_binary_under_a_package_helper",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env(super::PACKAGE_BIN, "/opt/interweave-package/bin")
+            .output()
+            .expect("the helper runs");
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "the helper passed: {said}");
+        assert!(
+            said.contains("so this run tests that package, and claude-channel would be"),
+            "the helper failed, but not on the refusal: {said}"
+        );
+    }
+
     /// A run against a package never starts a workspace program beside it.
     #[test]
     #[should_panic(expected = "run this suite with INTERWEAVE_PACKAGE_BIN unset")]
