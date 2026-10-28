@@ -11,54 +11,79 @@
 //! ONE THING, the connection's lifetime: not the last frame, which
 //! the muxer sees and nothing above it does, and not the last
 //! establishment, which would read a connection up for a week as a
-//! peer last seen a week ago. Held in memory only: a restart forgets
-//! it, and the row says `null` until the peer connects again.
+//! peer last seen a week ago. Held in memory: a restart forgets it, and
+//! the row says `null` until the peer connects again
+//! (`peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the_1_1_row`
+//! in `tests/desktop-e2e/tests/daemon.rs` restarts the daemon and reads it).
+//!
+//! STAMPED ON THE WALL CLOCK AT THE CLOSE, not converted at each
+//! reading: a monotonic time re-derived as `wall - (now - at)` moves by
+//! a millisecond between two readings (the two clocks truncate
+//! independently) and by any step of the wall clock, so "the moment it
+//! closed" would not be one moment (#503 review F1).
 
 use std::collections::HashMap;
 
 use interweave_transport_api::TransportIdentity;
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 
-/// How many peers [`LastSeen`] remembers. A close is recorded only for
-/// a RETAINED connection, and retention admits only a peer the trust
-/// sources classify -- the allowlist or the infrastructure set -- so
-/// this many is every peer the runtime can hold at once; it is reached
-/// only when the sets churn, and then the peer closed longest ago goes.
+/// How many peers [`LastSeen`] remembers: every peer the trust sources
+/// can classify at once, the allowlist and the infrastructure set.
+///
+/// At the bound a close first forgets every peer the sources no longer
+/// classify, so a classified peer is dropped only when the table holds
+/// this many classified peers -- which no pair of sets reaches. Past
+/// that, the peer closed longest ago goes
+/// (`the_table_is_bounded_and_drops_the_unclassified_first`).
 pub(super) const MAX_LAST_SEEN: usize =
     PeerTrustPolicy::MAX_ALLOWED_PEERS + InfrastructureSet::MAX_ALLOWED_PEERS;
 
-/// The runtime clock's time each peer's last retained connection
-/// closed, bounded by [`MAX_LAST_SEEN`].
+/// The wall-clock time, in milliseconds since the Unix epoch, each
+/// peer's last retained connection closed, bounded by [`MAX_LAST_SEEN`]
+/// (`the_table_is_bounded_and_drops_the_unclassified_first`).
 #[derive(Debug, Default)]
 pub(super) struct LastSeen {
     closed_at_ms: HashMap<TransportIdentity, u64>,
 }
 
 impl LastSeen {
-    /// A retained connection to `peer` closed at `now_ms`. Recorded for
-    /// every close, not only the last of the peer's connections: while
+    /// A retained connection to `peer` closed at `wall_ms`. Recorded for
+    /// every close, not the last of the peer's connections alone: while
     /// another is open the reading says so and takes its own time.
-    pub(super) fn closed(&mut self, peer: &TransportIdentity, now_ms: u64) {
+    /// `classified` says whether the trust sources classify a peer now.
+    pub(super) fn closed(
+        &mut self,
+        peer: &TransportIdentity,
+        wall_ms: u64,
+        classified: impl Fn(&TransportIdentity) -> bool,
+    ) {
         if !self.closed_at_ms.contains_key(peer) && self.closed_at_ms.len() >= MAX_LAST_SEEN {
-            // A scan: reached only by churn past every peer the sets
-            // can hold, so its cost is not the common close's.
-            if let Some(oldest) = self
-                .closed_at_ms
-                .iter()
-                .min_by_key(|(_, at)| **at)
-                .map(|(peer, _)| peer.clone())
+            // Reached by trust churn past the bound and nothing else, so
+            // neither scan is the common close's cost.
+            self.closed_at_ms.retain(|held, _| classified(held));
+            if self.closed_at_ms.len() >= MAX_LAST_SEEN
+                && let Some(oldest) = self
+                    .closed_at_ms
+                    .iter()
+                    .min_by_key(|(_, at)| **at)
+                    .map(|(peer, _)| peer.clone())
             {
                 self.closed_at_ms.remove(&oldest);
             }
         }
-        self.closed_at_ms.insert(peer.clone(), now_ms);
+        self.closed_at_ms.insert(peer.clone(), wall_ms);
     }
 
-    /// When `peer` was last seen on the runtime clock, read at `now_ms`:
-    /// now while `connected`, else its last close, else `None`.
-    pub(super) fn at(&self, peer: &TransportIdentity, connected: bool, now_ms: u64) -> Option<u64> {
+    /// When `peer` was last seen, read at `wall_ms`: then while
+    /// `connected`, else its last close, else `None`.
+    pub(super) fn at(
+        &self,
+        peer: &TransportIdentity,
+        connected: bool,
+        wall_ms: u64,
+    ) -> Option<u64> {
         if connected {
-            Some(now_ms)
+            Some(wall_ms)
         } else {
             self.closed_at_ms.get(peer).copied()
         }
@@ -82,6 +107,10 @@ mod tests {
         TransportIdentity::parse(key.public().to_peer_id().to_base58()).expect("a PeerId")
     }
 
+    fn all(_: &TransportIdentity) -> bool {
+        true
+    }
+
     #[test]
     fn a_peer_reads_now_while_connected_its_close_after_and_none_before() {
         let mut seen = LastSeen::default();
@@ -92,10 +121,11 @@ mod tests {
             Some(60),
             "connected: the reading's time"
         );
-        seen.closed(&p, 70);
+        seen.closed(&p, 70, all);
         assert_eq!(seen.at(&p, false, 90), Some(70), "closed: when it closed");
+        assert_eq!(seen.at(&p, false, 5_000), Some(70), "and it stays put");
         assert_eq!(seen.at(&p, true, 95), Some(95), "connected again");
-        seen.closed(&p, 99);
+        seen.closed(&p, 99, all);
         assert_eq!(seen.at(&p, false, 120), Some(99), "the latest close");
         assert_eq!(
             seen.at(&peer(2), false, 120),
@@ -104,24 +134,47 @@ mod tests {
         );
     }
 
-    /// The bound holds under churn past it, and what goes is the peer
-    /// closed longest ago -- never the one just recorded, nor a peer
-    /// already held being re-recorded.
+    /// The bound holds under churn past it. What goes first is every
+    /// peer no longer classified, so a classified peer closed long ago
+    /// keeps its time (#503 review F2) -- THE CONTROL: with every peer
+    /// classified, the one closed longest ago goes instead. Never the
+    /// one just recorded, nor a held peer being re-recorded.
     #[test]
-    fn the_table_is_bounded_and_drops_the_longest_closed() {
+    fn the_table_is_bounded_and_drops_the_unclassified_first() {
+        let fill = |seen: &mut LastSeen| {
+            for n in 0..u32::try_from(MAX_LAST_SEEN).expect("fits") {
+                seen.closed(&peer(n), u64::from(n), all);
+            }
+        };
+        let (first, late) = (peer(0), peer(u32::MAX));
+
+        // Every held peer but `first` was revoked: they go, it stays.
         let mut seen = LastSeen::default();
-        let first = peer(0);
-        seen.closed(&first, 0);
-        for n in 1..u32::try_from(MAX_LAST_SEEN).expect("fits") {
-            seen.closed(&peer(n), u64::from(n));
-        }
+        fill(&mut seen);
         assert_eq!(seen.len(), MAX_LAST_SEEN);
-        // Re-recording a held peer at the bound evicts nobody.
-        seen.closed(&peer(5), 1_000_000);
-        assert_eq!(seen.len(), MAX_LAST_SEEN);
-        assert_eq!(seen.at(&first, false, 0), Some(0), "nothing evicted yet");
-        let late = peer(u32::MAX);
-        seen.closed(&late, 2_000_000);
+        seen.closed(&peer(5), 1_000_000, |_| false);
+        assert_eq!(
+            seen.len(),
+            MAX_LAST_SEEN,
+            "re-recording a held peer evicts nobody"
+        );
+        seen.closed(&late, 2_000_000, |p| *p == first);
+        assert_eq!(seen.len(), 2, "the unclassified went");
+        assert_eq!(
+            seen.at(&first, false, 0),
+            Some(0),
+            "the classified one kept its time"
+        );
+        assert_eq!(
+            seen.at(&late, false, 0),
+            Some(2_000_000),
+            "the new one kept"
+        );
+
+        // The control: everyone still classified, so the oldest goes.
+        let mut seen = LastSeen::default();
+        fill(&mut seen);
+        seen.closed(&late, 2_000_000, all);
         assert_eq!(seen.len(), MAX_LAST_SEEN, "bounded");
         assert_eq!(seen.at(&first, false, 0), None, "the longest closed went");
         assert_eq!(
@@ -129,6 +182,5 @@ mod tests {
             Some(2_000_000),
             "the new one kept"
         );
-        assert_eq!(seen.at(&peer(5), false, 0), Some(1_000_000));
     }
 }

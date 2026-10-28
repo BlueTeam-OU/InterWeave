@@ -2578,10 +2578,6 @@ impl SwarmRuntime {
                                 // a row reads on the wall's.
                                 let (now, wall) = (now_ms(started), wall_ms());
                                 let on_wall = |until: u64| wall.saturating_add(until.saturating_sub(now));
-                                // A deadline is ahead of `now`, a sighting
-                                // behind it: each needs its own direction,
-                                // since `on_wall` reads a past time as now.
-                                let was_on_wall = |at: u64| wall.saturating_sub(now.saturating_sub(at));
                                 let rows = peers
                                     .into_iter()
                                     .map(|peer| {
@@ -2589,7 +2585,7 @@ impl SwarmRuntime {
                                         let connected = open.values().any(|c| c.peer == peer);
                                         PeerGate {
                                             connected,
-                                            last_seen_ms: last_seen.at(&peer, connected, now).map(was_on_wall),
+                                            last_seen_ms: last_seen.at(&peer, connected, wall),
                                             backoff_until_ms: held.backoff_until_ms.map(on_wall),
                                             quarantined_until_ms: held.quarantined_until_ms.map(on_wall),
                                             route_held_until_ms: held.route_held_until_ms.map(on_wall),

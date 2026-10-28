@@ -1302,7 +1302,9 @@ pub(super) fn settle_outcome(
                 return Announce::Suppress;
             };
             manager.record_connection_closed(connection.slot);
-            last_seen.closed(&connection.peer, now_ms);
+            last_seen.closed(&connection.peer, wall_ms(), |peer| {
+                manager.classify(peer) != ConnectionClass::Unauthorized
+            });
             held_back.closed(&connection.peer, open);
         }
         Libp2pSwarmEvent::OutgoingConnectionError {
