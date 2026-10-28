@@ -526,6 +526,47 @@ fn a_page_keeps_to_its_unread_room() {
     assert_eq!(numbers, [7, 2, 1]);
 }
 
+/// A page says it stopped at its unread room only when it did: the next
+/// row unread and no room for it -- not when it stopped at its records with
+/// the room used up and a kept row next, which the next page takes, nor at
+/// the end. Mutation: the room said used whenever the page took as many
+/// unread rows as its room.
+#[test]
+fn a_page_says_its_room_was_used_only_when_that_stopped_it() {
+    let (_dir, store, conversation) = ranged();
+    let window = |records: usize, unread: usize| {
+        store
+            .conversation_window(
+                &conversation,
+                PageRange::default(),
+                Order::NewestFirst,
+                WindowLimits {
+                    page: PageLimits::new(records, 1024 * 1024).expect("limits"),
+                    unread: Some(unread),
+                },
+            )
+            .expect("a page")
+    };
+    let numbers = |w: &interweave_human_store::WindowPage| -> Vec<u32> {
+        w.page.items.iter().map(|r| number(&r.payload)).collect()
+    };
+    let at_room = window(64, 3);
+    assert_eq!(numbers(&at_room), [6, 5, 4, 3]);
+    assert!(at_room.room_used, "7 is unread, and no room for it");
+
+    let at_records = window(3, 3);
+    assert_eq!(numbers(&at_records), [6, 5, 4]);
+    assert!(at_records.page.next.is_some());
+    assert!(
+        !at_records.room_used,
+        "the kept row 3 is next, not an unread"
+    );
+
+    assert!(window(64, 0).room_used, "an empty page with no room");
+    let whole = window(64, 64);
+    assert!(whole.page.next.is_none() && !whole.room_used);
+}
+
 /// A first page opened with no unread room left, in either order: it
 /// takes no unread row, and its cursor says more remain -- never `None`,
 /// which reads as a finished conversation -- so the pages from it hold
