@@ -1229,6 +1229,16 @@ impl AdminPort for FakeAdmin {
                 PeerGateView {
                     peer: peer.clone(),
                     connected,
+                    // Seen now while paired; a fake keeps no closes.
+                    last_seen: if connected {
+                        interweave_local_client_api::PeerLastSeen::At(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)),
+                        )
+                    } else {
+                        interweave_local_client_api::PeerLastSeen::Never
+                    },
                     backoff_until: None,
                     quarantined_until: None,
                     route_held_until: None,

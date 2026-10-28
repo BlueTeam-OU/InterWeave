@@ -1140,6 +1140,7 @@ pub(super) fn settle_outcome(
     infrastructure_origin: &InfrastructureOrigin<'_>,
     boundary: &mut AdvertisedBoundary<'_>,
     held_back: &mut HeldBack,
+    last_seen: &mut super::last_seen::LastSeen,
     now_ms: u64,
 ) -> Announce {
     match event {
@@ -1301,6 +1302,9 @@ pub(super) fn settle_outcome(
                 return Announce::Suppress;
             };
             manager.record_connection_closed(connection.slot);
+            last_seen.closed(&connection.peer, wall_ms(), |peer| {
+                manager.classify(peer) != ConnectionClass::Unauthorized
+            });
             held_back.closed(&connection.peer, open);
         }
         Libp2pSwarmEvent::OutgoingConnectionError {
@@ -5270,6 +5274,7 @@ mod tests {
             ("handle.rs", include_str!("handle.rs")),
             ("held_sends.rs", include_str!("held_sends.rs")),
             ("kademlia_driver.rs", include_str!("kademlia_driver.rs")),
+            ("last_seen.rs", include_str!("last_seen.rs")),
             ("mdns_driver.rs", include_str!("mdns_driver.rs")),
             ("messages.rs", include_str!("messages.rs")),
             ("mod.rs", include_str!("mod.rs")),
