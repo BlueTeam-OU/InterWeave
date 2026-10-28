@@ -180,7 +180,8 @@ where
 /// lands on it (`net::tests::free_port_answers_below_the_port_0_range`),
 /// and holds a claim on it that every other `free_port` caller of this
 /// account and `TMPDIR` is refused
-/// (`a_port_another_process_claims_is_refused_until_it_ends`). What it
+/// (`free_port_holds_the_claim_on_what_it_answers`,
+/// `a_port_another_process_claims_is_refused_until_it_ends`). What it
 /// does not close -- another account, a fixed-port bind -- is in its own
 /// documentation.
 fn down_relay_address() -> Multiaddr {
@@ -1175,8 +1176,8 @@ async fn an_addition_inside_the_gates_floor_leaves_the_relay_ladder_alone() {
 }
 
 /// What a subject reserving on one static relay that is DOWN -- at
-/// [`down_relay_address`], so nothing listens there -- reports in its
-/// first 45 s:
+/// [`down_relay_address`], where nothing listened when it was answered
+/// -- reports in its first 45 s:
 /// past the gate's 30 s retry delay after the first failed ask, with
 /// room for the scheduler's tick.
 async fn while_the_relay_is_down(
