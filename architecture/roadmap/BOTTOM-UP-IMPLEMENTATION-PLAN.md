@@ -5520,9 +5520,11 @@ needed.
 **(5) Windows is carried to Stage 19 as a named limit** (the owner's
 word, 2026-10-11, the same message): no Windows runner exists, so this
 stage builds neither the named pipe nor its spoofing tests. The
-consequence, decided with it: the standard-v1 release matrix is Linux,
-macOS and Android; §22's `packaging/windows` is conditional on a Windows
-runner and the binding; BSL-1.0 stays admitted nowhere. The alternative
+consequence, decided with it: the standard-v1 release matrix was Linux,
+macOS and Android, and is Linux and Android since the owner's word of
+2026-10-28 (§22: macOS and Windows packaging postponed indefinitely, an
+option after the whole plan is complete); §22's `packaging/windows` is
+conditional on a Windows runner and the binding; BSL-1.0 stays admitted nowhere. The alternative
 — a runner now, and this stage taking the binding plus S9's Windows rows
 — was put to the owner and not taken. §22 carries the item.
 
@@ -5825,7 +5827,10 @@ none is the status value's, which stays on this stage.
   the owner's word of 2026-10-11, and P4 records that word as given, so
   the row's "owed: the owner's word" was stale and now records the carry
   as clause (d) asks, its step cell naming §22's carry and architect-cto
-  as its holder (§22 holds the carries by name). The guard now reads a
+  as its holder (§22 holds the carries by name; since the owner's word
+  of 2026-10-28 the Windows packaging it waits on is postponed
+  indefinitely, an option after the whole plan is complete, so the
+  carry has no date). The guard now reads a
   carried row as not empty: an `owed` item in the shape `owed: … in
   Stage NN (plan section MM)`, every item of the cell, is counted
   carried under `--strict` and labelled so in the plain report, with
@@ -5895,14 +5900,14 @@ architect-cto's, on p2p-network-dev's question with the costs. The Stage 16
 carry (marketplace distribution and `--channels` with a published plugin) was
 unassigned, by name, until rust-services-dev took it on 2026-10-20 (the remit
 of #320; measured on their branch, the §22 line following their verdict). packaging/macos and
-packaging/windows (with the Stage 18 Windows carry below) wait on a lane and a
-host and open on their own record line here: the macOS runtime-directory rule
-is architect-cto's; the macOS runner, the Windows binding and its BSL-1.0
-decision have no building lane until a lane and a host exist, and until then
-architect-cto holds them as carries, by name — the two Activate roots
-`packaging/macos` and `packaging/windows` included — so that no row of this
-stage is nobody's; macOS stays in the v1 matrix and the closing record says what
-became of it. Nothing in
+packaging/windows (with the Stage 18 Windows carry below) are postponed
+indefinitely, the owner's word of 2026-10-28: an option to take up after the
+whole plan is complete, never a row of this stage's close. macOS leaves the
+v1 matrix, which is Linux and Android; the two Activate roots stay landing
+zones; the macOS runtime-directory rule, the macOS runner, the Windows
+binding and its BSL-1.0 decision are held by architect-cto as carries by
+name with no date, so that no row is nobody's, and nothing of this stage
+waits on them. Nothing in
 this stage invents trust, network or application semantics (the rule below).
 The stage closes on the owner's word, as every stage, once every Validate row
 has a green test on `main` or a `limit` naming its reason, every item carried
