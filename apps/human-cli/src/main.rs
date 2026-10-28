@@ -273,14 +273,19 @@ fn run(
         })?;
         let mut session = session::Session::new(facade, move || ProfileLock::is_held(&paths).ok())?;
         let result = if let Some(stop) = stop {
-            let (input, consume) = match verb {
-                cli::Verb::Listen { input, consume } => (*input, *consume),
-                _ => (false, false),
+            let (input, consume, filter) = match verb {
+                cli::Verb::Listen {
+                    input,
+                    consume,
+                    filter,
+                } => (*input, *consume, filter.clone()),
+                _ => (false, false, cli::ListenFilter::default()),
             };
             let mode = verbs::ListenMode {
                 json,
                 consume,
                 input: input.then(stdin_lines),
+                filter,
             };
             verbs::listen(&mut session, mode, &mut std::io::stdout(), stop).await
         } else {

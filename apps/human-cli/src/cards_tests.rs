@@ -480,6 +480,7 @@ async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
     verbs::listen(
         &mut b_run,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: false,
             input: None,
@@ -904,6 +905,7 @@ async fn listen_consume_declines_a_card_held_at_open() {
     verbs::listen(
         &mut b_run,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: true,
             input: None,
@@ -947,6 +949,7 @@ async fn listen_consume_declines_a_card_as_it_arrives() {
     verbs::listen(
         &mut b_run,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: true,
             input: None,
@@ -965,6 +968,53 @@ async fn listen_consume_declines_a_card_as_it_arrives() {
     assert_eq!(cards[0]["status"], "declined", "{out}");
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     assert!(out.is_empty(), "none held: {out}");
+}
+
+/// G7: a card arriving while a `listen --consume` filtered to messages
+/// listens is neither printed nor declined: it stays a proposal, unread.
+/// Mutation: the decline asked for every proposal whatever the filter.
+#[tokio::test]
+async fn a_listen_filtered_to_messages_declines_no_card() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (alice, bob) = (Side::new(a), Side::new(b));
+    let mut b_run = bob.session();
+    run(&mut b_run, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    let mut a_run = alice.session();
+    run(&mut a_run, set("Ada", None), false)
+        .await
+        .1
+        .expect("set");
+    run(&mut a_run, Verb::CardShare(bob.route()), false)
+        .await
+        .1
+        .expect("shared");
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut b_run,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter {
+                events: Some(vec!["message"]),
+                conversation: None,
+            },
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    assert!(
+        !lines(&out).iter().any(|e| e["event"] == "proposal"),
+        "{out}"
+    );
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    assert_eq!(lines(&out).len(), 1, "still held, undeclined: {out}");
 }
 
 /// A message handed over in the same turn as a card is printed once, not
@@ -998,6 +1048,7 @@ async fn a_message_received_with_a_card_is_printed_once() {
     verbs::listen(
         &mut b_run,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: true,
             input: None,

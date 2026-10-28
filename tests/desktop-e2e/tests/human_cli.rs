@@ -663,6 +663,50 @@ async fn peers_state_says_which_trusted_peer_is_connected_and_when_each_was_seen
     b_daemon.terminate().await;
 }
 
+/// `listen --consume --events` run as the binary consumes only what it
+/// prints: B listens for session events alone while A's message arrives,
+/// and the message is not printed and is still unread after (j76, G7).
+/// Mutation: main handing listen no filter.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listen_filtered_to_session_events_leaves_a_message_unread() {
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let to_b = format!("{}/human", b_peer.as_str());
+    let (listener, _stdin) = Listener::with(
+        &b,
+        &["listen", "--json", "--consume", "--events", "session"],
+    );
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    send_accepted(&a, &to_b, "not printed, not read");
+    // Long enough for B's client to have been handed the message.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut printed = Vec::new();
+    while let Ok(line) = listener.lines.try_recv() {
+        printed.push(line);
+    }
+    assert!(
+        printed.iter().all(|l| l["event"] == "session"),
+        "{printed:?}"
+    );
+    listener.stop();
+    let out = human(
+        &b,
+        &["messages", &format!("{}/human", a_peer.as_str()), "--json"],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let rows = lines(&out);
+    assert!(
+        rows.iter()
+            .any(|m| m["text"] == "not printed, not read" && m["status"] == "unread"),
+        "{rows:?}"
+    );
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
 /// Share A's card to `to_b` until B's daemon accepts it, B listening so
 /// its store takes the card: the proposal B hears.
 fn share_heard(a: &Home, b: &Home, to_b: &str) -> Value {

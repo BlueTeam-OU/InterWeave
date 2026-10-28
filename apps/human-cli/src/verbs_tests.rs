@@ -388,6 +388,7 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: false,
             input: None,
@@ -457,6 +458,7 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: false,
             input: Some(input),
@@ -541,6 +543,7 @@ async fn an_input_sends_outbound_event_names_its_problem() {
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: false,
             input: Some(input),
@@ -597,6 +600,7 @@ async fn a_ref_past_its_cap_is_refused_and_one_at_it_is_echoed() {
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: false,
             input: Some(input),
@@ -641,6 +645,7 @@ async fn listen_consume_marks_each_printed_message_read() {
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: true,
             input: None,
@@ -877,6 +882,7 @@ async fn listen_consume_drains_what_the_store_held_unread_at_open() {
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: true,
             input: None,
@@ -950,6 +956,7 @@ async fn a_printed_message_is_read_before_listen_ends() {
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: true,
             input: None,
@@ -983,6 +990,7 @@ async fn a_line_not_written_leaves_its_message_unread() {
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: true,
             input: None,
@@ -1022,6 +1030,7 @@ async fn every_read_the_store_refuses_is_said_by_its_row() {
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: true,
             input: None,
@@ -1087,6 +1096,7 @@ async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
             json: true,
             consume: false,
             input: Some(input),
@@ -1233,4 +1243,117 @@ fn an_over_long_line_is_refused_without_being_held() {
         "peak memory grew {grown} KiB for a {} KiB line",
         LINE >> 10
     );
+}
+
+/// G7: a filtered `listen --consume` consumes only what it prints. A
+/// message arriving in another conversation than `--conversation` names
+/// is not printed and stays unread; one in the conversation named is
+/// printed and read. Mutation: the filter ignored for a message that
+/// arrives.
+#[tokio::test]
+async fn a_filtered_listen_consumes_only_what_it_prints() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    run(
+        &mut alice,
+        send(&to(b.peer()), "not for this filter"),
+        false,
+    )
+    .await
+    .1
+    .expect("sent");
+    let elsewhere = to(&node().peer);
+    let listen = |filter: crate::cli::ListenFilter| verbs::ListenMode {
+        filter,
+        json: true,
+        consume: true,
+        input: None,
+    };
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        listen(crate::cli::ListenFilter {
+            events: None,
+            conversation: Some(elsewhere),
+        }),
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(800)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    assert!(
+        !lines(&out).iter().any(|e| e["event"] == "message"),
+        "{out}"
+    );
+    assert_eq!(
+        store(dir_b.path()).unread_inbound().expect("read").len(),
+        1,
+        "not printed, not read"
+    );
+
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        listen(crate::cli::ListenFilter {
+            events: Some(vec!["message"]),
+            conversation: Some(ConversationKey::Direct {
+                peer: a.peer().clone(),
+                endpoint: None,
+            }),
+        }),
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(800)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    assert!(events.iter().all(|e| e["event"] == "message"), "{out}");
+    assert!(
+        events.iter().any(|e| e["text"] == "not for this filter"),
+        "{out}"
+    );
+    bob.close().await;
+    assert!(
+        store(dir_b.path())
+            .unread_inbound()
+            .expect("read")
+            .is_empty()
+    );
+}
+
+/// G7: `--events` drops the events it does not name, and what the store
+/// held unread at open is drained only if `message` is named: here it is
+/// not, so nothing is printed of it and it stays unread. Mutation: the
+/// drain at open filtered by nothing.
+#[tokio::test]
+async fn a_listen_not_naming_messages_drains_none_of_them() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["held"])).await;
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter {
+                events: Some(vec!["session"]),
+                conversation: None,
+            },
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    assert!(!events.is_empty(), "the session event: {out}");
+    assert!(events.iter().all(|e| e["event"] == "session"), "{out}");
+    bob.close().await;
+    assert_eq!(store(dir_b.path()).unread_inbound().expect("read").len(), 1);
 }
