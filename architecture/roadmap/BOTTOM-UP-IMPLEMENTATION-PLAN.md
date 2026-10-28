@@ -5390,8 +5390,12 @@ the generation before it returns, every facade-to-hub operation
 carries one and is refused unless current, a retired facade finishes
 its accepted commands against the store without publishing and its
 late end makes the newer facade list again, a discard refuses while a
-facade thread is alive. rust-ui-dev-02 builds; until built, the
-restart interleaving above carries this too.
+facade thread is alive — built on #495 (1e5961eb retires the facade
+at the hub, 6483d06f counts the relist owed after its review found
+that unlisting the view dropped the newer facade's own answer, 5c735753
+the store's busy timeout), host-tested with the real embedded runtime
+and not run on a phone, so the restart interleaving above carries this
+too.
 
 ## 21. Stage 18 — full adversarial/security gate
 
@@ -6944,10 +6948,9 @@ owner:
   (`unread_counts`, #489) counted distinct application ids per
   channel, merging two publishers' reuse of one id that the page and
   the model show as two items: architect-cto's STATE.md sentence said
-  so and is corrected (A 2026-10-27 (ii), rows of a decodable kind,
-  one per row); the query and its test change with it in the start
-  window's second batch, before any screen reads the count,
-  rust-ui-dev-02's. `interweave-human send … -` reads stdin whole with
+  so and was corrected (A 2026-10-27 (ii), rows of a decodable kind,
+  one per row); the query and its test changed with it on #492
+  (62d11cb5), before any screen read the count. `interweave-human send … -` reads stdin whole with
   no ceiling before the session opens, and `listen --input` reads
   lines with no line ceiling into an unbounded channel and an
   unbounded waiting queue, so a pipeline can grow the process without
@@ -6956,8 +6959,11 @@ owner:
   `--photo` (read the ceiling plus one byte, refuse), the line ceiling
   derived from the largest legal encoded line as the bridge's host
   input derives its own, an over-long line drained and answered
-  `input-refused`, the channel bounded with the reader blocking on it;
-  rust-ui-dev-02's, the README stating the bounds. And no site orders
+  `input-refused`, the channel bounded with the reader blocking on it —
+  built on #495 (5032e717, 4a5fd290: 256 KiB for `send -`, a
+  1,310,720-byte line ceiling derived from the envelope's decompressed
+  bound, a channel of four; d4a2249a caps a line's `ref` at 256
+  bytes), the README stating the bounds. And no site orders
   contacts under the locale's collation the contact-cards design §6.2
   requires — the Contacts list sorts by Unicode lowercase then code
   point with a contact-id tie the design does not have, the Peers
@@ -6966,8 +6972,12 @@ owner:
   orders that disagree on case: ruled 2026-10-27, human-client-ui.md
   §3 "How contacts are ordered" (one collation function of the model,
   ICU4X's collator, the root order until the localisation contract
-  gives a locale, §6.2's route tie, pages of that order);
-  rust-ui-dev-01 builds, ux-designer-01 revises the add-a-peer note.
+  gives a locale, §6.2's route tie, pages of that order) — built on
+  #494 (c04b4bf1: one `contact_order` in ui-model over ICU4X's
+  collator with a root-only data provider, the four sites moved onto
+  it, the store ordering nothing a person sees; APK +280,080 bytes,
+  Linux archive +711,753 gzip), the rule landed with ux-designer-01's
+  add-a-peer revision on #493.
 - The fresh-pair row's one-sided step in the other direction (B
   trusting first) was not run; which side dialled in its step 3, and
   from which source, is not told apart (the peer cache was on):
