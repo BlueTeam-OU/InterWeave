@@ -14,6 +14,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod body;
 mod connect;
 mod identity_flow;
 mod labels;
