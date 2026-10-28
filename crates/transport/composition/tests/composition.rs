@@ -167,11 +167,7 @@ async fn a_zero_discovery_interval_is_refused_before_anything_starts() {
 /// moment, which is what a caller retrying would meet.
 #[tokio::test]
 async fn a_failed_start_has_released_its_listeners_when_it_returns() {
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("a free port")
-        .local_addr()
-        .expect("its address")
-        .port();
+    let port = interweave_test_support::net::free_port(std::net::Ipv4Addr::LOCALHOST);
     let (identity, _) = id();
     let failed = ComposedRuntime::start(
         &identity,
@@ -687,11 +683,10 @@ async fn a_peers_kademlia_service_survives_a_restart_in_the_cache_and_is_superse
     // ONE ADDRESS FOR B across every run, so the cache never holds a stale
     // one beside the static entry: this test is about the capability
     // evidence, not about which of two routes is dialled first.
-    let b_listen = {
-        let probe = std::net::TcpListener::bind((ip, 0)).expect("a free port");
-        let port = probe.local_addr().expect("bound").port();
-        format!("/ip4/{ip}/tcp/{port}")
-    };
+    let b_listen = format!(
+        "/ip4/{ip}/tcp/{}",
+        interweave_test_support::net::free_port(ip)
+    );
 
     reach_and_record(&a_id, &b_id, &b_listen, &cache, "server", true).await;
 
