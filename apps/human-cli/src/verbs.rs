@@ -122,7 +122,8 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         | Verb::SetDefault(_)
         | Verb::StoreHealth
         | Verb::StoreDiscard(_)
-        | Verb::PeersShow => Err(Failure::Refused(
+        | Verb::PeersShow
+        | Verb::PeersState => Err(Failure::Refused(
             "this verb does not run through the session".to_owned(),
         )),
     }
@@ -891,6 +892,58 @@ fn outbound_fields(row: RowId, status: &ItemStatus) -> serde_json::Value {
     })
 }
 
+/// The conversation the item named `name` (`u<row>`, `p<row>`) is in.
+fn conversation_of_item<B: DataSessionBinding, A: AdminBinding>(
+    s: &Session<B, A>,
+    name: &str,
+) -> Option<ConversationKey> {
+    let model = s.model();
+    let item = model.item_named(name)?;
+    model
+        .conversations()
+        .into_iter()
+        .find(|c| model.messages(&c.key).iter().any(|m| m.key == item))
+        .map(|c| c.key)
+}
+
+/// The event `update` is printed as and what it is about, for `listen`'s
+/// filter: the conversation it names, a peer's event that peer (with no
+/// endpoint), `None` for this node's own. `None` whole for an update that
+/// prints no event.
+fn listen_about<B: DataSessionBinding, A: AdminBinding>(
+    s: &Session<B, A>,
+    update: &Update,
+) -> Option<(&'static str, Option<ConversationKey>)> {
+    let peer = |peer: &TransportIdentity| ConversationKey::Direct {
+        peer: peer.clone(),
+        endpoint: None,
+    };
+    Some(match update {
+        Update::Received(received) => (
+            "message",
+            conversation_of_item(s, &format!("u{}", received.row.get())),
+        ),
+        Update::ReceivedCard(card) => (
+            "proposal",
+            Some(ConversationKey::Direct {
+                peer: card.peer.clone(),
+                endpoint: Some(card.endpoint.clone()),
+            }),
+        ),
+        Update::Client(ClientEvent::Outbound(o)) => (
+            "outbound",
+            conversation_of_item(s, &format!("p{}", o.row.get())),
+        ),
+        Update::Client(ClientEvent::Session(_)) => ("session", None),
+        Update::Client(ClientEvent::Connectivity(_)) => ("connectivity", None),
+        Update::Client(ClientEvent::PeerPath { peer: p, .. }) => ("path", Some(peer(p))),
+        Update::Client(ClientEvent::PeerDisconnected { peer: p }) => {
+            ("disconnected", Some(peer(p)))
+        }
+        _ => return None,
+    })
+}
+
 /// The `message` event of unread row `row`, naming `local_endpoint` as
 /// the endpoint that received it, or `None` when the model does not
 /// show the row.
@@ -936,6 +989,8 @@ pub(crate) struct ListenMode {
     /// closing at EOF ends the input, never listen. Bounded
     /// ([`INPUT_QUEUE`]); listen holds one line taken from it at a time.
     pub(crate) input: Option<tokio::sync::mpsc::Receiver<InputLine>>,
+    /// What is printed, and so consumed (G7).
+    pub(crate) filter: crate::cli::ListenFilter,
 }
 
 /// One line `listen --input` read: its text, or why it could not be read
@@ -1180,6 +1235,7 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         json,
         consume,
         mut input,
+        filter,
     } = mode;
     let mut stop = std::pin::pin!(stop);
     // The one line taken from the input and not yet issued.
@@ -1201,15 +1257,26 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         // stays unread in the store.
         // Each one, by the row it was for: a drain's reads and declines run
         // in one step, and every one refused leaves its row unread
-        // (`every_read_the_store_refuses_is_said_by_its_row`).
+        // (`every_read_the_store_refuses_is_said_by_its_row`). That holds
+        // under a filter too, which drops only the failures that are not
+        // of a row this run printed or asked to decline: those say a
+        // consumption the program was told of did not happen
+        // (`a_refused_read_of_a_printed_message_is_said_whatever_the_filter`).
         for problem in s.side().take_problems() {
-            let row = match &problem {
+            let refused = match &problem {
                 Problem::Command {
                     command: Command::MarkRead(row) | Command::DeclineCard(row),
                     ..
-                } => Some(format!("u{}", row.get())),
+                } => Some(*row),
                 _ => None,
             };
+            let ours = refused.is_some_and(|row| {
+                consumed.printed.contains(&row) || consumed.declining.contains_key(&row)
+            });
+            if !ours && !filter.passes("failed", None) {
+                continue;
+            }
+            let row = refused.map(|row| format!("u{}", row.get()));
             let failure = problem_failure(problem);
             let line = if json {
                 output::json_line(
@@ -1233,6 +1300,19 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         let mut ended: Option<Result<(), Failure>> = None;
         let mut lines: Vec<(String, Option<RowId>)> = Vec::new();
         for update in s.take_updates() {
+            // The filter judges only the events `listen_about` names, so an
+            // `--input` line's first answer and a decline this run asked for
+            // print as before. One named event is exempt: an outbound event
+            // of a row an `--input` line made, which answers that line
+            // whatever the filter
+            // (`an_input_lines_answers_print_whatever_the_filter`).
+            let answers = matches!(
+                &update,
+                Update::Client(ClientEvent::Outbound(o)) if refs.contains_key(&o.row)
+            );
+            let shown = answers
+                || listen_about(s, &update)
+                    .is_none_or(|(event, about)| filter.passes(event, about.as_ref()));
             let line = match &update {
                 Update::Client(ClientEvent::UnreadInStore { .. }) | Update::UnreadListed { .. }
                     if consume =>
@@ -1304,7 +1384,9 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
                 }
                 _ => event_line(s, &update, json),
             };
-            if let Some(line) = line {
+            // Not printed, not consumed: a message the filter leaves out
+            // stays unread (G7).
+            if let Some(line) = line.filter(|_| shown) {
                 let row = match &update {
                     Update::Received(received) if consume => Some(received.row),
                     _ => None,
@@ -1321,15 +1403,22 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
             // (`a_message_received_with_a_card_is_printed_once`).
             let queued: std::collections::HashSet<RowId> =
                 lines.iter().filter_map(|(_, row)| *row).collect();
-            for row in messages.into_iter().filter(|row| !queued.contains(row)) {
+            for row in messages.into_iter().filter(|row| {
+                !queued.contains(row)
+                    && filter.passes(
+                        "message",
+                        conversation_of_item(s, &format!("u{}", row.get())).as_ref(),
+                    )
+            }) {
                 if let Some(line) = message_line(s, row, json, None) {
                     lines.push((line, Some(row)));
                 }
             }
             for (key, p) in proposals {
-                if s.model()
-                    .card_actions(p.row)
-                    .contains(&Intent::DeclineCard(p.row))
+                if filter.passes("proposal", Some(&key))
+                    && s.model()
+                        .card_actions(p.row)
+                        .contains(&Intent::DeclineCard(p.row))
                 {
                     let said = crate::cards::proposal_line(&p, &key, "declined", json);
                     consumed.declining.insert(p.row, said);

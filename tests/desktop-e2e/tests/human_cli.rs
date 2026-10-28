@@ -604,6 +604,109 @@ async fn a_peer_added_by_address_is_listed_refused_by_class_and_removed() {
     b_daemon.terminate().await;
 }
 
+/// `peers state` names each peer A trusts, one line each from its dial
+/// gate: B, whose daemon runs, connected and seen; C, trusted with no
+/// daemon, not connected and never seen -- with no `last_seen` member,
+/// since this daemon reports the time (j76, G8). Mutation: the
+/// `last_seen` member written whatever the daemon reports.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn peers_state_says_which_trusted_peer_is_connected_and_when_each_was_seen() {
+    let (a, mut a_daemon, _a_peer, _b, mut b_daemon, b_peer) = two_daemons().await;
+    let c_peer = Home::new("human-desktop").write_key();
+    let out = human(&a, &["trust", "allow", c_peer.as_str()], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+
+    let row = |rows: &[Value], peer: &TransportIdentity| {
+        rows.iter()
+            .find(|r| r["peer"] == peer.as_str())
+            .cloned()
+            .unwrap_or_else(|| panic!("no row for {}: {rows:?}", peer.as_str()))
+    };
+    let deadline = Instant::now() + PATIENCE;
+    let rows = loop {
+        let out = human(&a, &["peers", "state", "--json"], "");
+        assert_eq!(code(&out), Some(0), "{}", said(&out));
+        let rows = lines(&out);
+        if row(&rows, &b_peer)["connected"] == true {
+            break rows;
+        }
+        assert!(Instant::now() < deadline, "B never connected: {rows:?}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+    assert_eq!(rows.len(), 2, "one row per trusted peer: {rows:?}");
+    let b_row = row(&rows, &b_peer);
+    assert!(b_row["last_seen_ms"].is_u64(), "{b_row}");
+    assert!(b_row.get("last_seen").is_none(), "{b_row}");
+    let c_row = row(&rows, &c_peer);
+    assert_eq!(c_row["connected"], false, "{c_row}");
+    assert_eq!(c_row["last_seen_ms"], Value::Null, "{c_row}");
+    assert!(
+        c_row.get("last_seen").is_none(),
+        "never, not unreported: {c_row}"
+    );
+
+    let out = human(&a, &["peers", "state"], "");
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        text.contains(&format!("{}  connected", b_peer.as_str())),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "{}  not connected, last seen never",
+            c_peer.as_str()
+        )),
+        "{text}"
+    );
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
+/// `listen --consume --events` run as the binary consumes only what it
+/// prints: B listens for session events alone while A's message arrives,
+/// and the message is not printed and is still unread after (j76, G7).
+/// Mutation: main handing listen no filter.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listen_filtered_to_session_events_leaves_a_message_unread() {
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let to_b = format!("{}/human", b_peer.as_str());
+    let (listener, _stdin) = Listener::with(
+        &b,
+        &["listen", "--json", "--consume", "--events", "session"],
+    );
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    send_accepted(&a, &to_b, "not printed, not read");
+    // Long enough for B's client to have been handed the message.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut printed = Vec::new();
+    while let Ok(line) = listener.lines.try_recv() {
+        printed.push(line);
+    }
+    assert!(
+        printed.iter().all(|l| l["event"] == "session"),
+        "{printed:?}"
+    );
+    listener.stop();
+    let out = human(
+        &b,
+        &["messages", &format!("{}/human", a_peer.as_str()), "--json"],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let rows = lines(&out);
+    assert!(
+        rows.iter()
+            .any(|m| m["text"] == "not printed, not read" && m["status"] == "unread"),
+        "{rows:?}"
+    );
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
 /// Share A's card to `to_b` until B's daemon accepts it, B listening so
 /// its store takes the card: the proposal B hears.
 fn share_heard(a: &Home, b: &Home, to_b: &str) -> Value {

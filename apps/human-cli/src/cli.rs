@@ -23,7 +23,7 @@ usage:
   interweave-human --profile <name> send <conversation> <text>|- [--no-pending]
                    [--endpoint <endpoint>] [--json]
   interweave-human --profile <name> cancel|retry|unkeep <id> [--json]
-  interweave-human --profile <name> listen [--input] [--consume]
+  interweave-human --profile <name> listen [--input] [--consume] [--events <list>] [--conversation <c>]
                    [--endpoint <endpoint>] [--json]
   interweave-human --profile <name> trust list [--json]
   interweave-human --profile <name> trust allow|revoke <peer>
@@ -52,6 +52,7 @@ usage:
   interweave-human --profile <name> peers add|remove <address>
   interweave-human --profile <name> peers add -|--file <file>
   interweave-human --profile <name> peers show [--json]
+  interweave-human --profile <name> peers state [--json]
 
   --wait <ms>   how long to wait for the session and for an answer
                 (default 5000)
@@ -100,6 +101,86 @@ pub(crate) enum Command {
     },
 }
 
+/// The events `listen` names, in the order the README lists them:
+/// `--events` takes a comma-separated list of these. `input-refused` is
+/// not among them: it answers an `--input` line, which is answered once
+/// whatever the filter.
+pub(crate) const LISTEN_EVENTS: [&str; 8] = [
+    "message",
+    "proposal",
+    "outbound",
+    "session",
+    "connectivity",
+    "path",
+    "disconnected",
+    "failed",
+];
+
+/// What `listen` prints of what it hears (G7): the events named, and of
+/// those the ones of one conversation. What it does not print it does not
+/// consume either: a message filtered out stays unread, a proposal
+/// undeclined.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ListenFilter {
+    /// The events printed, every one when `None`.
+    pub(crate) events: Option<Vec<&'static str>>,
+    /// The conversation whose events are printed: one naming another
+    /// conversation, or another peer, is not. `<peer>` alone is every
+    /// conversation with that peer.
+    pub(crate) conversation: Option<ConversationKey>,
+}
+
+impl ListenFilter {
+    /// Whether an `event` of `about` -- the conversation it names, or for
+    /// a peer's event that peer's, `None` for this node's own -- is
+    /// printed.
+    pub(crate) fn passes(&self, event: &str, about: Option<&ConversationKey>) -> bool {
+        let named = self.events.as_ref().is_none_or(|e| e.contains(&event));
+        let ours = match (&self.conversation, about) {
+            (Some(want), Some(have)) => same_conversation(want, have),
+            _ => true,
+        };
+        named && ours
+    }
+}
+
+/// Whether `have` is the conversation `want` names: a direct one with no
+/// endpoint names every endpoint of its peer, and so does a peer's event
+/// (`have` with no endpoint) every conversation with it.
+fn same_conversation(want: &ConversationKey, have: &ConversationKey) -> bool {
+    match (want, have) {
+        (
+            ConversationKey::Direct {
+                peer: p,
+                endpoint: e,
+            },
+            ConversationKey::Direct {
+                peer: q,
+                endpoint: f,
+            },
+        ) => p == q && (e.is_none() || f.is_none() || e == f),
+        (ConversationKey::Channel(a), ConversationKey::Channel(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// `--events`' list: each a name `listen` prints, none twice.
+fn listen_events(list: &str) -> Result<Vec<&'static str>, String> {
+    let mut events = Vec::new();
+    for word in list.split(',').map(str::trim) {
+        let Some(event) = LISTEN_EVENTS.iter().find(|e| **e == word) else {
+            return Err(format!(
+                "--events: {word:?} is not an event listen prints ({})",
+                LISTEN_EVENTS.join(", ")
+            ));
+        };
+        if !events.contains(event) {
+            events.push(*event);
+        }
+    }
+    Ok(events)
+}
+
 /// One verb.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Verb {
@@ -141,6 +222,8 @@ pub(crate) enum Verb {
         /// Each message marked read, not kept, once its line is written
         /// and flushed (`--consume`, G3).
         consume: bool,
+        /// The events printed (`--events`, `--conversation`, G7).
+        filter: ListenFilter,
     },
     /// The daemon's trust list.
     TrustList,
@@ -223,6 +306,9 @@ pub(crate) enum Verb {
     /// This node's own addresses, as another node's `peers add` takes
     /// them (ADR-0062 decision 4).
     PeersShow,
+    /// Each trusted peer's state as the daemon's dial gate holds it:
+    /// whether it is connected, and when it was last seen.
+    PeersState,
     /// Add a peer by address, as the person typed it.
     PeerAdd(String),
     /// Add several addresses, all or none, one per line.
@@ -278,6 +364,8 @@ struct Flags {
     consume: bool,
     no_pending: bool,
     endpoint: Option<String>,
+    events: Option<String>,
+    on: Option<String>,
 }
 
 /// Parse a conversation's text: `<peer>`, `<peer>/<endpoint>` or
@@ -394,6 +482,18 @@ fn flags_and_words(args: Vec<String>) -> Result<Option<(Flags, Vec<String>)>, St
                     return Err("--endpoint given twice".to_owned());
                 }
             }
+            "--events" => {
+                let v = value("--events")?;
+                if flags.events.replace(v).is_some() {
+                    return Err("--events given twice".to_owned());
+                }
+            }
+            "--conversation" => {
+                let v = value("--conversation")?;
+                if flags.on.replace(v).is_some() {
+                    return Err("--conversation given twice".to_owned());
+                }
+            }
             "--none" => flags.none = true,
             // A lone "-" is send's stdin marker, a word.
             "-" => words.push(arg),
@@ -458,6 +558,10 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             Verb::Listen {
                 input: std::mem::take(&mut flags.input),
                 consume: std::mem::take(&mut flags.consume),
+                filter: ListenFilter {
+                    events: flags.events.take().map(|l| listen_events(&l)).transpose()?,
+                    conversation: flags.on.take().map(|c| conversation(&c)).transpose()?,
+                },
             },
             true,
         ),
@@ -526,6 +630,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         ),
         ["peers"] => (Verb::PeersList, true),
         ["peers", "show"] => (Verb::PeersShow, true),
+        ["peers", "state"] => (Verb::PeersState, true),
         ["peers", "add"] if flags.file.is_some() => (
             Verb::PeerAddList(ListSource::File(
                 flags.file.take().unwrap_or_default().into(),
@@ -645,6 +750,9 @@ fn unused(flags: &Flags) -> Result<(), String> {
     if flags.input || flags.consume {
         return Err("--input and --consume apply to listen only".to_owned());
     }
+    if flags.events.is_some() || flags.on.is_some() {
+        return Err("--events and --conversation apply to listen only".to_owned());
+    }
     if flags.no_pending {
         return Err("--no-pending applies to send only".to_owned());
     }
@@ -708,6 +816,8 @@ mod tests {
             ],
             &["--profile", "p", "store", "discard", "--json"],
             &["--profile", "p", "peers", "show", "--json"],
+            &["--profile", "p", "peers", "state", "--json"],
+            &["--profile", "p", "peers", "state"],
             &[
                 "--profile",
                 "p",
@@ -803,6 +913,7 @@ mod tests {
             "contacts route delete",
             "peers add|remove",
             "peers add -|--file",
+            "peers state",
         ] {
             assert!(USAGE.contains(word), "{word} in the usage");
         }
@@ -1039,7 +1150,8 @@ mod tests {
             Ok(Command::Run {
                 verb: Verb::Listen {
                     input: true,
-                    consume: true
+                    consume: true,
+                    ..
                 },
                 ..
             })
@@ -1070,6 +1182,72 @@ mod tests {
         ] {
             assert!(run(&wrong).is_err(), "{wrong:?}");
         }
+    }
+
+    /// G7: `listen --events` takes a list of the events listen prints,
+    /// each once, and `--conversation` a conversation as `send` does;
+    /// neither applies elsewhere, an unknown event is refused, and
+    /// `input-refused` is never filtered. Mutation: an unknown event
+    /// taken.
+    #[test]
+    fn listen_filters_name_events_and_a_conversation() {
+        let filter = |args: &[&str]| match verb(args) {
+            Verb::Listen { filter, .. } => filter,
+            other => panic!("{other:?}"),
+        };
+        let f = filter(&[
+            "--profile",
+            "p",
+            "listen",
+            "--events",
+            "message, path,message",
+            "--conversation",
+            PEER,
+        ]);
+        assert_eq!(f.events, Some(vec!["message", "path"]));
+        assert!(matches!(
+            &f.conversation,
+            Some(ConversationKey::Direct { endpoint: None, .. })
+        ));
+        assert!(f.passes("message", f.conversation.as_ref()));
+        assert!(!f.passes("outbound", None), "not named");
+        assert!(f.passes("path", None), "this node's own: no conversation");
+        assert_eq!(
+            filter(&["--profile", "p", "listen"]),
+            ListenFilter::default()
+        );
+        for wrong in [
+            vec!["--profile", "p", "listen", "--events", "messages"],
+            vec!["--profile", "p", "listen", "--events", "input-refused"],
+            vec!["--profile", "p", "listen", "--events", ""],
+            vec!["--profile", "p", "listen", "--conversation", "nope"],
+            vec!["--profile", "p", "status", "--events", "message"],
+            vec!["--profile", "p", "status", "--conversation", PEER],
+        ] {
+            assert!(run(&wrong).is_err(), "{wrong:?}");
+        }
+    }
+
+    /// `<peer>` names every conversation with it, `<peer>/<endpoint>` the
+    /// one; a peer's event (no endpoint) is any of its conversations', and
+    /// a channel only itself. Mutation: an endpoint-less filter matching
+    /// one endpoint only.
+    #[test]
+    fn a_conversation_filter_names_a_peer_or_one_of_its_endpoints() {
+        let direct = |e: Option<&str>| ConversationKey::Direct {
+            peer: TransportIdentity::parse(PEER).expect("a PeerId"),
+            endpoint: e.map(|e| EndpointId::parse(e).expect("an endpoint")),
+        };
+        let on = |c: ConversationKey| ListenFilter {
+            events: None,
+            conversation: Some(c),
+        };
+        assert!(on(direct(None)).passes("message", Some(&direct(Some("human")))));
+        assert!(on(direct(Some("human"))).passes("path", Some(&direct(None))));
+        assert!(!on(direct(Some("human"))).passes("message", Some(&direct(Some("other")))));
+        let channel = ConversationKey::Channel(ChannelId::parse("news").expect("a channel"));
+        assert!(!on(channel.clone()).passes("path", Some(&direct(None))));
+        assert!(on(channel.clone()).passes("message", Some(&channel)));
     }
 
     #[test]
