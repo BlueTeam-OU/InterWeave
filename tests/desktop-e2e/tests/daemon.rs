@@ -1617,6 +1617,187 @@ async fn a_peers_restart_is_in_the_connectivity_log_and_third_party_debug_is_not
     );
 }
 
+/// `peer-list` 1.2.0's `last_seen_ms` against two live daemons (IPC
+/// 2.12): on A's list, B -- connected -- reads the time of the reading;
+/// once B has stopped, the moment its connection closed, inside the
+/// window the stop ran in and unchanged by a later reading; and a peer
+/// A trusts and never saw reads `null`. `transportctl peers list` says
+/// the same in words. A connection that negotiated 2.11 is served the
+/// 1.1 row, with no `last_seen_ms` at all -- and its control, the same
+/// request at 2.12 on the same daemon, carries it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the_1_1_row() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (a, b) = (Home::new("human-desktop"), Home::new("human-desktop"));
+    let (a_peer, b_peer) = (a.write_key(), b.write_key());
+    let (a_port, b_port) = (free_port(ip), free_port(ip));
+    let at = |port: u16| format!("/ip4/{ip}/tcp/{port}");
+    b.write_config(&example(
+        "human-desktop.yaml",
+        &a_peer,
+        &at(b_port),
+        Some(&format!("{}/p2p/{}", at(a_port), a_peer.as_str())),
+    ));
+    a.write_config(&example(
+        "human-desktop.yaml",
+        &b_peer,
+        &at(a_port),
+        Some(&format!("{}/p2p/{}", at(b_port), b_peer.as_str())),
+    ));
+    let mut a_daemon = a.start(&[]);
+    a_daemon.serving(&a).await;
+    let unseen = stranger();
+    let out = a.transportctl(&["trust", "allow", unseen.as_str()], "");
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let mut b_daemon = b.start(&[]);
+    b_daemon.serving(&b).await;
+
+    let wall = || {
+        u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("after the epoch")
+                .as_millis(),
+        )
+        .expect("fits")
+    };
+    // A's rows by peer, every page held to the schema.
+    let rows = |home: &Home| -> BTreeMap<String, serde_json::Value> {
+        let out = home.transportctl(&["peers", "list", "--json"], "");
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+        let mut rows = BTreeMap::new();
+        for line in stdout(&out).lines() {
+            let page: serde_json::Value = serde_json::from_str(line).expect("a json line");
+            let errors: Vec<String> = ipc_validator("peer-list.schema.json")
+                .iter_errors(&page)
+                .map(|e| e.to_string())
+                .collect();
+            assert!(errors.is_empty(), "{page}: {errors:?}");
+            for row in page["peers"].as_array().expect("rows") {
+                rows.insert(
+                    row["peer"].as_str().expect("a peer").to_owned(),
+                    row.clone(),
+                );
+            }
+        }
+        rows
+    };
+    let line_for = |home: &Home, peer: &TransportIdentity| -> String {
+        let out = home.transportctl(&["peers", "list"], "");
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+        stdout(&out)
+            .lines()
+            .find(|l| l.starts_with(peer.as_str()))
+            .unwrap_or_else(|| panic!("a line for {peer:?}: {}", stdout(&out)))
+            .to_owned()
+    };
+    let until = |connected: bool| {
+        let (a, a_daemon, b_peer) = (&a, &a_daemon, &b_peer);
+        async move {
+            let deadline = tokio::time::Instant::now() + PATIENCE;
+            loop {
+                let before = wall();
+                let row = rows(a)[b_peer.as_str()].clone();
+                if row["connected"] == connected {
+                    return (before, row, wall());
+                }
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "B never read connected={connected}: {row}\n{}",
+                    a_daemon.log()
+                );
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+    };
+
+    // Connected: the reading's own time.
+    let (before, row, after) = until(true).await;
+    let seen = row["last_seen_ms"]
+        .as_u64()
+        .expect("a time while connected");
+    assert!(
+        (before..=after).contains(&seen),
+        "{before} <= {seen} <= {after}"
+    );
+    assert!(line_for(&a, &b_peer).contains("  connected"));
+    // Never seen: `null`, present -- and said so in words.
+    let never = &rows(&a)[unseen.as_str()];
+    assert_eq!(
+        never.get("last_seen_ms"),
+        Some(&serde_json::Value::Null),
+        "{never}"
+    );
+    assert_eq!(never["connected"], false);
+    assert!(
+        line_for(&a, &unseen).contains("not seen since the daemon started"),
+        "{}",
+        line_for(&a, &unseen)
+    );
+
+    // Gone: the close, inside the stop's window, and it stays put.
+    let stopping = wall();
+    assert!(b_daemon.terminate().await.success(), "{}", b_daemon.log());
+    let (_, row, gone) = until(false).await;
+    let closed = row["last_seen_ms"]
+        .as_u64()
+        .expect("a time once disconnected");
+    assert!(
+        (stopping..=gone).contains(&closed),
+        "{stopping} <= {closed} <= {gone}"
+    );
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    assert_eq!(
+        rows(&a)[b_peer.as_str()]["last_seen_ms"].as_u64(),
+        Some(closed),
+        "a later reading does not move it"
+    );
+    let line = line_for(&a, &b_peer);
+    assert!(
+        line.contains("not connected") && line.contains("last seen ") && line.contains("s ago"),
+        "{line}"
+    );
+
+    // The 1.1 row at 2.11, and the control at 2.12, over raw frames.
+    for (minor, carries) in [
+        (interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR - 1, false),
+        (interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR, true),
+    ] {
+        let mut client = RawClient::connect(&a.admin_socket()).await;
+        client
+            .send(&format!(
+                r#"{{"type":"hello","ipc_version":{{"major":2,"minor":{minor}}},"client":{{"kind":"transportctl"}},"requested_capabilities":["admin.status"]}}"#
+            ))
+            .await;
+        match client.next(PATIENCE).await {
+            Some(Frame::HelloResponse(response)) => {
+                assert_eq!(response.ipc_version.minor, minor, "negotiated");
+            }
+            other => panic!("a hello response: {other:?}"),
+        }
+        client
+            .send(r#"{"type":"request","id":"1","method":"admin.peers.list","params":{}}"#)
+            .await;
+        assert!(
+            matches!(client.next(PATIENCE).await, Some(Frame::Response(_))),
+            "answered"
+        );
+        let body: serde_json::Value =
+            serde_json::from_str(client.seen.last().expect("the response")).expect("json");
+        let rows = body["result"]["peers"].as_array().expect("rows");
+        assert_eq!(rows.len(), 2, "{body}");
+        for row in rows {
+            assert_eq!(
+                row.get("last_seen_ms").is_some(),
+                carries,
+                "minor {minor}: {row}"
+            );
+        }
+    }
+
+    assert!(a_daemon.terminate().await.success(), "{}", a_daemon.log());
+}
+
 /// `admin.peers` through `transportctl` against a live daemon (ADR-0062,
 /// plan §29 gate (e)): THE METHOD refuses every special-use class with
 /// `transportctl` as the caller -- the tool passes the address as typed,
