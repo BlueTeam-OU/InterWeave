@@ -8,7 +8,9 @@
 # build `interweave-transport-daemon` (and `interweave-claude-channel`) first -- a missing binary fails the
 # suite by name rather than skipping it. INTERWEAVE_PACKAGE_BIN naming a
 # package's bin/ makes the daemon and transportctl the package's instead
-# (tests/support's e2e module).
+# (tests/support's e2e module); claude_channel.rs and user_units.rs, which
+# start programs the archive's bin/ does not hold, refuse while it is set:
+# run them with it unset.
 [package]
 name = "interweave-desktop-e2e-tests"
 version.workspace = true
