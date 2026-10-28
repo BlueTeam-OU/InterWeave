@@ -1292,16 +1292,16 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         let mut ended: Option<Result<(), Failure>> = None;
         let mut lines: Vec<(String, Option<RowId>)> = Vec::new();
         for update in s.take_updates() {
-            // An answer to an `--input` line, every later outbound event of
-            // the row it made, and a decline this run asked for and is now
-            // saying, are printed whatever the filter: the first two answer
-            // what the program sent, and the third passed it when asked.
-            let answers = match &update {
-                Update::Sent { .. } | Update::SendRefused { .. } => issued.is_some(),
-                Update::Client(ClientEvent::Outbound(o)) => refs.contains_key(&o.row),
-                Update::CardResolved { row, .. } => consumed.declining.contains_key(row),
-                _ => false,
-            };
+            // The filter judges only the events `listen_about` names, so an
+            // `--input` line's first answer and a decline this run asked for
+            // print as before. One named event is exempt: an outbound event
+            // of a row an `--input` line made, which answers that line
+            // whatever the filter
+            // (`an_input_lines_answers_print_whatever_the_filter`).
+            let answers = matches!(
+                &update,
+                Update::Client(ClientEvent::Outbound(o)) if refs.contains_key(&o.row)
+            );
             let shown = answers
                 || listen_about(s, &update)
                     .is_none_or(|(event, about)| filter.passes(event, about.as_ref()));

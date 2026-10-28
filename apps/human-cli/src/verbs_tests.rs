@@ -1357,3 +1357,53 @@ async fn a_listen_not_naming_messages_drains_none_of_them() {
     bob.close().await;
     assert_eq!(store(dir_b.path()).unread_inbound().expect("read").len(), 1);
 }
+
+/// G7: an `--input` line is answered whatever the filter -- its first
+/// `outbound` line and each later status of the row it made, all with its
+/// `ref` -- though the filter names no `outbound` event (#508 review F1).
+/// Mutation: a later outbound event of an input's row filtered like any.
+#[tokio::test]
+async fn an_input_lines_answers_print_whatever_the_filter() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    let stdin = format!(
+        "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"filtered\",\"ref\":9}}}}\n"
+    )
+    .into_bytes();
+    std::thread::spawn(move || verbs::read_input(stdin.as_slice(), &lines_in));
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter {
+                events: Some(vec!["session"]),
+                conversation: None,
+            },
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let answers: Vec<Value> = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "outbound")
+        .collect();
+    assert!(answers.iter().all(|e| e["ref"] == 9), "{out}");
+    // One from the send's own answer, the rest the row's later status
+    // events: the send answers once, so a second is a later one.
+    assert!(answers.len() >= 2, "the answer and a later status: {out}");
+}
