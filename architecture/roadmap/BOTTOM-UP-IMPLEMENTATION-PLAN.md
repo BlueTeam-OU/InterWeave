@@ -6972,8 +6972,8 @@ owner:
   input derives its own, an over-long line drained and answered
   `input-refused`, the channel bounded with the reader blocking on it —
   built on #495 (5032e717, 4a5fd290: 256 KiB for `send -`, a
-  1,310,720-byte line ceiling derived from the envelope's decompressed
-  bound, a channel of four; d4a2249a caps a line's `ref` at 256
+  1,245,184-byte line ceiling, six times the 196,608-byte decompressed
+  bound plus 64 KiB, a channel of four; d4a2249a caps a line's `ref` at 256
   bytes), the README stating the bounds. And no site orders
   contacts under the locale's collation the contact-cards design §6.2
   requires — the Contacts list sorts by Unicode lowercase then code
@@ -6987,7 +6987,7 @@ owner:
   #494 (c04b4bf1: one `contact_order` in ui-model over ICU4X's
   collator with a root-only data provider, the four sites moved onto
   it, the store ordering nothing a person sees; APK +280,080 bytes,
-  Linux archive +711,753 gzip), the rule landed with ux-designer-01's
+  Linux archive +711,753 gzip, measured in #494's description), the rule landed with ux-designer-01's
   add-a-peer revision on #493.
 - The fresh-pair row's one-sided step in the other direction (B
   trusting first) was not run; which side dialled in its step 3, and
