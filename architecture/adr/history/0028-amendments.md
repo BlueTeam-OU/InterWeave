@@ -696,3 +696,30 @@ alone when the profile authors none, an authored `enabled: false`
 refusing the add — and a composed count above 64 at start is FATAL
 naming the overlay, never truncated; nothing of trust moves. The methods are p2p-network-dev's,
 an IPC minor under ADR-0017, as the endpoint overlay's were.
+
+### Amendment 2026-10-28 — The effective allowlist is the operator's list, and the admission set is derived from it and every endpoint's overlay set
+
+ADR-0067 decision 6 makes trust per endpoint and keeps three sets
+apart: this record's list is the operator's, written by an
+endpoint-less trust call and by nothing an identity trusts; an
+identity's set lives in the endpoint overlay, which gains per-endpoint
+`inbound` and `outbound` members beside `added`, `enabled`, `default`
+and `advertise` (keyed by EndpointId; an entry for an endpoint neither
+authored nor added leaves at normalisation, a PeerId that fails the
+grammar fails the load by name), written by the human client for every
+identity, the authored first identity's seeded at the client's first
+run on the release that builds it, and never inherited; and the
+admission set at the connection is derived by the transport at load
+and on every write to either overlay as the union of the operator's
+list and every endpoint's overlay set (an identity's, or any endpoint
+the operator gave one), bounded as one set by the FATAL bound
+above. An endpoint that is no identity reads the operator's list
+unless it carries an authored subset. Two drafts were rejected in
+review: an identity that inherited the list (the authored first
+identity had no subset and `config.yaml` is never rewritten, so it saw
+every peer any other identity trusted), and a list the client kept
+equal to the union of the identities' sets (an operator's endpoint-less
+allow could not survive beside it, and an inheriting agent endpoint
+saw every peer a person trusted in an identity). Propagation: the
+allowlist sentence, the endpoint overlay's shape and normalisation
+sentences; this note; the log row; the digest entry.

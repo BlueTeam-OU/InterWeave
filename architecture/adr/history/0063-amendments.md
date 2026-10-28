@@ -104,3 +104,23 @@ window as a limit and the plan's §29 carries it.
 Propagation: decision 1; this note; the log row; the digest entry;
 `design/2026-10-24-identity-key.md` §7 and §8 (ux-designer-01, by
 locator); the code on rust-ui-dev-02's branch, one PR.
+
+### Amendment 2026-10-28 — The key is the endpoint's, its EndpointId derived from it; the key change is withdrawn
+
+ADR-0067 makes the identity key this record introduced the key of the
+endpoint itself, for every endpoint kind, and derives the EndpointId
+from its public key as the PeerId is from the node's. Decision 1 names
+that; decision 2's directory is `endpoint-keys/`; decision 4's key
+change — "a route whose key differs from the recorded one is a key
+change: the proposal says so ... the person may accept the new key,
+which replaces the old one in that route" — cannot arise, since a
+different key is a different EndpointId and another identity of the
+node, and a card whose key does not derive its endpoint is malformed;
+the proposal, `--accept-key-change` and the replace rule are withdrawn,
+and decision 6's command-line form becomes the creation of a new
+identity. The key-missing state (A 2026-10-24) and the silent first key
+(A 2026-10-27) stand, resolved by a new identity rather than a new key
+under the old name. Propagation: the Status line; decisions 1, 2, 4, 5,
+6, the Security and Operational implications (each with a tombstone
+in place); this note; the log row; the digest entry; STATE.md's
+`contact_routes` and key-file sentences; the README row.

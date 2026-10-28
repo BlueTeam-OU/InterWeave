@@ -1,6 +1,6 @@
 # Network-addressable local endpoints under one PeerId
 
-**Status:** Accepted
+**Status:** Accepted; superseded in part by ADR-0067 (A 2026-10-28): an endpoint identifier is derived from the endpoint's own key pair and is no longer a configured label, and endpoint policy is the endpoint's own trust set rather than an optional narrowing
 
 ## Context
 
@@ -18,9 +18,9 @@ Adopt Model B as transport contract v2:
 - direct protocol v2 carries both required `source_endpoint` and optional `destination_endpoint`;
 - receiver resolves exactly one local endpoint and sends `Accepted` only after enqueue to that endpoint's bounded event queue;
 - no direct local fan-out occurs in v2;
-- endpoint-specific policy may narrow, never widen, profile PeerTrustPolicy;
+- endpoint-specific policy may narrow, never widen, profile PeerTrustPolicy (since ADR-0067, A 2026-10-28, the admission set the transport derives from the operator's list and the endpoint overlay's per-endpoint sets, an endpoint's own set among them);
 - endpoint leases are runtime-only and disappear on IPC disconnect;
-- endpoint identifiers are routing labels, not human/application identity proof or an authorization principal; endpoint ACLs remain PeerId-based — above transport, the human client presents one **user identity** per EndpointId it holds, with a display name and a photo (ADR-0061, A 2026-10-21): a use of the label the person sees, not a change to what the transport authenticates, which stays the PeerId alone;
+- endpoint identifiers are routing selectors, not an authorization principal; endpoint ACLs remain PeerId-based — above transport, the human client presents one **user identity** per EndpointId it holds, with a display name and a photo (ADR-0061, A 2026-10-21); since ADR-0067 (A 2026-10-28) an EndpointId is no label but the endpoint's own key derived into the PeerId's form, so it names the key a card is signed with, while what the transport authenticates stays the PeerId alone and a remote `source_endpoint` stays peer-asserted until a signature under its key arrives;
 - no daemon-side buffering exists for an unavailable endpoint;
 - implementation target becomes `/interweave/direct/2.0.0` and IPC major version 2.
 
@@ -44,7 +44,7 @@ Endpoint claim conflicts fail closed. Same-user local compromise remains residua
 
 ## Operational implications
 
-Operators configure stable route names such as `human` and `claude`, choose at most one default direct endpoint, and may run multiple local clients without duplicate direct handling. An offline endpoint causes immediate remote `no_route`; it does not accumulate messages.
+Operators configure endpoints by their keys, with local aliases such as `human` and `claude` that never reach the wire (ADR-0067), choose at most one default direct endpoint, and may run multiple local clients without duplicate direct handling. An offline endpoint causes immediate remote `no_route`; it does not accumulate messages.
 
 ## Implementation implications
 
@@ -61,3 +61,4 @@ Revisit if endpoint leases must be shared by multiple local processes, if crypto
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-21 | An EndpointId is the human client's user identity above transport | Decision: ADR-0061 presents one user identity per EndpointId — a display name and a photo, several on one node — as a use of the label above transport; the transport authenticates the PeerId alone, a remote source endpoint stays peer-asserted, endpoint policy still narrows and never widens, and nothing on the wire changes. |
+| 2026-10-28 | An EndpointId is derived from the endpoint's key, and endpoint policy is the endpoint's own trust set | Decision (ADR-0067): the identifier is the PeerId-style name of the endpoint's Ed25519 public key, never a configured label; operators configure keys with local aliases; each endpoint's `inbound`/`outbound` subset is its own trusted set and the profile's policy their union; nothing else of Model B changes. |

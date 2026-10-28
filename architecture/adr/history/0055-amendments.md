@@ -117,3 +117,18 @@ accepted, so that a real second host is measured rather than
 assumed. Propagation: decision 5b's last sentence; the Revisit conditions; this note; the log row;
 the digest entry.
 
+### Amendment 2026-10-28 — An automated client's endpoint is a key the deployment mints
+
+ADR-0067 makes every endpoint a key pair with a derived EndpointId,
+automated clients included (the owner: "an endpointid is calculated the
+same way for all type of endpoint human and ai agent"). Decision 1 now
+says the endpoint an automated client holds is a key the deployment
+mints on the host with `transportctl endpoint init`, the id read back
+into its roster in place of the label it rendered before; decision 4's
+provisioning without a daemon gains that verb and says an endpoint-less
+`trust allow|revoke` writes the operator's list, which a rendered
+profile's endpoints inherit and no identity reads, and decision 5's
+allowlist is that list. The fleet's own record
+of its carrier names endpoints by label today and changes by proposal
+to fabric-coordinator. Propagation: decisions 1, 4 and 5; this note; the log
+row; the digest entry.

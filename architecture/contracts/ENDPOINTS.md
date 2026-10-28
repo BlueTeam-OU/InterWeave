@@ -18,27 +18,27 @@ PeerId P
   +-- EndpointId "automation.build"
 ```
 
-`EndpointId` is a routing selector inside the node. It is **not** a second PeerId, a human identity, an organizational role, or an authorization proof.
+`EndpointId` is a routing selector inside the node. It is **not** a second PeerId, an organizational role, or an authorization proof. Since ADR-0067 (A 2026-10-28) it is the name of the endpoint's own key pair, derived as a PeerId is; the names in the diagram are the endpoints' local aliases, never what the wire carries.
 
 ## EndpointId
 
-Canonical grammar:
+**An EndpointId is derived from the endpoint's own Ed25519 public key exactly as a PeerId is from the node's** (ADR-0067, A 2026-10-28): the libp2p identity multihash over the protobuf-encoded public key, written in the canonical base58btc text. Canonical grammar, the PeerId's:
 
 ```regex
-^[a-z][a-z0-9._-]{0,63}$
+^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}$
 ```
 
 Rules:
 
-- ASCII only, 1..64 bytes;
-- case-sensitive, lowercase canonical form;
-- stable while configured, but not cryptographically derived;
+- 52 ASCII bytes, under every 64-byte ceiling the label grammar met (`ipc/hello`, the payload budgets), so no ceiling moves;
+- case-sensitive, one canonical form: the text is a base58btc number, compared byte for byte;
+- derived, never chosen: an id written by hand in a configuration or an administrative add is refused as `EndpointIdNotDerived`, and the daemon or embedded host derives every id from the key the entry names at load;
+- unique by construction within a node and across nodes — two equal ids are one key;
 - no wildcard endpoint exists;
 - no endpoint may be addressed as a broadcast substitute;
-- endpoint IDs are peer-asserted routing metadata when received from the network;
-- a remote `source_endpoint` proves only that the authenticated PeerId claimed that route label.
+- endpoint IDs are peer-asserted routing metadata when received from the network: a remote `source_endpoint` proves that the authenticated PeerId claimed that endpoint, and a signature under the endpoint's key — a contact card's (HUMAN-CHAT.md §Contact card), whose key the receiver checks derives the endpoint — proves the key behind it.
 
-Suggested endpoint IDs such as `human` and `claude` are conventions, not reserved semantics. The complete network route is therefore `EndpointAddress = (TransportIdentity, EndpointId)`; EndpointId uniqueness is required only inside one profile/PeerId.
+The grammar before ADR-0067 — `^[a-z][a-z0-9._-]{0,63}$`, a lowercase ASCII label of 1 to 64 bytes, "stable while configured, but not cryptographically derived" — is retired without a compatibility window on the owner's word, since no installed base exists: the endpoint-id schema's `1.0.0` stays the wire until the release that builds Stage 22 (plan §30), whose batch writes the endpoint-id and endpoint-config schemas' `2.0.0` with this grammar and entry (`approved` targets until served, ADR-0049), takes a major on every schema that `$ref`s the endpoint-id, moves the direct protocol to `/interweave/direct/3.0.0` and the IPC major to `3` (ADR-0067 decision 7), and regenerates every fixture family that carries an EndpointId; `ipc/hello` takes the id alone, a client resolving its alias from the profile's configuration. What a person or an operator types to pick an endpoint — `human`, `claude`, `fabric-control` — is a **local alias** of the configuration entry and of the clients' command lines: it never reaches the wire, is unique only within the profile and proves nothing. The complete network route is `EndpointAddress = (TransportIdentity, EndpointId)`.
 
 ## Configured endpoint set
 
@@ -48,16 +48,19 @@ Conceptually:
 
 ```text
 EndpointConfig {
-  id: EndpointId
+  key: reference to the endpoint's sealed key file   -- <state_dir>/endpoint-keys/<EndpointId>.key, ADR-0067; the id is derived from it at load
+  alias: local display name, never on the wire       -- ADR-0067
   enabled: bool
   advertise: bool
   allowed_client_kinds: bounded list[string]
-  inbound: inherit_profile_trust | static_subset[PeerId]
+  inbound: inherit_profile_trust | static_subset[PeerId]   -- ADR-0067 decision 6: an identity's set lives in the endpoint overlay; an authored static_subset narrows the operator's list; inherit reads the operator's list, never the admission set
   outbound: inherit_profile_trust | static_subset[PeerId]
 }
 ```
 
-Endpoint policy can only narrow profile trust; it can never authorize a PeerId rejected by `PeerTrustPolicy`.
+Before ADR-0067 the entry carried `id: EndpointId`; an entry by id is refused at load (`EndpointIdNotDerived`), an entry whose key file is missing or unreadable loads in the key-missing state (its lease and routes kept, nothing signed), and the endpoint-config schema follows the Stage 22 batch as the endpoint-id schema does. The key is minted where the endpoint is created — by the client on an identity's creation through the administrative add, which takes a key and returns the derived id, or by `transportctl endpoint init --profile <name> [--alias <alias>]` with no daemon, which prints the id for a rendered deployment to record (ADR-0055 decision 4).
+
+**Trust is per endpoint** (ADR-0067 decision 6): each endpoint's `inbound` and `outbound` subset is its own trusted set, the person's trust acts being the identity in front's; the node's allow-list (ADR-0028: `trust.allowed_peers` plus the overlay's added minus its revoked, bounded by `MAX_ALLOWED_PEERS`) is the **operator's list**, written only by an endpoint-less `admin.trust.set` or `transportctl trust allow|revoke`; an **identity's set** lives in the endpoint overlay (`<state>/endpoint-overlay.json`, ADR-0028, which gains per-endpoint `inbound` and `outbound` members keyed by EndpointId), written by the human client for every identity through the endpoint dimension of those methods (an IPC minor, Stage 22) and on Android through the embedded host, the authored first identity's seeded at the client's first run on the Stage 22 release (the authored subset if any, else the operator's list at that moment; until that run the authored entry reads the operator's list, as before); the **admission set** at the connection is derived by the transport at load and on every overlay write as the union of the operator's list and every endpoint's overlay set (an identity's, or any endpoint the operator gave one), bounded as one set by `MAX_ALLOWED_PEERS` (FATAL at start past it, a crossing write refused by name), never stored or maintained by a client. At the route an endpoint's effective set is its overlay set when the overlay carries one, else an authored `static_subset` (which narrows the operator's list and admits nothing beyond it), else under `inherit_profile_trust` the operator's list and never the admission set — so an endpoint that is no identity (an automated client's, a rendered profile's) trusts what the operator trusts and nothing a person trusted in an identity, and an endpoint-less call reaches every inheriting endpoint and no identity. So endpoint policy still never authorizes a PeerId the profile rejects, a peer trusted by any endpoint may connect, and an endpoint that does not trust it refuses its route with the same coarse rejection the inbound routing order below gives at its endpoint inbound policy step (step 6; steps 5 to 7 all answer with that one rejection), never an oracle. Broadcast admission, subscription and the ingress bucket stay the node's.
 
 `allowed_client_kinds` is an accidental-misbinding guard, not authentication. On desktop the same-OS-user residual threat remains governed by the IPC security model. Android embedded mode treats this field only as in-process configuration hygiene.
 
@@ -312,7 +315,7 @@ Endpoint-directory protocol versioning is independent from direct protocol versi
 - disconnect makes the endpoint unavailable immediately and creates no queue;
 - peer-only destination resolves exactly one configured default endpoint;
 - no default -> coarse remote `no_route`;
-- endpoint-specific allowlist can narrow but never widen profile trust;
+- endpoint-specific allowlist is the endpoint's own trusted set: an authored subset never widens the operator's list, an identity's overlay set is an admission source of its own, and the admission set is the union the transport derives from both (ADR-0067);
 - source endpoint is taken from the local-session lease, not caller-controlled payload/params;
 - reply routes back to the original remote source endpoint;
 - stale reply token never falls back to another local route;

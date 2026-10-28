@@ -15,3 +15,20 @@ stays peer-asserted metadata, endpoint policy narrows and never widens
 profile trust, and no wire field changes. The bullet gains the sentence
 that names the use above transport, so that a reader does not take the
 rule as forbidding it.
+
+### Amendment 2026-10-28 — An EndpointId is derived from the endpoint's key, and endpoint policy is the endpoint's own trust set
+
+ADR-0067 (the owner's direction of 2026-10-28) makes every endpoint a
+key pair whose EndpointId is derived from the public key exactly as the
+PeerId is from the node's. The decision bullet that read "endpoint
+identifiers are routing labels, not human/application identity proof"
+now says the identifier names the endpoint's key, still peer-asserted
+on the wire and still no authorization principal; the operational
+sentence about "stable route names such as `human`" now describes local
+aliases. Endpoint policy, which this record let narrow profile trust,
+is the endpoint's own trusted set under ADR-0067 decision 6, and
+"profile PeerTrustPolicy" in the narrowing rule is the admission set
+the transport derives from the operator's list and those sets, the
+rule bullet saying so. Propagation: the Status line; the decision
+bullet; the narrowing rule bullet; Operational implications; this note; the log row; the
+digest entry.
