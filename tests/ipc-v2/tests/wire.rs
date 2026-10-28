@@ -908,11 +908,7 @@ async fn a_trust_revocation_over_the_admin_socket_reaches_the_data_socket_as_pol
         a_id.transport_identity().expect("peer"),
         b_id.transport_identity().expect("peer"),
     );
-    let port = std::net::TcpListener::bind((ip, 0))
-        .expect("a free port")
-        .local_addr()
-        .expect("addr")
-        .port();
+    let port = interweave_test_support::net::free_port(ip);
     let b_listen = format!("/ip4/{ip}/tcp/{port}");
     let target = Node::start_with(
         &b_id,
@@ -1081,11 +1077,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         a_id.transport_identity().expect("peer"),
         b_id.transport_identity().expect("peer"),
     );
-    let port = std::net::TcpListener::bind((ip, 0))
-        .expect("a free port")
-        .local_addr()
-        .expect("addr")
-        .port();
+    let port = interweave_test_support::net::free_port(ip);
     let b_listen = format!("/ip4/{ip}/tcp/{port}");
     let target = Node::start_with(
         &b_id,
