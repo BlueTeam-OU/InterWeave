@@ -35,7 +35,7 @@ use interweave_human_ui_model::{
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
-mod body;
+use interweave_human_ui_model::body;
 mod cards;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod clipboard;
