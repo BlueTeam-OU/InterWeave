@@ -29,6 +29,7 @@ use crate::peers::{Peers, PeersInput, ScanVerdict};
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
 pub(crate) mod cards;
+pub(crate) mod directory;
 pub(crate) mod summaries;
 mod swipe;
 pub(crate) mod window;
@@ -716,6 +717,8 @@ pub struct UiModel {
     windowed: Option<summaries::Summaries>,
     /// The open conversation's window, in the windowed mode.
     windows: window::Windows,
+    /// The contacts as the windowed mode reads them, and their photos.
+    directory: directory::Directory,
 }
 
 impl Default for UiModel {
@@ -759,6 +762,7 @@ impl UiModel {
             cards: cards::Cards::default(),
             windowed: None,
             windows: window::Windows::default(),
+            directory: directory::Directory::default(),
         }
     }
 
@@ -1341,6 +1345,8 @@ impl UiModel {
                 peer,
                 endpoint,
             } => return self.delete_route(contact_id, peer, endpoint).is_some(),
+            // Not while the contacts are unread (design section 11).
+            Intent::AcceptCard(row) => return self.card_actions(*row).contains(intent),
             _ => return true,
         };
         key.is_some_and(|key| match intent {

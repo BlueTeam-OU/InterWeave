@@ -338,6 +338,10 @@ pub struct ProposalItem {
     pub values: ValueChanges,
     /// When it arrived.
     pub received_at: u64,
+    /// The contacts could not be read: the card was compared with none, so
+    /// it shows `CardContactsUnread` in place of its case, with no notes,
+    /// and offers no Accept (design/2026-10-27-start-window.md section 11).
+    pub contacts_unread: bool,
 }
 
 impl ProposalItem {
@@ -382,7 +386,7 @@ impl ProposalItem {
             .iter()
             .any(|n| matches!(n, ProposalNote::SameName(_)));
         CardSwipe {
-            accept: !closes && !warned,
+            accept: !closes && !warned && !self.contacts_unread,
             decline: !closes,
         }
     }
@@ -1257,7 +1261,12 @@ impl UiModel {
                         .into_iter()
                         .map(|r| ProposalNote::KeyMatches(r.name)),
                 );
+                let contacts_unread = self.directory.state != super::directory::ContactsState::Read;
+                if contacts_unread {
+                    notes.clear();
+                }
                 ProposalItem {
+                    contacts_unread,
                     row: p.row,
                     peer: p.peer.clone(),
                     route: RouteLabel::from(&p.endpoint),
@@ -1304,6 +1313,9 @@ impl UiModel {
     #[must_use]
     pub fn card_actions(&self, row: RowId) -> Vec<Intent> {
         match self.cards.proposals.get(&row) {
+            Some(_) if self.directory.state != super::directory::ContactsState::Read => {
+                vec![Intent::DeclineCard(row)]
+            }
             Some(p) if p.context.changes_nothing && p.context.updates.is_some() => {
                 vec![Intent::DeclineCard(row)]
             }
