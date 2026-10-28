@@ -925,6 +925,50 @@ async fn listen_consume_declines_a_card_held_at_open() {
     assert!(out.is_empty(), "none held: {out}");
 }
 
+/// A decline the store refuses for a proposal this listen said it would
+/// decline is said, by its row, though `failed` is not among the events
+/// named: the proposal it named is not declined (#508 review F5).
+/// Mutation: only a printed message's failure exempt from the filter.
+#[tokio::test]
+async fn a_refused_decline_of_a_proposal_listen_named_is_said_whatever_the_filter() {
+    let (_alice, bob, mut b_run) = Box::pin(shared()).await;
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    assert_eq!(lines(&out).len(), 1, "held: {out}");
+    b_run.close().await;
+    let mut b_run = bob.session();
+    // Gone from the store after the session listed it: the decline finds
+    // no row.
+    let conn = rusqlite::Connection::open(bob.dir.path().join("human.sqlite3")).expect("open");
+    conn.execute("DELETE FROM unread_inbound", [])
+        .expect("deleted");
+    drop(conn);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut b_run,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter {
+                events: Some(vec!["proposal"]),
+                conversation: None,
+            },
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    assert!(
+        lines(&out)
+            .iter()
+            .any(|e| e["event"] == "failed"
+                && e["id"].as_str().is_some_and(|id| id.starts_with('u'))),
+        "{out}"
+    );
+}
+
 /// And one that arrives while it listens. Mutation: a card that arrives
 /// printed unread under `--consume`.
 #[tokio::test]
