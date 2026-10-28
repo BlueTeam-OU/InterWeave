@@ -7007,6 +7007,20 @@ opens on the owner's word, after §29 or beside it, and the status value
 stays the lowest open stage. It is numbered after §29 so that no citation
 of §23–§29 moves.
 
+**Where the clients stand (2026-10-28, the owner's observation).** On
+`main` the Android app and the desktop hold one user identity, the
+authored `human` endpoint, and one own card: "Your card" is that
+identity's. Nothing in either client can make a second EndpointId,
+since the administrative methods that add a configured endpoint, remove
+an added one and set its advertising are in no contract yet
+(`LOCAL-IPC.md` has `admin.endpoints.list`, `revoke`, `set_enabled` and
+`set_default`, and the plan's step 1 says no second identity exists on
+either platform until they land). Several identities in one app, each
+with one own card different from the others, is this stage's work and
+no earlier item's: the methods under Activate first, then steps 1–3.
+The owner's word of 2026-10-28 keeps it in the roadmap and opens it
+not yet; the stage still opens on that word alone.
+
 ### Objective
 
 A person holds several user identities on one node, each a configured
