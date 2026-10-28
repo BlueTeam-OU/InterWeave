@@ -218,6 +218,24 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     self.model.identity_shown(identity);
                 }
             }
+            Update::Started(start) => {
+                let crate::protocol::Start {
+                    pending,
+                    summaries,
+                    counted_through,
+                    undecodable_unread,
+                    undecodable_other,
+                    contacts,
+                    identity,
+                } = *start;
+                self.model.started(pending, summaries, counted_through);
+                self.hidden_unread = undecodable_unread;
+                self.hidden_other = undecodable_other;
+                self.model.contacts_directory(contacts.map_err(|_| ()));
+                if let Some(identity) = identity {
+                    self.model.identity_shown(identity);
+                }
+            }
             Update::UnreadListed { rows, undecodable } => {
                 self.model.unread_listed(rows);
                 // A relist reads the unread rows only: their count is

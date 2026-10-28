@@ -29,7 +29,7 @@ use interweave_human_ui_model::{
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
-use crate::protocol::{Command, Failure, Listing, Update};
+use crate::protocol::{Command, Failure, Listing, Start, Update};
 use crate::{cards, listing};
 use interweave_human_ui_model::CardOutcome;
 
@@ -120,6 +120,8 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// an earlier one and none is dropped (contact-cards design 5.2:
     /// "Save waits for it"; #449 F3).
     own_saves: VecDeque<OwnSave>,
+    /// How many stored rows have been read and decoded ([`Self::rows_read`]).
+    rows_read: u64,
 }
 
 /// What the own card's editor holds of its photo, on the facade side.
@@ -296,6 +298,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             contact_holds: 0,
             own_photo: OwnPhoto::Held(Held::Card),
             own_saves: VecDeque::new(),
+            rows_read: 0,
         }
     }
 
@@ -382,11 +385,58 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     pub fn listing(&mut self) -> Result<Listing, StoreError> {
         // The first read of a session: kinds another build made are
         // classified again before anything counts them.
-        listing::reclassify_if_stale(self.client.store_mut())?;
+        listing::reclassify_if_stale(self.client.store_mut(), &mut self.rows_read)?;
         let mut listing = listing::list_all(self.client.store_mut())?;
+        let rows = listing.pending.len()
+            + listing.unread.len()
+            + listing.kept.len()
+            + listing.unread_cards.len()
+            + listing.undecodable_unread
+            + listing.undecodable_other;
+        self.rows_read += u64::try_from(rows).unwrap_or(u64::MAX);
         self.read_card_rows()?;
         listing.identity = self.own_view()?;
         Ok(listing)
+    }
+
+    /// The store at a windowed start, in place of [`Self::listing`]: the
+    /// pending rows, each conversation's count and newest row, and the
+    /// contacts without their photos -- no conversation's rows, so what it
+    /// reads grows with the conversations and the pending rows, never with
+    /// a backlog (design/2026-10-27-start-window.md section 3).
+    ///
+    /// # Errors
+    /// The store's, when the rows or counts cannot be read. A failed read
+    /// of the contacts is the start's [`Start::contacts`], not an error.
+    pub fn start(&mut self) -> Result<Start, StoreError> {
+        listing::reclassify_if_stale(self.client.store_mut(), &mut self.rows_read)?;
+        let store = self.client.store_mut();
+        let (pending, undecodable_pending) = listing::list_pending(store)?;
+        let summarised = listing::summaries(store)?;
+        let hidden = store.hidden_inbound()?;
+        let contacts = cards::contact_directory(store).map_err(|e| store_failure(&e));
+        let rows = pending.len() + undecodable_pending;
+        self.rows_read += u64::try_from(rows).unwrap_or(u64::MAX) + summarised.read;
+        self.read_card_rows()?;
+        Ok(Start {
+            pending,
+            summaries: summarised.summaries,
+            counted_through: summarised.counted_through,
+            undecodable_unread: usize::try_from(hidden.unread).unwrap_or(usize::MAX),
+            undecodable_other: usize::try_from(hidden.kept)
+                .unwrap_or(usize::MAX)
+                .saturating_add(undecodable_pending),
+            contacts,
+            identity: self.own_view()?,
+        })
+    }
+
+    /// How many stored rows this side has read and decoded so far --
+    /// classified, listed, summarised or paged: what a start's cost is
+    /// measured in, since a memory figure says nothing a test can hold.
+    #[must_use]
+    pub const fn rows_read(&self) -> u64 {
+        self.rows_read
     }
 
     /// One turn of the facade: run it, hand over what it received, and

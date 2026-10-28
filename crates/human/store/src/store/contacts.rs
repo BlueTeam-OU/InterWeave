@@ -656,8 +656,8 @@ impl HumanStore {
     /// page is the last contact's id. Id order is no order a person sees
     /// (human-client-ui.md section 3): a caller reads every page before
     /// anything is shown, and the model orders the whole
-    /// (`UiModel::contacts_listed`). No production caller pages contacts
-    /// yet.
+    /// (`UiModel::contacts_listed`). The windowed start pages them
+    /// (app-core's `FacadeSide::start`).
     ///
     /// # Errors
     /// A storage error, or a row this build cannot read back.

@@ -13,8 +13,9 @@ use interweave_human_client_api::{
 };
 use interweave_human_store::RowId;
 use interweave_human_ui_model::{
-    CardOutcome, ContactChange, ContactView, ConversationKey, IdentityView, ItemKey, ListedInbound,
-    ListedOutbound, PhotoEdit, Proposal, ProposalContext, Table, TrustChange,
+    CardOutcome, ContactChange, ContactView, ConversationKey, DirectoryContact, IdentityView,
+    ItemKey, ListedInbound, ListedOutbound, PhotoEdit, Proposal, ProposalContext, StoredSummary,
+    Table, TrustChange,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -187,12 +188,40 @@ pub struct Listing {
     pub identity: Option<IdentityView>,
 }
 
+/// The store at a windowed start (design/2026-10-27-start-window.md
+/// section 3): the pending rows, each conversation's summary, the contacts
+/// without their photos -- and no conversation's rows, which its opening
+/// pages in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Start {
+    /// Pending outbound rows: every one held, whatever the window.
+    pub pending: Vec<ListedOutbound>,
+    /// Each conversation the store shows a row of: its unread count and
+    /// its newest row.
+    pub summaries: Vec<StoredSummary>,
+    /// The unread table's high-water mark, read with the counts: a row
+    /// handed over later at or below it is in them already.
+    pub counted_through: Option<RowId>,
+    /// Unread rows of a kind this build cannot show: never shown, counted.
+    pub undecodable_unread: usize,
+    /// Kept rows likewise, and pending rows that do not decode.
+    pub undecodable_other: usize,
+    /// The contacts, or the read's failure: no contact is then known, and
+    /// none is written until a read succeeds (section 11).
+    pub contacts: Result<Vec<DirectoryContact>, Failure>,
+    /// The identity in front, when the root holds its key.
+    pub identity: Option<IdentityView>,
+}
+
 /// What the facade side did, for the model side to apply.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Update {
     /// The store's rows at start. Applied before anything else, since the
     /// model treats the pending listing as authoritative.
     Listed(Listing),
+    /// The store at a windowed start, in place of [`Update::Listed`]:
+    /// applied before anything else for the same reason.
+    Started(Box<Start>),
     /// The store's unread rows again, after the facade reported unread
     /// content it holds but did not hand over (`ClientEvent::UnreadInStore`).
     UnreadListed {
