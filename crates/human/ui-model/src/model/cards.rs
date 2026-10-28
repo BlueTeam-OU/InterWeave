@@ -755,7 +755,7 @@ impl UiModel {
             endpoint: Some(proposal.endpoint.clone()),
         };
         if let Some(windowed) = self.windowed.as_mut()
-            && windowed.is_new(proposal.row)
+            && windowed.handed_over(proposal.row)
             && !self.cards.proposals.contains_key(&proposal.row)
         {
             windowed.arrived(

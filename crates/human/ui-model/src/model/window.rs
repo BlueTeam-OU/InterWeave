@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use interweave_human_core::RowId;
 
 use super::cards::{Proposal, READ_PROPOSAL_CAP};
+use super::summaries::NewestRow;
 use super::{ConversationKey, ItemKey, ListedInbound, SESSION_ITEM_CAP, Table, UiModel};
 
 /// The most stored rows -- unread and kept, which keep their stored copy --
@@ -569,6 +570,33 @@ impl UiModel {
             u64::try_from(marks.iter().filter(|(_, _, u)| *u).count()).unwrap_or(u64::MAX);
         let oldest = marks.iter().map(|(_, m, _)| *m).min();
         let newest = marks.iter().map(|(_, m, _)| *m).max();
+        // A row committed after the start's read that the drain has not
+        // handed over yet is in no count: the page brings it first, and
+        // counts it (once).
+        if let Some(windowed) = self.windowed.as_mut() {
+            let conversation = &page.ask.conversation;
+            for row in &page.unread {
+                if windowed.paged(row.row) {
+                    windowed.arrived(
+                        conversation,
+                        NewestRow::message(
+                            Table::Unread,
+                            row.row,
+                            row.received_at,
+                            &row.envelope.text,
+                        ),
+                    );
+                }
+            }
+            for proposal in &page.proposals {
+                if windowed.paged(proposal.row) {
+                    windowed.arrived(
+                        conversation,
+                        NewestRow::card(proposal.row, proposal.received_at),
+                    );
+                }
+            }
+        }
         for row in page.unread {
             self.unread_listed(vec![row]);
         }

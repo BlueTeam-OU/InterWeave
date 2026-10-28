@@ -7,7 +7,7 @@
 //! windowed mode; one given a whole listing is not, and lists only what it
 //! holds, as it always has.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use interweave_human_chat_protocol::{Block, Inline, Rendered, render};
 use interweave_human_core::RowId;
@@ -55,6 +55,15 @@ pub(super) struct Summaries {
     /// The unread table's high-water mark when the counts were read: a row
     /// at or below it is in them already, though handed over after them.
     counted_through: Option<RowId>,
+    /// The highest row the drain has handed over since. The facade commits
+    /// and hands over unread rows in id order (its held rows first, oldest
+    /// first, then the session's), so a row at or below it was handed
+    /// over and counted then -- one that overflowed is the relist's.
+    handed_through: Option<RowId>,
+    /// Rows a page brought and counted before the drain handed them over:
+    /// the drain counts them no more. Each leaves once the drain is past it,
+    /// so it holds only rows committed and not yet handed over.
+    paged_first: BTreeSet<RowId>,
 }
 
 impl Summaries {
@@ -65,14 +74,35 @@ impl Summaries {
                 .map(|s| (s.conversation.clone(), s))
                 .collect(),
             counted_through,
+            handed_through: None,
+            paged_first: BTreeSet::new(),
         }
     }
 
-    /// Whether `row`, handed over now, is new to the counts: committed
-    /// after they were read. The facade hands over rows it committed before
-    /// a start's read -- held when a session closed -- after it.
-    pub(super) fn is_new(&self, row: RowId) -> bool {
+    fn above_mark(&self, row: RowId) -> bool {
         self.counted_through.is_none_or(|mark| row > mark)
+    }
+
+    /// Whether `row`, which the drain hands over now, is new to the counts:
+    /// committed after they were read -- the facade hands over rows it
+    /// committed before a start's read, held when a session closed, after
+    /// it -- and not counted already by a page that brought it first.
+    pub(super) fn handed_over(&mut self, row: RowId) -> bool {
+        self.handed_through = self.handed_through.max(Some(row));
+        let paged = self.paged_first.remove(&row);
+        let handed = self.handed_through;
+        self.paged_first.retain(|r| Some(*r) > handed);
+        self.above_mark(row) && !paged
+    }
+
+    /// Whether `row`, which a page brings, is new to the counts: above the
+    /// start's mark and past every row the drain handed over, so committed
+    /// and not handed over yet; counted once, here, however often a page
+    /// brings it again.
+    pub(super) fn paged(&mut self, row: RowId) -> bool {
+        self.above_mark(row)
+            && self.handed_through.is_none_or(|h| row > h)
+            && self.paged_first.insert(row)
     }
 
     /// A row the store committed unread: counted, and the newest if it is.
@@ -492,6 +522,25 @@ mod tests {
         assert_eq!(listed(&model, P).unread, 2, "both in the count already");
         model.received(received(5, P, 20, "after the read"));
         assert_eq!(listed(&model, P).unread, 3);
+    }
+
+    /// A row a page counted first leaves the set once the drain is past
+    /// it, handed over or not: the set holds only rows committed and not
+    /// handed over yet. Mutation: the rows the drain passed kept.
+    #[test]
+    fn a_paged_row_leaves_once_the_drain_is_past_it() {
+        let mut summaries = super::Summaries::of(Vec::new(), Some(RowId::from_stored(10)));
+        assert!(summaries.paged(RowId::from_stored(11)));
+        assert!(summaries.paged(RowId::from_stored(13)));
+        assert!(!summaries.paged(RowId::from_stored(13)), "once");
+        assert!(summaries.handed_over(RowId::from_stored(12)));
+        assert_eq!(
+            summaries.paged_first.iter().copied().collect::<Vec<_>>(),
+            [RowId::from_stored(13)],
+            "11, passed but never handed over, is gone"
+        );
+        assert!(!summaries.handed_over(RowId::from_stored(13)));
+        assert!(summaries.paged_first.is_empty());
     }
 
     /// Asked again, the store's summaries replace the counts the session

@@ -33,8 +33,14 @@ fn conversation() -> ConversationKey {
 }
 
 /// A windowed model whose one conversation the store says holds
-/// `unread` unread rows, the newest at time 1,000.
+/// `unread` unread rows, the newest at time 1,000, and whose counts hold
+/// every row these tests page: the start's mark is above all of them.
 fn started(unread: u64) -> UiModel {
+    started_through(unread, i64::MAX)
+}
+
+/// [`started`], the start's mark at row `mark`.
+fn started_through(unread: u64, mark: i64) -> UiModel {
     let mut model = UiModel::new();
     model.started(
         Vec::new(),
@@ -49,7 +55,7 @@ fn started(unread: u64) -> UiModel {
                 card: false,
             }),
         }],
-        None,
+        Some(RowId::from_stored(mark)),
     );
     model
 }
@@ -550,7 +556,7 @@ fn a_closed_conversation_holds_none_of_its_stored_rows_and_reloads_them() {
 #[test]
 fn an_arrival_in_a_closed_conversation_is_counted_not_held() {
     use interweave_human_client_api::Received;
-    let mut model = started(1);
+    let mut model = started_through(1, 1_000);
     let listed = row(2_000);
     model.received(Received {
         row: listed.row,
@@ -784,4 +790,44 @@ fn rows_never_handed_over_open_the_window_again_at_the_newest() {
     assert!(again.seq > ask.seq, "a new opening");
     model.page_arrived(page(&again, &[1_001, 1_002, 1_003], PageEnd::More));
     assert!(model.len() >= 3, "the rows never handed over are held");
+}
+
+/// Row `n` as the drain hands it over.
+fn handed(model: &mut UiModel, n: i64) {
+    let listed = row(n);
+    model.received(interweave_human_client_api::Received {
+        row: listed.row,
+        origin: listed.origin,
+        envelope: listed.envelope,
+        received_at: listed.received_at,
+    });
+}
+
+/// Each unread row committed after the start's read counts once, whichever
+/// comes first: the drain handing it over, or a page bringing it from the
+/// store while the facade still holds it back. Mutations: a page's rows
+/// counted by no one; the drain counting a row a page counted first.
+#[test]
+fn a_row_counts_once_whether_the_drain_or_a_page_brings_it_first() {
+    let mut model = started_through(2, 1_000);
+    let unread = |model: &UiModel| model.conversations()[0].unread;
+    handed(&mut model, 1_002);
+    assert_eq!(unread(&model), 3, "handed over while closed");
+
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000, 1_002, 1_003], PageEnd::Exhausted));
+    assert_eq!(
+        unread(&model),
+        4,
+        "1,003 is new; 1,002 and the start's rows are not"
+    );
+
+    // Closed, the conversation holds the row no more: what decides is that
+    // the page counted it, not that it is held.
+    model.window_input(WindowInput::Closed(conversation()));
+    handed(&mut model, 1_003);
+    assert_eq!(unread(&model), 4, "the page counted it first");
+    handed(&mut model, 1_004);
+    assert_eq!(unread(&model), 5);
 }
