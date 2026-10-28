@@ -66,7 +66,7 @@ pub use store::contacts::{
 };
 pub use store::window::{
     ConversationUnread, HiddenInbound, Order, PageRange, StoreConversation, WindowCursor,
-    WindowLimits,
+    WindowLimits, WindowPage,
 };
 pub use store::{HumanStore, READ_PAIR_CAP, STORE_FILE, StoreOptions};
 

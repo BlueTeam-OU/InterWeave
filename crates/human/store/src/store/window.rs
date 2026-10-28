@@ -111,6 +111,17 @@ fn bound(table: BackupTable, cursor: WindowCursor) -> Result<(i64, i64), StoreEr
     })
 }
 
+/// A page of a conversation, and why it stopped
+/// ([`HumanStore::conversation_window`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowPage {
+    /// The rows, and the cursor of the next page when more remain.
+    pub page: Page<StoredInbound, WindowCursor>,
+    /// The page stopped because its unread room was used: the next row is
+    /// unread. Never true when nothing remains.
+    pub room_used: bool,
+}
+
 /// A conversation's unread count as the badge counts it (STATE.md schema
 /// v10, A 2026-10-27 (ii)): its unread rows of a kind this build shows,
 /// one per row. The table's key already makes two rows of one direct
@@ -413,6 +424,24 @@ impl HumanStore {
         order: Order,
         limits: WindowLimits,
     ) -> Result<Page<StoredInbound, WindowCursor>, StoreError> {
+        self.conversation_window(conversation, range, order, limits)
+            .map(|window| window.page)
+    }
+
+    /// [`Self::conversation_range`], saying whether the page stopped
+    /// because its unread room was used -- the next row unread, and no room
+    /// for it -- rather than at its records or bytes: the limit row is
+    /// shown only then (design section 7.1).
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn conversation_window(
+        &self,
+        conversation: &StoreConversation,
+        range: PageRange,
+        order: Order,
+        limits: WindowLimits,
+    ) -> Result<WindowPage, StoreError> {
         let (filter, first, second) = match conversation {
             StoreConversation::Direct { peer, endpoint } => {
                 (DIRECT, peer.as_str(), endpoint.as_str())
@@ -460,6 +489,7 @@ impl HumanStore {
         let mut unread = 0usize;
         let mut last: Option<WindowCursor> = None;
         let mut more = false;
+        let mut room_used = false;
         for (table, row, size) in merged {
             let past_room =
                 table == BackupTable::Unread && limits.unread.is_some_and(|room| unread >= room);
@@ -483,6 +513,7 @@ impl HumanStore {
                         || bytes.saturating_add(size) > limits.page.max_bytes()))
             {
                 more = true;
+                room_used = past_room;
                 break;
             }
             bytes = bytes.saturating_add(size);
@@ -496,9 +527,12 @@ impl HumanStore {
             });
             items.push(row);
         }
-        Ok(Page {
-            items,
-            next: if more { last } else { None },
+        Ok(WindowPage {
+            page: Page {
+                items,
+                next: if more { last } else { None },
+            },
+            room_used,
         })
     }
 
@@ -593,6 +627,28 @@ impl HumanStore {
             unread: u64::try_from(unread).unwrap_or(0),
             kept: u64::try_from(kept).unwrap_or(0),
         })
+    }
+
+    /// The highest row id the unread table ever gave, `None` before its
+    /// first row: every row committed unread so far has an id at or below
+    /// it, read or not, since the table's ids are `AUTOINCREMENT` and never
+    /// given twice. Read with the counts at a start, it tells a row the
+    /// counts already hold from one committed after them, whenever either
+    /// is handed over (design section 3: a badge counts each row once).
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn unread_high_water(&self) -> Result<Option<RowId>, StoreError> {
+        use rusqlite::OptionalExtension as _;
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'unread_inbound'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .map(RowId::from_stored))
     }
 
     /// One unread row by its id, if it is still unread.

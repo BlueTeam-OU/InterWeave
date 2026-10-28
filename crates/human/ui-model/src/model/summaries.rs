@@ -7,7 +7,7 @@
 //! windowed mode; one given a whole listing is not, and lists only what it
 //! holds, as it always has.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use interweave_human_chat_protocol::{Block, Inline, Rendered, render};
 use interweave_human_core::RowId;
@@ -52,16 +52,56 @@ pub struct NewestRow {
 #[derive(Debug, Default)]
 pub(super) struct Summaries {
     by: BTreeMap<ConversationKey, StoredSummary>,
+    /// The unread table's high-water mark when the counts were read: a row
+    /// at or below it is in them already, though handed over after them.
+    counted_through: Option<RowId>,
+    /// The highest row the drain has handed over since. A page leaves a row
+    /// at or below it to the drain: handed over, the drain counted it; not
+    /// yet, the drain counts it when it comes. Neither needs the drain to
+    /// hand rows over in any order.
+    handed_through: Option<RowId>,
+    /// Rows a page brought and counted before the drain handed them over:
+    /// the drain counts them no more. A row leaves when the drain hands it
+    /// over, or at a relist's re-base, so it holds only rows committed and
+    /// not handed over yet.
+    paged_first: BTreeSet<RowId>,
 }
 
 impl Summaries {
-    fn of(summaries: Vec<StoredSummary>) -> Self {
+    fn of(summaries: Vec<StoredSummary>, counted_through: Option<RowId>) -> Self {
         Self {
             by: summaries
                 .into_iter()
                 .map(|s| (s.conversation.clone(), s))
                 .collect(),
+            counted_through,
+            handed_through: None,
+            paged_first: BTreeSet::new(),
         }
+    }
+
+    fn above_mark(&self, row: RowId) -> bool {
+        self.counted_through.is_none_or(|mark| row > mark)
+    }
+
+    /// Whether `row`, which the drain hands over now, is new to the counts:
+    /// committed after they were read -- the facade hands over rows it
+    /// committed before a start's read, held when a session closed, after
+    /// it -- and not counted already by a page that brought it first.
+    pub(super) fn handed_over(&mut self, row: RowId) -> bool {
+        self.handed_through = self.handed_through.max(Some(row));
+        let paged = self.paged_first.remove(&row);
+        self.above_mark(row) && !paged
+    }
+
+    /// Whether `row`, which a page brings, is new to the counts: above the
+    /// start's mark and past every row the drain handed over, so committed
+    /// and not handed over yet; counted once, here, however often a page
+    /// brings it again.
+    pub(super) fn paged(&mut self, row: RowId) -> bool {
+        self.above_mark(row)
+            && self.handed_through.is_none_or(|h| row > h)
+            && self.paged_first.insert(row)
     }
 
     /// A row the store committed unread: counted, and the newest if it is.
@@ -92,6 +132,11 @@ impl Summaries {
         }
     }
 
+    /// The store's count of `conversation`'s unread rows, as kept current.
+    pub(super) fn unread_of(&self, conversation: &ConversationKey) -> u64 {
+        self.by.get(conversation).map_or(0, |s| s.unread)
+    }
+
     pub(super) fn iter(&self) -> impl Iterator<Item = &StoredSummary> {
         self.by.values()
     }
@@ -120,8 +165,16 @@ impl NewestRow {
 
     /// The newest row a message received now is, from its text.
     pub(super) fn received(row: RowId, received_at: u64, text: &str) -> Self {
+        Self::message(Table::Unread, row, received_at, text)
+    }
+
+    /// A stored message's row, unread or kept, from its envelope's text:
+    /// previewed as a row the window loads is, so it reads the same once
+    /// loaded.
+    #[must_use]
+    pub fn message(table: Table, row: RowId, received_at: u64, text: &str) -> Self {
         Self {
-            table: Table::Unread,
+            table,
             row,
             received_at,
             preview: crate::preview::preview(&render(text), &crate::body::image_text),
@@ -131,7 +184,8 @@ impl NewestRow {
 
     /// The newest row a card received now is: previewed as a card, never
     /// by the name it claims.
-    pub(super) const fn card(row: RowId, received_at: u64) -> Self {
+    #[must_use]
+    pub const fn card(row: RowId, received_at: u64) -> Self {
         Self {
             table: Table::Unread,
             row,
@@ -148,17 +202,54 @@ impl NewestRow {
 impl UiModel {
     /// The start from the store's summaries rather than every row: the
     /// pending rows, held as at any start, and each conversation's count
-    /// and newest row. The model is in the windowed mode from here on.
-    pub fn started(&mut self, pending: Vec<ListedOutbound>, summaries: Vec<StoredSummary>) {
+    /// and newest row, with the unread table's high-water mark read beside
+    /// them (`HumanStore::unread_high_water`): a row handed over later whose
+    /// id is at or below it is in the counts already. The model is in the
+    /// windowed mode from here on.
+    pub fn started(
+        &mut self,
+        pending: Vec<ListedOutbound>,
+        summaries: Vec<StoredSummary>,
+        counted_through: Option<RowId>,
+    ) {
         self.pending_listed(pending);
-        self.windowed = Some(Summaries::of(summaries));
+        self.windowed = Some(Summaries::of(summaries, counted_through));
     }
 
     /// The summaries asked again -- the store said rows are waiting there:
-    /// every count and newest row re-based on the store's.
-    pub fn summaries_listed(&mut self, summaries: Vec<StoredSummary>) {
-        if self.windowed.is_some() {
-            self.windowed = Some(Summaries::of(summaries));
+    /// every count and newest row re-based on the store's, and on its mark.
+    /// The open conversation's rows the facade could not hand over are
+    /// newer than any its window held, and no edge reads newer rows: when
+    /// the store's newest is one of them the window opens again, at the
+    /// newest row, as any opening does (design section 4).
+    pub fn summaries_listed(
+        &mut self,
+        summaries: Vec<StoredSummary>,
+        counted_through: Option<RowId>,
+    ) {
+        if self.windowed.is_none() {
+            return;
+        }
+        let summaries = Summaries::of(summaries, counted_through);
+        let missed = self.windows.open_conversation().cloned().filter(|open| {
+            summaries
+                .by
+                .get(open)
+                .and_then(|s| s.newest.as_ref())
+                .is_some_and(|n| {
+                    self.windows.missed(
+                        open,
+                        super::window::PageMark {
+                            received_at: n.received_at,
+                            kept: n.table == Table::Kept,
+                            row: n.row,
+                        },
+                    )
+                })
+        });
+        self.windowed = Some(summaries);
+        if let Some(open) = missed {
+            self.window_input(super::window::WindowInput::Opened(open));
         }
     }
 
@@ -292,6 +383,7 @@ mod tests {
                 summary(P, 5_000, Table::Unread, 9_000, 50, "the newest of many"),
                 summary(Q, 0, Table::Kept, 7, 10, "kept long ago"),
             ],
+            None,
         );
         assert!(model.windowed());
         assert!(model.is_empty(), "no row is held");
@@ -314,7 +406,10 @@ mod tests {
         model.started(
             Vec::new(),
             vec![summary(P, 2, Table::Unread, 1, 10, "older")],
+            None,
         );
+        // Open, so the arrival is held and can be read.
+        model.window_input(crate::model::window::WindowInput::Opened(direct(P)));
         model.received(received(5, P, 20, "just now"));
         let now = listed(&model, P);
         assert_eq!(now.unread, 3);
@@ -341,6 +436,7 @@ mod tests {
         model.started(
             Vec::new(),
             vec![summary(P, 1, Table::Unread, 1, 10, "theirs")],
+            None,
         );
         model.sent(
             RowId::from_stored(2),
@@ -364,7 +460,8 @@ mod tests {
     #[test]
     fn a_card_counts_in_the_badge_in_the_windowed_mode_only() {
         let mut model = UiModel::new();
-        model.started(Vec::new(), Vec::new());
+        model.started(Vec::new(), Vec::new(), None);
+        model.window_input(crate::model::window::WindowInput::Opened(direct(P)));
         model.card_arrived(card(3, P, 40));
         let now = listed(&model, P);
         assert_eq!(now.unread, 1);
@@ -398,11 +495,65 @@ mod tests {
                 unread: 1,
                 newest: Some(NewestRow::card(RowId::from_stored(3), 40)),
             }],
+            None,
         );
         model.card_received(card(3, P, 40));
         assert_eq!(listed(&model, P).unread, 1);
         model.read(RowId::from_stored(3));
         assert_eq!(listed(&model, P).unread, 0);
+    }
+
+    /// A row the facade committed before the start's read and hands over
+    /// after it -- held when a session closed -- is in the store's count
+    /// already: a message or a card at or below the mark counts nothing, a
+    /// row above it once (design section 3). Mutation: the mark ignored.
+    #[test]
+    fn a_row_the_starts_count_already_holds_is_not_counted_again() {
+        let mut model = UiModel::new();
+        model.started(
+            Vec::new(),
+            vec![summary(P, 2, Table::Unread, 4, 10, "counted")],
+            Some(RowId::from_stored(4)),
+        );
+        model.window_input(crate::model::window::WindowInput::Opened(direct(P)));
+        model.received(received(3, P, 9, "held at the close"));
+        model.card_arrived(card(4, P, 10));
+        assert_eq!(listed(&model, P).unread, 2, "both in the count already");
+        model.received(received(5, P, 20, "after the read"));
+        assert_eq!(listed(&model, P).unread, 3);
+    }
+
+    /// Each row counts once whatever order the drain hands rows over in:
+    /// a row a page counted first is not counted by the drain even after a
+    /// newer row came first, and leaves the set when it is handed over; a
+    /// row at or below the highest handed over that a page brings is left
+    /// to the drain, which counts it once when it comes (#501 review F4).
+    /// Mutations: the set trimmed past the highest row handed over; a
+    /// handed-over row left in the set.
+    #[test]
+    fn a_row_counts_once_whatever_order_the_drain_hands_rows_over_in() {
+        let mut summaries = super::Summaries::of(Vec::new(), Some(RowId::from_stored(10)));
+        assert!(summaries.paged(RowId::from_stored(11)));
+        assert!(!summaries.paged(RowId::from_stored(11)), "once");
+        assert!(
+            summaries.handed_over(RowId::from_stored(13)),
+            "newer, first"
+        );
+        assert!(
+            !summaries.handed_over(RowId::from_stored(11)),
+            "the page counted it"
+        );
+        assert!(summaries.paged_first.is_empty(), "handed over, it leaves");
+
+        assert!(
+            !summaries.paged(RowId::from_stored(12)),
+            "below 13: the drain's"
+        );
+        assert!(
+            summaries.handed_over(RowId::from_stored(12)),
+            "counted when it comes"
+        );
+        assert!(summaries.paged_first.is_empty());
     }
 
     /// Asked again, the store's summaries replace the counts the session
@@ -413,9 +564,13 @@ mod tests {
         model.started(
             Vec::new(),
             vec![summary(P, 2, Table::Unread, 1, 10, "older")],
+            None,
         );
         model.received(received(5, P, 20, "just now"));
-        model.summaries_listed(vec![summary(P, 7, Table::Unread, 9, 60, "after a while")]);
+        model.summaries_listed(
+            vec![summary(P, 7, Table::Unread, 9, 60, "after a while")],
+            None,
+        );
         let now = listed(&model, P);
         assert_eq!(now.unread, 7);
         assert_eq!(now.last.preview.shown(), "after a while");

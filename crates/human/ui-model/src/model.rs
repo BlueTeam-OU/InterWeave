@@ -29,8 +29,10 @@ use crate::peers::{Peers, PeersInput, ScanVerdict};
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
 pub(crate) mod cards;
+pub(crate) mod directory;
 pub(crate) mod summaries;
 mod swipe;
+pub(crate) mod window;
 
 pub use swipe::{
     Announce, Confirmation, ContactChange, FocusTarget, Outcome, Released, RowAction, Snackbar,
@@ -713,6 +715,10 @@ pub struct UiModel {
     /// The windowed mode's summaries, once the model started from them
     /// ([`UiModel::started`]); `None` for a model given a whole listing.
     windowed: Option<summaries::Summaries>,
+    /// The open conversation's window, in the windowed mode.
+    windows: window::Windows,
+    /// The contacts as the windowed mode reads them, and their photos.
+    directory: directory::Directory,
 }
 
 impl Default for UiModel {
@@ -755,6 +761,8 @@ impl UiModel {
             swipe: swipe::SwipeState::default(),
             cards: cards::Cards::default(),
             windowed: None,
+            windows: window::Windows::default(),
+            directory: directory::Directory::default(),
         }
     }
 
@@ -818,18 +826,26 @@ impl UiModel {
 
     /// A message `drain` handed over: committed unread already.
     pub fn received(&mut self, received: interweave_human_client_api::Received) {
+        let conversation = conversation_of_origin(&received.origin);
         if let Some(windowed) = self.windowed.as_mut()
+            && windowed.handed_over(received.row)
             && !self.by_row.contains_key(&(Table::Unread, received.row))
             && !self.released.contains(&(Table::Unread, received.row))
         {
             windowed.arrived(
-                &conversation_of_origin(&received.origin),
+                &conversation,
                 summaries::NewestRow::received(
                     received.row,
                     received.received_at,
                     &received.envelope.text,
                 ),
             );
+        }
+        // A closed conversation holds none of its stored rows in the
+        // windowed mode, only its summary: the row stays unread in the
+        // store and its opening's page brings it (design section 3).
+        if self.windowed.is_some() && self.windows.open_conversation() != Some(&conversation) {
+            return;
         }
         self.inbound(
             received.row,
@@ -838,6 +854,20 @@ impl UiModel {
             received.envelope,
             received.received_at,
         );
+        // Held in the open conversation: its place, and the held-row
+        // ceiling, which a flood while the window has no focus reaches.
+        if self.windowed.is_some() && self.by_row.contains_key(&(Table::Unread, received.row)) {
+            self.windows.holds(
+                Table::Unread,
+                received.row,
+                window::PageMark {
+                    received_at: received.received_at,
+                    kept: false,
+                    row: received.row,
+                },
+            );
+            self.hold_ceiling();
+        }
     }
 
     /// The store's unread rows, at start or after `UnreadInStore`: merged
@@ -1012,6 +1042,7 @@ impl UiModel {
         if let (Some(windowed), Some(conversation)) = (self.windowed.as_mut(), conversation) {
             windowed.left_unread(&conversation);
         }
+        self.windows.forget(Table::Unread, row);
         self.release(Table::Unread, row);
         self.cards.read(row);
     }
@@ -1032,6 +1063,17 @@ impl UiModel {
         if let Some(item) = self.items.get_mut(&key) {
             item.rows.push((Table::Kept, kept_row));
             self.by_row.insert((Table::Kept, kept_row), key);
+            // A kept row keeps its stored copy at the time the message
+            // reached this app: its place in the window.
+            self.windows.holds(
+                Table::Kept,
+                kept_row,
+                window::PageMark {
+                    received_at: item.local_at,
+                    kept: true,
+                    row: kept_row,
+                },
+            );
             if self.ephemeral_set.remove(&key) {
                 self.ephemeral.retain(|k| *k != key);
             }
@@ -1043,6 +1085,7 @@ impl UiModel {
     /// The root removed Keep from `kept_row`.
     pub fn unkept(&mut self, kept_row: RowId) {
         let key = self.by_row.get(&(Table::Kept, kept_row)).copied();
+        self.windows.forget(Table::Kept, kept_row);
         self.release(Table::Kept, kept_row);
         if let Some(key) = key {
             self.swipe_unkept(key);
@@ -1303,6 +1346,8 @@ impl UiModel {
                 peer,
                 endpoint,
             } => return self.delete_route(contact_id, peer, endpoint).is_some(),
+            // Not while the contacts are unread (design section 11).
+            Intent::AcceptCard(row) => return self.card_actions(*row).contains(intent),
             _ => return true,
         };
         key.is_some_and(|key| match intent {
@@ -1872,15 +1917,50 @@ impl UiModel {
     /// only those, since everything else is re-listed from the store, and
     /// never one an open snackbar's Undo needs (it goes once that closes).
     fn evict(&mut self) {
+        // The item the person moved focus to is never dropped while focused:
+        // the next in the order goes instead (design section 7.1).
+        let focused = self.windows.focused();
         while self.ephemeral.len() > SESSION_ITEM_CAP {
-            let Some(at) = self.ephemeral.iter().position(|k| !self.swipe.protects(k)) else {
+            let Some(at) = self
+                .ephemeral
+                .iter()
+                .position(|k| !self.swipe.protects(k) && Some(*k) != focused)
+            else {
                 return;
             };
             let Some(key) = self.ephemeral.remove(at) else {
                 return;
             };
+            // A row of the open conversation leaves a ReadNotShown line
+            // where it stood; another conversation's goes with nothing said.
+            if self
+                .items
+                .get(&key)
+                .is_some_and(|i| Some(&i.conversation) == self.windows.open_conversation())
+            {
+                let below = self.item_below(key);
+                self.windows.dropped(key, below);
+            }
             self.drop_items(&[key]);
         }
+    }
+
+    /// Stop holding `conversation`'s stored rows -- unread and kept -- which
+    /// stay in the store unchanged and load again when reached: not
+    /// released, which would refuse them for good (design sections 3 and
+    /// 5.1). An item a pending row holds stays, as does a session-only one.
+    pub(super) fn let_go(&mut self, conversation: &ConversationKey) {
+        let keys: Vec<ItemKey> = self
+            .items
+            .iter()
+            .filter(|(_, i)| {
+                &i.conversation == conversation
+                    && !i.rows.is_empty()
+                    && i.rows.iter().all(|(t, _)| *t != Table::Pending)
+            })
+            .map(|(k, _)| *k)
+            .collect();
+        self.drop_items(&keys);
     }
 
     /// Forget `keys` entirely: shown nowhere, offered nothing, no reply

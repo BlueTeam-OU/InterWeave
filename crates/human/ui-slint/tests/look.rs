@@ -460,6 +460,7 @@ fn a_received_card_previews_as_a_contact_card_not_ones_own() {
                 card: true,
             }),
         }],
+        None,
     );
     view.render(&model);
     let row = view
