@@ -40,7 +40,7 @@ pub struct DirectoryContact {
 
 /// A photo the model asks the facade to read: the contact's, as it stood
 /// at `photo_at`, so a photo changed since is not the one shown.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PhotoAsk {
     /// The contact.
     pub contact_id: String,

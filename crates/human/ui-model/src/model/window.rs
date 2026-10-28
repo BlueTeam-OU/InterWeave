@@ -61,7 +61,7 @@ impl PartialOrd for PageMark {
 }
 
 /// The order a page is read in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PageOrder {
     /// Newest first, downward from a bound.
     NewestFirst,
@@ -87,7 +87,7 @@ pub enum Edge {
 /// how many unread rows the page may hold (the session bound, design
 /// section 7.1); `seq` names the opening it is for, so a page that comes
 /// back after the conversation was closed or opened again adds nothing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PageAsk {
     /// The conversation.
     pub conversation: ConversationKey,
@@ -119,7 +119,7 @@ pub enum PageEnd {
 
 /// A page the facade read for a [`PageAsk`]: its rows, each table apart,
 /// the card proposals among them, and whether more remain.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageRows {
     /// The ask it answers.
     pub ask: PageAsk,

@@ -136,8 +136,16 @@ impl NewestRow {
 
     /// The newest row a message received now is, from its text.
     pub(super) fn received(row: RowId, received_at: u64, text: &str) -> Self {
+        Self::message(Table::Unread, row, received_at, text)
+    }
+
+    /// A stored message's row, unread or kept, from its envelope's text:
+    /// previewed as a row the window loads is, so it reads the same once
+    /// loaded.
+    #[must_use]
+    pub fn message(table: Table, row: RowId, received_at: u64, text: &str) -> Self {
         Self {
-            table: Table::Unread,
+            table,
             row,
             received_at,
             preview: crate::preview::preview(&render(text), &crate::body::image_text),
@@ -147,7 +155,8 @@ impl NewestRow {
 
     /// The newest row a card received now is: previewed as a card, never
     /// by the name it claims.
-    pub(super) const fn card(row: RowId, received_at: u64) -> Self {
+    #[must_use]
+    pub const fn card(row: RowId, received_at: u64) -> Self {
         Self {
             table: Table::Unread,
             row,
