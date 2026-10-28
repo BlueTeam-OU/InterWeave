@@ -421,13 +421,41 @@ impl HumanStore {
         // ceiling asked for, when `recheck_health` compacts the file and
         // applies it (its re-review, F2: an earlier version let a
         // successful probe report Healthy under the looser ceiling).
+        //
+        // Zero is refused before anything is written: SQLite ignores it,
+        // answering the ceiling it already had
+        // (`a_zero_quota_is_refused_before_the_open_writes_anything`).
+        if options.max_pages == Some(0) {
+            let effective: i64 =
+                conn.pragma_update_and_check(None, "max_page_count", 0, |row| row.get(0))?;
+            return Err(StoreError::QuotaNotApplied {
+                requested: 0,
+                effective,
+            });
+        }
+
+        // THE OPEN'S OWN WRITES RUN ABOVE THE QUOTA (STATE.md, Store
+        // health, A 2026-10-27 (ii), #492's review F3): a migration, the
+        // key refresh and the index backfill are bounded by the store's own
+        // size and none is a peer's doing, and a store whose open had to
+        // write under a quota it was already at refused to open at all.
+        // The quota is applied once they are done; a store over it then
+        // opens degraded, below; one exactly at it is healthy
+        // (`a_store_exactly_at_its_quota_opens_healthy`).
+        migrate(&mut conn)?;
+        verify_shape(&conn)?;
+        // Before anything can read a key: a store whose keys another build
+        // made, or the v10 migration left empty, has them all again here.
+        contacts::refresh_name_keys(&mut conn)?;
+        window::backfill_conversation_index(&mut conn)?;
+
         let mut health = StorageHealth::Healthy;
         if let Some(max_pages) = options.max_pages {
             let effective: i64 =
                 conn.pragma_update_and_check(None, "max_page_count", max_pages, |row| row.get(0))?;
             if effective != i64::from(max_pages) {
                 let size: i64 = conn.pragma_query_value(None, "page_count", |row| row.get(0))?;
-                if max_pages == 0 || effective != size {
+                if effective != size {
                     return Err(StoreError::QuotaNotApplied {
                         requested: max_pages,
                         effective,
@@ -436,13 +464,6 @@ impl HumanStore {
                 health = StorageHealth::Degraded;
             }
         }
-
-        migrate(&mut conn)?;
-        verify_shape(&conn)?;
-        // Before anything can read a key: a store whose keys another build
-        // made, or the v10 migration left empty, has them all again here.
-        contacts::refresh_name_keys(&mut conn)?;
-        window::backfill_conversation_index(&mut conn)?;
 
         Ok(Self {
             conn,

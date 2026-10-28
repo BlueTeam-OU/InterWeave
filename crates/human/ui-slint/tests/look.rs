@@ -17,7 +17,8 @@ use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{Destination, Origin, Received};
 use interweave_human_core::RowId;
 use interweave_human_ui_model::{
-    ConversationKey, Intent, RuntimeHost, UiModel, UiText, ViewEvent, fill, placeholder_en,
+    ConversationKey, Intent, NewestRow, RuntimeHost, StoredSummary, Table, UiModel, UiText,
+    ViewEvent, fill, placeholder_en, preview::Preview,
 };
 use interweave_human_ui_slint::{Palette, View};
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -436,6 +437,40 @@ fn the_list_bar_holds_the_title_and_the_apps_options_as_its_one_button() {
         "the button sits in the title's bar, not at the list's foot: {bar:?} {button:?}"
     );
     assert!(trust[0].size().width >= 48.0 && trust[0].size().height >= 48.0);
+}
+
+/// A card someone sent, the newest row of a conversation listed from the
+/// store, previews as a card someone sent -- never as one's own, and never
+/// by the name it claims (contact-cards 5.4.5; #498 review F2). Mutation:
+/// every card row previewed as one's own.
+#[test]
+fn a_received_card_previews_as_a_contact_card_not_ones_own() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.started(
+        Vec::new(),
+        vec![StoredSummary {
+            conversation: direct(),
+            unread: 1,
+            newest: Some(NewestRow {
+                table: Table::Unread,
+                row: RowId::from_stored(7),
+                received_at: NOW - MINUTE,
+                preview: Preview::default(),
+                card: true,
+            }),
+        }],
+    );
+    view.render(&model);
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row");
+    assert_eq!(
+        row.preview,
+        placeholder_en::text(UiText::CardPreviewReceived)
+    );
 }
 
 /// Section 11 items 3, 4 and 6: a row shows the avatar, the name, the

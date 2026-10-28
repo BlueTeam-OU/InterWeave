@@ -76,14 +76,24 @@ impl WindowCursor {
     /// The place of `row`, a row a page gave: kept when it has a keep time.
     #[must_use]
     pub const fn of(row: &StoredInbound) -> Self {
+        Self::at(row.received_at, row.kept_at.is_some(), row.row_id)
+    }
+
+    /// The place of a row a page gave, from what a holder of the row
+    /// keeps of it -- its time, whether it was kept, its id -- once the
+    /// row itself is gone from memory (a gap's bound, design §5.1): the
+    /// same cursor [`Self::of`] gives
+    /// (`a_cursor_rebuilt_from_its_parts_continues_the_page`).
+    #[must_use]
+    pub const fn at(received_at: u64, kept: bool, row_id: RowId) -> Self {
         Self {
-            received_at: row.received_at,
-            table: if row.kept_at.is_some() {
+            received_at,
+            table: if kept {
                 BackupTable::Kept
             } else {
                 BackupTable::Unread
             },
-            row_id: row.row_id,
+            row_id,
         }
     }
 }
@@ -179,6 +189,22 @@ const HIDDEN: &str =
     "SELECT (SELECT COUNT(*) FROM unread_inbound INDEXED BY unread_inbound_by_kind WHERE kind NOT IN ('text', 'card')),
             (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind WHERE kind NOT IN ('text', 'card'))";
 
+/// The conversations with a shown row: a direct one by its peer and
+/// endpoint, a channel by its id, from each inbound table's kind index.
+const SHOWN_CONVERSATIONS: &str = "SELECT DISTINCT
+        CASE WHEN channel_id IS NULL THEN source_peer END,
+        CASE WHEN channel_id IS NULL THEN source_endpoint END,
+        channel_id
+   FROM unread_inbound INDEXED BY unread_inbound_by_kind
+  WHERE kind IN ('text', 'card')
+ UNION
+ SELECT DISTINCT
+        CASE WHEN channel_id IS NULL THEN source_peer END,
+        CASE WHEN channel_id IS NULL THEN source_endpoint END,
+        channel_id
+   FROM kept_inbound INDEXED BY kept_inbound_by_kind
+  WHERE kind IN ('text', 'card')";
+
 /// A peer's distinct endpoints: its conversations by a range on the
 /// index's key, its contacts' routes by the route index, never a scan of
 /// either (`the_endpoint_count_reads_its_indexes`).
@@ -230,14 +256,17 @@ pub(crate) fn index_direct(
 }
 
 /// The version of the index's backfill, kept in `settings` as
-/// `conversation_index_version` (STATE.md): a store without it -- every
-/// store before this build -- has the direct conversations of its stored
-/// rows indexed at open, once.
-const CONVERSATION_INDEX_VERSION: &str = "1";
+/// `conversation_index_version` (STATE.md): a store without it, or with
+/// an earlier one, has its stored rows and routes indexed at open, once.
+/// Version 2 adds every contact route's pair, which version 1 left to the
+/// routes table alone, so deleting a route forgot its endpoint (#492's
+/// review F6).
+const CONVERSATION_INDEX_VERSION: &str = "2";
 
 /// At open: index the direct conversation of every stored pending, unread
-/// and kept row, once per version, in one transaction with the version
-/// row. Read from the rows' own columns, never their payloads.
+/// and kept row, and the pair of every contact route, once per version, in
+/// one transaction with the version row. Read from the rows' own columns,
+/// never their payloads.
 ///
 /// # Errors
 /// A storage error; the open then fails as a migration's would.
@@ -287,6 +316,12 @@ pub(crate) fn backfill_conversation_index(
             [],
         )?;
     }
+    tx.execute(
+        "INSERT OR IGNORE INTO conversation_index (conversation_id, peer_id, endpoint_id)
+         SELECT DISTINCT 'direct/' || peer_id || '/' || endpoint_id, peer_id, endpoint_id
+           FROM contact_routes",
+        [],
+    )?;
     tx.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('conversation_index_version', ?1)",
         params![CONVERSATION_INDEX_VERSION],
@@ -509,6 +544,43 @@ impl HumanStore {
         Ok(out)
     }
 
+    /// Every conversation with a row this build shows, unread or kept: the
+    /// conversations the Chats list holds from the store, a kept-only one
+    /// included, which [`Self::unread_counts`] does not name. Read from the
+    /// two kind indexes alone, no row of either table touched since v11
+    /// (`the_counts_read_a_covering_index_alone`).
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn shown_conversations(&self) -> Result<Vec<StoreConversation>, StoreError> {
+        let mut out = std::collections::BTreeSet::new();
+        let mut stmt = self.conn.prepare(SHOWN_CONVERSATIONS)?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, Option<String>>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let conversation = match row? {
+                (Some(peer), Some(endpoint), None) => StoreConversation::Direct {
+                    peer: TransportIdentity::parse(peer)
+                        .map_err(|e| StoreError::Corrupt(e.to_string()))?,
+                    endpoint: EndpointId::parse(endpoint)
+                        .map_err(|e| StoreError::Corrupt(e.to_string()))?,
+                },
+                (_, _, Some(channel)) => StoreConversation::Channel(
+                    ChannelId::parse(channel).map_err(|e| StoreError::Corrupt(e.to_string()))?,
+                ),
+                // Neither an endpoint nor a channel: no row the client wrote.
+                _ => continue,
+            };
+            out.insert(conversation);
+        }
+        Ok(out.into_iter().collect())
+    }
+
     /// The inbound rows of a kind this build cannot show, unread and kept.
     ///
     /// # Errors
@@ -545,7 +617,10 @@ impl HumanStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{CHANNEL, CHANNEL_COUNTS, DIRECT, DIRECT_COUNTS, ENDPOINT_COUNT, HIDDEN, page_sql};
+    use super::{
+        CHANNEL, CHANNEL_COUNTS, DIRECT, DIRECT_COUNTS, ENDPOINT_COUNT, HIDDEN,
+        SHOWN_CONVERSATIONS, page_sql,
+    };
     use crate::{HumanStore, StoreOptions};
 
     /// Each window read is planned on its v10 index, never a scan of an
@@ -582,9 +657,11 @@ mod tests {
 
     /// The badge's and the hidden counts read an index alone, never a row:
     /// each plan names a covering `_by_kind` index, and no step of it
-    /// touches an inbound table otherwise (#489 review F1, #492 review F5).
-    /// Mutations: the unread kind index dropped from migration 10; a
-    /// subquery of `HIDDEN` reading a kept column its index lacks.
+    /// touches an inbound table otherwise (#489 review F1, #492 review F5);
+    /// so does the Chats list's set of conversations, since v11 (#492
+    /// review F2). Mutations: the unread kind index dropped from migration
+    /// 10; a subquery of `HIDDEN` reading a kept column its index lacks;
+    /// migration 11 not run, the kept kind index narrow.
     #[test]
     fn the_counts_read_a_covering_index_alone() {
         let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
@@ -599,6 +676,13 @@ mod tests {
             ),
             (
                 HIDDEN,
+                &[
+                    "COVERING INDEX unread_inbound_by_kind",
+                    "COVERING INDEX kept_inbound_by_kind",
+                ][..],
+            ),
+            (
+                SHOWN_CONVERSATIONS,
                 &[
                     "COVERING INDEX unread_inbound_by_kind",
                     "COVERING INDEX kept_inbound_by_kind",

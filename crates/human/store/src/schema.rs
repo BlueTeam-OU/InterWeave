@@ -28,7 +28,7 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction};
 use crate::StoreError;
 
 /// The schema version this build writes and expects.
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 /// The three tables ADR-0044 lets hold content.
 const RETENTION_TABLES: &[&str] = &["pending_outbound", "unread_inbound", "kept_inbound"];
@@ -148,12 +148,34 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     if current < 10 {
         migration_10(&tx)?;
     }
+    if current < 11 {
+        migration_11(&tx)?;
+    }
     // The version bump rides the SAME transaction as the DDL above, which
     // is what makes a crashed migration a no-op rather than a schema the
     // store misreads on the next open.
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     Ok(())
+}
+
+/// v11 — the Chats list's conversations from indexes alone (STATE.md's
+/// v11 paragraph, #492's review F2): `kept_inbound_by_kind` widened from
+/// `(kind)` to `(kind, source_peer, source_endpoint, channel_id)`, the
+/// shape `unread_inbound_by_kind` has without its trailing
+/// `app_message_id`, over the table's own columns for v10's reason (a
+/// generated column is recomputed from its row, never read from the
+/// index), so the set of conversations with a kept row this build shows
+/// reads no kept row. An index rebuild only: no row is written.
+fn migration_11(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "
+        DROP INDEX kept_inbound_by_kind;
+        CREATE INDEX kept_inbound_by_kind
+            ON kept_inbound (kind, source_peer, source_endpoint, channel_id);
+        ",
+    )
+    .map_err(migration_error)
 }
 
 /// v10 — the start window (`design/2026-10-27-start-window.md`; STATE.md's
@@ -1282,7 +1304,10 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
                     "row_id",
                 ],
             ),
-            ("kept_inbound_by_kind", &["kind"]),
+            (
+                "kept_inbound_by_kind",
+                &["kind", "source_peer", "source_endpoint", "channel_id"],
+            ),
             (
                 "kept_inbound_by_channel",
                 &["channel_key", "received_at", "row_id"],

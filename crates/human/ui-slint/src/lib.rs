@@ -35,7 +35,7 @@ use interweave_human_ui_model::{
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
-mod body;
+use interweave_human_ui_model::body;
 mod cards;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod clipboard;
@@ -2135,9 +2135,13 @@ impl View {
         // already says whose (contact-cards 5.5). The design's
         // CardPreviewSent reads the same words, and no two interface texts
         // may (`labels::tests::every_ui_text_appears_once_in_all`), so it is
-        // this key.
-        let text = if last.card {
+        // this key. A card someone sent is previewed as a card, never by
+        // the name it claims (contact-cards 5.4.5, `CardPreviewReceived`;
+        // #498 review F2).
+        let text = if last.card && last.direction == Direction::Outbound {
             placeholder_en::text(UiText::CardSentLabel).to_owned()
+        } else if last.card {
+            placeholder_en::text(UiText::CardPreviewReceived).to_owned()
         } else if last.direction == Direction::Outbound {
             fill(
                 placeholder_en::text(UiText::OwnLastMessage),

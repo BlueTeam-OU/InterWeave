@@ -14,6 +14,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod body;
 mod connect;
 mod identity_flow;
 mod labels;
@@ -23,6 +24,7 @@ mod order;
 mod peers;
 mod picker;
 mod presence;
+pub mod preview;
 mod store_recovery;
 mod trust;
 mod waiting;
@@ -34,7 +36,7 @@ pub use identity_flow::{
 /// The store row an intent names, as the model hands it to a view.
 pub use interweave_human_core::RowId;
 pub use labels::{
-    ErrorClass, HostText, LabelKey, RuntimeHost, UiText, attention_class, fill, isolated,
+    ErrorClass, HostText, LabelKey, RuntimeHost, UiText, attention_class, by_count, fill, isolated,
     outbound_label, placeholder_en, send_error_class, send_problem_class, session_problem_class,
     short_peer, visible_destination,
 };
@@ -45,6 +47,7 @@ pub use model::cards::{
     PhotoChange, PhotoEdit, Proposal, ProposalContext, ProposalItem, ProposalNote,
     READ_PROPOSAL_CAP, RouteView, SentCard, ValueChanges, name_problem,
 };
+pub use model::summaries::{NewestRow, StoredSummary};
 pub use model::{
     Announce, Composer, Confirmation, ContactChange, ConversationKey, ConversationSummary,
     DEDUP_CAP, Direction, FocusTarget, HELD_UPDATE_CAP, Intent, ItemDiagnostics, ItemKey,

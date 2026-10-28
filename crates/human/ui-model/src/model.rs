@@ -29,6 +29,7 @@ use crate::peers::{Peers, PeersInput, ScanVerdict};
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
 pub(crate) mod cards;
+pub(crate) mod summaries;
 mod swipe;
 
 pub use swipe::{
@@ -286,8 +287,12 @@ pub struct LastMessage {
     /// The local time it reached this app: never the time a sender
     /// asserts.
     pub local_at: u64,
-    /// One's own card row: previewed as that, since it has no text.
+    /// A card row, previewed as that: one's own, or in the windowed mode
+    /// one someone sent (`direction` tells which), never by its text.
     pub card: bool,
+    /// Its first line, cut to the preview's bound ([`crate::preview`]):
+    /// the same whether the row is held or only the store's newest.
+    pub preview: crate::preview::Preview,
 }
 
 impl LastMessage {
@@ -705,6 +710,9 @@ pub struct UiModel {
     swipe: swipe::SwipeState,
     /// Card proposals, the contacts and the identity in front.
     cards: cards::Cards,
+    /// The windowed mode's summaries, once the model started from them
+    /// ([`UiModel::started`]); `None` for a model given a whole listing.
+    windowed: Option<summaries::Summaries>,
 }
 
 impl Default for UiModel {
@@ -746,6 +754,7 @@ impl UiModel {
             connect: ConnectState::NotOwed,
             swipe: swipe::SwipeState::default(),
             cards: cards::Cards::default(),
+            windowed: None,
         }
     }
 
@@ -809,6 +818,19 @@ impl UiModel {
 
     /// A message `drain` handed over: committed unread already.
     pub fn received(&mut self, received: interweave_human_client_api::Received) {
+        if let Some(windowed) = self.windowed.as_mut()
+            && !self.by_row.contains_key(&(Table::Unread, received.row))
+            && !self.released.contains(&(Table::Unread, received.row))
+        {
+            windowed.arrived(
+                &conversation_of_origin(&received.origin),
+                summaries::NewestRow::received(
+                    received.row,
+                    received.received_at,
+                    &received.envelope.text,
+                ),
+            );
+        }
         self.inbound(
             received.row,
             Table::Unread,
@@ -980,6 +1002,16 @@ impl UiModel {
     /// The root marked an unread row read: its durable copy is gone, and
     /// the content stays for this session unless another row holds it.
     pub fn read(&mut self, row: RowId) {
+        // The store's count loses the row once, whichever kind it is.
+        let conversation = self
+            .by_row
+            .get(&(Table::Unread, row))
+            .and_then(|key| self.items.get(key))
+            .map(|item| item.conversation.clone())
+            .or_else(|| self.cards.unread_conversation(row));
+        if let (Some(windowed), Some(conversation)) = (self.windowed.as_mut(), conversation) {
+            windowed.left_unread(&conversation);
+        }
         self.release(Table::Unread, row);
         self.cards.read(row);
     }
@@ -1053,7 +1085,28 @@ impl UiModel {
     #[must_use]
     pub fn conversations(&self) -> Vec<ConversationSummary> {
         let shared = self.peers_with_routes();
+        let row = |key: &ConversationKey, last: LastMessage| ConversationSummary {
+            key: key.clone(),
+            title: self.contact_title(key, &shared, Isolate::No),
+            drawn_title: self.contact_title(key, &shared, Isolate::Yes),
+            unread: 0,
+            last_activity: last.local_at,
+            avatar: Avatar::of(key),
+            last,
+        };
         let mut by: BTreeMap<&ConversationKey, ConversationSummary> = BTreeMap::new();
+        // The windowed mode lists every conversation the store shows a row
+        // of, held or not, counted as the store counts it: a held unread
+        // row is among the store's, so it is not counted again below.
+        if let Some(windowed) = &self.windowed {
+            for stored in windowed.iter() {
+                if let Some(newest) = &stored.newest {
+                    let mut summary = row(&stored.conversation, newest.last());
+                    summary.unread = usize::try_from(stored.unread).unwrap_or(usize::MAX);
+                    by.insert(&stored.conversation, summary);
+                }
+            }
+        }
         for (key, item) in self.items.iter().filter(|(_, i)| !i.hidden) {
             let last = || LastMessage {
                 key: *key,
@@ -1062,19 +1115,12 @@ impl UiModel {
                 body: item.body.clone(),
                 local_at: item.local_at,
                 card: item.card.is_some(),
+                preview: summaries::held_preview(&item.body),
             };
             let summary = by
                 .entry(&item.conversation)
-                .or_insert_with(|| ConversationSummary {
-                    key: item.conversation.clone(),
-                    title: self.contact_title(&item.conversation, &shared, Isolate::No),
-                    drawn_title: self.contact_title(&item.conversation, &shared, Isolate::Yes),
-                    unread: 0,
-                    last_activity: 0,
-                    avatar: Avatar::of(&item.conversation),
-                    last: last(),
-                });
-            if item.outbound.is_none() && item.has(Table::Unread) {
+                .or_insert_with(|| row(&item.conversation, last()));
+            if self.windowed.is_none() && item.outbound.is_none() && item.has(Table::Unread) {
                 summary.unread += 1;
             }
             summary.last_activity = summary.last_activity.max(item.local_at);
@@ -1857,6 +1903,19 @@ impl UiModel {
                 }
             }
         }
+    }
+}
+
+/// The conversation a received row belongs to, as [`UiModel::received`]'s
+/// item takes it: a direct route by its peer and endpoint, a channel by its
+/// id whoever published.
+fn conversation_of_origin(origin: &Origin) -> ConversationKey {
+    match origin {
+        Origin::Direct { peer, endpoint } => ConversationKey::Direct {
+            peer: peer.clone(),
+            endpoint: Some(endpoint.clone()),
+        },
+        Origin::Channel { channel, .. } => ConversationKey::Channel(channel.clone()),
     }
 }
 

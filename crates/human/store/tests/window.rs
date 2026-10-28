@@ -416,6 +416,32 @@ fn a_gap_is_read_from_either_side_and_holds_only_its_rows() {
     );
 }
 
+/// A cursor rebuilt from a row's parts -- its time, kept or not, its id --
+/// is the cursor the row gave, so a page read from it continues where the
+/// row's page did, every row once, a kept and an unread row at one
+/// instant included. Mutation: `at` placing a kept row among the unread.
+#[test]
+fn a_cursor_rebuilt_from_its_parts_continues_the_page() {
+    let (_dir, store, conversation) = ranged();
+    for n in [3, 7] {
+        let r = row(&store, &conversation, n);
+        assert_eq!(
+            WindowCursor::at(r.received_at, r.kept_at.is_some(), r.row_id),
+            WindowCursor::of(&r),
+            "row {n}"
+        );
+    }
+    let kept = row(&store, &conversation, 3);
+    let rebuilt = PageRange {
+        older_than: Some(WindowCursor::at(kept.received_at, true, kept.row_id)),
+        newer_than: None,
+    };
+    assert_eq!(
+        walk_range(&store, &conversation, rebuilt, Order::NewestFirst, 1),
+        [7, 2, 1]
+    );
+}
+
 /// A page shortened to the session's room (design §7.1) stops before its
 /// room+1th unread row, kept rows taking no room; with no room left and
 /// an unread row next it is empty, and its cursor says more remain so the
@@ -514,4 +540,53 @@ fn a_first_page_with_no_room_still_says_more_remain() {
         assert_eq!(numbers, all, "{order:?}");
         assert!(rest.next.is_none(), "{order:?}: the end");
     }
+}
+
+/// The conversations the Chats list holds from the store: every one with
+/// a row this build shows, unread or kept -- a kept-only one included --
+/// and a channel once whoever published; one holding only rows this build
+/// cannot show is not among them. Mutation: the kept table not read.
+#[test]
+fn the_shown_conversations_include_a_kept_only_one() {
+    let (_dir, mut store) = store();
+    store
+        .commit_unread_inbound(&direct(1, P, 1, InboundKind::Text))
+        .expect("P's unread");
+    let kept = store
+        .commit_unread_inbound(&direct(2, Q, 2, InboundKind::Card))
+        .expect("Q's, to keep");
+    let read = store.mark_read(kept, 3).expect("read");
+    store.keep(&read, 4).expect("kept");
+    let room = ChannelId::parse("room").expect("a channel");
+    store
+        .commit_unread_inbound(&on_channel(3, P, &room))
+        .expect("on the channel");
+    store
+        .commit_unread_inbound(&on_channel(4, Q, &room))
+        .expect("on the channel, from Q");
+    store
+        .commit_unread_inbound(&NewInbound {
+            origin: InboundOrigin {
+                peer: peer(P),
+                endpoint: Some(EndpointId::parse("agent").expect("an endpoint")),
+                channel: None,
+            },
+            ..direct(5, P, 5, InboundKind::Other)
+        })
+        .expect("a row this build cannot show");
+    let mut shown = store.shown_conversations().expect("conversations");
+    shown.sort();
+    let mut expected = vec![
+        StoreConversation::Direct {
+            peer: peer(P),
+            endpoint: human(),
+        },
+        StoreConversation::Direct {
+            peer: peer(Q),
+            endpoint: human(),
+        },
+        StoreConversation::Channel(room),
+    ];
+    expected.sort();
+    assert_eq!(shown, expected);
 }
