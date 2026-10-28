@@ -635,6 +635,18 @@ impl Cards {
     /// A row was marked read: if it is a proposal's, it is shown now.
     /// Past [`READ_PROPOSAL_CAP`], the oldest read one goes: the store no
     /// longer holds it, and the facade no longer holds its copy either.
+    /// The conversation of a proposal held unread: `None` once it was read,
+    /// or for a row no proposal is.
+    pub(super) fn unread_conversation(&self, row: RowId) -> Option<ConversationKey> {
+        self.proposals
+            .get(&row)
+            .filter(|_| !self.read.contains(&row))
+            .map(|p| ConversationKey::Direct {
+                peer: p.peer.clone(),
+                endpoint: Some(p.endpoint.clone()),
+            })
+    }
+
     pub(super) fn read(&mut self, row: RowId) {
         if self.proposals.contains_key(&row) && self.read.insert(row) {
             self.read_order.push_back(row);
@@ -697,6 +709,17 @@ fn card_name(card: &Card) -> String {
 impl UiModel {
     /// A card the facade committed unread, with its context.
     pub fn card_received(&mut self, proposal: Proposal) {
+        if let Some(windowed) = self.windowed.as_mut()
+            && !self.cards.proposals.contains_key(&proposal.row)
+        {
+            windowed.arrived(
+                &ConversationKey::Direct {
+                    peer: proposal.peer.clone(),
+                    endpoint: Some(proposal.endpoint.clone()),
+                },
+                super::summaries::NewestRow::card(proposal.row, proposal.received_at),
+            );
+        }
         self.cards.proposals.insert(proposal.row, proposal);
     }
 
@@ -754,6 +777,13 @@ impl UiModel {
         // snackbar's Undo with this one: that Undo is gone whatever this
         // answer opens.
         self.close_card_snackbar();
+        // Resolved while still unread, its unread row is gone from the
+        // store: the count loses it.
+        if let (Some(windowed), Some(conversation)) =
+            (self.windowed.as_mut(), self.cards.unread_conversation(row))
+        {
+            windowed.left_unread(&conversation);
+        }
         let Some(proposal) = self.cards.resolved(row) else {
             self.swipe_release_card(row);
             return;

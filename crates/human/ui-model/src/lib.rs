@@ -47,6 +47,7 @@ pub use model::cards::{
     PhotoChange, PhotoEdit, Proposal, ProposalContext, ProposalItem, ProposalNote,
     READ_PROPOSAL_CAP, RouteView, SentCard, ValueChanges, name_problem,
 };
+pub use model::summaries::{NewestRow, StoredSummary};
 pub use model::{
     Announce, Composer, Confirmation, ContactChange, ConversationKey, ConversationSummary,
     DEDUP_CAP, Direction, FocusTarget, HELD_UPDATE_CAP, Intent, ItemDiagnostics, ItemKey,

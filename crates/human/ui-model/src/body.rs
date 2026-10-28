@@ -18,6 +18,20 @@
 
 use interweave_human_chat_protocol::{Block, Inline, Rendered};
 
+use crate::labels::{UiText, fill, placeholder_en};
+
+/// How an image is named in text, from its alt text, in the interface's
+/// words: what a body or a preview shows in an image's place, the same for
+/// a view and the facade.
+#[must_use]
+pub fn image_text(alt: &str) -> String {
+    if alt.trim().is_empty() {
+        placeholder_en::text(UiText::ImageNotShownWithoutAlt).to_owned()
+    } else {
+        fill(placeholder_en::text(UiText::ImageNotShown), &[("alt", alt)])
+    }
+}
+
 /// What a line is, which decides how it is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
