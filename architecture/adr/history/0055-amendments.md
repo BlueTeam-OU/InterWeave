@@ -114,6 +114,6 @@ ADR-0034 §7's release gate and SPIKE-004's deferred limits unchanged,
 and the Revisit conditions gain the second host's running under
 decision 5b as the point at which the owner is reminded of what was
 accepted, so that a real second host is measured rather than
-assumed. Propagation: the Revisit conditions; this note; the log row;
+assumed. Propagation: decision 5b's last sentence; the Revisit conditions; this note; the log row;
 the digest entry.
 
