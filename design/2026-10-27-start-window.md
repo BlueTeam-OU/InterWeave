@@ -26,7 +26,9 @@ page early (§7.1), photos loaded on demand and the one contact a
 proposal names (§11, and contact-cards §5.4.1). Revised again for
 rust-ui-dev-02's QUESTION 01a17e5d (U-a, U-b): the preview's bound
 (§3) and the Contacts list when its read fails, with what that
-withholds (§11).
+withholds (§11). Revised again for rust-ui-dev-02's
+QUESTION 01a180cb: what one conversation's backlog may do to another
+(§3).
 
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
