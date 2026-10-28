@@ -1339,59 +1339,45 @@ ui_texts! {
     ConnectDoneTrustUnknown => "You added an address. InterWeave could not check whether you trust this peer.",
     /// Connect after Show drew this device's addresses.
     ConnectDoneShown => "The other person can now add your address. You still need to add their address.",
-    /// THE START WINDOW (design/2026-10-27-start-window.md §9; every value
-    /// below a placeholder until language-culture-en's text): the line
+    /// THE START WINDOW (design/2026-10-27-start-window.md §9, and
+    /// contact-cards §10 for the last three; every value below
+    /// language-culture-en's, REPLY 01a180d6): the line
     /// over the rows not loaded yet, at the top edge or in a gap.
     /// `{count}` is how many unread items are there, one text for every
     /// count.
-    // PLACEHOLDER (en)
     EarlierUnread => "Unread messages and contact cards not shown yet: {count}",
     /// The line where the session bound let go of one read or sent row.
-    // PLACEHOLDER (en)
     ReadNotShownOne => "1 message that you read or sent is no longer shown. It cannot be shown again.",
     /// The same for more than one; `{count}` is the number.
-    // PLACEHOLDER (en)
     ReadNotShown => "{count} messages that you read or sent are no longer shown. They cannot be shown again.",
     /// The line at the end of Chats: one stored row this build cannot show.
-    // PLACEHOLDER (en)
     RowsNotShownOne => "1 message is saved on this device, but this version of InterWeave cannot show it.",
     /// The same for more than one; `{count}` is the number.
-    // PLACEHOLDER (en)
     RowsNotShown => "{count} messages are saved on this device, but this version of InterWeave cannot show them.",
     /// The limit row's text, before anything is let go (§7.1).
-    // PLACEHOLDER (en)
     EarlierAtLimit => "If you choose Show more messages, InterWeave makes room for more messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again.",
     /// The limit row's button.
-    // PLACEHOLDER (en)
     EarlierShowAnyway => "Show more messages",
     /// The progress row's accessible name, never visible text.
-    // PLACEHOLDER (en)
     EarlierLoading => "Loading more messages",
     /// The failure row at an edge, and its announcement.
-    // PLACEHOLDER (en)
     EarlierLoadFailed => "Could not load more messages.",
     /// A proposal's case line while the contacts are unread (§11).
-    // PLACEHOLDER (en)
     CardContactsUnread => "InterWeave could not read your contacts to compare this card with them, so you cannot accept it yet. To read your contacts again, choose App options on the Conversations screen, then Contacts, then Try again.",
     /// Details, in place of naming by hand, while the contacts are unread.
-    // PLACEHOLDER (en)
     NamingContactsUnread => "InterWeave could not read your contacts, so you cannot add this person as a contact yet.",
     /// The Contacts list's progress row's accessible name, never visible.
-    // PLACEHOLDER (en)
     ContactsLoading => "Loading your contacts",
     /// The Contacts list's failure row, and its announcement.
-    // PLACEHOLDER (en)
     ContactsLoadFailed => "Could not load your contacts.",
     /// Case P with one other contact on the `PeerId` (contact-cards §10):
-    /// `{name}` the first in the Contacts list's order.
-    // PLACEHOLDER (en)
-    CardSharesDeviceManyOne => "This card comes from the same device as your contact {name} and 1 other contact.",
+    /// `{contact}` the first in the Contacts list's order, as in
+    /// `CardSharesNode`.
+    CardSharesDeviceManyOne => "This card comes from the same device as your contact {contact} and 1 other contact.",
     /// The same with more; `{n}` the number of the others.
-    // PLACEHOLDER (en)
-    CardSharesDeviceMany => "This card comes from the same device as your contact {name} and {n} other contacts.",
+    CardSharesDeviceMany => "This card comes from the same device as your contact {contact} and {n} other contacts.",
     /// A Chats preview whose last item is a contact card someone sent
     /// (contact-cards §5.4.5): never the claimed name.
-    // PLACEHOLDER (en)
     CardPreviewReceived => "Contact card",
 }
 
