@@ -701,9 +701,16 @@ an IPC minor under ADR-0017, as the endpoint overlay's were.
 
 ADR-0067 decision 6 makes trust per endpoint while keeping this
 record's list as the transport's admission list: an endpoint's
-`inbound`/`outbound` subset is its own trusted set, an endpoint that
-carries none inherits the list (the option ENDPOINTS.md keeps for
-rendered and existing profiles), the human client keeps the list equal
-to the union of its identities' sets, and the FATAL bound above holds
-the union. Propagation: the allowlist sentence; this note; the log row;
-the digest entry.
+`inbound`/`outbound` subset is its own trusted set; an identity's
+lives in the endpoint overlay, which gains per-endpoint `inbound` and
+`outbound` members beside `added`, `enabled`, `default` and
+`advertise`, written by the human client for every identity, the
+authored first identity's seeded from the effective list at the first
+start of the release that builds it, and never inherited (an
+identity that inherited would have seen every peer any other identity
+trusted, since `config.yaml` is never rewritten); an endpoint that is
+no identity inherits the list unless it carries a subset (the option
+ENDPOINTS.md keeps for rendered profiles); the human client keeps the
+list equal to the union of its identities' sets, and the FATAL bound
+above holds the union. Propagation: the endpoint-overlay and allowlist
+sentences; this note; the log row; the digest entry.

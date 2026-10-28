@@ -6434,7 +6434,7 @@ decision 6.
    card in settings — one per configured endpoint, the `human` endpoint's
    in this stage (ADR-0059 decision 2 as amended, ADR-0061) — signed by
    its key; `contact_routes.identity_key`; the key-change proposal and
-   the fingerprint on the identity and contact pages; "Share a (ADR-0067, A 2026-10-28: `endpoint-keys/` from the Stage 22 release, and no key change from it, a different key being another identity.)
+   the fingerprint on the identity and contact pages (ADR-0067, A 2026-10-28: `endpoint-keys/` from the Stage 22 release, and no key change from it, a different key being another identity); "Share a
    card" on one conversation sending the conversation's identity's card,
    no chooser, never automatic; the received card held as inbound content under
    RETENTION.md, shown as a proposal with the PeerId beside it and the
@@ -7051,7 +7051,7 @@ on every direct message exist and are tested.
 
 ### Activate
 
-First, and in p2p-network-dev's lane as its own PR, ADR-0067 (A 2026-10-28): the `EndpointId` type and grammar derived from the endpoint's key as the PeerId is from the node's, every fixture family that carries an EndpointId regenerated, the profile's endpoint entry by key reference with its local alias and the loader's derivation and refusals, `transportctl endpoint init` and `endpoints list`, the trust methods' endpoint dimension (an IPC minor under ADR-0017, the text architect-cto's) and the union-of-endpoints `PeerTrustPolicy` with per-endpoint `inbound`/`outbound` as the rule — nothing below is built against a label, and the release that carries it is the next MINOR, the fleet re-rendered with keys at the update (the owner's word of 2026-10-28). Then, no new crate. The work lands in `crates/human/app-core`,
+First, and in p2p-network-dev's lane as its own PR, ADR-0067 (A 2026-10-28): the `EndpointId` type and grammar derived from the endpoint's key as the PeerId is from the node's, every fixture family that carries an EndpointId regenerated, the profile's endpoint entry by key reference with its local alias and the loader's derivation and refusals, `transportctl endpoint init` and `endpoints list`, the trust methods' endpoint dimension (an IPC minor under ADR-0017, the text architect-cto's), the endpoint overlay's per-endpoint `inbound`/`outbound` sets (an identity's set lives there and is never inherited, the first identity's seeded from the node's list once), the schema majors ADR-0067 decision 7 names (endpoint-id and endpoint-config `2.0.0`, every schema that `$ref`s the id), `/interweave/direct/3.0.0` and IPC major `3`, and the union-of-endpoints `PeerTrustPolicy` with per-endpoint `inbound`/`outbound` as the rule — nothing below is built against a label, and the release that carries it is the next MINOR, the fleet re-rendered with keys at the update (the owner's word of 2026-10-28). Then, no new crate. The work lands in `crates/human/app-core`,
 `crates/human/ui-model`, `crates/human/ui-slint`, `crates/human/store`
 (the §Logical tables review: `conversation_index.local_endpoint_id`,
 `contacts.local_endpoint_id` and `contact_routes.local_endpoint_id` with
