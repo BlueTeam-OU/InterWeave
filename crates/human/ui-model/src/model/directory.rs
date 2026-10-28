@@ -200,7 +200,8 @@ impl UiModel {
         let Some(contact) = self.contact(contact_id) else {
             return PhotoState::None;
         };
-        // A photo an Accept decoded, or a whole listing's.
+        // The listed mode's: a photo an Accept or a whole listing decoded.
+        // The windowed mode's contacts hold none (#501 review F3).
         if let Some(photo) = &contact.photo {
             return PhotoState::Shown(photo);
         }
