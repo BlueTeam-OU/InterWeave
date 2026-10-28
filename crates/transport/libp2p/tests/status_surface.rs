@@ -239,8 +239,12 @@ async fn a_failed_dial_schedules_a_retry_that_is_not_yet_due() {
     let mut runtime =
         SwarmRuntime::start(&subject, SubstrateConfig::default(), trusting(&peer)).expect("starts");
 
-    // A port nothing listens on, and none of another test's port-0
-    // listeners can take while this one dials it.
+    // A port nothing listens on when answered. It is below the kernel's
+    // port-0 range, so no other test's port-0 listener lands on it
+    // (`net::tests::free_port_answers_below_the_port_0_range`), and
+    // claimed against every other `free_port` caller of this account
+    // (`free_port_holds_the_claim_on_what_it_answers`,
+    // `a_port_another_process_claims_is_refused_until_it_ends`).
     let port = interweave_test_support::net::free_port(std::net::Ipv4Addr::LOCALHOST);
     let closed: Multiaddr = format!("/ip4/127.0.0.1/tcp/{port}").parse().expect("valid");
     runtime
