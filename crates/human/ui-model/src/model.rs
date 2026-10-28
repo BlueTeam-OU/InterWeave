@@ -849,6 +849,20 @@ impl UiModel {
             received.envelope,
             received.received_at,
         );
+        // Held in the open conversation: its place, and the held-row
+        // ceiling, which a flood while the window has no focus reaches.
+        if self.windowed.is_some() && self.by_row.contains_key(&(Table::Unread, received.row)) {
+            self.windows.holds(
+                Table::Unread,
+                received.row,
+                window::PageMark {
+                    received_at: received.received_at,
+                    kept: false,
+                    row: received.row,
+                },
+            );
+            self.hold_ceiling();
+        }
     }
 
     /// The store's unread rows, at start or after `UnreadInStore`: merged
@@ -1023,6 +1037,7 @@ impl UiModel {
         if let (Some(windowed), Some(conversation)) = (self.windowed.as_mut(), conversation) {
             windowed.left_unread(&conversation);
         }
+        self.windows.forget(Table::Unread, row);
         self.release(Table::Unread, row);
         self.cards.read(row);
     }
@@ -1043,6 +1058,17 @@ impl UiModel {
         if let Some(item) = self.items.get_mut(&key) {
             item.rows.push((Table::Kept, kept_row));
             self.by_row.insert((Table::Kept, kept_row), key);
+            // A kept row keeps its stored copy at the time the message
+            // reached this app: its place in the window.
+            self.windows.holds(
+                Table::Kept,
+                kept_row,
+                window::PageMark {
+                    received_at: item.local_at,
+                    kept: true,
+                    row: kept_row,
+                },
+            );
             if self.ephemeral_set.remove(&key) {
                 self.ephemeral.retain(|k| *k != key);
             }
@@ -1054,6 +1080,7 @@ impl UiModel {
     /// The root removed Keep from `kept_row`.
     pub fn unkept(&mut self, kept_row: RowId) {
         let key = self.by_row.get(&(Table::Kept, kept_row)).copied();
+        self.windows.forget(Table::Kept, kept_row);
         self.release(Table::Kept, kept_row);
         if let Some(key) = key {
             self.swipe_unkept(key);

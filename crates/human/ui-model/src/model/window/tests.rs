@@ -110,7 +110,10 @@ fn earlier_unread(model: &UiModel) -> Option<u64> {
         .window_marks(&conversation())
         .into_iter()
         .find_map(|m| match m.kind {
-            MarkKind::EarlierUnread { count, .. } => Some(count),
+            MarkKind::EarlierUnread {
+                edge: Edge::Top,
+                count,
+            } => Some(count),
             _ => None,
         })
 }
@@ -478,6 +481,7 @@ fn the_focused_row_is_never_dropped_the_next_one_is() {
     model.window_input(WindowInput::Place {
         conversation: conversation(),
         focused: Some(keys[0]),
+        in_view: Vec::new(),
     });
     let cap = i64::try_from(SESSION_ITEM_CAP).expect("small");
     let held = read_here(&mut model, 10..=10 + cap - 3);
@@ -571,4 +575,162 @@ fn opening_another_conversation_closes_the_first() {
         endpoint: Some(human()),
     }));
     assert!(model.is_empty());
+}
+
+/// An opened conversation whose first page brought rows `1..=n`, all
+/// unread or all kept, with focus on row `focused`.
+fn opened_with(n: i64, focused: i64, table: Table, end: PageEnd) -> UiModel {
+    let unread = if table == Table::Unread { n } else { 0 };
+    let mut model = started(u64::try_from(unread).expect("small"));
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, focused, table);
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(&ask, &(1..=n).collect::<Vec<_>>(), table, end));
+    model
+}
+
+fn place(model: &mut UiModel, focused: i64, table: Table) {
+    model.window_input(WindowInput::Place {
+        conversation: conversation(),
+        focused: Some(crate::model::ItemKey(table, RowId::from_stored(focused))),
+        in_view: Vec::new(),
+    });
+}
+
+/// The page for `ask` of rows `rows`, in `table`.
+fn rows_of(ask: &PageAsk, rows: &[i64], table: Table, end: PageEnd) -> PageRows {
+    let mut page = page(ask, rows, end);
+    if table == Table::Kept {
+        page.kept = std::mem::take(&mut page.unread);
+    }
+    page
+}
+
+fn holds(model: &UiModel, n: i64, table: Table) -> bool {
+    model.by_row.contains_key(&(table, RowId::from_stored(n)))
+}
+
+fn gap_lines(model: &UiModel) -> Vec<u64> {
+    model
+        .window_marks(&conversation())
+        .into_iter()
+        .filter_map(|m| match m.kind {
+            MarkKind::EarlierUnread {
+                edge: Edge::GapLower(_),
+                count,
+            } => Some(count),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Past the held-row ceiling the rows farthest from the person's focus
+/// are let go, never the newest row nor the focused one, and rows let go
+/// between held ones leave a gap whose own line counts its unread rows --
+/// which the top line then does not, so the lines and the held rows agree
+/// with the badge (section 5.1). Mutations: the newest row let go; a gap's
+/// unread counted at the top too.
+#[test]
+fn past_the_ceiling_far_rows_leave_a_gap_never_the_newest_or_the_focused() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    assert!(holds(&model, n, Table::Unread), "the newest row stays");
+    assert!(holds(&model, 10, Table::Unread), "the focused row stays");
+    for gone in n - 4..n {
+        assert!(!holds(&model, gone, Table::Unread), "row {gone} let go");
+    }
+    assert_eq!(gap_lines(&model), [4]);
+    assert_eq!(
+        earlier_unread(&model),
+        None,
+        "the top line counts none of them"
+    );
+}
+
+/// A gap reached from above fetches its rows oldest first, from below
+/// newest first, both between the held rows on either side; its rows come
+/// back where they were, none refused, and a gap loaded whole is gone.
+/// Mutations: the rows let go released, which refuses them; the two
+/// sides' orders swapped.
+#[test]
+fn a_gap_loads_its_rows_again_from_either_side() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Kept, PageEnd::Exhausted);
+    let id = model
+        .windows
+        .open
+        .as_ref()
+        .and_then(|w| w.gaps.keys().next().copied())
+        .expect("a gap");
+    model.window_input(WindowInput::Reached {
+        conversation: conversation(),
+        edge: Edge::GapUpper(id),
+    });
+    let upper = one_ask(&mut model);
+    assert_eq!(upper.order, PageOrder::OldestFirst);
+    assert_eq!(
+        upper.newer_than.map(|m| m.row),
+        Some(RowId::from_stored(n - 5))
+    );
+    assert_eq!(upper.older_than.map(|m| m.row), Some(RowId::from_stored(n)));
+    model.page_failed(&upper);
+
+    place(&mut model, n - 5, Table::Kept);
+    model.window_input(WindowInput::Reached {
+        conversation: conversation(),
+        edge: Edge::GapLower(id),
+    });
+    let lower = one_ask(&mut model);
+    assert_eq!(lower.order, PageOrder::NewestFirst);
+    model.page_arrived(rows_of(
+        &lower,
+        &[n - 1, n - 2, n - 3, n - 4],
+        Table::Kept,
+        PageEnd::Exhausted,
+    ));
+    for back in n - 4..n {
+        assert!(
+            holds(&model, back, Table::Kept),
+            "row {back} back where it was"
+        );
+    }
+    assert!(
+        model
+            .windows
+            .open
+            .as_ref()
+            .is_some_and(|w| w.gaps.is_empty()),
+        "the gap is gone"
+    );
+}
+
+/// What is never let go stays even when nothing else is left to let go
+/// and the ceiling is passed: the focused item, every item in view and
+/// the newest row (section 5.1). Mutations: the focused item, or the items
+/// in view, let go.
+#[test]
+fn the_focused_the_in_view_and_the_newest_are_never_let_go() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 2;
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    model.window_input(WindowInput::Place {
+        conversation: conversation(),
+        focused: Some(crate::model::ItemKey(Table::Kept, RowId::from_stored(1))),
+        in_view: (2..n)
+            .map(|r| crate::model::ItemKey(Table::Kept, RowId::from_stored(r)))
+            .collect(),
+    });
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(
+        &ask,
+        &(1..=n).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::Exhausted,
+    ));
+    for r in 1..=n {
+        assert!(holds(&model, r, Table::Kept), "row {r} stays");
+    }
 }

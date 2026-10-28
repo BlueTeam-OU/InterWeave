@@ -49,7 +49,8 @@ pub use model::cards::{
 };
 pub use model::summaries::{NewestRow, StoredSummary};
 pub use model::window::{
-    Edge, MarkKind, PageAsk, PageEnd, PageMark, PageOrder, PageRows, WindowInput, WindowMark,
+    Edge, HELD_ROW_CAP, MarkKind, PageAsk, PageEnd, PageMark, PageOrder, PageRows, WindowInput,
+    WindowMark,
 };
 pub use model::{
     Announce, Composer, Confirmation, ContactChange, ConversationKey, ConversationSummary,
