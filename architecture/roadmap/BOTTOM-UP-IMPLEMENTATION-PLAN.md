@@ -5378,6 +5378,24 @@ loop was closing was dropped with no update — fixed on #483
 `Failure::ServiceStopped`, b156191f the failure), host-tested, not run
 on a phone, so the service-restart interleaving on a device stays
 carried to the release gate with the cases above.
+The owner's second review of the client (2026-10-27, judged by the
+review class at 1b37e0ef) found, in the same place, that a facade
+whose command outlasts the stop's 2 s grace is left running with no
+generation on what it publishes, so it can list for, mark listed and
+publish into the view of the next service start — and that the stop
+retires nothing at the hub, so a generation check alone would still
+let it through between the stop and the start. Ruled the same day,
+human-client-android.md "A facade past its stop": the stop retires
+the generation before it returns, every facade-to-hub operation
+carries one and is refused unless current, a retired facade finishes
+its accepted commands against the store without publishing and its
+late end makes the newer facade list again, a discard refuses while a
+facade thread is alive — built on #495 (1e5961eb retires the facade
+at the hub, 6483d06f counts the relist owed after its review found
+that unlisting the view dropped the newer facade's own answer, 5c735753
+the store's busy timeout), host-tested with the real embedded runtime
+and not run on a phone, so the restart interleaving above carries this
+too.
 
 ## 21. Stage 18 — full adversarial/security gate
 
@@ -6918,14 +6936,59 @@ owner:
   indexed and routes under contacts — are at most the contract's 64
   per profile, a 65th discarded and counted as a malformed envelope
   (HUMAN-CHAT.md, STATE.md; ruled 2026-10-27 to ux-designer-01 and
-  rust-ui-dev-02). The check is built by the second batch's first PR,
-  in the transport client's commit and send paths, over a
-  conversation index every direct row now writes; the window itself
-  follows in that batch's later PRs, and until they land the window is
-  the record's and not yet the build's, and this bullet is where that
-  is said. Of the window, the test #483 holds for its constraint (b),
-  a pending row that does not decode resent after a restart
-  (b046573a), is the only part on main.
+  rust-ui-dev-02). The check was built by the second batch's first
+  PR (#492: a4fe14f0 indexes every direct conversation with its first
+  row and counts a peer's endpoints, ab853729 refuses the 65th source
+  endpoint inbound and on send), in the transport client's commit and
+  send paths. Of the window itself, main holds the store's reads — a
+  conversation read between two bounds within an unread room
+  (a3141a83, #492), the cursor rebuilt from a row's time, keep and id
+  (eec75cd5, #498) — and, in the model, Chats drawn from the store's
+  summaries in a windowed mode beside the listed one (3d26f9be,
+  #498), which no view selects yet; the test #483 holds for its
+  constraint (b), a pending row that does not decode resent after a
+  restart (b046573a). The model's window — the protocol layer that
+  makes the windowed mode what the person sees — follows in that
+  batch's next PR, and until it lands the window as seen is the
+  record's and not yet the build's, and this bullet is where that is
+  said.
+- Found after the close, from the owner's second review of the client
+  (2026-10-27, judged by the review class at 1b37e0ef), three of this
+  stage's, each P3 and none reaching a screen in a way the review
+  class found wrong today. The store's channel badge
+  (`unread_counts`, #489) counted distinct application ids per
+  channel, merging two publishers' reuse of one id that the page and
+  the model show as two items: architect-cto's STATE.md sentence said
+  so and was corrected (A 2026-10-27 (ii), rows of a decodable kind,
+  one per row); the query and its test changed with it on #492
+  (62d11cb5), before any screen read the count. `interweave-human send … -` reads stdin whole with
+  no ceiling before the session opens, and `listen --input` reads
+  lines with no line ceiling into an unbounded channel and an
+  unbounded waiting queue, so a pipeline can grow the process without
+  reaching the chat's bounded encoding — a local exhaustion, not a
+  network one: bounded as the same crate bounds `peers add -` and
+  `--photo` (read the ceiling plus one byte, refuse), the line ceiling
+  derived from the largest legal encoded line as the bridge's host
+  input derives its own, an over-long line drained and answered
+  `input-refused`, the channel bounded with the reader blocking on it —
+  built on #495 (5032e717, 4a5fd290: 256 KiB for `send -`, a
+  1,245,184-byte line ceiling, six times the 196,608-byte decompressed
+  bound plus 64 KiB, a channel of four; d4a2249a caps a line's `ref` at 256
+  bytes), the README stating the bounds. And no site orders
+  contacts under the locale's collation the contact-cards design §6.2
+  requires — the Contacts list sorts by Unicode lowercase then code
+  point with a contact-id tie the design does not have, the Peers
+  rows' names the same way by the add-a-peer design's interim, and
+  the store, the model and the command line by byte order, four
+  orders that disagree on case: ruled 2026-10-27, human-client-ui.md
+  §3 "How contacts are ordered" (one collation function of the model,
+  ICU4X's collator, the root order until the localisation contract
+  gives a locale, §6.2's route tie, pages of that order) — built on
+  #494 (c04b4bf1: one `contact_order` in ui-model over ICU4X's
+  collator with a root-only data provider, the four sites moved onto
+  it, the store ordering nothing a person sees; APK +280,080 bytes,
+  Linux archive +711,753 gzip, measured in #494's description), the rule landed with ux-designer-01's
+  add-a-peer revision on #493.
 - The fresh-pair row's one-sided step in the other direction (B
   trusting first) was not run; which side dialled in its step 3, and
   from which source, is not told apart (the peer cache was on):
@@ -6951,6 +7014,20 @@ decision is ADR-0061. **This section opens nothing by itself**: the stage
 opens on the owner's word, after §29 or beside it, and the status value
 stays the lowest open stage. It is numbered after §29 so that no citation
 of §23–§29 moves.
+
+**Where the clients stand (2026-10-28, the owner's observation).** On
+`main` the Android app and the desktop hold one user identity, the
+profile's first human endpoint (`human` as provisioned), and one own card: "Your card" is that
+identity's. Nothing in either client can make a second EndpointId,
+since the administrative methods that add a configured endpoint, remove
+an added one and set its advertising are in no contract yet
+(`LOCAL-IPC.md` has `admin.endpoints.list`, `revoke`, `set_enabled` and
+`set_default`, and the plan's step 1 says no second identity exists on
+either platform until they land). Several identities in one app, each
+with one own card different from the others, is this stage's work and
+no earlier item's: the methods under Activate first, then steps 1–3.
+The owner's word of 2026-10-28 keeps it in the roadmap and opens it
+not yet; the stage still opens on that word alone.
 
 ### Objective
 

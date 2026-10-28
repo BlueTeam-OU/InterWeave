@@ -451,3 +451,19 @@ listener as the control). Propagation: rule 10; this note; the log
 row; the digest entry; the README row; `CONNECTIVITY.md` §14;
 `DCUTR.md` §6.
 
+### Amendment 2026-10-27 (iv) — The app stays on target SDK 36 for now
+
+Amendment (ii) of the same day named raising the Android target to 37
+as the owner's release decision, with its costs: a compile-SDK pin
+(devex-tooling's) and Android 17's runtime local-network permission
+asked of the person before any LAN traffic, the in-room scan included
+(ux-designer's and the owner's). The recommendation put to the owner
+was not now. The owner's word, 2026-10-27, in architect-cto's session,
+verbatim: "stay on 36 for now". So the hotspot host's own address
+stays the recorded limit with its cause, rule 10's text unchanged
+beyond this sentence, and the target is revisited when a release
+targets Android 17 for its own reasons or when the hotspot host case
+matters to a user. Propagation: rule 10's sentence; the Revisit
+conditions; this note; the log row; the digest entry;
+`human-client-android.md`'s network lifecycle.
+
