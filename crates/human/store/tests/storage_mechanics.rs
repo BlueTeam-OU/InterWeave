@@ -675,6 +675,70 @@ fn a_payload_transport_could_not_carry_is_not_a_pending_row() {
     );
 }
 
+/// A store exactly at its quota, whose open writes nothing, opens healthy:
+/// only one over it is degraded (#498 review F4). Mutation: degraded at
+/// the quota too.
+#[test]
+fn a_store_exactly_at_its_quota_opens_healthy() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    let conn = rusqlite::Connection::open(&path).expect("raw");
+    conn.execute_batch("VACUUM;").expect("compacted");
+    let size: u32 = conn
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .expect("page_count");
+    drop(conn);
+    let store = HumanStore::open(
+        &path,
+        StoreOptions {
+            max_pages: Some(size),
+        },
+    )
+    .expect("opens at its quota");
+    assert_eq!(store.health(), StorageHealth::Healthy);
+}
+
+/// A zero quota is refused before the open writes anything: a store that
+/// needs its conversation index backfilled is left as it was, its index
+/// empty and its version unset (#498 review F5). Mutation: the refusal
+/// only after the open's writes, where the ignored ceiling still refuses.
+#[test]
+fn a_zero_quota_is_refused_before_the_open_writes_anything() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    store
+        .commit_unread_inbound(&inbound_via("e0", ID_A, vec![1]))
+        .expect("committed");
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("a second connection");
+    conn.execute_batch(
+        "DELETE FROM conversation_index;
+         DELETE FROM settings WHERE key = 'conversation_index_version';",
+    )
+    .expect("back before the index");
+    drop(conn);
+
+    let zero = HumanStore::open(&path, StoreOptions { max_pages: Some(0) });
+    assert!(
+        matches!(zero, Err(StoreError::QuotaNotApplied { requested: 0, .. })),
+        "{zero:?}"
+    );
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let indexed: i64 = conn
+        .query_row("SELECT COUNT(*) FROM conversation_index", [], |r| r.get(0))
+        .expect("count");
+    let version: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'conversation_index_version'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    assert_eq!((indexed, version), (0, None), "nothing written");
+}
+
 /// The open's own writes run above the quota (STATE.md, Store health,
 /// #492's review F3): a store an earlier build wrote, vacuumed to its
 /// quota, still needs the conversation index backfilled, and that write

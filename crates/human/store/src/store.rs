@@ -423,7 +423,8 @@ impl HumanStore {
         // successful probe report Healthy under the looser ceiling).
         //
         // Zero is refused before anything is written: SQLite ignores it,
-        // answering the ceiling it already had.
+        // answering the ceiling it already had
+        // (`a_zero_quota_is_refused_before_the_open_writes_anything`).
         if options.max_pages == Some(0) {
             let effective: i64 =
                 conn.pragma_update_and_check(None, "max_page_count", 0, |row| row.get(0))?;
@@ -438,8 +439,9 @@ impl HumanStore {
         // key refresh and the index backfill are bounded by the store's own
         // size and none is a peer's doing, and a store whose open had to
         // write under a quota it was already at refused to open at all.
-        // The quota is applied once they are done; a store at or over it
-        // then opens degraded, below.
+        // The quota is applied once they are done; a store over it then
+        // opens degraded, below; one exactly at it is healthy
+        // (`a_store_exactly_at_its_quota_opens_healthy`).
         migrate(&mut conn)?;
         verify_shape(&conn)?;
         // Before anything can read a key: a store whose keys another build
