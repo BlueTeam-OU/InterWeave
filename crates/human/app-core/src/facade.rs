@@ -999,7 +999,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         }
         // The Accept is written: a contacts list that cannot be read now is
         // a problem of its own, never a refusal of what was done (#414 F8).
-        say(updates, contacts_update(self.client.store_mut()));
+        say(
+            updates,
+            contacts_update(self.client.store_mut(), self.windowed),
+        );
         self.proposals_again(updates);
         Ok(())
     }
@@ -1193,6 +1196,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         };
         match undo_answer(
             self.client.store_mut(),
+            self.windowed,
             answer,
             undo.accept.as_ref(),
             updates,
@@ -1485,7 +1489,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             change: interweave_human_ui_model::ContactChange::Deleted,
             hold,
         });
-        say(updates, contacts_update(self.client.store_mut()));
+        say(
+            updates,
+            contacts_update(self.client.store_mut(), self.windowed),
+        );
         self.proposals_again(updates);
         Ok(())
     }
@@ -1523,7 +1530,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Ok(false) => return Err(Failure::Refused),
             Err(e) => return Err(store_failure(&e)),
         }
-        say(updates, contacts_update(self.client.store_mut()));
+        say(
+            updates,
+            contacts_update(self.client.store_mut(), self.windowed),
+        );
         updates.push(Update::ContactRestored {
             contact_id: contact_id.to_owned(),
             change,
@@ -1545,6 +1555,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates: &mut Vec<Update>,
     ) -> Result<(), Failure> {
         use interweave_human_store::RouteDeleted;
+        let windowed = self.windowed;
         let store = self.client.store_mut();
         match store
             .delete_route(contact_id, peer, endpoint)
@@ -1554,9 +1565,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             RouteDeleted::LastRoute => return Err(Failure::Refused),
             RouteDeleted::NoSuchRoute => return Err(Failure::NoSuchRow),
         }
-        updates.push(Update::ContactsListed(
-            cards::contact_views(store).map_err(|e| store_failure(&e))?,
-        ));
+        updates.push(contacts_now(store, windowed).map_err(|e| store_failure(&e))?);
         self.proposals_again(updates);
         Ok(())
     }
@@ -1575,6 +1584,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         })
         .map_err(|_| Failure::OutOfBounds)?;
         let at = (self.wall)();
+        let windowed = self.windowed;
         let store = self.client.store_mut();
         if !store
             .set_contact_name(contact_id, name, at)
@@ -1582,9 +1592,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         {
             return Err(Failure::NoSuchRow);
         }
-        updates.push(Update::ContactsListed(
-            cards::contact_views(store).map_err(|e| store_failure(&e))?,
-        ));
+        updates.push(contacts_now(store, windowed).map_err(|e| store_failure(&e))?);
         self.proposals_again(updates);
         Ok(())
     }
@@ -1609,6 +1617,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             ),
         };
         let at = (self.wall)();
+        let windowed = self.windowed;
         let store = self.client.store_mut();
         if !store
             .set_contact_photo(contact_id, photo.as_deref(), at)
@@ -1616,9 +1625,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         {
             return Err(Failure::NoSuchRow);
         }
-        updates.push(Update::ContactsListed(
-            cards::contact_views(store).map_err(|e| store_failure(&e))?,
-        ));
+        updates.push(contacts_now(store, windowed).map_err(|e| store_failure(&e))?);
         self.proposals_again(updates);
         Ok(())
     }
@@ -1665,7 +1672,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 }
             }
         }
-        say(updates, contacts_update(self.client.store_mut()));
+        say(
+            updates,
+            contacts_update(self.client.store_mut(), self.windowed),
+        );
         self.proposals_again(updates);
         Ok(())
     }
@@ -1912,6 +1922,9 @@ pub(crate) trait CardStore {
     ) -> Result<ProposalContext, StoreError>;
     /// The contacts, for the model.
     fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError>;
+    /// The contacts without their photos' bytes, for the windowed mode.
+    fn directory(&mut self)
+    -> Result<Vec<interweave_human_ui_model::DirectoryContact>, StoreError>;
 }
 
 impl CardStore for HumanStore {
@@ -1932,6 +1945,12 @@ impl CardStore for HumanStore {
 
     fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError> {
         cards::contact_views(self)
+    }
+
+    fn directory(
+        &mut self,
+    ) -> Result<Vec<interweave_human_ui_model::DirectoryContact>, StoreError> {
+        cards::contact_directory(self)
     }
 }
 
@@ -1957,6 +1976,7 @@ struct UndoneAnswer {
 ///   that cannot be read is [`Update::CardsNotRead`] too, never a refusal.
 fn undo_answer<S: CardStore>(
     store: &mut S,
+    windowed: bool,
     answer: UndoneAnswer,
     accept: Option<&S::Undo>,
     updates: &mut Vec<Update>,
@@ -1984,7 +2004,7 @@ fn undo_answer<S: CardStore>(
         }
     };
     if accept.is_some() {
-        say(updates, contacts_update(store));
+        say(updates, contacts_update(store, windowed));
     }
     Ok(restored)
 }
@@ -2016,11 +2036,19 @@ fn say(updates: &mut Vec<Update>, update: Update) {
 /// The contacts after a write to them that is done: listed, or, when they
 /// cannot be read, [`Update::CardsNotRead`] -- never a refusal of the
 /// write (#414 F8).
-fn contacts_update(store: &mut impl CardStore) -> Update {
-    match store.contacts() {
-        Ok(contacts) => Update::ContactsListed(contacts),
-        Err(e) => Update::CardsNotRead(store_failure(&e)),
-    }
+fn contacts_update(store: &mut impl CardStore, windowed: bool) -> Update {
+    contacts_now(store, windowed).unwrap_or_else(|e| Update::CardsNotRead(store_failure(&e)))
+}
+
+/// The contacts after a change to them, as the model's mode reads them: a
+/// model started windowed is given no photo's bytes, which it reads one at
+/// a time as a view shows them, under its photo cap (design section 11).
+fn contacts_now(store: &mut impl CardStore, windowed: bool) -> Result<Update, StoreError> {
+    Ok(if windowed {
+        Update::ContactDirectory(Ok(store.directory()?))
+    } else {
+        Update::ContactsListed(store.contacts()?)
+    })
 }
 
 #[cfg(test)]
@@ -2414,6 +2442,13 @@ mod tests {
             self.fails(Step::Contacts)?;
             Ok(Vec::new())
         }
+
+        fn directory(
+            &mut self,
+        ) -> Result<Vec<interweave_human_ui_model::DirectoryContact>, StoreError> {
+            self.fails(Step::Contacts)?;
+            Ok(Vec::new())
+        }
     }
 
     fn answer() -> super::UndoneAnswer {
@@ -2455,7 +2490,8 @@ mod tests {
     fn an_undo_is_refused_only_while_the_store_wrote_nothing() {
         let run = |store: &mut Failing, accept: bool| {
             let mut updates = Vec::new();
-            let end = super::undo_answer(store, answer(), accept.then_some(&()), &mut updates);
+            let end =
+                super::undo_answer(store, false, answer(), accept.then_some(&()), &mut updates);
             (end, kinds(&updates))
         };
         // An Accept's write-back refused: nothing written, refused.

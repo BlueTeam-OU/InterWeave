@@ -396,10 +396,13 @@ async fn paging_past_the_read_proposal_bound_evicts_none_and_loses_no_copy() {
     );
 }
 
-/// A contact's photo is read when asked, as it stood then: the directory
-/// read says the contact has one without its bytes, the ask brings it
-/// decoded, and an ask made under an older time brings none, the photo it
-/// named being gone. Mutation: the photo given whatever its time.
+/// A contact's photo is read when asked, as it stood then: the contacts an
+/// Accept hands back say the contact has one without its bytes -- no
+/// contact's photo reaches the model but through its ask, under its cap
+/// (#501 review F3) -- the ask brings it decoded, and an ask made under an
+/// older time brings none, the photo it named being gone. Mutations: the
+/// photo given whatever its time; a contact write answered with every
+/// contact's photo decoded.
 #[tokio::test]
 async fn a_photo_is_read_when_asked_and_only_as_it_stood() {
     let from = peer();
@@ -428,8 +431,14 @@ async fn a_photo_is_read_when_asked_and_only_as_it_stood() {
         shown: Box::new(proposal.context.clone()),
     })
     .await;
-    root.execute(Command::Window(WindowCommand::ReadContacts))
-        .await;
+    assert!(
+        !root
+            .updates
+            .iter()
+            .any(|u| matches!(u, Update::ContactsListed(_))),
+        "no contact list with photos: {:?}",
+        root.updates
+    );
     let contact = root
         .updates
         .iter()
@@ -438,13 +447,26 @@ async fn a_photo_is_read_when_asked_and_only_as_it_stood() {
             Update::ContactDirectory(Ok(contacts)) => contacts.first().cloned(),
             _ => None,
         })
-        .expect("the contact, read again");
+        .expect("the contacts the Accept hands back");
     assert!(
         contact.has_photo && contact.view.photo.is_none(),
         "no bytes"
     );
     let id = contact.view.contact_id.clone();
     assert_eq!(root.model().contact_photo(&id), PhotoState::Initials);
+
+    // Try again's read gives the same: the contacts, no bytes.
+    root.updates.clear();
+    root.execute(Command::Window(WindowCommand::ReadContacts))
+        .await;
+    assert!(
+        root.updates.iter().any(|u| matches!(
+            u,
+            Update::ContactDirectory(Ok(c)) if c.len() == 1 && c[0].view.photo.is_none()
+        )),
+        "{:?}",
+        root.updates
+    );
 
     root.model.photo_shown(&id);
     root.turn().await;
