@@ -632,6 +632,11 @@ impl Cards {
             .collect()
     }
 
+    /// How many read proposals are held: what [`READ_PROPOSAL_CAP`] bounds.
+    pub(super) fn read_count(&self) -> usize {
+        self.read.len()
+    }
+
     /// The conversation of a proposal held unread: `None` once it was read,
     /// or for a row no proposal is.
     pub(super) fn unread_conversation(&self, row: RowId) -> Option<ConversationKey> {

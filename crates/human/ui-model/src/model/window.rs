@@ -13,12 +13,13 @@
 //! is [`UiModel::window_marks`].
 
 use std::cmp::Ordering;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use interweave_human_core::RowId;
 
 use super::cards::Proposal;
-use super::{ConversationKey, ItemKey, ListedInbound, Table, UiModel};
+use super::cards::READ_PROPOSAL_CAP;
+use super::{ConversationKey, ItemKey, ListedInbound, SESSION_ITEM_CAP, Table, UiModel};
 
 /// A row's place in its conversation, as the store orders rows: by when
 /// it arrived, an unread row before a kept one at the same instant, then
@@ -98,6 +99,9 @@ pub enum PageEnd {
     Exhausted,
     /// More rows remain.
     More,
+    /// More rows remain, and the page stopped because its unread room was
+    /// used: the edge shows the limit row (design section 7.1).
+    RoomUsed,
 }
 
 /// A page the facade read for a [`PageAsk`]: its rows, each table apart,
@@ -145,6 +149,23 @@ pub enum WindowInput {
         /// The edge.
         edge: Edge,
     },
+    /// The person pressed Show more messages on an edge's limit row: from
+    /// now until the conversation is closed, paging drops read rows as it
+    /// needs (section 7.1).
+    ShowAnyway {
+        /// The conversation.
+        conversation: ConversationKey,
+        /// The edge.
+        edge: Edge,
+    },
+    /// The item the person moved focus to, if any: the session bound never
+    /// drops it.
+    Place {
+        /// The conversation.
+        conversation: ConversationKey,
+        /// The focused item.
+        focused: Option<ItemKey>,
+    },
 }
 
 /// Something a view draws at an edge, anchored above an item.
@@ -173,6 +194,14 @@ pub enum MarkKind {
         /// How many.
         count: u64,
     },
+    /// The limit row: `EarlierAtLimit` and its Show more messages.
+    AtLimit(Edge),
+    /// `ReadNotShown`: `count` read or sent rows the session bound dropped
+    /// here, which cannot come back.
+    ReadNotShown {
+        /// How many.
+        count: u64,
+    },
 }
 
 /// An edge's state.
@@ -189,6 +218,9 @@ enum EdgeState {
     Failed,
     /// The store holds nothing more on that side.
     Exhausted,
+    /// The next page would drop a read row: the limit row shows until the
+    /// person chooses Show more messages.
+    AtLimit,
 }
 
 /// The open conversation's window.
@@ -201,6 +233,13 @@ struct Window {
     top_state: EdgeState,
     /// The person is at the top edge.
     at_top: bool,
+    /// The person chose Show more messages for this opening.
+    show_anyway: bool,
+    /// The item the person moved focus to.
+    focused: Option<ItemKey>,
+    /// Each run of the conversation's rows the session bound dropped, by
+    /// the item it stands directly above (`None`: below every item).
+    runs: BTreeMap<Option<ItemKey>, u64>,
 }
 
 /// The windowed mode's windows: the open conversation's, and the asks not
@@ -213,7 +252,7 @@ pub(super) struct Windows {
 }
 
 impl Windows {
-    fn ask_top(&mut self) {
+    fn ask_top(&mut self, unread_room: Option<usize>) {
         let Some(window) = self.open.as_mut() else {
             return;
         };
@@ -224,9 +263,30 @@ impl Windows {
             older_than: window.top,
             newer_than: None,
             order: PageOrder::NewestFirst,
-            unread_room: None,
+            unread_room,
             seq: window.seq,
         });
+    }
+
+    /// The item the person moved focus to in the open conversation.
+    pub(super) fn focused(&self) -> Option<ItemKey> {
+        self.open.as_ref().and_then(|w| w.focused)
+    }
+
+    /// The open conversation, if any.
+    pub(super) fn open_conversation(&self) -> Option<&ConversationKey> {
+        self.open.as_ref().map(|w| &w.conversation)
+    }
+
+    /// A row of the open conversation the session bound dropped, `below`
+    /// the item now directly below where it stood: its run grows, and a
+    /// run that stood directly above the dropped row joins it, the two
+    /// being one run now.
+    pub(super) fn dropped(&mut self, dropped: ItemKey, below: Option<ItemKey>) {
+        if let Some(window) = self.open.as_mut() {
+            let joined = window.runs.remove(&Some(dropped)).unwrap_or(0);
+            *window.runs.entry(below).or_insert(0) += joined + 1;
+        }
     }
 
     fn open_for(&mut self, conversation: &ConversationKey) -> Option<&mut Window> {
@@ -253,9 +313,13 @@ impl UiModel {
                     top: None,
                     top_state: EdgeState::Armed,
                     at_top: false,
+                    show_anyway: false,
+                    focused: None,
+                    runs: BTreeMap::new(),
                 });
-                // The opening reads its window at once (section 4).
-                windows.ask_top();
+                // The opening reads its window at once, not covered by the
+                // limit row (sections 4 and 7.1).
+                windows.ask_top(None);
             }
             WindowInput::Closed(conversation) => {
                 if windows.open_for(&conversation).is_some() {
@@ -271,9 +335,10 @@ impl UiModel {
                 };
                 window.at_top = true;
                 // Once each time the edge is reached, never while a page is
-                // on its way, never after a failure: Try again retries.
-                if window.top_state == EdgeState::Armed {
-                    windows.ask_top();
+                // on its way, never after a failure: Try again retries. At
+                // the limit it is judged again: room may have come.
+                if matches!(window.top_state, EdgeState::Armed | EdgeState::AtLimit) {
+                    self.reach_top();
                 }
             }
             WindowInput::Left {
@@ -288,6 +353,25 @@ impl UiModel {
                     window.top_state = EdgeState::Armed;
                 }
             }
+            WindowInput::ShowAnyway {
+                conversation,
+                edge: Edge::Top,
+            } => {
+                if let Some(window) = windows.open_for(&conversation)
+                    && window.top_state == EdgeState::AtLimit
+                {
+                    window.show_anyway = true;
+                    windows.ask_top(None);
+                }
+            }
+            WindowInput::Place {
+                conversation,
+                focused,
+            } => {
+                if let Some(window) = windows.open_for(&conversation) {
+                    window.focused = focused;
+                }
+            }
             WindowInput::TryAgain {
                 conversation,
                 edge: Edge::Top,
@@ -296,7 +380,7 @@ impl UiModel {
                     .open_for(&conversation)
                     .is_some_and(|w| w.top_state == EdgeState::Failed)
                 {
-                    windows.ask_top();
+                    self.reach_top();
                 }
             }
         }
@@ -365,9 +449,49 @@ impl UiModel {
         }
         window.top_state = match page.end {
             PageEnd::Exhausted => EdgeState::Exhausted,
-            PageEnd::More if window.at_top => EdgeState::Spent,
-            PageEnd::More => EdgeState::Armed,
+            PageEnd::RoomUsed if !window.show_anyway => EdgeState::AtLimit,
+            PageEnd::More | PageEnd::RoomUsed if window.at_top => EdgeState::Spent,
+            PageEnd::More | PageEnd::RoomUsed => EdgeState::Armed,
         };
+    }
+
+    /// The person reached the top edge with it armed, at the limit, or
+    /// after Try again: ask the next page, within the room the session has
+    /// left -- or, at the session bound with unread rows beyond the edge,
+    /// show the limit row and ask nothing, until the person chooses Show
+    /// more messages (design section 7.1). With nothing unread beyond the
+    /// edge, a page makes no row session-only, so it is asked whatever the
+    /// room.
+    fn reach_top(&mut self) {
+        let Some(window) = self.windows.open.as_ref() else {
+            return;
+        };
+        if window.show_anyway {
+            self.windows.ask_top(None);
+            return;
+        }
+        let conversation = window.conversation.clone();
+        let room = self.page_room(&conversation);
+        if room == 0 && self.unread_not_loaded(&conversation) > 0 {
+            if let Some(window) = self.windows.open.as_mut() {
+                window.top_state = EdgeState::AtLimit;
+            }
+            return;
+        }
+        self.windows.ask_top(Some(room));
+    }
+
+    /// How many unread rows a page may bring without the session bound
+    /// dropping a read row (design section 7.1): the smaller of the room
+    /// session-only rows have and the room read card proposals have
+    /// (architect-cto's ruling, 01a180cc), each less the open
+    /// conversation's unread rows already held, which become session-only
+    /// when read.
+    fn page_room(&self, conversation: &ConversationKey) -> usize {
+        let (messages, cards) = self.held_unread(conversation);
+        let session = SESSION_ITEM_CAP.saturating_sub(self.ephemeral.len() + messages);
+        let proposals = READ_PROPOSAL_CAP.saturating_sub(self.cards.read_count() + cards);
+        session.min(proposals)
     }
 
     /// The page asked for `ask` could not be read: the edge shows the
@@ -407,6 +531,10 @@ impl UiModel {
                 above,
                 kind: MarkKind::Failed(Edge::Top),
             }),
+            EdgeState::AtLimit => marks.push(WindowMark {
+                above,
+                kind: MarkKind::AtLimit(Edge::Top),
+            }),
             EdgeState::Armed | EdgeState::Spent | EdgeState::Exhausted => {}
         }
         let count = self.unread_not_loaded(conversation);
@@ -419,6 +547,12 @@ impl UiModel {
                 },
             });
         }
+        for (below, count) in &window.runs {
+            marks.push(WindowMark {
+                above: *below,
+                kind: MarkKind::ReadNotShown { count: *count },
+            });
+        }
         marks
     }
 
@@ -429,6 +563,14 @@ impl UiModel {
         let Some(stored) = self.windowed.as_ref().map(|w| w.unread_of(conversation)) else {
             return 0;
         };
+        let (messages, cards) = self.held_unread(conversation);
+        let held = u64::try_from(messages + cards).unwrap_or(u64::MAX);
+        stored.saturating_sub(held)
+    }
+
+    /// The unread rows of `conversation` the model holds: messages, one
+    /// per row, and card proposals.
+    fn held_unread(&self, conversation: &ConversationKey) -> (usize, usize) {
         let messages = self
             .by_row
             .iter()
@@ -447,8 +589,21 @@ impl UiModel {
             } => self.cards.unread_in(peer, at).len(),
             _ => 0,
         };
-        let held = u64::try_from(messages + cards).unwrap_or(u64::MAX);
-        stored.saturating_sub(held)
+        (messages, cards)
+    }
+
+    /// The item directly below `key` in its conversation's order, `key`
+    /// itself not counted.
+    pub(super) fn item_below(&self, key: ItemKey) -> Option<ItemKey> {
+        let item = self.items.get(&key)?;
+        let at = (item.local_at, key);
+        self.items
+            .iter()
+            .filter(|(k, i)| {
+                i.conversation == item.conversation && !i.hidden && (i.local_at, **k) > at
+            })
+            .min_by_key(|(k, i)| (i.local_at, **k))
+            .map(|(k, _)| *k)
     }
 
     /// The oldest item a conversation holds, in its own order.

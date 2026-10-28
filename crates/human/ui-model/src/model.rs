@@ -1876,13 +1876,30 @@ impl UiModel {
     /// only those, since everything else is re-listed from the store, and
     /// never one an open snackbar's Undo needs (it goes once that closes).
     fn evict(&mut self) {
+        // The item the person moved focus to is never dropped while focused:
+        // the next in the order goes instead (design section 7.1).
+        let focused = self.windows.focused();
         while self.ephemeral.len() > SESSION_ITEM_CAP {
-            let Some(at) = self.ephemeral.iter().position(|k| !self.swipe.protects(k)) else {
+            let Some(at) = self
+                .ephemeral
+                .iter()
+                .position(|k| !self.swipe.protects(k) && Some(*k) != focused)
+            else {
                 return;
             };
             let Some(key) = self.ephemeral.remove(at) else {
                 return;
             };
+            // A row of the open conversation leaves a ReadNotShown line
+            // where it stood; another conversation's goes with nothing said.
+            if self
+                .items
+                .get(&key)
+                .is_some_and(|i| Some(&i.conversation) == self.windows.open_conversation())
+            {
+                let below = self.item_below(key);
+                self.windows.dropped(key, below);
+            }
             self.drop_items(&[key]);
         }
     }
