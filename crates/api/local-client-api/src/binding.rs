@@ -497,6 +497,11 @@ pub struct PeerGateView {
     pub peer: TransportIdentity,
     /// Whether any connection to it is open.
     pub connected: bool,
+    /// The last moment a retained connection to it was open: the
+    /// reading's time while `connected`, else when the last one closed;
+    /// `None` when none has been since the runtime started, which keeps
+    /// no record of it across a restart.
+    pub last_seen: Option<u64>,
     /// Dials to it are refused until then.
     pub backoff_until: Option<u64>,
     /// Every known address of it is quarantined until then, the earliest

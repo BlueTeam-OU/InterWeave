@@ -31,8 +31,10 @@ pub const IPC_MAJOR: u64 = 2;
 /// `admin.peers.add_addresses`, brought 2.9 (ADR-0062 decision 4), the
 /// superseded refusal of an admin write brought 2.10
 /// ([`crate::SUPERSEDED_SINCE_MINOR`]), and a data session's broadcast
-/// losses, `session.losses`, brought 2.11 (ADR-0026 A 2026-10-24).
-pub const IPC_MAX_MINOR: u64 = 11;
+/// losses, `session.losses`, brought 2.11 (ADR-0026 A 2026-10-24), and
+/// the peer row's last-seen time brought 2.12
+/// ([`crate::LAST_SEEN_SINCE_MINOR`]).
+pub const IPC_MAX_MINOR: u64 = 12;
 
 /// A version pair as it crosses the wire.
 ///
@@ -162,7 +164,8 @@ mod tests {
             (9, 9),
             (10, 10),
             (11, 11),
-            (12, 11),
+            (12, 12),
+            (13, 12),
             (u64::MAX, IPC_MAX_MINOR),
         ] {
             assert_eq!(

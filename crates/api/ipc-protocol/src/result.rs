@@ -58,6 +58,15 @@ pub const TRUST_SOURCE_SINCE_MINOR: u64 = 3;
 /// refuse the whole page (#329 review F4).
 pub const ROUTE_HELD_SINCE_MINOR: u64 = 6;
 
+/// The minor from which a `peer-list` row carries `last_seen_ms`, the
+/// last moment a retained connection to the peer was open, or `null`
+/// for none since the daemon started (`ipc/peer-list` 1.2.0, behind the
+/// minor under ADR-0017 A 2026-10-07). Present on every row from it, so
+/// a 2.12 client tells "never seen" (`null`) from "the daemon does not
+/// say" (absent, an older daemon). Below it the 1.1 row is served
+/// unchanged, for the reason [`ROUTE_HELD_SINCE_MINOR`] gives.
+pub const LAST_SEEN_SINCE_MINOR: u64 = 12;
+
 /// The minor from which `peers-address-result` may answer `refused:
 /// own_peer` (ADR-0062 decision 1; `ipc/peers-address-result` 1.1.0).
 /// Below it the same refusal is answered `grammar`, the reason a 2.7
@@ -82,6 +91,15 @@ pub const SUPERSEDED_SINCE_MINOR: u64 = 10;
 /// 2026-10-07, LOCAL-IPC.md `admin.peers.list`).
 /// `a_full_page_of_the_largest_rows_fits_the_body`.
 pub const MAX_PEER_PAGE_ROWS: usize = 512;
+
+/// Rows a server puts on one `ipc/peer-list` page from
+/// [`LAST_SEEN_SINCE_MINOR`]: `last_seen_ms` adds up to 36 bytes a row,
+/// and 512 of the largest rows would be about 139 KB against the 128 KiB
+/// body; 456 is about 124 KB, and a full allowlist of 4096 is nine
+/// pages. A reader still accepts [`MAX_PEER_PAGE_ROWS`], the schema's
+/// bound, which a server below 2.12 fills.
+/// `a_full_page_of_the_largest_rows_fits_the_body`.
+pub const MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN: usize = 456;
 
 /// The most rows `admin.peers.list_addresses` carries
 /// (`ipc/peers-address-list.schema.json` `maxItems`): the static-bootstrap
@@ -557,9 +575,14 @@ impl PeerList {
             .into_iter()
             .filter(|row| after.is_none_or(|after| &row.peer > after))
             .peekable();
+        let per_page = if minor >= LAST_SEEN_SINCE_MINOR {
+            MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN
+        } else {
+            MAX_PEER_PAGE_ROWS
+        };
         let peers: Vec<PeerRow> = rest
             .by_ref()
-            .take(MAX_PEER_PAGE_ROWS)
+            .take(per_page)
             .map(|view| PeerRow::from_view(view, minor))
             .collect();
         let next = rest
@@ -612,6 +635,17 @@ pub struct PeerRow {
     pub peer: TransportIdentity,
     /// Whether any connection to it is open.
     pub connected: bool,
+    /// The last moment a retained connection to it was open,
+    /// milliseconds since the Unix epoch -- the reading's time while
+    /// `connected`, else when the last one closed -- `Some(None)` (`null`)
+    /// when none has been since the daemon started, and `None` (absent)
+    /// below [`LAST_SEEN_SINCE_MINOR`] (peer-list 1.2.0).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "millis_or_null"
+    )]
+    pub last_seen_ms: Option<Option<u64>>,
     /// Dials to it are refused until then, milliseconds since the Unix
     /// epoch.
     #[serde(
@@ -648,6 +682,7 @@ impl PeerRow {
         Self {
             peer: view.peer,
             connected: view.connected,
+            last_seen_ms: (minor >= LAST_SEEN_SINCE_MINOR).then_some(view.last_seen),
             backoff_until: view.backoff_until,
             quarantined_until: view.quarantined_until,
             route_held_until: view
@@ -669,6 +704,16 @@ fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 
 fn absent_or_millis<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
     u64::deserialize(d).map(Some)
+}
+
+/// A key that is present is a time or `null`, kept apart from an absent
+/// key (`last_seen_ms`), which `Option`'s own reading would fold together.
+#[expect(
+    clippy::option_option,
+    reason = "the wire's three states: a time, `null`, absent"
+)]
+fn millis_or_null<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<u64>>, D::Error> {
+    Option::<u64>::deserialize(d).map(Some)
 }
 
 /// `last_outcome` on the wire: the neutral `PeerOutcome` by the names
@@ -1881,6 +1926,7 @@ mod tests {
         PeerGateView {
             peer: synthetic_peer(i),
             connected: i.is_multiple_of(2),
+            last_seen: (!i.is_multiple_of(11)).then_some(1_791_329_940_227),
             backoff_until: i.is_multiple_of(3).then_some(1_791_329_950_227),
             quarantined_until: None,
             route_held_until: i.is_multiple_of(7).then_some(1_791_329_960_227),
@@ -1902,26 +1948,40 @@ mod tests {
         )
         .expect("an Ed25519 PeerId");
         assert_eq!(longest.as_str().len(), 52);
-        let page = PeerList {
-            peers: (0..MAX_PEER_PAGE_ROWS)
-                .map(|_| PeerRow {
-                    peer: longest.clone(),
-                    connected: false,
-                    backoff_until: Some(u64::MAX),
-                    quarantined_until: Some(u64::MAX),
-                    route_held_until: Some(u64::MAX),
-                    last_outcome: Some(PeerOutcome::IdentityMismatch),
-                })
-                .collect(),
-            next: Some(longest.clone()),
+        let page = |rows: usize, last_seen_ms: Option<Option<u64>>| {
+            let page = PeerList {
+                peers: (0..rows)
+                    .map(|_| PeerRow {
+                        peer: longest.clone(),
+                        connected: false,
+                        last_seen_ms,
+                        backoff_until: Some(u64::MAX),
+                        quarantined_until: Some(u64::MAX),
+                        route_held_until: Some(u64::MAX),
+                        last_outcome: Some(PeerOutcome::IdentityMismatch),
+                    })
+                    .collect(),
+                next: Some(longest.clone()),
+            };
+            serde_json::to_vec(&page).expect("serializes").len()
         };
-        let bytes = serde_json::to_vec(&page).expect("serializes").len();
+        // The 1.1 row, served below 2.12, 512 a page.
+        let bytes = page(MAX_PEER_PAGE_ROWS, None);
         assert!(
             bytes + 1_024 <= crate::framing::MAX_BODY_BYTES,
             "{bytes} bytes for {MAX_PEER_PAGE_ROWS} rows"
         );
         // And twice the bound does not: the reason the bound is 512.
         assert!(2 * bytes > crate::framing::MAX_BODY_BYTES);
+        // The 1.2 row, served from 2.12, fits at its own bound -- and
+        // would not at 512: the reason a 2.12 page is smaller.
+        let largest = Some(Some(u64::MAX));
+        let bytes = page(MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN, largest);
+        assert!(
+            bytes + 1_024 <= crate::framing::MAX_BODY_BYTES,
+            "{bytes} bytes for {MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN} rows"
+        );
+        assert!(page(MAX_PEER_PAGE_ROWS, largest) > crate::framing::MAX_BODY_BYTES);
     }
 
     /// `admin.peers.list_addresses` answers in one body, unpaged: its 64
@@ -1980,24 +2040,27 @@ mod tests {
         let mut peers: Vec<_> = (0..=2 * MAX_PEER_PAGE_ROWS).map(synthetic_peer).collect();
         peers.sort();
 
-        let mut after = None;
-        let mut read = Vec::new();
-        let mut pages = 0;
-        loop {
-            let page = PeerList::page(rows.clone(), after.as_ref(), crate::IPC_MAX_MINOR);
-            pages += 1;
-            assert!(page.peers.len() <= MAX_PEER_PAGE_ROWS);
-            read.extend(page.peers.iter().map(|row| row.peer.clone()));
-            match page.next {
-                Some(next) => {
-                    assert_eq!(Some(&next), read.last(), "the last row is the cursor");
-                    after = Some(next);
-                }
-                None => break,
+        // Each minor's page bound: 512 below 2.12, the smaller one from.
+        for (minor, per_page) in [
+            (LAST_SEEN_SINCE_MINOR - 1, MAX_PEER_PAGE_ROWS),
+            (LAST_SEEN_SINCE_MINOR, MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN),
+        ] {
+            let mut after = None;
+            let mut read = Vec::new();
+            let mut pages = 0;
+            loop {
+                let page = PeerList::page(rows.clone(), after.as_ref(), minor);
+                pages += 1;
+                assert!(page.peers.len() <= per_page, "minor {minor}");
+                read.extend(page.peers.iter().map(|row| row.peer.clone()));
+                let Some(next) = page.next else { break };
+                assert_eq!(page.peers.len(), per_page, "a page before the last is full");
+                assert_eq!(Some(&next), read.last(), "the last row is the cursor");
+                after = Some(next);
             }
+            assert_eq!(pages, peers.len().div_ceil(per_page), "minor {minor}");
+            assert_eq!(read, peers, "every peer once, ascending, minor {minor}");
         }
-        assert_eq!(pages, 3);
-        assert_eq!(read, peers, "every peer once, ascending");
 
         // A row says what the view said, and the cursor is a position.
         let page = PeerList::page(vec![gate_row(3)], None, crate::IPC_MAX_MINOR);
@@ -2044,6 +2107,60 @@ mod tests {
             "the control: from 2.6 the hold is served"
         );
         const { assert!(ROUTE_HELD_SINCE_MINOR <= crate::IPC_MAX_MINOR) };
+    }
+
+    /// From 2.12 every row carries `last_seen_ms`: the time, or `null`
+    /// for a peer not seen since the daemon started. Below it the 1.1 row,
+    /// byte for byte the row served for the same view at 2.11 before the
+    /// field existed -- what a client that refuses an unknown field reads.
+    /// And the three wire states read back apart: a time, `null`, absent.
+    #[test]
+    fn a_peer_row_carries_last_seen_from_its_minor() {
+        let seen = PeerGateView {
+            last_seen: Some(1_791_329_940_227),
+            ..gate_row(1)
+        };
+        let never = PeerGateView {
+            last_seen: None,
+            ..gate_row(1)
+        };
+        let at = |view: &PeerGateView, minor| {
+            serde_json::to_value(PeerList::page(vec![view.clone()], None, minor))
+                .expect("serializes")
+        };
+        assert_eq!(
+            at(&seen, LAST_SEEN_SINCE_MINOR)["peers"][0]["last_seen_ms"],
+            json!(1_791_329_940_227_u64)
+        );
+        let null = at(&never, LAST_SEEN_SINCE_MINOR);
+        assert_eq!(
+            null["peers"][0].get("last_seen_ms"),
+            Some(&json!(null)),
+            "{null}"
+        );
+        let below = at(&seen, LAST_SEEN_SINCE_MINOR - 1);
+        assert_eq!(below["peers"][0].get("last_seen_ms"), None, "{below}");
+        assert_eq!(below, at(&never, LAST_SEEN_SINCE_MINOR - 1), "the 1.1 row");
+
+        let read = |row: serde_json::Value| -> PeerRow {
+            serde_json::from_value(row).expect("a legal row")
+        };
+        let base = json!({"peer": synthetic_peer(1).as_str(), "connected": false});
+        let with = |value: serde_json::Value| {
+            let mut row = base.clone();
+            row["last_seen_ms"] = value;
+            row
+        };
+        assert_eq!(read(with(json!(7))).last_seen_ms, Some(Some(7)));
+        assert_eq!(read(with(json!(null))).last_seen_ms, Some(None));
+        assert_eq!(read(base.clone()).last_seen_ms, None);
+        for bad in [json!(-1), json!(1.5), json!("7")] {
+            assert!(
+                serde_json::from_value::<PeerRow>(with(bad.clone())).is_err(),
+                "{bad} refused"
+            );
+        }
+        const { assert!(LAST_SEEN_SINCE_MINOR <= crate::IPC_MAX_MINOR) };
     }
 
     #[test]

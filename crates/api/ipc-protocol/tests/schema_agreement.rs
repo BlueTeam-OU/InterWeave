@@ -936,6 +936,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
                     PeerGateView {
                         peer: peer(),
                         connected: false,
+                        last_seen: Some(1_791_329_940_227),
                         backoff_until: Some(1_791_329_950_227),
                         quarantined_until: Some(u64::MAX),
                         route_held_until: Some(1_791_329_960_227),
@@ -944,6 +945,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
                     PeerGateView {
                         peer: TransportIdentity::parse(OTHER_PEER).expect("a peer"),
                         connected: true,
+                        last_seen: None,
                         backoff_until: None,
                         quarantined_until: None,
                         route_held_until: None,
@@ -952,6 +954,24 @@ fn every_result() -> Vec<(&'static str, Value)> {
                 ],
                 None,
                 interweave_ipc_protocol::IPC_MAX_MINOR,
+            )),
+        ),
+        // The 1.1 row a connection below 2.12 is served: no
+        // `last_seen_ms`, the route hold still there.
+        (
+            "architecture/contracts/schemas/ipc/peer-list.schema.json",
+            json(&PeerList::page(
+                vec![PeerGateView {
+                    peer: peer(),
+                    connected: false,
+                    last_seen: Some(1_791_329_940_227),
+                    backoff_until: None,
+                    quarantined_until: None,
+                    route_held_until: Some(1_791_329_960_227),
+                    last_outcome: Some(PeerOutcome::DialFailed),
+                }],
+                None,
+                interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR - 1,
             )),
         ),
         (

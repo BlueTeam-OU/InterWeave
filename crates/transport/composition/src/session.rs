@@ -834,6 +834,7 @@ impl AdminPort for InProcessAdmin {
             .map(|row| PeerGateView {
                 peer: row.peer,
                 connected: row.connected,
+                last_seen: row.last_seen_ms,
                 backoff_until: row.backoff_until_ms,
                 quarantined_until: row.quarantined_until_ms,
                 route_held_until: row.route_held_until_ms,
