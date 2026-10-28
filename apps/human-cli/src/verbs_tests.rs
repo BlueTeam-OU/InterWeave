@@ -1407,3 +1407,45 @@ async fn an_input_lines_answers_print_whatever_the_filter() {
     // events: the send answers once, so a second is a later one.
     assert!(answers.len() >= 2, "the answer and a later status: {out}");
 }
+
+/// A read the store refuses for a message this listen printed is said,
+/// by its row, though `failed` is not among the events named: the program
+/// was told of a consumption that did not happen (#508 review F2).
+/// Mutation: every failure filtered like an event.
+#[tokio::test]
+async fn a_refused_read_of_a_printed_message_is_said_whatever_the_filter() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["gone"])).await;
+    let conn = rusqlite::Connection::open(dir_b.path().join("human.sqlite3")).expect("open");
+    conn.execute("DELETE FROM unread_inbound", [])
+        .expect("deleted");
+    drop(conn);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter {
+                events: Some(vec!["message"]),
+                conversation: None,
+            },
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    let printed = events
+        .iter()
+        .find(|e| e["event"] == "message")
+        .unwrap_or_else(|| panic!("the message: {out}"));
+    assert!(
+        events
+            .iter()
+            .any(|e| e["event"] == "failed" && e["id"] == printed["id"]),
+        "{out}"
+    );
+}

@@ -1257,18 +1257,26 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         // stays unread in the store.
         // Each one, by the row it was for: a drain's reads and declines run
         // in one step, and every one refused leaves its row unread
-        // (`every_read_the_store_refuses_is_said_by_its_row`).
+        // (`every_read_the_store_refuses_is_said_by_its_row`). That holds
+        // under a filter too, which drops only the failures that are not
+        // of a row this run printed or asked to decline: those say a
+        // consumption the program was told of did not happen
+        // (`a_refused_read_of_a_printed_message_is_said_whatever_the_filter`).
         for problem in s.side().take_problems() {
-            if !filter.passes("failed", None) {
-                continue;
-            }
-            let row = match &problem {
+            let refused = match &problem {
                 Problem::Command {
                     command: Command::MarkRead(row) | Command::DeclineCard(row),
                     ..
-                } => Some(format!("u{}", row.get())),
+                } => Some(*row),
                 _ => None,
             };
+            let ours = refused.is_some_and(|row| {
+                consumed.printed.contains(&row) || consumed.declining.contains_key(&row)
+            });
+            if !ours && !filter.passes("failed", None) {
+                continue;
+            }
+            let row = refused.map(|row| format!("u{}", row.get()));
             let failure = problem_failure(problem);
             let line = if json {
                 output::json_line(
