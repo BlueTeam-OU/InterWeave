@@ -97,7 +97,7 @@ The accepted details live in the contracts and ADRs; this README is an orientati
 | [`spikes/`](./spikes/README.md) | Empirical investigations and their evidence harnesses; never production dependencies |
 | [`third_party/`](./third_party/README.md) | Vendored dependency sources, each under its own licence and each with an ADR; a patched one also records its diff |
 | [`assets/`](./assets/README.md) | The InterWeave icon, its generator and the register of every image in the repository and where it is used |
-| [`packaging/`](./packaging/README.md) | The Claude Code plugin that starts the Channel bridge (`claude-plugin/`); the Linux release archive, user units and install scripts and the Android release run (Stage 19); macOS and Windows landing zones |
+| [`packaging/`](./packaging/README.md) | The Claude Code plugin that starts the Channel bridge (`claude-plugin/`); the Linux release archive, user units and install scripts and the Android release run (Stage 19); macOS and Windows landing zones, postponed indefinitely (the owner, 2026-10-28) |
 | [`xtask/`](./xtask/README.md) | Repository/test orchestration — `cargo xtask checks` / `cargo xtask ci` |
 | [`tools/`](./tools/) | Repository tooling — PR/review scripts and tree checks, each with a self-test beside it |
 | `.claude/` | Committed agent configuration and task-scoped skills; per-developer overrides stay untracked |

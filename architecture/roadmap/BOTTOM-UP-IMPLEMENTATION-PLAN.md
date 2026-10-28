@@ -5520,9 +5520,11 @@ needed.
 **(5) Windows is carried to Stage 19 as a named limit** (the owner's
 word, 2026-10-11, the same message): no Windows runner exists, so this
 stage builds neither the named pipe nor its spoofing tests. The
-consequence, decided with it: the standard-v1 release matrix is Linux,
-macOS and Android; §22's `packaging/windows` is conditional on a Windows
-runner and the binding; BSL-1.0 stays admitted nowhere. The alternative
+consequence, decided with it: the standard-v1 release matrix was Linux,
+macOS and Android, and is Linux and Android since the owner's word of
+2026-10-28 (§22: macOS and Windows packaging postponed indefinitely, an
+option after the whole plan is complete); §22's `packaging/windows` is
+conditional on a Windows runner and the binding; BSL-1.0 stays admitted nowhere. The alternative
 — a runner now, and this stage taking the binding plus S9's Windows rows
 — was put to the owner and not taken. §22 carries the item.
 
@@ -5825,7 +5827,10 @@ none is the status value's, which stays on this stage.
   the owner's word of 2026-10-11, and P4 records that word as given, so
   the row's "owed: the owner's word" was stale and now records the carry
   as clause (d) asks, its step cell naming §22's carry and architect-cto
-  as its holder (§22 holds the carries by name). The guard now reads a
+  as its holder (§22 holds the carries by name; since the owner's word
+  of 2026-10-28 the Windows packaging it waits on is postponed
+  indefinitely, an option after the whole plan is complete, so the
+  carry has no date). The guard now reads a
   carried row as not empty: an `owed` item in the shape `owed: … in
   Stage NN (plan section MM)`, every item of the cell, is counted
   carried under `--strict` and labelled so in the plain report, with
@@ -5895,14 +5900,14 @@ architect-cto's, on p2p-network-dev's question with the costs. The Stage 16
 carry (marketplace distribution and `--channels` with a published plugin) was
 unassigned, by name, until rust-services-dev took it on 2026-10-20 (the remit
 of #320; measured on their branch, the §22 line following their verdict). packaging/macos and
-packaging/windows (with the Stage 18 Windows carry below) wait on a lane and a
-host and open on their own record line here: the macOS runtime-directory rule
-is architect-cto's; the macOS runner, the Windows binding and its BSL-1.0
-decision have no building lane until a lane and a host exist, and until then
-architect-cto holds them as carries, by name — the two Activate roots
-`packaging/macos` and `packaging/windows` included — so that no row of this
-stage is nobody's; macOS stays in the v1 matrix and the closing record says what
-became of it. Nothing in
+packaging/windows (with the Stage 18 Windows carry below) are postponed
+indefinitely, the owner's word of 2026-10-28: an option to take up after the
+whole plan is complete, never a row of this stage's close. macOS leaves the
+v1 matrix, which is Linux and Android; the two Activate roots stay landing
+zones; the macOS runtime-directory rule, the macOS runner, the Windows
+binding and its BSL-1.0 decision are held by architect-cto as carries by
+name with no date, so that no row is nobody's, and nothing of this stage
+waits on them. Nothing in
 this stage invents trust, network or application semantics (the rule below).
 The stage closes on the owner's word, as every stage, once every Validate row
 has a green test on `main` or a `limit` naming its reason, every item carried
@@ -5974,7 +5979,7 @@ Every release ships under one Semantic Versioning 2.0.0 version (ADR-0065, the o
 
 The Linux archive's minimum platform (ADR-0065 decision 2, A 2026-10-25, the second of that day; architect-cto's ruling of 2026-10-25 in REPLY 01a1736d-9ab5 to p2p-network-dev's question 01a17366-34c8, from the owner's external review of `v0.1.0`): **the floor is glibc 2.35 on x86_64** — Ubuntu 22.04 and later, Debian 12 and later, Fedora 36 and later — and `v0.1.1`, a PATCH, is the first release that states it. Measured by p2p-network-dev on 2026-10-25, the SHA-256 of the archive checked first: `v0.1.0`'s archive, built on `ubuntu-latest` (a glibc 2.43 image by then), carries a `human-desktop` needing `GLIBC_2.43` (`acosf`, `atan2f`), an `interweave-human` needing 2.38 and a daemon, `transportctl` and `claude-channel` needing 2.34, so its GUI is refused before `main` on a 2.42 host while the three programs an agent's host runs without the GUI, the daemon, `transportctl` and the bridge (ADR-0055), start on any host at 2.34 or later; the same tree built by `tools/ci/release_linux_archive.sh` inside a glibc 2.35 image with the toolchain `rust-toolchain.toml` pins needs at most 2.35 in every program (`human-desktop` 2.35, the other four 2.34), each of the five starting in a fresh image of that glibc under `LD_BIND_NOW=1`, and p2p-network-dev's floor check, run over that build at 2.34, refuses `human-desktop`, the control that the check bites (the script's own self-test refuses a 2.35 fixture at 2.34 and a 2.43 one at 2.35). So `v0.1.1` is the owner's to tag: the archive job builds inside the floor image and p2p-network-dev's `tools/ci/check_glibc_floor.py` gates the published archive at 2.35, both on `main` with devex-tooling's #446 (fe6a85f0); the release page states the floor as the sentence above, rust-ui-dev's template with language-culture-en's English (#445); `packaging/linux/DEPLOYING.md`'s requirements line is owed the same sentence by p2p-network-dev (ADR-0065's implementation implications); `v0.1.0`'s archive is not replaced, its page gaining one line, the owner's as publishing is, that the GUI there needs glibc 2.43 and `v0.1.1` states the floor. A 2.34 image (RHEL 9 and its rebuilds) is a measurement of its own after the job builds in the floor image, never on `v0.1.1`'s path: a floor is what was built and checked, and if 2.34 builds, the next PATCH lowers it. The fleet's conformance rows that run from the release archive (ADR-0055, p2p-network-dev's REQUEST of 2026-10-25) run from `v0.1.1`'s.
 
-Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both. macOS is IN that matrix and owes this stage two things before it ships, neither decided yet: a macOS runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a macOS runner, the v1 build claim being Linux until both exist. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows rows are conditional on the carry above.
+Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). The standard-v1 release matrix is Linux and Android (the owner's word of 2026-10-28, the opening record above): `packaging/windows` is conditional on a Windows runner and the binding, and macOS, which this stage once owed a runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a runner, is postponed with it, indefinitely, an option after the whole plan is complete; both stay carries held by architect-cto by name with no date, and the v1 build claim is Linux and Android. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows and macOS rows are postponed with the carry above.
 
 ## 23. Parallel workstreams
 
