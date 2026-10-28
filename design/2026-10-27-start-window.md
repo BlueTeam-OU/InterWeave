@@ -158,8 +158,10 @@ Evidence and hypotheses behind the choices below:
   read this sentence so). Read rows that have no stored copy are the
   session bound's, not this rule's: past it another conversation's read
   rows are dropped for good, which can change its preview or take it
-  off Chats (§7.1), when paging after the person's choice and when a
-  conversation is opened near the bound (§7.1, §12).
+  off Chats (§7.1): when paging after the person's choice, when a
+  conversation is opened near the bound (§7.1, §12), and when rows
+  arriving in the open conversation are read as they come (§1), as
+  today.
   The session bound on read rows is shared (§1), and paging may push
   another conversation's read rows past it only by the person's
   choice (§7.1).
