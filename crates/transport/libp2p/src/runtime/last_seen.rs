@@ -30,10 +30,13 @@ use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 /// How many peers [`LastSeen`] remembers: every peer the trust sources
 /// can classify at once, the allowlist and the infrastructure set.
 ///
-/// At the bound a close first forgets every peer the sources no longer
-/// classify, so a classified peer is dropped only when the table holds
-/// this many classified peers -- which no pair of sets reaches. Past
-/// that, the peer closed longest ago goes
+/// Two full, disjoint sets reach it exactly. At the bound a close first
+/// forgets every peer the sources no longer classify, and a newcomer
+/// they no longer classify is not recorded at all -- it has left the
+/// list that reads it. So a classified newcomer always finds room (the
+/// classified peers held, itself not among them, number fewer than the
+/// bound), and a classified peer is never evicted for anyone (#503
+/// review F6). The oldest-first eviction behind it is a backstop
 /// (`the_table_is_bounded_and_drops_the_unclassified_first`).
 pub(super) const MAX_LAST_SEEN: usize =
     PeerTrustPolicy::MAX_ALLOWED_PEERS + InfrastructureSet::MAX_ALLOWED_PEERS;
@@ -58,8 +61,11 @@ impl LastSeen {
         classified: impl Fn(&TransportIdentity) -> bool,
     ) {
         if !self.closed_at_ms.contains_key(peer) && self.closed_at_ms.len() >= MAX_LAST_SEEN {
-            // Reached by trust churn past the bound and nothing else, so
+            // Reached by trust churn up to the bound and nothing else, so
             // neither scan is the common close's cost.
+            if !classified(peer) {
+                return;
+            }
             self.closed_at_ms.retain(|held, _| classified(held));
             if self.closed_at_ms.len() >= MAX_LAST_SEEN
                 && let Some(oldest) = self
@@ -148,7 +154,8 @@ mod tests {
         };
         let (first, late) = (peer(0), peer(u32::MAX));
 
-        // Every held peer but `first` was revoked: they go, it stays.
+        // Every held peer but `first` was revoked, and `late` -- trusted
+        // -- closes: the revoked go, `first` stays, `late` is recorded.
         let mut seen = LastSeen::default();
         fill(&mut seen);
         assert_eq!(seen.len(), MAX_LAST_SEEN);
@@ -158,7 +165,7 @@ mod tests {
             MAX_LAST_SEEN,
             "re-recording a held peer evicts nobody"
         );
-        seen.closed(&late, 2_000_000, |p| *p == first);
+        seen.closed(&late, 2_000_000, |p| *p == first || *p == late);
         assert_eq!(seen.len(), 2, "the unclassified went");
         assert_eq!(
             seen.at(&first, false, 0),
@@ -171,7 +178,26 @@ mod tests {
             "the new one kept"
         );
 
-        // The control: everyone still classified, so the oldest goes.
+        // Full of classified peers -- two full, disjoint sets -- and a
+        // revoked newcomer closes: it is not recorded, nobody is evicted.
+        let mut seen = LastSeen::default();
+        fill(&mut seen);
+        seen.closed(&late, 2_000_000, |p| *p != late);
+        assert_eq!(seen.len(), MAX_LAST_SEEN, "bounded");
+        assert_eq!(
+            seen.at(&first, false, 0),
+            Some(0),
+            "a classified peer kept its time"
+        );
+        assert_eq!(
+            seen.at(&late, false, 0),
+            None,
+            "the revoked newcomer was not recorded"
+        );
+
+        // The backstop: a classified newcomer at a bound of classified
+        // peers -- more than the sets can hold, so only a predicate
+        // builds it -- evicts the one closed longest ago.
         let mut seen = LastSeen::default();
         fill(&mut seen);
         seen.closed(&late, 2_000_000, all);
