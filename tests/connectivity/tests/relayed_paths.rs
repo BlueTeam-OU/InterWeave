@@ -1099,10 +1099,10 @@ async fn a_circuit_whose_relay_was_not_reached_is_held_until_the_relay_connects(
     let relay_addr = bound(&mut relay).await;
     relay.add_external_address(relay_addr.clone());
     let mut seen = Seen::default();
-    let closed = {
-        let socket = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
-        socket.local_addr().expect("bound").port()
-    };
+    // Not a port-0 bind released: another test's listener could land on
+    // that port, and the dial would then reach a peer instead of a
+    // refusal (`interweave_test_support::net::free_port`).
+    let closed = interweave_test_support::net::free_port(std::net::Ipv4Addr::LOCALHOST);
     let unreached: Multiaddr = format!("/ip4/127.0.0.1/tcp/{closed}")
         .parse()
         .expect("addr");
