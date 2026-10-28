@@ -12,12 +12,19 @@
 
 mod common;
 
-use interweave_human_app_core::{FacadeSide, ModelSide, Opener, Surface, Update};
+use interweave_human_app_core::{
+    Command, FacadeSide, Failure, ModelSide, Opener, Surface, Update, WindowCommand,
+};
+use interweave_human_chat_protocol::{CardDraft, CardRoute, build_card};
+use interweave_human_store::identity_key::IdentityKey;
 use interweave_human_store::{
     AppMessageId, HumanStore, InboundKind, InboundOrigin, NewInbound, StoreOptions,
 };
 use interweave_human_transport_client::{ClientConfig, TransportClient};
-use interweave_human_ui_model::{ConversationKey, UiModel, ViewEvent};
+use interweave_human_ui_model::{
+    ConversationKey, Edge, Intent, MarkKind, PhotoAsk, PhotoState, READ_PROPOSAL_CAP, UiModel,
+    ViewEvent, WindowInput,
+};
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, MediaType, TransportIdentity};
@@ -190,4 +197,284 @@ fn a_start_reads_a_row_per_conversation_never_the_backlog() {
         side.rows_read() - before >= total,
         "a whole listing reads every row"
     );
+}
+
+const MEDIA: &str = "application/vnd.interweave-human-chat+json;v=2";
+
+/// Card `n`, signed by `key` for the route `from` sends it on, with a
+/// photo when one is given (its bytes as a share sends them).
+fn card(
+    n: u32,
+    key: &IdentityKey,
+    from: &TransportIdentity,
+    at: u64,
+    photo: Option<&[u8]>,
+) -> NewInbound {
+    let id = format!("{n:032x}");
+    let text = build_card(
+        &id,
+        CardDraft {
+            name: "Ada",
+            surname: None,
+            photo: photo.map(|p| ("image/jpeg", p)),
+        },
+        key.public_key(),
+        CardRoute {
+            source_peer: from,
+            source_endpoint: &human(),
+        },
+        Some(at),
+        |message| key.sign(message),
+    )
+    .expect("a card");
+    NewInbound {
+        app_message_id: AppMessageId::parse(id).expect("an id"),
+        origin: InboundOrigin {
+            peer: from.clone(),
+            endpoint: Some(human()),
+            channel: None,
+        },
+        media_type: Some(MediaType::parse(MEDIA).expect("media")),
+        payload: text.into_bytes(),
+        received_at: at,
+        kind: InboundKind::Card,
+    }
+}
+
+/// A model side started windowed over `side`, and every update kept.
+struct Root {
+    side: FacadeSide<FakeNode, FakeNode>,
+    model: ModelSide<Blind, NoOpener>,
+    updates: Vec<Update>,
+}
+
+impl Root {
+    fn start(mut side: FacadeSide<FakeNode, FakeNode>) -> Self {
+        let mut model = ModelSide::new(Blind, NoOpener);
+        model.apply(Update::Started(Box::new(side.start().expect("started"))));
+        Self {
+            side,
+            model,
+            updates: Vec::new(),
+        }
+    }
+
+    /// The model side's turn, and every command it asks carried out.
+    async fn turn(&mut self) {
+        for command in self.model.turn() {
+            self.execute(command).await;
+        }
+    }
+
+    async fn execute(&mut self, command: Command) {
+        for update in self.side.execute(command, 1).await {
+            self.updates.push(update.clone());
+            self.model.apply(update);
+        }
+    }
+
+    fn model(&self) -> &UiModel {
+        self.model.model()
+    }
+}
+
+fn direct(from: &TransportIdentity) -> ConversationKey {
+    ConversationKey::Direct {
+        peer: from.clone(),
+        endpoint: Some(human()),
+    }
+}
+
+/// Opened, a conversation's rows come a page at a time from the store
+/// through the facade, the newest first, until none remain: a backlog of
+/// 100 is two pages, every row held once, and the edge then asks nothing.
+/// Mutation: the ask's bound not handed to the store, so every page
+/// repeats the first.
+#[tokio::test]
+async fn an_opened_conversation_pages_its_rows_in_from_the_store() {
+    let from = peer();
+    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    for n in 1..=100 {
+        let mut row = message(n, &from, u64::from(n));
+        row.kind = InboundKind::Text;
+        store.commit_unread_inbound(&row).expect("committed");
+    }
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut root = Root::start(facade(&a, store));
+    let key = direct(&from);
+    root.model.window(WindowInput::Opened(key.clone()));
+    root.turn().await;
+    assert_eq!(root.model().messages(&key).len(), 64, "one page");
+    for _ in 0..2 {
+        root.model.window(WindowInput::Reached {
+            conversation: key.clone(),
+            edge: Edge::Top,
+        });
+        root.turn().await;
+        root.model.window(WindowInput::Left {
+            conversation: key.clone(),
+            edge: Edge::Top,
+        });
+    }
+    let held = root.model().messages(&key);
+    assert_eq!(held.len(), 100, "every row, once");
+    let pages = root
+        .updates
+        .iter()
+        .filter(|u| matches!(u, Update::Page(_)))
+        .count();
+    assert_eq!(pages, 2, "the exhausted edge asks nothing more");
+}
+
+/// Paging a conversation of more unread cards than the read proposals the
+/// session holds (`READ_PROPOSAL_CAP`) stops at that bound, with the limit
+/// row, while each shown card is read: no read proposal is evicted and the
+/// facade still holds the copy of the first, which a Decline needs
+/// (architect-cto's ruling on j68 B2). Mutation: the page's room taken
+/// from the session's items alone, ignoring the proposals'.
+#[tokio::test]
+async fn paging_past_the_read_proposal_bound_evicts_none_and_loses_no_copy() {
+    let from = peer();
+    let key = IdentityKey::generate(human()).expect("a key");
+    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let total = u32::try_from(READ_PROPOSAL_CAP).expect("small") + 44;
+    for n in 1..=total {
+        store
+            .commit_unread_inbound(&card(n, &key, &from, u64::from(n), None))
+            .expect("committed");
+    }
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut root = Root::start(facade(&a, store));
+    let conversation = direct(&from);
+    root.model.window(WindowInput::Opened(conversation.clone()));
+    let mut first_read = None;
+    for _ in 0..8 {
+        root.turn().await;
+        // What a view showing them raises: each shown card read.
+        for intent in root.model().proposals_viewed(&conversation, true) {
+            if let Intent::MarkRead(row) = intent {
+                first_read.get_or_insert(row);
+                root.execute(Command::MarkRead(row)).await;
+            }
+        }
+        root.model.window(WindowInput::Reached {
+            conversation: conversation.clone(),
+            edge: Edge::Top,
+        });
+        root.turn().await;
+        root.model.window(WindowInput::Left {
+            conversation: conversation.clone(),
+            edge: Edge::Top,
+        });
+    }
+    assert_eq!(
+        root.model().proposals(&conversation).len(),
+        READ_PROPOSAL_CAP,
+        "every read proposal held, none past the bound"
+    );
+    assert!(
+        root.model()
+            .window_marks(&conversation)
+            .iter()
+            .any(|m| m.kind == MarkKind::AtLimit(Edge::Top)),
+        "the limit row: {:?}",
+        root.model().window_marks(&conversation)
+    );
+    let first = first_read.expect("cards were read");
+    root.updates.clear();
+    root.execute(Command::DeclineCard(first)).await;
+    assert!(
+        !root.updates.iter().any(|u| matches!(
+            u,
+            Update::Failed {
+                why: Failure::CopyGone,
+                ..
+            }
+        )),
+        "the first card's copy is held: {:?}",
+        root.updates
+    );
+}
+
+/// A contact's photo is read when asked, as it stood then: the directory
+/// read says the contact has one without its bytes, the ask brings it
+/// decoded, and an ask made under an older time brings none, the photo it
+/// named being gone. Mutation: the photo given whatever its time.
+#[tokio::test]
+async fn a_photo_is_read_when_asked_and_only_as_it_stood() {
+    let from = peer();
+    let key = IdentityKey::generate(human()).expect("a key");
+    let png = png();
+    let photo = interweave_human_app_core::card_photo::prepare_photo(&png).expect("prepared");
+    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    store
+        .commit_unread_inbound(&card(1, &key, &from, 1, Some(&photo.bytes)))
+        .expect("committed");
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut root = Root::start(facade(&a, store));
+    let conversation = direct(&from);
+    root.model.window(WindowInput::Opened(conversation.clone()));
+    root.turn().await;
+    let proposal = root
+        .updates
+        .iter()
+        .find_map(|u| match u {
+            Update::Page(rows) => rows.proposals.first().cloned(),
+            _ => None,
+        })
+        .expect("the card's proposal");
+    root.execute(Command::AcceptCard {
+        row: proposal.row,
+        shown: Box::new(proposal.context.clone()),
+    })
+    .await;
+    root.execute(Command::Window(WindowCommand::ReadContacts))
+        .await;
+    let contact = root
+        .updates
+        .iter()
+        .rev()
+        .find_map(|u| match u {
+            Update::ContactDirectory(Ok(contacts)) => contacts.first().cloned(),
+            _ => None,
+        })
+        .expect("the contact, read again");
+    assert!(
+        contact.has_photo && contact.view.photo.is_none(),
+        "no bytes"
+    );
+    let id = contact.view.contact_id.clone();
+    assert_eq!(root.model().contact_photo(&id), PhotoState::Initials);
+
+    root.model.photo_shown(&id);
+    root.turn().await;
+    assert!(
+        matches!(root.model().contact_photo(&id), PhotoState::Shown(_)),
+        "{:?}",
+        root.model().contact_photo(&id)
+    );
+
+    root.updates.clear();
+    root.execute(Command::Window(WindowCommand::ReadPhoto(PhotoAsk {
+        contact_id: id.clone(),
+        photo_at: contact.view.photo_at.map(|at| at - 1),
+    })))
+    .await;
+    assert!(
+        root.updates
+            .iter()
+            .any(|u| matches!(u, Update::ContactPhoto { photo: None, .. })),
+        "{:?}",
+        root.updates
+    );
+}
+
+/// A small PNG.
+fn png() -> Vec<u8> {
+    let image = image::RgbaImage::from_pixel(8, 8, image::Rgba([200, 40, 40, 255]));
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .expect("a PNG");
+    out
 }

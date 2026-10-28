@@ -235,6 +235,8 @@ const fn command_name(command: &Command) -> &'static str {
         Command::AskNewKey => "asking what a new key cancels",
         Command::MakeNewKey => "making a new key",
         Command::RetryKey => "opening the key again",
+        // The windowed mode's reads, which this client does not ask yet.
+        Command::Window(_) => "reading the store",
         Command::ShareCard(_) => "sharing the card",
         Command::SetOwnCard { .. } => "editing the own card",
         Command::RenameContact { .. } => "renaming a contact",

@@ -29,7 +29,7 @@ use interweave_human_ui_model::{
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
-use crate::protocol::{Command, Failure, Listing, Start, Update};
+use crate::protocol::{Command, Failure, Listing, Start, Update, WindowCommand};
 use crate::{cards, listing};
 use interweave_human_ui_model::CardOutcome;
 
@@ -431,6 +431,46 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         })
     }
 
+    /// The windowed mode's reads: a page, the contacts, a photo.
+    fn window_command(
+        &mut self,
+        command: &WindowCommand,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
+        let store = self.client.store_mut();
+        match command {
+            WindowCommand::FetchPage(ask) => {
+                let (rows, read) =
+                    listing::page(store, (**ask).clone()).map_err(|e| store_failure(&e))?;
+                self.rows_read += read;
+                updates.push(Update::Page(Box::new(rows)));
+            }
+            // A failed read is the list's to say, as the start's is: the
+            // command is done either way.
+            WindowCommand::ReadContacts => updates.push(Update::ContactDirectory(
+                cards::contact_directory(store).map_err(|e| store_failure(&e)),
+            )),
+            WindowCommand::ReadPhoto(ask) => {
+                // The photo as it stood when asked, or none: one set or
+                // removed since has another time, and the model asks for it
+                // under that time once the contacts are read again.
+                let photo = store
+                    .contact(&ask.contact_id)
+                    .map_err(|e| store_failure(&e))?
+                    .filter(|contact| contact.photo_at == ask.photo_at)
+                    .and_then(|contact| contact.photo)
+                    .as_deref()
+                    .and_then(cards::shown);
+                updates.push(Update::ContactPhoto {
+                    contact_id: ask.contact_id.clone(),
+                    photo_at: ask.photo_at,
+                    photo,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// How many stored rows this side has read and decoded so far --
     /// classified, listed, summarised or paged: what a start's cost is
     /// measured in, since a memory figure says nothing a test can hold.
@@ -811,6 +851,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 .map_err(|e| store_failure(&e)),
             Command::MakeNewKey => self.make_new_key(&mut updates),
             Command::RetryKey => self.retry_key(&mut updates),
+            Command::Window(window) => self.window_command(window, &mut updates),
             Command::ForgetCard(row) => {
                 if self.card_undo.as_ref().is_some_and(|u| u.row == *row) {
                     self.card_undo = None;

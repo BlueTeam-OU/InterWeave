@@ -11,11 +11,13 @@ use interweave_human_client_api::{Destination, Origin, ReceivedCard};
 use std::collections::BTreeMap;
 
 use interweave_human_store::{
-    Cursor, HumanStore, InboundKind, InboundOrigin, OutboundDestination, Page, PageLimits,
-    PendingOutbound, RowId, StoreConversation, StoreError, StoredInbound,
+    Cursor, HumanStore, InboundKind, InboundOrigin, Order, OutboundDestination, Page, PageLimits,
+    PageRange, PendingOutbound, RowId, StoreConversation, StoreError, StoredInbound, WindowCursor,
+    WindowLimits,
 };
 use interweave_human_ui_model::{
-    ConversationKey, ListedInbound, ListedOutbound, NewestRow, StoredSummary, Table,
+    ConversationKey, ListedInbound, ListedOutbound, NewestRow, PageAsk, PageEnd, PageMark,
+    PageOrder, PageRows, StoredSummary, Table,
 };
 use interweave_transport_api::MediaType;
 
@@ -154,6 +156,71 @@ pub(crate) fn summaries(store: &HumanStore) -> Result<Summarised, StoreError> {
         counted_through,
         read,
     })
+}
+
+/// One page of the open conversation as `ask` names it: its rows decoded,
+/// each table apart, its cards as proposals, and whether more remain -- at
+/// the unread room said apart, since the limit row shows only then -- with
+/// how many rows the store gave.
+///
+/// # Errors
+/// The store's, when the page or a proposal's context cannot be read.
+pub(crate) fn page(store: &HumanStore, ask: PageAsk) -> Result<(PageRows, u64), StoreError> {
+    let mut rows = PageRows {
+        ask,
+        unread: Vec::new(),
+        kept: Vec::new(),
+        proposals: Vec::new(),
+        end: PageEnd::Exhausted,
+    };
+    let conversation = match &rows.ask.conversation {
+        ConversationKey::Direct {
+            peer,
+            endpoint: Some(endpoint),
+        } => StoreConversation::Direct {
+            peer: peer.clone(),
+            endpoint: endpoint.clone(),
+        },
+        ConversationKey::Channel(channel) => StoreConversation::Channel(channel.clone()),
+        // The peer's default endpoint: no stored row is under it, since
+        // each records the endpoint its sender asserted.
+        ConversationKey::Direct { endpoint: None, .. } => return Ok((rows, 0)),
+    };
+    let cursor = |m: PageMark| WindowCursor::at(m.received_at, m.kept, m.row);
+    let window = store.conversation_window(
+        &conversation,
+        PageRange {
+            older_than: rows.ask.older_than.map(cursor),
+            newer_than: rows.ask.newer_than.map(cursor),
+        },
+        match rows.ask.order {
+            PageOrder::NewestFirst => Order::NewestFirst,
+            PageOrder::OldestFirst => Order::OldestFirst,
+        },
+        WindowLimits {
+            page: limits(),
+            unread: rows.ask.unread_room,
+        },
+    )?;
+    let read = u64::try_from(window.page.items.len()).unwrap_or(u64::MAX);
+    rows.end = match (window.page.next, window.room_used) {
+        (None, _) => PageEnd::Exhausted,
+        (Some(_), true) => PageEnd::RoomUsed,
+        (Some(_), false) => PageEnd::More,
+    };
+    // A page holds the kinds this build shows, by the same steps as these
+    // (`kind_of`, classified again at the start when another build made
+    // them), so no row of it is left out here.
+    for row in window.page.items {
+        if row.kept_at.is_some() {
+            rows.kept.extend(inbound(&row));
+        } else if let Some(message) = inbound(&row) {
+            rows.unread.push(message);
+        } else if let Some(card) = card(&row) {
+            rows.proposals.push(crate::cards::proposal(store, card)?);
+        }
+    }
+    Ok((rows, read))
 }
 
 /// Every pending, unread and kept row, decoded.

@@ -14,8 +14,8 @@ use interweave_human_client_api::{
 use interweave_human_store::RowId;
 use interweave_human_ui_model::{
     CardOutcome, ContactChange, ContactView, ConversationKey, DirectoryContact, IdentityView,
-    ItemKey, ListedInbound, ListedOutbound, PhotoEdit, Proposal, ProposalContext, StoredSummary,
-    Table, TrustChange,
+    ItemKey, ListedInbound, ListedOutbound, PageAsk, PageRows, Photo, PhotoAsk, PhotoEdit,
+    Proposal, ProposalContext, StoredSummary, Table, TrustChange,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -164,6 +164,23 @@ pub enum Command {
     MakeNewKey,
     /// Open the identity in front's key once more.
     RetryKey,
+    /// What the windowed mode reads from the store as the person moves
+    /// (design/2026-10-27-start-window.md): one variant, so the platforms
+    /// that name every command name these once.
+    Window(WindowCommand),
+}
+
+/// The windowed mode's reads.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum WindowCommand {
+    /// One page of the open conversation's stored rows, as the model asked
+    /// it ([`UiModel::take_page_asks`](interweave_human_ui_model::UiModel::take_page_asks)).
+    FetchPage(Box<PageAsk>),
+    /// Every contact again, without their photos: the Contacts list's Try
+    /// again.
+    ReadContacts,
+    /// One contact's photo, as it stood when the model asked.
+    ReadPhoto(PhotoAsk),
 }
 
 /// The store's rows at start, decoded for the model.
@@ -222,6 +239,22 @@ pub enum Update {
     /// The store at a windowed start, in place of [`Update::Listed`]:
     /// applied before anything else for the same reason.
     Started(Box<Start>),
+    /// A page of the open conversation, as its [`WindowCommand::FetchPage`]
+    /// asked: a failed read is that command's [`Update::Failed`].
+    Page(Box<PageRows>),
+    /// Every contact, without their photos, read again: or why not, and
+    /// none is then known.
+    ContactDirectory(Result<Vec<DirectoryContact>, Failure>),
+    /// A contact's photo as [`WindowCommand::ReadPhoto`] asked it: `None`
+    /// when it cannot be decoded, or is no longer the one asked for.
+    ContactPhoto {
+        /// The contact.
+        contact_id: String,
+        /// The photo's time, as asked.
+        photo_at: Option<u64>,
+        /// The photo, decoded.
+        photo: Option<Photo>,
+    },
     /// The store's unread rows again, after the facade reported unread
     /// content it holds but did not hand over (`ClientEvent::UnreadInStore`).
     UnreadListed {
