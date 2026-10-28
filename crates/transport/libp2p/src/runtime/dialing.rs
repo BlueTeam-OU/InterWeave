@@ -5272,6 +5272,7 @@ mod tests {
             ("handle.rs", include_str!("handle.rs")),
             ("held_sends.rs", include_str!("held_sends.rs")),
             ("kademlia_driver.rs", include_str!("kademlia_driver.rs")),
+            ("last_seen.rs", include_str!("last_seen.rs")),
             ("mdns_driver.rs", include_str!("mdns_driver.rs")),
             ("messages.rs", include_str!("messages.rs")),
             ("mod.rs", include_str!("mod.rs")),
