@@ -126,8 +126,9 @@ says the endpoint an automated client holds is a key the deployment
 mints on the host with `transportctl endpoint init`, the id read back
 into its roster in place of the label it rendered before; decision 4's
 provisioning without a daemon gains that verb and says an endpoint-less
-`trust allow|revoke` writes the node's list, which a rendered profile's
-endpoints inherit, and decision 5's allowlist is that list. The fleet's own record
+`trust allow|revoke` writes the operator's list, which a rendered
+profile's endpoints inherit and no identity reads, and decision 5's
+allowlist is that list. The fleet's own record
 of its carrier names endpoints by label today and changes by proposal
 to fabric-coordinator. Propagation: decisions 1, 4 and 5; this note; the log
 row; the digest entry.

@@ -26,8 +26,8 @@ endpoint whose EndpointId is derived from its own Ed25519 key pair as
 the PeerId is from the node's, the same for every endpoint kind, and
 trust is per identity. Decision 1 read "a configured EndpointId of the
 profile together with the card" and "one trust set"; it now reads a key
-pair with a derived id and a transport trust set that is the union of
-the identities' own. Decision 2's "configuring an endpoint" is
+pair with a derived id and an admission set the transport derives
+from the operator's list and the identities' own sets. Decision 2's "configuring an endpoint" is
 generating its key. Decision 7's rename changes the card and the local
 alias, never the id, and a new identity on a freed alias has a new key
 and id. Decision 8's automated endpoint is a key the deployment mints.
