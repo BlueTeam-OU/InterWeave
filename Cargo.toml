@@ -118,7 +118,7 @@ members = [
 # inherits it with `version.workspace = true`, and the release run refuses a
 # tag that is not `v` and this. tools/checks/check_workspace_version.sh keeps
 # it the only one.
-version = "0.1.0"
+version = "0.2.0"
 license = "Apache-2.0"
 edition = "2024"
 # Kept in lockstep with rust-toolchain.toml. Stating a minimum the pinned
@@ -223,6 +223,10 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 # NFC for the card's name and surname, the form their bounds are checked
 # and signed in. Already in the graph via bip39.
 unicode-normalization = { version = "0.1", default-features = false, features = ["std"] }
+# Grapheme clusters, to cut a Chats preview at 160 characters as a person
+# counts them (design/2026-10-27-start-window.md section 3). unicode-rs,
+# MIT/Apache-2.0, already in the graph through the Slint toolkit.
+unicode-segmentation = { version = "1.13", default-features = false }
 # The card's names refuse format characters (Cf), which no std predicate
 # names. Already in the graph via jsonschema; Apache-2.0, no dependencies.
 unicode-general-category = "1.1"
@@ -232,6 +236,18 @@ unicode-general-category = "1.1"
 # unicode-normalization and unicode-script, already in the graph.
 caseless = "0.2"
 unicode-security = "0.1"
+# Contacts are ordered by Unicode collation (human-client-ui.md section 3,
+# "How contacts are ordered"): UTS #10 with the CLDR root order until the
+# localisation contract gives the client a locale. ICU4X, the 2.3 line the
+# Slint toolkit's other icu_* crates already resolve, Unicode-3.0. Held to
+# 2.3: a newer collator moves every icu_* crate of the graph with it.
+icu_collator = "~2.3"
+# The root-only data provider beside it (ui-model's `order.rs`) names the
+# collator's data markers and the NFD data it reads: the same 2.3 line,
+# held to it because a provider's markers are not semver-stable across
+# minor versions.
+icu_provider = "~2.3"
+icu_normalizer = "~2.3"
 # A card's photo (app-core's card_photo.rs): the sender re-encodes the
 # chosen image, the receiver decodes an accepted one at 256 x 256. PNG and
 # JPEG only, pure Rust (png, zune-jpeg), the version and the two features

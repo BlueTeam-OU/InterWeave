@@ -14,24 +14,29 @@
 
 #![forbid(unsafe_code)]
 
+pub mod body;
+mod connect;
 mod identity_flow;
 mod labels;
 mod look;
 mod model;
+mod order;
 mod peers;
 mod picker;
 mod presence;
+pub mod preview;
 mod store_recovery;
 mod trust;
 mod waiting;
 
+pub use connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectLine};
 pub use identity_flow::{
     Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, Words,
 };
 /// The store row an intent names, as the model hands it to a view.
 pub use interweave_human_core::RowId;
 pub use labels::{
-    ErrorClass, HostText, LabelKey, RuntimeHost, UiText, attention_class, fill, isolated,
+    ErrorClass, HostText, LabelKey, RuntimeHost, UiText, attention_class, by_count, fill, isolated,
     outbound_label, placeholder_en, send_error_class, send_problem_class, session_problem_class,
     short_peer, visible_destination,
 };
@@ -42,6 +47,7 @@ pub use model::cards::{
     PhotoChange, PhotoEdit, Proposal, ProposalContext, ProposalItem, ProposalNote,
     READ_PROPOSAL_CAP, RouteView, SentCard, ValueChanges, name_problem,
 };
+pub use model::summaries::{NewestRow, StoredSummary};
 pub use model::{
     Announce, Composer, Confirmation, ContactChange, ConversationKey, ConversationSummary,
     DEDUP_CAP, Direction, FocusTarget, HELD_UPDATE_CAP, Intent, ItemDiagnostics, ItemKey,
@@ -49,11 +55,12 @@ pub use model::{
     Retention, RouteLabel, RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table,
     Trust, UiModel, UndoClosed, ViewEvent,
 };
+pub use order::{compare_names, contact_order};
 pub use peers::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockHeld, BlockProblem, BlockState, BlockView,
-    CODE_LINES, LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus, PeersInput,
-    PeersSnack, Refusal, RowReadBack, RowState, ScanControl, ScanVerdict, ShowProblem, ShowState,
-    TYPED_LINES, TrustLine, is_address_list, lines_of,
+    CODE_LINES, ConnectAdd, LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus,
+    PeersInput, PeersSnack, Refusal, RowReadBack, RowState, ScanControl, ScanVerdict, ShowProblem,
+    ShowState, TYPED_LINES, TrustLine, is_address_list, lines_of,
 };
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};

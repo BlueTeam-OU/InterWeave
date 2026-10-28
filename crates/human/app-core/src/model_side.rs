@@ -8,7 +8,7 @@ use std::collections::{HashSet, VecDeque};
 
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
-use interweave_human_ui_model::{ConversationKey, Intent, UiModel, ViewEvent};
+use interweave_human_ui_model::{ConnectGate, ConversationKey, Intent, UiModel, ViewEvent};
 
 use crate::facade::CANCELLED_CAP;
 use crate::protocol::{Command, Failure, Update};
@@ -41,6 +41,13 @@ pub trait Opener {
     /// needs the person. Raised only while the root says it is needed
     /// ([`ModelSide::authentication_needed`]).
     fn authenticate(&mut self);
+
+    /// Onboarding's Connect is no longer owed: forget that it was, so no
+    /// later start opens it (add-a-peer §5.1). Raised once, only after the
+    /// root said it was owed ([`ModelSide::connect_owed`]); a platform
+    /// with no onboarding never owes it
+    /// (`connect_settled_reaches_the_platform_once_and_only_when_owed`).
+    fn connect_settled(&mut self) {}
 }
 
 /// An action still being carried out, so a second press of the same one
@@ -120,6 +127,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             hidden_other: 0,
             reads_owed: false,
         }
+    }
+
+    /// Onboarding's Connect is owed (add-a-peer §5.1): a new or restored
+    /// identity's first start, or a later one whose earlier start left it
+    /// undecided. Said before the session's first reads answer; the root
+    /// opens it, or settles it through [`Opener::connect_settled`], or
+    /// leaves it owed for the next start when a read failed.
+    pub fn connect_owed(&mut self) {
+        self.model.connect_owed();
     }
 
     /// Whether a transport daemon serves the profile, as the root sees
@@ -438,6 +454,20 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 if *self.model.peers() != before {
                     unrendered = true;
                 }
+                // Once both start reads answered: Connect opens, is
+                // settled, or waits for the next start. While it is open
+                // its line follows a trust answer this turn took after
+                // its render, which may ask the facade nothing -- its
+                // `Done` came in the same batch -- so a Connect that
+                // changed is drawn again, as Peers is
+                // (`a_late_trust_answer_is_drawn_on_connect_by_the_turn_that_takes_it`).
+                let before = self.model.connect().cloned();
+                if self.model.connect_turn() == Some(ConnectGate::Settled) {
+                    self.opener.connect_settled();
+                }
+                if self.model.connect() != before.as_ref() {
+                    unrendered = true;
+                }
                 if std::mem::take(&mut unrendered) {
                     self.surface.render(&self.model);
                     continue;
@@ -452,6 +482,14 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     ViewEvent::Peers(input) => {
                         unrendered = true;
                         for intent in self.model.peers_input(input) {
+                            if let Some(command) = self.command_for(intent) {
+                                commands.push(command);
+                            }
+                        }
+                    }
+                    ViewEvent::Connect(input) => {
+                        unrendered = true;
+                        for intent in self.model.connect_input(input) {
                             if let Some(command) = self.command_for(intent) {
                                 commands.push(command);
                             }

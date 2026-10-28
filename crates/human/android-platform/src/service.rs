@@ -102,7 +102,11 @@ pub struct StoreDiscarded {
 /// Why a store action was not taken.
 #[derive(Debug)]
 pub enum StoreActionRefused {
-    /// The client is running and holds the store: stop it first.
+    /// The client is running and holds the store: stop it first. Also
+    /// while a facade left running past its stop still finishes its
+    /// commands through a connection of its own: a discard would delete
+    /// the files under it (`human-client-android.md`, a facade past its
+    /// stop, rule 4).
     Running,
     /// The app's data directory or the profile's paths were refused.
     Profile(String),
@@ -284,7 +288,7 @@ impl ServiceHost {
         profile: &str,
         store_cipher: &dyn KeyCipher,
     ) -> Result<at_rest::DiscardPlan, StoreActionRefused> {
-        if self.lock().is_some() {
+        if self.lock().is_some() || self.hub.facade_alive() {
             return Err(StoreActionRefused::Running);
         }
         let paths = embedded_paths(app_data_dir, profile)?;
@@ -307,7 +311,10 @@ impl ServiceHost {
         confirmed: at_rest::ConfirmedDiscard,
     ) -> Result<StoreDiscarded, StoreActionRefused> {
         let running = self.lock();
-        if running.is_some() {
+        // A facade's thread is alive only while a start made one, and
+        // none starts under this lock: what is read here holds until the
+        // discard ends.
+        if running.is_some() || self.hub.facade_alive() {
             return Err(StoreActionRefused::Running);
         }
         let paths = embedded_paths(app_data_dir, profile)?;

@@ -675,6 +675,120 @@ fn a_payload_transport_could_not_carry_is_not_a_pending_row() {
     );
 }
 
+/// A store exactly at its quota, whose open writes nothing, opens healthy:
+/// only one over it is degraded (#498 review F4). Mutation: degraded at
+/// the quota too.
+#[test]
+fn a_store_exactly_at_its_quota_opens_healthy() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    let conn = rusqlite::Connection::open(&path).expect("raw");
+    conn.execute_batch("VACUUM;").expect("compacted");
+    let size: u32 = conn
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .expect("page_count");
+    drop(conn);
+    let store = HumanStore::open(
+        &path,
+        StoreOptions {
+            max_pages: Some(size),
+        },
+    )
+    .expect("opens at its quota");
+    assert_eq!(store.health(), StorageHealth::Healthy);
+}
+
+/// A zero quota is refused before the open writes anything: a store that
+/// needs its conversation index backfilled is left as it was, its index
+/// empty and its version unset (#498 review F5). Mutation: the refusal
+/// only after the open's writes, where the ignored ceiling still refuses.
+#[test]
+fn a_zero_quota_is_refused_before_the_open_writes_anything() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    store
+        .commit_unread_inbound(&inbound_via("e0", ID_A, vec![1]))
+        .expect("committed");
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("a second connection");
+    conn.execute_batch(
+        "DELETE FROM conversation_index;
+         DELETE FROM settings WHERE key = 'conversation_index_version';",
+    )
+    .expect("back before the index");
+    drop(conn);
+
+    let zero = HumanStore::open(&path, StoreOptions { max_pages: Some(0) });
+    assert!(
+        matches!(zero, Err(StoreError::QuotaNotApplied { requested: 0, .. })),
+        "{zero:?}"
+    );
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let indexed: i64 = conn
+        .query_row("SELECT COUNT(*) FROM conversation_index", [], |r| r.get(0))
+        .expect("count");
+    let version: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'conversation_index_version'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    assert_eq!((indexed, version), (0, None), "nothing written");
+}
+
+/// The open's own writes run above the quota (STATE.md, Store health,
+/// #492's review F3): a store an earlier build wrote, vacuumed to its
+/// quota, still needs the conversation index backfilled, and that write
+/// once failed the open. It now opens, degraded since it is over the quota
+/// once the writes are done, its rows readable and its conversations
+/// indexed. Mutation: the quota applied before the open's writes.
+#[test]
+fn an_open_that_must_write_runs_above_its_quota_and_opens_degraded() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    for n in 0..60_u32 {
+        store
+            .commit_unread_inbound(&inbound_via(
+                &format!("e{n}"),
+                &format!("{n:032x}"),
+                vec![1],
+            ))
+            .expect("committed");
+    }
+    drop(store);
+    // As an earlier build left it: rows and no index, compacted to its size.
+    let conn = rusqlite::Connection::open(&path).expect("a second connection");
+    conn.execute_batch(
+        "DELETE FROM conversation_index;
+         DELETE FROM settings WHERE key = 'conversation_index_version';
+         VACUUM;",
+    )
+    .expect("back before the index");
+    let size: u32 = conn
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .expect("page_count");
+    drop(conn);
+
+    let store = HumanStore::open(
+        &path,
+        StoreOptions {
+            max_pages: Some(size),
+        },
+    )
+    .expect("an open that must write is not refused by the quota");
+    assert_eq!(
+        store.health(),
+        StorageHealth::Degraded,
+        "over it once written"
+    );
+    assert_eq!(store.unread_inbound().expect("readable").len(), 60);
+    assert_eq!(store.remote_endpoints(&peer()).expect("indexed"), 60);
+}
+
 /// Review R5 on fa3eab8: `max_page_count` ATTEMPTS the change and
 /// answers with the ceiling it set, so a successful pragma was taken as
 /// the quota while SQLite enforced another. A ceiling it IGNORES -- zero,
@@ -3552,6 +3666,11 @@ fn the_start_window_columns_and_indexes_are_part_of_the_verified_shape() {
             "DROP INDEX unread_inbound_by_channel;
              CREATE INDEX unread_inbound_by_channel ON unread_inbound (channel_key, row_id);",
         ),
+        (
+            "the kept kind index as v10 had it, at v11",
+            "DROP INDEX kept_inbound_by_kind;
+             CREATE INDEX kept_inbound_by_kind ON kept_inbound (kind);",
+        ),
     ] {
         let (_dir, path, conn) = raw_store();
         conn.execute_batch(sql).expect("the edit is legal SQLite");
@@ -3582,4 +3701,86 @@ fn the_engine_is_sqlcipher_with_its_crypto_built_in() {
         .query_row("PRAGMA cipher_provider", [], |r| r.get(0))
         .expect("a provider");
     assert_eq!(provider, "openssl");
+}
+
+/// Two connections of one process on one store -- on Android, a facade
+/// left running past its stop and the next start's -- are serialised by
+/// the store: a write that meets another connection's write transaction
+/// waits for it and lands, never failing busy (`human-client-android.md`,
+/// a facade past its stop, rule 3). Mutation: the open setting a busy
+/// timeout of zero.
+#[test]
+fn a_second_connection_waits_for_a_write_rather_than_failing() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut first = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut second = HumanStore::open(&path, StoreOptions::default()).expect("opens twice");
+    second
+        .commit_unread_inbound(&inbound(ID_B, b"other".to_vec()))
+        .expect("control: the second connection writes");
+
+    let holder = rusqlite::Connection::open(&path).expect("a third connection");
+    holder
+        .execute_batch("BEGIN IMMEDIATE;")
+        .expect("a writer holds the file");
+    let released = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        holder
+            .execute_batch("COMMIT;")
+            .expect("the writer finishes");
+    });
+    first
+        .commit_unread_inbound(&inbound(ID_A, b"hello".to_vec()))
+        .expect("waits for the writer, then lands");
+    released.join().expect("the writer's thread");
+    assert_eq!(second.unread_inbound().expect("read").len(), 2);
+}
+
+/// Schema v11 (STATE.md, #492's review F2): a store at v10 has its kept
+/// kind index rebuilt over the conversation's columns, its rows kept, so
+/// the Chats list's conversations read no kept row. Mutation: migration 11
+/// not run.
+#[test]
+fn a_v10_store_gains_the_wide_kept_kind_index_and_keeps_its_rows() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let row = store
+        .commit_unread_inbound(&inbound(ID_A, b"kept across v11".to_vec()))
+        .expect("committed");
+    let read = store.mark_read(row, 1).expect("read");
+    store.keep(&read, 2).expect("kept");
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("raw");
+    conn.execute_batch(
+        "DROP INDEX kept_inbound_by_kind;
+         CREATE INDEX kept_inbound_by_kind ON kept_inbound (kind);
+         PRAGMA user_version = 10;",
+    )
+    .expect("back to v10");
+    drop(conn);
+
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("migrates to v11");
+    assert_eq!(
+        store.kept_inbound().expect("kept").len(),
+        1,
+        "the row stays"
+    );
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let columns: Vec<String> = conn
+        .prepare("SELECT name FROM pragma_index_info('kept_inbound_by_kind') ORDER BY seqno")
+        .expect("index info")
+        .query_map([], |r| r.get(0))
+        .expect("rows")
+        .collect::<Result<_, _>>()
+        .expect("columns");
+    assert_eq!(
+        columns,
+        ["kind", "source_peer", "source_endpoint", "channel_id"]
+    );
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("version");
+    assert_eq!(version, SCHEMA_VERSION);
 }

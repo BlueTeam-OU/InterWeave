@@ -632,6 +632,18 @@ impl Cards {
             .collect()
     }
 
+    /// The conversation of a proposal held unread: `None` once it was read,
+    /// or for a row no proposal is.
+    pub(super) fn unread_conversation(&self, row: RowId) -> Option<ConversationKey> {
+        self.proposals
+            .get(&row)
+            .filter(|_| !self.read.contains(&row))
+            .map(|p| ConversationKey::Direct {
+                peer: p.peer.clone(),
+                endpoint: Some(p.endpoint.clone()),
+            })
+    }
+
     /// A row was marked read: if it is a proposal's, it is shown now.
     /// Past [`READ_PROPOSAL_CAP`], the oldest read one goes: the store no
     /// longer holds it, and the facade no longer holds its copy either.
@@ -695,9 +707,34 @@ fn card_name(card: &Card) -> String {
 }
 
 impl UiModel {
-    /// A card the facade committed unread, with its context.
+    /// A card the store holds unread, with its context: listed at a start
+    /// or a relist, or read with a conversation's page. In the windowed
+    /// mode it is already among the store's count, so nothing is counted
+    /// (`a_stored_card_handed_over_is_counted_once`); a card the drain just
+    /// committed is [`UiModel::card_arrived`].
     pub fn card_received(&mut self, proposal: Proposal) {
         self.cards.proposals.insert(proposal.row, proposal);
+    }
+
+    /// A card the drain just committed unread, with its context: as
+    /// [`UiModel::card_received`], and in the windowed mode new to the
+    /// store's count too, so the conversation's badge takes it and it is
+    /// the newest row -- once, a card already held being counted already
+    /// (#498 review F1). The facade hands its drained cards here once it
+    /// starts windowed, the next batch.
+    pub fn card_arrived(&mut self, proposal: Proposal) {
+        if let Some(windowed) = self.windowed.as_mut()
+            && !self.cards.proposals.contains_key(&proposal.row)
+        {
+            windowed.arrived(
+                &ConversationKey::Direct {
+                    peer: proposal.peer.clone(),
+                    endpoint: Some(proposal.endpoint.clone()),
+                },
+                super::summaries::NewestRow::card(proposal.row, proposal.received_at),
+            );
+        }
+        self.card_received(proposal);
     }
 
     /// A proposal held here, judged again by the facade after a contact
@@ -754,6 +791,13 @@ impl UiModel {
         // snackbar's Undo with this one: that Undo is gone whatever this
         // answer opens.
         self.close_card_snackbar();
+        // Resolved while still unread, its unread row is gone from the
+        // store: the count loses it.
+        if let (Some(windowed), Some(conversation)) =
+            (self.windowed.as_mut(), self.cards.unread_conversation(row))
+        {
+            windowed.left_unread(&conversation);
+        }
         let Some(proposal) = self.cards.resolved(row) else {
             self.swipe_release_card(row);
             return;
@@ -895,8 +939,11 @@ impl UiModel {
         self.cards.shared.get(key).copied()
     }
 
-    /// The contacts, as the facade listed them after a change.
-    pub fn contacts_listed(&mut self, contacts: Vec<ContactView>) {
+    /// The contacts, as the facade listed them after a change, held in
+    /// the client's one order ([`crate::contact_order`]) whatever order
+    /// the store read them in.
+    pub fn contacts_listed(&mut self, mut contacts: Vec<ContactView>) {
+        contacts.sort_by(crate::contact_order);
         self.cards.contacts = contacts;
     }
 
@@ -1160,21 +1207,30 @@ impl UiModel {
             .filter(|p| &p.peer == peer && &p.endpoint == at)
             .map(|p| {
                 let c = &p.context;
+                // Each kind of note in the contacts' one order, so the
+                // contact a note names first is the list's first; the
+                // context itself stays as the store read it, since Accept
+                // carries it back to be compared.
+                let ordered = |refs: &[ContactRef]| {
+                    let mut refs = refs.to_vec();
+                    crate::order::sort_refs(&mut refs, &self.cards.contacts);
+                    refs
+                };
                 let mut notes = Vec::new();
                 notes.extend(
-                    c.same_name
-                        .iter()
-                        .map(|r| ProposalNote::SameName(r.clone())),
+                    ordered(&c.same_name)
+                        .into_iter()
+                        .map(ProposalNote::SameName),
                 );
                 notes.extend(
-                    c.shares_node
-                        .iter()
-                        .map(|r| ProposalNote::SharesNode(r.name.clone())),
+                    ordered(&c.shares_node)
+                        .into_iter()
+                        .map(|r| ProposalNote::SharesNode(r.name)),
                 );
                 notes.extend(
-                    c.key_matches
-                        .iter()
-                        .map(|r| ProposalNote::KeyMatches(r.name.clone())),
+                    ordered(&c.key_matches)
+                        .into_iter()
+                        .map(|r| ProposalNote::KeyMatches(r.name)),
                 );
                 ProposalItem {
                     row: p.row,
@@ -1303,7 +1359,11 @@ impl UiModel {
             .collect()
     }
 
-    /// The contacts, by name.
+    /// The contacts in the client's one order: by name under the root's
+    /// Unicode collation, then by the smallest route
+    /// ([`crate::contact_order`]; human-client-ui.md section 3). Every
+    /// list of contacts a person sees is this one, a view's and the
+    /// command line's alike.
     #[must_use]
     pub fn contacts(&self) -> &[ContactView] {
         &self.cards.contacts
@@ -1312,24 +1372,16 @@ impl UiModel {
     /// The names of every contact of the identity in front with a route
     /// on `peer`, for Peers' rows (add-a-peer design section 5.2): one
     /// per line, never joined, since a typed name may hold "and" or a
-    /// comma. Ordered case-insensitively, then by the exact name, in
-    /// place of the locale's collation, which no part of the client has
-    /// yet.
+    /// comma. In the contacts' one order ([`UiModel::contacts`]), which
+    /// they are held in.
     #[must_use]
     pub fn contact_names_on(&self, peer: &TransportIdentity) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .cards
+        self.cards
             .contacts
             .iter()
             .filter(|c| c.routes.iter().any(|r| &r.peer == peer))
             .map(|c| c.name.clone())
-            .collect();
-        names.sort_by(|a, b| {
-            a.to_lowercase()
-                .cmp(&b.to_lowercase())
-                .then_with(|| a.cmp(b))
-        });
-        names
+            .collect()
     }
 
     /// One contact.
@@ -1447,6 +1499,62 @@ mod tests {
                 fingerprint: Some("0123456789abcdef".to_owned()),
             }],
         }
+    }
+
+    #[test]
+    fn the_contacts_a_peers_row_and_a_proposals_notes_take_one_order() {
+        // The fixture every site's test orders (human-client-ui.md section
+        // 3): the store reads "Zoe", "Ben", "Chloe", "Åke", "ben" in that
+        // order. Mutations: `contacts_listed` keeping the store's order
+        // (the list and the row read Zoe first); `proposals` sorting
+        // nothing (the notes keep the context's order).
+        let fixture = ["Zoe", "Ben", "Chloe", "Åke", "ben"];
+        let order = ["Åke", "ben", "Ben", "Chloe", "Zoe"];
+        let mut model = UiModel::new();
+        model.contacts_listed(
+            fixture
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    let mut c = contact(&format!("c{i}"), n, P);
+                    c.routes[0].endpoint = endpoint(&format!("e{i}"));
+                    c
+                })
+                .collect(),
+        );
+        let listed: Vec<&str> = model.contacts().iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(listed, order, "the Contacts list");
+        assert_eq!(
+            model.contact_names_on(&peer(P)),
+            order,
+            "a Peers row's names"
+        );
+        let refs: Vec<ContactRef> = fixture
+            .iter()
+            .enumerate()
+            .map(|(i, n)| ContactRef {
+                contact_id: format!("c{i}"),
+                name: (*n).to_owned(),
+            })
+            .collect();
+        let mut standing = context();
+        standing.shares_node = refs.clone();
+        standing.key_matches = refs;
+        model.card_received(proposal(1, P, "Ada", standing));
+        let notes = &model.proposals(&direct(P, "human"))[0].notes;
+        let named = |want: fn(&ProposalNote) -> Option<&str>| -> Vec<&str> {
+            notes.iter().filter_map(want).collect()
+        };
+        let shares = named(|n| match n {
+            ProposalNote::SharesNode(name) => Some(name.as_str()),
+            _ => None,
+        });
+        assert_eq!(shares, order, "a proposal's notes, the first named first");
+        let keys = named(|n| match n {
+            ProposalNote::KeyMatches(name) => Some(name.as_str()),
+            _ => None,
+        });
+        assert_eq!(keys, order);
     }
 
     #[test]

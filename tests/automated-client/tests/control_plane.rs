@@ -40,7 +40,7 @@ use std::time::{Duration, Instant};
 use interweave_automated_client_tests::{Client, ClientConfig};
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
 use interweave_test_support::e2e::{
-    Daemon, Home, PATIENCE, free_port, private_tempdir, workspace_binary,
+    Daemon, Home, PATIENCE, free_port, package_binary, private_tempdir,
 };
 use interweave_transport_api::{EndpointId, MediaType, MessageId, Payload, TransportIdentity};
 use serde_json::Value;
@@ -163,10 +163,11 @@ observability: {{ log_level: debug }}
     }
 }
 
-/// `interweave-human` for `home`'s profile, its environment cleared and
-/// the home's XDG roots set, as `tests/desktop-e2e` runs it.
+/// `interweave-human` for `home`'s profile -- the package's when
+/// `INTERWEAVE_PACKAGE_BIN` names one, as the daemon is -- its environment
+/// cleared and the home's XDG roots set, as `tests/desktop-e2e` runs it.
 fn human_command(home: &Home, args: &[&str]) -> Command {
-    let mut command = Command::new(workspace_binary("interweave-human", "interweave-human-cli"));
+    let mut command = Command::new(package_binary("interweave-human", "interweave-human-cli"));
     let roots = &home.roots;
     command
         .env_clear()

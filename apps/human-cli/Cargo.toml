@@ -28,6 +28,7 @@ path = "src/main.rs"
 
 [dependencies]
 interweave-human-app-core = { path = "../../crates/human/app-core" }
+interweave-human-chat-protocol = { path = "../../crates/human/chat-protocol" }
 interweave-human-client-api = { path = "../../crates/human/client-api" }
 interweave-human-store = { path = "../../crates/human/store" }
 interweave-human-transport-client = { path = "../../crates/human/transport-client" }

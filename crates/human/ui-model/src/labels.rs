@@ -1339,6 +1339,46 @@ ui_texts! {
     ConnectDoneTrustUnknown => "You added an address. InterWeave could not check whether you trust this peer.",
     /// Connect after Show drew this device's addresses.
     ConnectDoneShown => "The other person can now add your address. You still need to add their address.",
+    /// THE START WINDOW (design/2026-10-27-start-window.md §9, and
+    /// contact-cards §10 for the last three; every value below
+    /// language-culture-en's, REPLY 01a180d6): the line
+    /// over the rows not loaded yet, at the top edge or in a gap.
+    /// `{count}` is how many unread items are there, one text for every
+    /// count.
+    EarlierUnread => "Unread messages and contact cards not shown yet: {count}",
+    /// The line where the session bound let go of one read or sent row.
+    ReadNotShownOne => "1 message that you read or sent is no longer shown. It cannot be shown again.",
+    /// The same for more than one; `{count}` is the number.
+    ReadNotShown => "{count} messages that you read or sent are no longer shown. They cannot be shown again.",
+    /// The line at the end of Chats: one stored row this build cannot show.
+    RowsNotShownOne => "1 message is saved on this device, but this version of InterWeave cannot show it.",
+    /// The same for more than one; `{count}` is the number.
+    RowsNotShown => "{count} messages are saved on this device, but this version of InterWeave cannot show them.",
+    /// The limit row's text, before anything is let go (§7.1).
+    EarlierAtLimit => "If you choose Show more messages, InterWeave makes room for more messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again.",
+    /// The limit row's button.
+    EarlierShowAnyway => "Show more messages",
+    /// The progress row's accessible name, never visible text.
+    EarlierLoading => "Loading more messages",
+    /// The failure row at an edge, and its announcement.
+    EarlierLoadFailed => "Could not load more messages.",
+    /// A proposal's case line while the contacts are unread (§11).
+    CardContactsUnread => "InterWeave could not read your contacts to compare this card with them, so you cannot accept it yet. To read your contacts again, choose App options on the Conversations screen, then Contacts, then Try again.",
+    /// Details, in place of naming by hand, while the contacts are unread.
+    NamingContactsUnread => "InterWeave could not read your contacts, so you cannot add this person as a contact yet.",
+    /// The Contacts list's progress row's accessible name, never visible.
+    ContactsLoading => "Loading your contacts",
+    /// The Contacts list's failure row, and its announcement.
+    ContactsLoadFailed => "Could not load your contacts.",
+    /// Case P with one other contact on the `PeerId` (contact-cards §10):
+    /// `{contact}` the first in the Contacts list's order, as in
+    /// `CardSharesNode`.
+    CardSharesDeviceManyOne => "This card comes from the same device as your contact {contact} and 1 other contact.",
+    /// The same with more; `{n}` the number of the others.
+    CardSharesDeviceMany => "This card comes from the same device as your contact {contact} and {n} other contacts.",
+    /// A Chats preview whose last item is a contact card someone sent
+    /// (contact-cards §5.4.5): never the claimed name.
+    CardPreviewReceived => "Contact card",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
@@ -1548,6 +1588,12 @@ pub mod placeholder_en {
             ErrorClass::AlreadyPending => "This message is already waiting to be sent.",
             ErrorClass::EndpointInUse => "Another app or window is already using this endpoint.",
             ErrorClass::EndpointNotAvailable => "This endpoint is not available to this app.",
+            ErrorClass::NotSentEndpointLimit => {
+                "This device already keeps 64 routes of this peer, the limit for all its \
+                 identities and contacts together, so it cannot open a new route; check that \
+                 this is the route you want, or send in a conversation with this peer if you \
+                 have one."
+            }
             ErrorClass::Internal => "Something went wrong.",
         }
     }
@@ -1688,6 +1734,14 @@ fn is_hidden(c: char) -> bool {
     c.is_control() || HIDDEN.iter().any(|&(low, high)| (low..=high).contains(&c))
 }
 
+/// The text of a count that has a form for one and a form for every
+/// other count, `one` for 1 and `many` otherwise -- zero included, which no
+/// caller shows (`a_count_of_one_takes_the_one_text_and_every_other_the_many`).
+#[must_use]
+pub const fn by_count(count: u64, one: UiText, many: UiText) -> UiText {
+    if count == 1 { one } else { many }
+}
+
 /// `template` with each `{name}` replaced by its value, inserted verbatim
 /// -- an id is never translated or reshaped (U4b). A name the template
 /// does not hold is ignored; a placeholder left unfilled stays visible.
@@ -1772,6 +1826,9 @@ pub enum ErrorClass {
     EndpointInUse,
     /// The endpoint is not available to this client.
     EndpointNotAvailable,
+    /// A send that would open a peer's 65th endpoint: the device keeps at
+    /// most 64 of one peer's (HUMAN-CHAT.md's malformed rule).
+    NotSentEndpointLimit,
     /// Anything else; the raw code is in diagnostics.
     Internal,
 }
@@ -1813,6 +1870,7 @@ pub const fn send_error_class(error: &SendError) -> ErrorClass {
         SendError::NotConfigured => ErrorClass::NotConfigured,
         SendError::StorageUnavailable => ErrorClass::StorageUnavailable,
         SendError::AlreadyPending => ErrorClass::AlreadyPending,
+        SendError::EndpointBound => ErrorClass::NotSentEndpointLimit,
     }
 }
 
@@ -1896,7 +1954,7 @@ mod tests {
     /// Every error class. The exhaustive match fails to compile on a
     /// class added to the enum until it is named there; the array must
     /// gain it too, which nothing enforces.
-    fn every_class() -> [ErrorClass; 14] {
+    fn every_class() -> [ErrorClass; 15] {
         const fn listed(class: ErrorClass) -> ErrorClass {
             match class {
                 ErrorClass::PeerNotTrusted
@@ -1912,6 +1970,7 @@ mod tests {
                 | ErrorClass::AlreadyPending
                 | ErrorClass::EndpointInUse
                 | ErrorClass::EndpointNotAvailable
+                | ErrorClass::NotSentEndpointLimit
                 | ErrorClass::Internal => class,
             }
         }
@@ -1929,6 +1988,7 @@ mod tests {
             ErrorClass::AlreadyPending,
             ErrorClass::EndpointInUse,
             ErrorClass::EndpointNotAvailable,
+            ErrorClass::NotSentEndpointLimit,
             ErrorClass::Internal,
         ]
         .map(listed)
@@ -2278,5 +2338,16 @@ mod tests {
             session_problem_class(SessionProblem::NotAvailableToThisClient),
             ErrorClass::EndpointInUse
         );
+    }
+
+    /// A text with a form for one takes it for 1 and the other form for
+    /// every other count. Mutation: `count <= 1`.
+    #[test]
+    fn a_count_of_one_takes_the_one_text_and_every_other_the_many() {
+        let pick = |count| super::by_count(count, UiText::ReadNotShownOne, UiText::ReadNotShown);
+        assert_eq!(pick(1), UiText::ReadNotShownOne);
+        for count in [0, 2, u64::MAX] {
+            assert_eq!(pick(count), UiText::ReadNotShown, "{count}");
+        }
     }
 }

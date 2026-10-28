@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! A message body as the view draws it: `chat-protocol`'s block tree,
-//! flattened into lines of plain text, and the links it carries.
+//! A message body as a view draws it: `chat-protocol`'s block tree,
+//! flattened into lines of plain text, and the links it carries. Here
+//! rather than in a view so that the first line a Chats preview cuts is
+//! the same whether its row is held or read from the store for the start
+//! (design/2026-10-27-start-window.md section 3): the facade has no view.
 //!
 //! The tree is the one parse of the remote bytes (ADR-0050 rule 6). What
 //! leaves this module is plain text for `Text` elements -- never markup
@@ -15,9 +18,23 @@
 
 use interweave_human_chat_protocol::{Block, Inline, Rendered};
 
+use crate::labels::{UiText, fill, placeholder_en};
+
+/// How an image is named in text, from its alt text, in the interface's
+/// words: what a body or a preview shows in an image's place, the same for
+/// a view and the facade.
+#[must_use]
+pub fn image_text(alt: &str) -> String {
+    if alt.trim().is_empty() {
+        placeholder_en::text(UiText::ImageNotShownWithoutAlt).to_owned()
+    } else {
+        fill(placeholder_en::text(UiText::ImageNotShown), &[("alt", alt)])
+    }
+}
+
 /// What a line is, which decides how it is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Kind {
+pub enum Kind {
     /// Running text: a paragraph, a list item's text, raw HTML shown
     /// literally.
     Text,
@@ -35,24 +52,28 @@ pub(crate) enum Kind {
 
 /// One drawn line.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Line {
-    pub(crate) kind: Kind,
+pub struct Line {
+    /// What the line is.
+    pub kind: Kind,
     /// How many lists and quotes it sits in.
-    pub(crate) depth: usize,
+    pub depth: usize,
     /// Whether any enclosing block is a quote.
-    pub(crate) quoted: bool,
+    pub quoted: bool,
     /// A list item's marker on its first line: `•`, or `3.`.
-    pub(crate) marker: String,
-    pub(crate) text: String,
+    pub marker: String,
+    /// Its text, plain: no markup is left in it.
+    pub text: String,
 }
 
 /// A body: its lines, and its links' destinations in the order they
 /// appear. Every destination is one the tree kept, so an allowlisted
 /// scheme; the view checks again on activation.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct Body {
-    pub(crate) lines: Vec<Line>,
-    pub(crate) links: Vec<String>,
+pub struct Body {
+    /// The lines, in the order they are drawn.
+    pub lines: Vec<Line>,
+    /// The links' destinations, in the order they appear.
+    pub links: Vec<String>,
 }
 
 /// Separates a table row's cells.
@@ -60,7 +81,7 @@ const CELL_SEPARATOR: &str = " | ";
 
 /// `rendered`, flattened. `image` names an image placeholder from its alt
 /// text, in the view's words.
-pub(crate) fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Body {
+pub fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Body {
     let mut body = Body::default();
     match rendered {
         // Past a bound: the source as received, one block of plain text.
@@ -89,7 +110,7 @@ pub(crate) fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Bo
 /// the first non-blank line of the drawn text, with a soft line break
 /// ending a line as it did in the source (design/2026-10-16-android-look.md
 /// section 5.2: markup gone, a link's text kept). Empty when nothing is.
-pub(crate) fn first_line(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> String {
+pub fn first_line(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> String {
     let mut body = Body::default();
     match rendered {
         Rendered::PlainText { source, .. } => {

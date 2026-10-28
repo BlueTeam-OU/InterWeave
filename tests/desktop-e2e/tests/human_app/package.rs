@@ -4,15 +4,17 @@
 //! workspace's own build until one exists (plan section 22, Stage 19's
 //! Validate rows).
 //!
-//! THE SEAM a package keeps: `INTERWEAVE_PACKAGE_BIN` names one directory
-//! holding the three desktop executables under their own names --
-//! `transport-daemon`, `transportctl` and `human-desktop`
-//! (`human-client-packaging.md` section 2) -- as `packaging/linux`
-//! installs them into `~/.local/bin`. Each is started with nothing but
-//! `--profile <name>` and the XDG variables, so whatever the package adds
-//! around them (a unit, a launcher) is not what these cases exercise.
-//! Unset, the three are the workspace's build beside this test, as every
-//! other case here runs them.
+//! THE SEAM a package keeps is `tests/support`'s `PACKAGE_BIN`,
+//! `INTERWEAVE_PACKAGE_BIN`: one directory holding the three desktop
+//! executables under their own names -- `transport-daemon`,
+//! `transportctl` and `human-desktop` (`human-client-packaging.md`
+//! section 2) -- as `packaging/linux` installs them into `~/.local/bin`.
+//! Each is started with nothing but `--profile <name>` and the XDG
+//! variables, so whatever the package adds around them (a unit, a
+//! launcher) is not what these cases exercise. All three are resolved by
+//! support's `package_binary`, which every case that starts a daemon or
+//! `transportctl` through support reads too; unset, they are the
+//! workspace's build beside this test.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
@@ -21,43 +23,11 @@ use std::time::{Duration, Instant};
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
 use interweave_transport_api::TransportIdentity;
 
-use crate::common::{Home, PATIENCE, workspace_binary};
-
-/// The variable naming an installed package's executables.
-pub(crate) const PACKAGE_BIN: &str = "INTERWEAVE_PACKAGE_BIN";
-
-/// One of the three executables, from the package when one is named.
-pub(crate) fn installed(name: &str, package: &str) -> PathBuf {
-    match std::env::var_os(PACKAGE_BIN) {
-        Some(dir) => {
-            let bin = Path::new(&dir).join(name);
-            // A package without the executable fails by name, never falls
-            // back to the workspace: that would test a build the package
-            // does not ship.
-            assert!(
-                bin.is_file(),
-                "{PACKAGE_BIN} names {}, which holds no {name}",
-                Path::new(&dir).display()
-            );
-            bin
-        }
-        None => workspace_binary(name, package),
-    }
-}
-
-/// `transport-daemon`, as the package ships it.
-pub(crate) fn daemon_binary() -> PathBuf {
-    installed("transport-daemon", "interweave-transport-daemon")
-}
-
-/// `transportctl`, as the package ships it.
-pub(crate) fn transportctl_binary() -> PathBuf {
-    installed("transportctl", "interweave-transportctl")
-}
+use crate::common::{Home, PATIENCE, daemon_binary, package_binary, transportctl_binary};
 
 /// `human-desktop`, as the package ships it.
 pub(crate) fn client_binary() -> PathBuf {
-    installed("human-desktop", "interweave-human-desktop")
+    package_binary("human-desktop", "interweave-human-desktop")
 }
 
 /// `command` in `home`'s XDG tree and nothing else of this environment.

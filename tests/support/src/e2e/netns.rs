@@ -270,8 +270,9 @@ fn inside(network: &str, test: &str) -> bool {
     }
     let exe = std::env::current_exe().expect("the test binary's path");
     // What the inner copy needs of this host's tree, mounted at the same
-    // paths: the repository (its examples) and the target directory the
-    // binaries are in, wherever CARGO_TARGET_DIR put it.
+    // paths: the repository (its examples), the target directory the
+    // binaries are in, wherever CARGO_TARGET_DIR put it, and the package
+    // `super::PACKAGE_BIN` names, whose programs the inner copy then runs.
     let target = exe
         .ancestors()
         .nth(3)
@@ -319,6 +320,7 @@ fn inside(network: &str, test: &str) -> bool {
         .arg(root.path())
         .arg(&repo)
         .arg(&target)
+        .args(package_mount(std::env::var_os(super::PACKAGE_BIN)))
         .env("IW_TEST_EXE", &exe)
         .env("IW_TEST_NAME", test)
         .stdout(std::process::Stdio::piped())
@@ -354,6 +356,20 @@ fn inside(network: &str, test: &str) -> bool {
         output.status
     );
     false
+}
+
+/// The package directory to mount, when one is named: at its own path
+/// inside, so it must name one from `/`.
+fn package_mount(package: Option<std::ffi::OsString>) -> Option<std::ffi::OsString> {
+    if let Some(package) = &package {
+        assert!(
+            Path::new(package).is_absolute(),
+            "{} must be an absolute path inside the namespaces, not {}",
+            super::PACKAGE_BIN,
+            Path::new(package).display()
+        );
+    }
+    package
 }
 
 /// `f` on a thread of its own that sits in `net`, its result returned:
@@ -478,5 +494,27 @@ impl Drop for NetRelay {
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::package_mount;
+
+    /// An absolute package directory is mounted as named; none, nothing.
+    #[test]
+    fn an_absolute_package_directory_is_mounted_as_named() {
+        assert_eq!(
+            package_mount(Some("/opt/interweave/bin".into())),
+            Some("/opt/interweave/bin".into())
+        );
+        assert_eq!(package_mount(None), None);
+    }
+
+    /// A relative one would be mounted somewhere else inside: refused.
+    #[test]
+    #[should_panic(expected = "must be an absolute path")]
+    fn a_relative_package_directory_is_refused() {
+        let _ = package_mount(Some("interweave/bin".into()));
     }
 }

@@ -19,6 +19,7 @@ use interweave_transport_api::{
     ChannelId, EndpointId, PeerPath, TransportError, TransportIdentity,
 };
 
+use crate::connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectState};
 use crate::labels::{
     ErrorClass, LabelKey, UiText, fill, outbound_label, placeholder_en, send_error_class,
     session_problem_class, short_peer,
@@ -28,6 +29,7 @@ use crate::peers::{Peers, PeersInput, ScanVerdict};
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
 pub(crate) mod cards;
+pub(crate) mod summaries;
 mod swipe;
 
 pub use swipe::{
@@ -116,6 +118,9 @@ pub enum ViewEvent {
     /// The person acted on Peers or its add page: the root passes it to
     /// [`UiModel::peers_input`] and carries out the intents it returns.
     Peers(PeersInput),
+    /// The person acted on onboarding's Connect: the root passes it to
+    /// [`UiModel::connect_input`] and carries out the intents it returns.
+    Connect(ConnectInput),
     /// The person pressed the Undo of the snackbar with this id: the root
     /// passes it to [`UiModel::undo`] and carries out what it returns.
     Undo(u64),
@@ -282,8 +287,12 @@ pub struct LastMessage {
     /// The local time it reached this app: never the time a sender
     /// asserts.
     pub local_at: u64,
-    /// One's own card row: previewed as that, since it has no text.
+    /// A card row, previewed as that: one's own, or in the windowed mode
+    /// one someone sent (`direction` tells which), never by its text.
     pub card: bool,
+    /// Its first line, cut to the preview's bound ([`crate::preview`]):
+    /// the same whether the row is held or only the store's newest.
+    pub preview: crate::preview::Preview,
 }
 
 impl LastMessage {
@@ -695,10 +704,15 @@ pub struct UiModel {
     diagnostics: Diagnostics,
     trust: TrustSettings,
     peers: Peers,
+    /// Onboarding's Connect: owed, open, or done with (add-a-peer §5.1).
+    connect: ConnectState,
     /// The snackbar, its Undo and the latest outcome.
     swipe: swipe::SwipeState,
     /// Card proposals, the contacts and the identity in front.
     cards: cards::Cards,
+    /// The windowed mode's summaries, once the model started from them
+    /// ([`UiModel::started`]); `None` for a model given a whole listing.
+    windowed: Option<summaries::Summaries>,
 }
 
 impl Default for UiModel {
@@ -737,8 +751,10 @@ impl UiModel {
             diagnostics: Diagnostics::default(),
             trust: TrustSettings::default(),
             peers: Peers::default(),
+            connect: ConnectState::NotOwed,
             swipe: swipe::SwipeState::default(),
             cards: cards::Cards::default(),
+            windowed: None,
         }
     }
 
@@ -802,6 +818,19 @@ impl UiModel {
 
     /// A message `drain` handed over: committed unread already.
     pub fn received(&mut self, received: interweave_human_client_api::Received) {
+        if let Some(windowed) = self.windowed.as_mut()
+            && !self.by_row.contains_key(&(Table::Unread, received.row))
+            && !self.released.contains(&(Table::Unread, received.row))
+        {
+            windowed.arrived(
+                &conversation_of_origin(&received.origin),
+                summaries::NewestRow::received(
+                    received.row,
+                    received.received_at,
+                    &received.envelope.text,
+                ),
+            );
+        }
         self.inbound(
             received.row,
             Table::Unread,
@@ -973,6 +1002,16 @@ impl UiModel {
     /// The root marked an unread row read: its durable copy is gone, and
     /// the content stays for this session unless another row holds it.
     pub fn read(&mut self, row: RowId) {
+        // The store's count loses the row once, whichever kind it is.
+        let conversation = self
+            .by_row
+            .get(&(Table::Unread, row))
+            .and_then(|key| self.items.get(key))
+            .map(|item| item.conversation.clone())
+            .or_else(|| self.cards.unread_conversation(row));
+        if let (Some(windowed), Some(conversation)) = (self.windowed.as_mut(), conversation) {
+            windowed.left_unread(&conversation);
+        }
         self.release(Table::Unread, row);
         self.cards.read(row);
     }
@@ -1046,7 +1085,28 @@ impl UiModel {
     #[must_use]
     pub fn conversations(&self) -> Vec<ConversationSummary> {
         let shared = self.peers_with_routes();
+        let row = |key: &ConversationKey, last: LastMessage| ConversationSummary {
+            key: key.clone(),
+            title: self.contact_title(key, &shared, Isolate::No),
+            drawn_title: self.contact_title(key, &shared, Isolate::Yes),
+            unread: 0,
+            last_activity: last.local_at,
+            avatar: Avatar::of(key),
+            last,
+        };
         let mut by: BTreeMap<&ConversationKey, ConversationSummary> = BTreeMap::new();
+        // The windowed mode lists every conversation the store shows a row
+        // of, held or not, counted as the store counts it: a held unread
+        // row is among the store's, so it is not counted again below.
+        if let Some(windowed) = &self.windowed {
+            for stored in windowed.iter() {
+                if let Some(newest) = &stored.newest {
+                    let mut summary = row(&stored.conversation, newest.last());
+                    summary.unread = usize::try_from(stored.unread).unwrap_or(usize::MAX);
+                    by.insert(&stored.conversation, summary);
+                }
+            }
+        }
         for (key, item) in self.items.iter().filter(|(_, i)| !i.hidden) {
             let last = || LastMessage {
                 key: *key,
@@ -1055,19 +1115,12 @@ impl UiModel {
                 body: item.body.clone(),
                 local_at: item.local_at,
                 card: item.card.is_some(),
+                preview: summaries::held_preview(&item.body),
             };
             let summary = by
                 .entry(&item.conversation)
-                .or_insert_with(|| ConversationSummary {
-                    key: item.conversation.clone(),
-                    title: self.contact_title(&item.conversation, &shared, Isolate::No),
-                    drawn_title: self.contact_title(&item.conversation, &shared, Isolate::Yes),
-                    unread: 0,
-                    last_activity: 0,
-                    avatar: Avatar::of(&item.conversation),
-                    last: last(),
-                });
-            if item.outbound.is_none() && item.has(Table::Unread) {
+                .or_insert_with(|| row(&item.conversation, last()));
+            if self.windowed.is_none() && item.outbound.is_none() && item.has(Table::Unread) {
                 summary.unread += 1;
             }
             summary.last_activity = summary.last_activity.max(item.local_at);
@@ -1356,7 +1409,112 @@ impl UiModel {
     /// on step two passes through the trust settings, the one way a trust
     /// change is made.
     pub fn peers_input(&mut self, input: PeersInput) -> Vec<Intent> {
-        self.peers.input(input, &mut self.trust)
+        let intents = self.peers.input(input, &mut self.trust);
+        self.connect_sync();
+        intents
+    }
+
+    /// Connect is owed: a new or restored identity's first start, or a
+    /// later one whose earlier start left it undecided (§5.1). The
+    /// platform says so before the session's first reads answer.
+    pub fn connect_owed(&mut self) {
+        if self.connect == ConnectState::NotOwed {
+            self.connect = ConnectState::Owed;
+        }
+    }
+
+    /// What this start does about an owed Connect, said once each: open
+    /// it when both reads succeeded on two empty lists, settle it when
+    /// either list has an entry or once the person left it, defer it
+    /// when a read failed (§5.1, §5.6). `None` while nothing is to say.
+    /// While Connect is open, each turn reads its added peers' trust from
+    /// the list again, so its line follows an answer that came late.
+    pub fn connect_turn(&mut self) -> Option<ConnectGate> {
+        match self.connect {
+            ConnectState::Owed => {
+                let list = self.peers.list_answered()?;
+                let trust = self.trust.read_answered()?;
+                if !(list && trust) {
+                    self.connect = ConnectState::Decided;
+                    return Some(ConnectGate::Deferred);
+                }
+                if self.no_reach() {
+                    self.connect = ConnectState::Open(Connect::opened());
+                    Some(ConnectGate::Open)
+                } else {
+                    self.connect = ConnectState::Decided;
+                    Some(ConnectGate::Settled)
+                }
+            }
+            ConnectState::Left => {
+                self.connect = ConnectState::Decided;
+                Some(ConnectGate::Settled)
+            }
+            ConnectState::Open(ref mut connect) => {
+                connect.trust_read(&self.trust);
+                None
+            }
+            ConnectState::NotOwed | ConnectState::Decided => None,
+        }
+    }
+
+    /// Connect, while it is open.
+    #[must_use]
+    pub const fn connect(&self) -> Option<&Connect> {
+        match &self.connect {
+            ConnectState::Open(connect) => Some(connect),
+            _ => None,
+        }
+    }
+
+    /// Apply what the person did on Connect: the intents it asks for.
+    pub fn connect_input(&mut self, input: ConnectInput) -> Vec<Intent> {
+        let ConnectState::Open(connect) = &mut self.connect else {
+            return Vec::new();
+        };
+        connect.trust_read(&self.trust);
+        // One page at a time: a press reaching Connect while a page it
+        // opened is still up is a stale one.
+        if self.peers.add_open() || self.peers.show().is_some() {
+            return Vec::new();
+        }
+        let (from, peers_input) = match input {
+            ConnectInput::Add => (ConnectFocus::Add, PeersInput::OpenAddFromConnect),
+            ConnectInput::Show => (ConnectFocus::Show, PeersInput::OpenShow),
+            ConnectInput::Trust => {
+                let peers = connect.to_trust();
+                if peers.is_empty() {
+                    return Vec::new();
+                }
+                (ConnectFocus::Trust, PeersInput::TrustFromConnect(peers))
+            }
+            ConnectInput::Leave => {
+                self.connect = ConnectState::Left;
+                return Vec::new();
+            }
+        };
+        connect.opening(from);
+        // Show drawn before this visit -- from Peers -- is not this
+        // visit's.
+        self.peers.take_show_drew();
+        let intents = self.peers.input(peers_input, &mut self.trust);
+        self.connect_sync();
+        intents
+    }
+
+    /// Hand Connect what a page it opened came to, once that page is
+    /// gone; with Connect not open, what Show drew is nobody's.
+    fn connect_sync(&mut self) {
+        let ConnectState::Open(connect) = &mut self.connect else {
+            self.peers.take_show_drew();
+            return;
+        };
+        if self.peers.add_open() || self.peers.show().is_some() {
+            return;
+        }
+        let adds = self.peers.take_connect_return();
+        let shown = self.peers.take_show_drew();
+        connect.returned(adds, shown, &self.trust);
     }
 
     /// This node's `PeerId`, as the session that became ready knows it.
@@ -1392,6 +1550,7 @@ impl UiModel {
         answer: Result<AddressAnswer, AddressChangeFailure>,
     ) {
         self.peers.add_answer(lines, answer, &self.trust);
+        self.connect_sync();
     }
 
     /// The runtime's answer to a removal of `address`.
@@ -1408,6 +1567,7 @@ impl UiModel {
     /// add page once trust's answers decided it.
     pub fn peers_turn(&mut self) -> Option<Intent> {
         let intent = self.peers.turn(&self.trust);
+        self.connect_sync();
         // A trust step an add opened reads the trust set itself, once the
         // turn asks nothing else.
         if intent.is_none() && self.peers.take_trust_read() {
@@ -1743,6 +1903,19 @@ impl UiModel {
                 }
             }
         }
+    }
+}
+
+/// The conversation a received row belongs to, as [`UiModel::received`]'s
+/// item takes it: a direct route by its peer and endpoint, a channel by its
+/// id whoever published.
+fn conversation_of_origin(origin: &Origin) -> ConversationKey {
+    match origin {
+        Origin::Direct { peer, endpoint } => ConversationKey::Direct {
+            peer: peer.clone(),
+            endpoint: Some(endpoint.clone()),
+        },
+        Origin::Channel { channel, .. } => ConversationKey::Channel(channel.clone()),
     }
 }
 

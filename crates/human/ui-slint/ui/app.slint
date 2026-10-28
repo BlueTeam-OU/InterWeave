@@ -652,6 +652,9 @@ component FocusHeading inherits FocusScope {
     in property <length> font-size: Type.title-medium;
     in property <int> font-weight: 700;
     in property <bool> rtl;
+    // A heading alone on its line wraps rather than elide: a full-screen
+    // step's title at 200 % is wider than a phone.
+    in property <bool> wraps;
     in property <int> focus-seq;
     in property <bool> focus-wanted;
     changed focus-seq => {
@@ -673,7 +676,8 @@ component FocusHeading inherits FocusScope {
                 font-weight: root.font-weight;
                 font-size: root.font-size;
                 color: Palette.on-surface;
-                overflow: elide;
+                wrap: root.wraps ? word-wrap : no-wrap;
+                overflow: root.wraps ? clip : elide;
                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 accessible-role: none;
             }
@@ -2920,6 +2924,19 @@ export component AppWindow inherits Window {
     in property <bool> show-problem-retry;
     // The list's own column, neither the add page nor Show covering it.
     property <bool> peers-list-shown: !root.peers-add-open && !root.peers-show-open;
+    // Onboarding's Connect (add-a-peer section 5.1), over everything else
+    // until it is left; the add page and Show it opens are Peers' own,
+    // drawn in its place while they are up (`peers-page`).
+    in property <bool> connect-open;
+    property <bool> connect-shown: root.connect-open && !root.peers-page;
+    in property <string> connect-title;
+    in property <string> connect-body;
+    // What this visit did, once something was: empty before. With a line,
+    // Continue is the primary and Not now goes.
+    in property <string> connect-line;
+    // The line names a peer still to trust: Trust beside it.
+    in property <bool> connect-line-trust;
+    in property <string> continue-label;
     in property <string> add-title;
     // The back arrow of the add page and of Show, which go back to Peers
     // or Connect, so it never takes the conversations' Back.
@@ -3113,6 +3130,11 @@ export component AppWindow inherits Window {
     callback row-remove(int);
     callback peers-snack-pressed(int);
     callback peers-snack-closed(int);
+    callback connect-add();
+    callback connect-show();
+    callback connect-trust();
+    // Not now, Continue, Back or Escape: Chats.
+    callback connect-leave();
     // A row's swipe: the press and the current position, in window
     // coordinates, and the row's width; then its end or its cancel.
     callback swipe-moved(string, length, length, length, length, length, length);
@@ -3495,6 +3517,12 @@ export component AppWindow inherits Window {
             root.identity-back();
             return true;
         }
+        // Back on Connect is Not now (section 5.1); on a page it opened,
+        // that page's own Back, below.
+        if (root.connect-shown) {
+            root.connect-leave();
+            return true;
+        }
         if (root.share-open) {
             root.close-share();
             return true;
@@ -3614,6 +3642,9 @@ export component AppWindow inherits Window {
     // Placed, so the window's size is not taken from it (the minimum
     // above says why).
     panes := HorizontalLayout {
+        // Hidden under Connect: a screen reader's walk would otherwise
+        // reach Chats behind it.
+        visible: !root.connect-shown;
         x: 0;
         y: 0;
         width: root.width;
@@ -6614,6 +6645,140 @@ export component AppWindow inherits Window {
                         pressed => { root.send(); }
                         focused(k) => { root.focus-id = k; }
                     }
+                }
+            }
+        }
+    }
+    // Onboarding's Connect (add-a-peer section 5.1): the heading, the
+    // body, then what this visit did with Trust beside it, the two equal
+    // actions stacked, and Not now -- or Continue, the primary, once
+    // something was done. Over the panes as the identity steps are; the
+    // pages it opens are drawn in Peers' place.
+    if root.connect-shown: FocusScope {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        // Escape is Back: Not now.
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.connect-leave();
+                return accept;
+            }
+            reject
+        }
+        Rectangle { background: Palette.surface; }
+        TouchArea { }
+        VerticalLayout {
+            padding-top: root.safe-area-insets.top + 8px;
+            padding-bottom: root.safe-area-insets.bottom + 8px;
+            padding-left: root.safe-area-insets.left + 16px;
+            padding-right: root.safe-area-insets.right + 16px;
+            spacing: 12px;
+            Flickable {
+                vertical-stretch: 1;
+                content-height: connect-column.preferred-height;
+                connect-column := VerticalLayout {
+                    width: parent.width;
+                    // Room for a control's focus ring, which the
+                    // Flickable would clip.
+                    padding: 5px;
+                    spacing: 16px;
+                    alignment: start;
+                    FocusHeading {
+                        text: root.connect-title;
+                        font-size: Type.title-large;
+                        font-weight: 500;
+                        rtl: root.rtl;
+                        wraps: true;
+                        focus-key: "connect-title";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "connect-title";
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    Text {
+                        text: root.connect-body;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    // Focusable, as a step-two block's state line is: a
+                    // late read that changes the words under focus is
+                    // read there, with no status beside it (add-a-peer
+                    // section 5.1). Never a live region: the render says
+                    // the line once by the announcement (tests/connect.rs,
+                    // a_late_read_under_focus_on_the_line_is_read_there).
+                    if root.connect-line != "": FocusNote {
+                        text: root.connect-line;
+                        font-size: Type.body-large;
+                        rtl: root.rtl;
+                        live: false;
+                        focus-key: "connect-line";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "connect-line";
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    if root.connect-line != "" && root.connect-line-trust: HorizontalLayout {
+                        alignment: start;
+                        ActionButton {
+                            text: root.trust-this-label;
+                            target: 48px;
+                            focus-key: "connect-trust";
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "connect-trust";
+                            pressed => { root.connect-trust(); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                    ActionButton {
+                        text: root.add-address-label;
+                        tonal: true;
+                        wraps: true;
+                        target: 48px;
+                        focus-key: "connect-add";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "connect-add";
+                        pressed => { root.connect-add(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    ActionButton {
+                        text: root.show-my-address-label;
+                        tonal: true;
+                        wraps: true;
+                        target: 48px;
+                        focus-key: "connect-show";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "connect-show";
+                        pressed => { root.connect-show(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+            if root.connect-line != "": ActionButton {
+                text: root.continue-label;
+                filled: true;
+                wraps: true;
+                target: 48px;
+                focus-key: "connect-continue";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "connect-continue";
+                pressed => { root.connect-leave(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            if root.connect-line == "": HorizontalLayout {
+                alignment: center;
+                ActionButton {
+                    text: root.not-now-label;
+                    text-button: true;
+                    target: 48px;
+                    focus-key: "connect-not-now";
+                    pressed => { root.connect-leave(); }
+                    focused(k) => { root.focus-id = k; }
                 }
             }
         }
