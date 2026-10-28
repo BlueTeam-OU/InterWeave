@@ -6936,14 +6936,19 @@ owner:
   indexed and routes under contacts — are at most the contract's 64
   per profile, a 65th discarded and counted as a malformed envelope
   (HUMAN-CHAT.md, STATE.md; ruled 2026-10-27 to ux-designer-01 and
-  rust-ui-dev-02). The check is built by the second batch's first PR,
-  in the transport client's commit and send paths, over a
-  conversation index every direct row now writes; the window itself
-  follows in that batch's later PRs, and until they land the window is
-  the record's and not yet the build's, and this bullet is where that
-  is said. Of the window, the test #483 holds for its constraint (b),
-  a pending row that does not decode resent after a restart
-  (b046573a), is the only part on main.
+  rust-ui-dev-02). The check was built by the second batch's first
+  PR (#498), in the transport client's commit and send paths, over a
+  conversation index every direct row writes. Of the window itself,
+  main holds the store's side — a conversation read between two
+  bounds within an unread room (a3141a83, #492), the cursor rebuilt
+  from a row's time, keep and id (eec75cd5) and Chats drawn from the
+  store's summaries in a windowed mode beside the listed one
+  (3d26f9be, both #498) — and the test #483 holds for its constraint
+  (b), a pending row that does not decode resent after a restart
+  (b046573a); the model's window, the protocol layer that makes the
+  windowed mode what the person sees, follows in that batch's next
+  PR, and until it lands the window as seen is the record's and not
+  yet the build's, and this bullet is where that is said.
 - Found after the close, from the owner's second review of the client
   (2026-10-27, judged by the review class at 1b37e0ef), three of this
   stage's, each P3 and none reaching a screen in a way the review
@@ -7009,7 +7014,7 @@ of §23–§29 moves.
 
 **Where the clients stand (2026-10-28, the owner's observation).** On
 `main` the Android app and the desktop hold one user identity, the
-authored `human` endpoint, and one own card: "Your card" is that
+profile's first human endpoint (`human` as provisioned), and one own card: "Your card" is that
 identity's. Nothing in either client can make a second EndpointId,
 since the administrative methods that add a configured endpoint, remove
 an added one and set its advertising are in no contract yet
