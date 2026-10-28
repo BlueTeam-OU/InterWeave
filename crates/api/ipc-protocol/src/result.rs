@@ -16,8 +16,8 @@ use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminStatus, BootstrapAddress,
     EndpointAdminView, Generation, IngressCounts, LeaseRecord, LineChange, MAX_ADDRESSES_PER_ADD,
     MAX_CLIENT_KIND_CHARS, MAX_OWN_ADDRESSES, OwnAddress, OwnAddressKind, OwnAddresses,
-    PeerGateView, PeerOutcome, PreAuthCounts, TrustAdminView, TrustChange, TrustRefusal,
-    TrustSource,
+    PeerGateView, PeerLastSeen, PeerOutcome, PreAuthCounts, TrustAdminView, TrustChange,
+    TrustRefusal, TrustSource,
 };
 use interweave_transport_api::{
     ConnectivitySummary, EndpointDirectoryV1, EndpointId, Health, MAX_DIRECTORY_ENTRIES,
@@ -682,7 +682,13 @@ impl PeerRow {
         Self {
             peer: view.peer,
             connected: view.connected,
-            last_seen_ms: (minor >= LAST_SEEN_SINCE_MINOR).then_some(view.last_seen),
+            last_seen_ms: match view.last_seen {
+                _ if minor < LAST_SEEN_SINCE_MINOR => None,
+                PeerLastSeen::At(at) => Some(Some(at)),
+                PeerLastSeen::Never => Some(None),
+                // A port that does not say is answered as one: no key.
+                PeerLastSeen::Unreported => None,
+            },
             backoff_until: view.backoff_until,
             quarantined_until: view.quarantined_until,
             route_held_until: view
@@ -1926,7 +1932,11 @@ mod tests {
         PeerGateView {
             peer: synthetic_peer(i),
             connected: i.is_multiple_of(2),
-            last_seen: (!i.is_multiple_of(11)).then_some(1_791_329_940_227),
+            last_seen: if i.is_multiple_of(11) {
+                PeerLastSeen::Never
+            } else {
+                PeerLastSeen::At(1_791_329_940_227)
+            },
             backoff_until: i.is_multiple_of(3).then_some(1_791_329_950_227),
             quarantined_until: None,
             route_held_until: i.is_multiple_of(7).then_some(1_791_329_960_227),
@@ -2117,11 +2127,11 @@ mod tests {
     #[test]
     fn a_peer_row_carries_last_seen_from_its_minor() {
         let seen = PeerGateView {
-            last_seen: Some(1_791_329_940_227),
+            last_seen: PeerLastSeen::At(1_791_329_940_227),
             ..gate_row(1)
         };
         let never = PeerGateView {
-            last_seen: None,
+            last_seen: PeerLastSeen::Never,
             ..gate_row(1)
         };
         let at = |view: &PeerGateView, minor| {
@@ -2141,6 +2151,14 @@ mod tests {
         let below = at(&seen, LAST_SEEN_SINCE_MINOR - 1);
         assert_eq!(below["peers"][0].get("last_seen_ms"), None, "{below}");
         assert_eq!(below, at(&never, LAST_SEEN_SINCE_MINOR - 1), "the 1.1 row");
+        // A port that does not say is answered as one, even at 2.12: no
+        // key, never `null`, which would claim the peer was never seen.
+        let unreported = PeerGateView {
+            last_seen: PeerLastSeen::Unreported,
+            ..gate_row(1)
+        };
+        let absent = at(&unreported, LAST_SEEN_SINCE_MINOR);
+        assert_eq!(absent["peers"][0].get("last_seen_ms"), None, "{absent}");
 
         let read = |row: serde_json::Value| -> PeerRow {
             serde_json::from_value(row).expect("a legal row")

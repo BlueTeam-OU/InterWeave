@@ -497,11 +497,8 @@ pub struct PeerGateView {
     pub peer: TransportIdentity,
     /// Whether any connection to it is open.
     pub connected: bool,
-    /// The last moment a retained connection to it was open: the
-    /// reading's time while `connected`, else when the last one closed;
-    /// `None` when none has been since the runtime started, which keeps
-    /// no record of it across a restart.
-    pub last_seen: Option<u64>,
+    /// The last moment a retained connection to it was open.
+    pub last_seen: PeerLastSeen,
     /// Dials to it are refused until then.
     pub backoff_until: Option<u64>,
     /// Every known address of it is quarantined until then, the earliest
@@ -514,6 +511,22 @@ pub struct PeerGateView {
     /// How the last dial or connection ended; `None` until the first one
     /// since the runtime started.
     pub last_outcome: Option<PeerOutcome>,
+}
+
+/// When a peer was last seen, as the port reports it (`peer-list`
+/// 1.2.0's `last_seen_ms`). Three states, kept apart because the two
+/// without a time mean different things: a daemon that never saw the
+/// peer, and one that does not say (#503 review F3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerLastSeen {
+    /// The port does not report it: a daemon below IPC 2.12.
+    Unreported,
+    /// No retained connection to the peer since the runtime started,
+    /// which keeps no record of it across a restart.
+    Never,
+    /// At this time, milliseconds since the Unix epoch: the reading's
+    /// own while a connection is open, else when the last one closed.
+    At(u64),
 }
 
 /// Where a bootstrap address comes from (ADR-0062,

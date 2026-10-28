@@ -936,7 +936,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
                     PeerGateView {
                         peer: peer(),
                         connected: false,
-                        last_seen: Some(1_791_329_940_227),
+                        last_seen: interweave_local_client_api::PeerLastSeen::At(1_791_329_940_227),
                         backoff_until: Some(1_791_329_950_227),
                         quarantined_until: Some(u64::MAX),
                         route_held_until: Some(1_791_329_960_227),
@@ -945,7 +945,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
                     PeerGateView {
                         peer: TransportIdentity::parse(OTHER_PEER).expect("a peer"),
                         connected: true,
-                        last_seen: None,
+                        last_seen: interweave_local_client_api::PeerLastSeen::Never,
                         backoff_until: None,
                         quarantined_until: None,
                         route_held_until: None,
@@ -964,7 +964,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
                 vec![PeerGateView {
                     peer: peer(),
                     connected: false,
-                    last_seen: Some(1_791_329_940_227),
+                    last_seen: interweave_local_client_api::PeerLastSeen::At(1_791_329_940_227),
                     backoff_until: None,
                     quarantined_until: None,
                     route_held_until: Some(1_791_329_960_227),

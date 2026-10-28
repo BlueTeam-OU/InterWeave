@@ -554,7 +554,7 @@ mod tests {
                     ))
                     .expect("peer"),
                     connected: false,
-                    last_seen: Some(5),
+                    last_seen: interweave_local_client_api::PeerLastSeen::At(5),
                     backoff_until: Some(1),
                     quarantined_until: None,
                     route_held_until: Some(7),

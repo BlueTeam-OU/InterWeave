@@ -34,9 +34,9 @@ pub use binding::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminPort,
     AdminStatus, BootstrapAddress, DataSessionBinding, DataSessionPort, EndpointAdminView,
     IngressCounts, LeaseRecord, LineChange, MAX_ADDRESSES_PER_ADD, MAX_OWN_ADDRESSES, OwnAddress,
-    OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, PreAuthCounts, ReceivedBroadcast,
-    ReceivedDirect, SessionEvent, SessionLosses, SessionRequest, TrustAdminView, TrustChange,
-    TrustRefusal, TrustSource, TrustedPeer,
+    OwnAddressKind, OwnAddresses, PeerGateView, PeerLastSeen, PeerOutcome, PreAuthCounts,
+    ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionLosses, SessionRequest, TrustAdminView,
+    TrustChange, TrustRefusal, TrustSource, TrustedPeer,
 };
 
 use interweave_transport_api::{

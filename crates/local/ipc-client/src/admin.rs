@@ -16,7 +16,7 @@ use interweave_ipc_protocol::{
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressesChange, AdminBinding, AdminCapability, AdminPort,
     AdminStatus, BootstrapAddress, EndpointAdminView, Generation, LocalAdminPort, OwnAddresses,
-    PeerGateView, TrustAdminView, TrustChange, TrustedPeer,
+    PeerGateView, PeerLastSeen, TrustAdminView, TrustChange, TrustedPeer,
 };
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
 
@@ -387,10 +387,11 @@ impl AdminPort for IpcAdmin {
             .map(|row| PeerGateView {
                 peer: row.peer,
                 connected: row.connected,
-                // Absent from a daemon below 2.12 as `null` is from one
-                // that never saw the peer: the neutral view has no third
-                // state, and `peers_pages` keeps the wire's.
-                last_seen: row.last_seen_ms.flatten(),
+                last_seen: match row.last_seen_ms {
+                    None => PeerLastSeen::Unreported,
+                    Some(None) => PeerLastSeen::Never,
+                    Some(Some(at)) => PeerLastSeen::At(at),
+                },
                 backoff_until: row.backoff_until,
                 quarantined_until: row.quarantined_until,
                 route_held_until: row.route_held_until,
