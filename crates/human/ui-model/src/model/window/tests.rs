@@ -49,6 +49,7 @@ fn started(unread: u64) -> UiModel {
                 card: false,
             }),
         }],
+        None,
     );
     model
 }

@@ -828,6 +828,7 @@ impl UiModel {
     pub fn received(&mut self, received: interweave_human_client_api::Received) {
         let conversation = conversation_of_origin(&received.origin);
         if let Some(windowed) = self.windowed.as_mut()
+            && windowed.is_new(received.row)
             && !self.by_row.contains_key(&(Table::Unread, received.row))
             && !self.released.contains(&(Table::Unread, received.row))
         {
