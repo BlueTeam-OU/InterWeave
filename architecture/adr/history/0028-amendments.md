@@ -697,7 +697,7 @@ refusing the add — and a composed count above 64 at start is FATAL
 naming the overlay, never truncated; nothing of trust moves. The methods are p2p-network-dev's,
 an IPC minor under ADR-0017, as the endpoint overlay's were.
 
-### Amendment 2026-10-28 — The effective allowlist is the operator's list, and the admission set is derived from it and the identities' overlay sets
+### Amendment 2026-10-28 — The effective allowlist is the operator's list, and the admission set is derived from it and every endpoint's overlay set
 
 ADR-0067 decision 6 makes trust per endpoint and keeps three sets
 apart: this record's list is the operator's, written by an

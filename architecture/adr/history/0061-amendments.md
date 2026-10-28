@@ -27,7 +27,8 @@ the PeerId is from the node's, the same for every endpoint kind, and
 trust is per identity. Decision 1 read "a configured EndpointId of the
 profile together with the card" and "one trust set"; it now reads a key
 pair with a derived id and an admission set the transport derives
-from the operator's list and the identities' own sets. Decision 2's "configuring an endpoint" is
+from the operator's list and every endpoint's overlay set (its
+identities', or any endpoint the operator gave one). Decision 2's "configuring an endpoint" is
 generating its key. Decision 7's rename changes the card and the local
 alias, never the id, and a new identity on a freed alias has a new key
 and id. Decision 8's automated endpoint is a key the deployment mints.
