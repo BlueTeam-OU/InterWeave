@@ -6937,18 +6937,21 @@ owner:
   per profile, a 65th discarded and counted as a malformed envelope
   (HUMAN-CHAT.md, STATE.md; ruled 2026-10-27 to ux-designer-01 and
   rust-ui-dev-02). The check was built by the second batch's first
-  PR (#498), in the transport client's commit and send paths, over a
-  conversation index every direct row writes. Of the window itself,
-  main holds the store's side — a conversation read between two
-  bounds within an unread room (a3141a83, #492), the cursor rebuilt
-  from a row's time, keep and id (eec75cd5) and Chats drawn from the
-  store's summaries in a windowed mode beside the listed one
-  (3d26f9be, both #498) — and the test #483 holds for its constraint
-  (b), a pending row that does not decode resent after a restart
-  (b046573a); the model's window, the protocol layer that makes the
-  windowed mode what the person sees, follows in that batch's next
-  PR, and until it lands the window as seen is the record's and not
-  yet the build's, and this bullet is where that is said.
+  PR (#492: a4fe14f0 indexes every direct conversation with its first
+  row and counts a peer's endpoints, ab853729 refuses the 65th source
+  endpoint inbound and on send), in the transport client's commit and
+  send paths. Of the window itself, main holds the store's reads — a
+  conversation read between two bounds within an unread room
+  (a3141a83, #492), the cursor rebuilt from a row's time, keep and id
+  (eec75cd5, #498) — and, in the model, Chats drawn from the store's
+  summaries in a windowed mode beside the listed one (3d26f9be,
+  #498), which no view selects yet; the test #483 holds for its
+  constraint (b), a pending row that does not decode resent after a
+  restart (b046573a). The model's window — the protocol layer that
+  makes the windowed mode what the person sees — follows in that
+  batch's next PR, and until it lands the window as seen is the
+  record's and not yet the build's, and this bullet is where that is
+  said.
 - Found after the close, from the owner's second review of the client
   (2026-10-27, judged by the review class at 1b37e0ef), three of this
   stage's, each P3 and none reaching a screen in a way the review

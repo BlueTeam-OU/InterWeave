@@ -463,6 +463,7 @@ verbatim: "stay on 36 for now". So the hotspot host's own address
 stays the recorded limit with its cause, rule 10's text unchanged
 beyond this sentence, and the target is revisited when a release
 targets Android 17 for its own reasons or when the hotspot host case
-matters to a user. Propagation: rule 10's sentence; this note; the
-log row; the digest entry.
+matters to a user. Propagation: rule 10's sentence; the Revisit
+conditions; this note; the log row; the digest entry;
+`human-client-android.md`'s network lifecycle.
 
