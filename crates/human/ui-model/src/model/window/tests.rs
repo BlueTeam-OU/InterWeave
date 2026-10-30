@@ -1345,3 +1345,25 @@ fn a_deferred_side_is_asked_when_the_other_page_settles() {
     let again = one_ask(&mut model);
     assert_eq!(again.edge, Edge::GapUpper(id), "the Try again, not dropped");
 }
+
+/// A card proposal's mark goes with it: proposals arriving and answered
+/// one after another in the open conversation leave a mark for the one
+/// held alone, never one per card ever received. Mutation: marks never
+/// dropped -- one per card.
+#[test]
+fn card_marks_are_the_held_proposals_alone() {
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    let _ = one_ask(&mut model);
+    for n in 0..50 {
+        let row = RowId::from_stored(2_000 + n);
+        model.card_received(card(row, P));
+        model.card_gone(row);
+    }
+    let marks = model
+        .windows
+        .open
+        .as_ref()
+        .map_or(0, |w| w.card_marks.len());
+    assert!(marks <= 1, "{marks} marks for one held proposal at most");
+}

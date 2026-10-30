@@ -754,6 +754,10 @@ impl UiModel {
             },
         );
         self.cards.proposals.insert(proposal.row, proposal);
+        // The marks of proposals answered, let go or evicted since go now:
+        // each arrival keeps them to the proposals held.
+        let held = &self.cards.proposals;
+        self.windows.retain_card_marks(|row| held.contains_key(row));
     }
 
     /// A card the drain just committed unread, with its context: as
