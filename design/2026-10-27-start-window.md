@@ -521,14 +521,15 @@ requires is that **paging never drops a read row on its own**.
   chose that once for this opening. Closing and reopening the
   conversation asks again. The conversation is closed when the person
   leaves it for Chats (narrow layout), for another conversation, or
-  for a page of the Chats screen's menu shown in its place (Trust,
-  Peers, Contacts, Your identities or Your card); coming back asks
+  for one of these pages shown in its place, by whatever route (the
+  Chats screen's menu, the identity switch, Share): Trust, Peers,
+  Contacts, Your identities, Your card; coming back asks
   again, since a choice about losing rows is asked again rather than
   assumed (QUESTION 01a18b25, U5). It is not closed by a page opened
   from inside it and left with Back (its Details, a contact page
   reached from one of its proposals), nor by its app window losing
-  focus or the app going to the background, which §5.1 already treats
-  as the same open conversation. Whether its held rows are kept meanwhile
+  focus or the app going to the background: it is still the open
+  conversation, only not read meanwhile (§1). Whether its held rows are kept meanwhile
   is the builder's (§3); the person sees no difference.
 - The unread rows not loaded stay unread and stored: the badge and
   `EarlierUnread` stay true, and they can be read later (after other
