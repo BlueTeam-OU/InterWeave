@@ -9,7 +9,7 @@ use std::collections::{HashSet, VecDeque};
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_human_ui_model::{
-    ConnectGate, ConversationKey, Intent, UiModel, ViewEvent, WindowInput,
+    ConnectGate, ConversationKey, Intent, UiModel, ViewEvent, WindowEvent, WindowInput,
 };
 
 use crate::facade::CANCELLED_CAP;
@@ -24,6 +24,13 @@ pub trait Surface {
     /// A call returns at most up to the first draft edit, which the root
     /// applies before calling again.
     fn take_events(&mut self, model: &UiModel) -> Vec<ViewEvent>;
+    /// What the person did to the windowed mode since the last call: the
+    /// open conversation's window, the avatars in view, the Contacts
+    /// list's Try again. None by default: a surface that draws no window
+    /// reports nothing, and the listed mode needs nothing.
+    fn take_window(&mut self) -> Vec<WindowEvent> {
+        Vec::new()
+    }
 }
 
 /// Opens a link a person activated, outside the client: a browser, a mail
@@ -204,6 +211,13 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
 
     /// Apply what the facade side did.
     pub fn apply(&mut self, update: Update) {
+        self.apply_update(update);
+        // Chats ends with the count of rows the app cannot show (design
+        // section 6.1), in either mode.
+        self.model.set_rows_not_shown(self.hidden_rows());
+    }
+
+    fn apply_update(&mut self, update: Update) {
         match update {
             Update::Listed(listing) => {
                 // Pending first: it is authoritative over held updates.
@@ -478,6 +492,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         loop {
             let events = self.surface.take_events(&self.model);
             if events.is_empty() {
+                // The view's window reports. One that changes what is drawn
+                // -- a reach at the session bound shows the limit row, and
+                // asks nothing -- is drawn again; the person's place, which
+                // a scroll reports on every move, never is.
+                for event in self.surface.take_window() {
+                    if self.model.window_event(event) {
+                        unrendered = true;
+                    }
+                }
                 // What a closed or replaced snackbar's Undo no longer needs.
                 let released = self.model.take_released();
                 commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
