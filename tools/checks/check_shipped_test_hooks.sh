@@ -113,8 +113,9 @@ none() {
         exit 2
     fi
 }
-# -F in every form clap takes: `-F x`, `-Fx`, `-F=x`.
-FEATURE_FLAGS='--features|--all-features|--no-default-features|(^|[^-A-Za-z0-9_])-F'
+# -F in every form clap takes: `-F x`, `-Fx`, `-F=x`, and last in a
+# cluster of short flags (`-qF x`, `-rFx`).
+FEATURE_FLAGS='--features|--all-features|--no-default-features|(^|[^-A-Za-z0-9_])-[A-Za-z]*F'
 
 # The Linux archive: its target, its packages, and the one cargo build
 # of them, whose every line is the shape read here.

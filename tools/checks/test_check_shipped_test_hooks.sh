@@ -240,6 +240,12 @@ archive daemon cli
 sed -i '/^packages=/a packages=(daemon cli extra) ' "$A_SH"
 expect 2 "a second packages=( line with a trailing space is exit 2" "names packages other than"
 archive daemon cli
+echo '    tasks.register("z") { args("-qFplatform/test-hooks") }' >> "$G_KTS"
+expect 2 "a clustered -qF<features> in the Gradle file is exit 2" "passes a feature flag on 2 lines"
+gradle
+echo 'cargo() { command cargo "$@" -rF comp/test-hooks; }' >> "$A_SH"
+expect 2 "a clustered -rF <features> in the archive script is exit 2" "passes a feature flag"
+archive daemon cli
 echo 'notices "${packages[@]}" "$stage"' >> "$A_SH"
 expect 0 "a line expanding \"\${packages[@]}\" whole passes"
 archive daemon cli
