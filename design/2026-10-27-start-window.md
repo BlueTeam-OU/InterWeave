@@ -263,17 +263,18 @@ one.
 an indeterminate circular progress indicator (Material), centred, with
 `EarlierLoading` as its accessible name. It is not focusable and is
 not announced. It shows only if the page has not arrived within
-250 ms, so a fast load does not flicker. If the view is at its very
-top when the row shows, the row shows in view and what is below it
-moves down by its height, without animation, so the person sees that
-something is loading (rust-ui-dev-02's QUESTION 01a18b25, U1). When
-the row goes (the page arrived, or failed and the failure row takes
-its place), the view settles back: with no `EarlierUnread` line, the
-page's rows fill the row's place and the item the person was looking
-at stays where it now is; with the line at the top, the line, which
-no row goes above, moves back up by the row's height, and everything
-below with it. These are the only two movements, each once and
-without animation, and focus stays on its item through both. If
+250 ms, so a fast load does not flicker. **At the very top** (rust-ui-dev-02's
+QUESTION 01a18b25, U1): while the view is at its very top, each row of
+the top edge (the progress row, the failure row, the limit row) shows
+in view when it appears, so the person sees it; and each time one
+appears, is replaced by another (a failure in the progress row's
+place, the progress row in Try again's) or goes, what is below it
+moves by the change in height, once each time and without animation,
+and focus stays on its item. One case keeps the person's place
+instead: when the page arrives with no `EarlierUnread` line, the
+page's rows take the place the progress row leaves, so the oldest row
+the person was looking at does not move back. With the line, which no
+row goes above, the line moves back up when the progress row goes. If
 the top edge is reached by focus with the view elsewhere, the row
 shows where it stands and the view does not move to it.
 
@@ -467,7 +468,7 @@ screen hold for every other case.
 | Focus was on | It disappears when | Focus goes to | Check |
 |---|---|---|---|
 | any row, or the `EarlierUnread` line | a page is added above it or below the line | stays where it was; nothing moves | §10 items 4 and 5 |
-| the `EarlierUnread` line or the oldest row, at the view's very top | the progress row shows above it, then goes (§5) | stays on it while it moves down by the row's height and back; no other change | §10 item 3b |
+| the `EarlierUnread` line or the oldest row, at the view's very top | a row of the top edge appears above it, is replaced, or goes (§5, "At the very top") | stays on it; it moves with each change in height, except that with no line the oldest row stays put when the page arrives | §10 items 3b and 7 |
 | the row just above a gap, or any row above it | a page of the gap is added below it, from the gap's upper side (§5.1) | stays where it was; nothing moves | §10 item 14 |
 | the `EarlierUnread` line, at the top or in a gap (§5.1) | its count reaches zero | the row that was just below the line, as app-placed focus (no fetch, §5) | §10 items 6 and 14 |
 | the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the failure row, as app-placed focus: at the top edge the line, else the oldest loaded row; in a gap, for the upper side's row, the lower side's row if it shows, else the gap's line, else the row below the gap, and for the lower side's row, the gap's line, else the row below the gap (§5.1) | §10 items 7 and 14 |
@@ -653,7 +654,13 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
    progress row shows in view after 250 ms and the line and the rows
    below move down by its height; release the page: the progress row
    goes, the line moves back to the top once, and focus, if on the
-   line, stays on it through both. With a held proposal standing among
+   line, stays on it through both. Again with no line and focus on the
+   oldest row: it moves down when the progress row shows and stays
+   there when the page arrives, the page's rows above it. Again with
+   the page's read failing: the failure row replaces the progress row
+   in view, what is below moves by the difference in height once, and
+   Try again is in view; pressing it brings the progress row back the
+   same way. With a held proposal standing among
    released rows, two gaps show around it, each loading on its own,
    and at the top edge every mark stands above a leading proposal.
    With a gap wholly in view and no movement, its lower side fetches
