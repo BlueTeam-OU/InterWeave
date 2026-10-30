@@ -464,3 +464,63 @@ pub(crate) fn unread_rows(home: &Home) -> Vec<UnreadRow> {
     .map(|r| r.expect("a row"))
     .collect()
 }
+
+/// One inbound row to seed in the app's store: `peer`'s, to `human`, at
+/// `received_at`, the message `serial` with `text`, or bytes no build can
+/// decode.
+pub(crate) struct Seeded<'a> {
+    pub(crate) peer: &'a TransportIdentity,
+    pub(crate) serial: u64,
+    pub(crate) text: Option<&'a str>,
+    pub(crate) received_at: u64,
+    /// Read and kept, rather than unread.
+    pub(crate) kept: bool,
+}
+
+/// Commit `rows` in the app's store under `home` while the app is
+/// stopped, as the drain would have: a backlog the case opens onto.
+pub(crate) fn seed_inbound(home: &Home, rows: &[Seeded<'_>]) {
+    use interweave_human_store::{InboundKind, InboundOrigin, NewInbound};
+
+    let mut store = HumanStore::open_profile(
+        &home.paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+        StoreOptions::default(),
+    )
+    .expect("the app's store");
+    for seeded in rows {
+        let (media_type, payload, kind) = match seeded.text {
+            Some(text) => {
+                let encoded = encode_outbound(&envelope(seeded.serial, text), MAX_PAYLOAD_BYTES)
+                    .expect("fits");
+                (
+                    Some(MediaType::parse(encoded.media_type).expect("a media type")),
+                    encoded.bytes,
+                    InboundKind::Text,
+                )
+            }
+            // No JSON at all: the classifier calls it neither text nor a
+            // card, whatever build reads it.
+            None => (None, b"\xff not a message".to_vec(), InboundKind::Other),
+        };
+        let row = store
+            .commit_unread_inbound(&NewInbound {
+                app_message_id: AppMessageId::parse(format!("{:032x}", seeded.serial))
+                    .expect("an id"),
+                origin: InboundOrigin {
+                    peer: seeded.peer.clone(),
+                    endpoint: Some(human()),
+                    channel: None,
+                },
+                media_type,
+                payload,
+                received_at: seeded.received_at,
+                kind,
+            })
+            .expect("committed unread");
+        if seeded.kept {
+            let read = store.mark_read(row, seeded.received_at).expect("read");
+            store.keep(&read, seeded.received_at).expect("kept");
+        }
+    }
+}
