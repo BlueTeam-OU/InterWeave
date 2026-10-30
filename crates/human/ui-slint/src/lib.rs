@@ -3568,6 +3568,9 @@ struct SeenItem {
     reason: Option<&'static str>,
     /// An inbound item's short author.
     author: Option<String>,
+    /// Handed over by the drain, not read back by a page
+    /// (`MessageItem::arrived`).
+    arrived: bool,
 }
 
 /// What a render showed, for the next one's announcement.
@@ -3601,6 +3604,7 @@ impl Seen {
                         reason: reason_text(&item, host),
                         author: item.author.as_ref().map(|p| short_peer(p.as_str())),
                         status: item.status,
+                        arrived: item.arrived,
                     };
                     (item.key, seen)
                 })
@@ -3623,9 +3627,9 @@ impl Seen {
 /// What changed from `before` to `now`, as one sentence or two, or `None`
 /// when nothing a person needs told did. Never a message's text: a
 /// screen reader reaches that by moving to the message. Nothing is said
-/// on the first render or for a conversation just opened -- the person
-/// asked for that list, and reading it all out would be the flood this
-/// replaces.
+/// on the first render or for a conversation just opened, nor for the
+/// rows a page reads into it after -- the person asked for that list, and
+/// reading it all out would be the flood this replaces.
 fn announcement(before: &Seen, now: &Seen) -> Option<String> {
     if !before.primed {
         return None;
@@ -3637,9 +3641,13 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
             .iter()
             // Unread, as every message is when it arrives: a read one
             // that comes back -- a Hide undone -- is not an arrival, and
-            // its Undo says "Action undone" already.
+            // its Undo says "Action undone" already. Handed over by the
+            // drain: the rows a page reads back -- the opening's, earlier
+            // ones, a gap's -- are rows the person asked for, never told
+            // (`an_opening_page_is_not_announced_an_arrival_is`).
             .filter(|(key, item)| {
                 item.direction == Direction::Inbound
+                    && item.arrived
                     && item.status == ItemStatus::Inbound(Retention::Unread)
                     && !before.items.contains_key(key)
             })
