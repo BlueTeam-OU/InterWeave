@@ -65,7 +65,7 @@ pub use store::contacts::{
     RemovedPhoto, RouteDeleted, ValueSource, direct_conversation_id, name_key,
 };
 pub use store::window::{
-    ConversationUnread, HiddenInbound, Order, PageRange, StoreConversation, WindowCursor,
+    ConversationUnread, InboundCounts, Order, PageRange, StoreConversation, WindowCursor,
     WindowLimits, WindowPage,
 };
 pub use store::{HumanStore, READ_PAIR_CAP, STORE_FILE, StoreOptions};

@@ -10,7 +10,7 @@
 mod common;
 
 use interweave_human_store::{
-    AppMessageId, HiddenInbound, HumanStore, InboundKind, InboundOrigin, NewInbound, PageLimits,
+    AppMessageId, HumanStore, InboundCounts, InboundKind, InboundOrigin, NewInbound, PageLimits,
     StoreConversation, StoreOptions,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -68,6 +68,52 @@ fn a_rows_kind_is_kept_from_commit_through_keep() {
         store.unread_inbound().expect("read")[0].row_id,
         text,
         "control: the text row is untouched"
+    );
+}
+
+/// The kept count is of the kinds this build shows, a text and a card,
+/// and a kept row of another kind is counted hidden instead. Mutations:
+/// the kind filter dropped from the kept count; the shown kinds counted
+/// hidden.
+#[test]
+fn the_kept_count_is_of_the_kinds_shown() {
+    let (_dir, path, mut store) = store();
+    for (n, kind) in [
+        (1, InboundKind::Text),
+        (2, InboundKind::Card),
+        (3, InboundKind::Text),
+    ] {
+        let row = store
+            .commit_unread_inbound(&inbound(n, kind))
+            .expect("committed");
+        let read = store.mark_read(row, 10).expect("read");
+        store.keep(&read, 11).expect("kept");
+    }
+    store
+        .commit_unread_inbound(&inbound(4, InboundKind::Text))
+        .expect("unread, not kept");
+    assert_eq!(
+        store.inbound_counts().expect("counts"),
+        InboundCounts {
+            hidden_unread: 0,
+            hidden_kept: 0,
+            kept: 3
+        }
+    );
+    rusqlite::Connection::open(&path)
+        .expect("a second connection")
+        .execute(
+            "UPDATE kept_inbound SET kind = 'image' WHERE kind = 'card'",
+            [],
+        )
+        .expect("a newer build's kind");
+    assert_eq!(
+        store.inbound_counts().expect("counts"),
+        InboundCounts {
+            hidden_unread: 0,
+            hidden_kept: 1,
+            kept: 2
+        }
     );
 }
 
@@ -201,8 +247,12 @@ fn a_kind_this_build_does_not_know_is_hidden_and_reset_by_reclassification() {
         "not counted"
     );
     assert_eq!(
-        store.hidden_inbound().expect("hidden"),
-        HiddenInbound { unread: 1, kept: 0 }
+        store.inbound_counts().expect("counts"),
+        InboundCounts {
+            hidden_unread: 1,
+            hidden_kept: 0,
+            kept: 0
+        }
     );
     let conversation = StoreConversation::Direct {
         peer: TransportIdentity::parse(P).expect("a PeerId"),

@@ -454,7 +454,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let store = self.client.store_mut();
         let (pending, undecodable_pending) = listing::list_pending(store)?;
         let summarised = listing::summaries(store)?;
-        let hidden = store.hidden_inbound()?;
+        let counts = store.inbound_counts()?;
         let contacts = cards::contact_directory(store).map_err(|e| store_failure(&e));
         let contacts = if self.admits(Hooked::Contacts) {
             contacts
@@ -469,8 +469,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             pending,
             summaries: summarised.summaries,
             counted_through: summarised.counted_through,
-            undecodable_unread: usize::try_from(hidden.unread).unwrap_or(usize::MAX),
-            undecodable_other: usize::try_from(hidden.kept)
+            undecodable_unread: usize::try_from(counts.hidden_unread).unwrap_or(usize::MAX),
+            undecodable_other: usize::try_from(counts.hidden_kept)
                 .unwrap_or(usize::MAX)
                 .saturating_add(undecodable_pending),
             contacts,
@@ -747,13 +747,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             // The rows wait in the store, which the counts and the newest
             // rows say; the open conversation's window reads them.
             let store = self.client.store_mut();
-            match listing::summaries(store).and_then(|s| Ok((s, store.hidden_inbound()?))) {
-                Ok((summarised, hidden)) => {
+            match listing::summaries(store).and_then(|s| Ok((s, store.inbound_counts()?))) {
+                Ok((summarised, counts)) => {
                     self.rows_read += summarised.read;
                     updates.push(Update::SummariesListed {
                         summaries: summarised.summaries,
                         counted_through: summarised.counted_through,
-                        undecodable: usize::try_from(hidden.unread).unwrap_or(usize::MAX),
+                        undecodable: usize::try_from(counts.hidden_unread).unwrap_or(usize::MAX),
                     });
                 }
                 Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
