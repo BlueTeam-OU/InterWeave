@@ -1172,9 +1172,10 @@ impl UiModel {
 
     /// The view shows conversation `key`: if the window has focus, its
     /// unread rows are read now. Read is a retention act -- it deletes the
-    /// durable copy -- so it is raised from here alone, never on receipt,
-    /// from a notification, or while unfocused (agreed 2c); `actions`
-    /// does not offer it (review F1).
+    /// durable copy -- so it is raised from here, or from
+    /// [`Self::items_viewed`] for a reader shown some of them, never on
+    /// receipt, from a notification, or while unfocused (agreed 2c);
+    /// `actions` does not offer it (review F1).
     #[must_use]
     pub fn conversation_viewed(&self, key: &ConversationKey, focused: bool) -> Vec<Intent> {
         if !focused {
@@ -1183,6 +1184,25 @@ impl UiModel {
         self.items
             .values()
             .filter(|i| &i.conversation == key)
+            .flat_map(|i| {
+                i.rows
+                    .iter()
+                    .filter(|(t, _)| *t == Table::Unread)
+                    .map(|(_, r)| Intent::MarkRead(*r))
+            })
+            .collect()
+    }
+
+    /// A reader was shown `keys`, and only them: their unread rows are
+    /// read now, each of an item's rows -- a re-sent copy's too -- as
+    /// [`Self::conversation_viewed`] reads a whole conversation. The CLI's
+    /// `read` walks a conversation a chunk at a time and reads each chunk
+    /// as it prints it, never a row it has not printed
+    /// (`items_viewed_reads_the_rows_of_the_items_named_and_no_other`).
+    #[must_use]
+    pub fn items_viewed(&self, keys: &[ItemKey]) -> Vec<Intent> {
+        keys.iter()
+            .filter_map(|k| self.items.get(k))
             .flat_map(|i| {
                 i.rows
                     .iter()
