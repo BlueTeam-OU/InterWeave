@@ -223,6 +223,10 @@ pub struct Start {
     pub undecodable_unread: usize,
     /// Kept rows likewise, and pending rows that do not decode.
     pub undecodable_other: usize,
+    /// Kept rows of a kind this build shows, counted in the store with
+    /// the hidden ones: what a command line's `status` says, held rows or
+    /// not (architect-cto's 01a18ecf Q1).
+    pub kept: usize,
     /// The contacts, or the read's failure: no contact is then known, and
     /// none is written until a read succeeds (section 11).
     pub contacts: Result<Vec<DirectoryContact>, Failure>,
@@ -274,6 +278,8 @@ pub enum Update {
         /// Unread rows of a kind this build cannot show: never shown,
         /// counted.
         undecodable: usize,
+        /// Kept rows of a kind this build shows, counted again.
+        kept: usize,
     },
     /// The unread rows could not be listed again: content the store holds
     /// stays unshown until the next listing.

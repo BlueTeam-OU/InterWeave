@@ -473,6 +473,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             undecodable_other: usize::try_from(counts.hidden_kept)
                 .unwrap_or(usize::MAX)
                 .saturating_add(undecodable_pending),
+            kept: usize::try_from(counts.kept).unwrap_or(usize::MAX),
             contacts,
             identity: self.own_view()?,
         })
@@ -754,6 +755,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                         summaries: summarised.summaries,
                         counted_through: summarised.counted_through,
                         undecodable: usize::try_from(counts.hidden_unread).unwrap_or(usize::MAX),
+                        kept: usize::try_from(counts.kept).unwrap_or(usize::MAX),
                     });
                 }
                 Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
@@ -2258,6 +2260,7 @@ mod tests {
                     summaries,
                     counted_through,
                     undecodable,
+                    ..
                 },
             ] => {
                 assert_eq!(summaries.len(), 1);
@@ -2278,6 +2281,42 @@ mod tests {
 
     /// A facade side whose store holds an unread message and an unread row
     /// it cannot show, as a facade that could not hand them over leaves it.
+    /// The start and each relist count the kept rows of a kind shown,
+    /// from the store: a row kept since the start is in the relist's.
+    /// Mutations: the start's count left at none; the relist's.
+    #[test]
+    fn the_start_and_a_relist_count_the_kept_rows_shown() {
+        let mut side = held_back_side();
+        let keep = |side: &mut FacadeSide<FakeNode, FakeNode>, text: &str| {
+            let store = side.client.store_mut();
+            let row = store
+                .unread_inbound()
+                .expect("unread")
+                .into_iter()
+                .find(|r| String::from_utf8_lossy(&r.payload).contains(text))
+                .expect("the row")
+                .row_id;
+            let read = store.mark_read(row, 2).expect("read");
+            store.keep(&read, 3).expect("kept");
+        };
+        keep(&mut side, "held back");
+        let start = side.start().expect("started");
+        assert_eq!(start.kept, 1);
+        assert_eq!(start.undecodable_other, 0, "the hidden row is unread");
+        keep(&mut side, "garbled");
+        let mut updates = Vec::new();
+        side.on_event(
+            ClientEvent::UnreadInStore { not_handed_over: 1 },
+            &mut updates,
+        );
+        assert!(
+            updates
+                .iter()
+                .any(|u| matches!(u, Update::SummariesListed { kept: 1, .. })),
+            "a hidden row kept is not counted shown: {updates:?}"
+        );
+    }
+
     fn held_back_side() -> FacadeSide<FakeNode, FakeNode> {
         let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
         let config = || FakeConfig {
