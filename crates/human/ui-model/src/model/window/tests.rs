@@ -1514,3 +1514,25 @@ fn another_conversations_card_moves_no_newest_seen() {
     assert_eq!((again.older_than, again.newer_than), (None, None));
     assert!(again.seq > ask.seq, "a new opening");
 }
+
+/// A second start on a live model -- Android's view listed again from a
+/// newer facade -- re-bases its counts as a relist does: the open window
+/// opens again at the newest row when the store's newest is one it never
+/// held, and stays as it is when it held it. Mutation: the second start
+/// replacing the counts and leaving the window alone.
+#[test]
+fn a_second_start_opens_the_window_again_on_a_row_never_held() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+
+    model.started(Vec::new(), newest_at(2, 1_000), None);
+    assert!(model.take_page_asks().is_empty(), "the newest is held");
+    assert_eq!(model.len(), 2, "the window as it was");
+
+    model.started(Vec::new(), newest_at(3, 1_001), None);
+    let again = one_ask(&mut model);
+    assert_eq!((again.older_than, again.newer_than), (None, None));
+    assert!(again.seq > ask.seq, "a new opening");
+}
