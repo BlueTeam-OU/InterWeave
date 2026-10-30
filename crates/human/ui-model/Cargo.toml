@@ -32,7 +32,18 @@ icu_collator = { workspace = true }
 icu_normalizer = { workspace = true }
 icu_provider = { workspace = true }
 
+[features]
+# TEST BUILDS ONLY: `UiModel::set_bounds_for_test`, which sets the session
+# bound, the held-row ceiling and the read-proposal bound below their
+# published figures, so a test reaches them with a few rows. Enabled by
+# test crates as a dev-dependency feature; nothing that ships turns it
+# on (architect-cto's A1 for j68: measured with `cargo tree -e features
+# --edges normal -p <shipped package>`, recorded in the PR adding it).
+test-hooks = []
+
 [dev-dependencies]
+# TEST-ONLY: this crate with its own `test-hooks` on, for its own tests.
+interweave-human-ui-model = { path = ".", features = ["test-hooks"] }
 interweave-human-store = { path = "../store" }
 interweave-human-transport-client = { path = "../transport-client" }
 interweave-local-client-fake = { path = "../../../tests/local-client-fake" }

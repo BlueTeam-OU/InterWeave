@@ -19,9 +19,9 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use interweave_human_core::RowId;
 
-use super::cards::{Proposal, READ_PROPOSAL_CAP};
+use super::cards::Proposal;
 use super::summaries::NewestRow;
-use super::{ConversationKey, ItemKey, ListedInbound, SESSION_ITEM_CAP, Table, UiModel};
+use super::{ConversationKey, ItemKey, ListedInbound, Table, UiModel};
 
 /// The most stored rows -- unread and kept, which keep their stored copy --
 /// the model holds at once (design section 5.1). Larger than the rows a
@@ -908,8 +908,14 @@ impl UiModel {
     /// when read.
     fn page_room(&self, conversation: &ConversationKey) -> usize {
         let (messages, cards) = self.held_unread(conversation);
-        let session = SESSION_ITEM_CAP.saturating_sub(self.ephemeral.len() + messages);
-        let proposals = READ_PROPOSAL_CAP.saturating_sub(self.cards.read_count() + cards);
+        let session = self
+            .bounds
+            .session_items
+            .saturating_sub(self.ephemeral.len() + messages);
+        let proposals = self
+            .bounds
+            .read_proposals
+            .saturating_sub(self.cards.read_count() + cards);
         session.min(proposals)
     }
 
@@ -933,7 +939,7 @@ impl UiModel {
                 .iter()
                 .map(|(_, rows)| rows.iter().filter(|(t, _)| *t != Table::Pending).count())
                 .sum();
-            if count <= HELD_ROW_CAP {
+            if count <= self.bounds.held_rows {
                 return;
             }
             let order = self.conversation_order(&conversation);

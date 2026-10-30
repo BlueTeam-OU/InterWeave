@@ -1367,3 +1367,64 @@ fn card_marks_are_the_held_proposals_alone() {
         .map_or(0, |w| w.card_marks.len());
     assert!(marks <= 1, "{marks} marks for one held proposal at most");
 }
+
+/// Built as it ships, the model holds to the published caps; only a test
+/// build sets them lower. Mutation: a default other than the caps.
+#[test]
+fn the_default_bounds_are_the_published_caps() {
+    let model = UiModel::new();
+    assert_eq!(
+        model.bounds,
+        crate::model::Bounds {
+            session_items: SESSION_ITEM_CAP,
+            held_rows: super::HELD_ROW_CAP,
+            read_proposals: crate::model::cards::READ_PROPOSAL_CAP,
+        }
+    );
+}
+
+/// A test build's held-row ceiling is the one the ceiling lets go at:
+/// twelve stored rows past a ceiling of eight leave eight held, the
+/// focused and the newest among them. Mutation: the ceiling read from
+/// the published cap -- all twelve held.
+#[test]
+fn a_small_held_ceiling_lets_go_at_its_figure() {
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, 8, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, 12, Table::Kept);
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(
+        &ask,
+        &(1..=12).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::More,
+    ));
+    let held = (1..=12).filter(|n| holds(&model, *n, Table::Kept)).count();
+    assert_eq!(held, 8);
+    assert!(holds(&model, 12, Table::Kept), "the focused, newest row");
+}
+
+/// A test build's session bound is the one a page's room is taken from:
+/// with a bound of eight and eight unread rows held, reaching the top
+/// with more unread beyond shows the limit row and asks nothing.
+/// Mutation: the room taken from the published cap -- a page asked.
+#[test]
+fn a_small_session_bound_reaches_the_limit_row() {
+    let mut model = started(20);
+    model.set_bounds_for_test(8, super::HELD_ROW_CAP, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &(13..=20).collect::<Vec<_>>(), PageEnd::More));
+    reached(&mut model);
+    assert!(
+        model.take_page_asks().is_empty(),
+        "the limit row asks nothing"
+    );
+    assert!(
+        model
+            .window_marks(&conversation())
+            .iter()
+            .any(|m| m.kind == MarkKind::AtLimit(Edge::Top))
+    );
+}

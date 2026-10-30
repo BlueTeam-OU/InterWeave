@@ -3782,6 +3782,7 @@ dependencies = [
  "interweave-human-core",
  "interweave-human-store",
  "interweave-human-transport-client",
+ "interweave-human-ui-model",
  "interweave-local-client-fake",
  "interweave-profile-identity",
  "interweave-transport-api",

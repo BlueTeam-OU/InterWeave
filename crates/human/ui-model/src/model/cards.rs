@@ -602,6 +602,9 @@ pub(super) struct Cards {
     /// The number of the choice whose prepared photo the editor shows,
     /// or showed before the choice now held.
     own_photo_shown_seq: u64,
+    /// The read-proposal bound when a test build set one lower than
+    /// [`READ_PROPOSAL_CAP`] (`UiModel::set_bounds_for_test`).
+    cap: Option<usize>,
 }
 
 /// The confirmation row an Accept leaves in its proposal's place: "You
@@ -678,12 +681,23 @@ impl Cards {
         if self.proposals.contains_key(&row) && self.read.insert(row) {
             self.read_order.push_back(row);
         }
-        while self.read_order.len() > READ_PROPOSAL_CAP {
+        while self.read_order.len() > self.read_cap() {
             if let Some(oldest) = self.read_order.pop_front() {
                 self.read.remove(&oldest);
                 self.proposals.remove(&oldest);
             }
         }
+    }
+
+    /// The read-proposal bound held to.
+    fn read_cap(&self) -> usize {
+        self.cap.unwrap_or(READ_PROPOSAL_CAP)
+    }
+
+    /// Hold to `cap` read proposals: a test build's lower bound.
+    #[cfg(feature = "test-hooks")]
+    pub(super) const fn set_read_cap(&mut self, cap: usize) {
+        self.cap = Some(cap);
     }
 
     fn resolved(&mut self, row: RowId) -> Option<Proposal> {
@@ -701,7 +715,7 @@ impl Cards {
 
     fn answered(&mut self, answer: CardAnswer) {
         self.answers.insert(answer.row, answer);
-        while self.answers.len() > READ_PROPOSAL_CAP {
+        while self.answers.len() > self.read_cap() {
             self.answers.pop_first();
         }
     }
