@@ -270,10 +270,13 @@ in view when it appears, so the person sees it; and each time one
 appears, is replaced by another (a failure in the progress row's
 place, the progress row in Try again's) or goes, what is below it
 moves by the change in height, once each time and without animation,
-and focus stays on its item. A failure or limit row whose button was
-pressed stays where it is, its button doing nothing more while the
-read is in flight, until the progress row takes its place (after
-250 ms) or the page arrives, so pressing never moves the view twice.
+and focus stays on its item. A pressed failure or limit row stays
+where it is (its button inert, below) until one of three things
+happens: the progress row takes its place (after 250 ms), the page
+arrives, or the read fails again first, when the failure row takes
+the limit row's place, or a failure row stays as it is, with its Try
+again live again, and `EarlierLoadFailed` is announced once more, once
+for each failure. So pressing never moves the view twice.
 One case keeps the person's place instead: when the page arrives with
 no `EarlierUnread` line, the page's rows take the place the top edge's
 row leaves, whichever row it was, so the oldest row the person was
@@ -305,7 +308,11 @@ again button (`TryAgain`, which exists). The failure is announced once,
 politely (`EarlierLoadFailed`). Scrolling or moving focus to the top
 again does not retry by itself; Try again does, and the row becomes the
 progress row again (subject to the 250 ms rule). Closing and reopening
-the conversation also starts over. Focus, if it was on Try again when
+the conversation also starts over. Wherever a failure or limit row
+stands (the top edge, either side of a gap), its button, once
+pressed, does nothing more while its read is in flight, and the row
+stays until the progress row, the page or a new failure replaces it,
+so no second read starts. Focus, if it was on Try again when
 the row is replaced, goes to the item just below it, as app-placed
 focus (§7). The announcement is checked on the desktop now and is a
 blocked precondition on Android (§7).
@@ -475,8 +482,8 @@ screen hold for every other case.
 | the `EarlierUnread` line or the oldest row, at the view's very top | a row of the top edge appears above it, is replaced, or goes (§5, "At the very top") | stays on it; it moves with each change in height, except that with no line the oldest row stays put when the page arrives | §10 items 3b and 12 |
 | the row just above a gap, or any row above it | a page of the gap is added below it, from the gap's upper side (§5.1) | stays where it was; nothing moves | §10 item 14 |
 | the `EarlierUnread` line, at the top or in a gap (§5.1) | its count reaches zero | the row that was just below the line, as app-placed focus (no fetch, §5) | §10 items 6 and 14 |
-| the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the failure row, as app-placed focus: at the top edge the line, else the oldest loaded row; in a gap, for the upper side's row, the lower side's row if it shows, else the gap's line, else the row below the gap, and for the lower side's row, the gap's line, else the row below the gap (§5.1) | §10 items 7 and 14 |
-| the limit row's `EarlierShowAnyway` | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the limit row, as app-placed focus, at the top edge or in a gap as for Try again | §10 items 12 and 14 |
+| the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives (if the read fails again first, the row stays and focus stays on Try again) | the item that was just below the failure row, as app-placed focus: at the top edge the line, else the oldest loaded row; in a gap, for the upper side's row, the lower side's row if it shows, else the gap's line, else the row below the gap, and for the lower side's row, the gap's line, else the row below the gap (§5.1) | §10 items 7 and 14 |
+| the limit row's `EarlierShowAnyway` | it is pressed and the row becomes the progress row, or the page arrives (if the read fails first, the failure row takes its place and focus goes to its Try again) | the item that was just below the limit row, as app-placed focus, at the top edge or in a gap as for Try again | §10 items 12 and 14 |
 | a row of the open conversation | the session bound drops it | cannot happen: the focused row is never dropped (§7.1) | §10 item 12 |
 | a row of the open conversation | the held-row ceiling releases it | cannot happen: the focused item is never released (§5.1) | §10 item 14 |
 | a `ReadNotShown` line | a new drop adds to its count | stays on the line, whose count changes | §10 item 12 |
@@ -780,7 +787,12 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     what is below moves down by its height once, and focus stays on the
     line; pressing `EarlierShowAnyway` leaves the limit row in place,
     pressing again doing nothing, until the progress row or the page
-    replaces it.
+    replaces it. With the read made to fail within 250 ms (item 7's
+    hook): the failure row takes the limit row's place, what is below
+    moves by the difference in height once, focus is on its Try again,
+    and `EarlierLoadFailed` is announced once; pressing Try again and
+    failing again within 250 ms leaves the row, focus on Try again,
+    and announces it once more.
 13. **An undecodable unread row**: add one to A's store, as its oldest
     row. It is not counted on the line or on A's badge; the line goes
     once every other unread row is loaded, and once the store holds
