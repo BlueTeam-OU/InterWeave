@@ -207,49 +207,42 @@ impl View {
             })
             .collect();
         self.marks.loading_since.retain(|e, _| loading.contains(e));
+        // A progress row shows once its page has taken 250 ms. Until then a
+        // pressed failure or limit row stays, inert, in the progress row's
+        // own place -- before the line, as section 8 reads it -- and its
+        // focus with it; the progress row, the page or another answer (the
+        // limit, a failure) ends it
+        // (`a_pressed_try_again_stays_inert_until_the_progress_row_and_a_repeat_failure_is_announced`).
         let mut due: Option<Duration> = None;
-        let shown: Vec<WindowMark> = marks
-            .into_iter()
-            .filter(|m| {
-                let MarkKind::Loading(edge) = m.kind else {
-                    return true;
-                };
-                let since = *self.marks.loading_since.entry(edge).or_insert(now);
-                let waited = now.saturating_duration_since(since);
-                if waited >= LOADING_SHOWN_AFTER {
-                    return true;
-                }
-                let left = LOADING_SHOWN_AFTER.saturating_sub(waited);
-                due = Some(due.map_or(left, |d| d.min(left)));
-                false
-            })
-            .collect();
+        let mut shown = Vec::with_capacity(marks.len());
+        let mut still_pressed = HashSet::new();
+        for mark in marks {
+            let MarkKind::Loading(edge) = mark.kind else {
+                shown.push(mark);
+                continue;
+            };
+            let since = *self.marks.loading_since.entry(edge).or_insert(now);
+            let waited = now.saturating_duration_since(since);
+            if waited >= LOADING_SHOWN_AFTER {
+                shown.push(mark);
+                continue;
+            }
+            let left = LOADING_SHOWN_AFTER.saturating_sub(waited);
+            due = Some(due.map_or(left, |d| d.min(left)));
+            if let Some(kind) = self.marks.pressed.get(&edge) {
+                shown.push(WindowMark {
+                    place: mark.place,
+                    kind: *kind,
+                });
+                still_pressed.insert(edge);
+            }
+        }
         if let Some(due) = due {
             self.wake_after(due);
         }
-        // A pressed row stays, inert, while its read is on its way and its
-        // progress row not shown; the progress row, the page or another
-        // answer -- the limit, a failure -- ends it.
-        let mut shown = shown;
-        self.marks.pressed.retain(|edge, kind| {
-            if !loading.contains(edge) || shown.iter().any(|m| m.kind == MarkKind::Loading(*edge)) {
-                return false;
-            }
-            let place = self
-                .shown
-                .as_ref()
-                .and_then(|key| {
-                    model
-                        .window_marks(key)
-                        .into_iter()
-                        .find(|m| m.kind == MarkKind::Loading(*edge))
-                })
-                .map(|m| m.place);
-            if let Some(place) = place {
-                shown.push(WindowMark { place, kind: *kind });
-            }
-            true
-        });
+        self.marks
+            .pressed
+            .retain(|edge, _| still_pressed.contains(edge));
         let failed: HashSet<Edge> = shown
             .iter()
             .filter_map(|m| match m.kind {

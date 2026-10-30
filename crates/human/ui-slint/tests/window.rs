@@ -416,6 +416,15 @@ fn a_pressed_try_again_stays_inert_until_the_progress_row_and_a_repeat_failure_i
     let retry = model.take_page_asks().remove(0);
     view.render(&model);
     assert_eq!(labelled(&view, failed).len(), 1, "the row stays");
+    let elements = all(&view);
+    let line = fill(text(UiText::EarlierUnread), &[("count", "10")]);
+    assert!(
+        position(&elements, |e| e.accessible_label().as_deref()
+            == Some(failed))
+            < position(&elements, |e| e.accessible_label().as_deref()
+                == Some(line.as_str())),
+        "where it stood: before the line (section 8)"
+    );
     labelled(&view, try_again)[0].invoke_accessible_default_action();
     assert!(retries(&mut view).is_empty(), "inert while in flight");
 
@@ -758,6 +767,20 @@ fn focus_on_a_pressed_try_again_goes_below_once_the_page_arrives() {
         view.window().get_focus_id(),
         "mark-action:t",
         "kept while in flight"
+    );
+    // Held by a live control, not only named: the next Tab goes on to the
+    // line just after it, not back to the window's first control.
+    let tab: slint::SharedString = slint::platform::Key::Tab.into();
+    view.window()
+        .window()
+        .dispatch_event(slint::platform::WindowEvent::KeyPressed { text: tab.clone() });
+    view.window()
+        .window()
+        .dispatch_event(slint::platform::WindowEvent::KeyReleased { text: tab });
+    assert_eq!(
+        view.window().get_focus_id(),
+        "earlier-unread:t",
+        "focus kept on the button"
     );
     page(&mut model, &from, 1..=10);
     view.render(&model);
