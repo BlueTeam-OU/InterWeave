@@ -68,6 +68,8 @@ pub(crate) struct Marks {
     app_focus: RefCell<Option<String>>,
     /// The contacts last reported shown.
     avatars: HashSet<String>,
+    /// The message the person's focus was on at the last take.
+    focused: Option<ItemKey>,
     /// For each mark a person can focus, the focus target of what stands
     /// just below it as last drawn: the next mark at its place, else the
     /// row the marks stand above (section 7's focus table).
@@ -554,6 +556,7 @@ impl View {
             events.push(WindowEvent::Input(WindowInput::Opened(now)));
         }
         self.marks.opened = want;
+        self.marks.focused = None;
         self.marks.reached.clear();
         self.marks.place = None;
         self.shared.borrow_mut().window_view.moved_up = None;
@@ -611,6 +614,20 @@ impl View {
             self.marks.place = Some(place);
         }
         let by_person = !self.marks.by_app(&focus_id);
+        // Focus the person moved from one message to another moves the
+        // way the two stand: section 5.1 counts focus as it counts a
+        // scroll, and the toolkit bringing a focused row into view says
+        // no direction of its own
+        // (`focus_moving_down_onto_a_gap_fetches_its_upper_side_first`).
+        let before = std::mem::replace(&mut self.marks.focused, focused);
+        let moved_up = moved_up.or_else(|| {
+            let (was, now) = (before?, focused?);
+            if !by_person || was == now {
+                return None;
+            }
+            let at = |k: ItemKey| self.message_keys.iter().position(|m| *m == k);
+            Some(at(now)? < at(was)?)
+        });
         let mut now = HashSet::new();
         for (edge, at) in self.marks.edges.clone() {
             let id = edge_id(edge);
@@ -795,6 +812,68 @@ mod tests {
         view.shared.borrow_mut().window_view.moved_up = Some(false);
         let _ = view.reach_events(&key);
         assert_eq!(view.shared.borrow().window_view.moved_up, None);
+    }
+
+    /// Focus the person moves down onto the row below a gap reaches both
+    /// sides with the upper side first, as moving down does (section 5.1);
+    /// the toolkit's scroll to the focused row says no direction. Mutation:
+    /// no direction from focus -- the lower side first.
+    #[test]
+    fn focus_moving_down_onto_a_gap_fetches_its_upper_side_first() {
+        use interweave_human_core::RowId;
+        use interweave_human_ui_model::{
+            Anchor, ConversationKey, ItemKey, MarkPlace, WindowEvent, WindowInput,
+        };
+        use interweave_transport_api::{EndpointId, TransportIdentity};
+        i_slint_backend_testing::init_no_event_loop();
+        let mut view =
+            crate::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
+        let key = ConversationKey::Direct {
+            peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+                .expect("a PeerId"),
+            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+        };
+        let mut model = interweave_human_ui_model::UiModel::new();
+        for n in [1_i64, 9] {
+            model.received(interweave_human_client_api::Received {
+                row: RowId::from_stored(n),
+                origin: interweave_human_client_api::Origin::Direct {
+                    peer: TransportIdentity::parse(
+                        "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+                    )
+                    .expect("a PeerId"),
+                    endpoint: EndpointId::parse("human").expect("an endpoint"),
+                },
+                envelope: interweave_human_chat_protocol::HumanChatV2 {
+                    v: 2,
+                    kind: interweave_human_chat_protocol::MessageKind::Text,
+                    app_message_id: format!("{n:032x}"),
+                    text: format!("message {n}"),
+                    reply_to: None,
+                    sent_at_ms: None,
+                    from_endpoint: None,
+                },
+                received_at: u64::try_from(n).expect("small"),
+            });
+        }
+        let keys: Vec<ItemKey> = model.messages(&key).into_iter().map(|m| m.key).collect();
+        let (above, below) = (keys[0], keys[1]);
+        view.message_keys = vec![above, below];
+        let _ = view.item_handles.of(&above);
+        let handle = view.item_handles.of(&below);
+        let at = MarkPlace::Above(Anchor::Item(below));
+        view.marks.edges = vec![(Edge::GapUpper(1), at), (Edge::GapLower(1), at)];
+        view.marks.focused = Some(above);
+        view.window.set_focus_id(format!("item:{handle}").into());
+        let reached: Vec<Edge> = view
+            .reach_events(&key)
+            .into_iter()
+            .filter_map(|e| match e {
+                WindowEvent::Input(WindowInput::Reached { edge, .. }) => Some(edge),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reached, [Edge::GapUpper(1), Edge::GapLower(1)]);
     }
 
     #[test]
