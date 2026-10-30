@@ -964,13 +964,14 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     is open the reply shows `ReplyUnavailable`; press Undo:
     `ReplyPresent`. Dismiss it again and let the snackbar close: the
     reply shows `ReplyUnavailable`. Then a release in view: give B
-    kept rows only, its oldest the target, a reply to it a little more
-    than one view's rows below, and fewer rows below the reply than
+    kept rows only, its oldest the target, a reply to it more than two
+    views' rows below, and fewer rows below the reply than
     lie between the reply and the target. Open B in a focused app
     window and scroll up until the target loads, so that B holds every
     row. Set item 14's test ceiling to the number of rows B holds.
-    Scroll down until the reply is in view and the target is not, and
-    move focus to the reply. Take focus away from the app window and
+    Scroll down until the reply is in view and neither the target nor
+    the row after it is, so that the top edge a release leaves is out
+    of view too, and move focus to the reply. Take focus away from the app window and
     deliver one row to B, which stays unread and so is a stored row
     the ceiling counts (§1, §5.1): the ceiling releases the held row
     farthest from the focused reply, which is the target, and the
@@ -978,7 +979,10 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     Nothing is announced. Give focus back to the app window: focus is
     on the reply, which still shows `ReplyUnavailable`. Set the test ceiling out of reach,
     scroll up until the target loads, and scroll back down: the reply
-    shows `ReplyPresent`. On a desktop with a screen reader,
+    shows `ReplyPresent`. That return happens off screen, since the
+    target loads only with the top edge in view; the interim's change
+    in place back to `ReplyPresent` is not checked, and under the full
+    rule (b) a release changes no line at all. On a desktop with a screen reader,
     the line is read as part of its row in both states. (b) Blocked
     until the store can be asked by message id (§5.2): a reply whose
     target is released by the ceiling, or is kept and older than
