@@ -435,8 +435,9 @@ conversation".
 
 Here a held target is one the app holds and shows: a row hidden by a
 Dismiss whose snackbar is still open is held for its Undo (§5.1) but
-cannot be reached, so until its Undo it counts as neither held nor
-stored, whatever the store holds.
+cannot be reached, so it counts as neither held nor stored until it
+comes back: by its Undo, or by a stored copy of it arriving, which
+shows it again and closes the snackbar (message-swipe §8).
 
 - `ReplyPresent` when the target is held, or is not held but is
   stored in this conversation, unread or kept, as a row the app can
@@ -445,8 +446,8 @@ stored, whatever the store holds.
   conversation, or one the app cannot show, cannot be paged to, and
   counts as not stored.
 - `ReplyUnavailable` while the target is hidden by a Dismiss whose
-  snackbar is open; its Undo puts the row back and the line back to
-  `ReplyPresent`.
+  snackbar is open; its Undo, or a copy of it arriving, puts the row
+  back and the line back to `ReplyPresent`.
 - `ReplyUnavailable` when the target is neither held nor stored:
   dismissed once its snackbar has closed (message-swipe §5), dropped by the session bound (§7.1),
   read and not kept in an earlier session, or never received.
