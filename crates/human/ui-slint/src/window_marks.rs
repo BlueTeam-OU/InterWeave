@@ -529,7 +529,9 @@ impl View {
     /// The conversation whose window is open: the one shown while it is
     /// shown -- its Details and a contact page one of its proposals
     /// opened included -- and none in Chats on a narrow window, or with
-    /// Trust, Peers or a card page in its place (section 7.1's U5).
+    /// Trust, Peers, Connect (and the Peers pages it opens) or a card page
+    /// in its place (section 7.1's U5; ux-designer's REPLY 01a18cfd:
+    /// `connect_in_the_conversations_place_closes_its_window`).
     fn window_conversation(&self) -> Option<ConversationKey> {
         if !self.marks.windowed {
             return None;
@@ -539,7 +541,7 @@ impl View {
             return None;
         }
         match self.page {
-            Page::Conversation | Page::Connect => Some(shown),
+            Page::Conversation => Some(shown),
             Page::Cards
                 if self
                     .cards
@@ -549,7 +551,7 @@ impl View {
             {
                 Some(shown)
             }
-            Page::Cards | Page::Trust | Page::Peers => None,
+            Page::Cards | Page::Trust | Page::Peers | Page::Connect => None,
         }
     }
 
@@ -1124,6 +1126,40 @@ mod tests {
         assert!(
             !view.marks.by_app("earlier-unread:t"),
             "the person's, once moved"
+        );
+    }
+
+    /// Connect drawn in a conversation's place closes its window, as
+    /// Trust or Peers there does; back in the conversation it opens
+    /// again. Mutation: Connect keeping the window open.
+    #[test]
+    fn connect_in_the_conversations_place_closes_its_window() {
+        use interweave_human_ui_model::{ConversationKey, WindowEvent, WindowInput};
+        use interweave_transport_api::{EndpointId, TransportIdentity};
+        i_slint_backend_testing::init_no_event_loop();
+        let mut view =
+            crate::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
+        let key = ConversationKey::Direct {
+            peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+                .expect("a PeerId"),
+            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+        };
+        view.marks.windowed = true;
+        view.shown = Some(key.clone());
+        view.window.set_list_shown(false);
+        assert_eq!(
+            view.open_events(),
+            [WindowEvent::Input(WindowInput::Opened(key.clone()))]
+        );
+        view.page = crate::Page::Connect;
+        assert_eq!(
+            view.open_events(),
+            [WindowEvent::Input(WindowInput::Closed(key.clone()))]
+        );
+        view.page = crate::Page::Conversation;
+        assert_eq!(
+            view.open_events(),
+            [WindowEvent::Input(WindowInput::Opened(key))]
         );
     }
 
