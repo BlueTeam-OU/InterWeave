@@ -556,6 +556,7 @@ impl View {
         self.marks.opened = want;
         self.marks.reached.clear();
         self.marks.place = None;
+        self.shared.borrow_mut().window_view.moved_up = None;
         // Another conversation's rows: none of the last one's is in view.
         self.shared.borrow_mut().window_view.in_view.clear();
         events
@@ -586,11 +587,13 @@ impl View {
             .window_view
             .in_view
             .retain(|h| drawn.contains(h));
+        // The direction of the person's scroll since the last take, taken:
+        // with none, a gap's lower side goes first (section 5.1).
         let (in_view, moved_up) = {
-            let shared = self.shared.borrow();
+            let mut shared = self.shared.borrow_mut();
             (
                 shared.window_view.in_view.clone(),
-                shared.window_view.moved_up,
+                shared.window_view.moved_up.take(),
             )
         };
         let mut items: Vec<ItemKey> = in_view
@@ -773,6 +776,26 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::{Edge, edge_id, edge_of};
+
+    /// A direction is the person's since the last take: taking the
+    /// reports takes it, so a later gap reached with no move goes lower
+    /// side first (section 5.1). Mutation: the direction left in place.
+    #[test]
+    fn taking_the_reports_takes_the_direction() {
+        use interweave_human_ui_model::ConversationKey;
+        use interweave_transport_api::{EndpointId, TransportIdentity};
+        i_slint_backend_testing::init_no_event_loop();
+        let mut view =
+            crate::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
+        let key = ConversationKey::Direct {
+            peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+                .expect("a PeerId"),
+            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+        };
+        view.shared.borrow_mut().window_view.moved_up = Some(false);
+        let _ = view.reach_events(&key);
+        assert_eq!(view.shared.borrow().window_view.moved_up, None);
+    }
 
     #[test]
     fn an_edge_comes_back_as_it_was_handed_over() {

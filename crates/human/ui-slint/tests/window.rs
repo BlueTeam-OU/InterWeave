@@ -789,3 +789,27 @@ fn focus_on_a_pressed_try_again_goes_below_once_the_page_arrives() {
     let focus = view.window().get_focus_id().to_string();
     assert!(focus.starts_with("item:"), "on the row below: {focus}");
 }
+
+/// The view's own moves -- keeping the person's place as a page arrives
+/// above it -- say no direction: a gap's side order is the person's
+/// scroll's alone, with none the lower side first (section 5.1). A
+/// person's scroll says one, the control. Mutation: every change of the
+/// list's offset said as a move.
+#[test]
+fn the_views_own_moves_say_no_direction() {
+    let mut view = view();
+    let (from, mut model) = tall(&mut view);
+    scroll(&view, 10_000.0);
+    apply(&mut view, &mut model);
+    let moves = Rc::new(Cell::new(0_u32));
+    let counted = Rc::clone(&moves);
+    view.window()
+        .on_list_moved(move |_| counted.set(counted.get() + 1));
+    page(&mut model, &from, 1..=40);
+    view.render(&model);
+    apply(&mut view, &mut model);
+    settle();
+    assert_eq!(moves.get(), 0, "the place kept is no move of the person's");
+    scroll(&view, -200.0);
+    assert!(moves.get() > 0, "control: a scroll says its direction");
+}

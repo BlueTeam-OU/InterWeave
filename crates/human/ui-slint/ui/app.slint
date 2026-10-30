@@ -6117,6 +6117,16 @@ export component AppWindow inherits Window {
                 function to-newest() {
                     self.content-y = min(0px, self.height - self.content-height);
                 }
+                // The direction of the person's own scroll, said as it
+                // happens: `flicked` comes of the person's wheel, drag or
+                // fling alone, before the change handlers run, so `last-y`
+                // still holds where the list stood; the view's own moves and
+                // the toolkit's clamps say none (#512 review F4).
+                flicked => {
+                    if (root.windowed && self.content-y != self.last-y) {
+                        root.list-moved(self.content-y > self.last-y);
+                    }
+                }
                 // Pinned to its end while it shows its end: a conversation
                 // opens at its end and stays there as its space or its
                 // messages change (the spec's S3). Whatever moves it away
@@ -6130,9 +6140,6 @@ export component AppWindow inherits Window {
                 property <bool> pinned: true;
                 changed content-y => {
                     self.pinned = self.content-y <= self.height - self.content-height + 1px;
-                    if (root.windowed && self.content-y != self.last-y) {
-                        root.list-moved(self.content-y > self.last-y);
-                    }
                     self.last-y = self.content-y;
                 }
                 property <string> shown: root.header-id;
