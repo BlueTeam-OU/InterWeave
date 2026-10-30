@@ -805,7 +805,7 @@ impl UiModel {
                     (!at.is_empty()).then(|| at[at.len() / 2])
                 })
                 .unwrap_or(order.len() - 1);
-            let victim = held
+            let mut candidates: Vec<_> = held
                 .iter()
                 .filter(|(key, rows)| {
                     *key != newest
@@ -824,11 +824,18 @@ impl UiModel {
                         )
                     })
                 })
-                .max_by_key(|(distance, older, key, _)| (*distance, *older, *key));
-            let Some((_, _, key, rows)) = victim else {
-                return;
-            };
-            if !self.let_go_item(key, &rows) {
+                .collect();
+            candidates.sort_by_key(|(distance, older, key, _)| (*distance, *older, *key));
+            // The farthest first; one that cannot go -- an item holding a
+            // stored row newer than every other held row, a later copy of
+            // an older message -- is passed over for the next, so the
+            // ceiling holds while anything can go
+            // (`the_ceiling_holds_past_an_item_holding_the_newest_stored_row`).
+            if !candidates
+                .into_iter()
+                .rev()
+                .any(|(_, _, key, rows)| self.let_go_item(key, &rows))
+            {
                 return;
             }
         }

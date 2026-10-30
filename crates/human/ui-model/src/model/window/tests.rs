@@ -1002,3 +1002,39 @@ fn a_top_page_in_flight_when_the_ceiling_moves_the_top_adds_nothing() {
         "asked again from the top as it stands, above the rows let go"
     );
 }
+
+/// An item can hold a stored row newer than every other held row while
+/// it stands far up the conversation: a later copy of an older message is
+/// attached to the older message's item. Such an item cannot be let go --
+/// its rows would have no side to be read back from -- and the ceiling
+/// passes it over for the next farthest, so the held rows stay at the
+/// ceiling (section 5.1). Mutation: stopping at the first item that cannot
+/// go -- the held rows stay past the ceiling.
+#[test]
+fn the_ceiling_holds_past_an_item_holding_the_newest_stored_row() {
+    use super::HELD_ROW_CAP;
+    let cap = i64::try_from(HELD_ROW_CAP).expect("small");
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, cap + 1, Table::Kept);
+    let ask = one_ask(&mut model);
+    let mut rows = rows_of(
+        &ask,
+        &(1..=cap + 1).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::Exhausted,
+    );
+    let mut copy = row(1);
+    copy.row = RowId::from_stored(cap + 10);
+    copy.received_at = u64::try_from(cap + 10).expect("small");
+    rows.kept.push(copy);
+    model.page_arrived(rows);
+    assert!(holds(&model, 1, Table::Kept), "the copy's item cannot go");
+    assert!(holds(&model, cap + 10, Table::Kept));
+    let held = (1..=cap + 1)
+        .chain([cap + 10])
+        .filter(|n| holds(&model, *n, Table::Kept))
+        .count();
+    assert_eq!(held, HELD_ROW_CAP, "the next farthest went instead");
+    assert!(!holds(&model, 2, Table::Kept));
+}
