@@ -5,7 +5,7 @@ topic: "e2e-identity-keys-2026-10-21"
 description: "Owner's direction 2026-10-21: peer-level (Noise) and end-to-end encryption are two matters; ADR-0063 (accepted) gives each user identity an Ed25519 key carried and proved by its card now; ADR-0064 (proposed) is the full E2E layer (sealed…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

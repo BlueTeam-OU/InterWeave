@@ -5,7 +5,7 @@ topic: "reflection-another-lane-s-pr-that-makes-an-adr-premise-false-carries-the
 description: When a PR changes a fact an ADR states as current, the ADR is amended in that same PR even if its conclusion holds, and before supplying the amendment the fact is grepped in the body, the security section, the digest and the log row
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

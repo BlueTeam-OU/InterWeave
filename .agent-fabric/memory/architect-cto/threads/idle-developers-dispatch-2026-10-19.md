@@ -5,13 +5,14 @@ topic: "idle-developers-dispatch-2026-10-19"
 description: "2026-10-19 round feeding six idle developers (gzapp five, InterWeave one): what each REQUEST asks, what was verified on main, and the two decisions I owe from it (step-up MFA mechanism; ADR-078 rider-side sign after gzapp#1119)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 32baf2200032f6bc
   - da35a4e1dc3465e9
 ---
 
@@ -79,5 +80,9 @@ as one job, one PR theirs; the ci.yml step is devex-tooling's wiring
 until it lands; boundary PR, my word under the minimum. Job j223.
 Lesson: "the Rust lanes ran dry" (2026-10-20) was wrong for S9/S11 —
 read the matrix's `owed` cells per lane before calling a lane idle.
+- 2026-10-24 23:25Z: the 10-21 ux-designer-01 gzapp placement REQUEST (01a15f3e) was sent TO a non-existent login (develop-qzapp/fabric-coordinator; the real address is develop-qzapp/user) and never arrived. Resent as 01a17038 to develop-qzapp/user with the owner's 10-21 word quoted; j228 re-blocked on it. LESSON: fabric-coordinator's login is `user`; gzcoord-send's presence check cannot catch an address no host places when sent --force or before the check existed — verify the login in fabric-ctl all presence before TO.
+- 23:24Z fabric-coordinator undertook the placement as their j392 (REPLY 01a1703b): remit from my proposal + language-culture-en's two passes on design/ specs + product/i18n named by path; PR from their next gzapp session, working copy by bootstrap, then the first work and web-dev-01's two OBSERVATIONs are ux-designer-01's. j228 clears on their PR.
+- 2026-10-28 13:38Z: fabric-coordinator's REPLY 01a182bb-8da6 to 01a17038: the ux-designer gzapp remit is on gzapp #1147 (22eca958b, the flutter/web/language-culture seams 60478c8d2); #1147 unarmed, held on devex-tooling's Makefile rows (ROLE_STACK_ux-designer, port offsets) then the review gate; ux-designer-01 has NO gzapp clone until python-dev-01 builds a control-plane action to place one on an existing account — hold any gzapp REQUEST to ux-designer-01, or send it knowing that. j228 stays blocked on the presence read-back.
+- 2026-10-28 13:48Z: G8 CLI shape ruled for rust-ui-dev-02 (REPLY 01a182c2-97ff to QUESTION 01a182c1-b0c6): a new verb `interweave-human peers state [--json]` (`{peer, connected, last_seen_ms}`, null plus `"last_seen": "unreported"` below IPC 2.12), `peers --json`'s address rows untouched; agent-fabric origin/main has no reader of `peers --json` (grepped runtime/, communication/, tools/, bin/, policies/). Their branch: develop-qzapp/rust-ui-dev-02/feat/j76-peers-state-and-listen-filters off 2c9a045e; PR number is the acknowledgement.
 
 *Observed 2026-10-19 (architect-cto)*

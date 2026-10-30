@@ -5,7 +5,7 @@ topic: "adr-0011-relay-hop-hold-2026-10-21"
 description: "ADR-0011 A 2026-10-21: a circuit that fails at its relay hop holds the circuit route (not the peer) for every caller; why the 2026-10-09 rule looped on the phone; the peer-list row's route_held_until; supplied on p2p-network-dev-02's #329"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

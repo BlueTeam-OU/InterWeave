@@ -5,7 +5,7 @@ topic: "reflection-evidence-for-the-owner-names-its-build-and-source"
 description: A measurement taken to the owner names the commit it ran on and the data it read, and that commit is checked as an ancestor of origin/main first; the same numbers from unmerged code support a narrower claim
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

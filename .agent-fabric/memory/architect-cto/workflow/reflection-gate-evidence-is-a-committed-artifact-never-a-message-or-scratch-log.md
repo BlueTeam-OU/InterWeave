@@ -5,7 +5,7 @@ topic: "reflection-gate-evidence-is-a-committed-artifact-never-a-message-or-scra
 description: "A stage-gate clause cites a committed log with the device, API level, build ids, commits and rows; a message reporting a run is history, not evidence, and a log left in /var/tmp or a scratch directory is wiped by the host"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "reflection-a-held-commit-gets-bounded-carriers-and-a-date"
 description: A commit under the count floor held to ride a later PR names the first of N specific carriers and a date after which it ships alone with the exemption stated; a push without a PR runs no CI and outlives the session
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "reflection-read-every-threshold-a-consumer-s-decision-uses-before-derivi
 description: "Before writing a rule that derives a served value from a consumer's thresholds, read every threshold that consumer's decision uses; a review round finds each missed one separately"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

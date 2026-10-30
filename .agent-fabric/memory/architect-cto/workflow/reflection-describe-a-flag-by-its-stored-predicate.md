@@ -5,7 +5,7 @@ topic: "reflection-describe-a-flag-by-its-stored-predicate"
 description: A derived flag is described by the predicate it stores, the stamp is the fact, never by the state of the world the author assumes it implies
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

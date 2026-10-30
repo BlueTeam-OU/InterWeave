@@ -5,7 +5,7 @@ topic: "rationale-carried-2026-10-18"
 description: "Android accessibility (j141): the owner's 2026-10-18 decision — TalkBack carried to the release gate, the AccessKit bridge built after everything else — and the facts the next step rests on"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

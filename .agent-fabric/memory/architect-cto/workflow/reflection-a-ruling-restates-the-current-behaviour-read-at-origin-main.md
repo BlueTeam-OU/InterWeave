@@ -5,7 +5,7 @@ topic: "reflection-a-ruling-restates-the-current-behaviour-read-at-origin-main"
 description: "When a DECISION or REPLY describes what the code, a contract or a store does today, it cites the file and line read at origin/main; plans, guard-list comments and my own earlier summaries are not the record, and a ruling whose premise…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

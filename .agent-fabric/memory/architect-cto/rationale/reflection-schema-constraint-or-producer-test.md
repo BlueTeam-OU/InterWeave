@@ -5,7 +5,7 @@ topic: "reflection-schema-constraint-or-producer-test"
 description: "An invariant goes into the schema as a constraint when it forbids nothing legitimate, and into the producer's tests when a constraint would also reject valid data; ADR-035 records both outcomes and not the criterion"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

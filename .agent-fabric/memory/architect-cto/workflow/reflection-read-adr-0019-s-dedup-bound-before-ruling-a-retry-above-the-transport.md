@@ -5,7 +5,7 @@ topic: "reflection-read-adr-0019-s-dedup-bound-before-ruling-a-retry-above-the-t
 description: "Before ruling a retry, an undo or a carrier above InterWeave's transport, read ADR-0019's dedup bound: in memory, five-minute window, bounded entries, never persisted, so past the window or a receiver restart a same-id retry is a second…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

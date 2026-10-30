@@ -5,7 +5,7 @@ topic: "reflection-find-where-a-sentence-lives-now-before-routing-its-fix"
 description: "A sentence supplied onto a for/ branch lives in whichever PR folded it, so before ruling which PR carries a fix to it, run git log -S across main and the lanes' branches"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "reflection-a-relayed-owner-direction-is-quoted-verbatim-apart-from-my-re
 description: "A REQUEST that carries the owner's direction to several lanes quotes the owner's words verbatim, apart from my inference; when another role relays an owner word that contradicts my premise, every lane is held at once and the owner asked…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

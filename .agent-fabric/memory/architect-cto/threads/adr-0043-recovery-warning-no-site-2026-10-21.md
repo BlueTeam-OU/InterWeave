@@ -5,7 +5,7 @@ topic: "adr-0043-recovery-warning-no-site-2026-10-21"
 description: "ADR-0043's 'Recovery UX warns when importing an identity expected to still be active elsewhere' has no implementation site (transportctl, desktop, Android); found by Stage 18 TM-48 (IW #337); the warning is owed, detection is the limit"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

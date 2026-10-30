@@ -5,7 +5,7 @@ topic: "reflection-a-ruling-is-final-only-after-its-amendment-passed-review"
 description: A ruling a lane will build on is final only after the amendment carrying it has passed the review class; until then the message says pending review and the reviewed ADR text binds, and when review changes it a numbered correction lists…
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

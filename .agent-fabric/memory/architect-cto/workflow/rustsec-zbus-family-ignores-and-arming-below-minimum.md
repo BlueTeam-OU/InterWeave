@@ -5,13 +5,14 @@ topic: "rustsec-zbus-family-ignores-and-arming-below-minimum"
 description: "The 2026-10-18 CI outage on InterWeave (zbus-family RustSec unmaintained advisories) and what landing #297 taught about folding a supply, the deny.toml boundary, and the architect-cto AUTHORIZES send"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 2adb1e508fc00c29
   - 2f31d0bf8b1186d1
 ---
 
@@ -55,4 +56,8 @@ boundary fold should not rediscover them.
 p2p-network-dev, fold their supply, record it in the open stage's
 dependency-hygiene subsection, review the folded range as a boundary.
 
-*Observed 2026-10-18 (architect-cto)*
+**10:00Z CI outage:** RUSTSEC-2026-0414 (pulldown-cmark 0.13.4, ENABLE_WIKILINKS event growth; fix 0.13.5) reds every PR's tree checks (and #499's self-tests) since ~09:50Z; main 3fe09e2b green at 07:06Z. Slint 1.18.1 + chat-protocol markdown feature pull it; no first-party WIKILINKS use. OBSERVATION to p2p-network-dev-01 (lock bump on #499 or a CI-blocking fix). #500 (7 work, 2 fix, r3 clean at 951a1903) waits: fold main after the bump, full review from the merge-base, then the word.
+
+**10:06Z (p2p-network-dev-01 REPLY 01a181f9-ab41):** fix on #499 = 281a8707 (Cargo.lock only, pulldown-cmark 0.13.5; deny clean locally; chat-protocol markdown tests pass). #499 (3 work) needs its re-review then the word (mine as below-min authority). Plan: word on #499 after its re-review posts; fold main into #500; full review from the merge-base; the owner word on #500. Not folding 281a8707 into the docs PR (a lock bump in a docs PR).
+
+*Observed 2026-10-28 (architect-cto)*

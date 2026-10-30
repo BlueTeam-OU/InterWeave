@@ -5,7 +5,7 @@ topic: "android-no-store-no-play-services"
 description: "The owner's Android distribution rule as of 2026-10-19 — no store (F-Droid dropped for now), the project's own release page, and NO GOOGLE PLAY SERVICES, kept on the owner's explicit word; ADR-0057 supersedes ADR-0056; the facts that…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "reflection-the-repository-name-in-a-message-is-copied-never-composed"
 description: "A DELIVER-TO or REPOSITORY line takes the repository from the registry's remote or the target clone's origin, never composed from the project; gzapp is gzapi-org/gzapp and InterWeave is BlueTeam-OU/InterWeave, so one project's…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
