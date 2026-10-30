@@ -161,8 +161,9 @@ impl FacadeThread {
                     };
                     // The windowed start (design/2026-10-27-start-window.md):
                     // each conversation's summary and the contacts without
-                    // their photos, never a backlog; a conversation's rows
-                    // are read a page at a time as its window asks.
+                    // their photos, no backlog; a conversation's rows are
+                    // read a page at a time as its window asks
+                    // (`the_desktop_starts_windowed_and_an_opened_conversation_reads_one_page`).
                     match side.start() {
                         Ok(start) => out(FromFacade::Update(Box::new(Update::Started(Box::new(
                             start,
