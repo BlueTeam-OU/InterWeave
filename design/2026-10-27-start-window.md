@@ -977,12 +977,14 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     farthest from the focused reply, which is the target, and the
     reply, still in view, shows `ReplyUnavailable` (§5.2's interim).
     Nothing is announced. Give focus back to the app window: focus is
-    on the reply, which still shows `ReplyUnavailable`. Set the test ceiling out of reach,
-    scroll up until the target loads, and scroll back down: the reply
-    shows `ReplyPresent`. That return happens off screen, since the
-    target loads only with the top edge in view; the interim's change
-    in place back to `ReplyPresent` is not checked, and under the full
-    rule (b) a release changes no line at all. On a desktop with a screen reader,
+    on the reply, which still shows `ReplyUnavailable`. Set the test ceiling out of reach and,
+    with the reply still in view, move focus from the keyboard up to
+    the top edge (Shift+Tab or the arrow keys on the desktop,
+    TalkBack's swipe on the phone): the view does not move (§5), the
+    target loads, and the reply, still in view, changes to
+    `ReplyPresent`. Nothing is announced for the change, and focus is
+    where the person moved it. Under the full rule (b) a release
+    changes no line at all. On a desktop with a screen reader,
     the line is read as part of its row in both states. (b) Blocked
     until the store can be asked by message id (§5.2): a reply whose
     target is released by the ceiling, or is kept and older than
