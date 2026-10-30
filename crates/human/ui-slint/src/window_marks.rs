@@ -66,6 +66,8 @@ pub(crate) struct Marks {
     place: Option<(Option<ItemKey>, Vec<ItemKey>)>,
     /// The focus the app last placed: focus there is not the person's.
     app_focus: RefCell<Option<String>>,
+    /// The contacts last reported shown.
+    avatars: HashSet<String>,
     /// For each mark a person can focus, the focus target of what stands
     /// just below it as last drawn: the next mark at its place, else the
     /// row the marks stand above (section 7's focus table).
@@ -95,9 +97,8 @@ impl Marks {
 pub(crate) struct WindowReports {
     /// Contacts' Try again was pressed.
     pub(crate) contacts_try_again: bool,
-    /// Each contact whose avatar came into view (true) or left it, as it
-    /// last stood.
-    pub(crate) photos: HashMap<String, bool>,
+    /// The Contacts rows in view, by handle, as their rows last said.
+    pub(crate) contact_rows: HashSet<i32>,
     in_view: HashSet<i32>,
     at_top: bool,
     /// Which way it last moved: true toward older rows.
@@ -517,6 +518,28 @@ impl View {
         }
     }
 
+    /// The avatars shown and hidden since the last call, in the windowed
+    /// mode: the difference between what the pages show now and what was
+    /// reported, so an avatar whose page went is hidden whatever became of
+    /// its row (`leaving_contacts_hides_the_avatars_it_showed`).
+    fn avatar_events(&mut self) -> Vec<WindowEvent> {
+        let now = if self.marks.windowed {
+            self.avatars_shown()
+        } else {
+            HashSet::new()
+        };
+        let mut hidden: Vec<String> = self.marks.avatars.difference(&now).cloned().collect();
+        let mut shown: Vec<String> = now.difference(&self.marks.avatars).cloned().collect();
+        hidden.sort();
+        shown.sort();
+        self.marks.avatars = now;
+        hidden
+            .into_iter()
+            .map(WindowEvent::PhotoHidden)
+            .chain(shown.into_iter().map(WindowEvent::PhotoShown))
+            .collect()
+    }
+
     /// The opening and closing since the last call.
     fn open_events(&mut self) -> Vec<WindowEvent> {
         let want = self.window_conversation();
@@ -533,6 +556,8 @@ impl View {
         self.marks.opened = want;
         self.marks.reached.clear();
         self.marks.place = None;
+        // Another conversation's rows: none of the last one's is in view.
+        self.shared.borrow_mut().window_view.in_view.clear();
         events
     }
 
@@ -549,6 +574,18 @@ impl View {
             .strip_prefix("item:")
             .and_then(|h| h.parse::<i32>().ok())
             .and_then(|h| self.item_handles.key_of(h).copied());
+        // Handles of rows no longer drawn are dropped: a row that goes
+        // says nothing as it goes.
+        let drawn: HashSet<i32> = self
+            .message_keys
+            .iter()
+            .filter_map(|k| self.item_handles.handle_of(k))
+            .collect();
+        self.shared
+            .borrow_mut()
+            .window_view
+            .in_view
+            .retain(|h| drawn.contains(h));
         let (in_view, moved_up) = {
             let shared = self.shared.borrow();
             (
@@ -704,18 +741,7 @@ impl View {
             events.push(WindowEvent::ContactsTryAgain);
             self.focus_key(crate::cards::CONTACTS_TRY_AGAIN_FOCUS.to_owned());
         }
-        let mut photos: Vec<(String, bool)> =
-            std::mem::take(&mut self.shared.borrow_mut().window_view.photos)
-                .into_iter()
-                .collect();
-        photos.sort();
-        events.extend(photos.into_iter().map(|(id, shown)| {
-            if shown {
-                WindowEvent::PhotoShown(id)
-            } else {
-                WindowEvent::PhotoHidden(id)
-            }
-        }));
+        events.extend(self.avatar_events());
         let presses = std::mem::take(&mut self.shared.borrow_mut().window_presses);
         let Some(conversation) = self.marks.opened.clone() else {
             return events;

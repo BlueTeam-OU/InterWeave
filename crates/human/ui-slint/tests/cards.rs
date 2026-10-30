@@ -4061,3 +4061,51 @@ fn a_contact_page_waits_for_its_photo_and_an_unreadable_one_keeps_remove_photo()
     assert!(!view.window().get_contact_photo_shown(), "initials");
     assert!(shows(&view, text(UiText::RemovePhoto)), "still removable");
 }
+
+fn avatar_reports(view: &mut View) -> (usize, usize) {
+    let events = view.take_window_events();
+    let count = |shown: bool| {
+        events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    (e, shown),
+                    (interweave_human_ui_model::WindowEvent::PhotoShown(_), true)
+                        | (
+                            interweave_human_ui_model::WindowEvent::PhotoHidden(_),
+                            false
+                        )
+                )
+            })
+            .count()
+    };
+    (count(true), count(false))
+}
+
+/// Leaving Contacts hides every avatar it showed, though its rows went
+/// with no word of their own, so the photo cache can let them go; coming
+/// back shows them again (#512 review F3: the cache's bound rests on what
+/// is shown). Mutation: avatars reported only by the rows' own changes --
+/// nothing hidden on leaving.
+#[test]
+fn leaving_contacts_hides_the_avatars_it_showed() {
+    let mut view = view();
+    let mut model = windowed_contacts(3);
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::ContactsTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    assert_eq!(avatar_reports(&mut view), (3, 0));
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    settle();
+    assert_eq!(avatar_reports(&mut view), (0, 3), "all hidden on leaving");
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::ContactsTitle));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    settle();
+    assert_eq!(avatar_reports(&mut view), (3, 0), "shown again");
+}

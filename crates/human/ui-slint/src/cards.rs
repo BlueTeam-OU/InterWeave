@@ -189,17 +189,14 @@ pub(crate) const CONTACTS_TRY_AGAIN_FOCUS: &str = "close-cards";
 pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     let s = Rc::clone(shared);
     window.on_contact_in_view(move |handle, shown| {
-        let id = s.borrow().cards.contacts.get(&handle).cloned();
-        if let Some(id) = id {
-            // Only one coming into view asks the root for a turn: its photo
-            // is to be read; one leaving waits for the next.
-            if shown {
-                crate::flag(&s, |s| {
-                    s.window_view.photos.insert(id, true);
-                });
-            } else {
-                s.borrow_mut().window_view.photos.insert(id, false);
-            }
+        // Only a row coming into view asks the root for a turn: its photo
+        // is to be read; one leaving waits for the next.
+        if shown {
+            crate::flag(&s, |s| {
+                s.window_view.contact_rows.insert(handle);
+            });
+        } else {
+            s.borrow_mut().window_view.contact_rows.remove(&handle);
         }
     });
     let s = Rc::clone(shared);
@@ -1015,16 +1012,35 @@ impl View {
         self.cards.photo_picker.is_some() || cfg!(feature = "desktop")
     }
 
+    /// The contacts whose avatars the card pages show now: the Contacts
+    /// rows in view while the list is drawn, the contact whose page is
+    /// open or waited for. Whatever a page no longer draws is in none of
+    /// them, however its rows went (#512 review F3).
+    pub(crate) fn avatars_shown(&self) -> HashSet<String> {
+        let shared = self.shared.borrow();
+        let mut shown = HashSet::new();
+        match self.cards.page {
+            Some(CardsPage::Contacts) => {
+                shown.extend(
+                    shared
+                        .window_view
+                        .contact_rows
+                        .iter()
+                        .filter_map(|h| shared.cards.contacts.get(h).cloned()),
+                );
+            }
+            Some(CardsPage::Contact) => shown.extend(self.cards.contact.clone()),
+            _ => {}
+        }
+        shown.extend(self.cards.contact_waiting.clone());
+        shown
+    }
+
     /// Show contact `id`'s page, focus on its back arrow.
     /// Open a contact's page with its photo: one not read yet is asked,
     /// and the page waits for it, with no loading state, so it never shows
     /// initials for a photo that can be read (start-window section 11).
     fn open_contact_with_photo(&mut self, model: &UiModel, window: &AppWindow, id: String) {
-        self.shared
-            .borrow_mut()
-            .window_view
-            .photos
-            .insert(id.clone(), true);
         if model.contact_photo(&id) == PhotoState::Initials {
             self.cards.contact_waiting = Some(id);
         } else {
@@ -1568,6 +1584,11 @@ impl View {
                 .iter()
                 .zip(&self.cards.contacts_shown)
                 .all(|(a, b)| a.contact_id == b.contact_id);
+        // Rows made again report their place again: what the rows said
+        // before is no longer theirs.
+        if !same_rows || self.cards.page != Some(CardsPage::Contacts) {
+            self.shared.borrow_mut().window_view.contact_rows.clear();
+        }
         if same_rows {
             for (i, row) in drawn.iter().enumerate() {
                 if rows.row_data(i).as_ref() != Some(row) {
