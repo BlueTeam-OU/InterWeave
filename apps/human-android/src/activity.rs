@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboarding};
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
-use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent};
+use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::{
     ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, TouchSettings, View, defer, init_android,
     invoke_on_window,
@@ -32,6 +32,13 @@ impl Surface for AndroidSurface {
 
     fn take_events(&mut self, model: &UiModel) -> Vec<ViewEvent> {
         self.0.borrow_mut().take_events(model)
+    }
+
+    // The open conversation's window, the avatars in view and the
+    // Contacts list's Try again, as on the desktop: without them a
+    // windowed start opens no conversation and reads no page.
+    fn take_window(&mut self) -> Vec<WindowEvent> {
+        self.0.borrow_mut().take_window_events()
     }
 }
 
