@@ -1206,3 +1206,38 @@ fn a_window_event_says_whether_anything_drawn_changed() {
             .any(|m| m.kind == MarkKind::AtLimit(Edge::Top))
     );
 }
+
+/// A gap's marks come in section 8's reading order: the upper side's row,
+/// the lower side's row, then the gap's line, all where the gap stands.
+/// Mutation: the line before the lower side's row.
+#[test]
+fn a_gaps_marks_follow_section_8s_reading_order() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Unread);
+    for edge in [Edge::GapUpper(id), Edge::GapLower(id)] {
+        model.window_input(WindowInput::Reached {
+            conversation: conversation(),
+            edge,
+        });
+    }
+    let kinds: Vec<MarkKind> = model
+        .window_marks(&conversation())
+        .into_iter()
+        .filter(|m| m.place != MarkPlace::Top)
+        .map(|m| m.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            MarkKind::AtLimit(Edge::GapUpper(id)),
+            MarkKind::AtLimit(Edge::GapLower(id)),
+            MarkKind::EarlierUnread {
+                edge: Edge::GapLower(id),
+                count: 4
+            },
+        ]
+    );
+}

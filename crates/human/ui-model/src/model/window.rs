@@ -1094,8 +1094,13 @@ impl UiModel {
         for (id, gap) in &window.gaps {
             let upper = place_after(&drawn, self.mark_pos(window, gap.above));
             let lower = place_at(&drawn, self.mark_pos(window, gap.below));
+            // Section 8's reading order in a gap: the upper side's row, the
+            // lower side's row, then the gap's line, then the row below.
             if let Some(kind) = side_mark(gap.upper.state, Edge::GapUpper(*id)) {
                 marks.push(WindowMark { place: upper, kind });
+            }
+            if let Some(kind) = side_mark(gap.lower.state, Edge::GapLower(*id)) {
+                marks.push(WindowMark { place: lower, kind });
             }
             if gap.unread > 0 {
                 marks.push(WindowMark {
@@ -1105,9 +1110,6 @@ impl UiModel {
                         count: gap.unread,
                     },
                 });
-            }
-            if let Some(kind) = side_mark(gap.lower.state, Edge::GapLower(*id)) {
-                marks.push(WindowMark { place: lower, kind });
             }
         }
         let mut runs: Vec<(MarkPlace, u64)> = Vec::new();
