@@ -692,6 +692,53 @@ component FocusHeading inherits FocusScope {
     }
 }
 
+// A line the windowed mode draws among rows (design/2026-10-27-start-
+// window.md section 8): EarlierUnread, ReadNotShown, RowsNotShown. Styled
+// as the day separator, centred in body small; text a person moves focus
+// to and a screen reader reads as one item, never announced. It wraps at
+// any text size, never cut.
+component MarkLine inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
+    in property <string> text;
+    in property <string> focus-key;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    callback focused(string);
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    // The layout is the only child counted for the line's size; a wrapped
+    // text under it measures a line short unless it says its own height.
+    VerticalLayout {
+        padding-top: 4px;
+        padding-bottom: 4px;
+        Text {
+            text: root.text;
+            font-size: Type.body-small;
+            color: Palette.on-surface-variant;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+            accessible-role: none;
+        }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        shown: root.has-focus;
+    }
+}
+
 // An indeterminate progress mark: an arc that turns while an answer is
 // awaited, and stands still -- still shown -- under reduced motion
 // (design 2026-10-22-add-a-peer section 5.3).
@@ -2714,6 +2761,9 @@ export component AppWindow inherits Window {
     in property <string> conversations-heading;
     in property <string> messages-heading;
     in property <[ConversationRow]> conversations;
+    // Chats' closing line (start-window section 6.1): the stored rows this
+    // version cannot show; empty for none.
+    in property <string> rows-not-shown;
     in property <[MessageRow]> messages;
     in property <string> header-title;
     // The full PeerId of a direct conversation, or the channel id (U5a).
@@ -3982,6 +4032,14 @@ export component AppWindow inherits Window {
                     radius: 12px;
                     shown: conversation.has-focus;
                 }
+            }
+            // Read after the last conversation (start-window section 8).
+            if root.rows-not-shown != "": MarkLine {
+                text: root.rows-not-shown;
+                focus-key: "rows-not-shown";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "rows-not-shown";
+                focused(k) => { root.focus-id = k; }
             }
             }
             }

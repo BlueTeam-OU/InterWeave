@@ -2022,6 +2022,26 @@ impl View {
             })
             .collect();
         self.previews.retain(|key, _| keys.contains(key));
+        // The stored rows this version cannot show, after the last
+        // conversation, in either mode (start-window section 6.1).
+        let hidden = model.rows_not_shown();
+        let rows_not_shown = if hidden == 0 {
+            SharedString::new()
+        } else {
+            let count = hidden.to_string();
+            fill(
+                placeholder_en::text(interweave_human_ui_model::by_count(
+                    u64::try_from(hidden).unwrap_or(u64::MAX),
+                    UiText::RowsNotShownOne,
+                    UiText::RowsNotShown,
+                )),
+                &[("count", &count)],
+            )
+            .into()
+        };
+        if self.window.get_rows_not_shown() != rows_not_shown {
+            self.window.set_rows_not_shown(rows_not_shown);
+        }
         // "01:18" becomes "Yesterday" at midnight with nothing else changed.
         // One timer, held here and moved only when midnight does: every
         // render reaching this, a timer each would pile up all day and wake
@@ -2130,7 +2150,10 @@ impl View {
         {
             return text.clone();
         }
-        let first = body::first_line(&last.body, &image_text);
+        // The model's cut (design/2026-10-27-start-window.md section 3):
+        // the same whether the row is held or read from the store for the
+        // start, so a preview does not change when its row loads.
+        let first = last.preview.shown().into_owned();
         // One's own card row has no text: its line is the preview, and
         // already says whose (contact-cards 5.5). The design's
         // CardPreviewSent reads the same words, and no two interface texts
