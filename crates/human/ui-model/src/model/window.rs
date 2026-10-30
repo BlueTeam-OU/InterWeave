@@ -312,9 +312,11 @@ struct Gap {
 
 /// A place in a conversation's drawn order: when, a message before a card
 /// at the same instant (as a view places a card after every message that
-/// arrived no later), then the table and row. Positions are compared, never
-/// looked up, so a mark keeps its place when the row it was taken from is
-/// read, hidden or let go.
+/// arrived no later), then the table and row. Positions are compared, not
+/// looked up among the held rows, so a mark keeps its place when the row it
+/// was taken from is read, hidden or let go
+/// (`a_gap_keeps_its_place_when_the_row_below_it_is_read`,
+/// `a_read_not_shown_line_stays_when_the_row_below_it_is_hidden`).
 type Pos = (u64, u8, Table, i64);
 
 /// The open conversation's window.
@@ -1189,8 +1191,8 @@ impl UiModel {
     }
 
     /// Runs of dropped rows with nothing drawn between them are one run,
-    /// kept at the newest one's place, so the runs are never more than
-    /// what is drawn, plus one.
+    /// kept at the newest one's place
+    /// (`each_run_of_dropped_rows_has_one_line_with_its_count`).
     pub(super) fn join_runs(&mut self) {
         let Some(conversation) = self.windows.open_conversation().cloned() else {
             return;

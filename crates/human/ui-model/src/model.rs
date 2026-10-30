@@ -720,7 +720,8 @@ pub struct UiModel {
     /// The contacts as the windowed mode reads them, and their photos.
     directory: directory::Directory,
     /// Stored rows the last listing or start could not decode for
-    /// display: held in the store, never shown (design section 6.1).
+    /// display: held in the store, and Chats' closing line says how many
+    /// (design section 6.1).
     rows_not_shown: usize,
 }
 
