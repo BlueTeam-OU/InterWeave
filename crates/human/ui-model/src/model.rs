@@ -719,6 +719,9 @@ pub struct UiModel {
     windows: window::Windows,
     /// The contacts as the windowed mode reads them, and their photos.
     directory: directory::Directory,
+    /// Stored rows the last listing or start could not decode for
+    /// display: held in the store, never shown (design section 6.1).
+    rows_not_shown: usize,
 }
 
 impl Default for UiModel {
@@ -763,6 +766,7 @@ impl UiModel {
             windowed: None,
             windows: window::Windows::default(),
             directory: directory::Directory::default(),
+            rows_not_shown: 0,
         }
     }
 
