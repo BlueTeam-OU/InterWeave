@@ -341,6 +341,18 @@ impl Windows {
         let Some((older_than, newer_than, order)) = window.bounds(edge) else {
             return;
         };
+        // One page of a gap at a time (section 5.1): the rows on its two
+        // sides stand next to each other on screen, so both are reached
+        // together, and two pages would read the same rows and count them
+        // twice out of the gap's line
+        // (`reaching_both_sides_of_a_gap_asks_one_page`).
+        if let Edge::GapUpper(id) | Edge::GapLower(id) = edge
+            && window.gaps.get(&id).is_some_and(|g| {
+                g.upper.state == EdgeState::InFlight || g.lower.state == EdgeState::InFlight
+            })
+        {
+            return;
+        }
         if let Some(side) = window.side(edge) {
             side.state = EdgeState::InFlight;
         }
@@ -660,6 +672,20 @@ impl UiModel {
                     PageEnd::More | PageEnd::RoomUsed => EdgeState::Armed,
                 };
             }
+        }
+        // The gap's other side, reached while this page was on its way and
+        // so not asked then, is asked now that none is.
+        let other = match edge {
+            Edge::GapUpper(id) if !gap_done => Some(Edge::GapLower(id)),
+            Edge::GapLower(id) if !gap_done => Some(Edge::GapUpper(id)),
+            _ => None,
+        };
+        if let Some(other) = other
+            && window
+                .side(other)
+                .is_some_and(|s| s.at && matches!(s.state, EdgeState::Armed | EdgeState::AtLimit))
+        {
+            self.reach(other);
         }
         self.hold_ceiling();
     }

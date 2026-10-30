@@ -870,3 +870,85 @@ fn a_sent_message_newest_leaves_the_newest_stored_row_held() {
         "into a gap, read back from either side"
     );
 }
+
+/// The rows on a gap's two sides stand next to each other on screen, so
+/// both are reached together: one page is asked, the other side's after
+/// it arrives, and no row is read twice (section 5.1: no page of a gap
+/// while another of the same gap is in flight). Mutation: the guard in
+/// `Windows::ask` removed -- two asks over the same rows.
+#[test]
+fn reaching_both_sides_of_a_gap_asks_one_page() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Kept, PageEnd::Exhausted);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Kept);
+    for edge in [Edge::GapUpper(id), Edge::GapLower(id)] {
+        model.window_input(WindowInput::Reached {
+            conversation: conversation(),
+            edge,
+        });
+    }
+    let upper = one_ask(&mut model);
+    assert_eq!(upper.edge, Edge::GapUpper(id));
+    model.page_arrived(rows_of(&upper, &[n - 4, n - 3], Table::Kept, PageEnd::More));
+    let lower = one_ask(&mut model);
+    assert_eq!(lower.edge, Edge::GapLower(id), "the other side after it");
+    assert_eq!(
+        lower.newer_than.map(|m| m.row),
+        Some(RowId::from_stored(n - 3)),
+        "past the rows the first page read"
+    );
+    model.page_arrived(rows_of(
+        &lower,
+        &[n - 1, n - 2],
+        Table::Kept,
+        PageEnd::Exhausted,
+    ));
+    assert!(model.take_page_asks().is_empty());
+    for back in n - 4..n {
+        assert!(holds(&model, back, Table::Kept), "row {back} back");
+    }
+}
+
+/// The same with unread rows at the session bound, where Show more
+/// messages asks: the second side's Show more waits for the first page,
+/// and the gap's line counts each row out once. Mutation: the guard
+/// removed -- two asks, and the line short by the rows read twice.
+#[test]
+fn show_more_on_both_sides_of_a_gap_counts_each_row_once() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    assert_eq!(gap_lines(&model), [4]);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Unread);
+    for edge in [Edge::GapUpper(id), Edge::GapLower(id)] {
+        model.window_input(WindowInput::Reached {
+            conversation: conversation(),
+            edge,
+        });
+    }
+    assert!(model.take_page_asks().is_empty(), "both at the limit");
+    for edge in [Edge::GapUpper(id), Edge::GapLower(id)] {
+        model.window_input(WindowInput::ShowAnyway {
+            conversation: conversation(),
+            edge,
+        });
+    }
+    let upper = one_ask(&mut model);
+    model.page_arrived(page(&upper, &[n - 4, n - 3], PageEnd::More));
+    assert_eq!(gap_lines(&model), [2], "each row counted out once");
+    let lower = one_ask(&mut model);
+    model.page_arrived(page(&lower, &[n - 1, n - 2], PageEnd::Exhausted));
+    assert!(gap_lines(&model).is_empty(), "the gap is gone");
+}
+
+fn gap_id(model: &UiModel) -> u64 {
+    model
+        .windows
+        .open
+        .as_ref()
+        .and_then(|w| w.gaps.keys().next().copied())
+        .expect("a gap")
+}
