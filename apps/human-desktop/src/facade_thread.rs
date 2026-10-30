@@ -159,8 +159,14 @@ impl FacadeThread {
                         out(FromFacade::FacadeFailed);
                         return;
                     };
-                    match side.listing() {
-                        Ok(listing) => out(FromFacade::Update(Box::new(Update::Listed(listing)))),
+                    // The windowed start (design/2026-10-27-start-window.md):
+                    // each conversation's summary and the contacts without
+                    // their photos, never a backlog; a conversation's rows
+                    // are read a page at a time as its window asks.
+                    match side.start() {
+                        Ok(start) => out(FromFacade::Update(Box::new(Update::Started(Box::new(
+                            start,
+                        ))))),
                         Err(_) => out(FromFacade::ListingFailed),
                     }
                     let mut daemon: Option<Option<bool>> = None;

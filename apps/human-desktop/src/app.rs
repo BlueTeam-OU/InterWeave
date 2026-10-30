@@ -7,7 +7,7 @@
 
 use interweave_human_app_core::{ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_transport_client::{ClientEvent, SessionState};
-use interweave_human_ui_model::{UiModel, ViewEvent};
+use interweave_human_ui_model::{UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::View;
 
 use crate::facade_thread::{FacadeThread, FromFacade};
@@ -22,6 +22,10 @@ impl Surface for SlintSurface {
 
     fn take_events(&mut self, model: &UiModel) -> Vec<ViewEvent> {
         self.0.take_events(model)
+    }
+
+    fn take_window(&mut self) -> Vec<WindowEvent> {
+        self.0.take_window_events()
     }
 }
 
