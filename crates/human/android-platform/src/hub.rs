@@ -315,6 +315,13 @@ impl Hub {
 
     /// Before a facade carries out a command: waits while a test holds
     /// commands ([`Self::hold_commands_for_test`]); nothing otherwise.
+    #[cfg_attr(
+        not(feature = "test-hooks"),
+        expect(
+            clippy::unused_self,
+            reason = "the test-hooks build reads the held commands"
+        )
+    )]
     pub(crate) fn before_command(&self) {
         #[cfg(feature = "test-hooks")]
         if let Some(held) = self
