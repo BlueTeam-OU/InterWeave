@@ -513,12 +513,16 @@ requires is that **paging never drops a read row on its own**.
   rows in today's order. From then until the conversation is closed,
   paging is automatic again (§5) and drops as it needs: the person
   chose that once for this opening. Closing and reopening the
-  conversation asks again. A conversation is closed when it is no
-  longer shown: another conversation, Trust, Peers or Contacts in its
-  place on a wide layout closes it too, as §1's read rule already
-  treats "open" as "shown", and coming back asks again, since a
-  choice about losing rows is asked again rather than assumed
-  (QUESTION 01a18b25, U5). Whether its held rows are kept meanwhile
+  conversation asks again. The conversation is closed when the person
+  leaves it for Chats (narrow layout), for another conversation, or
+  for a page of the Chats screen's menu shown in its place (Trust,
+  Peers, Contacts, Your identities or Your card); coming back asks
+  again, since a choice about losing rows is asked again rather than
+  assumed (QUESTION 01a18b25, U5). It is not closed by a page opened
+  from inside it and left with Back (its Details, a contact page
+  reached from one of its proposals), nor by its app window losing
+  focus or the app going to the background, which §5.1 already treats
+  as the same open conversation. Whether its held rows are kept meanwhile
   is the builder's (§3); the person sees no difference.
 - The unread rows not loaded stay unread and stored: the badge and
   `EarlierUnread` stay true, and they can be read later (after other
