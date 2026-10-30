@@ -957,16 +957,22 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     held shows `ReplyPresent`. Dismiss the target: while its snackbar
     is open the reply shows `ReplyUnavailable`; press Undo:
     `ReplyPresent`. Dismiss it again and let the snackbar close: the
-    reply shows `ReplyUnavailable`. With item 14's
-    test ceiling, fill A with kept rows as in item 14 (b), with a reply
-    among the newest rows whose target is among the oldest. Page up to
-    the target, then come back down to the reply: as rows below load,
-    the rows farthest from the reply are released (§5.1), the target
-    among them, and once it is released with the reply in view the
-    reply shows `ReplyUnavailable` (§5.2's interim). Scroll back up to
-    the target until it loads: the reply, when next in view, shows
-    `ReplyPresent` again. Neither change is announced,
-    and focus stays where it was. On a desktop with a screen reader,
+    reply shows `ReplyUnavailable`. Then a release in view: give B
+    kept rows only, its oldest the target, a reply to it a little more
+    than one view's rows below, and fewer rows below the reply than
+    lie between the reply and the target. Open B in a focused app
+    window and scroll up until the target loads, so that B holds every
+    row. Set item 14's test ceiling to the number of rows B holds.
+    Scroll down until the reply is in view and the target is not, and
+    move focus to the reply. Take focus away from the app window and
+    deliver one row to B, which stays unread and so is a stored row
+    the ceiling counts (§1, §5.1): the ceiling releases the held row
+    farthest from the focused reply, which is the target, and the
+    reply, still in view, shows `ReplyUnavailable` (§5.2's interim).
+    Nothing is announced. Give focus back to the app window: focus is
+    on the reply, which still shows `ReplyUnavailable`. Set the test ceiling out of reach,
+    scroll up until the target loads, and scroll back down: the reply
+    shows `ReplyPresent`. On a desktop with a screen reader,
     the line is read as part of its row in both states. (b) Blocked
     until the store can be asked by message id (§5.2): a reply whose
     target is released by the ceiling, or is kept and older than
