@@ -150,9 +150,10 @@ Evidence and hypotheses behind the choices below:
   builder.
 - **A Chats row needs a summary, not the conversation's rows.** The
   rows of a conversation are loaded when it is opened, its newest rows
-  up to the row and byte budget; a closed conversation holds none of
+  up to the row and byte budget; a closed conversation needs none of
   its stored rows in memory, only its summary (a preview line, a time,
-  a count). Starting the app loads summaries and the pending rows, and
+  a count), and whether the builder keeps them a while is its choice
+  (below), which the person cannot tell. Starting the app loads summaries and the pending rows, and
   no conversation's window. One conversation's backlog never pushes
   another conversation's stored rows out of the list, its badge or
   its preview: the held-row ceiling may release another conversation's
