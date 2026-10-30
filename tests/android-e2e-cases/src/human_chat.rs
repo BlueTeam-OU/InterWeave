@@ -442,6 +442,15 @@ pub(crate) fn human_chat(
     )?;
     if seen.windowed {
         side.surface_mut().opens = Some(key.clone());
+        // Open before the first draft: a turn takes the person's events
+        // before the window's, so a draft queued now would be sent first.
+        // The opening is taken in the turn that applies it.
+        while side.surface_mut().opens.is_some() {
+            step(client, &mut side, &mut seen)?;
+            if Instant::now() >= until {
+                return Err("the conversation was never opened".to_owned());
+            }
+        }
     }
 
     // Each draft typed and sent as a person would, one at a time: the
