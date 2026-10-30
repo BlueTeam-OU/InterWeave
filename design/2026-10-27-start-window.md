@@ -31,7 +31,10 @@ QUESTION 01a180cb: what one conversation's backlog may do to another
 (§3). And for its QUESTION 01a18b25 (B3's views): the progress row
 at the very top, held proposals and gaps, which side of a gap
 fetches, when a conversation is closed, and the Decline-only
-proposal (§5, §5.1, §7.1, §10, §11).
+proposal (§5, §5.1, §7.1, §10, §11). And for its QUESTION 01a18cfc
+(B4): Connect closes the conversation too (§7.1, §10), and the
+window's lines and rows after a card's confirmation row are in the
+Accept snackbar's span (contact-cards §5.4.2).
 
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
@@ -534,7 +537,8 @@ requires is that **paging never drops a read row on its own**.
   leaves it for Chats (narrow layout), for another conversation, or
   for one of these pages shown in its place, by whatever route (the
   Chats screen's menu, the identity switch, Share): Trust, Peers,
-  Contacts, Your identities, Your card; coming back asks
+  Contacts, Your identities, Your card, and onboarding's Connect
+  (add-a-peer §5.1; QUESTION 01a18cfc, Q1); coming back asks
   again, since a choice about losing rows is asked again rather than
   assumed (QUESTION 01a18b25, U5). It is not closed by a page opened
   from inside it and left with Back (its Details, a contact page
@@ -792,7 +796,17 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     moves by the difference in height once, focus is on its Try again,
     and `EarlierLoadFailed` is announced once; pressing Try again and
     failing again within 250 ms leaves the row, focus on Try again,
-    and announces it once more.
+    and announces it once more. Then, on a wide window, for each page
+    of §7.1's list in turn (Trust, Peers, Contacts, Your identities,
+    Your card; Connect, with a test hook that shows it, since Connect
+    otherwise shows only before a conversation is opened): page up to
+    the limit row and press `EarlierShowAnyway`, open the page in A's
+    place, and come back to A; paging up to the bound shows the limit
+    row again each time. Then press `EarlierShowAnyway` at the limit
+    row a single time, open A's Details and come back to A with Back,
+    then open a contact page reached from one of A's proposals and
+    come back to A with Back; after each return with Back, the next
+    page of older rows past the bound loads without asking.
 13. **An undecodable unread row**: add one to A's store, as its oldest
     row. It is not counted on the line or on A's badge; the line goes
     once every other unread row is loaded, and once the store holds
