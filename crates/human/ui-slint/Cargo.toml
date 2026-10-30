@@ -114,6 +114,10 @@ interweave-human-core = { path = "../core" }
 # tests/cards.rs: the fingerprint of the fixture's test key, as the client
 # computes it, against the fixture's vector.
 interweave-human-store = { path = "../store" }
+# TEST-ONLY: the model's test bounds and its Connect hook, for the
+# window's walk over the pages that take a conversation's place
+# (tests/window.rs).
+interweave-human-ui-model = { path = "../ui-model", features = ["test-hooks"] }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
 interweave-transport-api = { path = "../../api/transport-api" }
 # The render-parity golden is JSON (tests/render_parity.rs).
