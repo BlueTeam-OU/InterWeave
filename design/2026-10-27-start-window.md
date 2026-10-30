@@ -460,6 +460,7 @@ screen hold for every other case.
 | Focus was on | It disappears when | Focus goes to | Check |
 |---|---|---|---|
 | any row, or the `EarlierUnread` line | a page is added above it or below the line | stays where it was; nothing moves | §10 items 4 and 5 |
+| the `EarlierUnread` line or the oldest row, at the view's very top | the progress row shows above it, then goes (§5) | stays on it while it moves down by the row's height and back; no other change | §10 item 3b |
 | the row just above a gap, or any row above it | a page of the gap is added below it, from the gap's upper side (§5.1) | stays where it was; nothing moves | §10 item 14 |
 | the `EarlierUnread` line, at the top or in a gap (§5.1) | its count reaches zero | the row that was just below the line, as app-placed focus (no fetch, §5) | §10 items 6 and 14 |
 | the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the failure row, as app-placed focus: at the top edge the line, else the oldest loaded row; in a gap, for the upper side's row, the lower side's row if it shows, else the gap's line, else the row below the gap, and for the lower side's row, the gap's line, else the row below the gap (§5.1) | §10 items 7 and 14 |
@@ -638,8 +639,10 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
    be accepted: B's preview is "You: " and that message.
 3b. **Placement** (§5, §5.1, §7.1, §11; QUESTION 01a18b25): with the
    view at A's very top and the next page held (a test hook), the
-   progress row shows in view after 250 ms and the rows below move
-   down by its height, once. With a held proposal standing among
+   progress row shows in view after 250 ms and the line and the rows
+   below move down by its height; release the page: the progress row
+   goes, the line moves back to the top once, and focus, if on the
+   line, stays on it through both. With a held proposal standing among
    released rows, two gaps show around it, each loading on its own,
    and at the top edge every mark stands above a leading proposal.
    With a gap wholly in view and no movement, its lower side fetches
