@@ -586,6 +586,24 @@ fn scrolling_the_top_into_view_reaches_it_once_and_away_leaves_it() {
     let _ = from;
 }
 
+/// Shift+Tab until focus is on `key`, as a person moves it; false when
+/// it never gets there.
+fn backtab_to(view: &View, key: &str) -> bool {
+    let back: slint::SharedString = slint::platform::Key::Backtab.into();
+    for _ in 0..2_000 {
+        if view.window().get_focus_id() == key {
+            return true;
+        }
+        view.window()
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::KeyPressed { text: back.clone() });
+        view.window()
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::KeyReleased { text: back.clone() });
+    }
+    false
+}
+
 /// Moving focus onto the top's line, by Tab, reaches the top edge: every
 /// gesture has a non-gesture equivalent (section 8). Mutation: focus never
 /// reaching an edge.
@@ -687,4 +705,64 @@ fn a_message_arriving_at_the_end_up_in_the_history_moves_nothing() {
         (after - before).abs() <= 1.0,
         "nothing moves: {before} then {after}"
     );
+}
+
+/// Focus on the line when its count reaches zero goes to the row that was
+/// just below it, as app-placed focus (section 7's table). Mutation: focus
+/// left on the line no longer drawn.
+#[test]
+fn focus_on_the_line_at_zero_goes_to_the_row_below() {
+    let mut view = view();
+    let from = peer();
+    let mut model = opened(&mut view, &from, 20);
+    page(&mut model, &from, 11..=20);
+    view.render(&model);
+    apply(&mut view, &mut model);
+    assert!(
+        backtab_to(&view, "earlier-unread:t"),
+        "the line takes focus"
+    );
+    apply(&mut view, &mut model);
+    page(&mut model, &from, 1..=10);
+    view.render(&model);
+    apply(&mut view, &mut model);
+    settle();
+    let focus = view.window().get_focus_id().to_string();
+    assert!(focus.starts_with("item:"), "on the row below: {focus}");
+}
+
+/// Focus on a pressed Try again, once its page arrives, goes to the item
+/// that was just below the failure row: the line, or with the line gone
+/// the row that was oldest (section 7's table). Mutation: focus left on
+/// the button no longer drawn.
+#[test]
+fn focus_on_a_pressed_try_again_goes_below_once_the_page_arrives() {
+    let mut view = view();
+    let from = peer();
+    let mut model = opened(&mut view, &from, 20);
+    page(&mut model, &from, 11..=20);
+    view.render(&model);
+    apply(&mut view, &mut model);
+    model.window_input(WindowInput::Reached {
+        conversation: direct(&from),
+        edge: Edge::Top,
+    });
+    let ask = model.take_page_asks().remove(0);
+    model.page_failed(&ask);
+    view.render(&model);
+    apply(&mut view, &mut model);
+    assert!(backtab_to(&view, "mark-action:t"), "Try again takes focus");
+    labelled(&view, text(UiText::TryAgain))[0].invoke_accessible_default_action();
+    apply(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_focus_id(),
+        "mark-action:t",
+        "kept while in flight"
+    );
+    page(&mut model, &from, 1..=10);
+    view.render(&model);
+    apply(&mut view, &mut model);
+    settle();
+    let focus = view.window().get_focus_id().to_string();
+    assert!(focus.starts_with("item:"), "on the row below: {focus}");
 }

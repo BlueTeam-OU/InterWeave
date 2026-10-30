@@ -66,6 +66,10 @@ pub(crate) struct Marks {
     place: Option<(Option<ItemKey>, Vec<ItemKey>)>,
     /// The focus the app last placed: focus there is not the person's.
     app_focus: RefCell<Option<String>>,
+    /// For each mark a person can focus, the focus target of what stands
+    /// just below it as last drawn: the next mark at its place, else the
+    /// row the marks stand above (section 7's focus table).
+    below: HashMap<String, String>,
 }
 
 impl Marks {
@@ -268,6 +272,7 @@ impl View {
     pub(crate) fn render_window(&mut self) -> Option<String> {
         let marks = self.marks.now.clone();
         let rows: Vec<MarkRow> = marks.iter().map(|mark| self.mark_row(mark)).collect();
+        self.focus_below_a_mark_gone(&rows);
         let model = &self.marks.rows;
         if model.row_count() == rows.len() {
             // Row by row: a reset would drop a touch held in the list.
@@ -294,6 +299,88 @@ impl View {
         }
         std::mem::take(&mut self.marks.announce)
             .then(|| placeholder_en::text(UiText::EarlierLoadFailed).to_owned())
+    }
+
+    /// Section 7: focus on a mark that goes -- the line whose count reached
+    /// zero, a pressed row the progress row or its page replaced -- moves
+    /// to what stood just below it, as app-placed focus, which reaches no
+    /// edge; past that too, if it went in the same render. A limit row
+    /// becoming the failure row keeps its button's focus key, and so its
+    /// focus.
+    fn focus_below_a_mark_gone(&mut self, rows: &[MarkRow]) {
+        let drawn: HashSet<String> = rows
+            .iter()
+            .map(|r| r.focus_key.to_string())
+            .filter(|k| !k.is_empty())
+            .collect();
+        let focus = self.window.get_focus_id().to_string();
+        if !drawn.contains(&focus)
+            && let Some(mut target) = self.marks.below.get(&focus).cloned()
+        {
+            for _ in 0..self.marks.below.len() {
+                match self.marks.below.get(&target) {
+                    Some(next) if !drawn.contains(&target) => target.clone_from(next),
+                    _ => break,
+                }
+            }
+            self.focus_key_after_draw(target);
+        }
+        let mut below = HashMap::new();
+        for (i, row) in rows.iter().enumerate() {
+            if row.focus_key.is_empty() {
+                continue;
+            }
+            let next = rows[i + 1..]
+                .iter()
+                .take_while(|r| r.place == row.place && r.handle == row.handle)
+                .find(|r| !r.focus_key.is_empty())
+                .map(|r| r.focus_key.to_string())
+                .or_else(|| self.anchor_target(row.place, row.handle));
+            if let Some(next) = next {
+                below.insert(row.focus_key.to_string(), next);
+            }
+        }
+        self.marks.below = below;
+    }
+
+    /// The focus target of what marks at `place` stand above: the message
+    /// `handle`, the card row `handle`'s first control, or at the top the
+    /// first thing drawn; nothing at the end.
+    fn anchor_target(&self, place: i32, handle: i32) -> Option<String> {
+        let card = |handle: i32| {
+            self.cards
+                .drawn_rows
+                .values()
+                .find(|(h, _)| *h == handle)
+                .map(|(h, answered)| {
+                    if *answered {
+                        format!("answer:{h}")
+                    } else {
+                        format!("proposal-copy:{h}")
+                    }
+                })
+        };
+        match place {
+            1 => Some(format!("m:{handle}")),
+            2 => card(handle),
+            0 => {
+                let leading = self
+                    .shared
+                    .borrow()
+                    .order
+                    .card_after
+                    .iter()
+                    .position(|after| *after < 0)
+                    .and_then(|i| i32::try_from(i).ok());
+                leading.and_then(card).or_else(|| {
+                    self.message_keys
+                        .first()
+                        .and_then(|k| self.item_handles.handle_of(k))
+                        .map(|h| format!("m:{h}"))
+                })
+            }
+            _ => None,
+        }
     }
 
     fn mark_row(&mut self, mark: &WindowMark) -> MarkRow {
