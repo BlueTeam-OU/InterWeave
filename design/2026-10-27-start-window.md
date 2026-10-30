@@ -472,7 +472,7 @@ screen hold for every other case.
 | Focus was on | It disappears when | Focus goes to | Check |
 |---|---|---|---|
 | any row, or the `EarlierUnread` line | a page is added above it or below the line | stays where it was; nothing moves | §10 items 4 and 5 |
-| the `EarlierUnread` line or the oldest row, at the view's very top | a row of the top edge appears above it, is replaced, or goes (§5, "At the very top") | stays on it; it moves with each change in height, except that with no line the oldest row stays put when the page arrives | §10 items 3b and 7 |
+| the `EarlierUnread` line or the oldest row, at the view's very top | a row of the top edge appears above it, is replaced, or goes (§5, "At the very top") | stays on it; it moves with each change in height, except that with no line the oldest row stays put when the page arrives | §10 items 3b and 12 |
 | the row just above a gap, or any row above it | a page of the gap is added below it, from the gap's upper side (§5.1) | stays where it was; nothing moves | §10 item 14 |
 | the `EarlierUnread` line, at the top or in a gap (§5.1) | its count reaches zero | the row that was just below the line, as app-placed focus (no fetch, §5) | §10 items 6 and 14 |
 | the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the failure row, as app-placed focus: at the top edge the line, else the oldest loaded row; in a gap, for the upper side's row, the lower side's row if it shows, else the gap's line, else the row below the gap, and for the lower side's row, the gap's line, else the row below the gap (§5.1) | §10 items 7 and 14 |
@@ -775,7 +775,12 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     count, where the run was. Paging goes on without asking until A is closed; reopening
     A and reaching the bound shows the limit row again. Keep a row
     before pressing: it stays. A row with an open snackbar is not
-    dropped; the focused row is not dropped.
+    dropped; the focused row is not dropped. With the view at A's very top and focus on
+    the line when the bound is reached, the limit row shows in view,
+    what is below moves down by its height once, and focus stays on the
+    line; pressing `EarlierShowAnyway` leaves the limit row in place,
+    pressing again doing nothing, until the progress row or the page
+    replaces it.
 13. **An undecodable unread row**: add one to A's store, as its oldest
     row. It is not counted on the line or on A's badge; the line goes
     once every other unread row is loaded, and once the store holds
