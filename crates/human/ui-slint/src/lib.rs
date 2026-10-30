@@ -461,6 +461,10 @@ struct Shared {
     /// The window marks' buttons pressed, by edge, taken by
     /// [`View::take_window_events`].
     window_presses: Vec<String>,
+    /// What the list says of the window: the message rows in view, by
+    /// handle; whether it shows its top; which way it last moved (true:
+    /// toward older rows).
+    window_view: window_marks::ListView,
 }
 
 /// An Accept's snackbar's clock (contact-cards design section 5.4.2):
@@ -3058,6 +3062,7 @@ impl View {
     /// Focus the control whose focus key is `target`, once the render that
     /// draws it is done.
     fn focus_key(&self, target: String) {
+        self.marks.app_placed(&target);
         if self.focus_wanted.borrow_mut().replace(target).is_some() {
             // Already scheduled: it applies this target instead.
             return;
@@ -3083,6 +3088,7 @@ impl View {
     /// late bump there took focus back from a row the person had moved
     /// to (swipe.rs, measured).
     fn focus_key_after_draw(&self, target: String) {
+        self.marks.app_placed(&target);
         if self.focus_wanted.borrow_mut().replace(target).is_some() {
             // Already scheduled: it applies this target instead.
             return;

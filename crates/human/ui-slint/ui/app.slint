@@ -2860,6 +2860,21 @@ export component AppWindow inherits Window {
     // A failure row's Try again or a limit row's Show more messages, by
     // the edge it stands at.
     callback window-mark-pressed(string);
+    // The model reads the conversation a window at a time: the list says
+    // which rows are in view, whether it shows its top, and which way it
+    // last moved (start-window sections 5 and 5.1). Nothing is said in the
+    // listed mode, where every row is held.
+    in property <bool> windowed;
+    callback row-in-view(int, bool);
+    callback list-at-top(bool);
+    // true: toward older rows.
+    callback list-moved(bool);
+    // Focus moved, by the person or the app: an edge can be reached by
+    // focus (start-window section 5).
+    callback focus-moved();
+    changed focus-id => {
+        if (root.windowed) { root.focus-moved(); }
+    }
     in property <string> header-title;
     // The full PeerId of a direct conversation, or the channel id (U5a).
     in property <string> header-id;
@@ -3299,7 +3314,7 @@ export component AppWindow inherits Window {
     // A window narrower than this shows one pane at a time -- the list,
     // or a conversation or the trust settings with a way back -- rather
     // than cutting the second pane off (a phone, plan section 20).
-    property <bool> narrow: root.width < 600px;
+    out property <bool> narrow: root.width < 600px;
     // The width a message row has to draw in: the conversation pane's,
     // inside its padding and the list's ring room. From the window's width
     // rather than the row's, which the layout computes from what is in it:
@@ -6002,10 +6017,14 @@ export component AppWindow inherits Window {
             // built-in Flickable, not std-widgets' ScrollView, whose icons
             // need an image feature the graph does not carry: it scrolls
             // by wheel and touch, with no visible scrollbar.
-            Flickable {
+            messages-flick := Flickable {
                 width: parent.width;
                 height: parent.height;
                 content-height: messages-column.preferred-height;
+                // The list's top in view: the top edge reached by scrolling.
+                property <bool> at-top: root.windowed && self.content-y >= -1px;
+                changed at-top => { root.list-at-top(self.at-top); }
+                property <length> last-y: self.content-y;
                 // A row tracking a swipe holds its touch: the list does
                 // not scroll for it (swipe spec section 4).
                 interactive: !root.swipe-tracking;
@@ -6032,6 +6051,10 @@ export component AppWindow inherits Window {
                 property <bool> pinned: true;
                 changed content-y => {
                     self.pinned = self.content-y <= self.height - self.content-height + 1px;
+                    if (root.windowed && self.content-y != self.last-y) {
+                        root.list-moved(self.content-y > self.last-y);
+                    }
+                    self.last-y = self.content-y;
                 }
                 property <string> shown: root.header-id;
                 changed shown => {
@@ -6137,6 +6160,17 @@ export component AppWindow inherits Window {
                 // rather than squeezing its rows into the window.
                 min-height: row.leaving ? 0px : row-content.min-height;
                 property <bool> collapsing: false;
+                // Any part of it in the list's view (start-window section
+                // 5.1: never let go while in view; an edge reached by
+                // scrolling). Said on each change, and at its creation when
+                // in view, since a change handler does not see a first value.
+                property <bool> in-view: root.windowed && !row.leaving
+                    && self.y + messages-column.y + messages-flick.content-y + self.height > 0px
+                    && self.y + messages-column.y + messages-flick.content-y < messages-flick.height;
+                changed in-view => { root.row-in-view(row.handle, self.in-view); }
+                init => {
+                    if (self.in-view) { root.row-in-view(row.handle, true); }
+                }
                 // Held at its content's height, read from the content rather
                 // than kept by a change handler, which runs a turn late: a
                 // row leaving before it ran closed in one frame.

@@ -588,7 +588,7 @@ pub(crate) struct CardScreens {
     /// The proposal link that opened the contact page: its conversation,
     /// its card and the note's place (contact-cards design section 9's
     /// focus table: Back returns to the control that opened it).
-    return_to_link: Option<(ConversationKey, RowId, i32)>,
+    pub(crate) return_to_link: Option<(ConversationKey, RowId, i32)>,
     /// That link, focused once its conversation draws it again.
     focus_link: Option<(RowId, i32)>,
     /// The platform's photo picker, when the root gives one (Android's

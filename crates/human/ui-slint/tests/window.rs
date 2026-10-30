@@ -221,9 +221,18 @@ fn opened(view: &mut View, from: &TransportIdentity, unread: u64) -> UiModel {
     );
     view.select(direct(from));
     let _ = view.take_events(&model);
-    model.window_input(WindowInput::Opened(direct(from)));
     view.render(&model);
+    apply(view, &mut model);
     model
+}
+
+/// The root's part: the view's window reports applied, then drawn.
+fn apply(view: &mut View, model: &mut UiModel) {
+    slint::platform::update_timers_and_animations();
+    for event in view.take_window_events() {
+        model.window_event(event);
+    }
+    view.render(model);
 }
 
 /// The page asked, answered with rows `rows` of `from`, more remaining.
@@ -333,7 +342,7 @@ fn a_failed_page_is_announced_once_and_try_again_reports_its_retry() {
 
     labelled(&view, text(UiText::TryAgain))[0].invoke_accessible_default_action();
     assert_eq!(
-        view.take_window_events(),
+        retries(&mut view),
         [WindowEvent::Input(WindowInput::TryAgain {
             conversation: direct(&from),
             edge: Edge::Top,
@@ -384,10 +393,7 @@ fn a_pressed_try_again_stays_inert_until_the_progress_row_and_a_repeat_failure_i
     view.render(&model);
     assert_eq!(labelled(&view, failed).len(), 1, "the row stays");
     labelled(&view, try_again)[0].invoke_accessible_default_action();
-    assert!(
-        view.take_window_events().is_empty(),
-        "inert while in flight"
-    );
+    assert!(retries(&mut view).is_empty(), "inert while in flight");
 
     at.set(at.get() + Duration::from_millis(250));
     view.render(&model);
@@ -406,4 +412,188 @@ fn a_pressed_try_again_stays_inert_until_the_progress_row_and_a_repeat_failure_i
     );
     assert_ne!(after, before, "the repeat is announced");
     assert!(after.0.contains(failed) || after.1.contains(failed));
+}
+
+fn retries(view: &mut View) -> Vec<WindowEvent> {
+    view.take_window_events()
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                e,
+                WindowEvent::Input(WindowInput::TryAgain { .. } | WindowInput::ShowAnyway { .. })
+            )
+        })
+        .collect()
+}
+
+fn conversation_events(view: &mut View) -> Vec<WindowEvent> {
+    view.take_window_events()
+        .into_iter()
+        .filter(|e| !matches!(e, WindowEvent::Input(WindowInput::Place { .. })))
+        .collect()
+}
+
+/// The window opens with the conversation shown and closes when another
+/// is shown, or Chats takes a narrow window's place (section 7.1's U5);
+/// the listed mode reports nothing. Mutations: no opening reported; the
+/// one before never closed; reports in the listed mode.
+#[test]
+fn the_window_follows_the_conversation_shown() {
+    let mut view = view();
+    let (a, b) = (peer(), peer());
+    let mut model = UiModel::new();
+    model.started(Vec::new(), Vec::new(), None);
+    view.select(direct(&a));
+    let _ = view.take_events(&model);
+    view.render(&model);
+    assert_eq!(
+        conversation_events(&mut view),
+        [WindowEvent::Input(WindowInput::Opened(direct(&a)))]
+    );
+    view.select(direct(&b));
+    let _ = view.take_events(&model);
+    view.render(&model);
+    assert_eq!(
+        conversation_events(&mut view),
+        [
+            WindowEvent::Input(WindowInput::Closed(direct(&a))),
+            WindowEvent::Input(WindowInput::Opened(direct(&b))),
+        ]
+    );
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    view.window().set_list_shown(true);
+    slint::platform::update_timers_and_animations();
+    view.render(&model);
+    assert_eq!(
+        conversation_events(&mut view),
+        [WindowEvent::Input(WindowInput::Closed(direct(&b)))],
+        "Chats in its place"
+    );
+}
+
+/// The listed mode reports nothing of a window: every row is held.
+/// Mutation: reports whatever the mode.
+#[test]
+fn a_listed_model_reports_no_window() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let from = peer();
+    model.received(received(1, &from, "hello"));
+    view.select(direct(&from));
+    let _ = view.take_events(&model);
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    assert!(view.take_window_events().is_empty());
+}
+
+/// A conversation of 60 rows scrolled to its newest, its top left.
+fn tall(view: &mut View) -> (TransportIdentity, UiModel) {
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 600.0));
+    let from = peer();
+    let mut model = opened(view, &from, 100);
+    page(&mut model, &from, 41..=100);
+    view.render(&model);
+    apply(view, &mut model);
+    for _ in 0..40 {
+        scroll(view, -200.0);
+    }
+    apply(view, &mut model);
+    (from, model)
+}
+
+fn scroll(view: &View, delta_y: f32) {
+    view.window()
+        .window()
+        .dispatch_event(slint::platform::WindowEvent::PointerScrolled {
+            position: slint::LogicalPosition::new(700.0, 300.0),
+            delta_x: 0.0,
+            delta_y,
+        });
+    slint::platform::update_timers_and_animations();
+}
+
+/// Scrolling the list's top into view reaches the top edge, once however
+/// long the person stays there; scrolling away leaves it. A long scroll
+/// is one report of the person's place, not one a frame. Mutations: the
+/// top never reported; reported on every take; each move its own place.
+#[test]
+fn scrolling_the_top_into_view_reaches_it_once_and_away_leaves_it() {
+    let mut view = view();
+    let (from, _model) = tall(&mut view);
+    let top = |e: &WindowEvent| match e {
+        WindowEvent::Input(WindowInput::Reached {
+            edge: Edge::Top, ..
+        }) => 1,
+        WindowEvent::Input(WindowInput::Left {
+            edge: Edge::Top, ..
+        }) => -1,
+        _ => 0,
+    };
+    for _ in 0..40 {
+        scroll(&view, 200.0);
+    }
+    let events = view.take_window_events();
+    assert_eq!(
+        events
+            .iter()
+            .map(top)
+            .collect::<Vec<_>>()
+            .iter()
+            .filter(|n| **n == 1)
+            .count(),
+        1,
+        "{events:?}"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, WindowEvent::Input(WindowInput::Place { .. })))
+            .count(),
+        1,
+        "one place for the whole scroll"
+    );
+    let again = view.take_window_events();
+    assert!(again.is_empty(), "nothing again, the top once: {again:?}");
+    for _ in 0..40 {
+        scroll(&view, -200.0);
+    }
+    let events = view.take_window_events();
+    assert!(events.iter().any(|e| top(e) == -1), "left: {events:?}");
+    let _ = from;
+}
+
+/// Moving focus onto the top's line, by Tab, reaches the top edge: every
+/// gesture has a non-gesture equivalent (section 8). Mutation: focus never
+/// reaching an edge.
+#[test]
+fn shift_tab_onto_the_line_reaches_the_top() {
+    let mut view = view();
+    let (_from, _model) = tall(&mut view);
+    let back: slint::SharedString = slint::platform::Key::Backtab.into();
+    let mut reached = false;
+    for _ in 0..2_000 {
+        view.window()
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::KeyPressed { text: back.clone() });
+        view.window()
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::KeyReleased { text: back.clone() });
+        if view.window().get_focus_id() == "earlier-unread:t" {
+            reached = view.take_window_events().iter().any(|e| {
+                matches!(
+                    e,
+                    WindowEvent::Input(WindowInput::Reached {
+                        edge: Edge::Top,
+                        ..
+                    })
+                )
+            });
+            break;
+        }
+    }
+    assert!(reached, "focus on the line reaches the top");
 }
