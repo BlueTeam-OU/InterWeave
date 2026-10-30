@@ -99,6 +99,10 @@ export struct ProposalRow {
     received: string,
     // The card changes nothing (case S): Close alone, in Accept's place.
     closes: bool,
+    // Accept is offered: not while the contacts are unread, when Decline
+    // alone stands in its own place, Accept's place left empty
+    // (start-window section 11, U6).
+    accept-offered: bool,
     // The row's swipes (design section 5.4.4): Accept toward the line's
     // end, Decline toward its start, `none` where the case withholds one;
     // each labelled as its button is; the swipe's key names the card.
@@ -2605,7 +2609,7 @@ component ProposalCard inherits Rectangle {
                 pressed => { root.decline(); }
                 focused(k) => { root.focused(k); }
             }
-            ActionButton {
+            if root.card.accept-offered: ActionButton {
                 text: root.card.accept;
                 detail: root.card.full-name;
                 filled: true;
@@ -3399,6 +3403,15 @@ export component AppWindow inherits Window {
     in property <string> contacts-title;
     in property <string> own-card-title;
     in property <string> contacts-empty;
+    // The contacts could not be read (start-window section 11): the
+    // failure row alone, in place of the rows and of `contacts-empty`;
+    // while Try again reads them, the progress row once 250 ms passed.
+    in property <bool> contacts-unread;
+    in property <bool> contacts-reading;
+    in property <bool> contacts-loading-shown;
+    in property <string> contacts-load-failed;
+    in property <string> contacts-loading;
+    callback contacts-try-again();
     in property <[ContactListRow]> contact-rows;
     callback open-contacts();
     callback open-own-card();
@@ -5325,7 +5338,43 @@ export component AppWindow inherits Window {
                     spacing: 12px;
                     alignment: start;
                     // Contacts.
-                    if root.cards-page == CardsPage.contacts && root.contact-rows.length == 0: Text {
+                    if root.cards-page == CardsPage.contacts && root.contacts-unread && !root.contacts-reading: VerticalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: root.contacts-load-failed;
+                            font-size: Type.body-medium;
+                            color: Palette.error;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
+                            min-height: self.preferred-height;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                        HorizontalLayout {
+                            alignment: center;
+                            ActionButton {
+                                text: root.try-again-label;
+                                text-button: true;
+                                target: 48px;
+                                focus-key: "contacts-try-again";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "contacts-try-again";
+                                pressed => { root.contacts-try-again(); }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                        }
+                    }
+                    if root.cards-page == CardsPage.contacts && root.contacts-reading && root.contacts-loading-shown: Rectangle {
+                        height: 40px;
+                        accessible-role: progress-indicator;
+                        accessible-label: root.contacts-loading;
+                        WaitMark {
+                            width: 24px;
+                            height: 24px;
+                            still: root.reduced-motion;
+                        }
+                    }
+                    if root.cards-page == CardsPage.contacts && !root.contacts-unread && root.contact-rows.length == 0: Text {
                         text: root.contacts-empty;
                         wrap: word-wrap;
                         color: Palette.on-surface-variant;
@@ -7327,7 +7376,7 @@ export component AppWindow inherits Window {
         card-menu-items := VerticalLayout {
             padding-top: 8px;
             padding-bottom: 8px;
-            if !root.card-menu-row.closes: MenuItem {
+            if !root.card-menu-row.closes && root.card-menu-row.accept-offered: MenuItem {
                 text: root.card-menu-row.accept;
                 detail: root.card-menu-row.full-name;
                 iconed: true;
@@ -7350,7 +7399,7 @@ export component AppWindow inherits Window {
                 iconed: true;
                 kind: SwipeKind.decline;
                 focus-key: "card-menu-decline:" + root.card-menu;
-                first: root.card-menu-row.closes;
+                first: root.card-menu-row.closes || !root.card-menu-row.accept-offered;
                 rtl: root.rtl;
                 pressed => {
                     let handle = root.card-menu;

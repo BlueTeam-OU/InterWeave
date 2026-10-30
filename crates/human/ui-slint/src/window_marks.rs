@@ -90,9 +90,11 @@ impl Marks {
     }
 }
 
-/// What the message list says of itself, between takes.
+/// What the window says between takes of its reports.
 #[derive(Default)]
-pub(crate) struct ListView {
+pub(crate) struct WindowReports {
+    /// Contacts' Try again was pressed.
+    pub(crate) contacts_try_again: bool,
     in_view: HashSet<i32>,
     at_top: bool,
     /// Which way it last moved: true toward older rows.
@@ -700,6 +702,12 @@ impl View {
     /// or on one already pressed whose read is on its way, reports nothing.
     pub fn take_window_events(&mut self) -> Vec<WindowEvent> {
         let mut events = self.open_events();
+        // Contacts' Try again: every contact read again; its row goes, and
+        // focus goes to the page as app-placed focus (section 7's table).
+        if std::mem::take(&mut self.shared.borrow_mut().window_view.contacts_try_again) {
+            events.push(WindowEvent::ContactsTryAgain);
+            self.focus_key(crate::cards::CONTACTS_TRY_AGAIN_FOCUS.to_owned());
+        }
         let presses = std::mem::take(&mut self.shared.borrow_mut().window_presses);
         let Some(conversation) = self.marks.opened.clone() else {
             return events;

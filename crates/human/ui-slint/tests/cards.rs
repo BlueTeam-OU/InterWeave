@@ -3824,3 +3824,113 @@ fn back_with_unsaved_changes_asks_before_the_editor_closes() {
     let raised = intents(&mut view, &mut model);
     assert!(raised.contains(&Intent::ForgetOwnPhoto), "{raised:?}");
 }
+
+/// The window's reports applied by the model, as the root applies them.
+fn window_events(view: &mut View, model: &mut UiModel) {
+    for event in view.take_window_events() {
+        model.window_event(event);
+    }
+    view.render(model);
+    settle();
+}
+
+/// Start-window section 11 (U6): while the contacts are unread a proposal
+/// says why it cannot be accepted, in place of its case line, and offers
+/// Decline alone, in its own place -- never case S's Close -- with no
+/// Accept in the row or its menu; a left swipe declines it. Mutations:
+/// Accept still drawn; no left swipe.
+#[test]
+fn while_the_contacts_are_unread_a_proposal_offers_decline_alone() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.contacts_directory(Err(()));
+    model.card_received(proposal(1, P, card("Ada", false), context()));
+    let _ = shown(&mut view, &mut model, P);
+    assert!(shows(&view, text(UiText::CardContactsUnread)));
+    assert!(!shows(&view, text(UiText::CardWillCreate)), "no case line");
+    assert!(shows(&view, text(UiText::CardDecline)));
+    for accept in [UiText::CardAccept, UiText::AcceptAsNew, UiText::Close] {
+        assert!(!shows(&view, text(accept)), "no {accept:?}");
+    }
+    let window = view.window();
+    for i in 1..=8u8 {
+        let dx = -300.0 * f32::from(i) / 8.0;
+        window.invoke_swipe_moved("p:1".into(), 200.0, 300.0, 200.0 + dx, 300.0, 390.0, 390.0);
+    }
+    window.invoke_swipe_ended("p:1".into());
+    slint::platform::update_timers_and_animations();
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::DeclineCard(row(1))],
+        "a left swipe declines"
+    );
+}
+
+/// Start-window section 11 and section 7's table: unread contacts show
+/// the failure row alone, never `ContactsEmpty`; Try again reads them
+/// once, its row going and focus put on the page, the progress row only
+/// once the read has taken 250 ms; a second failure shows the row again,
+/// focus on its Try again, announced once; a list opened already failed
+/// says nothing. Mutations: `ContactsEmpty` shown; no read asked; the
+/// progress row at once; the failure not announced; announced on opening.
+#[test]
+fn unread_contacts_show_their_failure_row_alone_and_try_again_reads_them() {
+    let mut view = view();
+    let at = std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now()));
+    let read = std::rc::Rc::clone(&at);
+    view.set_monotonic(move || read.get());
+    let mut model = UiModel::new();
+    model.contacts_directory(Err(()));
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::ContactsTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    let failed = text(UiText::ContactsLoadFailed);
+    let announced = |view: &View| {
+        [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ]
+        .iter()
+        .any(|a| a.contains(failed))
+    };
+    assert!(shows(&view, failed));
+    assert!(!shows(&view, text(UiText::ContactsEmpty)), "no empty claim");
+    assert!(!announced(&view), "opened already failed: nothing said");
+
+    press(&view, text(UiText::TryAgain));
+    let events = view.take_window_events();
+    assert!(
+        events.contains(&interweave_human_ui_model::WindowEvent::ContactsTryAgain),
+        "{events:?}"
+    );
+    for event in events {
+        model.window_event(event);
+    }
+    assert!(model.take_contacts_ask(), "one read asked");
+    view.render(&model);
+    settle();
+    assert!(!shows(&view, failed), "the row goes at once");
+    assert_eq!(view.window().get_focus_id(), "close-cards");
+    let loading = text(UiText::ContactsLoading);
+    assert!(!shows(&view, loading), "no progress row at once");
+    at.set(at.get() + std::time::Duration::from_millis(250));
+    view.render(&model);
+    assert!(shows(&view, loading), "the progress row at 250 ms");
+
+    model.contacts_directory(Err(()));
+    view.render(&model);
+    settle();
+    assert!(shows(&view, failed));
+    assert!(announced(&view), "a failed Try again is announced");
+    assert_eq!(view.window().get_focus_id(), "contacts-try-again");
+
+    press(&view, text(UiText::TryAgain));
+    window_events(&mut view, &mut model);
+    model.contacts_directory(Ok(Vec::new()));
+    view.render(&model);
+    settle();
+    assert!(!shows(&view, failed));
+    assert!(shows(&view, text(UiText::ContactsEmpty)), "read: none");
+}

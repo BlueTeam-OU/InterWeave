@@ -15,13 +15,14 @@
 //! sits inside other text ([`isolated`]).
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use interweave_human_ui_model::{
-    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, FocusTarget, Intent,
-    KeyProblem, KeyStep, KeyView, OwnPhotoStep, Photo, PhotoChange, PhotoEdit, ProposalItem,
-    ProposalNote, RowId, UiModel, UiText, fill, isolated, name_problem, placeholder_en, short_peer,
+    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ContactsState, ConversationKey,
+    FocusTarget, Intent, KeyProblem, KeyStep, KeyView, OwnPhotoStep, Photo, PhotoChange, PhotoEdit,
+    ProposalItem, ProposalNote, RowId, UiModel, UiText, fill, isolated, name_problem,
+    placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
@@ -178,7 +179,17 @@ impl Drawn {
 
 /// The card screens' callbacks: each becomes an input, taken as the others
 /// are.
+/// Where Contacts' Try again puts focus as its row goes (start-window
+/// section 7's table names the page's title; the title here is no focus
+/// stop, and the back arrow beside it is where Contacts puts focus when it
+/// has no row to put it on).
+pub(crate) const CONTACTS_TRY_AGAIN_FOCUS: &str = "close-cards";
+
 pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let s = Rc::clone(shared);
+    window.on_contacts_try_again(move || {
+        crate::flag(&s, |s| s.window_view.contacts_try_again = true);
+    });
     let on = |s: &Rc<RefCell<Shared>>, input: CardsInput| {
         let s = Rc::clone(s);
         move || enqueue(&s, Input::Cards(input.clone()))
@@ -353,21 +364,27 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     let name = isolated(&p.name);
     let swipe = p.swipe();
     let swipe_key = proposal_swipe_key(p.row);
-    let context = match &p.accept {
-        AcceptLine::Creates => text(UiText::CardWillCreate).to_owned(),
-        AcceptLine::Updates(contact) => {
-            fill(text(UiText::CardUpdates), &[("name", &isolated(contact))])
-        }
-        // Case S says the card matches only when nothing is kept by a
-        // local choice: otherwise the kept lines stand in its place
-        // (design 5.4.1 as #443 left it).
-        AcceptLine::Matches(_)
-            if p.values.kept_name || p.values.photo != PhotoChange::Unchanged =>
-        {
-            String::new()
-        }
-        AcceptLine::Matches(contact) => {
-            fill(text(UiText::CardSame), &[("contact", &isolated(contact))])
+    // Unread contacts: no comparison with them, so no case line but the
+    // one saying why Accept is not offered (start-window section 11).
+    let context = if p.contacts_unread {
+        text(UiText::CardContactsUnread).to_owned()
+    } else {
+        match &p.accept {
+            AcceptLine::Creates => text(UiText::CardWillCreate).to_owned(),
+            AcceptLine::Updates(contact) => {
+                fill(text(UiText::CardUpdates), &[("name", &isolated(contact))])
+            }
+            // Case S says the card matches only when nothing is kept by a
+            // local choice: otherwise the kept lines stand in its place
+            // (design 5.4.1 as #443 left it).
+            AcceptLine::Matches(_)
+                if p.values.kept_name || p.values.photo != PhotoChange::Unchanged =>
+            {
+                String::new()
+            }
+            AcceptLine::Matches(contact) => {
+                fill(text(UiText::CardSame), &[("contact", &isolated(contact))])
+            }
         }
     };
     // What Accept changes and which of the person's edits it keeps, right
@@ -457,7 +474,8 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
             text(UiText::CardGoesAtClose).into()
         },
         received: received.into(),
-        closes: matches!(p.accept, AcceptLine::Matches(_)),
+        closes: matches!(p.accept, AcceptLine::Matches(_)) && !p.contacts_unread,
+        accept_offered: !p.contacts_unread,
         accept: text(p.accept_text()).into(),
         decline: text(UiText::CardDecline).into(),
         swipe_key: swipe_key.into(),
@@ -566,6 +584,13 @@ pub(crate) struct CardScreens {
     /// The proposal whose own Accept or Decline was pressed last: its
     /// answer moves focus, as a message row's own button does.
     pub(crate) pressed: Option<RowId>,
+    /// The proposals drawn with Decline alone, the contacts unread: focus
+    /// that would go to Accept goes to Decline (start-window section 11).
+    pub(crate) decline_only: HashSet<RowId>,
+    /// The contacts' state as last drawn, when Try again's read began, and
+    /// focus placed on the page by Try again.
+    contacts_state: Option<ContactsState>,
+    reading_since: Option<std::time::Instant>,
     contacts_shown: Vec<ContactView>,
     contact_rows: Option<Rc<VecModel<ContactListRow>>>,
     contact_drawn: Option<ContactView>,
@@ -1068,11 +1093,14 @@ impl View {
             self.cards.contact = None;
             window.set_cards_page(CardsPage::Contacts);
         }
-        self.render_contacts(model, &window);
+        let contacts_said = self.render_contacts(model, &window);
         self.render_contact(model, &window);
         self.render_own(model, &window);
         let photo_said = self.render_own_photo(model, &window);
-        let said = self.render_key(model, &window).or(photo_said);
+        let said = self
+            .render_key(model, &window)
+            .or(photo_said)
+            .or(contacts_said);
         self.render_share(model, &window);
         if let Some(key) = self.cards.share_on_open.take() {
             if self.shown.as_ref() == Some(&key) && self.page == crate::Page::Conversation {
@@ -1316,6 +1344,7 @@ impl View {
             let mut swipes = HashMap::new();
             let mut handles = HashMap::new();
             let mut links = HashMap::new();
+            let mut decline_only = HashSet::new();
             let drawn: Vec<ProposalRow> = shown
                 .iter()
                 .enumerate()
@@ -1354,6 +1383,18 @@ impl View {
                         }
                         [only] => {
                             answers.insert(handle, (only.clone(), only.clone()));
+                            // Unread contacts: Decline alone, a left swipe
+                            // declining as it always does (section 11).
+                            if p.contacts_unread {
+                                decline_only.insert(p.row);
+                                swipes.insert(
+                                    proposal_swipe_key(p.row),
+                                    crate::swipe::Swipeable::Proposal {
+                                        accept: None,
+                                        decline: Some(only.clone()),
+                                    },
+                                );
+                            }
                         }
                         _ => {}
                     }
@@ -1410,6 +1451,7 @@ impl View {
             shared.swipes.extend(swipes);
             drop(shared);
             self.cards.drawn_rows = handles;
+            self.cards.decline_only = decline_only;
             self.cards.proposals_shown = shown;
             shared_after(&self.shared, &places);
             self.cards.proposal_places = places;
@@ -1435,7 +1477,8 @@ impl View {
         }
     }
 
-    fn render_contacts(&mut self, model: &UiModel, window: &AppWindow) {
+    fn render_contacts(&mut self, model: &UiModel, window: &AppWindow) -> Option<String> {
+        let (said, answered) = self.render_contacts_state(model, window);
         window.set_contacts_title(text(UiText::ContactsTitle).into());
         window.set_own_card_title(text(UiText::OwnCardTitle).into());
         window.set_contacts_empty(text(UiText::ContactsEmpty).into());
@@ -1482,6 +1525,63 @@ impl View {
             }
         }
         window.set_contact_rows(ModelRc::from(rows));
+        // Try again's read answered while focus is still where it put it
+        // (section 7's table): success on the first row, else where an
+        // empty list puts it; failure on the new row's Try again.
+        if let Some(read) = answered
+            && window.get_focus_id() == CONTACTS_TRY_AGAIN_FOCUS
+        {
+            let key = if read {
+                self.contact_focus(&FocusTarget::Contacts)
+            } else {
+                Some("contacts-try-again".to_owned())
+            };
+            if let Some(key) = key {
+                self.focus_key_after_draw(key);
+            }
+        }
+        said
+    }
+
+    /// The Contacts list's read state (start-window section 11): the
+    /// failure row while the contacts are unread, the progress row once
+    /// Try again's read has taken 250 ms, `ContactsLoadFailed` announced
+    /// once as a failure arises with Contacts open -- a list opened
+    /// already failed says nothing -- and, as Try again's read answers,
+    /// whether it read them.
+    fn render_contacts_state(
+        &mut self,
+        model: &UiModel,
+        window: &AppWindow,
+    ) -> (Option<String>, Option<bool>) {
+        let state = model.contacts_state();
+        window.set_contacts_load_failed(text(UiText::ContactsLoadFailed).into());
+        window.set_contacts_loading(text(UiText::ContactsLoading).into());
+        window.set_contacts_unread(state != ContactsState::Read);
+        window.set_contacts_reading(state == ContactsState::Reading);
+        let now = (self.monotonic)();
+        let loading_shown = if state == ContactsState::Reading {
+            let since = *self.cards.reading_since.get_or_insert(now);
+            let waited = now.saturating_duration_since(since);
+            let after = crate::window_marks::LOADING_SHOWN_AFTER;
+            if waited < after {
+                self.wake_after(after.saturating_sub(waited));
+            }
+            waited >= after
+        } else {
+            self.cards.reading_since = None;
+            false
+        };
+        window.set_contacts_loading_shown(loading_shown);
+        let open = self.cards.page == Some(CardsPage::Contacts);
+        let before = self.cards.contacts_state.replace(state);
+        let said = (open
+            && state == ContactsState::Unread
+            && before.is_some_and(|b| b != ContactsState::Unread))
+        .then(|| text(UiText::ContactsLoadFailed).to_owned());
+        let answered = (before == Some(ContactsState::Reading) && state != ContactsState::Reading)
+            .then_some(state == ContactsState::Read);
+        (said, answered)
     }
 
     fn render_contact(&mut self, model: &UiModel, window: &AppWindow) {

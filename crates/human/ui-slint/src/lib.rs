@@ -461,10 +461,10 @@ struct Shared {
     /// The window marks' buttons pressed, by edge, taken by
     /// [`View::take_window_events`].
     window_presses: Vec<String>,
-    /// What the list says of the window: the message rows in view, by
-    /// handle; whether it shows its top; which way it last moved (true:
-    /// toward older rows).
-    window_view: window_marks::ListView,
+    /// What the window says between takes of its reports: the message rows
+    /// in view, whether the list shows its top and which way it last
+    /// moved, and Contacts' Try again pressed.
+    window_view: window_marks::WindowReports,
 }
 
 /// An Accept's snackbar's clock (contact-cards design section 5.4.2):
@@ -2960,7 +2960,15 @@ impl View {
                 .drawn_rows
                 .get(row)
                 .filter(|(_, answered)| !answered)
-                .map(|(handle, _)| format!("proposal-accept:{handle}")),
+                .map(|(handle, _)| {
+                    // Decline alone while the contacts are unread: focus
+                    // goes to it (start-window section 11).
+                    if self.cards.decline_only.contains(row) {
+                        format!("proposal-decline:{handle}")
+                    } else {
+                        format!("proposal-accept:{handle}")
+                    }
+                }),
             FocusTarget::Contacts
             | FocusTarget::Contact(_)
             | FocusTarget::ContactPage(_)
