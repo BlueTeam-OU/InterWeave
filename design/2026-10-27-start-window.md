@@ -433,11 +433,18 @@ not whether the app holds its row. The person reads the first as
 "scroll up and it is there" and the second as "it is not in this
 conversation".
 
+Here a held target is one the app holds and shows: a row hidden by a
+Dismiss whose snackbar is still open is held for its Undo (§5.1) but
+cannot be reached, so it counts as not held.
+
 - `ReplyPresent` when the target is held, or is not held but is in the
   store (pending, unread or kept), since paging up brings it back
   (§5, §5.1).
+- `ReplyUnavailable` while the target is hidden by a Dismiss whose
+  snackbar is open; its Undo puts the row back and the line back to
+  `ReplyPresent`.
 - `ReplyUnavailable` when the target is neither held nor stored:
-  dismissed (message-swipe §7), dropped by the session bound (§7.1),
+  dismissed once its snackbar has closed (message-swipe §7), dropped by the session bound (§7.1),
   read and not kept in an earlier session, or never received.
 - Nothing fetches the target to decide this beyond asking the store
   whether it holds it (never the transport, §15), and the line has no
@@ -947,8 +954,10 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     2 others. Both hold with the Contacts list scrolled to its end and
     with it never opened.
 17. **A reply's line** (§5.2). (a) Now: in A, a reply whose target is
-    held shows `ReplyPresent`. Dismiss the target, then let the
-    snackbar close: the reply shows `ReplyUnavailable`. With item 14's
+    held shows `ReplyPresent`. Dismiss the target: while its snackbar
+    is open the reply shows `ReplyUnavailable`; press Undo:
+    `ReplyPresent`. Dismiss it again and let the snackbar close: the
+    reply shows `ReplyUnavailable`. With item 14's
     test ceiling, fill A with kept rows as in item 14 (b), with a reply
     among the newest rows whose target is among the oldest. Page up to
     the target, then come back down to the reply: as rows below load,
