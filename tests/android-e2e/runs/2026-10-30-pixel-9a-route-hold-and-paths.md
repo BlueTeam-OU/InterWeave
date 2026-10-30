@@ -24,9 +24,9 @@ lines.
 
 ## Results
 
-Started is when the run's script began, before cargo and the adb
-server came up. The duration is the test binary's own, as cargo
-printed it.
+Started is taken after the adb connect and the profile backup, just
+before cargo starts the test binary, whose own time is the duration
+cargo printed. Run 4's script logged its end at 05:17:57Z.
 
 | Suite | Run | Started (UTC) | Result |
 |---|---|---|---|
