@@ -534,7 +534,9 @@ requires is that **paging never drops a read row on its own**.
   leaves it for Chats (narrow layout), for another conversation, or
   for one of these pages shown in its place, by whatever route (the
   Chats screen's menu, the identity switch, Share): Trust, Peers,
-  Contacts, Your identities, Your card; coming back asks
+  Contacts, Your identities, Your card, and onboarding's Connect
+  (add-a-peer §5.1) with a Peers page opened from it (QUESTION
+  01a18cfc, Q1); coming back asks
   again, since a choice about losing rows is asked again rather than
   assumed (QUESTION 01a18b25, U5). It is not closed by a page opened
   from inside it and left with Back (its Details, a contact page
@@ -792,7 +794,14 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     moves by the difference in height once, focus is on its Try again,
     and `EarlierLoadFailed` is announced once; pressing Try again and
     failing again within 250 ms leaves the row, focus on Try again,
-    and announces it once more.
+    and announces it once more. Then, on a wide window, press
+    `EarlierShowAnyway` again, open each page of §7.1's list in A's
+    place in turn (Trust, Peers, Contacts, Your identities, Your card;
+    Connect, with a test hook that shows it, since it otherwise shows
+    only before a conversation is opened), and come back to A after
+    each: reaching the bound shows the limit row again each time. Open
+    A's Details and a contact page from one of A's proposals, and come
+    back to A with Back after each: the next page loads without asking.
 13. **An undecodable unread row**: add one to A's store, as its oldest
     row. It is not counted on the line or on A's badge; the line goes
     once every other unread row is loaded, and once the store holds
