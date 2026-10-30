@@ -4117,3 +4117,34 @@ fn leaving_contacts_hides_the_avatars_it_showed() {
     settle();
     assert_eq!(avatar_reports(&mut view), (3, 0), "shown again");
 }
+
+/// Start-window section 11 (U6): while the contacts are unread, a
+/// proposal's menu offers Decline and no Accept, as its row does.
+/// Mutation: the menu's Accept offered whatever the row offers.
+#[test]
+fn while_the_contacts_are_unread_a_proposals_menu_offers_no_accept() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.contacts_directory(Err(()));
+    model.card_received(proposal(1, P, card("Ada", false), context()));
+    let _ = shown(&mut view, &mut model, P);
+    let mut on_card = false;
+    for _ in 0..200 {
+        key(&view, slint::platform::Key::Tab);
+        if view.window().get_focus_id().starts_with("proposal-") {
+            on_card = true;
+            break;
+        }
+    }
+    assert!(on_card, "a proposal's control takes focus");
+    key(&view, slint::platform::Key::Menu);
+    settle();
+    assert!(view.window().get_card_menu() >= 0, "the menu opened");
+    assert!(
+        labelled(&view, text(UiText::CardDecline)).len() >= 2,
+        "Decline in the row and the menu"
+    );
+    for accept in [UiText::CardAccept, UiText::AcceptAsNew, UiText::Close] {
+        assert!(!shows(&view, text(accept)), "no {accept:?}");
+    }
+}
