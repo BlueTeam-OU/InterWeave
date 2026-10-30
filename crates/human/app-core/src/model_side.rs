@@ -495,7 +495,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 // The view's window reports. One that changes what is drawn
                 // -- a reach at the session bound shows the limit row, and
                 // asks nothing -- is drawn again; the person's place, which
-                // a scroll reports on every move, never is.
+                // a scroll reports on every move, is not
+                // (`a_report_that_changes_what_is_drawn_draws_and_a_place_never_does`).
                 for event in self.surface.take_window() {
                     if self.model.window_event(event) {
                         unrendered = true;
