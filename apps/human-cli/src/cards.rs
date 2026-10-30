@@ -386,23 +386,6 @@ pub(crate) async fn card_share<B: DataSessionBinding, A: AdminBinding>(
     }
 }
 
-/// Every proposal held, read or not, in conversation order.
-pub(crate) fn every_proposal<B: DataSessionBinding, A: AdminBinding>(
-    s: &Session<B, A>,
-) -> Vec<(ConversationKey, ProposalItem)> {
-    let model = s.model();
-    model
-        .proposal_conversations()
-        .into_iter()
-        .flat_map(|key| {
-            model
-                .proposals(&key)
-                .into_iter()
-                .map(move |p| (key.clone(), p))
-        })
-        .collect()
-}
-
 /// `proposals`: every proposal in the store, none of them shown read.
 ///
 /// Each direct conversation with an unread row is walked to its top, the
@@ -637,10 +620,26 @@ pub(crate) async fn contacts<B: DataSessionBinding, A: AdminBinding>(
     out: &mut String,
 ) -> Result<(), Failure> {
     look(s, r).await;
+    contacts_known(s)?;
     for c in s.model().contacts() {
         out.push_str(&contact(c, false, r.json));
     }
     Ok(())
+}
+
+/// Refused when the start could not read the contacts: the model then
+/// knows none, so an empty list or "no contact has that id" would be
+/// false (`contacts_refuse_when_the_start_could_not_read_them`).
+fn contacts_known<B: DataSessionBinding, A: AdminBinding>(
+    s: &Session<B, A>,
+) -> Result<(), Failure> {
+    if s.model().contacts_state() == interweave_human_ui_model::ContactsState::Read {
+        Ok(())
+    } else {
+        Err(Failure::Store(
+            "the contacts could not be read from the message store".to_owned(),
+        ))
+    }
 }
 
 /// `contacts show`.
@@ -651,6 +650,7 @@ pub(crate) async fn contact_show<B: DataSessionBinding, A: AdminBinding>(
     out: &mut String,
 ) -> Result<(), Failure> {
     look(s, r).await;
+    contacts_known(s)?;
     let c = s
         .model()
         .contact(id)
@@ -667,6 +667,7 @@ pub(crate) async fn contact_edit<B: DataSessionBinding, A: AdminBinding>(
     photo_arg: Option<&PhotoArg>,
     out: &mut String,
 ) -> Result<(), Failure> {
+    contacts_known(s)?;
     if s.model().contact(id).is_none() {
         return Err(Failure::Refused("no contact has that id".to_owned()));
     }
@@ -698,6 +699,7 @@ pub(crate) async fn contact_delete<B: DataSessionBinding, A: AdminBinding>(
     id: &str,
     out: &mut String,
 ) -> Result<(), Failure> {
+    contacts_known(s)?;
     let intent = s
         .model()
         .delete_contact(id)
@@ -719,6 +721,7 @@ pub(crate) async fn route_delete<B: DataSessionBinding, A: AdminBinding>(
     endpoint: &EndpointId,
     out: &mut String,
 ) -> Result<(), Failure> {
+    contacts_known(s)?;
     let c = s
         .model()
         .contact(id)

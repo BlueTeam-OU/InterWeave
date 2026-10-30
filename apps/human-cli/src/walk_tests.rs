@@ -136,7 +136,7 @@ fn session(
     if let Some(faults) = faults {
         facade = facade.with_store_faults(faults);
     }
-    Session::started(facade, || Some(true)).expect("session")
+    Session::new(facade, || Some(true)).expect("session")
 }
 
 /// What a walk handed over, as texts, and how it ended.
@@ -637,4 +637,75 @@ async fn an_unkeep_of_a_row_older_than_the_held_row_ceiling_reads_nothing() {
     assert_eq!(out, "{\"id\":\"k1\",\"status\":\"unkept\"}\n");
     assert_eq!(count(dir.path(), "kept_inbound"), 0, "unkept");
     assert_eq!(count(dir.path(), "unread_inbound"), unread, "nothing read");
+}
+
+/// architect-cto's 01a18ecf Q1: `status` counts what the store holds --
+/// unread from the summaries, kept from the store's count -- whatever
+/// rows are held, which on the windowed start are none. Mutation: the
+/// counts taken from the rows held, as before the windowed start.
+#[tokio::test]
+async fn status_counts_what_the_store_holds_past_the_held_row_ceiling() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    seed(dir.path(), b.peer(), &rows(HELD_ROW_CAP + 300, 10));
+    let (unread, kept) = (
+        count(dir.path(), "unread_inbound"),
+        count(dir.path(), "kept_inbound"),
+    );
+    assert!(kept > 0 && unread > i64::try_from(HELD_ROW_CAP).expect("small"));
+    let mut s = session(&a, dir.path(), None);
+    let mut out = String::new();
+    crate::verbs::run(&mut s, &crate::cli::Verb::Status, &run_args(), &mut out)
+        .await
+        .expect("status");
+    let status: serde_json::Value = serde_json::from_str(out.trim()).expect("a JSON line");
+    assert_eq!(status["unread"], unread, "{out}");
+    assert_eq!(status["kept"], kept, "{out}");
+    assert_eq!(status["pending"], 0, "{out}");
+}
+
+/// `listen --consume` drains a conversation past the held-row ceiling by
+/// walking it: every row printed once, oldest first, and read once
+/// written, until the store holds none unread. Mutation: the drain's
+/// walk never opened -- nothing printed, nothing read.
+#[tokio::test]
+async fn listen_consume_drains_a_conversation_past_the_held_row_ceiling() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let expected = seed(dir.path(), b.peer(), &rows(60, 0));
+    let mut s = session(&a, dir.path(), None);
+    s.side().set_bounds_for_test(SESSION_ITEM_CAP, 8, 4);
+    let path = dir.path().to_owned();
+    let mut out = Vec::new();
+    crate::verbs::listen(
+        &mut s,
+        crate::verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        // Until the store holds none unread; the bound keeps a broken
+        // drain from hanging the suite.
+        async move {
+            let _ = tokio::time::timeout(Duration::from_secs(10), async {
+                while count(&path, "unread_inbound") > 0 {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            })
+            .await;
+        },
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let texts: Vec<String> = out
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).expect("a JSON line"))
+        .filter(|e| e["event"] == "message")
+        .map(|e| e["text"].as_str().expect("a text").to_owned())
+        .collect();
+    assert_eq!(texts, expected, "{out}");
+    assert_eq!(count(dir.path(), "unread_inbound"), 0);
 }

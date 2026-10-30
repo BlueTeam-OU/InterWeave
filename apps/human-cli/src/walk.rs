@@ -79,6 +79,10 @@ pub(crate) struct Walk {
     arrived: std::collections::HashSet<ItemKey>,
     stalled: usize,
     last: Option<(Option<DrawnAt>, usize, usize, usize)>,
+    /// The updates the walk's steps took, kept for a caller that prints
+    /// them -- `listen` -- or `None`, dropped: a walk of a long
+    /// conversation takes every page it reads.
+    passed: Option<Vec<Update>>,
 }
 
 impl Walk {
@@ -97,7 +101,32 @@ impl Walk {
             arrived: std::collections::HashSet::new(),
             stalled: 0,
             last: None,
+            passed: None,
         }
+    }
+
+    /// Open `key` and start walking it, keeping every update the walk's
+    /// steps take for [`Self::take_passed`]: a verb that prints the
+    /// session's events while it walks loses none of them
+    /// (`listen_consume_drains_a_conversation_past_the_held_row_ceiling`).
+    pub(crate) fn open_passing<B: DataSessionBinding, A: AdminBinding>(
+        s: &mut Session<B, A>,
+        key: &ConversationKey,
+    ) -> Self {
+        Self {
+            passed: Some(Vec::new()),
+            ..Self::open(s, key)
+        }
+    }
+
+    /// The updates the walk's steps took since the last take, in order.
+    pub(crate) fn take_passed(&mut self) -> Vec<Update> {
+        self.passed.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
+    /// The conversation walked.
+    pub(crate) const fn conversation(&self) -> &ConversationKey {
+        &self.key
     }
 
     /// Whether the first pass is over: from here rows are handed over.
@@ -297,13 +326,16 @@ impl Walk {
         for update in s.take_updates() {
             // By its origin, held or not: one that draws far from focus is
             // let go by the ceiling in the step that brings it.
-            if let Update::Received(received) = update
+            if let Update::Received(received) = &update
                 && conversation_of(&received.origin) == self.key
             {
-                let item = s.model().message_of(&received);
+                let item = s.model().message_of(received);
                 if self.arrived.insert(item.key) {
                     self.late.push(item);
                 }
+            }
+            if let Some(passed) = self.passed.as_mut() {
+                passed.push(update);
             }
         }
         if s.model().window_marks(&self.key).iter().any(|m| {

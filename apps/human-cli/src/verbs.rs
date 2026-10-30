@@ -13,8 +13,8 @@ use std::time::Instant;
 use interweave_human_app_core::{Command, Failure as Why, Problem, Update};
 use interweave_human_client_api::{ClientEvent, OutboundStatus, SessionState, TrustProblem};
 use interweave_human_ui_model::{
-    ConversationKey, EntryProblem, Intent, ItemKey, ItemStatus, MessageItem, ProposalItem, RowId,
-    TrustInput, TrustOutcome, ViewEvent,
+    ConversationKey, EntryProblem, Intent, ItemKey, ItemStatus, MessageItem, RowId, TrustInput,
+    TrustOutcome, ViewEvent,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -250,7 +250,7 @@ const fn command_name(command: &Command) -> &'static str {
         Command::AskNewKey => "asking what a new key cancels",
         Command::MakeNewKey => "making a new key",
         Command::RetryKey => "opening the key again",
-        // The windowed mode's reads, which this client does not ask yet.
+        // A page, the contacts or a photo, read as a walk or the start asks.
         Command::Window(_) => "reading the store",
         Command::ShareCard(_) => "sharing the card",
         Command::SetOwnCard { .. } => "editing the own card",
@@ -285,17 +285,25 @@ async fn status<B: DataSessionBinding, A: AdminBinding>(
         _ => None,
     };
     let connectivity = output::connectivity(model.connectivity());
-    let (mut unread, mut pending, mut kept) = (0, 0, 0);
+    // Unread from the summaries and kept from the store's count, held rows
+    // or not; pending from the rows, every pending one being held
+    // (architect-cto's 01a18ecf Q1,
+    // `status_counts_what_the_store_holds_past_the_held_row_ceiling`).
+    let (mut unread, mut pending) = (0, 0);
     for c in model.conversations() {
-        for m in model.messages(&c.key) {
-            match output::status(&m.status) {
-                "unread" => unread += 1,
-                "sending" | "not-confirmed" | "needs-attention" => pending += 1,
-                _ => {}
-            }
-            kept += usize::from(m.kept);
-        }
+        unread += c.unread;
+        pending += model
+            .messages(&c.key)
+            .iter()
+            .filter(|m| {
+                matches!(
+                    output::status(&m.status),
+                    "sending" | "not-confirmed" | "needs-attention"
+                )
+            })
+            .count();
     }
+    let kept = s.side().kept_rows();
     let hidden = s.side().hidden_rows();
     if r.json {
         out.push_str(&output::json_line(&json!({
@@ -1200,34 +1208,140 @@ struct Consumed {
     decided: std::collections::HashSet<RowId>,
 }
 
-/// The rows `--consume` has yet to take from the model: each unread
-/// message not yet printed, by row, and each proposal not yet declined.
-/// The store keeps no record of which endpoint received a row, so a row
-/// found here is printed with `local_endpoint` `null`
-/// (`listen_consume_drains_what_the_store_held_unread_at_open`).
-fn undrained<B: DataSessionBinding, A: AdminBinding>(
+/// A drain's chunk of `key`: each unread message the filter prints, its
+/// line queued with the rows it reads once written, unless printed or
+/// queued already; each proposal it prints, declined.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "listen's state, borrowed apart for one chunk"
+)]
+fn drained<B: DataSessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
-    consumed: &Consumed,
-) -> (Vec<RowId>, Vec<(ConversationKey, ProposalItem)>) {
+    key: &ConversationKey,
+    anchors: &[interweave_human_ui_model::Anchor],
+    filter: &crate::cli::ListenFilter,
+    json: bool,
+    queued: &std::collections::HashSet<RowId>,
+    consumed: &mut Consumed,
+    lines: &mut Vec<(String, Vec<RowId>)>,
+    decline: &mut Vec<RowId>,
+) {
+    use interweave_human_ui_model::Anchor;
     let model = s.model();
-    let mut messages = Vec::new();
-    for c in model.conversations() {
-        for intent in model.conversation_viewed(&c.key, true) {
-            if let Intent::MarkRead(row) = intent
-                && !consumed.printed.contains(&row)
-                && !messages.contains(&row)
-            {
-                messages.push(row);
+    for anchor in anchors {
+        match *anchor {
+            Anchor::Item(item) => {
+                if !filter.passes("message", Some(key)) {
+                    continue;
+                }
+                let rows: Vec<RowId> = model
+                    .items_viewed(&[item])
+                    .into_iter()
+                    .filter_map(|i| match i {
+                        Intent::MarkRead(row) => Some(row),
+                        _ => None,
+                    })
+                    .filter(|row| !consumed.printed.contains(row) && !queued.contains(row))
+                    .collect();
+                if let Some(line) = rows
+                    .first()
+                    .and_then(|row| message_line(s, *row, json, None))
+                {
+                    lines.push((line, rows));
+                }
+            }
+            Anchor::Card(row) => {
+                if !filter.passes("proposal", Some(key))
+                    || consumed.declining.contains_key(&row)
+                    || consumed.decided.contains(&row)
+                    || !model.card_actions(row).contains(&Intent::DeclineCard(row))
+                {
+                    continue;
+                }
+                if let Some(p) = model.proposals(key).into_iter().find(|p| p.row == row) {
+                    let said = crate::cards::proposal_line(&p, key, "declined", json);
+                    consumed.declining.insert(row, said);
+                    decline.push(row);
+                }
             }
         }
     }
-    let proposals = crate::cards::every_proposal(s)
-        .into_iter()
-        .filter(|(_, p)| {
-            !consumed.declining.contains_key(&p.row) && !consumed.decided.contains(&p.row)
-        })
-        .collect();
-    (messages, proposals)
+}
+
+/// `listen --consume`'s drain of what the store holds unread: each
+/// conversation with an unread row the filter may print, walked oldest
+/// first, one at a time, its walk's steps standing for listen's own
+/// (`listen_consume_drains_a_conversation_past_the_held_row_ceiling`).
+struct Drain {
+    queue: std::collections::VecDeque<ConversationKey>,
+    walk: Option<crate::walk::Walk>,
+    /// The store was relisted during the drain: every conversation is
+    /// drained again once this pass ends.
+    again: bool,
+}
+
+impl Drain {
+    /// A drain of every conversation the summaries count an unread row
+    /// in, or that holds a proposal, that `filter` prints a message or a
+    /// proposal of.
+    fn of<B: DataSessionBinding, A: AdminBinding>(
+        s: &Session<B, A>,
+        filter: &crate::cli::ListenFilter,
+    ) -> Self {
+        let model = s.model();
+        let mut keys: Vec<ConversationKey> = model
+            .conversations()
+            .into_iter()
+            .filter(|c| c.unread > 0)
+            .map(|c| c.key)
+            // A conversation holding a proposal and no message yet.
+            .chain(model.proposal_conversations())
+            .filter(|k| filter.passes("message", Some(k)) || filter.passes("proposal", Some(k)))
+            .collect();
+        keys.sort();
+        keys.dedup();
+        let queue = keys.into();
+        Self {
+            queue,
+            walk: None,
+            again: false,
+        }
+    }
+
+    /// Drain `key` too, unless it is queued or walked already.
+    fn add(&mut self, key: ConversationKey) {
+        if !self.queue.contains(&key) && self.walk.as_ref().is_none_or(|w| w.conversation() != &key)
+        {
+            self.queue.push_back(key);
+        }
+    }
+}
+
+/// Open the drain's next walk, if it has none: the next conversation
+/// queued, or every conversation again after a relist; the drain ends
+/// with its queue.
+fn next_walk<B: DataSessionBinding, A: AdminBinding>(
+    drain: &mut Option<Drain>,
+    s: &mut Session<B, A>,
+    filter: &crate::cli::ListenFilter,
+) {
+    loop {
+        let Some(d) = drain.as_mut() else {
+            return;
+        };
+        if d.walk.is_some() {
+            return;
+        }
+        if let Some(key) = d.queue.pop_front() {
+            d.walk = Some(crate::walk::Walk::open_passing(s, &key));
+            return;
+        }
+        if !d.again {
+            *drain = None;
+            return;
+        }
+        *d = Drain::of(s, filter);
+    }
 }
 
 /// Hold the session open and print one line (one JSON object with
@@ -1265,9 +1379,31 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
     let mut consumed = Consumed::default();
     // What the store held unread when the session opened is the first
     // drain; a relist the facade asks for (`UnreadInStore`) is the next.
-    let mut drain = consume;
+    let mut redrain = consume;
+    let mut drain: Option<Drain> = None;
     loop {
+        if redrain {
+            redrain = false;
+            match drain.as_mut() {
+                Some(d) => d.again = true,
+                None => drain = Some(Drain::of(s, &filter)),
+            }
+        }
+        next_walk(&mut drain, s, &filter);
+        // Every turn steps, whatever the drain does: a walk's advance
+        // takes no step when it hands over rows held already, and the
+        // reads and declines asked last turn run in this step
+        // (`a_printed_message_is_read_before_listen_ends`). What a walk's
+        // own steps took is printed after it.
         s.step().await;
+        let mut updates = s.take_updates();
+        let walked = if let Some(walk) = drain.as_mut().and_then(|d| d.walk.as_mut()) {
+            let progress = walk.advance(s).await;
+            updates.extend(walk.take_passed());
+            Some((walk.conversation().clone(), progress))
+        } else {
+            None
+        };
         // A command the model side could not carry out -- a read or a
         // decline `--consume` asked -- is said, never dropped: its row
         // stays unread in the store.
@@ -1314,8 +1450,9 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         // Set once the reader is gone or stdout fails: what was written
         // before is still marked read, then listen ends.
         let mut ended: Option<Result<(), Failure>> = None;
-        let mut lines: Vec<(String, Option<RowId>)> = Vec::new();
-        for update in s.take_updates() {
+        // Each line with the unread rows it reads once written.
+        let mut lines: Vec<(String, Vec<RowId>)> = Vec::new();
+        for update in updates {
             // The filter judges only the events `listen_about` names, so an
             // `--input` line's first answer and a decline this run asked for
             // print as before. One named event is exempt: an outbound event
@@ -1330,10 +1467,8 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
                 || listen_about(s, &update)
                     .is_none_or(|(event, about)| filter.passes(event, about.as_ref()));
             let line = match &update {
-                Update::Client(ClientEvent::UnreadInStore { .. }) | Update::UnreadListed { .. }
-                    if consume =>
-                {
-                    drain = true;
+                Update::Client(ClientEvent::UnreadInStore { .. }) if consume => {
+                    redrain = true;
                     event_line(s, &update, json)
                 }
                 Update::Received(received) if consume => {
@@ -1343,9 +1478,20 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
                         event_line(s, &update, json)
                     }
                 }
-                // Declined as it arrives, and said once the decline is done.
-                Update::ReceivedCard(_) if consume => {
-                    drain = true;
+                // Declined as it arrives, by a drain of its conversation,
+                // and said once the decline is done.
+                Update::ReceivedCard(card) if consume => {
+                    let key = ConversationKey::Direct {
+                        peer: card.peer.clone(),
+                        endpoint: Some(card.endpoint.clone()),
+                    };
+                    drain
+                        .get_or_insert_with(|| Drain {
+                            queue: std::collections::VecDeque::new(),
+                            walk: None,
+                            again: false,
+                        })
+                        .add(key);
                     None
                 }
                 Update::CardResolved { row, .. } if consumed.declining.contains_key(row) => {
@@ -1403,46 +1549,62 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
             // Not printed, not consumed: a message the filter leaves out
             // stays unread (G7).
             if let Some(line) = line.filter(|_| shown) {
-                let row = match &update {
-                    Update::Received(received) if consume => Some(received.row),
-                    _ => None,
+                let rows = match &update {
+                    Update::Received(received) if consume => vec![received.row],
+                    _ => Vec::new(),
                 };
-                lines.push((line, row));
+                lines.push((line, rows));
             }
         }
-        if consume && drain && ended.is_none() {
-            drain = false;
-            let (messages, proposals) = undrained(s, &consumed);
-            // A row this step already holds a line for -- one received in
-            // the same turn as a card or a relist -- is that line's: never
-            // printed twice
-            // (`a_message_received_with_a_card_is_printed_once`).
-            let queued: std::collections::HashSet<RowId> =
-                lines.iter().filter_map(|(_, row)| *row).collect();
-            for row in messages.into_iter().filter(|row| {
-                !queued.contains(row)
-                    && filter.passes(
-                        "message",
-                        conversation_of_item(s, &format!("u{}", row.get())).as_ref(),
-                    )
-            }) {
-                if let Some(line) = message_line(s, row, json, None) {
-                    lines.push((line, Some(row)));
+        if let Some((key, progress)) = walked {
+            match progress {
+                Ok(crate::walk::Progress::Chunk(anchors)) => {
+                    let queued: std::collections::HashSet<RowId> = lines
+                        .iter()
+                        .flat_map(|(_, rows)| rows.iter().copied())
+                        .collect();
+                    drained(
+                        s,
+                        &key,
+                        &anchors,
+                        &filter,
+                        json,
+                        &queued,
+                        &mut consumed,
+                        &mut lines,
+                        &mut decline,
+                    );
                 }
-            }
-            for (key, p) in proposals {
-                if filter.passes("proposal", Some(&key))
-                    && s.model()
-                        .card_actions(p.row)
-                        .contains(&Intent::DeclineCard(p.row))
-                {
-                    let said = crate::cards::proposal_line(&p, &key, "declined", json);
-                    consumed.declining.insert(p.row, said);
-                    decline.push(p.row);
+                Ok(crate::walk::Progress::Working) => {}
+                // A row that arrived during the walk was printed as it
+                // arrived, as a `message` event.
+                Ok(crate::walk::Progress::Late(_) | crate::walk::Progress::Done) => {
+                    if let Some(d) = drain.as_mut() {
+                        d.walk = None;
+                    }
+                }
+                // Said, and the drain goes on with the next conversation:
+                // this one's rows stay unread for a later drain.
+                Err(failure) => {
+                    if let Some(walk) = drain.as_mut().and_then(|d| d.walk.take()) {
+                        walk.close(s);
+                    }
+                    if filter.passes("failed", None) {
+                        let line = if json {
+                            output::json_line(&json!({
+                                "event": "failed",
+                                "id": null,
+                                "reason": failure.message(),
+                            }))
+                        } else {
+                            format!("failed {}\n", output::one_line(failure.message()))
+                        };
+                        lines.push((line, Vec::new()));
+                    }
                 }
             }
         }
-        for (line, row) in lines {
+        for (line, rows) in lines {
             match put(out, &line) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -1456,7 +1618,7 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
             }
             // Read once its line is written and flushed, never before:
             // the line is its presentation to the program reading (G3).
-            if let Some(row) = row {
+            for row in rows {
                 consumed.printed.insert(row);
                 read.push(row);
             }

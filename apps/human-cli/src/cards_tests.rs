@@ -12,6 +12,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use interweave_human_app_core::FacadeSide;
+use interweave_human_app_core::test_hooks::{Fault, StoreFaults};
 use interweave_human_store::identity_key::IdentityKey;
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
@@ -92,12 +93,21 @@ impl Side {
         Session::new(facade, || Some(true)).expect("session")
     }
 
-    /// A run on the windowed start: the model holds the rows of an open
-    /// conversation only.
-    fn started(&self) -> Session<FakeNode, FakeNode> {
-        let mut facade = self.facade();
+    /// A run whose store refuses to read or decline `rows`: each refusal
+    /// comes after the row's page was read.
+    fn session_refusing(&self, rows: &[i64]) -> Session<FakeNode, FakeNode> {
+        let faults = std::sync::Arc::new(StoreFaults::default());
+        for row in rows {
+            faults.refuse_row(interweave_human_store::RowId::from_stored(*row));
+        }
+        self.session_faulted(faults)
+    }
+
+    /// A run whose facade consults `faults`.
+    fn session_faulted(&self, faults: std::sync::Arc<StoreFaults>) -> Session<FakeNode, FakeNode> {
+        let mut facade = self.facade().with_store_faults(faults);
         facade.set_identity_key(self.key());
-        Session::started(facade, || Some(true)).expect("session")
+        Session::new(facade, || Some(true)).expect("session")
     }
 
     /// A run that opens its key as `main` does, from the key source: a
@@ -343,16 +353,11 @@ async fn a_decision_that_fails_after_the_read_still_prints_the_proposals() {
     let (alice, bob, mut b_run) = Box::pin(shared()).await;
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
-    // The card's row cannot be read back now: showing it fails after the
-    // proposals were listed, and they are printed all the same.
+    // The store refuses to read the card's row: showing it fails after
+    // the proposals were listed, and they are printed all the same.
     let row: i64 = id[1..].parse().expect("a row");
-    let conn = rusqlite::Connection::open(bob.dir.path().join("human.sqlite3")).expect("open");
-    conn.execute(
-        "UPDATE unread_inbound SET source_peer = 'not-a-peer' WHERE row_id = ?1",
-        [row],
-    )
-    .expect("corrupt");
-    drop(conn);
+    b_run.close().await;
+    let mut b_run = bob.session_refusing(&[row]);
     let (out, read) = run(
         &mut b_run,
         Verb::ProposalsRead {
@@ -548,7 +553,7 @@ async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
     }
     let (a, b) = FakeNetwork::pair(node(), node());
     let (alice, bob) = (Side::new(a), Side::new(b));
-    let mut b_run = bob.started();
+    let mut b_run = bob.session();
     run(&mut b_run, Verb::Status, false)
         .await
         .1
@@ -1038,15 +1043,14 @@ async fn listen_consume_declines_a_card_held_at_open() {
 async fn a_refused_decline_of_a_proposal_listen_named_is_said_whatever_the_filter() {
     let (_alice, bob, mut b_run) = Box::pin(shared()).await;
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
-    assert_eq!(lines(&out).len(), 1, "held: {out}");
+    let held = lines(&out);
+    assert_eq!(held.len(), 1, "held: {out}");
+    let row: i64 = held[0]["id"].as_str().expect("id")[1..]
+        .parse()
+        .expect("a row");
     b_run.close().await;
-    let mut b_run = bob.session();
-    // Gone from the store after the session listed it: the decline finds
-    // no row.
-    let conn = rusqlite::Connection::open(bob.dir.path().join("human.sqlite3")).expect("open");
-    conn.execute("DELETE FROM unread_inbound", [])
-        .expect("deleted");
-    drop(conn);
+    // The store refuses the decline after the card's page was read.
+    let mut b_run = bob.session_refusing(&[row]);
     let mut out = Vec::new();
     verbs::listen(
         &mut b_run,
@@ -1300,7 +1304,7 @@ async fn a_card_behind_the_ceiling() -> (Side, Side, Session<FakeNode, FakeNode>
         .expect("committed");
     }
     drop(held);
-    let b_run = bob.started();
+    let b_run = bob.session();
     let unread = i64::try_from(2 * newer + 1).expect("small");
     assert_eq!(unread_rows(&bob), unread, "the card and the messages");
     (alice, bob, b_run, unread)
@@ -1359,4 +1363,47 @@ async fn proposals_read_finds_a_card_older_than_the_held_row_ceiling() {
     read.expect("accepted");
     assert_eq!(lines(&out)[0]["status"], "accepted", "{out}");
     assert_eq!(unread_rows(&bob), unread - 1, "the card read, alone");
+}
+
+/// The start's read of the contacts failed: the contact verbs refuse with
+/// the store's failure, never an empty list or "no contact has that id",
+/// which would be false; the control, the same store read, lists the
+/// contact. Mutation: the check removed -- an empty list, exit 0.
+#[tokio::test]
+async fn contacts_refuse_when_the_start_could_not_read_them() {
+    let (alice, bob, mut b_run) = Box::pin(shared()).await;
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    run(
+        &mut b_run,
+        Verb::ProposalsRead {
+            conversation: alice.route(),
+            accept: vec![id],
+            accept_key_change: vec![],
+            decline: vec![],
+        },
+        false,
+    )
+    .await
+    .1
+    .expect("accepted");
+    b_run.close().await;
+
+    let faults = std::sync::Arc::new(StoreFaults::default());
+    faults.set_contacts(Fault::Fail);
+    let mut b_run = bob.session_faulted(faults);
+    let (out, listed) = run(&mut b_run, Verb::Contacts, true).await;
+    assert!(
+        matches!(&listed, Err(Failure::Store(why)) if why.contains("contacts")),
+        "{listed:?} {out}"
+    );
+    assert!(out.is_empty(), "{out}");
+    let (_, shown) = run(&mut b_run, Verb::ContactShow("c1".to_owned()), true).await;
+    assert!(matches!(shown, Err(Failure::Store(_))), "{shown:?}");
+    b_run.close().await;
+
+    let mut b_run = bob.session();
+    let (out, listed) = run(&mut b_run, Verb::Contacts, true).await;
+    listed.expect("listed");
+    assert_eq!(lines(&out).len(), 1, "the control: {out}");
 }
