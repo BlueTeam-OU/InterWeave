@@ -814,6 +814,16 @@ impl UiModel {
         self.cards.set_read_cap(read_proposals);
     }
 
+    /// TEST BUILDS ONLY (the `test-hooks` feature): open Connect now,
+    /// whatever this start decided, so a test shows it after a
+    /// conversation was opened -- where the app itself opens it only on a
+    /// first start with nobody to reach (design/2026-10-27-start-window.md
+    /// section 10 item 12).
+    #[cfg(feature = "test-hooks")]
+    pub fn open_connect_for_test(&mut self) {
+        self.connect = ConnectState::Open(Connect::opened());
+    }
+
     // --- inputs ------------------------------------------------------------
 
     /// An event the facade emitted.
