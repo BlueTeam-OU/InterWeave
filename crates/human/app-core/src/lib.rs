@@ -24,6 +24,8 @@ mod listing;
 mod model_side;
 mod profile;
 mod protocol;
+#[cfg(feature = "test-hooks")]
+pub mod test_hooks;
 
 pub use facade::{CANCELLED_CAP, FacadeSide, READ_COPY_CAP};
 /// Why the identity's key cannot be used, as a root logs it.
