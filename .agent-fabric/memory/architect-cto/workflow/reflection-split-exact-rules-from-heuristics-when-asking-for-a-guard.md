@@ -5,7 +5,7 @@ topic: "reflection-split-exact-rules-from-heuristics-when-asking-for-a-guard"
 description: "When asking devex-tooling for a guard, split exact rules, which can become required checks, from heuristic ones, which stay review-time rules with a per-surface audit as their instrument; a heuristic on a required check blocks every lane…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

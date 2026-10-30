@@ -5,7 +5,7 @@ topic: "reflection-a-lane-building-on-another-s-decision-gets-the-verbatim-text"
 description: "A lane implementing a decision addressed to another role is sent the decision's verbatim text or, better, the as-built contract on the owner's branch, never a summary, since the decision's owner can change it as built and that overrides…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "idle-developers-dispatch-2026-10-21"
 description: "2026-10-21 round (owner away with the Pixel): what each idle gzapp/InterWeave login got, what was verified on main first, what I owe from it; main had moved past my 10-19 notes"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

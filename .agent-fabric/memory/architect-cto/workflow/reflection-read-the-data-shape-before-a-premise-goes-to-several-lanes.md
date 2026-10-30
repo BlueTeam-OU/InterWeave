@@ -5,7 +5,7 @@ topic: "reflection-read-the-data-shape-before-a-premise-goes-to-several-lanes"
 description: "When the owner reports a symptom, read the data artifact's documented shape and ask for one capture of what is on the wire before a diagnosis premise goes to several lanes; two premises sent to three lanes in one day were both withdrawn"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

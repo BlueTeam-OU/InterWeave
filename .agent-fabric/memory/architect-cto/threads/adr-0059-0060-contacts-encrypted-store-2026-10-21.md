@@ -5,7 +5,7 @@ topic: "adr-0059-0060-contacts-encrypted-store-2026-10-21"
 description: "ADR-0059 (contact card as a chat kind, accepted before it is a contact) and ADR-0060 (human store encrypted at rest under a platform-sealed key): the owner's direction, the bounds I chose, where the work waits (plan §29, SPIKE-011, PR #332)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

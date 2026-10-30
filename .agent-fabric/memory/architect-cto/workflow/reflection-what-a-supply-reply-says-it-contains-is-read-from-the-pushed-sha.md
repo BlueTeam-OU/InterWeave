@@ -5,7 +5,7 @@ topic: "reflection-what-a-supply-reply-says-it-contains-is-read-from-the-pushed-
 description: "Before a supply REPLY says a commit carries something or a validator passes, run git show --stat on that exact sha and the validator on it, after the last edit"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

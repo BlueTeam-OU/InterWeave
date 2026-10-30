@@ -5,7 +5,7 @@ topic: "reflection-search-origin-s-unmerged-branches-before-writing-a-gap"
 description: "A decision I authored can sit implemented on another lane's unmerged branch with no PR, pointed at by nothing on main or in the inbox; before writing a recorded gap or routing a job, list origin's for/ and feat/ branches and search them…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

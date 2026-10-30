@@ -5,7 +5,7 @@ topic: "reflection-linux-desktops-also-break-filesystem-rules-drafted-under-umas
 description: "Filesystem rules drafted on a umask-022 host also break on ordinary Linux desktops: user-private-group accounts run umask 002 so a group of one shows a group-write bit, with a POSIX access ACL the group mode bits are the ACL mask, and the…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

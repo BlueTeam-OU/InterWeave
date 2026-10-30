@@ -5,7 +5,7 @@ topic: "reflection-a-newly-declared-default-is-the-value-that-ships-today"
 description: A default declared for an existing or optional member is the value served today, not the one the author prefers, since a different default silently changes every record written without the member on the next release
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

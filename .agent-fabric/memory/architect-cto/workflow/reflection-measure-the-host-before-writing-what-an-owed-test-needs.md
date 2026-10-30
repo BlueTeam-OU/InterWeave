@@ -5,7 +5,7 @@ topic: "reflection-measure-the-host-before-writing-what-an-owed-test-needs"
 description: "Before writing what an owed test needs, such as a bigger harness or an emulator, check whether this host can build it at all, and write 'not constructible on this host' rather than 'needs a larger harness' when it cannot"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

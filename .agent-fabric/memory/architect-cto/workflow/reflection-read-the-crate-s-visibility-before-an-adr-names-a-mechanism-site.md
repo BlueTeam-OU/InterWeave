@@ -5,7 +5,7 @@ topic: "reflection-read-the-crate-s-visibility-before-an-adr-names-a-mechanism-s
 description: "An ADR rule that says where a mechanism runs inside a vendored or third-party crate is written only after the implementer has read what the crate exposes at that point; otherwise the rule follows the implementation through several…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

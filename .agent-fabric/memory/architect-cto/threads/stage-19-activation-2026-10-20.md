@@ -5,7 +5,7 @@ topic: "stage-19-activation-2026-10-20"
 description: "Stage 19 (packaging, migration, release) activated 2026-10-20 on the owner's word, beside Stages 17 and 18; the §22 record (IW #317) is the packages' authorisation; the split by lane and what waits (macos, windows)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

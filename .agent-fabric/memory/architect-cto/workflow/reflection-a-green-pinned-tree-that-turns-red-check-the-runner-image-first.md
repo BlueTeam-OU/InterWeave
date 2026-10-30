@@ -5,7 +5,7 @@ topic: "reflection-a-green-pinned-tree-that-turns-red-check-the-runner-image-fir
 description: "When a pinned tree that was green turns red with no code change, compare the runner image version in each run's log before blaming the dependency graph; a claim that main is green is only as current as main's last run"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

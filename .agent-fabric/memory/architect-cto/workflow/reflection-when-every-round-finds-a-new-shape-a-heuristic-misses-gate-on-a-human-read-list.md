@@ -5,7 +5,7 @@ topic: "reflection-when-every-round-finds-a-new-shape-a-heuristic-misses-gate-on
 description: "When each review round finds another shape a free-text scan misses, stop patching the scan and move that class to an exact gate, a pinned list of input digests a person has read, the scan staying as a tripwire; a digest list made by a…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

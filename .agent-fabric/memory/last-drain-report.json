@@ -76,6 +76,50 @@
       "replaced_key": "7a2ceef83686baeb",
       "slice": ".agent-fabric/memory/rust-ui-dev/workflow/labels-english-supplier.md",
       "stamp": "2026-10-24"
+    },
+    {
+      "agent": "architect-cto-01",
+      "applied_key": "bd1728698b64b52f",
+      "heading": "RETIRES the duplicated Stage 17 thread slice (threads-carried-2026-10-18-2): the (j) review was received 2026-10-19..22 and Stage 17 closed on #373 (2026-10-22, merge 8ef07343); nothing in that thread is awaited",
+      "host": "develop-qzapp",
+      "memory": "threads-carried-2026-10-18-retire-duplicate",
+      "replaced": "Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)",
+      "replaced_key": "d2dfce6367a57604",
+      "slice": ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18-2.md",
+      "stamp": "2026-10-28"
+    },
+    {
+      "agent": "architect-cto-01",
+      "applied_key": "c68d4356172e452d",
+      "heading": "LIVE since 2026-10-19 12:35Z — architect-cto is below_min_authority and boundary_authority in InterWeave and gzapp (authority_own_prs false): how to give the word (AUTHORIZES line or arm with basis \"architect-cto's word\"), only after reading the head and its posted review; own PRs stay the owner's; an ADR's ACCEPTANCE is still the owner's",
+      "host": "develop-qzapp",
+      "memory": "architect-cto-arms-gzapp-interweave",
+      "replaced": "LIVE since 2026-10-19 12:35Z — architect-cto is below_min_authority and boundary_authority in InterWeave and gzapp (authority_own_prs false): how to give the word (AUTHORIZES line or arm with basis \"architect-cto's word\"), only after reading the head and its posted review; own PRs stay the owner's; an ADR's ACCEPTANCE is still the owner's",
+      "replaced_key": "ac1b511a273ae8b8",
+      "slice": ".agent-fabric/memory/architect-cto/workflow/architect-cto-arms-gzapp-interweave.md",
+      "stamp": "2026-10-28"
+    },
+    {
+      "agent": "architect-cto-01",
+      "applied_key": "1003a7f5a18fb16a",
+      "heading": "STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still architect-cto's)",
+      "host": "develop-qzapp",
+      "memory": "gateway-boundary-authority-architect-cto",
+      "replaced": "STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still architect-cto's)",
+      "replaced_key": "17a624878cb59bb5",
+      "slice": ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md",
+      "stamp": "2026-10-28"
+    },
+    {
+      "agent": "architect-cto-01",
+      "applied_key": "b76c0f243654f194",
+      "heading": "A number or mechanism that arrives in a lane's message is not read in the tree: before it enters a contract sentence, read the constant, timer or buffer it rests on at the branch head and cite that; a measurement nowhere in the repository does not go into a contract at all",
+      "host": "develop-qzapp",
+      "memory": "reflection-a-figure-from-a-message-is-not-in-the-tree",
+      "replaced": "A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real",
+      "replaced_key": "80200d2fff06455f",
+      "slice": ".agent-fabric/memory/architect-cto/workflow/reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated.md",
+      "stamp": "2026-10-28"
     }
   ],
   "clipped_descriptions": [
@@ -92,19 +136,35 @@
     "memory/domains/architect-cto/domain/reflection-cargo-lock-resolves-every-target-s-dependencies.md: description clipped from 280 to 234 characters",
     "memory/domains/architect-cto/domain/reflection-cleanup-belongs-in-drop.md: description clipped from 305 to 234 characters",
     "memory/domains/architect-cto/domain/reflection-invisible-row-by-its-own-data-not-readers-rules.md: description clipped from 249 to 239 characters",
+    "memory/domains/architect-cto/domain/reflection-sqlite-covering-index-over-virtual-generated-columns-is-a-search.md: description clipped from 290 to 233 characters",
     "memory/domains/architect-cto/domain/reflection-unassigned-codes-and-byte-exact-details-are-contract-text.md: description clipped from 345 to 238 characters",
     ".agent-fabric/memory/architect-cto/intersection.md: description clipped from 314 to 234 characters",
+    ".agent-fabric/memory/architect-cto/rationale/adr-0063-missing-and-refused-key-file-2026-10-24.md: description clipped from 268 to 236 characters",
     ".agent-fabric/memory/architect-cto/rationale/adr-0065-semver-2026-10-23.md: description clipped from 266 to 229 characters",
+    ".agent-fabric/memory/architect-cto/rationale/adr-044-migration-timeout-2026-10-26.md: description clipped from 291 to 232 characters",
+    ".agent-fabric/memory/architect-cto/rationale/android-targetsdk-37-hotspot-decision-2026-10-27.md: description clipped from 306 to 228 characters",
+    ".agent-fabric/memory/architect-cto/rationale/card-photo-chroma-444-ruling-2026-10-25.md: description clipped from 342 to 229 characters",
+    ".agent-fabric/memory/architect-cto/rationale/cloudflare-admin-delegation-2026-10-25.md: description clipped from 282 to 234 characters",
+    ".agent-fabric/memory/architect-cto/rationale/control-plane-on-interweave-cli-2026-10-27.md: description clipped from 247 to 238 characters",
     ".agent-fabric/memory/architect-cto/rationale/e2e-identity-keys-2026-10-21.md: description clipped from 333 to 238 characters",
+    ".agent-fabric/memory/architect-cto/rationale/identity-endpointid-derived-from-key-2026-10-28.md: description clipped from 353 to 237 characters",
     ".agent-fabric/memory/architect-cto/rationale/owner-identity-model-endpointid-is-user-identity-2026-10-21.md: description clipped from 296 to 237 characters",
     ".agent-fabric/memory/architect-cto/rationale/reflection-why-a-root-test-suite-partitions-open-prs-by-file.md: description clipped from 276 to 234 characters",
     ".agent-fabric/memory/architect-cto/solution/android-no-store-no-play-services.md: description clipped from 253 to 234 characters",
     ".agent-fabric/memory/architect-cto/solution/reflection-a-captured-frame-test-proves-nothing-about-an-open-nested-member.md: description clipped from 311 to 233 characters",
     ".agent-fabric/memory/architect-cto/solution/reflection-gzapp-migration-numbers-are-not-a-calendar.md: description clipped from 276 to 238 characters",
+    ".agent-fabric/memory/architect-cto/threads/adr-0052-rule-10-outside-the-view-2026-10-27.md: description clipped from 252 to 237 characters",
+    ".agent-fabric/memory/architect-cto/threads/adr-0066-release-signing-2026-10-25.md: description clipped from 339 to 234 characters",
+    ".agent-fabric/memory/architect-cto/threads/adr-079-stop-calls-2026-10-25.md: description clipped from 243 to 238 characters",
+    ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-27-main-1b37e0ef.md: description clipped from 278 to 228 characters",
+    ".agent-fabric/memory/architect-cto/threads/owner-reminder-5b-limits-at-the-second-host.md: description clipped from 332 to 233 characters",
+    ".agent-fabric/memory/architect-cto/threads/same-name-three-keys-gap-2026-10-25.md: description clipped from 435 to 235 characters",
+    ".agent-fabric/memory/architect-cto/threads/stage-18-record-and-close-census-2026-10-25.md: description clipped from 258 to 225 characters",
     ".agent-fabric/memory/architect-cto/threads/stage-20-fleet-carrier-2026-10-19.md: description clipped from 328 to 235 characters",
     ".agent-fabric/memory/architect-cto/threads/stage-21-close-2026-10-24.md: description clipped from 245 to 234 characters",
     ".agent-fabric/memory/architect-cto/workflow/architect-cto-arms-gzapp-interweave.md: description clipped from 340 to 234 characters",
     ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md: description clipped from 242 to 226 characters",
+    ".agent-fabric/memory/architect-cto/workflow/merge-target-names-the-section-heading-verbatim-2026-10-24.md: description clipped from 295 to 239 characters",
     ".agent-fabric/memory/architect-cto/workflow/never-commit-in-the-same-command-as-an-edit-script.md: description clipped from 319 to 234 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-landed-amendment-is-never-edited-a-later-body-change-is-a-new-amendment.md: description clipped from 263 to 237 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-lane-building-on-another-s-decision-gets-the-verbatim-text.md: description clipped from 266 to 237 characters",
@@ -113,10 +173,12 @@
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-ruling-restates-the-current-behaviour-read-at-origin-main.md: description clipped from 300 to 235 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-an-owed-or-built-after-clause-is-false-the-moment-its-pr-merges.md: description clipped from 306 to 238 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-cite-an-amendment-only-once-its-pr-is-on-main.md: description clipped from 244 to 239 characters",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-device-access-across-logins-is-per-key-per-port-per-lease.md: description clipped from 388 to 236 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-linux-desktops-also-break-filesystem-rules-drafted-under-umask-022.md: description clipped from 314 to 239 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-read-adr-0019-s-dedup-bound-before-ruling-a-retry-above-the-transport.md: description clipped from 245 to 237 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-read-an-every-binding-rule-against-each-mobile-platform-s-defaults.md: description clipped from 294 to 238 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-read-the-crate-s-visibility-before-an-adr-names-a-mechanism-site.md: description clipped from 242 to 231 characters",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-read-the-locks-scope-before-ruling-one-client-at-a-time.md: description clipped from 242 to 236 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-rule-the-meaning-of-person-facing-text-never-its-words.md: description clipped from 259 to 236 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-search-origin-s-unmerged-branches-before-writing-a-gap.md: description clipped from 262 to 237 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-split-exact-rules-from-heuristics-when-asking-for-a-guard.md: description clipped from 265 to 238 characters",
@@ -124,113 +186,70 @@
     ".agent-fabric/memory/architect-cto/workflow/reflection-the-repository-name-in-a-message-is-copied-never-composed.md: description clipped from 291 to 227 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-when-an-adr-gives-an-existing-word-a-new-meaning-sweep-by-one-rule.md: description clipped from 252 to 233 characters",
     ".agent-fabric/memory/architect-cto/workflow/reflection-when-every-round-finds-a-new-shape-a-heuristic-misses-gate-on-a-human-read-list.md: description clipped from 291 to 235 characters",
+    ".agent-fabric/memory/architect-cto/workflow/remote-branch-prune-2026-10-28.md: description clipped from 280 to 233 characters",
     ".agent-fabric/memory/architect-cto/workflow/review-class-v2-relaunch-before-dispatch-2026-10-24.md: description clipped from 324 to 239 characters",
-    "memory/domains/p2p-network-dev/domain/error-text-matching-pins-the-public-type.md: description clipped from 385 to 235 characters",
-    ".agent-fabric/memory/p2p-network-dev/solution/correction-autonat-pacing-is-not-the-crates-tick.md: description clipped from 354 to 233 characters",
-    ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-10-network-change.md: description clipped from 348 to 237 characters",
-    ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-8-dcutr.md: description clipped from 245 to 235 characters",
-    ".agent-fabric/memory/p2p-network-dev/solution/stage6-ingress-burst-test-is-load-timed.md: description clipped from 398 to 228 characters",
-    ".agent-fabric/memory/p2p-network-dev/workflow/host-address-classes-bound-what-a-wire-test-can-prove.md: description clipped from 265 to 236 characters",
-    ".agent-fabric/memory/p2p-network-dev/workflow/host-cargo-is-system-1-98-no-rustup.md: description clipped from 332 to 235 characters",
-    ".agent-fabric/memory/p2p-network-dev/workflow/pin-an-auto-updating-tool-for-an-evidence-campaign.md: description clipped from 246 to 238 characters",
-    ".agent-fabric/memory/p2p-network-dev/workflow/supply-commits-to-the-callers-change.md: description clipped from 368 to 236 characters",
-    "memory/domains/p2p-network-dev/domain/domain-a-backoff-exemption-unpaces-every-caller.md: description clipped from 265 to 238 characters",
-    "memory/domains/p2p-network-dev/domain/domain-a-two-party-case-ends-on-an-explicit-close.md: description clipped from 286 to 238 characters",
-    "memory/domains/p2p-network-dev/domain/domain-mobile-resolver-from-the-network-view.md: description clipped from 296 to 239 characters",
-    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-shared-device-build-by-the-installed-signer.md: description clipped from 263 to 236 characters"
+    ".agent-fabric/memory/architect-cto/workflow/review-tools-bound-to-the-session-clone-2026-10-25.md: description clipped from 266 to 235 characters"
   ],
   "collision_decisions": [
     {
       "agent": "architect-cto-01",
       "decision": "supersede",
-      "key": "architect-cto/workflow:gateway-boundary-authority-architect-cto#STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still architect-cto's)",
-      "observed_at": "2026-10-22",
+      "key": "architect-cto/threads:adr-0058-third-party-notices-2026-10-21#ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; all of it landed by 2026-10-22; the legal read of the standard-text fallback is the one open point",
+      "observed_at": "2026-10-25",
       "rule": "same-agent"
     },
     {
-      "agent": "devex-tooling",
+      "agent": "architect-cto-01",
       "decision": "supersede",
-      "key": "devex-tooling/solution:rust-job-cache-and-nextest-measured#InterWeave rust CI job — cargo target cache sizes, nextest gains, and how a warm cache was measured before merge (PR #288, 2026-10-16)",
-      "observed_at": "2026-10-16",
+      "key": "architect-cto/rationale:adr-0065-semver-2026-10-23#Owner 2026-10-23 \"from here ahead interweave will follow semver 2.0.0\" — ADR-0065 on #389 (99a37ebc): declared public API, 0.y.z until the owner cuts 1.0.0, one workspace version checked by the release run, versionCode a counter, pre-release tags; four lane REQUESTs",
+      "observed_at": "2026-10-25",
       "rule": "same-agent"
     },
     {
-      "agent": "language-culture-en",
+      "agent": "architect-cto-01",
       "decision": "supersede",
-      "key": "language-culture/solution:solution-carried-2026-10-10#The English conventions and glossary the InterWeave human client's copy holds (labels.rs), set at the first read 2026-10-09",
-      "observed_at": "2026-10-24",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "p2p-network-dev-01",
-      "decision": "supersede",
-      "key": "p2p-network-dev/workflow:host-cargo-is-system-1-98-no-rustup#develop-qzapp has only the distro cargo (Fedora 1.98.1), no rustup. Since #142 (400fb1e3) the pin IS 1.98.1, so local clippy = CI clippy; before that the 1.97.1 pin was not honoured locally. Lessons that outlive the skew: never pipe a verify step, -D warnings is the whole check, an expect/allow lint must exist in the pinned clippy",
-      "observed_at": "2026-09-25",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "p2p-network-dev-01",
-      "decision": "supersede",
-      "key": "p2p-network-dev/workflow:pkill-f-matches-its-own-shell#pkill -f <pattern> inside a Bash tool call kills the tool's own shell (exit 144), since the shell's command line contains the pattern",
-      "observed_at": "2026-10-22",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "p2p-network-dev-01",
-      "decision": "drop",
-      "key": "p2p-network-dev/workflow:routing-tests-run-on-the-hosts-private-address#ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks@d9a46bca68fa",
-      "observed_at": "2026-09-25"
-    },
-    {
-      "agent": "p2p-network-dev-02",
-      "decision": "supersede",
-      "key": "p2p-network-dev/domain:domain-free-port-same-port-reuseport#two bind-port-0 \"free port\" asks in a row can return the same port; libp2p-tcp's SO_REUSEPORT lets both daemons bind it, and each one's dial to the other is stripped as its own listen address (NoAddresses)",
-      "observed_at": "2026-10-20",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "p2p-network-dev-02",
-      "decision": "drop",
-      "key": "p2p-network-dev/domain:multistream-select-order#libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates@1bb263f41eff",
-      "observed_at": "2026-10-08"
-    },
-    {
-      "agent": "rust-ui-dev-01",
-      "decision": "supersede",
-      "key": "rust-ui-dev/solution:j93-swipe-focus-rules#j93 (2026-10-17): #286's later swipe rules built on the j93 branch stacked on j91/#292 — Keep/Unkeep focus, focus when the snackbar closes under its Undo (UndoClosed), late Cancel after leaving",
-      "observed_at": "2026-10-17",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "rust-ui-dev-01",
-      "decision": "supersede",
-      "key": "rust-ui-dev/threads:j97-accesskit-prototype#j97 (2026-10-17): app-side AccessKit adapter prototype for Android built, two APKs (unpatched / hover-patched) waiting for the Pixel; what is measured and what is not",
-      "observed_at": "2026-10-17",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "rust-ui-dev-01",
-      "decision": "supersede",
-      "key": "rust-ui-dev/workflow:mutate-from-a-scratch-copy#Mutation loops: restore from a scratchpad copy, never `git checkout <file>`, which throws away the uncommitted change under test",
-      "observed_at": "2026-10-23",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "ux-designer-01",
-      "decision": "supersede",
-      "key": "ux-designer/threads:android-identity-j27#j27: Android identity screens design note (create, show phrase, recover) for plan §20 steps 7-8 — where it is and what it waits on",
+      "key": "architect-cto/threads:idle-developers-dispatch-2026-10-19#2026-10-19 round feeding six idle developers (gzapp five, InterWeave one): what each REQUEST asks, what was verified on main, and the two decisions I owe from it (step-up MFA mechanism; ADR-078 rider-side sign after gzapp#1119)",
       "observed_at": "2026-10-19",
       "rule": "same-agent"
     },
     {
-      "agent": "ux-designer-01",
+      "agent": "architect-cto-01",
       "decision": "supersede",
-      "key": "ux-designer/threads:stage17-android-review-j26#j26: plan §20 clause (j) — my on-device look-and-feel review of the Android app is a condition of Stage 17's close; status and what it waits on",
-      "observed_at": "2026-10-21",
+      "key": "architect-cto/threads:owner-priority-cli-and-mcp-on-prod-host-2026-10-22#Owner 2026-10-22: a full command-line client and the Claude MCP bridge must run on the stage/production host by next week (edge-hosting agent moves there); the five REQUESTs and the open risks",
+      "observed_at": "2026-10-28",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "architect-cto-01",
+      "decision": "supersede",
+      "key": "architect-cto/workflow:reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated#A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real",
+      "observed_at": "2026-10-25",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "architect-cto-01",
+      "decision": "supersede",
+      "key": "architect-cto/workflow:rustsec-zbus-family-ignores-and-arming-below-minimum#The 2026-10-18 CI outage on InterWeave (zbus-family RustSec unmaintained advisories) and what landing #297 taught about folding a supply, the deny.toml boundary, and the architect-cto AUTHORIZES send",
+      "observed_at": "2026-10-28",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "architect-cto-01",
+      "decision": "supersede",
+      "key": "architect-cto/threads:stage-20-fleet-carrier-2026-10-19#Owner's direction 2026-10-19 that the fleet uses InterWeave as its transport while the coordination protocol stays OUT of the InterWeave repo (general-purpose transport, human-to-human too): ADR-0055 + plan §28 Stage 20 re-cut generic (automated clients as first-party consumers); what the survey and p2p-network-dev-01 measured",
+      "observed_at": "2026-10-28",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "architect-cto-01",
+      "decision": "supersede",
+      "key": "architect-cto/threads:stage-21-close-2026-10-24#Owner 2026-10-24 \"complete stage 21\" — census of plan §29's gate vs main 93b63a39 (what is proved, what each lane owes), the four REQUESTs, the two things only the owner gives (privacy review (d); phones for the device rows), the §13 stage split",
+      "observed_at": "2026-10-25",
       "rule": "same-agent"
     }
   ],
   "files": [
+    ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-04-already-landed.md",
     "memory/domains/architect-cto/domain/ed25519-malformed-vector-construction.md",
     "memory/domains/architect-cto/domain/reflection-a-change-only-notice-stream-also-owes-the-current-value.md",
     "memory/domains/architect-cto/domain/reflection-a-fail-closed-check-on-an-outside-service-needs-a-deadline.md",
@@ -258,45 +277,82 @@
     "memory/domains/architect-cto/domain/reflection-fixture-invariant-checks-derivation-not-plausibility.md",
     "memory/domains/architect-cto/domain/reflection-gradle-default-lock-mode-lets-an-unlocked-configuration-resolve-unseen.md",
     "memory/domains/architect-cto/domain/reflection-invisible-row-by-its-own-data-not-readers-rules.md",
+    "memory/domains/architect-cto/domain/reflection-sqlite-covering-index-over-virtual-generated-columns-is-a-search.md",
     "memory/domains/architect-cto/domain/reflection-unassigned-codes-and-byte-exact-details-are-contract-text.md",
     ".agent-fabric/memory/architect-cto/intersection.md",
-    ".agent-fabric/memory/architect-cto/rationale/rationale-carried-2026-10-18.md",
     ".agent-fabric/memory/architect-cto/rationale/adr-0011-relay-hop-hold-2026-10-21.md",
     ".agent-fabric/memory/architect-cto/rationale/adr-0062-scan-bound-new-lines-2026-10-22.md",
+    ".agent-fabric/memory/architect-cto/rationale/adr-0063-missing-and-refused-key-file-2026-10-24.md",
     ".agent-fabric/memory/architect-cto/rationale/adr-0065-semver-2026-10-23.md",
+    ".agent-fabric/memory/architect-cto/rationale/adr-044-migration-timeout-2026-10-26.md",
+    ".agent-fabric/memory/architect-cto/rationale/android-targetsdk-37-hotspot-decision-2026-10-27.md",
+    ".agent-fabric/memory/architect-cto/rationale/card-photo-chroma-444-ruling-2026-10-25.md",
+    ".agent-fabric/memory/architect-cto/rationale/cloudflare-admin-delegation-2026-10-25.md",
+    ".agent-fabric/memory/architect-cto/rationale/control-plane-on-interweave-cli-2026-10-27.md",
     ".agent-fabric/memory/architect-cto/rationale/e2e-identity-keys-2026-10-21.md",
+    ".agent-fabric/memory/architect-cto/rationale/identity-endpointid-derived-from-key-2026-10-28.md",
     ".agent-fabric/memory/architect-cto/rationale/owner-identity-model-endpointid-is-user-identity-2026-10-21.md",
+    ".agent-fabric/memory/architect-cto/rationale/rationale-carried-2026-10-18.md",
     ".agent-fabric/memory/architect-cto/rationale/reflection-a-newly-declared-default-is-the-value-that-ships-today.md",
+    ".agent-fabric/memory/architect-cto/rationale/reflection-a-set-two-writers-maintain-is-derived-not-kept.md",
     ".agent-fabric/memory/architect-cto/rationale/reflection-schema-constraint-or-producer-test.md",
     ".agent-fabric/memory/architect-cto/rationale/reflection-why-a-root-test-suite-partitions-open-prs-by-file.md",
     ".agent-fabric/memory/architect-cto/solution/android-no-store-no-play-services.md",
     ".agent-fabric/memory/architect-cto/solution/dev-profile-line-tables-build-size-2026-10-21.md",
+    ".agent-fabric/memory/architect-cto/solution/empty-response-stream-is-peer-unreachable-2026-10-26.md",
     ".agent-fabric/memory/architect-cto/solution/host-line-bound-measure-2026-10-22.md",
     ".agent-fabric/memory/architect-cto/solution/reflection-a-captured-frame-test-proves-nothing-about-an-open-nested-member.md",
     ".agent-fabric/memory/architect-cto/solution/reflection-gzapp-migration-numbers-are-not-a-calendar.md",
-    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md",
     ".agent-fabric/memory/architect-cto/threads/adr-0043-recovery-warning-no-site-2026-10-21.md",
+    ".agent-fabric/memory/architect-cto/threads/adr-0052-rule-10-no-local-network-2026-10-26.md",
+    ".agent-fabric/memory/architect-cto/threads/adr-0052-rule-10-outside-the-view-2026-10-27.md",
     ".agent-fabric/memory/architect-cto/threads/adr-0058-third-party-notices-2026-10-21.md",
     ".agent-fabric/memory/architect-cto/threads/adr-0059-0060-contacts-encrypted-store-2026-10-21.md",
-    ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-04-already-landed.md",
+    ".agent-fabric/memory/architect-cto/threads/adr-0066-release-signing-2026-10-25.md",
+    ".agent-fabric/memory/architect-cto/threads/adr-047-flutter-coverage-workflow-2026-10-26.md",
+    ".agent-fabric/memory/architect-cto/threads/adr-079-stop-calls-2026-10-25.md",
+    ".agent-fabric/memory/architect-cto/threads/card-shared-at-accepted-and-silent-key-pending-row-2026-10-27.md",
     ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-20-main-a4538593.md",
+    ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-27-main-1b37e0ef.md",
     ".agent-fabric/memory/architect-cto/threads/idle-developers-dispatch-2026-10-19.md",
     ".agent-fabric/memory/architect-cto/threads/idle-developers-dispatch-2026-10-21.md",
+    ".agent-fabric/memory/architect-cto/threads/idle-round-3-dispatch-2026-10-24.md",
+    ".agent-fabric/memory/architect-cto/threads/ipc-2-10-callers-chain-2026-10-24.md",
+    ".agent-fabric/memory/architect-cto/threads/j69-reboot-and-cache-rows-2026-10-25.md",
+    ".agent-fabric/memory/architect-cto/threads/linux-archive-glibc-floor-v0-1-1-2026-10-25.md",
+    ".agent-fabric/memory/architect-cto/threads/macos-windows-packaging-postponed-2026-10-28.md",
+    ".agent-fabric/memory/architect-cto/threads/own-card-row-unverified-own-fields-reader-2026-10-27.md",
+    ".agent-fabric/memory/architect-cto/threads/owner-four-client-findings-j68-2026-10-27.md",
     ".agent-fabric/memory/architect-cto/threads/owner-priority-cli-and-mcp-on-prod-host-2026-10-22.md",
+    ".agent-fabric/memory/architect-cto/threads/owner-reminder-5b-limits-at-the-second-host.md",
+    ".agent-fabric/memory/architect-cto/threads/redacted-mayor-deck-claims-2026-10-27.md",
+    ".agent-fabric/memory/architect-cto/threads/same-name-three-keys-gap-2026-10-25.md",
+    ".agent-fabric/memory/architect-cto/threads/stage-18-outside-suite-shapes-2026-10-25.md",
+    ".agent-fabric/memory/architect-cto/threads/stage-18-record-and-close-census-2026-10-25.md",
     ".agent-fabric/memory/architect-cto/threads/stage-19-activation-2026-10-20.md",
     ".agent-fabric/memory/architect-cto/threads/stage-20-fleet-carrier-2026-10-19.md",
     ".agent-fabric/memory/architect-cto/threads/stage-21-beside-17-2026-10-21.md",
     ".agent-fabric/memory/architect-cto/threads/stage-21-close-2026-10-24.md",
+    ".agent-fabric/memory/architect-cto/threads/stage-22-several-identities-roadmap-only-2026-10-28.md",
+    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md",
     ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18-2.md",
     ".agent-fabric/memory/architect-cto/workflow/architect-cto-arms-gzapp-interweave.md",
+    ".agent-fabric/memory/architect-cto/workflow/arming-words-2026-10-26.md",
+    ".agent-fabric/memory/architect-cto/workflow/arming-words-2026-10-27-ii.md",
+    ".agent-fabric/memory/architect-cto/workflow/disk-cleanup-2026-10-27.md",
     ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md",
+    ".agent-fabric/memory/architect-cto/workflow/merge-target-names-the-section-heading-verbatim-2026-10-24.md",
     ".agent-fabric/memory/architect-cto/workflow/never-commit-in-the-same-command-as-an-edit-script.md",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-a-column-in-state-md-s-row-may-be-a-later-stage-s.md",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-a-count-in-prose-about-another-lanes-list-is-read-per-entry.md",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-a-distinct-in-a-count-is-read-against-the-tables-key.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-green-pinned-tree-that-turns-red-check-the-runner-image-first.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-held-commit-gets-bounded-carriers-and-a-date.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-landed-amendment-is-never-edited-a-later-body-change-is-a-new-amendment.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-lane-building-on-another-s-decision-gets-the-verbatim-text.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-p2-every-round-on-a-new-shape-means-the-adr-has-no-design.md",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-a-plan-s-record-pr-lands-before-its-implementation-prs.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-refusal-reached-by-another-act-or-audience-gets-its-own-message-key.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-relayed-owner-direction-is-quoted-verbatim-apart-from-my-reading.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-ruling-is-final-only-after-its-amendment-passed-review.md",
@@ -304,11 +360,13 @@
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-stage-close-also-dates-the-role-remits.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-stage-tied-dead-function-exemption-needs-a-real-consumer-in-its-reason.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-an-adr-s-implementation-state-sentence-names-the-source-never-the-figures.md",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-an-adr-sentence-naming-where-a-record-will-live-is-checked-when-it-lands.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-an-owed-or-built-after-clause-is-false-the-moment-its-pr-merges.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-another-lane-s-pr-that-makes-an-adr-premise-false-carries-the-amendment.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-cite-an-amendment-only-once-its-pr-is-on-main.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-contract-text-about-a-lane-s-unmerged-code-is-read-from-that-branch-s-head.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-describe-a-flag-by-its-stored-predicate.md",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-device-access-across-logins-is-per-key-per-port-per-lease.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-evidence-for-the-owner-names-its-build-and-source.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-find-where-a-sentence-lives-now-before-routing-its-fix.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-fold-refusals-by-what-is-refused-not-by-who-refuses.md",
@@ -317,13 +375,16 @@
     ".agent-fabric/memory/architect-cto/workflow/reflection-measure-the-host-before-writing-what-an-owed-test-needs.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-name-a-pushed-sha-only-after-reading-it-back.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-owner-relayed-status-is-checked-on-origin.md",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-prose-that-describes-behaviour-you-changed-grep-before-sending.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-read-a-status-set-from-the-schema-before-ruling-on-it.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-read-adr-0019-s-dedup-bound-before-ruling-a-retry-above-the-transport.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-read-an-every-binding-rule-against-each-mobile-platform-s-defaults.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-read-every-threshold-a-consumer-s-decision-uses-before-deriving-a-served-value.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-read-the-crate-s-visibility-before-an-adr-names-a-mechanism-site.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-read-the-data-shape-before-a-premise-goes-to-several-lanes.md",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-read-the-locks-scope-before-ruling-one-client-at-a-time.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-rule-the-meaning-of-person-facing-text-never-its-words.md",
+    ".agent-fabric/memory/architect-cto/workflow/reflection-run-the-check-before-the-trailer-claims-it.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-search-origin-s-unmerged-branches-before-writing-a-gap.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-split-exact-rules-from-heuristics-when-asking-for-a-guard.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-the-arming-word-is-given-on-a-finished-head-only.md",
@@ -332,8 +393,11 @@
     ".agent-fabric/memory/architect-cto/workflow/reflection-what-a-supply-reply-says-it-contains-is-read-from-the-pushed-sha.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-when-an-adr-gives-an-existing-word-a-new-meaning-sweep-by-one-rule.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-when-every-round-finds-a-new-shape-a-heuristic-misses-gate-on-a-human-read-list.md",
+    ".agent-fabric/memory/architect-cto/workflow/remote-branch-prune-2026-10-28.md",
     ".agent-fabric/memory/architect-cto/workflow/review-class-v2-relaunch-before-dispatch-2026-10-24.md",
+    ".agent-fabric/memory/architect-cto/workflow/review-tools-bound-to-the-session-clone-2026-10-25.md",
     ".agent-fabric/memory/architect-cto/workflow/rustsec-zbus-family-ignores-and-arming-below-minimum.md",
+    ".agent-fabric/memory/architect-cto/workflow/supply-job-closes-on-the-supply-sha-reaching-origin-main.md",
     ".agent-fabric/memory/architect-cto/INDEX.md",
     ".agent-fabric/memory/devex-tooling/INDEX.md",
     ".agent-fabric/memory/fabric-coordinator/INDEX.md",
@@ -341,595 +405,27 @@
     ".agent-fabric/memory/p2p-network-dev/INDEX.md",
     ".agent-fabric/memory/rust-services-dev/INDEX.md",
     ".agent-fabric/memory/rust-ui-dev/INDEX.md",
-    ".agent-fabric/memory/ux-designer/INDEX.md",
-    "memory/domains/devex-tooling/domain/bash-signal-cleanup-traps.md",
-    "memory/domains/devex-tooling/domain/grep-q-pipefail-silent-pass.md",
-    "memory/domains/devex-tooling/domain/queued-pr-auto-merge-reads-null.md",
-    ".agent-fabric/memory/devex-tooling/solution/adr-digest-no-citation-convention.md",
-    ".agent-fabric/memory/devex-tooling/solution/android-check-ranlib-and-target.md",
-    ".agent-fabric/memory/devex-tooling/solution/codeql-local-measurement.md",
-    ".agent-fabric/memory/devex-tooling/solution/host-rust-floats-rustup-via-fabric-tools.md",
-    ".agent-fabric/memory/devex-tooling/solution/hosted-runner-has-user-manager.md",
-    ".agent-fabric/memory/devex-tooling/solution/hosted-runner-sudo-nobody.md",
-    ".agent-fabric/memory/devex-tooling/solution/ignored-row-ci-nextest-exact.md",
-    ".agent-fabric/memory/devex-tooling/solution/new-guard-needs-ci-and-xtask.md",
-    ".agent-fabric/memory/devex-tooling/solution/play-guard-followups.md",
-    ".agent-fabric/memory/devex-tooling/solution/release-body-limit.md",
-    ".agent-fabric/memory/devex-tooling/solution/rust-job-cache-and-nextest-measured.md",
-    ".agent-fabric/memory/devex-tooling/solution/sdkmanager-failed-attempt-leftovers.md",
-    ".agent-fabric/memory/devex-tooling/solution/solution-carried-2026-10-05.md",
-    ".agent-fabric/memory/devex-tooling/solution/wait-merged-pending-checks.md",
-    ".agent-fabric/memory/devex-tooling/workflow/agent-fabric-contributor-github-tests.md",
-    ".agent-fabric/memory/devex-tooling/workflow/ci-command-line-is-read-by-guards.md",
-    ".agent-fabric/memory/devex-tooling/workflow/gzapp-below-min-arming-authority.md",
-    ".agent-fabric/memory/devex-tooling/workflow/mutation-runner-verify-backup.md",
-    ".agent-fabric/memory/devex-tooling/workflow/osv-scanner-install-and-run.md",
-    ".agent-fabric/memory/devex-tooling/workflow/release-logic-lives-in-tools-ci.md",
-    ".agent-fabric/memory/devex-tooling/workflow/review-brief-card-base.md",
-    ".agent-fabric/memory/devex-tooling/workflow/review-class-cannot-write-scratch.md",
-    ".agent-fabric/memory/devex-tooling/workflow/review-guard-reads-session-cwd.md",
-    ".agent-fabric/memory/devex-tooling/workflow/shell-reader-allow-list-not-parser.md",
-    ".agent-fabric/memory/devex-tooling/workflow/switch-names-the-branch.md",
-    "memory/domains/language-culture/domain/typed-names-not-joined.md",
-    ".agent-fabric/memory/language-culture/solution/interweave-glossary-placement.md",
-    ".agent-fabric/memory/language-culture/solution/solution-carried-2026-10-10.md",
-    ".agent-fabric/memory/language-culture/workflow/cold-read-on-sonnet.md",
-    ".agent-fabric/memory/language-culture/workflow/gzapp-english-holder.md",
-    ".agent-fabric/memory/language-culture/workflow/holder-addenda-installed.md",
-    ".agent-fabric/memory/language-culture/workflow/keep-else-whole.md",
-    ".agent-fabric/memory/language-culture/workflow/name-the-referent.md",
-    ".agent-fabric/memory/language-culture/workflow/no-reports-on-others-prs.md",
-    ".agent-fabric/memory/language-culture/workflow/one-text-read-in-each-place.md",
-    ".agent-fabric/memory/language-culture/workflow/supply-base-moves-merge.md",
-    ".agent-fabric/memory/language-culture/workflow/word-against-the-where-cell.md",
-    ".agent-fabric/memory/language-culture/workflow/workflow-carried-2026-10-10.md",
-    "memory/domains/p2p-network-dev/domain/a-forked-sibling-holds-a-dropped-flock.md",
-    "memory/domains/p2p-network-dev/domain/a-gate-that-guesses-prose-drops-ids.md",
-    "memory/domains/p2p-network-dev/domain/a-select-guard-is-read-only-when-the-loop-wakes.md",
-    "memory/domains/p2p-network-dev/domain/a-version-gate-has-two-sides.md",
-    "memory/domains/p2p-network-dev/domain/android-17-internet-is-a-runtime-permission.md",
-    "memory/domains/p2p-network-dev/domain/cancel-a-future-after-one-poll.md",
-    "memory/domains/p2p-network-dev/domain/cargo-deny-unmatched-exception-only-warns.md",
-    "memory/domains/p2p-network-dev/domain/cargo-metadata-does-not-typecheck.md",
-    "memory/domains/p2p-network-dev/domain/claude-code-channel-facts-2-1-285.md",
-    "memory/domains/p2p-network-dev/domain/domain-radicle-stale-control-socket-recheck.md",
-    "memory/domains/p2p-network-dev/domain/error-text-matching-pins-the-public-type.md",
-    "memory/domains/p2p-network-dev/domain/j23-same-port-hang-is-conntrack.md",
-    "memory/domains/p2p-network-dev/domain/libp2p-facts-from-the-hop-gate-and-keepalive.md",
-    "memory/domains/p2p-network-dev/domain/libp2p-kad-automatic-bootstrap-on-seat.md",
-    "memory/domains/p2p-network-dev/domain/libp2p-relay-022-release-frees-the-connection.md",
-    "memory/domains/p2p-network-dev/domain/libp2p-relay-client-listener-semantics.md",
-    "memory/domains/p2p-network-dev/domain/libp2p-tcp-dials-the-last-host-of-a-stacked-multiaddr.md",
-    "memory/domains/p2p-network-dev/domain/mutate-a-registry-crate-by-config-patch.md",
-    "memory/domains/p2p-network-dev/domain/never-share-a-target-dir-across-worktrees.md",
-    "memory/domains/p2p-network-dev/domain/per-arch-constants-come-from-libc.md",
-    "memory/domains/p2p-network-dev/domain/race-tests-need-the-current-thread-runtime.md",
-    "memory/domains/p2p-network-dev/domain/reach-the-last-slot-of-a-bounded-channel-by-parity.md",
-    "memory/domains/p2p-network-dev/domain/reftable-watch-needs-both-stacks.md",
-    "memory/domains/p2p-network-dev/domain/release-notices-crates-without-licence-files.md",
-    "memory/domains/p2p-network-dev/domain/replacing-a-libp2p-behaviour-leaks-its-tasks.md",
-    "memory/domains/p2p-network-dev/domain/state-is-never-refused-by-an-input-queue.md",
-    "memory/domains/p2p-network-dev/domain/state-keyed-by-a-peer-needs-every-exit.md",
-    "memory/domains/p2p-network-dev/domain/systemd-result-resets-on-restart.md",
-    "memory/domains/p2p-network-dev/domain/tokio-signal-handler-outlives-its-stream.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/a-load-time-read-must-not-take-the-locks-refusal.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/adr0028-private-group-predicate.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/correction-autonat-pacing-is-not-the-crates-tick.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/correction-stage-11-rounds-80-gate-history.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/derived-notice-rules-must-follow-the-record-literally.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/discovery-relearn-holds-a-newly-allowed-peer.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/dns-wrap-reshapes-every-dial-error.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/frozen-spike-pin-is-the-recording-commits-tree.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/j95-profile-format-marker.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/kademlia-routing-table-is-a-second-door.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/recheck-adr0019-dedup-key-2026-10-20.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/reproduction-logs-commit-beside-the-pin.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/rustsec-2026-0372-zvariant-derive-ignored.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/slint-js-sys-conflict-vendoring.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/spike-004-phase-b-node-rows.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-10-network-change.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-8-dcutr.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-9-path-preference.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/stage6-ingress-burst-test-is-load-timed.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/admin-peers-list-branch.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/ancestor-walk-trust-boundary-for-android.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/android-denies-hard-link-identity-marker.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/correction-threads-86-gate-history.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/external-review-2026-10-04-stage-review.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j110-withheld-lease-race.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j48-embedded-runtime-step-1.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j49-network-change-binding-ruled.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j53-android-runtime-side-split.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j55-availability-overlay.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j62-endpoint-overlay.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j77-facade-next-tick-attempt.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j94-stage-19-track-a.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr111-adr0052-closure-landed.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr112-mdns-carry-to-rule-10.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr137-landed-carry-to-batch-3.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr166-armed-carry-to-batch-5.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr167-armed-carry-to-batch-6.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr179-vendoring-landed.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr192-landed.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr203-landed.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr208-dial-gate.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr215-trust-overlay.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr224-carried-hardening.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr228-judge-before-create.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr257-carry.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr287-transport-test-oracles-landed.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr310-j92-landed.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr314-j91-landed.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/pr324-j94-landed.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/stage-11-step-7-plan.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/stage-14-batch-6-ui-model-contract.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/stage-14-batch-7-local.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/stage-14-batch-8-ui-slint-contract.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/stage-15-r1-r2-shapes.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/stage-16-channel-core.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/threads-carried-2026-09-17.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/a-cleanup-regex-spans-what-sits-before-its-anchor.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/a-comment-edit-can-delete-code.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/agent-prompt-does-no-shell-expansion.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/an-allowance-must-not-be-earned-by-what-occupies-it.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/arm-only-on-concluded-checks.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/arm-through-arm-sh.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/arming-needs-a-codex-review-too.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/arming-rule-by-pr-commit-count.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/background-verify-reads-the-live-tree.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/batch-5-agree-client-contract-first.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/cargo-machete-needs-a-persistent-root.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/carry-commits-count-as-work.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/codeql-uid-alerts-dismiss-standing.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/commit-kind-trailer.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/correction-ask-reviewers-to-generalise.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/correction-verification-pipelines-review-example.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/cumulative-counter-across-a-retrying-setup.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/fabric-agent-repo-is-the-secrets-store.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/free-port-cross-process-is-dev-02s.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/gate-a-message-send-on-its-fill.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/gate-the-commit-on-clippys-exit.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/github-ci-is-not-local-ci.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/host-address-classes-bound-what-a-wire-test-can-prove.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/host-cargo-is-system-1-98-no-rustup.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/insert-tests-after-the-previous-item.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/logging-is-a-privacy-decision.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/nested-claude-uses-the-long-term-token.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/pin-an-auto-updating-tool-for-an-evidence-campaign.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/pkill-f-matches-its-own-shell.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/post-review-after-github-sees-the-push.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/prefer-python-over-shell.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/push-before-describing-pr-state.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/quoted-heredoc-for-messages-too.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/re-review-brief-needs-card-base-and-previous-findings.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/rerun-every-suite-after-a-review-fix.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/review-dispatch-shape-in-interweave.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/review-loop-same-invariant-escalate.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/review-targets-under-home.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/reviewer-declined-dispatch-opus.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/rewriting-a-parser-in-review-rounds-regresses-earlier-shapes.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/rm-a-variable-path-needs-the-colon-guard.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/sg-reproduces-a-shared-primary-group.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/shell-grep-is-a-ugrep-wrapper.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/stage-11-pr84-landed.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/status-tests-must-watch-fields-move.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/supply-commits-to-the-callers-change.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/two-holders-of-p2p-network-dev.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/xtask-ci-outlives-the-background-limit.md",
-    "memory/domains/p2p-network-dev/domain/domain-a-backoff-exemption-unpaces-every-caller.md",
-    "memory/domains/p2p-network-dev/domain/domain-a-loopback-socket-test-cannot-tell-src-from-dst.md",
-    "memory/domains/p2p-network-dev/domain/domain-a-netns-nat-refusal-is-proved-by-the-drop-counter.md",
-    "memory/domains/p2p-network-dev/domain/domain-a-new-capability-meets-every-hand-list.md",
-    "memory/domains/p2p-network-dev/domain/domain-a-removal-test-must-read-what-it-removes-from.md",
-    "memory/domains/p2p-network-dev/domain/domain-a-test-asserts-the-rule-not-one-timing.md",
-    "memory/domains/p2p-network-dev/domain/domain-a-test-waits-for-the-state-it-presumes.md",
-    "memory/domains/p2p-network-dev/domain/domain-a-two-party-case-ends-on-an-explicit-close.md",
-    "memory/domains/p2p-network-dev/domain/domain-an-effect-with-two-producers-proves-neither.md",
-    "memory/domains/p2p-network-dev/domain/domain-android-selinux-denies-link.md",
-    "memory/domains/p2p-network-dev/domain/domain-bionic-gr-mem-lists-own-name.md",
-    "memory/domains/p2p-network-dev/domain/domain-device-tests-run-in-the-app-process.md",
-    "memory/domains/p2p-network-dev/domain/domain-event-stream-owes-current-state.md",
-    "memory/domains/p2p-network-dev/domain/domain-event-widening-gates-the-stream.md",
-    "memory/domains/p2p-network-dev/domain/domain-failure-class-by-what-not-who.md",
-    "memory/domains/p2p-network-dev/domain/domain-failure-set-needs-a-non-verdict.md",
-    "memory/domains/p2p-network-dev/domain/domain-first-run-exclusive-under-a-lock.md",
-    "memory/domains/p2p-network-dev/domain/domain-free-port-same-port-reuseport.md",
-    "memory/domains/p2p-network-dev/domain/domain-hickory-android-ndk-context-panic.md",
-    "memory/domains/p2p-network-dev/domain/domain-key-custody-isolation-and-order.md",
-    "memory/domains/p2p-network-dev/domain/domain-libp2p-relay-circuit-canceled-is-the-hops.md",
-    "memory/domains/p2p-network-dev/domain/domain-libp2p-reuse-dial-eaddrinuse.md",
-    "memory/domains/p2p-network-dev/domain/domain-mobile-resolver-from-the-network-view.md",
-    "memory/domains/p2p-network-dev/domain/domain-multistream-select-order-recheck.md",
-    "memory/domains/p2p-network-dev/domain/domain-one-exact-filter-per-must-run-test.md",
-    "memory/domains/p2p-network-dev/domain/domain-retry-trigger-is-an-edge.md",
-    "memory/domains/p2p-network-dev/domain/domain-silence-bound-arms-on-first-ping.md",
-    "memory/domains/p2p-network-dev/domain/domain-stand-in-holds-the-seams-shape.md",
-    "memory/domains/p2p-network-dev/domain/domain-strace-inject-a-platform-denial.md",
-    "memory/domains/p2p-network-dev/domain/domain-tap-a-unix-socket-by-renaming.md",
-    "memory/domains/p2p-network-dev/domain/domain-userns-root-is-overflow-uid.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/admin-call-order-across-connections.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/j48-relay-hop-unreached-tight-loop.md",
-    ".agent-fabric/memory/p2p-network-dev/solution/mdns-bounds-record-store-flakes.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j50-stage-18-s9-s11-merged.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j56-own-addresses-state.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j62-add-addresses-state.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j63-wifi-device-run.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j66-stage-21-device-rows.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/agent-prompt-is-literal.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/clean-target-after-runs.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/commit-before-mutation.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/escape-literals-decoded-on-write.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/full-workspace-tests-before-arm.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/gpg-keyboxd-stale-lock.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/gzcoord-fill-the-types-sections.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/host-atspi-registry-empty.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/independent-codecs-lessons.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/no-autosquash-after-push.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/no-sha-before-commit.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/own-store-never-by-hand.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/pkill-f-kills-own-shell.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/run-whole-crate-not-a-filter.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-a-paths-owner-from-its-fabric-role-trailers.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-cite-the-contracts-classes-not-their-codes.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-shared-device-build-by-the-installed-signer.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-shared-target-xtask-reads-other-worktree.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-subuid-shim-for-sudo-u.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-to-role-finding-goes-to-the-holder-in-the-crate.md",
-    ".agent-fabric/memory/rust-services-dev/workflow/workflow-carried-2026-10-24.md",
-    "memory/domains/rust-services-dev/domain/managed-settings-linux-path.md",
-    "memory/domains/rust-services-dev/domain/s19-driver-shape.md",
-    ".agent-fabric/memory/rust-services-dev/solution/bridge-pull-event-double-escaped.md",
-    ".agent-fabric/memory/rust-services-dev/solution/channels-allowlist-gate.md",
-    ".agent-fabric/memory/rust-services-dev/solution/claude-plugin-runtime-facts.md",
-    ".agent-fabric/memory/rust-services-dev/solution/plugin-version-from-workspace.md",
-    ".agent-fabric/memory/rust-services-dev/workflow/git-rm-then-commit-stages-only-the-rm.md",
-    ".agent-fabric/memory/rust-services-dev/workflow/mutation-runs-save-the-fix-first.md",
-    ".agent-fabric/memory/rust-services-dev/workflow/narrow-before-driving.md",
-    ".agent-fabric/memory/rust-services-dev/workflow/spike-tmpdir-sun-len.md",
-    ".agent-fabric/memory/rust-services-dev/workflow/supply-on-a-for-branch.md",
-    "memory/domains/rust-ui-dev/domain/android-device-credential-prompt.md",
-    "memory/domains/rust-ui-dev/domain/android-no-hard-links.md",
-    "memory/domains/rust-ui-dev/domain/atspi-e2e-lessons.md",
-    "memory/domains/rust-ui-dev/domain/empty-line-takes-no-room.md",
-    "memory/domains/rust-ui-dev/domain/forced-crash-no-core.md",
-    "memory/domains/rust-ui-dev/domain/slint-android-handle-disable.md",
-    "memory/domains/rust-ui-dev/domain/slint-changed-handlers-deferred.md",
-    "memory/domains/rust-ui-dev/domain/slint-flickable-stale-height.md",
-    "memory/domains/rust-ui-dev/domain/slint-flicked-input-only.md",
-    "memory/domains/rust-ui-dev/domain/slint-rendered-window-lessons.md",
-    "memory/domains/rust-ui-dev/domain/slint-swipe-in-flickable.md",
-    "memory/domains/rust-ui-dev/domain/slint-window-size-binding-loop.md",
-    "memory/domains/rust-ui-dev/domain/talkback-on-opens-permission-dialog.md",
-    ".agent-fabric/memory/rust-ui-dev/rationale.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/android-accesskit-bridge.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/android-e2e-device-run.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/android-module-host-build.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/android-network-change-contract.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/android-shell-build.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/android17-internet-runtime-permission.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/ci-fonts-dejavu-only.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/desktop-e2e-load-flakes.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/embedded-host-seam.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/endpoint-walk-effective-state.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/human-store-realistic-size.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/j53-keystore-adapter.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/j85-snackbar-closing-rule.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/j91-focus-ring-snackbar-time.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/j93-swipe-focus-rules.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/labels-platform-values.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/model-only-take-rerender.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/slint-focus-new-element.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/stage-15-b2-pr178.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/stage-15-client-reading-notes.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/stage17-spikes-merged.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/ui-slint-body-cache-tests.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/ui-slint-embedded-image-decoder.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/interweave-seedcipher-seam-256.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j122-gate-b-closed.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j130-spike-011-handover.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j131-stage17-lane-pr358.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j134-step5-inputs.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j135-f16-reason-pr364.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j136-encrypted-store.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j87-swipe-spec-fixes.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j88-device-review-run.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j90-swipe-device-fixes.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j94-install-292-apk.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j97-accesskit-prototype.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j98-android-look.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/owner-finds-ui-ugly.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/pixel-checks-owed.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/stage-15-b1-pr176.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/stage-15-b4-pr181.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/stage-15-b6-body.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/stage-15-b9-trust.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/stage-15-rulings.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/store-ancestor-rule-pr226.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/transport-client-facade-contract.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/ui-model-surface-proposal.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/ui-slint-stage15-carry.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/ui-slint-surface-proposal.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/a40-own-adb-server.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/android-target-clippy.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/arming-tool.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/brief-facts-checked-first.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/codex-review-engine.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/commit-and-shell-traps.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/desktop-e2e-stale-binary.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/device-review-run-method.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/gzcoord-inbox-replay.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/job-may-already-be-delivered.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/keep-later-artifacts-in-home.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/labels-english-supplier.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/mutate-from-a-scratch-copy.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/no-edits-under-background-build.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/owed-supply-before-pr.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/pipe-masks-exit-status.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/pixel-no-destructive.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/prose-sweep-siblings.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/render-brief-before-dispatch.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/review-class-v2-relaunch.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/review-loop-p3-tail.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/review-old-schema-fixtures.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/shared-target-dir-stale-build.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/shared-target-worktree.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/spike-harness-from-the-requirement.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/split-commits-fail-fast.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/view-change-runs-desktop-e2e.md",
-    "memory/domains/rust-ui-dev/domain/e2e-log-per-process.md",
-    "memory/domains/rust-ui-dev/domain/gradle-task-action-captures.md",
-    "memory/domains/rust-ui-dev/domain/rollback-unknown-file-is-silent.md",
-    "memory/domains/rust-ui-dev/domain/slint-layout-traps-seen-rendered.md",
-    "memory/domains/rust-ui-dev/domain/slint-name-clash-traps.md",
-    "memory/domains/rust-ui-dev/domain/slint-software-renderer-round-image.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/accept-carries-shown-context.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/android-no-identity-key.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/card-parser-grammar-rule.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/previous-build-axis-exists.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/recovery-warning-placement.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/admin-peers-address-methods.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/android-release-notices-crates.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/desktop-startup-refusal-invisible.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/identity-key-rulings-j37.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j40-step2-scope-rulings.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j41-cli-handoff.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/profile-format-marker.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/android-check-needs-javac.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/ci-red-not-my-change.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/fabric-review-brief-usage.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/fabric-sweep-removes-review-worktree.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/mutation-restore-mtime-trap.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/pgrep-f-matches-itself.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/reopen-ruling-on-own-wrong-fact.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/text-brief-facts-and-couplings.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/xtask-checks-spike-locks-slow.md",
-    ".agent-fabric/memory/fabric-coordinator/solution.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/fabric-ref-bump-rides-the-consumer.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/never-list-work-as-contributor-patches.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/per-job-auto-mode-entry-procedure.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/review-report-arrives-as-message.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/search-own-jobs-before-a-record.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/withdrawn-request-check-the-thread-first.md",
-    "memory/domains/ux-designer/domain/contrast-on-every-surface.md",
-    "memory/domains/ux-designer/domain/focus-table-in-spec.md",
-    "memory/domains/ux-designer/domain/undo-by-reverse-not-deferral.md",
-    "memory/domains/ux-designer/domain/wording-pass-keeps-conditions.md",
-    ".agent-fabric/memory/ux-designer/solution.md",
-    ".agent-fabric/memory/ux-designer/threads/android-identity-j27.md",
-    ".agent-fabric/memory/ux-designer/threads/android-look-proposal.md",
-    ".agent-fabric/memory/ux-designer/threads/j29-contact-cards-plan.md",
-    ".agent-fabric/memory/ux-designer/threads/j38-add-peer-trust-unread.md",
-    ".agent-fabric/memory/ux-designer/threads/j39-add-peer-unknown-retries.md",
-    ".agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md",
-    ".agent-fabric/memory/ux-designer/threads/stage21-design-backlog.md",
-    ".agent-fabric/memory/ux-designer/threads/swipe-actions-j1.md",
-    ".agent-fabric/memory/ux-designer/workflow/workflow-carried-2026-10-18.md",
-    ".agent-fabric/memory/ux-designer/workflow/answer-in-spec-before-message.md",
-    ".agent-fabric/memory/ux-designer/workflow/define-once-point-elsewhere.md",
-    ".agent-fabric/memory/ux-designer/workflow/device-run-check-focus.md",
-    ".agent-fabric/memory/ux-designer/workflow/never-blind-inbox-watch.md",
-    ".agent-fabric/memory/ux-designer/workflow/review-fixes-open-new-questions.md",
-    ".agent-fabric/memory/ux-designer/workflow/spec-cites-only-recorded-methods.md"
+    ".agent-fabric/memory/ux-designer/INDEX.md"
   ],
-  "files_written": 499,
+  "files_written": 157,
   "harvest": {
     "host": "develop-qzapp",
-    "in_scope": 25,
-    "next_watermark": 1792836834825,
+    "in_scope": 150,
+    "next_watermark": 1793195164670,
     "provisional_agent": 0,
-    "reflection": 1,
+    "reflection": 3,
     "since_watermark": 0,
-    "skipped_no_roles_class": [
-      "j30-contact-cards-identities.md",
-      "j31-pixel-window.md",
-      "j34-add-peer-flows.md",
-      "j37-add-peer-failed-states.md",
-      "verify-for-branch-head-landed.md"
-    ]
+    "skipped_no_roles_class": []
   },
   "harvest_sources": {
     "architect-cto-01@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 102,
-      "next_watermark": 1792823028009,
-      "provisional_agent": 0,
-      "reflection": 0,
-      "since_watermark": 0,
-      "skipped_no_roles_class": []
-    },
-    "devex-tooling@develop-qzapp": {
-      "host": "develop-qzapp",
-      "in_scope": 29,
-      "next_watermark": 1792735422935,
-      "provisional_agent": 0,
-      "reflection": 0,
-      "since_watermark": 0,
-      "skipped_no_roles_class": [
-        "no-nested-eof-heredocs.md"
-      ]
-    },
-    "language-culture-en@develop-qzapp": {
-      "host": "develop-qzapp",
-      "in_scope": 14,
-      "next_watermark": 1792832202997,
-      "provisional_agent": 0,
-      "reflection": 0,
-      "since_watermark": 0,
-      "skipped_no_roles_class": [
-        "check-commit-before-reply.md"
-      ]
-    },
-    "p2p-network-dev-01@develop-qzapp": {
-      "host": "develop-qzapp",
       "in_scope": 150,
-      "next_watermark": 1792756256997,
+      "next_watermark": 1793195164670,
       "provisional_agent": 0,
-      "reflection": 2,
-      "since_watermark": 0,
-      "skipped_no_roles_class": [
-        "external-review-2026-10-01-composition-findings.md",
-        "j67-stage-18-s0-s8.md",
-        "lockfile-refresh-deferred.md",
-        "pr190-carry.md",
-        "pr221-carry-j29.md",
-        "release-target-after-test-runs.md",
-        "report-only-my-own-prs.md",
-        "stage-12-wait-for-owner.md",
-        "stage-13-b0a-paused.md",
-        "stage-13-b4-design.md",
-        "stage-13-b4-landed.md",
-        "stage-13-b5-plan.md",
-        "stage-13-close-prs-landed.md",
-        "stage-13-wait-for-architect-plan.md",
-        "stage-14-batch-order.md"
-      ]
-    },
-    "p2p-network-dev-02@develop-qzapp": {
-      "host": "develop-qzapp",
-      "in_scope": 76,
-      "next_watermark": 1792819747021,
-      "provisional_agent": 0,
-      "reflection": 9,
-      "since_watermark": 0,
-      "skipped_no_roles_class": [
-        "interop-stage17-scope-question.md",
-        "interweave-share-with-dev-01.md",
-        "j13-android-e2e-device.md",
-        "j14-osv-acceptance-policy.md",
-        "j17-gates-a-b-device-lines.md",
-        "j36-values-as-text-state.md",
-        "j46-unobserved-vs-unavailable-dns.md",
-        "j51-restore-warning-state.md",
-        "j53-s10-and-r7-state.md",
-        "j54-bootstrap-overlay-state.md",
-        "j65-superseded-state.md",
-        "merged-pr-counts.md",
-        "pr230-ipc-client-carries.md",
-        "pr252-android-e2e-state.md",
-        "report-own-work-only.md"
-      ]
-    },
-    "rust-services-dev-01@develop-qzapp": {
-      "host": "develop-qzapp",
-      "in_scope": 1,
-      "next_watermark": 1792689197671,
-      "provisional_agent": 0,
-      "reflection": 0,
+      "reflection": 3,
       "since_watermark": 0,
       "skipped_no_roles_class": []
-    },
-    "rust-services-dev-02@develop-qzapp": {
-      "host": "develop-qzapp",
-      "in_scope": 11,
-      "next_watermark": 1792780368762,
-      "provisional_agent": 0,
-      "reflection": 0,
-      "since_watermark": 0,
-      "skipped_no_roles_class": []
-    },
-    "rust-ui-dev-01@develop-qzapp": {
-      "host": "develop-qzapp",
-      "in_scope": 98,
-      "next_watermark": 1792838109123,
-      "provisional_agent": 0,
-      "reflection": 2,
-      "since_watermark": 0,
-      "skipped_no_roles_class": [
-        "j134-own-address-next-round.md",
-        "j141-android-version.md",
-        "j43-route-indicator-base.md",
-        "j66-android-e2e-seam.md",
-        "memory-files-by-project.md",
-        "release-disk-after-tests.md",
-        "report-own-work-only.md"
-      ]
-    },
-    "rust-ui-dev-02@develop-qzapp": {
-      "host": "develop-qzapp",
-      "in_scope": 30,
-      "next_watermark": 1792836796142,
-      "provisional_agent": 0,
-      "reflection": 6,
-      "since_watermark": 0,
-      "skipped_no_roles_class": [
-        "j53-gate-map.md"
-      ]
-    },
-    "user@develop-qzapp": {
-      "host": "develop-qzapp",
-      "in_scope": 38,
-      "next_watermark": 1792824261379,
-      "provisional_agent": 0,
-      "reflection": 0,
-      "since_watermark": 0,
-      "skipped_no_roles_class": [
-        "anchor-inserts-after-not-before.md",
-        "announce-and-record-step-completion.md",
-        "apostrophe-breaks-quoted-python.md",
-        "ask-reviewers-to-generalise-findings.md",
-        "assertions-that-cannot-fail.md",
-        "audit-agent-ends-review-whack-a-mole.md",
-        "autonat-client-crate-facts.md",
-        "claude-md-skill-split-after-stage-7.md",
-        "commit-before-mutation-checking.md",
-        "connectivity-constructor-gated-off.md",
-        "extraction-does-not-cover-the-call-site.md",
-        "fix-both-ends-of-a-key-pair.md",
-        "hysteresis-needs-counterexamples.md",
-        "known-failing-masks-new-failures.md",
-        "measure-the-linter-before-asserting.md",
-        "mutation-checks-need-the-formatted-text.md",
-        "mutation-testing-evaluated-and-dropped.md",
-        "opus-review-hook-prompt-means-stale-session.md",
-        "reproduce-the-mechanism-not-a-lookalike.md",
-        "reviewer-declined-dispatch-opus.md",
-        "scope-review-briefs-to-the-diff.md",
-        "stage-11-pr85-pr86-rounds.md",
-        "stage-11-progress.md",
-        "stage-11-review-rounds.md",
-        "stage-closure-needs-approval.md",
-        "stage6-review-retrospective.md",
-        "stage8-review-retrospective.md",
-        "vendored-autonat-client.md",
-        "verification-pipelines-must-fail-loudly.md",
-        "verify-subagent-coverage-not-just-findings.md",
-        "yamux-silent-downgrade.md"
-      ]
-    },
-    "ux-designer-01@develop-qzapp": {
-      "host": "develop-qzapp",
-      "in_scope": 25,
-      "next_watermark": 1792836834825,
-      "provisional_agent": 0,
-      "reflection": 1,
-      "since_watermark": 0,
-      "skipped_no_roles_class": [
-        "j30-contact-cards-identities.md",
-        "j31-pixel-window.md",
-        "j34-add-peer-flows.md",
-        "j37-add-peer-failed-states.md",
-        "verify-for-branch-head-landed.md"
-      ]
     }
   },
   "held_back": [],
@@ -938,162 +434,18 @@
   "memory_marks": {},
   "memory_retrieval": {
     "architect-cto-01": {
-      "finds": 26,
-      "finds_followed_by_read": 1,
+      "finds": 42,
+      "finds_followed_by_read": 2,
       "hosts": [
         "develop-qzapp"
       ],
       "indexes": 2,
       "marks": 0,
-      "read_through": 0.038,
-      "reads": 3,
-      "refused": 0,
+      "read_through": 0.048,
+      "reads": 4,
+      "refused": 1,
       "since_ms": 0,
-      "until_ms": 1792729411897,
-      "zero_hit_finds": 0,
-      "zero_hit_share": 0.0
-    },
-    "devex-tooling": {
-      "finds": 4,
-      "finds_followed_by_read": 0,
-      "hosts": [
-        "develop-qzapp"
-      ],
-      "indexes": 0,
-      "marks": 0,
-      "read_through": 0.0,
-      "reads": 0,
-      "refused": 0,
-      "since_ms": 0,
-      "until_ms": 1792730024623,
-      "zero_hit_finds": 0,
-      "zero_hit_share": 0.0
-    },
-    "p2p-network-dev-01": {
-      "finds": 4,
-      "finds_followed_by_read": 0,
-      "hosts": [
-        "develop-qzapp"
-      ],
-      "indexes": 0,
-      "marks": 0,
-      "read_through": 0.0,
-      "reads": 0,
-      "refused": 0,
-      "since_ms": 0,
-      "until_ms": 1792732586181,
-      "zero_hit_finds": 0,
-      "zero_hit_share": 0.0
-    },
-    "p2p-network-dev-02": {
-      "finds": 7,
-      "finds_followed_by_read": 1,
-      "hosts": [
-        "develop-qzapp"
-      ],
-      "indexes": 0,
-      "marks": 0,
-      "read_through": 0.143,
-      "reads": 1,
-      "refused": 0,
-      "since_ms": 0,
-      "until_ms": 1792737089795,
-      "zero_hit_finds": 0,
-      "zero_hit_share": 0.0
-    },
-    "rust-services-dev-01": {
-      "finds": 2,
-      "finds_followed_by_read": 0,
-      "hosts": [
-        "develop-qzapp"
-      ],
-      "indexes": 0,
-      "marks": 0,
-      "read_through": 0.0,
-      "reads": 1,
-      "refused": 0,
-      "since_ms": 0,
-      "until_ms": 1792689197671,
-      "zero_hit_finds": 0,
-      "zero_hit_share": 0.0
-    },
-    "rust-services-dev-02": {
-      "finds": 5,
-      "finds_followed_by_read": 0,
-      "hosts": [
-        "develop-qzapp"
-      ],
-      "indexes": 0,
-      "marks": 0,
-      "read_through": 0.0,
-      "reads": 0,
-      "refused": 0,
-      "since_ms": 0,
-      "until_ms": 1792681291072,
-      "zero_hit_finds": 0,
-      "zero_hit_share": 0.0
-    },
-    "rust-ui-dev-01": {
-      "finds": 12,
-      "finds_followed_by_read": 0,
-      "hosts": [
-        "develop-qzapp"
-      ],
-      "indexes": 0,
-      "marks": 0,
-      "read_through": 0.0,
-      "reads": 0,
-      "refused": 0,
-      "since_ms": 0,
-      "until_ms": 1792685722546,
-      "zero_hit_finds": 0,
-      "zero_hit_share": 0.0
-    },
-    "rust-ui-dev-02": {
-      "finds": 6,
-      "finds_followed_by_read": 1,
-      "hosts": [
-        "develop-qzapp"
-      ],
-      "indexes": 0,
-      "marks": 0,
-      "read_through": 0.167,
-      "reads": 1,
-      "refused": 0,
-      "since_ms": 0,
-      "until_ms": 1792728555238,
-      "zero_hit_finds": 0,
-      "zero_hit_share": 0.0
-    },
-    "user": {
-      "finds": 1,
-      "finds_followed_by_read": 0,
-      "hosts": [
-        "develop-qzapp"
-      ],
-      "indexes": 0,
-      "marks": 0,
-      "read_through": 0.0,
-      "reads": 0,
-      "refused": 0,
-      "since_ms": 0,
-      "until_ms": 1792780938362,
-      "zero_hit_finds": 0,
-      "zero_hit_share": 0.0
-    },
-    "ux-designer-01": {
-      "finds": 3,
-      "finds_followed_by_read": 1,
-      "hosts": [
-        "develop-qzapp"
-      ],
-      "indexes": 0,
-      "marks": 0,
-      "read_through": 0.333,
-      "reads": 1,
-      "refused": 0,
-      "since_ms": 0,
-      "until_ms": 1792680207555,
+      "until_ms": 1793123453875,
       "zero_hit_finds": 0,
       "zero_hit_share": 0.0
     }
@@ -1101,13 +453,15 @@
   "memory_use": {
     "architect-cto-01@develop-qzapp": {
       "calls": {
-        "memory_find": 26,
+        "memory_find": 42,
         "memory_index": 2,
-        "memory_read": 3
+        "memory_read": 4
       },
-      "errors": 0,
-      "finds_followed_by_read": 1,
+      "errors": 1,
+      "finds_followed_by_read": 2,
       "ids_read": {
+        "f:domains/backend-dev/domain/advisory-lock-and-concurrency-control#1": 1,
+        "f:domains/db-admin/domain/postgres-advisory-lock-respects-lock-timeout#1": 1,
         "p:devex-tooling/solution/rust-job-cache-and-nextest-measured#1": 1,
         "p:p2p-network-dev/threads/external-review-2026-10-04-stage-review#1": 1,
         "p:p2p-network-dev/threads/pr192-landed#1": 1
@@ -1117,164 +471,14 @@
       "since_ms": 0,
       "unattributed_lines": 0,
       "unreadable_lines": 0,
-      "until_ms": 1792729411897,
-      "zero_hit_finds": 0
-    },
-    "devex-tooling@develop-qzapp": {
-      "calls": {
-        "memory_find": 4
-      },
-      "errors": 0,
-      "finds_followed_by_read": 0,
-      "ids_read": {},
-      "marks": 0,
-      "notes_withheld": 0,
-      "since_ms": 0,
-      "unattributed_lines": 0,
-      "unreadable_lines": 0,
-      "until_ms": 1792730024623,
-      "zero_hit_finds": 0
-    },
-    "p2p-network-dev-01@develop-qzapp": {
-      "calls": {
-        "memory_find": 4
-      },
-      "errors": 0,
-      "finds_followed_by_read": 0,
-      "ids_read": {},
-      "marks": 0,
-      "notes_withheld": 0,
-      "since_ms": 0,
-      "unattributed_lines": 0,
-      "unreadable_lines": 0,
-      "until_ms": 1792732586181,
-      "zero_hit_finds": 0
-    },
-    "p2p-network-dev-02@develop-qzapp": {
-      "calls": {
-        "memory_find": 7,
-        "memory_read": 1
-      },
-      "errors": 0,
-      "finds_followed_by_read": 1,
-      "ids_read": {
-        "p:p2p-network-dev/threads/ancestor-walk-trust-boundary-for-android#1": 1,
-        "p:p2p-network-dev/threads/pr215-trust-overlay#1": 1
-      },
-      "marks": 0,
-      "notes_withheld": 0,
-      "since_ms": 0,
-      "unattributed_lines": 0,
-      "unreadable_lines": 0,
-      "until_ms": 1792737089795,
-      "zero_hit_finds": 0
-    },
-    "rust-services-dev-01@develop-qzapp": {
-      "calls": {
-        "memory_find": 2,
-        "memory_read": 1
-      },
-      "errors": 0,
-      "finds_followed_by_read": 0,
-      "ids_read": {
-        "p:architect-cto/workflow/gateway-boundary-authority-architect-cto#1": 1
-      },
-      "marks": 0,
-      "notes_withheld": 0,
-      "since_ms": 0,
-      "unattributed_lines": 0,
-      "unreadable_lines": 0,
-      "until_ms": 1792689197671,
-      "zero_hit_finds": 0
-    },
-    "rust-services-dev-02@develop-qzapp": {
-      "calls": {
-        "memory_find": 5
-      },
-      "errors": 0,
-      "finds_followed_by_read": 0,
-      "ids_read": {},
-      "marks": 0,
-      "notes_withheld": 0,
-      "since_ms": 0,
-      "unattributed_lines": 0,
-      "unreadable_lines": 0,
-      "until_ms": 1792681291072,
-      "zero_hit_finds": 0
-    },
-    "rust-ui-dev-01@develop-qzapp": {
-      "calls": {
-        "memory_find": 12
-      },
-      "errors": 0,
-      "finds_followed_by_read": 0,
-      "ids_read": {},
-      "marks": 0,
-      "notes_withheld": 0,
-      "since_ms": 0,
-      "unattributed_lines": 0,
-      "unreadable_lines": 0,
-      "until_ms": 1792685722546,
-      "zero_hit_finds": 0
-    },
-    "rust-ui-dev-02@develop-qzapp": {
-      "calls": {
-        "memory_find": 6,
-        "memory_read": 1
-      },
-      "errors": 0,
-      "finds_followed_by_read": 1,
-      "ids_read": {
-        "p:rust-ui-dev/workflow/desktop-e2e-stale-binary#1": 1
-      },
-      "marks": 0,
-      "notes_withheld": 0,
-      "since_ms": 0,
-      "unattributed_lines": 0,
-      "unreadable_lines": 0,
-      "until_ms": 1792728555238,
-      "zero_hit_finds": 0
-    },
-    "user@develop-qzapp": {
-      "calls": {
-        "memory_find": 1
-      },
-      "errors": 0,
-      "finds_followed_by_read": 0,
-      "ids_read": {},
-      "marks": 0,
-      "notes_withheld": 0,
-      "since_ms": 0,
-      "unattributed_lines": 0,
-      "unreadable_lines": 0,
-      "until_ms": 1792780938362,
-      "zero_hit_finds": 0
-    },
-    "ux-designer-01@develop-qzapp": {
-      "calls": {
-        "memory_find": 3,
-        "memory_read": 1
-      },
-      "errors": 0,
-      "finds_followed_by_read": 1,
-      "ids_read": {
-        "f:domains/ux-designer/domain/wording-pass-keeps-conditions#1": 1,
-        "p:ux-designer/workflow#1": 1
-      },
-      "marks": 0,
-      "notes_withheld": 0,
-      "since_ms": 0,
-      "unattributed_lines": 0,
-      "unreadable_lines": 0,
-      "until_ms": 1792680207555,
+      "until_ms": 1793123453875,
       "zero_hit_finds": 0
     }
   },
   "merge_target_unresolved": [
-    "architect-cto/domain:reflection-a-new-value-in-a-closed-answer-set-is-served-as-a-known-reason-below-its-minor#When a minor adds a value to a closed refusal set, a client below that minor is answered a reason or error its decoder already knows, and the contract states this as a downgrade by version rather than the rule, since an older decoder refuses a name it does not know: merge_target 'unassigned codes and byte-exact details are contract text' names no section of architect-cto/domain; written as its own topic",
-    "architect-cto/domain:reflection-an-overlay-persisted-over-a-config-is-validated-composed#Configuration that validates alone need not validate once an overlay is applied, so the composed result is validated: refused at set time with nothing written, fatal at start naming the overlay, and never normalised away: merge_target 'an invariant is enforced where it goes live' names no section of architect-cto/domain; written as its own topic",
+    "architect-cto/domain:reflection-a-new-value-in-a-closed-answer-set-is-served-as-a-known-reason-below-its-minor#When a minor adds a value to a closed refusal set, a client below that minor is answered a reason or error its decoder already knows, and the contract states this as a downgrade by version rather than the rule, since an older decoder refuses a name it does not know: merge_target 'unassigned codes and byte-exact details are contract text' names no section of architect-cto/domain; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/domain:reflection-an-overlay-persisted-over-a-config-is-validated-composed#Configuration that validates alone need not validate once an overlay is applied, so the composed result is validated: refused at set time with nothing written, fatal at start naming the overlay, and never normalised away: merge_target 'an invariant is enforced where it goes live' names no section of architect-cto/domain; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/intersection:reflection-store-released-mobile-binaries-are-the-long-lived-reader#For any wire or configuration change, first ask whether a store-released mobile binary reads it: a web sub-app is co-deployed and a stale tab ends at reload, a phone binary lives for months, so anything it binds (a required member, a dictionary baseline, a hostname) needs a versioned change, never an in-place one: merge_target 'mobile hostname lock-in' names no section of architect-cto/intersection; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
-    "architect-cto/workflow:gateway-boundary-authority-architect-cto#STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still architect-cto's): merge_target 'gateway-boundary-authority-architect-cto' names no section of architect-cto/workflow; written as its own topic",
     "architect-cto/workflow:reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated#A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real: merge_target 'evidence for the owner names its build and source' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/workflow:reflection-a-landed-amendment-is-never-edited-a-later-body-change-is-a-new-amendment#Once an amendment has landed, its history note, log row and digest bullet stay as they are; a later change to the body gets its own dated amendment heading, row and bullet, and appending a dated paragraph inside the old note is a defect the validator does not see: merge_target 'ADR history notes and amendment log rows are records' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/workflow:reflection-a-p2-every-round-on-a-new-shape-means-the-adr-has-no-design#When review finds a P2 in each new implementation of one feature and each shape leaves the decision to a caller, stop the rounds and write the design into the ADR first, one seam returning a typed outcome, then conform: merge_target \"the owner's rule for ADR work\" names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
@@ -1298,48 +502,31 @@
     "architect-cto/workflow:reflection-search-origin-s-unmerged-branches-before-writing-a-gap#A decision I authored can sit implemented on another lane's unmerged branch with no PR, pointed at by nothing on main or in the inbox; before writing a recorded gap or routing a job, list origin's for/ and feat/ branches and search them for the decision's anchor: merge_target 'grep the cited commit before writing remaining gap' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/workflow:reflection-what-a-supply-reply-says-it-contains-is-read-from-the-pushed-sha#Before a supply REPLY says a commit carries something or a validator passes, run git show --stat on that exact sha and the validator on it, after the last edit: merge_target 'Before committing a multi-file edit script, grep git diff' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/workflow:reflection-when-an-adr-gives-an-existing-word-a-new-meaning-sweep-by-one-rule#When an ADR gives an existing word a new meaning, older records keep the old sense, so its use is ruled by one meaning across every flow rather than screen by screen, and a contract's proper name keeps the word until a rename with a compatibility story: merge_target 'Owner identity model' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
-    "architect-cto/workflow:reflection-when-every-round-finds-a-new-shape-a-heuristic-misses-gate-on-a-human-read-list#When each review round finds another shape a free-text scan misses, stop patching the scan and move that class to an exact gate, a pinned list of input digests a person has read, the scan staying as a tripwire; a digest list made by a loop without the reading is the count under another name: merge_target 'split exact rules from heuristics when asking for a guard' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
-    "p2p-network-dev/threads:correction-threads-86-gate-history#Correction to threads/threads-carried-2026-09-17.md: the --automated-only/@codex gate its #86 paragraph records was the procedure of 2026-09-10, superseded by #114; history, not current procedure: merge_target 'Correction to threads.md lines 25 and 27: the --automated-only/@codex gate they record was the procedure of 2026-09-10 and is superseded; history, not current procedure' names no section of p2p-network-dev/threads; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
+    "architect-cto/workflow:reflection-when-every-round-finds-a-new-shape-a-heuristic-misses-gate-on-a-human-read-list#When each review round finds another shape a free-text scan misses, stop patching the scan and move that class to an exact gate, a pinned list of input digests a person has read, the scan staying as a tripwire; a digest list made by a loop without the reading is the count under another name: merge_target 'split exact rules from heuristics when asking for a guard' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
   ],
   "migrated": [
-    "architect-cto/rationale: rationale.md -> rationale/rationale-carried-2026-10-18.md",
-    "architect-cto/threads: threads.md -> threads/threads-carried-2026-10-18.md",
-    "ux-designer/workflow: workflow.md -> workflow/workflow-carried-2026-10-18.md"
+    ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-04-already-landed.md: links to corrected memories pointed at the slice they were written into"
   ],
   "oversized_claims": [
+    "architect-cto/rationale:adr-044-migration-timeout-2026-10-26: one claim is ~1827 tokens, over the 1800 budget; split the memory it came from",
+    "architect-cto/rationale:cloudflare-admin-delegation-2026-10-25: one claim is ~2039 tokens, over the 1800 budget; split the memory it came from",
+    "architect-cto/rationale:control-plane-on-interweave-cli-2026-10-27: one claim is ~2599 tokens, over the 1800 budget; split the memory it came from",
     "architect-cto/threads:adr-0059-0060-contacts-encrypted-store-2026-10-21: one claim is ~1812 tokens, over the 1800 budget; split the memory it came from",
-    "architect-cto/threads:stage-20-fleet-carrier-2026-10-19: one claim is ~1843 tokens, over the 1800 budget; split the memory it came from",
-    "architect-cto/threads:threads-carried-2026-10-18: one claim is ~4051 tokens, over the 1800 budget; split the memory it came from",
-    "p2p-network-dev/solution:spike-004-phase-b-node-rows: one claim is ~2218 tokens, over the 1800 budget; split the memory it came from",
-    "p2p-network-dev/threads:j49-network-change-binding-ruled: one claim is ~2002 tokens, over the 1800 budget; split the memory it came from",
-    "p2p-network-dev/threads:j94-stage-19-track-a: one claim is ~2491 tokens, over the 1800 budget; split the memory it came from",
-    "p2p-network-dev/threads:pr228-judge-before-create: one claim is ~2335 tokens, over the 1800 budget; split the memory it came from",
-    "p2p-network-dev/threads:stage-15-r1-r2-shapes: one claim is ~1878 tokens, over the 1800 budget; split the memory it came from",
-    "rust-ui-dev/threads:j134-step5-inputs: one claim is ~2419 tokens, over the 1800 budget; split the memory it came from",
-    "rust-ui-dev/threads:j98-android-look: one claim is ~1952 tokens, over the 1800 budget; split the memory it came from",
-    "ux-designer/threads:j39-add-peer-unknown-retries: one claim is ~3076 tokens, over the 1800 budget; split the memory it came from",
-    "ux-designer/threads:stage17-android-review-j26: one claim is ~2105 tokens, over the 1800 budget; split the memory it came from",
-    "ux-designer/threads:swipe-actions-j1: one claim is ~2157 tokens, over the 1800 budget; split the memory it came from"
+    "architect-cto/threads:external-review-2026-10-27-main-1b37e0ef: one claim is ~2768 tokens, over the 1800 budget; split the memory it came from",
+    "architect-cto/threads:idle-round-3-dispatch-2026-10-24: one claim is ~4335 tokens, over the 1800 budget; split the memory it came from",
+    "architect-cto/threads:owner-four-client-findings-j68-2026-10-27: one claim is ~1825 tokens, over the 1800 budget; split the memory it came from",
+    "architect-cto/threads:owner-priority-cli-and-mcp-on-prod-host-2026-10-22: one claim is ~2711 tokens, over the 1800 budget; split the memory it came from",
+    "architect-cto/threads:stage-18-record-and-close-census-2026-10-25: one claim is ~1850 tokens, over the 1800 budget; split the memory it came from",
+    "architect-cto/threads:stage-20-fleet-carrier-2026-10-19: one claim is ~2648 tokens, over the 1800 budget; split the memory it came from",
+    "architect-cto/threads:stage-21-close-2026-10-24: one claim is ~7006 tokens, over the 1800 budget; split the memory it came from",
+    "architect-cto/threads:threads-carried-2026-10-18: one claim is ~4051 tokens, over the 1800 budget; split the memory it came from"
   ],
   "project": "interweave",
   "redactions": [
-    "devex-tooling/solution:hosted-runner-sudo-nobody body: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'",
-    "p2p-network-dev/workflow:review-targets-under-home body: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'",
-    "p2p-network-dev/threads:j63-wifi-device-run body: private-network address (10.0.0.0/8) -- say 'a private address' or name the role -> 'a private-network address'",
-    "p2p-network-dev/threads:j63-wifi-device-run body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
-    "p2p-network-dev/threads:j66-stage-21-device-rows body: private-network address (10.0.0.0/8) -- say 'a private address' or name the role -> 'a private-network address'",
-    "rust-ui-dev/solution:ci-fonts-dejavu-only body: one account's scratch path -- name the artifact by commit, sha and how to rebuild it -> 'a scratch path'",
-    "rust-ui-dev/threads:j135-f16-reason-pr364 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
-    "rust-ui-dev/threads:j135-f16-reason-pr364 body: one account's scratch path -- name the artifact by commit, sha and how to rebuild it -> 'a scratch path'",
-    "rust-ui-dev/threads:j135-f16-reason-pr364 body: one account's scratch path -- name the artifact by commit, sha and how to rebuild it -> 'a scratch path'",
-    "rust-ui-dev/threads:j135-f16-reason-pr364 body: one account's scratch path -- name the artifact by commit, sha and how to rebuild it -> 'a scratch path'",
-    "rust-ui-dev/threads:j97-accesskit-prototype body: one account's scratch path -- name the artifact by commit, sha and how to rebuild it -> 'a scratch path'",
-    "rust-ui-dev/threads:pixel-checks-owed body: one account's scratch path -- name the artifact by commit, sha and how to rebuild it -> 'a scratch path'",
-    "rust-ui-dev/threads:pixel-checks-owed body: one account's scratch path -- name the artifact by commit, sha and how to rebuild it -> 'a scratch path'",
-    "rust-ui-dev/domain:slint-android-handle-disable body: one account's scratch path -- name the artifact by commit, sha and how to rebuild it -> 'a scratch path'",
-    "ux-designer/workflow:device-review-pixel-lease body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
-    "ux-designer/threads:stage17-android-review-j26 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
-    "ux-designer/threads:swipe-actions-j1 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'"
+    "architect-cto/threads:j69-reboot-and-cache-rows-2026-10-25 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
+    "architect-cto/threads:redacted-mayor-deck-claims-2026-10-27 topic: city name -> '[redacted]'",
+    "architect-cto/threads:redacted-mayor-deck-claims-2026-10-27 title: city name -> '[redacted]'",
+    "architect-cto/threads:stage-21-close-2026-10-24 body: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'"
   ],
   "rejected_hygiene": [],
   "retired_in_siblings": [],
@@ -1347,39 +534,81 @@
     {
       "agent": "architect-cto-01",
       "decided_by": "same-agent",
-      "key": "architect-cto/workflow:gateway-boundary-authority-architect-cto#STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still architect-cto's)",
-      "new_heading": "STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still architect-cto's)",
-      "old_heading": "architect-cto is commits.boundary_authority for BlueTeam-OU/agent-fabric-gateway (and agent-fabric): how an arm-below-minimum REQUEST is judged and answered, and that the AUTHORIZES DECISION send passes auto mode since 2026-10-19",
+      "key": "architect-cto/threads:adr-0058-third-party-notices-2026-10-21#ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; all of it landed by 2026-10-22; the legal read of the standard-text fallback is the one open point",
+      "new_heading": "ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; all of it landed by 2026-10-22; the legal read of the standard-text fallback is the one open point",
+      "old_heading": "ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; who implements what; what the acceptance round taught",
       "project": "interweave",
-      "slice": ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md"
+      "slice": ".agent-fabric/memory/architect-cto/threads/adr-0058-third-party-notices-2026-10-21.md"
     }
   ],
   "review_horizons": {
     "aged": [
       {
         "class": "solution",
-        "days": 37,
+        "days": 41,
         "horizon_days": 30,
         "key": ".agent-fabric/memory/p2p-network-dev/solution/correction-autonat-pacing-is-not-the-crates-tick.md#CORRECTION to the solution slice stage-11-review-rounds.md (\"Pacing is the crate's with_probe_interval/with_max_candidates\") — since the owner's 2026-09-17 ruling (F4 on PR #84, landed by PR #88) only with_max_candidates is set from configuration; the tick stays at the crate's 5 s default and refresh_interval is the ReachabilityManager's retest cadence",
         "observed": "2026-09-17"
       },
       {
         "class": "solution",
-        "days": 35,
+        "days": 33,
+        "horizon_days": 30,
+        "key": ".agent-fabric/memory/p2p-network-dev/solution/correction-stage-11-rounds-80-gate-history.md#Correction to solution/stage-11-review-rounds.md line 22: #80's subagent-only path after codex refusals was the 2026-09-09 procedure, superseded by #114; history stays",
+        "observed": "2026-09-25"
+      },
+      {
+        "class": "solution",
+        "days": 33,
+        "horizon_days": 30,
+        "key": ".agent-fabric/memory/p2p-network-dev/solution/dns-wrap-reshapes-every-dial-error.md#wrapping the base transport in libp2p-dns changes the error of EVERY dial, not only a name's — MultiaddrNotSupported stops arriving, so classify an undialable address by its own shape",
+        "observed": "2026-09-25"
+      },
+      {
+        "class": "solution",
+        "days": 33,
+        "horizon_days": 30,
+        "key": ".agent-fabric/memory/p2p-network-dev/solution/frozen-spike-pin-is-the-recording-commits-tree.md#a spike's first-party pin is the tree its last recorded RUN built against — the recording commit's parent — never a date",
+        "observed": "2026-09-25"
+      },
+      {
+        "class": "solution",
+        "days": 33,
+        "horizon_days": 30,
+        "key": ".agent-fabric/memory/p2p-network-dev/solution/kademlia-routing-table-is-a-second-door.md#Identify listen_addrs reach TWO dialled stores — the address book and Kademlia's routing table — so a peer-address boundary on the book alone is half-closed; admits_offer is the routing table's funnel",
+        "observed": "2026-09-25"
+      },
+      {
+        "class": "solution",
+        "days": 33,
+        "horizon_days": 30,
+        "key": ".agent-fabric/memory/p2p-network-dev/solution/reproduction-logs-commit-beside-the-pin.md#a spike reproduction run must COMMIT its log beside the pin — a run that leaves no artifact is testimony, not evidence",
+        "observed": "2026-09-25"
+      },
+      {
+        "class": "solution",
+        "days": 32,
+        "horizon_days": 30,
+        "key": ".agent-fabric/memory/p2p-network-dev/solution/spike-004-phase-b-node-rows.md#SPIKE-004 phase B's five items as node rows on the podman NAT matrix (PR #127) — the four harness facts a row needs before it measures anything, and the six findings",
+        "observed": "2026-09-26"
+      },
+      {
+        "class": "solution",
+        "days": 39,
         "horizon_days": 30,
         "key": ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-10-network-change.md#Step 10 (network change) -- PR #104 MERGED 2026-09-19 on the owner's word after 3 rounds; Stage 11's list is complete (no step 11), the stage stays open on SPIKE-004 phase B; Stage 12 (composition root) awaits the owner's word; the last step of Stage 11's list -- the stage cannot close (SPIKE-004 phase B) and the next stage is the owner's to open",
         "observed": "2026-09-19"
       },
       {
         "class": "solution",
-        "days": 35,
+        "days": 39,
         "horizon_days": 30,
         "key": ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-9-path-preference.md#Step 9 (path preference and stability) -- PR #103 queued 2026-09-19 at 593afe1 after 2 rounds (17 work commits); the retirement widened to any stable direct path; P3s carried to step 10's first commit",
         "observed": "2026-09-19"
       },
       {
         "class": "solution",
-        "days": 37,
+        "days": 41,
         "horizon_days": 30,
         "key": ".agent-fabric/memory/p2p-network-dev/solution/stage6-ingress-burst-test-is-load-timed.md#two wall-clock-timed suites flake under a full workspace run on this host — tests/direct-v2 a_peer_cannot_mint_allowance_by_inventing_source_endpoints (burst + 1 vs a refilling bucket, got 34 against 33) and tests/pubsub stage7 an_actual_loss_outranks_the_zero_mesh_report (timed out waiting for the local overflow report, 2026-09-18) — rerun alone before suspecting the change; a follow-up PR each",
         "observed": "2026-09-17"
@@ -1415,15 +644,50 @@
       "host": "develop-qzapp",
       "observed": "2026-10-22"
     },
+    ".agent-fabric/memory/architect-cto/rationale/adr-0063-missing-and-refused-key-file-2026-10-24.md#ADR-0063 A 2026-10-24 (on my Stage 21 docs branch): a missing identity-key file outside recovery is a loss (silent first key only for an identity that never shared its card), a refused file goes only with the confirmed new key, written first; why nothing is kept aside": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-24"
+    },
     ".agent-fabric/memory/architect-cto/rationale/adr-0065-semver-2026-10-23.md#Owner 2026-10-23 \"from here ahead interweave will follow semver 2.0.0\" — ADR-0065 on #389 (99a37ebc): declared public API, 0.y.z until the owner cuts 1.0.0, one workspace version checked by the release run, versionCode a counter, pre-release tags; four lane REQUESTs": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-23"
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/rationale/adr-044-migration-timeout-2026-10-26.md#j385 2026-10-26: gzapp release migrations run under NO statement bound (Command Timeout 0), each migration tx opens with SET LOCAL lock_timeout='30s', the operator variable unset=none; DECISION 01a175d1-0809 to backend-dev-01; owed ADR-044 s2.3 A 2026-10-26 triple + devex RELEASE.md REQUEST": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-26"
+    },
+    ".agent-fabric/memory/architect-cto/rationale/android-targetsdk-37-hotspot-decision-2026-10-27.md#open owner decision 2026-10-27 — raise the Android app's targetSdk from 36 to 37? The only way the hotspot host's own address reaches the bridge (ENABLE_MATCH_NON_THREAD_LOCAL_NETWORKS, since target 37); costs: compileSdk pin + ACCESS_LOCAL_NETWORK runtime permission before any LAN traffic (scan included)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
+    ".agent-fabric/memory/architect-cto/rationale/card-photo-chroma-444-ruling-2026-10-25.md#j371 2026-10-25 — card photo prepared at 4:4:4 accepted (image crate's encoder has no subsampling setting); subsampling is not a rule, only HUMAN-CHAT.md's media type, 256 px and 24,576 bytes bind; design 5.2's figures are 4:2:0 measurements, re-measured at 4:4:4 by rust-ui-dev-02: photographs land at 85-90, noise at 21, so no encoder crate": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/rationale/cloudflare-admin-delegation-2026-10-25.md#Owner 2026-10-25: architect-cto holds a full-admin Cloudflare credential and mints scoped API tokens for the other agents; the token model read from Cloudflare's docs, what the owner must give, and the open handover question (another login's store is the fabric's provisioning path)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/rationale/control-plane-on-interweave-cli-2026-10-27.md#owner's direction 2026-10-27 — \"control plane on interweave should be implemented on interweave cli\"; control plane (ADR-029) stays on the relay today (ADR-064 rule 12); relayed to fabric-coordinator; InterWeave side = whatever verbs the CLI lacks": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
     },
     ".agent-fabric/memory/architect-cto/rationale/e2e-identity-keys-2026-10-21.md#Owner's direction 2026-10-21: peer-level (Noise) and end-to-end encryption are two matters; ADR-0063 (accepted) gives each user identity an Ed25519 key carried and proved by its card now; ADR-0064 (proposed) is the full E2E layer (sealed kind, ratchet, sender keys, multi-device by signed device list, opaque holder); both on IW #340": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-22"
+    },
+    ".agent-fabric/memory/architect-cto/rationale/identity-endpointid-derived-from-key-2026-10-28.md#the owner's direction of 2026-10-28: a user identity IS an EndpointId derived from the identity's own key pair as the PeerId is from the node's (same algorithm, same multihash); trust is per identity (EndpointId); no installed user base, so a clean break (the fleet updated at once, ids recreated) — ADR-0067 to write after the owner confirms my reading": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-28"
     },
     ".agent-fabric/memory/architect-cto/rationale/owner-identity-model-endpointid-is-user-identity-2026-10-21.md#Owner's identity model (2026-10-21): PeerId = the node (device/app install), EndpointId = one user identity (persona) with its own display_name and photo; one app user holds many user identities on one phone. ADR-0061 as drafted on #335 (identity = whole profile) was wrong and #335 was disarmed.": {
       "agent": "architect-cto-01",
@@ -1439,6 +703,11 @@
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-23"
+    },
+    ".agent-fabric/memory/architect-cto/rationale/reflection-a-set-two-writers-maintain-is-derived-not-kept.md#when an operator and a client both write into one trust list, no invariant the client \"keeps\" over it can hold; keep each writer's set apart and let the transport derive the composed set": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-28"
     },
     ".agent-fabric/memory/architect-cto/rationale/reflection-schema-constraint-or-producer-test.md#An invariant goes into the schema as a constraint when it forbids nothing legitimate, and into the producer's tests when a constraint would also reject valid data; ADR-035 records both outcomes and not the criterion": {
       "agent": "architect-cto-01",
@@ -1460,6 +729,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-21"
     },
+    ".agent-fabric/memory/architect-cto/solution/empty-response-stream-is-peer-unreachable-2026-10-26.md#InterWeave direct v2 and endpoint directory — a response stream ending with zero bytes is PeerUnreachable (the remote never answered), a short field means at least one byte; ruled 2026-10-26 on #460 F3, supplied on a for/ branch": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-26"
+    },
     ".agent-fabric/memory/architect-cto/solution/host-line-bound-measure-2026-10-22.md#Channel bridge host-line bound (320 KiB) — the measure decided 2026-10-22: larger of push line and pulled form, terminator/quotes out, per event; base64url of the recovered bytes by size; where the text and code live": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
@@ -1480,15 +754,45 @@
       "host": "develop-qzapp",
       "observed": "2026-10-21"
     },
-    ".agent-fabric/memory/architect-cto/threads/adr-0058-third-party-notices-2026-10-21.md#ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; who implements what; what the acceptance round taught": {
+    ".agent-fabric/memory/architect-cto/threads/adr-0052-rule-10-no-local-network-2026-10-26.md#ADR-0052 rule 10 (A 2026-10-26) — a carrier-assigned private cellular address is not shown, advertised, offered or counted; supply d2d1674a on for/p2p-network-dev-02/adr-0052-no-lan-private; bridge half to rust-ui-dev-01": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-21"
+      "observed": "2026-10-26"
+    },
+    ".agent-fabric/memory/architect-cto/threads/adr-0052-rule-10-outside-the-view-2026-10-27.md#ADR-0052 rule 10 second case (A 2026-10-27) — a bound private address the platform's view does not hold is on no local network; Pixel gate (e) failed on the first rule-10 build; supply 857c6fc2 for p2p-network-dev-02's j82; hotspot AP = the named limit": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
+    ".agent-fabric/memory/architect-cto/threads/adr-0058-third-party-notices-2026-10-21.md#ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; all of it landed by 2026-10-22; the legal read of the standard-text fallback is the one open point": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
     },
     ".agent-fabric/memory/architect-cto/threads/adr-0059-0060-contacts-encrypted-store-2026-10-21.md#ADR-0059 (contact card as a chat kind, accepted before it is a contact) and ADR-0060 (human store encrypted at rest under a platform-sealed key): the owner's direction, the bounds I chose, where the work waits (plan §29, SPIKE-011, PR #332)": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-21"
+    },
+    ".agent-fabric/memory/architect-cto/threads/adr-0066-release-signing-2026-10-25.md#j366 2026-10-25 — ADR-0066 release signing (owner's OpenPGP tag key by hand, minisign archive key in the release environment, pin packaging/release-keys.toml read from the tagged commit and from main's tip, fail closed) supplied onto devex-tooling's j231 branch; what the record claims and does not, and what other lanes owe in the same PR": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/threads/adr-047-flutter-coverage-workflow-2026-10-26.md#j386 2026-10-26: gzapp ADR-047 §2.6 A 2026-10-26 names flutter-coverage.yml beside coverage.yml/codeql.yml as a workflow without a push trigger; supplied 85886bf2d onto flutter-dev-02's #1183 head f6e8ca9dd; devex-tooling REQUEST 01a17652": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-26"
+    },
+    ".agent-fabric/memory/architect-cto/threads/adr-079-stop-calls-2026-10-25.md#gzapp ADR-079 (Ephemeral Stop Calls and Demand Consolidation) drafted 2026-10-25 as PR #1166 (draft, 2 work): what it records, what it amends, what it waits on (review from a relaunched session, owner's acceptance), and PR 9's dependency on it": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/threads/card-shared-at-accepted-and-silent-key-pending-row-2026-10-27.md#Ruling 2026-10-27 (j397): card_shared_at is set at Accepted (cards 5.3); the silent first key also counts an own-card row pending outbound; ADR-0063 decision 1 owes an amendment on rust-ui-dev-02's j54 branch": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
     },
     ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-04-already-landed.md#The owner's external stage review of InterWeave main 58463fb9 (2026-10-04) was fully landed by 2026-10-05; if it is pasted again, verify #192/#187 on origin/main and report, do not re-triage": {
       "agent": "architect-cto-01",
@@ -1500,6 +804,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-21"
     },
+    ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-27-main-1b37e0ef.md#The owner's third external review of the InterWeave client (main 1b37e0ef, 2026-10-27): P2 Android facade past its stop, P3-1 channel badge distinct count (my own STATE.md sentence), P3-2 human-cli stdin, P3-3 contact collation — verdicts, rulings, where each record and lane is": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-28"
+    },
     ".agent-fabric/memory/architect-cto/threads/idle-developers-dispatch-2026-10-19.md#2026-10-19 round feeding six idle developers (gzapp five, InterWeave one): what each REQUEST asks, what was verified on main, and the two decisions I owe from it (step-up MFA mechanism; ADR-078 rider-side sign after gzapp#1119)": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
@@ -1510,10 +819,70 @@
       "host": "develop-qzapp",
       "observed": "2026-10-21"
     },
+    ".agent-fabric/memory/architect-cto/threads/idle-round-3-dispatch-2026-10-24.md#2026-10-24 third idle-agent round (six REQUESTs): all landed by 2026-10-25; the axe-suite record and ADR-067 correction supplied for #1164, plan §27 regime fix for #1169; what remains is the two folds": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
+    ".agent-fabric/memory/architect-cto/threads/ipc-2-10-callers-chain-2026-10-24.md#IPC 2.10 (lost admin writes, superseded) cannot open until rust-ui-dev-01 supplies the human client's set_trust callers; 2.11 and the bridge's loss counters queue behind it": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/threads/j69-reboot-and-cache-rows-2026-10-25.md#p2p-network-dev-02's j69 device rows — reboot and cache-on landed (#421 f01fadd2), cache-on control re-run on branch -2 (f3663d9c, no PR yet), row 2 through Scan still needs the owner's wipe word": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/threads/linux-archive-glibc-floor-v0-1-1-2026-10-25.md#j369 2026-10-25 — Linux archive floor glibc 2.35 x86_64 ruled; ADR-0065 A 2026-10-25 (second) on IW #444; v0.1.1 PATCH owed; what I still owe the owner and p2p-network-dev-01": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/threads/macos-windows-packaging-postponed-2026-10-28.md#the owner, 2026-10-28: macOS and Windows packaging are postponed indefinitely, an option after the whole plan is complete; the v1 release matrix is Linux and Android; recorded on InterWeave #505 (plan §21/§22, READMEs)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-28"
+    },
+    ".agent-fabric/memory/architect-cto/threads/own-card-row-unverified-own-fields-reader-2026-10-27.md#cards 5.5 own card row after a restart — ruled (a) 2026-10-27: chat-protocol gains an own-fields reader (not Card, unverified, sender's own pending rows only); HUMAN-CHAT.md sentence owed on rust-ui-dev-02's j54-own-card-row branch": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
+    ".agent-fabric/memory/architect-cto/threads/owner-four-client-findings-j68-2026-10-27.md#owner's four human-client findings (2026-10-27) judged by rust-ui-dev-02 as j68 — placement in plan records, store v10 ownership, paged start listing vs RETENTION; I owe §29/§20 bullets + STATE.md contacts row on a for/ branch": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
     ".agent-fabric/memory/architect-cto/threads/owner-priority-cli-and-mcp-on-prod-host-2026-10-22.md#Owner 2026-10-22: a full command-line client and the Claude MCP bridge must run on the stage/production host by next week (edge-hosting agent moves there); the five REQUESTs and the open risks": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-22"
+      "observed": "2026-10-28"
+    },
+    ".agent-fabric/memory/architect-cto/threads/owner-reminder-5b-limits-at-the-second-host.md#STANDING REMINDER — when the fleet's second host runs under ADR-0055 decision 5b (the control plane's remote host, likely edge-hosting on H2), remind the owner of the limits they accepted on 2026-10-27 for the first remote host (one kernel, no NAT, no second uid, no real second host in CI) so the real host is measured, not assumed": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
+    ".agent-fabric/memory/architect-cto/threads/redacted-mayor-deck-claims-2026-10-27.md#gzapp product claims confirmed for brand-comms' [redacted] mayor deck (2026-10-27, main 298717e9d) — the rewordings and the strikes, reusable for any sent deck": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
+    ".agent-fabric/memory/architect-cto/threads/same-name-three-keys-gap-2026-10-25.md#InterWeave open thread 2026-10-25: the design's same-name rule has three keys (case, shape, compatibility shape; design 2026-10-21-contact-cards s5.4.1 as #438 rewrote it), the store computes the case key alone (store::name_key, #437), the ui-model's titles still compare exactly (rust-ui-dev-02's j60); human-client-ui.md s13 bullets 4 and 9 state the three-key criterion (#442) and the Stage 21 closing record carries the gap by name": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/threads/stage-18-outside-suite-shapes-2026-10-25.md#2026-10-25 j368: four adversarial test shapes relayed by fabric-coordinator judged against plan §21; three covered by name, the misbehaving-relay one handed to p2p-network-dev-01 (REQUEST 01a1736a-446d) as test or limit on S21-07": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/threads/stage-18-record-and-close-census-2026-10-25.md#j383 2026-10-25: plan §21 gains its Record (IW #454): every step landed by PR, S7/S8 at #452, and the close census — S12 device rows (owner's phone), S21-06 step cell (p2p-01), C-04 carried-row guard (devex), TM-52..56 cells (rust-ui-dev); C-04 row rewritten": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
     },
     ".agent-fabric/memory/architect-cto/threads/stage-19-activation-2026-10-20.md#Stage 19 (packaging, migration, release) activated 2026-10-20 on the owner's word, beside Stages 17 and 18; the §22 record (IW #317) is the packages' authorisation; the split by lane and what waits (macos, windows)": {
       "agent": "architect-cto-01",
@@ -1523,7 +892,7 @@
     ".agent-fabric/memory/architect-cto/threads/stage-20-fleet-carrier-2026-10-19.md#Owner's direction 2026-10-19 that the fleet uses InterWeave as its transport while the coordination protocol stays OUT of the InterWeave repo (general-purpose transport, human-to-human too): ADR-0055 + plan §28 Stage 20 re-cut generic (automated clients as first-party consumers); what the survey and p2p-network-dev-01 measured": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-19"
+      "observed": "2026-10-28"
     },
     ".agent-fabric/memory/architect-cto/threads/stage-21-beside-17-2026-10-21.md#Owner's word 2026-10-21 evening (\"agents must work\"): Stage 21 (plan §29 contacts/cards/encrypted store) runs beside Stage 17 by record (IW #350); who got which step": {
       "agent": "architect-cto-01",
@@ -1533,37 +902,87 @@
     ".agent-fabric/memory/architect-cto/threads/stage-21-close-2026-10-24.md#Owner 2026-10-24 \"complete stage 21\" — census of plan §29's gate vs main 93b63a39 (what is proved, what each lane owes), the four REQUESTs, the two things only the owner gives (privacy review (d); phones for the device rows), the §13 stage split": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-24"
+      "observed": "2026-10-25"
     },
-    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18-2.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)": {
+    ".agent-fabric/memory/architect-cto/threads/stage-22-several-identities-roadmap-only-2026-10-28.md#2026-10-28 the owner saw Android holds one \"Your card\" and wants one card per EndpointId; that is ADR-0061 / plan §30 Stage 22, unbuilt; the owner's word is roadmap only, do not open or implement; the note is on my docs batch": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-21"
+      "observed": "2026-10-28"
+    },
+    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18-2.md#RETIRES the duplicated Stage 17 thread slice (threads-carried-2026-10-18-2): the (j) review was received 2026-10-19..22 and Stage 17 closed on #373 (2026-10-22, merge 8ef07343); nothing in that thread is awaited": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-24"
     },
     ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-19"
     },
+    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148) (2)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-21"
+    },
     ".agent-fabric/memory/architect-cto/workflow/architect-cto-arms-gzapp-interweave.md#LIVE since 2026-10-19 12:35Z — architect-cto is below_min_authority and boundary_authority in InterWeave and gzapp (authority_own_prs false): how to give the word (AUTHORIZES line or arm with basis \"architect-cto's word\"), only after reading the head and its posted review; own PRs stay the owner's; an ADR's ACCEPTANCE is still the owner's": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-19"
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/arming-words-2026-10-26.md#Arming words given or withheld on 2026-10-26 (InterWeave #462 given at 1e5821eb; #464 withheld because the head moved after the ask), and the check that decides it": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/arming-words-2026-10-27-ii.md#arming words given 2026-10-27 evening as InterWeave below-minimum authority, each on a read head with its posted review": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-28"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/disk-cleanup-2026-10-27.md#fleet disk cleanup 2026-10-27 (owner's ask via fabric-coordinator broadcast 01a17e45) — what this account removed and what is never removed (the installed InterWeave programs under ~/.local/bin serve the gzcoord units)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
     },
     ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md#STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still architect-cto's)": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-22"
+      "observed": "2026-10-24"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/merge-target-names-the-section-heading-verbatim-2026-10-24.md#A memory's merge_target is matched against a drained slice's section heading verbatim; a topic's words or a heading's opening do not match, and the memory is then filed as a topic of its own beside the old text (fabric-coordinator's drain report 2026-10-24: 28 of my W43 targets missed this way)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-24"
     },
     ".agent-fabric/memory/architect-cto/workflow/never-commit-in-the-same-command-as-an-edit-script.md#Lesson 2026-10-21 (IW #335, twice: 20dfdb29 and d886510a): a Python edit script that asserts mid-way leaves the earlier files written and the later ones untouched; a commit chained after it with '&&' on the validators lands a partial change under a message claiming the whole. Verify, then commit in a separate command.": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-22"
     },
+    ".agent-fabric/memory/architect-cto/workflow/reflection-a-column-in-state-md-s-row-may-be-a-later-stage-s.md#W44 — before naming a column in a ruling or an index, read the STATE.md row's trailing note and the store's schema.rs: a column listed in the row can be documented as a later stage's (contacts.local_endpoint_id is Stage 22's, absent at v9)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/reflection-a-count-in-prose-about-another-lanes-list-is-read-per-entry.md#A count or 'the one X today' sentence in a record about another lane's list is read from that list at the PR head, entry by entry, never inferred from the paragraph's own rule (gzapp #1164 F4, 2026-10-26)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-26"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/reflection-a-distinct-in-a-count-is-read-against-the-tables-key.md#Before ruling a count DISTINCT over a column, read the table's UNIQUE key: within a group the key already scopes, DISTINCT is a no-op, and outside it DISTINCT merges rows the key deliberately keeps apart": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated.md#A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-23"
+      "observed": "2026-10-25"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated.md#A number or mechanism that arrives in a lane's message is not read in the tree: before it enters a contract sentence, read the constant, timer or buffer it rests on at the branch head and cite that; a measurement nowhere in the repository does not go into a contract at all": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
     },
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-green-pinned-tree-that-turns-red-check-the-runner-image-first.md#When a pinned tree that was green turns red with no code change, compare the runner image version in each run's log before blaming the dependency graph; a claim that main is green is only as current as main's last run": {
       "agent": "architect-cto-01",
@@ -1589,6 +1008,11 @@
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-22"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/reflection-a-plan-s-record-pr-lands-before-its-implementation-prs.md#W43: When a plan's first PR is \"the ADR + proposed contracts\", land it before the implementation PRs; gzapp's stop-call ADR slipped a month and PR 9 could not open until ADR-079 was written in one night": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
     },
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-refusal-reached-by-another-act-or-audience-gets-its-own-message-key.md#A message key carries one audience's remedy; a refusal reached by a different act or served to a different audience gets its own key, because shared copy tells someone the wrong fix": {
       "agent": "architect-cto-01",
@@ -1625,6 +1049,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-23"
     },
+    ".agent-fabric/memory/architect-cto/workflow/reflection-an-adr-sentence-naming-where-a-record-will-live-is-checked-when-it-lands.md#When an ADR says a lane's record \"will be recorded in <dir> when it lands\", the landing PR's verification checks that sentence against where the record actually went, and amends the pointer in the same round": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
     ".agent-fabric/memory/architect-cto/workflow/reflection-an-owed-or-built-after-clause-is-false-the-moment-its-pr-merges.md#When ADR or contract text says a gap is owed, at this writing or built after, and an open PR closes it, the text is false the moment that PR merges and returns as a review finding; strike every such clause in one commit after the closing PR lands, across the body, the log row, the digest and the contracts": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
@@ -1649,6 +1078,11 @@
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-23"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/reflection-device-access-across-logins-is-per-key-per-port-per-lease.md#Phones on wireless adb are shared across logins by three facts: pairing admits one adb key per login (a code consumed in my shell paired MY key, the other lane still needed its own or an earlier pairing), one adb server holds host port 5037 at a time (kill-server before another login installs, or use the lease's own port), and the install is the signer's with install -r so data is kept": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
     },
     ".agent-fabric/memory/architect-cto/workflow/reflection-evidence-for-the-owner-names-its-build-and-source.md#A measurement taken to the owner names the commit it ran on and the data it read, and that commit is checked as an ancestor of origin/main first; the same numbers from unmerged code support a narrower claim": {
       "agent": "architect-cto-01",
@@ -1690,6 +1124,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-22"
     },
+    ".agent-fabric/memory/architect-cto/workflow/reflection-prose-that-describes-behaviour-you-changed-grep-before-sending.md#W43: When a ruling changes what a contract text claims, grep the whole tree for the old claim's distinctive words before the supply leaves, not after each review round names one": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-24"
+    },
     ".agent-fabric/memory/architect-cto/workflow/reflection-read-a-status-set-from-the-schema-before-ruling-on-it.md#Before ruling a closed switch or allow-list over a status column, read the set from the schema, its CHECK if one exists, else every migration that writes the column, never from ADR prose, and ask for the CHECK in the same ruling": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
@@ -1720,10 +1159,20 @@
       "host": "develop-qzapp",
       "observed": "2026-10-22"
     },
+    ".agent-fabric/memory/architect-cto/workflow/reflection-read-the-locks-scope-before-ruling-one-client-at-a-time.md#W44 — before ruling that two clients may coexist on one profile, read what the \"one at a time\" exclusion actually locks (a store-wide instance lock vs a per-endpoint lease); the contract's lease rule and the client's lock are different scopes": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
+    },
     ".agent-fabric/memory/architect-cto/workflow/reflection-rule-the-meaning-of-person-facing-text-never-its-words.md#When a lane asks how a label, hint or notice should read, architect-cto rules which facts the person must get and the one action if there is one; the words in each locale belong to the copy owner, and a contract's quoted label binds in meaning, not in wording": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-23"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/reflection-run-the-check-before-the-trailer-claims-it.md#A Supplier-Review trailer names a check as OK only after the check ran and printed OK in that worktree; a validator that needs installed modules crashes in a fresh worktree and a chained command commits the trailer anyway": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
     },
     ".agent-fabric/memory/architect-cto/workflow/reflection-search-origin-s-unmerged-branches-before-writing-a-gap.md#A decision I authored can sit implemented on another lane's unmerged branch with no PR, pointed at by nothing on main or in the inbox; before writing a recorded gap or routing a job, list origin's for/ and feat/ branches and search them for the decision's anchor": {
       "agent": "architect-cto-01",
@@ -1765,15 +1214,30 @@
       "host": "develop-qzapp",
       "observed": "2026-10-23"
     },
+    ".agent-fabric/memory/architect-cto/workflow/remote-branch-prune-2026-10-28.md#2026-10-28 the owner had every InterWeave origin branch wholly on main deleted (256 of 266); GitHub delete-on-merge covers PR heads only, so for/ supply branches grow back; proposal to fabric-coordinator that fabric-branches --sweep prunes one's own remote branches on origin/main": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-28"
+    },
     ".agent-fabric/memory/architect-cto/workflow/review-class-v2-relaunch-before-dispatch-2026-10-24.md#agent-fabric ADR-065 (#358, 94487c3b, every account upgraded 2026-10-24): the review class reads through the fabric-review MCP tools and posts v2 reviews; a session launched before the upgrade dispatches a reviewer with no tools — start a fresh session (fabric-jobs switch, then fabric-fresh) before the next review dispatch": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-24"
     },
+    ".agent-fabric/memory/architect-cto/workflow/review-tools-bound-to-the-session-clone-2026-10-25.md#The review class's MCP tools (review_diff/log/show/check) are bound to the SESSION's project clone; a review of another project's PR dispatched from this session reads nothing through them and is not coverage — dispatch a gzapp review only from a gzapp-bound session": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
+    },
     ".agent-fabric/memory/architect-cto/workflow/rustsec-zbus-family-ignores-and-arming-below-minimum.md#The 2026-10-18 CI outage on InterWeave (zbus-family RustSec unmaintained advisories) and what landing #297 taught about folding a supply, the deny.toml boundary, and the architect-cto AUTHORIZES send": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-18"
+      "observed": "2026-10-28"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/supply-job-closes-on-the-supply-sha-reaching-origin-main.md#A supply job (commits handed to another lane's PR) closes only when the supply sha itself is an ancestor of origin/main, not when the PR shows merged": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-25"
     },
     ".agent-fabric/memory/devex-tooling/solution/adr-digest-no-citation-convention.md#why validate_adr_index checks \"entry edited\" not \"amendment cited\" — the digest has no citation convention": {
       "agent": "devex-tooling",
@@ -3338,7 +2802,7 @@
     "memory/domains/architect-cto/domain/reflection-a-name-says-only-what-something-measures.md#A counter name, a wire member or a person-facing banner states only what something measures; when nothing measures it the value is absent or unknown, never derived or approximated, since absent is better than wrong": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-23"
+      "observed": "2026-10-24"
     },
     "memory/domains/architect-cto/domain/reflection-a-new-status-written-by-an-operation-needs-a-backfill.md#A status written by an operation reaches only rows changed after it lands; the migration that adds the value backfills the rows already in that state, so the status means one thing for every row and readers carry no second predicate": {
       "agent": "architect-cto-01",
@@ -3398,7 +2862,7 @@
     "memory/domains/architect-cto/domain/reflection-an-invariant-is-enforced-where-it-goes-live-every-path-ruled-together.md#An invariant that must hold when something goes live is checked at that change, not only at creation or import, because the set it is checked against can change in between; and every way into and out of that state is ruled in one ruling, or review finds each missed path in a separate round": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-23"
+      "observed": "2026-10-25"
     },
     "memory/domains/architect-cto/domain/reflection-an-overlay-persisted-over-a-config-is-validated-composed.md#Configuration that validates alone need not validate once an overlay is applied, so the composed result is validated: refused at set time with nothing written, fatal at start naming the overlay, and never normalised away": {
       "agent": "architect-cto-01",
@@ -3444,6 +2908,11 @@
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-22"
+    },
+    "memory/domains/architect-cto/domain/reflection-sqlite-covering-index-over-virtual-generated-columns-is-a-search.md#W44 — in SQLite an index that includes a VIRTUAL generated column is not used as a covering index: the planner recomputes the column from the row (USING INDEX, not USING COVERING INDEX); name an index meant to cover over the table's stored columns and pin it with an EXPLAIN QUERY PLAN test": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-27"
     },
     "memory/domains/architect-cto/domain/reflection-unassigned-codes-and-byte-exact-details-are-contract-text.md#A closed set of wire codes states what happens to unassigned values, refused as malformed and never read as an assigned one; anything two peers must match byte for byte, a topic's spelling or a response layout, is contract text and never chosen by the implementation, and a ruling on a silent contract writes production's behaviour into the text": {
       "agent": "architect-cto-01",
@@ -3908,169 +3377,32 @@
   },
   "shared_slices": 0,
   "shared_topics": [],
-  "stamp": "2026-10-24",
+  "stamp": "2026-10-28",
   "telemetry": {
     "architect-cto": {
-      "admitted": 102,
-      "candidates": 102,
+      "admitted": 150,
+      "candidates": 150,
       "merged_into_existing": 0,
-      "observations_in": 102,
+      "observations_in": 150,
       "rejected": 0
-    },
-    "devex-tooling": {
-      "admitted": 28,
-      "candidates": 29,
-      "merged_into_existing": 0,
-      "observations_in": 29,
-      "rejected": 1
-    },
-    "fabric-coordinator": {
-      "admitted": 7,
-      "candidates": 38,
-      "merged_into_existing": 0,
-      "observations_in": 38,
-      "rejected": 31
-    },
-    "language-culture": {
-      "admitted": 13,
-      "candidates": 14,
-      "merged_into_existing": 0,
-      "observations_in": 14,
-      "rejected": 1
-    },
-    "p2p-network-dev": {
-      "admitted": 195,
-      "candidates": 225,
-      "merged_into_existing": 0,
-      "observations_in": 225,
-      "rejected": 30
-    },
-    "rust-services-dev": {
-      "admitted": 12,
-      "candidates": 12,
-      "merged_into_existing": 0,
-      "observations_in": 12,
-      "rejected": 0
-    },
-    "rust-ui-dev": {
-      "admitted": 118,
-      "candidates": 126,
-      "merged_into_existing": 0,
-      "observations_in": 126,
-      "rejected": 8
-    },
-    "ux-designer": {
-      "admitted": 20,
-      "candidates": 25,
-      "merged_into_existing": 0,
-      "observations_in": 25,
-      "rejected": 5
     }
   },
   "telemetry_sources": {
     "architect-cto-01@develop-qzapp": {
       "architect-cto": {
-        "admitted": 102,
-        "candidates": 102,
+        "admitted": 150,
+        "candidates": 150,
         "merged_into_existing": 0,
-        "observations_in": 102,
+        "observations_in": 150,
         "rejected": 0
-      }
-    },
-    "devex-tooling@develop-qzapp": {
-      "devex-tooling": {
-        "admitted": 28,
-        "candidates": 29,
-        "merged_into_existing": 0,
-        "observations_in": 29,
-        "rejected": 1
-      }
-    },
-    "language-culture-en@develop-qzapp": {
-      "language-culture": {
-        "admitted": 13,
-        "candidates": 14,
-        "merged_into_existing": 0,
-        "observations_in": 14,
-        "rejected": 1
-      }
-    },
-    "p2p-network-dev-01@develop-qzapp": {
-      "p2p-network-dev": {
-        "admitted": 134,
-        "candidates": 149,
-        "merged_into_existing": 0,
-        "observations_in": 149,
-        "rejected": 15
-      }
-    },
-    "p2p-network-dev-02@develop-qzapp": {
-      "p2p-network-dev": {
-        "admitted": 61,
-        "candidates": 76,
-        "merged_into_existing": 0,
-        "observations_in": 76,
-        "rejected": 15
-      }
-    },
-    "rust-services-dev-01@develop-qzapp": {
-      "rust-services-dev": {
-        "admitted": 1,
-        "candidates": 1,
-        "merged_into_existing": 0,
-        "observations_in": 1,
-        "rejected": 0
-      }
-    },
-    "rust-services-dev-02@develop-qzapp": {
-      "rust-services-dev": {
-        "admitted": 11,
-        "candidates": 11,
-        "merged_into_existing": 0,
-        "observations_in": 11,
-        "rejected": 0
-      }
-    },
-    "rust-ui-dev-01@develop-qzapp": {
-      "rust-ui-dev": {
-        "admitted": 89,
-        "candidates": 96,
-        "merged_into_existing": 0,
-        "observations_in": 96,
-        "rejected": 7
-      }
-    },
-    "rust-ui-dev-02@develop-qzapp": {
-      "rust-ui-dev": {
-        "admitted": 29,
-        "candidates": 30,
-        "merged_into_existing": 0,
-        "observations_in": 30,
-        "rejected": 1
-      }
-    },
-    "user@develop-qzapp": {
-      "fabric-coordinator": {
-        "admitted": 7,
-        "candidates": 38,
-        "merged_into_existing": 0,
-        "observations_in": 38,
-        "rejected": 31
-      }
-    },
-    "ux-designer-01@develop-qzapp": {
-      "ux-designer": {
-        "admitted": 20,
-        "candidates": 25,
-        "merged_into_existing": 0,
-        "observations_in": 25,
-        "rejected": 5
       }
     }
   },
-  "title_collisions": [],
+  "title_collisions": [
+    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md: \"Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)\" appears twice — set merge_target to resolve"
+  ],
   "watermarks": {
-    "architect-cto-01@develop-qzapp": 1792823028009,
+    "architect-cto-01@develop-qzapp": 1793195164670,
     "develop-qzapp": 1789652045613,
     "devex-tooling@develop-qzapp": 1792735422935,
     "language-culture-en@develop-qzapp": 1792832202997,

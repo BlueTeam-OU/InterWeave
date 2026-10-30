@@ -5,7 +5,7 @@ topic: "owner-identity-model-endpointid-is-user-identity-2026-10-21"
 description: "Owner's identity model (2026-10-21): PeerId = the node (device/app install), EndpointId = one user identity (persona) with its own display_name and photo; one app user holds many user identities on one phone. ADR-0061 as drafted on #335…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

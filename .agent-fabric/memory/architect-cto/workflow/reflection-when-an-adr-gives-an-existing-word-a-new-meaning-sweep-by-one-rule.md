@@ -5,7 +5,7 @@ topic: "reflection-when-an-adr-gives-an-existing-word-a-new-meaning-sweep-by-one
 description: "When an ADR gives an existing word a new meaning, older records keep the old sense, so its use is ruled by one meaning across every flow rather than screen by screen, and a contract's proper name keeps the word until a rename with a…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

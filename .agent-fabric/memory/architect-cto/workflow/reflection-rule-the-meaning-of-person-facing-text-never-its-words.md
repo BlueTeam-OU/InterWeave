@@ -5,7 +5,7 @@ topic: "reflection-rule-the-meaning-of-person-facing-text-never-its-words"
 description: "When a lane asks how a label, hint or notice should read, architect-cto rules which facts the person must get and the one action if there is one; the words in each locale belong to the copy owner, and a contract's quoted label binds in…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

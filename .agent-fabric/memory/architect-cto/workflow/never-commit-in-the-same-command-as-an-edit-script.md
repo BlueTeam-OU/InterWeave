@@ -5,7 +5,7 @@ topic: "never-commit-in-the-same-command-as-an-edit-script"
 description: "Lesson 2026-10-21 (IW #335, twice: 20dfdb29 and d886510a): a Python edit script that asserts mid-way leaves the earlier files written and the later ones untouched; a commit chained after it with '&&' on the validators lands a partial…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

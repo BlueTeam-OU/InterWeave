@@ -5,7 +5,7 @@ topic: "reflection-read-an-every-binding-rule-against-each-mobile-platform-s-def
 description: "Before a filesystem, credential or backup rule is written to bind every binding, read it against Android's and iOS's platform defaults; rules drafted from the Linux desktop break on mobile, where Android's app directories are group-owned…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

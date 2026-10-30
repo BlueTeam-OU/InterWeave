@@ -5,7 +5,7 @@ topic: "reflection-fold-refusals-by-what-is-refused-not-by-who-refuses"
 description: A fold of refusals into categories draws its line by what is refused, a policy refusal to denied and a route that cannot be dialled to dial_failed, never by who refuses
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

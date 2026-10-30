@@ -5,7 +5,7 @@ topic: "reflection-a-stage-tied-dead-function-exemption-needs-a-real-consumer-in
 description: "A dead-function exemption tied to a stage names in its reason something the next stage's exit gate actually requires; an entry reasoned 'first read by the X stack' goes red at every stage move until a real consumer reads it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

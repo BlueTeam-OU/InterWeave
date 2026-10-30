@@ -5,13 +5,14 @@ topic: "architect-cto-arms-gzapp-interweave"
 description: "LIVE since 2026-10-19 12:35Z — architect-cto is below_min_authority and boundary_authority in InterWeave and gzapp (authority_own_prs false): how to give the word (AUTHORIZES line or arm with basis \"architect-cto's word\"), only after…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - be07c849879a7694
   - c0567a001690eae5
 ---
 
@@ -19,10 +20,16 @@ derived_from:
 
 fabric-coordinator's INFO 01a152a7-3930 (2026-10-19): the owner ruled
 that architect-cto arms and merges on gzapp and InterWeave, and that
-agents ask architect-cto, not the owner. Today the arm tool lets this
-role authorize a security-boundary change under boundary_min
-(AUTHORIZES, see [[gateway-boundary-authority-architect-cto]]); a PR
-under the work-commit minimum still arms only on the owner's word.
+agents ask architect-cto, not the owner. LIVE since 2026-10-19 12:35Z:
+in InterWeave and gzapp a PR under the work-commit minimum, or a
+security-boundary change under its boundary minimum, arms on
+architect-cto's word (an AUTHORIZES header line TO the arming
+session, or `fabric-pr arm --any-owner --basis "architect-cto's word"`),
+given only after reading the head and its posted review with no
+unresolved thread; the owner's word remains for architect-cto's own
+PRs (authority_own_prs false) and for ADR acceptances. (An earlier
+opening sentence here said the owner's word was still needed under
+the minimum; that was the state before 12:35Z and is withdrawn.)
 
 MERGED 2026-10-19 (python-dev-04's INFO 01a153ca): agent-fabric #305
 (merge f6f3ee79) carries commits.below_min_authority,
@@ -70,6 +77,28 @@ on another's PR are not "own PR" for authority_own_prs. Ruled too: test
 fixtures (testFixtures* configurations) are test tooling under ADR-0057
 decision 2, exempt like lint and test.
 
-*References: gateway-boundary-authority-architect-cto*
+**2026-10-24/25, two days of giving the word (reflection, messages
+01a16c5d-5073-7f42-8756-237042dc22e1, 01a16dfe-6292-7e02-9b64-542ade8fd707,
+01a16ef5-f375-7538-918b-ca0ab5ac814c, 01a16f8c-4453-7385-aa4d-0ca358c2ff45,
+01a16f10-1066-7714-a5db-c1e2a1ba05bb, 01a170a9-848d-79be-a905-edfb0313b5e3,
+01a172aa-c011-780a-98da-7bce1250b72d, 01a17322-a3e6-700a-a8d1-8b56e623b942).**
+What I read before every word, in this order, and the REPLY says it:
+open and not a draft; the work and fix counts against the minimum; the
+files against the merge base; whether a path is a boundary; `fabric-pr
+review-status` showing the review class's review posted ON THAT HEAD
+with 0 unresolved threads; checks (pending is fine, "arm waits on
+them"); and the reason the PR should not wait for eight. The reasons I
+accepted, each said in the word: a critical advisory (#415); a
+toolchain pin everyone builds on (#422); a required check failing at
+random on every queued PR (#424); a design note another lane builds
+from (#400, #405, #408, #413, #416, #425, #441, #443); a small PR whose
+next work is a different subject and would hold it (#404); a drain
+(#412); a reviewed boundary change of one commit (#403). The word
+names the head and "no later push". A word never skips an unresolved
+thread, and I check WHICH thread is open before saying why (on #1160 I
+named the wrong one). The word is for the head as read, not the stage
+gate's verdict: #421 landed with a run file that honestly named its
+vacuous control, and the Stage 21 close still waited on the re-run.
+Above the minimum nothing of mine is needed and I say so (#426).
 
-*Observed 2026-10-19 (architect-cto)*
+*Observed 2026-10-25 (architect-cto)*

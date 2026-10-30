@@ -5,7 +5,7 @@ topic: "dev-profile-line-tables-build-size-2026-10-21"
 description: "InterWeave dev builds at line tables only (j210, owner's ask via fabric-coordinator 2026-10-20): the measured target sizes, why a dependency-only override recovers little, what was checked about backtraces"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

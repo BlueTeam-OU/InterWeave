@@ -5,7 +5,7 @@ topic: "reflection-the-arming-word-is-given-on-a-finished-head-only"
 description: "The arming word is given on a finished head only: a PR body still listing commits or runs to come holds the word until the branch is finished or the body rewritten; on a boundary PR the word never vouches for a custody path nothing has…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
