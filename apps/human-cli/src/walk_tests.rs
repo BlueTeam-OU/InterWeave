@@ -376,3 +376,237 @@ async fn at_the_session_bound_the_walk_presses_show_anyway() {
     walked.end.expect("walked");
     assert_eq!(walked.texts, expected);
 }
+
+/// How many rows of `table` the store in `dir` holds.
+fn count(dir: &Path, table: &str) -> i64 {
+    rusqlite::Connection::open(dir.join("human.sqlite3"))
+        .expect("the store file")
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+        .expect("a count")
+}
+
+/// What `read` wrote, and the store's unread count at each flush.
+struct Watched<'a> {
+    dir: &'a Path,
+    bytes: Vec<u8>,
+    /// At each flush: the lines written so far, the rows still unread.
+    flushes: Vec<(usize, i64)>,
+    /// Set to fail every page read at the first flush with a line in it.
+    fail_after_first: Option<Arc<StoreFaults>>,
+}
+
+impl<'a> Watched<'a> {
+    fn new(dir: &'a Path) -> Self {
+        Self {
+            dir,
+            bytes: Vec::new(),
+            flushes: Vec::new(),
+            fail_after_first: None,
+        }
+    }
+
+    fn texts(&self) -> Vec<String> {
+        String::from_utf8(self.bytes.clone())
+            .expect("utf-8")
+            .lines()
+            .map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).expect("a JSON line");
+                v["text"].as_str().expect("a text").to_owned()
+            })
+            .collect()
+    }
+}
+
+impl std::io::Write for Watched<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.bytes.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let lines = self.bytes.split(|b| *b == b'\n').count() - 1;
+        self.flushes
+            .push((lines, count(self.dir, "unread_inbound")));
+        if lines > 0
+            && let Some(faults) = self.fail_after_first.take()
+        {
+            faults.set_pages(Fault::Fail);
+        }
+        Ok(())
+    }
+}
+
+fn run_args() -> crate::verbs::Run<'static> {
+    crate::verbs::Run {
+        profile: "test",
+        json: true,
+        until: Instant::now() + Duration::from_millis(500),
+    }
+}
+
+/// `read` of `key` over `s`, written to `out`, keeping `keep`.
+async fn read(
+    s: &mut Session<FakeNode, FakeNode>,
+    key: &ConversationKey,
+    keep: &[&str],
+    out: &mut Watched<'_>,
+) -> Result<(), Failure> {
+    crate::verbs::stream(
+        s,
+        &crate::cli::Verb::Read {
+            conversation: key.clone(),
+            keep: keep.iter().map(|k| (*k).to_owned()).collect(),
+        },
+        &run_args(),
+        out,
+    )
+    .await
+}
+
+/// architect-cto's Q5 (2): `read` marks a chunk read and writes it, and
+/// flushes it before the next chunk is marked read: at every flush the
+/// store has read exactly the rows written, so a failure leaves no row
+/// read and unwritten -- and the conversation past the ceiling is read
+/// whole, oldest first, a chunk at a time. Mutations: the whole held
+/// conversation read at the first chunk; a chunk written before it is
+/// read.
+#[tokio::test]
+async fn read_marks_each_chunk_read_as_it_is_written_and_no_row_before() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let total = HELD_ROW_CAP + 300;
+    let expected = seed(dir.path(), b.peer(), &rows(total, 0));
+    let mut s = session(&a, dir.path(), None);
+    let mut out = Watched::new(dir.path());
+    read(&mut s, &to(b.peer()), &[], &mut out)
+        .await
+        .expect("read");
+    assert_eq!(out.texts(), expected, "every row once, oldest first");
+    let total = i64::try_from(total).expect("small");
+    for (lines, unread) in &out.flushes {
+        assert_eq!(
+            *unread,
+            total - i64::try_from(*lines).expect("small"),
+            "the rows read are the rows written, at every flush: {:?}",
+            out.flushes
+        );
+    }
+    let written: Vec<usize> = out.flushes.iter().map(|(l, _)| *l).collect();
+    assert!(
+        written
+            .windows(2)
+            .all(|w| w[1] - w[0] <= crate::walk::CHUNK),
+        "a chunk at a time: {written:?}"
+    );
+    assert_eq!(count(dir.path(), "unread_inbound"), 0);
+}
+
+/// architect-cto's Q5 (1): every `--keep` id is checked over the whole
+/// conversation before anything is read -- one naming the oldest row,
+/// past the ceiling and held by no page at the start, is found, and a
+/// mistyped one beside it refuses with nothing read and nothing written.
+/// Mutations: the ids checked against the rows held at the start; the
+/// check removed.
+#[tokio::test]
+async fn a_keep_past_the_held_row_ceiling_is_checked_before_anything_is_read() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let total = HELD_ROW_CAP + 100;
+    let expected = seed(dir.path(), b.peer(), &rows(total, 0));
+    let key = to(b.peer());
+    // The first row seeded draws first: its id is u1.
+    assert_eq!(expected[0], "row 1");
+
+    let mut s = session(&a, dir.path(), None);
+    let mut out = Watched::new(dir.path());
+    let refused = read(&mut s, &key, &["u1", "u999999"], &mut out).await;
+    assert!(
+        matches!(&refused, Err(Failure::Refused(why)) if why.starts_with("--keep number 2:")),
+        "{:?}",
+        refused.as_ref().err().map(Failure::message)
+    );
+    assert!(out.bytes.is_empty(), "nothing written");
+    assert_eq!(
+        count(dir.path(), "unread_inbound"),
+        i64::try_from(total).expect("small"),
+        "nothing read"
+    );
+    drop(s);
+
+    let mut s = session(&a, dir.path(), None);
+    let mut out = Watched::new(dir.path());
+    read(&mut s, &key, &["u1"], &mut out).await.expect("read");
+    assert_eq!(out.texts(), expected);
+    assert_eq!(count(dir.path(), "unread_inbound"), 0);
+    assert_eq!(count(dir.path(), "kept_inbound"), 1, "the oldest kept");
+}
+
+/// architect-cto's Q5 (3) and Q8: a page that cannot be read mid-walk
+/// stops `read` at once with the store's failure, naming the
+/// conversation; the rows written are read and the later ones stay
+/// unread, and a second `read` goes on from them. Mutation: the failure
+/// swallowed, the walk ended as if whole.
+#[tokio::test]
+async fn a_page_failing_mid_read_stops_it_and_a_second_read_goes_on() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let total = HELD_ROW_CAP + 300;
+    let expected = seed(dir.path(), b.peer(), &rows(total, 0));
+    let key = to(b.peer());
+    let faults = Arc::new(StoreFaults::default());
+    let mut s = session(&a, dir.path(), Some(Arc::clone(&faults)));
+    let mut out = Watched::new(dir.path());
+    out.fail_after_first = Some(Arc::clone(&faults));
+    let stopped = read(&mut s, &key, &[], &mut out).await;
+    let conversation = crate::cli::conversation_text(&key);
+    assert!(
+        matches!(&stopped, Err(Failure::Store(why)) if why.contains(&conversation)),
+        "{:?}",
+        stopped.as_ref().err().map(Failure::message)
+    );
+    let first = out.texts();
+    assert!(
+        !first.is_empty() && first.len() < total,
+        "stopped mid-walk: {}",
+        first.len()
+    );
+    assert_eq!(first, expected[..first.len()]);
+    assert_eq!(
+        count(dir.path(), "unread_inbound"),
+        i64::try_from(total - first.len()).expect("small"),
+        "the later rows stay unread"
+    );
+    drop(s);
+
+    faults.set_pages(Fault::Pass);
+    let mut s = session(&a, dir.path(), Some(faults));
+    let mut out = Watched::new(dir.path());
+    read(&mut s, &key, &[], &mut out).await.expect("read");
+    assert_eq!(out.texts(), expected[first.len()..], "on from them");
+    assert_eq!(count(dir.path(), "unread_inbound"), 0);
+}
+
+/// `messages` writes a conversation past the ceiling whole, oldest first,
+/// and reads none of it: the verb over the walk the tests above hold.
+#[tokio::test]
+async fn messages_writes_a_conversation_past_the_ceiling_and_reads_none() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let total = HELD_ROW_CAP + 100;
+    let expected = seed(dir.path(), b.peer(), &rows(total, 0));
+    let mut s = session(&a, dir.path(), None);
+    let mut out = Watched::new(dir.path());
+    crate::verbs::stream(
+        &mut s,
+        &crate::cli::Verb::Messages(to(b.peer())),
+        &run_args(),
+        &mut out,
+    )
+    .await
+    .expect("written");
+    assert_eq!(out.texts(), expected);
+    assert_eq!(
+        count(dir.path(), "unread_inbound"),
+        i64::try_from(total).expect("small")
+    );
+}

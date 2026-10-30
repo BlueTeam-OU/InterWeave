@@ -13,8 +13,8 @@ use std::time::Instant;
 use interweave_human_app_core::{Command, Failure as Why, Problem, Update};
 use interweave_human_client_api::{ClientEvent, OutboundStatus, SessionState, TrustProblem};
 use interweave_human_ui_model::{
-    ConversationKey, Direction, EntryProblem, Intent, ItemKey, ItemStatus, MessageItem,
-    ProposalItem, RowId, TrustInput, TrustOutcome, ViewEvent,
+    ConversationKey, EntryProblem, Intent, ItemKey, ItemStatus, MessageItem, ProposalItem, RowId,
+    TrustInput, TrustOutcome, ViewEvent,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -56,12 +56,14 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
             }
             Ok(())
         }
-        Verb::Messages(key) => {
-            look(s, r).await;
-            print_messages(s, key, r.json, out);
-            Ok(())
+        // Written as walked when run from `main` ([`stream`]); collected
+        // here for a caller that holds the output whole.
+        Verb::Messages(_) | Verb::Read { .. } => {
+            let mut bytes = Vec::new();
+            let result = stream(s, verb, r, &mut bytes).await;
+            out.push_str(&String::from_utf8_lossy(&bytes));
+            result
         }
-        Verb::Read { conversation, keep } => read(s, r, conversation, keep, out).await,
         Verb::Send {
             conversation,
             text: Some(text),
@@ -129,6 +131,29 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
     }
 }
 
+/// Run `verb`, a verb that walks a conversation, writing to `out` a chunk
+/// at a time as it walks (architect-cto's 01a18ecf Q6): what is written
+/// stays written whatever fails after it.
+///
+/// # Errors
+/// The verb's [`Failure`].
+pub(crate) async fn stream<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    verb: &Verb,
+    r: &Run<'_>,
+    out: &mut dyn std::io::Write,
+) -> Result<(), Failure> {
+    match verb {
+        Verb::Messages(key) => crate::reading::messages(s, r, key, out).await,
+        Verb::Read { conversation, keep } => {
+            crate::reading::read(s, r, conversation, keep, out).await
+        }
+        _ => Err(Failure::Refused(
+            "this verb does not walk a conversation".to_owned(),
+        )),
+    }
+}
+
 /// Open the session for a verb that reads: what the store holds is shown
 /// whether or not it opens, and what the daemon held for this client is
 /// handed over first when it does. Why it did not open goes to stderr, for
@@ -154,17 +179,6 @@ pub(crate) async fn ready<B: DataSessionBinding, A: AdminBinding>(
     r: &Run<'_>,
 ) -> Result<(), Failure> {
     s.open(r.until).await.failure(r.profile).map_or(Ok(()), Err)
-}
-
-fn print_messages<B: DataSessionBinding, A: AdminBinding>(
-    s: &Session<B, A>,
-    key: &ConversationKey,
-    json: bool,
-    out: &mut String,
-) {
-    for m in s.model().messages(key) {
-        out.push_str(&output::message(&m, json));
-    }
 }
 
 /// A command the model side reports as not carried out, as a failure.
@@ -314,63 +328,16 @@ async fn status<B: DataSessionBinding, A: AdminBinding>(
     Ok(())
 }
 
-async fn read<B: DataSessionBinding, A: AdminBinding>(
+/// Keep `to_keep`, read in this run, each beside its place among the
+/// `--keep` ids: a message kept already is what was asked.
+pub(crate) async fn keep_after_read<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
-    r: &Run<'_>,
-    key: &ConversationKey,
-    keep: &[String],
-    out: &mut String,
-) -> Result<(), Failure> {
-    look(s, r).await;
-    // Every --keep names a message received in this conversation, checked
-    // before anything is marked read: a mistyped id must not cost the read
-    // (`a_keep_naming_an_outbound_message_refuses_before_anything_is_read`).
-    let shown = s.model().messages(key);
-    let mut to_keep: Vec<ItemKey> = Vec::new();
-    for (n, id) in keep.iter().enumerate() {
-        let item = s
-            .model()
-            .item_named(id)
-            .filter(|k| {
-                shown
-                    .iter()
-                    .any(|m| m.key == *k && m.direction == Direction::Inbound)
-            })
-            .ok_or_else(|| {
-                Failure::Refused(format!(
-                    "--keep number {}: no message received in this conversation has that id",
-                    n + 1
-                ))
-            })?;
-        to_keep.push(item);
-    }
-    let viewed = key.clone();
-    s.will(move |m| {
-        m.conversation_viewed(&viewed, true)
-            .into_iter()
-            .map(ViewEvent::Intent)
-            .collect()
-    });
-    s.step().await;
-    // From here a message may be read and not kept, which this run alone
-    // holds (RETENTION.md): whatever fails after, what was read is printed
-    // first, or the person never sees it
-    // (`a_keep_that_fails_after_the_read_still_prints_what_was_read`).
-    let kept = keep_after_read(s, &to_keep).await;
-    print_messages(s, key, r.json, out);
-    kept
-}
-
-/// Keep `to_keep`, read in this run: a message kept already is what was
-/// asked.
-async fn keep_after_read<B: DataSessionBinding, A: AdminBinding>(
-    s: &mut Session<B, A>,
-    to_keep: &[ItemKey],
+    to_keep: &[(usize, ItemKey)],
 ) -> Result<(), Failure> {
     problems(s)?;
     let mut intents = Vec::new();
-    for (n, item) in to_keep.iter().enumerate() {
-        let actions = s.model().actions(*item);
+    for &(n, item) in to_keep {
+        let actions = s.model().actions(item);
         if let Some(keep) = actions.iter().find(|i| matches!(i, Intent::Keep { .. })) {
             intents.push(keep.clone());
         } else if !actions.iter().any(|i| matches!(i, Intent::Unkeep(_))) {

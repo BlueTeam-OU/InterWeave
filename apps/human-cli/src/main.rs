@@ -21,14 +21,13 @@ mod cards_tests;
 mod cli;
 mod identity;
 mod output;
+mod reading;
 mod session;
 mod startup;
 mod store;
 mod verbs;
 #[cfg(test)]
 mod verbs_tests;
-// Used by the tests until `messages` and `read` walk (the next commit).
-#[cfg_attr(not(test), expect(dead_code))]
 mod walk;
 #[cfg(test)]
 mod walk_tests;
@@ -299,7 +298,11 @@ fn run(
                 json,
                 until,
             };
-            verbs::run(&mut session, verb, &r, &mut out).await
+            if matches!(verb, cli::Verb::Messages(_) | cli::Verb::Read { .. }) {
+                verbs::stream(&mut session, verb, &r, &mut std::io::stdout()).await
+            } else {
+                verbs::run(&mut session, verb, &r, &mut out).await
+            }
         };
         session.close().await;
         result
