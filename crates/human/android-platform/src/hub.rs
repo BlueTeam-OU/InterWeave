@@ -11,6 +11,11 @@
 //! has not listed. With no view attached, updates are not kept: the store
 //! holds every row a view will list when it attaches, and what a person
 //! must hear while no view is open is a notice, not an update.
+//!
+//! "Listing" here names that first update, whatever it carries: since
+//! the windowed start it is `Update::Started` -- the summaries, not the
+//! rows, which the open conversation pages in -- and the hub neither
+//! reads nor shapes it.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
