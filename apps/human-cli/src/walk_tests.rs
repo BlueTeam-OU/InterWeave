@@ -610,3 +610,31 @@ async fn messages_writes_a_conversation_past_the_ceiling_and_reads_none() {
         i64::try_from(total).expect("small")
     );
 }
+
+/// architect-cto's 01a18ecf Q2: `unkeep` of a kept row older than the
+/// held-row ceiling walks the conversation's first pass until a page
+/// brings the row, unkeeps it, and marks nothing read. Mutation: the
+/// walk removed -- refused as no message held.
+#[tokio::test]
+async fn an_unkeep_of_a_row_older_than_the_held_row_ceiling_reads_nothing() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let mut seeded = rows(HELD_ROW_CAP + 100, 0);
+    seeded[0].kept = true;
+    seed(dir.path(), b.peer(), &seeded);
+    let unread = count(dir.path(), "unread_inbound");
+    assert_eq!(count(dir.path(), "kept_inbound"), 1);
+    let mut s = session(&a, dir.path(), None);
+    let mut out = String::new();
+    crate::verbs::run(
+        &mut s,
+        &crate::cli::Verb::Unkeep("k1".to_owned()),
+        &run_args(),
+        &mut out,
+    )
+    .await
+    .expect("unkept");
+    assert_eq!(out, "{\"id\":\"k1\",\"status\":\"unkept\"}\n");
+    assert_eq!(count(dir.path(), "kept_inbound"), 0, "unkept");
+    assert_eq!(count(dir.path(), "unread_inbound"), unread, "nothing read");
+}

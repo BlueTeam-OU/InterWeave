@@ -545,10 +545,12 @@ async fn row_action<B: DataSessionBinding, A: AdminBinding>(
     if matches!(verb, RowVerb::Retry) {
         ready(s, r).await?;
     }
-    let item = s
-        .model()
-        .item_named(id)
-        .ok_or_else(|| Failure::Refused("no message held has that id".to_owned()))?;
+    let held = s.model().item_named(id);
+    let held = match held {
+        None if matches!(verb, RowVerb::Unkeep) => walked_to(s, id).await?,
+        held => held,
+    };
+    let item = held.ok_or_else(|| Failure::Refused("no message held has that id".to_owned()))?;
     let offered = s.model().actions(item).into_iter().find(|i| {
         matches!(
             (verb, i),
@@ -604,6 +606,37 @@ async fn row_action<B: DataSessionBinding, A: AdminBinding>(
         let _ = writeln!(out, "{item} {done}");
     }
     Ok(())
+}
+
+/// The item named `id`, a kept row the model does not hold: each
+/// conversation walked, the first pass alone, until a page brings it,
+/// and left open so it stays held (architect-cto's 01a18ecf Q2). The
+/// first pass reads nothing
+/// (`an_unkeep_of_a_row_older_than_the_held_row_ceiling_reads_nothing`).
+///
+/// # Errors
+/// [`Failure::Store`] when a page of a conversation cannot be read.
+async fn walked_to<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    id: &str,
+) -> Result<Option<ItemKey>, Failure> {
+    let keys: Vec<ConversationKey> = s
+        .model()
+        .conversations()
+        .into_iter()
+        .map(|c| c.key)
+        .collect();
+    for key in keys {
+        let mut walk = crate::walk::Walk::open(s, &key);
+        while !walk.past_the_top() {
+            walk.advance(s).await?;
+            if let Some(item) = s.model().item_named(id) {
+                return Ok(Some(item));
+            }
+        }
+        walk.close(s);
+    }
+    Ok(None)
 }
 
 /// The conversation `item` is shown in.
