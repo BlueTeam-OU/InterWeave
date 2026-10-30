@@ -2869,6 +2869,19 @@ export component AppWindow inherits Window {
     callback list-at-top(bool);
     // true: toward older rows.
     callback list-moved(bool);
+    // The message row that holds the person's place: the focused one,
+    // else the first in view; -1 for none. When rows are added above it,
+    // or anything above it changes while the list is away from its very
+    // top, the list moves with it, so it stays where it was on screen
+    // (start-window section 5: "neither the scroll position nor focus
+    // moves"; at the very top, what is below a top-edge row moves by its
+    // change of height).
+    in property <int> anchor-handle: -1;
+    // Counts the view's renders; `follow-seq` is the render that added
+    // rows above the anchor, which the anchor follows -- their layout takes
+    // the toolkit's next frames -- until the next render.
+    in property <int> render-seq;
+    in property <int> follow-seq: -1;
     // Focus moved, by the person or the app: an edge can be reached by
     // focus (start-window section 5).
     callback focus-moved();
@@ -6168,8 +6181,37 @@ export component AppWindow inherits Window {
                     && self.y + messages-column.y + messages-flick.content-y + self.height > 0px
                     && self.y + messages-column.y + messages-flick.content-y < messages-flick.height;
                 changed in-view => { root.row-in-view(row.handle, self.in-view); }
+                // Where its message stands in the list -- its bubble, not
+                // the row: a day separator handed to rows added above it
+                // moves the bubble within the row -- and where it stood,
+                // for the anchor row to keep its place.
+                property <length> item-top: self.y + row-content.y + item.y;
+                property <length> placed-y;
+                // Where on screen it stood as rows were added above it, kept
+                // until the next render: their layout takes more than one
+                // change, the list clamps a passing offset past its top, and
+                // only an absolute target survives both.
+                property <length> follow-target;
+                property <int> follow-seq: -1;
                 init => {
                     if (self.in-view) { root.row-in-view(row.handle, true); }
+                    self.placed-y = self.item-top;
+                }
+                changed item-top => {
+                    if (root.windowed && row.handle == root.anchor-handle && !messages-flick.anchored) {
+                        if (root.follow-seq == root.render-seq && self.follow-seq != root.render-seq) {
+                            self.follow-target = self.placed-y + messages-flick.content-y;
+                            self.follow-seq = root.render-seq;
+                        }
+                        if (self.follow-seq == root.render-seq) {
+                            messages-flick.content-y = self.follow-target - self.item-top;
+                        } else if (!messages-flick.at-top) {
+                            // Something above changed while the list is away
+                            // from its very top: the view does not move.
+                            messages-flick.content-y -= self.item-top - self.placed-y;
+                        }
+                    }
+                    self.placed-y = self.item-top;
                 }
                 // Held at its content's height, read from the content rather
                 // than kept by a change handler, which runs a turn late: a

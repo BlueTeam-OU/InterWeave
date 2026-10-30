@@ -72,6 +72,7 @@ fn view() -> View {
     let mut view = View::new(RuntimeHost::Daemon).expect("a window");
     view.set_clock(|| 60_000, |_| 0);
     view.window().show().expect("shown");
+    SETTLE_WINDOW.with(|w| *w.borrow_mut() = Some(view.window().as_weak()));
     view
 }
 
@@ -226,9 +227,32 @@ fn opened(view: &mut View, from: &TransportIdentity, unread: u64) -> UiModel {
     model
 }
 
+/// A few frames' worth of the toolkit's work: the testing backend draws
+/// nothing, so each frame's layout is forced by reading where the
+/// elements stand, as a draw would, before the next frame's change
+/// handlers run.
+fn settle() {
+    for _ in 0..4 {
+        slint::platform::update_timers_and_animations();
+        if let Some(view) =
+            SETTLE_WINDOW.with(|w| w.borrow().as_ref().and_then(slint::Weak::upgrade))
+        {
+            for element in i_slint_backend_testing::ElementQuery::from_root(&view).find_all() {
+                let _ = element.absolute_position();
+            }
+        }
+    }
+}
+
+thread_local! {
+    /// The window [`settle`] lays out.
+    static SETTLE_WINDOW: std::cell::RefCell<Option<slint::Weak<interweave_human_ui_slint::AppWindow>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// The root's part: the view's window reports applied, then drawn.
 fn apply(view: &mut View, model: &mut UiModel) {
-    slint::platform::update_timers_and_animations();
+    settle();
     for event in view.take_window_events() {
         model.window_event(event);
     }
@@ -498,9 +522,7 @@ fn tall(view: &mut View) -> (TransportIdentity, UiModel) {
     page(&mut model, &from, 41..=100);
     view.render(&model);
     apply(view, &mut model);
-    for _ in 0..40 {
-        scroll(view, -200.0);
-    }
+    scroll(view, -10_000.0);
     apply(view, &mut model);
     (from, model)
 }
@@ -533,8 +555,8 @@ fn scrolling_the_top_into_view_reaches_it_once_and_away_leaves_it() {
         }) => -1,
         _ => 0,
     };
-    for _ in 0..40 {
-        scroll(&view, 200.0);
+    for _ in 0..20 {
+        scroll(&view, 400.0);
     }
     let events = view.take_window_events();
     assert_eq!(
@@ -558,9 +580,7 @@ fn scrolling_the_top_into_view_reaches_it_once_and_away_leaves_it() {
     );
     let again = view.take_window_events();
     assert!(again.is_empty(), "nothing again, the top once: {again:?}");
-    for _ in 0..40 {
-        scroll(&view, -200.0);
-    }
+    scroll(&view, -10_000.0);
     let events = view.take_window_events();
     assert!(events.iter().any(|e| top(e) == -1), "left: {events:?}");
     let _ = from;
@@ -596,4 +616,75 @@ fn shift_tab_onto_the_line_reaches_the_top() {
         }
     }
     assert!(reached, "focus on the line reaches the top");
+}
+
+/// The body of the first message row in view: the list makes only the
+/// rows in its view.
+fn first_in_view(view: &View) -> String {
+    all(view)
+        .into_iter()
+        .filter_map(|e| e.accessible_label())
+        .find_map(|l| {
+            l.split(": ")
+                .nth(1)
+                .filter(|b| b.starts_with("message "))
+                .map(|b| b.split('.').next().unwrap_or(b).to_owned())
+        })
+        .expect("a message in view")
+}
+
+/// Where the message whose label holds `text` stands on screen.
+fn y_of(view: &View, text: &str) -> f32 {
+    all(view)
+        .into_iter()
+        .find(|e| e.accessible_label().is_some_and(|l| l.contains(text)))
+        .map(|e| e.absolute_position().y)
+        .expect("drawn")
+}
+
+/// A page of older rows arriving above the person's place leaves the row
+/// they were looking at where it was on screen (section 5, "neither the
+/// scroll position nor focus moves"). Mutation: the place not kept --
+/// the row pushed down by the page's height.
+#[test]
+fn a_page_arriving_above_leaves_the_row_in_view_where_it_was() {
+    let mut view = view();
+    let (from, mut model) = tall(&mut view);
+    scroll(&view, 10_000.0);
+    apply(&mut view, &mut model);
+    let row = first_in_view(&view);
+    assert_eq!(row, "message 41", "control: at the top");
+    let before = y_of(&view, &row);
+    page(&mut model, &from, 1..=40);
+    view.render(&model);
+    apply(&mut view, &mut model);
+    settle();
+    let after = y_of(&view, &row);
+    assert!(
+        (after - before).abs() <= 1.0,
+        "the row stays: {before} then {after}"
+    );
+}
+
+/// A message arriving at the end while the person is up in the history
+/// behaves as today: nothing in view moves (section 5). The control for
+/// the place kept above: keeping the list's bottom instead would push the
+/// rows in view up by the new message's height.
+#[test]
+fn a_message_arriving_at_the_end_up_in_the_history_moves_nothing() {
+    let mut view = view();
+    let (from, mut model) = tall(&mut view);
+    scroll(&view, 1_600.0);
+    apply(&mut view, &mut model);
+    let row = first_in_view(&view);
+    let before = y_of(&view, &row);
+    model.received(received(101, &from, "message 101"));
+    view.render(&model);
+    apply(&mut view, &mut model);
+    settle();
+    let after = y_of(&view, &row);
+    assert!(
+        (after - before).abs() <= 1.0,
+        "nothing moves: {before} then {after}"
+    );
 }

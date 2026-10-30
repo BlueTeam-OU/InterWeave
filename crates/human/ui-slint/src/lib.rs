@@ -751,6 +751,11 @@ impl<K: Ord + Clone> Handles<K> {
         }
     }
 
+    /// The handle `key` has, if it was given one.
+    fn handle_of(&self, key: &K) -> Option<i32> {
+        self.by_key.get(key).copied()
+    }
+
     fn of(&mut self, key: &K) -> i32 {
         if let Some(handle) = self.by_key.get(key) {
             return *handle;
@@ -2423,19 +2428,7 @@ impl View {
             }
         }
         self.place_cards(model, &keys, &mut rows, &items, &leaving, channel);
-        let marks = self.visible_marks(model);
-        for (row, key) in rows.iter_mut().zip(&keys) {
-            let above = marks
-                .iter()
-                .filter(|m| {
-                    m.place
-                        == interweave_human_ui_model::MarkPlace::Above(
-                            interweave_human_ui_model::Anchor::Item(*key),
-                        )
-                })
-                .count();
-            row.marks_above = i32::try_from(above).unwrap_or(i32::MAX);
-        }
+        self.mark_rows(model, &keys, &mut rows);
         if !self.leaving_messages.is_empty() {
             self.wake_after(LEAVING);
         }
@@ -2456,7 +2449,7 @@ impl View {
             shared.swipes.retain(|k, _| !k.starts_with("m:"));
             shared.swipes.extend(swipes);
         }
-        update_by_key(&*self.messages, &mut self.message_keys, &keys, &rows);
+        self.set_messages_keeping_place(&keys, &rows);
         let drawn = &self.message_keys;
         self.pressed.retain(|key| drawn.contains(key));
     }

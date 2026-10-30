@@ -28,7 +28,7 @@ use interweave_human_ui_model::{
 };
 use slint::{Model as _, ModelRc, VecModel};
 
-use crate::generated::{MarkKindRow, MarkRow};
+use crate::generated::{MarkKindRow, MarkRow, MessageRow};
 use crate::{AppWindow, INPUT_CAP, ItemKey, Page, Shared, View};
 
 /// How long a page is on its way before its progress row shows (section
@@ -184,7 +184,7 @@ impl View {
     /// row held back until its page has taken [`LOADING_SHOWN_AFTER`] --
     /// the root woken then -- and each message's count of the marks above
     /// it. Before the rows are set, so each row says it has marks.
-    pub(crate) fn visible_marks(&mut self, model: &UiModel) -> Vec<WindowMark> {
+    fn visible_marks(&mut self, model: &UiModel) -> Vec<WindowMark> {
         let marks = self
             .shown
             .as_ref()
@@ -521,6 +521,82 @@ impl View {
         }));
         self.marks.reached = now;
         events
+    }
+
+    /// Each message row's count of the window marks standing above it, so
+    /// it draws them; before the rows are set.
+    pub(crate) fn mark_rows(&mut self, model: &UiModel, keys: &[ItemKey], rows: &mut [MessageRow]) {
+        let marks = self.visible_marks(model);
+        for (row, key) in rows.iter_mut().zip(keys) {
+            let above = marks
+                .iter()
+                .filter(|m| m.place == MarkPlace::Above(Anchor::Item(*key)))
+                .count();
+            row.marks_above = i32::try_from(above).unwrap_or(i32::MAX);
+        }
+    }
+
+    /// The message rows set, the person's place kept: the anchor row named,
+    /// and a render that adds rows above it told to the list, which keeps
+    /// that row where it stands on screen while they are laid out.
+    pub(crate) fn set_messages_keeping_place(&mut self, keys: &[ItemKey], rows: &[MessageRow]) {
+        let anchor = self.place_anchor();
+        let follow = self.rows_added_above(anchor, keys);
+        crate::update_by_key(&*self.messages, &mut self.message_keys, keys, rows);
+        if self.window.get_anchor_handle() != anchor {
+            self.window.set_anchor_handle(anchor);
+        }
+        let seq = self.window.get_render_seq().wrapping_add(1);
+        self.window.set_render_seq(seq);
+        if follow {
+            self.window.set_follow_seq(seq);
+        }
+    }
+
+    /// The handle of the message row that holds the person's place, of
+    /// those drawn before this render: the focused one, else the first in
+    /// view; -1 for none, and in the listed mode. The list keeps that row
+    /// where it is on screen as rows are added above it.
+    fn place_anchor(&self) -> i32 {
+        if !self.marks.windowed {
+            return -1;
+        }
+        let before = &self.message_keys;
+        let focus_id = self.window.get_focus_id();
+        let in_view = self.shared.borrow().window_view.in_view.clone();
+        let anchor = focus_id
+            .strip_prefix("item:")
+            .and_then(|h| h.parse::<i32>().ok())
+            .and_then(|h| self.item_handles.key_of(h).copied())
+            .filter(|k| before.contains(k))
+            .or_else(|| {
+                before.iter().copied().find(|k| {
+                    self.item_handles
+                        .handle_of(k)
+                        .is_some_and(|h| in_view.contains(&h))
+                })
+            });
+        anchor
+            .and_then(|k| self.item_handles.handle_of(&k))
+            .unwrap_or(-1)
+    }
+
+    /// Whether the rows about to be drawn, `keys`, add rows above the
+    /// anchor row and none after the last row drawn: a page of older rows,
+    /// or a gap's rows above the person's place. A message arriving at the
+    /// end is not, and behaves as today (section 5).
+    fn rows_added_above(&self, anchor: i32, keys: &[ItemKey]) -> bool {
+        let Some(anchor) = self.item_handles.key_of(anchor) else {
+            return false;
+        };
+        let before = &self.message_keys;
+        match (
+            before.iter().position(|k| k == anchor),
+            keys.iter().position(|k| k == anchor),
+        ) {
+            (Some(was), Some(now)) => now > was && before.last() == keys.last(),
+            _ => false,
+        }
     }
 
     /// The handle of a message drawn now, `None` for one that is not.
