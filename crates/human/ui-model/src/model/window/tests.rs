@@ -1233,13 +1233,48 @@ fn a_gaps_marks_follow_section_8s_reading_order() {
         kinds,
         [
             MarkKind::AtLimit(Edge::GapUpper(id)),
-            MarkKind::AtLimit(Edge::GapLower(id)),
             MarkKind::EarlierUnread {
                 edge: Edge::GapLower(id),
                 count: 4
             },
         ]
     );
+}
+
+/// At the session bound a gap shows one limit row, on the side that would
+/// have fetched -- the one reached first -- never one on each side; once
+/// its Show more messages brings that side's page, the other side, still
+/// where the person is, is asked in turn (design section 5.1, section 10
+/// item 14 (c)). Mutation: the other side marked at the limit too.
+#[test]
+fn a_gap_at_the_bound_shows_one_limit_row() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Unread);
+    reach_both(&mut model, id);
+    let limits: Vec<Edge> = model
+        .window_marks(&conversation())
+        .into_iter()
+        .filter_map(|m| match m.kind {
+            MarkKind::AtLimit(edge) => Some(edge),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        limits,
+        [Edge::GapUpper(id)],
+        "one, on the side reached first"
+    );
+    model.window_input(WindowInput::ShowAnyway {
+        conversation: conversation(),
+        edge: Edge::GapUpper(id),
+    });
+    let upper = one_ask(&mut model);
+    model.page_arrived(page(&upper, &[n - 4, n - 3], PageEnd::More));
+    let lower = one_ask(&mut model);
+    assert_eq!(lower.edge, Edge::GapLower(id), "the other side in turn");
 }
 
 fn reach_both(model: &mut UiModel, id: u64) {

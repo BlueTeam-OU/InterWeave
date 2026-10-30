@@ -863,8 +863,28 @@ impl UiModel {
         };
         let room = self.page_room(&conversation);
         if room == 0 && beyond > 0 {
+            // One limit row, on the side that fetched (design section 5.1,
+            // section 10 item 14 (c)): a gap's side reached at the bound
+            // while its other side already shows the limit row stays
+            // armed, and is asked once that side's Show more messages
+            // brings its page (`a_gap_at_the_bound_shows_one_limit_row`).
+            let other_at_limit = match edge {
+                Edge::GapUpper(id) | Edge::GapLower(id) => window.gaps.get(&id).is_some_and(|g| {
+                    let other = if edge == Edge::GapUpper(id) {
+                        g.lower
+                    } else {
+                        g.upper
+                    };
+                    other.state == EdgeState::AtLimit
+                }),
+                Edge::Top => false,
+            };
             if let Some(side) = self.windows.open.as_mut().and_then(|w| w.side(edge)) {
-                side.state = EdgeState::AtLimit;
+                side.state = if other_at_limit {
+                    EdgeState::Armed
+                } else {
+                    EdgeState::AtLimit
+                };
             }
             return;
         }
