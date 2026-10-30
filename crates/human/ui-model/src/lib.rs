@@ -51,7 +51,7 @@ pub use model::directory::{ContactsState, DirectoryContact, PHOTO_CAP, PhotoAsk,
 pub use model::summaries::{NewestRow, StoredSummary};
 pub use model::window::{
     Anchor, Edge, HELD_ROW_CAP, MarkKind, MarkPlace, PageAsk, PageEnd, PageMark, PageOrder,
-    PageRows, WindowInput, WindowMark,
+    PageRows, WindowEvent, WindowInput, WindowMark,
 };
 pub use model::{
     Announce, Composer, Confirmation, ContactChange, ConversationKey, ConversationSummary,

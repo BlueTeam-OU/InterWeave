@@ -186,6 +186,21 @@ pub enum WindowInput {
     },
 }
 
+/// What a view reports of the windowed mode, beside its intents: the open
+/// conversation's window, the avatars it shows, and the Contacts list's
+/// Try again. A view queues these and the root applies them each turn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WindowEvent {
+    /// The open conversation's window.
+    Input(WindowInput),
+    /// A contact's avatar came into view.
+    PhotoShown(String),
+    /// A contact's avatar left the view.
+    PhotoHidden(String),
+    /// The Contacts list's Try again.
+    ContactsTryAgain,
+}
+
 /// Something the open conversation draws, in the order a view draws it:
 /// a message item, or a card proposal's row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -576,6 +591,41 @@ impl UiModel {
                 }
             }
         }
+    }
+
+    /// What a view reported, applied; true when what a view draws changed
+    /// -- the open conversation, its marks, the Contacts list's state --
+    /// so the root draws again although the facade was asked nothing. The
+    /// person's place and an avatar coming or going change nothing drawn,
+    /// so the reports a scroll sends draw nothing
+    /// (`a_window_event_says_whether_anything_drawn_changed`).
+    pub fn window_event(&mut self, event: WindowEvent) -> bool {
+        let before = self.window_drawn();
+        match event {
+            WindowEvent::Input(input) => self.window_input(input),
+            WindowEvent::PhotoShown(id) => self.photo_shown(&id),
+            WindowEvent::PhotoHidden(id) => self.photo_hidden(&id),
+            WindowEvent::ContactsTryAgain => {
+                self.contacts_try_again();
+            }
+        }
+        self.window_drawn() != before
+    }
+
+    /// What a view draws of the windowed mode, for [`Self::window_event`].
+    fn window_drawn(
+        &self,
+    ) -> (
+        Option<ConversationKey>,
+        Vec<WindowMark>,
+        super::directory::ContactsState,
+    ) {
+        let open = self.windows.open_conversation().cloned();
+        let marks = open
+            .as_ref()
+            .map(|c| self.window_marks(c))
+            .unwrap_or_default();
+        (open, marks, self.contacts_state())
     }
 
     /// The pages asked since the last call, for the facade to read.

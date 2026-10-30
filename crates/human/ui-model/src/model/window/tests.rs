@@ -9,7 +9,8 @@ use interweave_human_core::RowId;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
 use super::{
-    Anchor, Edge, MarkKind, MarkPlace, PageAsk, PageEnd, PageOrder, PageRows, WindowInput,
+    Anchor, Edge, MarkKind, MarkPlace, PageAsk, PageEnd, PageOrder, PageRows, WindowEvent,
+    WindowInput,
 };
 use crate::model::SESSION_ITEM_CAP;
 use crate::model::summaries::{NewestRow, StoredSummary};
@@ -1167,5 +1168,41 @@ fn a_held_proposal_between_released_rows_splits_them_into_two_gaps() {
             MarkPlace::Above(Anchor::Item(kept(n))),
         ],
         "one gap above the proposal, one below it"
+    );
+}
+
+/// A report that changes what a view draws says so, so the root draws
+/// again with nothing asked of the facade -- reaching the top at the
+/// session bound shows the limit row and asks nothing -- and the person's
+/// place, which a scroll reports on every move, says nothing changed.
+/// Mutations: always false (the limit row never drawn); always true (a
+/// scroll redrawing on every report).
+#[test]
+fn a_window_event_says_whether_anything_drawn_changed() {
+    let cap = i64::try_from(SESSION_ITEM_CAP).expect("small");
+    let mut model = opened_near_the_bound(
+        SESSION_ITEM_CAP as u64 + 10,
+        &(1..=cap).collect::<Vec<_>>(),
+        0,
+    );
+    assert!(!model.window_event(WindowEvent::Input(WindowInput::Place {
+        conversation: conversation(),
+        focused: None,
+        in_view: Vec::new(),
+    })));
+    assert!(!model.window_event(WindowEvent::PhotoShown("a".to_owned())));
+    assert!(model.window_event(WindowEvent::Input(WindowInput::Reached {
+        conversation: conversation(),
+        edge: Edge::Top,
+    })));
+    assert!(
+        model.take_page_asks().is_empty(),
+        "the limit row asks nothing"
+    );
+    assert!(
+        model
+            .window_marks(&conversation())
+            .iter()
+            .any(|m| m.kind == MarkKind::AtLimit(Edge::Top))
     );
 }
