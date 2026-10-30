@@ -22,7 +22,9 @@ use interweave_human_ui_slint::{
 use crate::jni::{PROFILE, log};
 
 /// The view, shared by every model side the Activity makes: one per
-/// attach, since a service that starts again lists its store from new.
+/// attach and one per change of the service's running state
+/// (android-platform's `ViewSide`), since a service that starts again
+/// starts its store from new.
 /// The flag: a fresh model reads it, and has not yet been told what the
 /// view reported to the last one.
 struct AndroidSurface(Rc<RefCell<View>>, bool);
