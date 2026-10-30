@@ -802,10 +802,11 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     otherwise shows only before a conversation is opened): page up to
     the limit row and press `EarlierShowAnyway`, open the page in A's
     place, and come back to A; paging up to the bound shows the limit
-    row again each time. Then, for A's Details and for a contact page
-    reached from one of A's proposals in turn: press
-    `EarlierShowAnyway` at the limit row, open the page, and come back
-    to A with Back; the next page past the bound loads without asking.
+    row again each time. Then press `EarlierShowAnyway` at the limit
+    row once, open A's Details and come back to A with Back, then open
+    a contact page reached from one of A's proposals and come back to
+    A with Back; after each, the next page past the bound loads
+    without asking.
 13. **An undecodable unread row**: add one to A's store, as its oldest
     row. It is not counted on the line or on A's badge; the line goes
     once every other unread row is loaded, and once the store holds
