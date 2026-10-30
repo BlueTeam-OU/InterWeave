@@ -146,6 +146,36 @@ impl<B: DataSessionBinding, A: AdminBinding> Session<B, A> {
         })
     }
 
+    /// TEST BUILDS ONLY, until the command line starts windowed: a root
+    /// over `facade` started as the desktop starts, from the store's
+    /// summaries, a conversation's rows read only when it is opened.
+    ///
+    /// # Errors
+    /// [`Failure::Store`] when the store cannot be read.
+    #[cfg(test)]
+    pub(crate) fn started(
+        mut facade: FacadeSide<B, A>,
+        daemon: impl FnMut() -> Option<bool> + 'static,
+    ) -> Result<Self, Failure> {
+        let start = facade
+            .start()
+            .map_err(|e| Failure::Store(format!("the message store could not be read: {e}")))?;
+        let mut model = ModelSide::new(Script::default(), NoOpener);
+        model.apply(Update::Started(Box::new(start)));
+        for update in facade.outbound_now() {
+            model.apply(update);
+        }
+        Ok(Self {
+            facade,
+            model,
+            state: None,
+            start: Instant::now(),
+            daemon: Box::new(daemon),
+            probed: None,
+            updates: Vec::new(),
+        })
+    }
+
     fn now(&self) -> u64 {
         u64::try_from(self.start.elapsed().as_millis()).unwrap_or(u64::MAX)
     }

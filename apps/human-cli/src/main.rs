@@ -27,6 +27,11 @@ mod store;
 mod verbs;
 #[cfg(test)]
 mod verbs_tests;
+// Used by the tests until `messages` and `read` walk (the next commit).
+#[cfg_attr(not(test), expect(dead_code))]
+mod walk;
+#[cfg(test)]
+mod walk_tests;
 
 use std::io::{Read as _, Write as _};
 use std::process::ExitCode;
