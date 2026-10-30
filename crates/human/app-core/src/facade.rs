@@ -343,6 +343,17 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         true
     }
 
+    /// Whether the hooks refuse a read or a decline of `row`; never, in a
+    /// build without them.
+    #[allow(clippy::unused_self)]
+    fn refuses(&self, #[allow(unused_variables)] row: RowId) -> bool {
+        #[cfg(feature = "test-hooks")]
+        if let Some(faults) = &self.faults {
+            return faults.refuses(row);
+        }
+        false
+    }
+
     /// The identity's own key, which signs the card Share sends. Its
     /// endpoint must be the one the facade leases.
     pub fn set_identity_key(&mut self, key: IdentityKey) {
@@ -787,6 +798,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Command::Send { key, draft } => {
                 updates.push(self.send(key, draft, now).await);
                 Ok(())
+            }
+            Command::MarkRead(row) | Command::DeclineCard(row) if self.refuses(*row) => {
+                Err(Failure::StorageUnavailable)
             }
             Command::MarkRead(row) => {
                 let at = (self.wall)();
