@@ -605,7 +605,8 @@ pub(crate) struct CardScreens {
     contacts_state: Option<ContactsState>,
     reading_since: Option<std::time::Instant>,
     /// Each photo drawn, by its contact and photo time: the same image
-    /// each render, so a row is set again only when its photo changed.
+    /// each render, so a row whose photo did not change is not set again
+    /// (`a_contact_rows_photo_replaces_its_initials_in_place_when_it_arrives`).
     photo_images: HashMap<(String, Option<u64>), Image>,
     /// A contact chosen whose page waits for its photo (start-window
     /// section 11: a contact page opens with its photo).
@@ -1014,8 +1015,8 @@ impl View {
 
     /// The contacts whose avatars the card pages show now: the Contacts
     /// rows in view while the list is drawn, the contact whose page is
-    /// open or waited for. Whatever a page no longer draws is in none of
-    /// them, however its rows went (#512 review F3).
+    /// open or waited for. What a page no longer draws is not among them,
+    /// however its rows went (`leaving_contacts_hides_the_avatars_it_showed`).
     pub(crate) fn avatars_shown(&self) -> HashSet<String> {
         let shared = self.shared.borrow();
         let mut shown = HashSet::new();
@@ -1036,10 +1037,10 @@ impl View {
         shown
     }
 
-    /// Show contact `id`'s page, focus on its back arrow.
     /// Open a contact's page with its photo: one not read yet is asked,
-    /// and the page waits for it, with no loading state, so it never shows
-    /// initials for a photo that can be read (start-window section 11).
+    /// and the page waits for it, with no loading state, so it opens on the
+    /// photo when the photo can be read (start-window section 11;
+    /// `a_contact_page_waits_for_its_photo_and_an_unreadable_one_keeps_remove_photo`).
     fn open_contact_with_photo(&mut self, model: &UiModel, window: &AppWindow, id: String) {
         if model.contact_photo(&id) == PhotoState::Initials {
             self.cards.contact_waiting = Some(id);
@@ -1049,6 +1050,7 @@ impl View {
         }
     }
 
+    /// Show contact `id`'s page, focus on its back arrow.
     fn open_contact(&mut self, window: &AppWindow, id: String) {
         self.cards.page = Some(CardsPage::Contact);
         self.cards.contact = Some(id);

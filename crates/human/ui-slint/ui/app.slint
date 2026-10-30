@@ -729,8 +729,8 @@ component FocusHeading inherits FocusScope {
 // A line the windowed mode draws among rows (design/2026-10-27-start-
 // window.md section 8): EarlierUnread, ReadNotShown, RowsNotShown. Styled
 // as the day separator, centred in body small; text a person moves focus
-// to and a screen reader reads as one item, never announced. It wraps at
-// any text size, never cut.
+// to and a screen reader reads as one item, with no announcement of its
+// own. It wraps at any text size.
 component MarkLine inherits FocusScope {
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
@@ -749,7 +749,7 @@ component MarkLine inherits FocusScope {
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
-    // The layout is the only child counted for the line's size; a wrapped
+    // The layout is what sizes the line; a wrapped
     // text under it measures a line short unless it says its own height.
     VerticalLayout {
         padding-top: 4px;
@@ -5391,8 +5391,7 @@ export component AppWindow inherits Window {
                         spacing: 4px;
                         for row in root.contact-rows: OpenRow {
                             // Any part of it in view: its photo is read then
-                            // (start-window section 11), and one in view is
-                            // never the one let go. Said on each change, and
+                            // (start-window section 11). Said on each change, and
                             // at its creation when in view.
                             property <bool> in-view: root.windowed
                                 && self.y + contacts-list.y + cards-column.y + cards-flick.content-y + self.height > 0px
@@ -6247,7 +6246,8 @@ export component AppWindow inherits Window {
                 min-height: row.leaving ? 0px : row-content.min-height;
                 property <bool> collapsing: false;
                 // Any part of it in the list's view (start-window section
-                // 5.1: never let go while in view; an edge reached by
+                // 5.1: kept while in view,
+                // `the_focused_the_in_view_and_the_newest_are_never_let_go`; an edge reached by
                 // scrolling). Said on each change, and at its creation when
                 // in view, since a change handler does not see a first value.
                 property <bool> in-view: root.windowed && !row.leaving
@@ -6263,7 +6263,8 @@ export component AppWindow inherits Window {
                 // Where on screen it stood as rows were added above it, kept
                 // until the next render: their layout takes more than one
                 // change, the list clamps a passing offset past its top, and
-                // only an absolute target survives both.
+                // an absolute target survives both
+                // (`a_page_arriving_above_leaves_the_row_in_view_where_it_was`).
                 property <length> follow-target;
                 property <int> follow-seq: -1;
                 init => {

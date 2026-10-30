@@ -13,7 +13,7 @@
 //! The view also reports what the person reaches: the conversation opened
 //! and closed as it is shown and no longer shown (section 7.1's U5 rule),
 //! the person's place -- the focused item and the items in view, which
-//! the held-row ceiling never lets go -- and each edge reached or left by
+//! the held-row ceiling keeps -- and each edge reached or left by
 //! scrolling it into view or by moving focus onto it. Focus the app places
 //! reaches nothing. In the listed mode nothing is reported.
 
