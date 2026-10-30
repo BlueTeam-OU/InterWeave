@@ -1302,72 +1302,79 @@ impl UiModel {
             .proposals
             .values()
             .filter(|p| &p.peer == peer && &p.endpoint == at)
-            .map(|p| {
-                let c = &p.context;
-                // Each kind of note in the contacts' one order, so the
-                // contact a note names first is the list's first; the
-                // context itself stays as the store read it, since Accept
-                // carries it back to be compared.
-                let ordered = |refs: &[ContactRef]| {
-                    let mut refs = refs.to_vec();
-                    crate::order::sort_refs(&mut refs, &self.cards.contacts);
-                    refs
-                };
-                // One contact named, the first in the Contacts list's order,
-                // whichever the store gave first (design/2026-10-27-start-
-                // window.md section 11, contact-cards 5.4.1): case P names
-                // the first and counts the others.
-                let mut notes = Vec::new();
-                notes.extend(
-                    ordered(&c.same_name)
-                        .into_iter()
-                        .take(1)
-                        .map(ProposalNote::SameName),
-                );
-                let shares = ordered(&c.shares_node);
-                let shares_node_others = shares.len().saturating_sub(1);
-                notes.extend(
-                    shares
-                        .into_iter()
-                        .take(1)
-                        .map(|r| ProposalNote::SharesNode(r.name)),
-                );
-                notes.extend(
-                    ordered(&c.key_matches)
-                        .into_iter()
-                        .map(|r| ProposalNote::KeyMatches(r.name)),
-                );
-                let contacts_unread = self.directory.state != super::directory::ContactsState::Read;
-                if contacts_unread {
-                    notes.clear();
-                }
-                ProposalItem {
-                    contacts_unread,
-                    shares_node_others: if contacts_unread {
-                        0
-                    } else {
-                        shares_node_others
-                    },
-                    row: p.row,
-                    peer: p.peer.clone(),
-                    route: RouteLabel::from(&p.endpoint),
-                    name: card_name(&p.card),
-                    has_photo: p.card.photo.is_some(),
-                    fingerprint: c.fingerprint.clone(),
-                    key: c.key.clone(),
-                    accept: match &c.updates {
-                        None => AcceptLine::Creates,
-                        Some(u) if c.changes_nothing => AcceptLine::Matches(u.name.clone()),
-                        Some(u) => AcceptLine::Updates(u.name.clone()),
-                    },
-                    notes,
-                    values: c.values.clone(),
-                    received_at: p.received_at,
-                }
-            })
+            .map(|p| self.proposal_item(p))
             .collect();
         list.sort_by_key(|p| (p.received_at, p.row));
         list
+    }
+
+    /// The item proposal `p` shows as, whether or not a conversation holds
+    /// it: what [`Self::proposals`] lists for it once held. A view that
+    /// prints a card's arrival for a conversation not open reads it here
+    /// (`a_received_cards_item_is_the_one_its_held_proposal_shows`).
+    #[must_use]
+    pub fn proposal_item(&self, p: &Proposal) -> ProposalItem {
+        let c = &p.context;
+        // Each kind of note in the contacts' one order, so the
+        // contact a note names first is the list's first; the
+        // context itself stays as the store read it, since Accept
+        // carries it back to be compared.
+        let ordered = |refs: &[ContactRef]| {
+            let mut refs = refs.to_vec();
+            crate::order::sort_refs(&mut refs, &self.cards.contacts);
+            refs
+        };
+        // One contact named, the first in the Contacts list's order,
+        // whichever the store gave first (design/2026-10-27-start-
+        // window.md section 11, contact-cards 5.4.1): case P names
+        // the first and counts the others.
+        let mut notes = Vec::new();
+        notes.extend(
+            ordered(&c.same_name)
+                .into_iter()
+                .take(1)
+                .map(ProposalNote::SameName),
+        );
+        let shares = ordered(&c.shares_node);
+        let shares_node_others = shares.len().saturating_sub(1);
+        notes.extend(
+            shares
+                .into_iter()
+                .take(1)
+                .map(|r| ProposalNote::SharesNode(r.name)),
+        );
+        notes.extend(
+            ordered(&c.key_matches)
+                .into_iter()
+                .map(|r| ProposalNote::KeyMatches(r.name)),
+        );
+        let contacts_unread = self.directory.state != super::directory::ContactsState::Read;
+        if contacts_unread {
+            notes.clear();
+        }
+        ProposalItem {
+            contacts_unread,
+            shares_node_others: if contacts_unread {
+                0
+            } else {
+                shares_node_others
+            },
+            row: p.row,
+            peer: p.peer.clone(),
+            route: RouteLabel::from(&p.endpoint),
+            name: card_name(&p.card),
+            has_photo: p.card.photo.is_some(),
+            fingerprint: c.fingerprint.clone(),
+            key: c.key.clone(),
+            accept: match &c.updates {
+                None => AcceptLine::Creates,
+                Some(u) if c.changes_nothing => AcceptLine::Matches(u.name.clone()),
+                Some(u) => AcceptLine::Updates(u.name.clone()),
+            },
+            notes,
+            values: c.values.clone(),
+            received_at: p.received_at,
+        }
     }
 
     /// The direct conversations holding a proposal: a way to reach one

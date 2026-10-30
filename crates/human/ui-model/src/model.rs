@@ -1357,25 +1357,30 @@ impl UiModel {
             .items
             .iter()
             .filter(|(_, i)| &i.conversation == key && !i.hidden)
-            .map(|(k, i)| MessageItem {
-                key: *k,
-                direction: i.direction,
-                status: i.status(),
-                label: i.label(),
-                kept: i.has(Table::Kept),
-                body: i.body.clone(),
-                source: i.envelope.text.clone(),
-                author: i.author.clone(),
-                route_label: i.route_label.clone(),
-                reply: self.reply(&i.conversation, i.envelope.reply_to.as_deref()),
-                sent_at_ms: i.envelope.sent_at_ms,
-                local_at: i.local_at,
-                card: i.card.clone(),
-                arrived: i.arrived,
-            })
+            .map(|(k, i)| self.message_item(*k, i))
             .collect();
         list.sort_by(|a, b| a.local_at.cmp(&b.local_at).then_with(|| a.key.cmp(&b.key)));
         list
+    }
+
+    /// The item `item` shows as, under `key`.
+    fn message_item(&self, key: ItemKey, item: &Item) -> MessageItem {
+        MessageItem {
+            key,
+            direction: item.direction,
+            status: item.status(),
+            label: item.label(),
+            kept: item.has(Table::Kept),
+            body: item.body.clone(),
+            source: item.envelope.text.clone(),
+            author: item.author.clone(),
+            route_label: item.route_label.clone(),
+            reply: self.reply(&item.conversation, item.envelope.reply_to.as_deref()),
+            sent_at_ms: item.envelope.sent_at_ms,
+            local_at: item.local_at,
+            card: item.card.clone(),
+            arrived: item.arrived,
+        }
     }
 
     /// The intents legal on `key` now (agreed item 3e). Never `MarkRead`:
@@ -1773,23 +1778,7 @@ impl UiModel {
         if self.by_row.contains_key(&(table, row)) || self.released.contains(&(table, row)) {
             return;
         }
-        let (conversation, author, route_label, origin_key) = match origin {
-            Origin::Direct { peer, endpoint } => (
-                ConversationKey::Direct {
-                    peer: peer.clone(),
-                    endpoint: Some(endpoint.clone()),
-                },
-                peer.clone(),
-                Some(RouteLabel::from(endpoint)),
-                format!("direct:{}:{}", peer.as_str(), endpoint.as_str()),
-            ),
-            Origin::Channel { channel, publisher } => (
-                ConversationKey::Channel(channel.clone()),
-                publisher.clone(),
-                None,
-                format!("channel:{}:{}", channel.as_str(), publisher.as_str()),
-            ),
-        };
+        let (conversation, author, route_label, origin_key) = inbound_origin(origin);
         // A second copy of one message is one item -- but a store row is
         // never hidden: the copy's row is ATTACHED to the item, so it is
         // counted, read when viewed, and unkept, like the first (agreed
@@ -1822,25 +1811,38 @@ impl UiModel {
         let conversation_key = conversation.clone();
         self.items.insert(
             key,
-            Item {
+            inbound_item(
                 conversation,
-                direction: Direction::Inbound,
-                rows: vec![(table, row)],
-                body: render(&envelope.text),
-                envelope,
-                author: Some(author),
+                author,
                 route_label,
-                outbound: None,
-                last_code: None,
-                local_at: at,
-                released_from: None,
-                last_pending: None,
-                hidden: false,
-                card: None,
+                envelope,
+                (table, row),
+                at,
                 arrived,
-            },
+            ),
         );
         self.arrived_in(&conversation_key);
+    }
+
+    /// The item a message the drain handed over is, whether or not its
+    /// conversation holds it: what [`Self::messages`] shows for the row
+    /// once held, built from the row itself. A view that prints arrivals
+    /// for conversations not open reads it here, since a closed
+    /// conversation holds none of its rows in the windowed mode
+    /// (`a_received_messages_item_is_the_one_its_held_row_shows`).
+    #[must_use]
+    pub fn message_of(&self, received: &interweave_human_client_api::Received) -> MessageItem {
+        let (conversation, author, route_label, _) = inbound_origin(&received.origin);
+        let item = inbound_item(
+            conversation,
+            author,
+            route_label,
+            received.envelope.clone(),
+            (Table::Unread, received.row),
+            received.received_at,
+            true,
+        );
+        self.message_item(ItemKey(Table::Unread, received.row), &item)
     }
 
     fn outbound(
@@ -2075,6 +2077,63 @@ impl UiModel {
 /// The conversation a received row belongs to, as [`UiModel::received`]'s
 /// item takes it: a direct route by its peer and endpoint, a channel by its
 /// id whoever published.
+/// An inbound row's conversation, author, route label and copy key.
+fn inbound_origin(
+    origin: &Origin,
+) -> (
+    ConversationKey,
+    TransportIdentity,
+    Option<RouteLabel>,
+    String,
+) {
+    match origin {
+        Origin::Direct { peer, endpoint } => (
+            ConversationKey::Direct {
+                peer: peer.clone(),
+                endpoint: Some(endpoint.clone()),
+            },
+            peer.clone(),
+            Some(RouteLabel::from(endpoint)),
+            format!("direct:{}:{}", peer.as_str(), endpoint.as_str()),
+        ),
+        Origin::Channel { channel, publisher } => (
+            ConversationKey::Channel(channel.clone()),
+            publisher.clone(),
+            None,
+            format!("channel:{}:{}", channel.as_str(), publisher.as_str()),
+        ),
+    }
+}
+
+/// A received row's item, at `row`.
+fn inbound_item(
+    conversation: ConversationKey,
+    author: TransportIdentity,
+    route_label: Option<RouteLabel>,
+    envelope: HumanChatV2,
+    row: (Table, RowId),
+    at: u64,
+    arrived: bool,
+) -> Item {
+    Item {
+        conversation,
+        direction: Direction::Inbound,
+        rows: vec![row],
+        body: render(&envelope.text),
+        envelope,
+        author: Some(author),
+        route_label,
+        outbound: None,
+        last_code: None,
+        local_at: at,
+        released_from: None,
+        last_pending: None,
+        hidden: false,
+        card: None,
+        arrived,
+    }
+}
+
 fn conversation_of_origin(origin: &Origin) -> ConversationKey {
     match origin {
         Origin::Direct { peer, endpoint } => ConversationKey::Direct {
