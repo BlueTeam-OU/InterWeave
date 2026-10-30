@@ -45,7 +45,7 @@ pub enum ToView {
     /// a change of [`ToView::Running`], as access does.
     AuthenticationNeeded(bool),
     /// An update for the model side, the first after an attach or a start
-    /// being `Update::Listed`.
+    /// being `Update::Started`.
     Update(Box<Update>),
     /// The store could not be listed for this view: what it holds stays
     /// unshown until the view attaches again. A class, never content.

@@ -90,8 +90,9 @@ fn until(
     }
 }
 
+/// The view's first update from a facade: its windowed start.
 fn is_listing(message: &ToView) -> bool {
-    matches!(message, ToView::Update(u) if matches!(**u, Update::Listed(_)))
+    matches!(message, ToView::Update(u) if matches!(**u, Update::Started(_)))
 }
 
 fn is_ready(message: &ToView) -> bool {
@@ -784,11 +785,12 @@ fn without_network_a_missing_profile_is_refused_and_nothing_runs() {
 /// kept row.
 #[test]
 fn without_network_a_message_is_read_and_kept_as_with_one() {
+    use interweave_human_app_core::WindowCommand;
     use interweave_human_chat_protocol::{HumanChatV2, MessageKind, encode_outbound};
     use interweave_human_store::{
         AppMessageId, HumanStore, InboundOrigin, NewInbound, StoreOptions,
     };
-    use interweave_human_ui_model::{Intent, UiModel};
+    use interweave_human_ui_model::{Intent, UiModel, WindowInput};
     use interweave_transport_api::MediaType;
 
     let app = app();
@@ -860,21 +862,53 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     let mut link = attach(&service);
     let mut held = Vec::new();
     let mut model = UiModel::new();
-    let mut listing = None;
-    until(&mut link, &mut held, "the listing", |m| match m {
+    let mut start = None;
+    until(&mut link, &mut held, "the start", |m| match m {
         ToView::Update(u) => match &**u {
-            Update::Listed(l) => {
-                listing = Some(l.clone());
+            Update::Started(s) => {
+                start = Some((**s).clone());
                 true
             }
             _ => false,
         },
         _ => false,
     });
-    let listing = listing.expect("listed");
-    assert_eq!(listing.unread.len(), 2, "both unread rows listed");
-    let (kept_row, read_row) = (listing.unread[0].row, listing.unread[1].row);
-    model.unread_listed(listing.unread);
+    let start = start.expect("started");
+    assert_eq!(start.summaries.len(), 1, "one conversation");
+    assert_eq!(start.summaries[0].unread, 2, "both unread rows counted");
+    let conversation = start.summaries[0].conversation.clone();
+    model.started(start.pending, start.summaries, start.counted_through);
+    // The conversation opened, as a person would: its page reads the rows.
+    model.window_input(WindowInput::Opened(conversation));
+    let mut asks = model.take_page_asks();
+    assert_eq!(asks.len(), 1, "the opening's one page");
+    let fetch = Command::Window(WindowCommand::FetchPage(Box::new(asks.remove(0))));
+    assert!(
+        service.hub().command(fetch).is_ok(),
+        "a facade takes commands"
+    );
+    let mut page = None;
+    until(&mut link, &mut held, "the page", |m| match m {
+        ToView::Update(u) => match &**u {
+            Update::Page(rows) => {
+                page = Some((**rows).clone());
+                true
+            }
+            _ => false,
+        },
+        _ => false,
+    });
+    let page = page.expect("paged");
+    assert_eq!(page.unread.len(), 2, "both unread rows paged");
+    let row_of = |text: &str| {
+        page.unread
+            .iter()
+            .find(|r| r.envelope.text == text)
+            .map(|r| r.row)
+            .expect("the row")
+    };
+    let (kept_row, read_row) = (row_of("message 1"), row_of("message 2"));
+    model.page_arrived(page);
 
     // Read both; keep one.
     for row in [kept_row, read_row] {
@@ -1186,15 +1220,16 @@ fn a_start_refused_elsewhere_answers_so_and_never_as_an_opened_store() {
     let _ = service.stop(GRACE);
 }
 
-/// The identity in front as the first listing after a start reports it.
+/// The identity in front as the first windowed start after a start
+/// reports it.
 fn listed_identity(service: &ServiceHost) -> Option<interweave_human_ui_model::IdentityView> {
     let mut link = attach(service);
     let mut held = Vec::new();
     let mut identity = None;
-    until(&mut link, &mut held, "the listing", |m| match m {
+    until(&mut link, &mut held, "the start", |m| match m {
         ToView::Update(u) => match &**u {
-            Update::Listed(l) => {
-                identity = Some(l.identity.clone());
+            Update::Started(s) => {
+                identity = Some(s.identity.clone());
                 true
             }
             _ => false,
