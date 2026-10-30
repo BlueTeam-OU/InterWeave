@@ -222,6 +222,22 @@ gradle '            if (variant == "Release") listOf("--release") else listOf("-
 expect 2 "a debug profile beyond one listOf is exit 2" "release profile is"
 gradle
 
+echo '    tasks.register("y") { args("-Fplatform/test-hooks") }' >> "$G_KTS"
+expect 2 "an attached -F<features> in the Gradle file is exit 2" "passes a feature flag on 2 lines"
+gradle
+echo 'cargo() { command cargo "$@" -F=comp/test-hooks; }' >> "$A_SH"
+expect 2 "an attached -F=<features> in the archive script is exit 2" "passes a feature flag"
+archive daemon cli
+sed -i '/^packages=/a packages+=(extra)' "$A_SH"
+expect 2 "a packages+= line is exit 2, not an ungraphed package" "names packages other than"
+archive daemon cli
+echo 'read -r -a packages <<<"$PKGS"' >> "$A_SH"
+expect 2 "a read into packages is exit 2" "names packages other than"
+archive daemon cli
+echo 'notices "${packages[@]}" "$stage"' >> "$A_SH"
+expect 0 "a line expanding \"\${packages[@]}\" whole passes"
+archive daemon cli
+
 touch "$SANDBOX/tree-fails"
 expect 2 "cargo tree failing is exit 2, with cargo's error" "matched no packages"
 rm -f "$SANDBOX/tree-fails"

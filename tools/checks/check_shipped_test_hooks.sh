@@ -23,7 +23,9 @@
 #                      tools/ci/release_linux_archive.sh, and the three
 #                      `build_args` lines that build them as one
 #                      `cargo build --release --locked --target "$target"
-#                      -p ... -p ...`, with no feature flag in the file;
+#                      -p ... -p ...`, with no feature flag in the file
+#                      and the array named elsewhere only as
+#                      "${packages[@]}";
 #   the APK's library  the cargo-ndk call in
 #                      apps/human-android/android/app/build.gradle.kts,
 #                      whole: its `-t` ABI and `-p` package and nothing
@@ -111,7 +113,8 @@ none() {
         exit 2
     fi
 }
-FEATURE_FLAGS='--features|--all-features|--no-default-features|(^|[^-])-F( |"|$)'
+# -F in every form clap takes: `-F x`, `-Fx`, `-F=x`.
+FEATURE_FLAGS='--features|--all-features|--no-default-features|(^|[^-A-Za-z0-9_])-F'
 
 # The Linux archive: its target, its packages, and the one cargo build
 # of them, whose every line is the shape read here.
@@ -120,6 +123,16 @@ linux_target="${line#target=}"
 line="$(the_line "$ARCHIVE" "^packages=\\(($WORD)( $WORD)*\\)\$")" || exit 2
 line="${line#packages=(}"
 read -r -a linux_packages <<<"${line%)}"
+# Every other line naming the array only expands it whole: a
+# `packages+=(...)`, an index or a `read -a packages` would build a
+# package this check never graphs.
+others="$(grep -nwE 'packages' "$ARCHIVE" | grep -vE '^[0-9]+: *#' | grep -vE "^[0-9]+:packages=\(" \
+    | sed 's/"\${packages\[@\]}"//g' | grep -wE 'packages')"
+if [[ -n "$others" ]]; then
+    echo "$me: $ARCHIVE names packages other than by its packages=(...) line and \"\${packages[@]}\" — update this check's reading with the release:" >&2
+    printf '%s\n' "$others" >&2
+    exit 2
+fi
 the_line "$ARCHIVE" '^ *build_args=\(build --release --locked --target "\$target"\)$' >/dev/null || exit 2
 the_line "$ARCHIVE" '^ *for p in "\$\{packages\[@\]\}"; do build_args\+=\(-p "\$p"\); done$' >/dev/null || exit 2
 the_line "$ARCHIVE" '^ *\(cd "\$root" && cargo "\$\{build_args\[@\]\}"\) \|\| die "cargo build failed"$' >/dev/null || exit 2
