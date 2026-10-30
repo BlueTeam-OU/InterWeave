@@ -4309,3 +4309,71 @@ fn an_accept_snackbar_waits_on_a_gaps_try_again_after_its_row() {
         "its Undo is reached"
     );
 }
+
+/// #517 review F1: Android makes a fresh model under a view that still
+/// shows what the last one read. Once told so, the view reports the
+/// conversation it shows as opened -- with nothing to close, since the
+/// fresh model has no window -- and every avatar in view as shown, so the
+/// fresh model pages the conversation and asks for the photos. Without
+/// it the view reports nothing: it told the last model already. Mutation:
+/// `forget_window_reports` forgetting nothing.
+#[test]
+fn a_fresh_model_is_told_the_open_conversation_and_avatars_again() {
+    use interweave_human_ui_model::preview::cut;
+    use interweave_human_ui_model::{NewestRow, StoredSummary, Table, WindowEvent, WindowInput};
+    let started = || {
+        let mut model = UiModel::new();
+        model.started(
+            Vec::new(),
+            vec![StoredSummary {
+                conversation: direct(P),
+                unread: 1,
+                newest: Some(NewestRow {
+                    table: Table::Unread,
+                    row: row(1),
+                    received_at: NOW,
+                    preview: cut("hello"),
+                    card: false,
+                }),
+            }],
+            Some(row(i64::MAX)),
+        );
+        model
+    };
+    let mut view = view();
+    let mut model = started();
+    let _ = shown(&mut view, &mut model, P);
+    view.render(&model);
+    settle();
+    let opened = WindowEvent::Input(WindowInput::Opened(direct(P)));
+    assert!(
+        view.take_window_events().contains(&opened),
+        "the first model"
+    );
+
+    let fresh = started();
+    view.render(&fresh);
+    settle();
+    assert!(
+        view.take_window_events().is_empty(),
+        "control: nothing new to report without being told"
+    );
+    view.forget_window_reports();
+    let again = view.take_window_events();
+    assert_eq!(again.first(), Some(&opened), "told again: {again:?}");
+    assert!(
+        !again
+            .iter()
+            .any(|e| matches!(e, WindowEvent::Input(WindowInput::Closed(_)))),
+        "the fresh model has nothing to close: {again:?}"
+    );
+
+    let mut model = windowed_contacts(3);
+    open_contacts(&mut view, &mut model);
+    let fresh = windowed_contacts(3);
+    view.render(&fresh);
+    settle();
+    assert_eq!(avatar_reports(&mut view), (0, 0), "control");
+    view.forget_window_reports();
+    assert_eq!(avatar_reports(&mut view), (3, 0), "every avatar in view");
+}
