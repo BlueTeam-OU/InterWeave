@@ -34,7 +34,8 @@ fetches, when a conversation is closed, and the Decline-only
 proposal (§5, §5.1, §7.1, §10, §11). And for its QUESTION 01a18cfc
 (B4): Connect closes the conversation too (§7.1, §10), and the
 window's lines and rows after a card's confirmation row are in the
-Accept snackbar's span (contact-cards §5.4.2).
+Accept snackbar's span (contact-cards §5.4.2). And for its QUESTION
+01a18ecc (B4c): the reply line of a target not held (§5.2, §10).
 
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
@@ -415,6 +416,45 @@ nothing new for the person to learn:
 
 A gap is not a `ReadNotShown` run: a run's rows cannot come back
 (§7.1); a gap's rows are stored and come back when it is reached.
+
+### 5.2 A reply whose target is not held
+
+Asked by rust-ui-dev-02 (QUESTION 01a18ecc, B4c). A reply shows a
+reply line (`design/2026-10-16-android-look.md` §5): `ReplyPresent`
+("In reply to an earlier message") or `ReplyUnavailable` ("In reply to
+a message not shown here"), the neutral placeholder of
+`human-client-ui.md` §15. The listed mode held every row, so a target
+in the conversation was always held. The window does not, and a target
+can now be in the conversation without being held: released by the
+ceiling (§5.1), or older than what is loaded.
+
+**Required: the line says whether the person can reach the target**,
+not whether the app holds its row. The person reads the first as
+"scroll up and it is there" and the second as "it is not in this
+conversation".
+
+- `ReplyPresent` when the target is held, or is not held but is in the
+  store (pending, unread or kept), since paging up brings it back
+  (§5, §5.1).
+- `ReplyUnavailable` when the target is neither held nor stored:
+  dismissed (message-swipe §7), dropped by the session bound (§7.1),
+  read and not kept in an earlier session, or never received.
+- Nothing fetches the target to decide this beyond asking the store
+  whether it holds it (never the transport, §15), and the line has no
+  action, as today. When the answer changes (the target loads, or
+  leaves the store), the line's text changes in place. Nothing is
+  announced, and focus does not move.
+
+**Until the store can be asked by message id** (it cannot on main: its
+rows are indexed by conversation and time, so rust-ui-dev-02's REPLY
+01a18ece places the index, the window read and the model's answers in
+a job of its own, the store's schema being architect-cto's to place),
+the build shows `ReplyUnavailable` for every target not held. That line
+is true but less useful: a reply to a stored message far up reads as
+though the message were gone. While a reply stays on screen and its
+target is released, its line changes from `ReplyPresent` to
+`ReplyUnavailable`; it changes back when the target loads again.
+Accepted for B4c, and §10 item 17 (b) is blocked on that job.
 
 ## 6. Unread rows beyond the window
 
@@ -906,6 +946,21 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     `CardSharesDeviceMany` naming the first of them in that order and
     2 others. Both hold with the Contacts list scrolled to its end and
     with it never opened.
+17. **A reply's line** (§5.2). (a) Now: in A, a reply whose target is
+    held shows `ReplyPresent`. Dismiss the target, then let the
+    snackbar close: the reply shows `ReplyUnavailable`. With item 14's
+    test ceiling, page up through kept rows until a reply's target is
+    released while the reply stays on screen: the reply shows
+    `ReplyUnavailable` (§5.2's interim); scroll back to the target
+    until it loads: `ReplyPresent` again. Neither change is announced,
+    and focus stays where it was. On a desktop with a screen reader,
+    the line is read as part of its row in both states. (b) Blocked
+    until the store can be asked by message id (§5.2): a reply whose
+    target is released by the ceiling, or is kept and older than
+    anything loaded, shows `ReplyPresent`; a reply whose target was
+    dropped by the session bound (item 12) shows `ReplyUnavailable`;
+    and a reply on screen whose target is released keeps
+    `ReplyPresent`.
 
 **Test of §2's hypothesis** (with people, when there is a session to
 run): give a participant the flooded A and ask them to find the first
