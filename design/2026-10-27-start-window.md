@@ -28,7 +28,10 @@ rust-ui-dev-02's QUESTION 01a17e5d (U-a, U-b): the preview's bound
 (§3) and the Contacts list when its read fails, with what that
 withholds (§11). Revised again for rust-ui-dev-02's
 QUESTION 01a180cb: what one conversation's backlog may do to another
-(§3).
+(§3). And for its QUESTION 01a18b25 (B3's views): the progress row
+at the very top, held proposals and gaps, which side of a gap
+fetches, when a conversation is closed, and the Decline-only
+proposal (§5, §5.1, §7.1, §10, §11).
 
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
@@ -147,9 +150,10 @@ Evidence and hypotheses behind the choices below:
   builder.
 - **A Chats row needs a summary, not the conversation's rows.** The
   rows of a conversation are loaded when it is opened, its newest rows
-  up to the row and byte budget; a closed conversation holds none of
+  up to the row and byte budget; a closed conversation needs none of
   its stored rows in memory, only its summary (a preview line, a time,
-  a count). Starting the app loads summaries and the pending rows, and
+  a count), and whether the builder keeps them a while is its choice
+  (below), which the person cannot tell. Starting the app loads summaries and the pending rows, and
   no conversation's window. One conversation's backlog never pushes
   another conversation's stored rows out of the list, its badge or
   its preview: the held-row ceiling may release another conversation's
@@ -259,7 +263,23 @@ one.
 an indeterminate circular progress indicator (Material), centred, with
 `EarlierLoading` as its accessible name. It is not focusable and is
 not announced. It shows only if the page has not arrived within
-250 ms, so a fast load does not flicker.
+250 ms, so a fast load does not flicker. **At the very top** (rust-ui-dev-02's
+QUESTION 01a18b25, U1): while the view is at its very top, each row of
+the top edge (the progress row, the failure row, the limit row) shows
+in view when it appears, so the person sees it; and each time one
+appears, is replaced by another (a failure in the progress row's
+place, the progress row in Try again's) or goes, what is below it
+moves by the change in height, once each time and without animation,
+and focus stays on its item. A pressed failure or limit row stays
+where it is until one of the three outcomes "When it fails" gives
+(below), so pressing never moves the view twice.
+One case keeps the person's place instead: when the page arrives with
+no `EarlierUnread` line, the page's rows take the place the top edge's
+row leaves, whichever row it was, so the oldest row the person was
+looking at does not move back. With the line, which no message row
+goes above, the line moves back up when the top edge's row goes. If
+the top edge is reached by focus with the view elsewhere, the row
+shows where it stands and the view does not move to it.
 
 **When it arrives.** The page's rows are added in their order between
 the `EarlierUnread` line, when it shows, and the row that was oldest:
@@ -284,9 +304,17 @@ again button (`TryAgain`, which exists). The failure is announced once,
 politely (`EarlierLoadFailed`). Scrolling or moving focus to the top
 again does not retry by itself; Try again does, and the row becomes the
 progress row again (subject to the 250 ms rule). Closing and reopening
-the conversation also starts over. Focus, if it was on Try again when
-the row is replaced, goes to the item just below it, as app-placed
-focus (§7). The announcement is checked on the desktop now and is a
+the conversation also starts over. **A pressed row**, wherever a
+failure or limit row stands (the top edge, either side of a gap): its
+button, once pressed, does nothing more while its read is in flight,
+so no second read starts, and the row stays where it is until one of
+three outcomes. The progress row takes its place (after 250 ms), or
+the page arrives: focus, if it was on the row's button, goes to the
+item just below the row, as app-placed focus (§7). Or the read fails
+before either: a limit row becomes the failure row, focus moving from
+its button to Try again; a failure row stays as it is, Try again live
+again and keeping focus; and `EarlierLoadFailed` is announced once for
+each failure, a repeated one included. The announcement is checked on the desktop now and is a
 blocked precondition on Android (§7).
 
 **A new message arriving** while the person is up in the history
@@ -335,6 +363,19 @@ between them that the app does not hold. Since the newest row is never
 released, a gap always has a held row below it, and the conversation
 has no bottom edge.
 
+A card proposal the app holds is a held row like any other (§11),
+wherever it stands in time: a gap is bounded by the nearest held rows
+of either kind, so a held proposal inside a run of released rows
+splits it into two gaps, each with its own sides and its own
+`EarlierUnread` line, and nothing is shown out of its order. A
+proposal has no focus stop of its own (contact-cards §5.4.4), so where
+it bounds a gap, "the row" in this section and in §7's targets means
+its first control in reading order, and focus moved by the person onto
+any of its controls counts as reaching that side. At the
+top edge, the marks of §5 and §6 (failure, limit, progress,
+`EarlierUnread`) stand above everything held, proposals included
+(QUESTION 01a18b25, U2).
+
 A gap behaves as the top edge does (§5), from either side, with
 nothing new for the person to learn:
 
@@ -342,7 +383,15 @@ nothing new for the person to learn:
   scrolls into view, or receives focus moved by the person. The gap's
   rows nearest that side are fetched, a page at a time, once each time
   that side is reached; no page of a gap is requested while another
-  page of the same gap is in flight.
+  page of the same gap is in flight. When both sides are in view or
+  reached together, the side the person reached first fetches first:
+  moving up (scrolling up, or focus moving up), the lower side; moving
+  down, the upper side; with no movement (opening, or a page's arrival
+  bringing a gap into view), the lower side. This agrees with focus
+  moved onto a gap's line fetching from below (below).
+  A side still in view when the other side's page arrives counts as
+  reached again, so a gap wholly in view fills page by page without
+  the person moving (QUESTION 01a18b25, U3).
 - **While it loads, when it fails, at the session bound**: §5's
   progress row, §5's failure row with Try again, and §7.1's limit row
   (where §7.1 asks) show in the gap, on the side that fetched. The upper side's row
@@ -430,10 +479,11 @@ screen hold for every other case.
 | Focus was on | It disappears when | Focus goes to | Check |
 |---|---|---|---|
 | any row, or the `EarlierUnread` line | a page is added above it or below the line | stays where it was; nothing moves | §10 items 4 and 5 |
+| the `EarlierUnread` line or the oldest row, at the view's very top | a row of the top edge appears above it, is replaced, or goes (§5, "At the very top") | stays on it; it moves with each change in height, except that with no line the oldest row stays put when the page arrives | §10 items 3b and 12 |
 | the row just above a gap, or any row above it | a page of the gap is added below it, from the gap's upper side (§5.1) | stays where it was; nothing moves | §10 item 14 |
 | the `EarlierUnread` line, at the top or in a gap (§5.1) | its count reaches zero | the row that was just below the line, as app-placed focus (no fetch, §5) | §10 items 6 and 14 |
-| the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the failure row, as app-placed focus: at the top edge the line, else the oldest loaded row; in a gap, for the upper side's row, the lower side's row if it shows, else the gap's line, else the row below the gap, and for the lower side's row, the gap's line, else the row below the gap (§5.1) | §10 items 7 and 14 |
-| the limit row's `EarlierShowAnyway` | it is pressed and the row becomes the progress row, or the page arrives | the item that was just below the limit row, as app-placed focus, at the top edge or in a gap as for Try again | §10 items 12 and 14 |
+| the failure row's Try again | it is pressed and the row becomes the progress row, or the page arrives (if the read fails first, the row stays and focus stays on Try again, §5 "A pressed row") | the item that was just below the failure row, as app-placed focus: at the top edge the line, else the oldest loaded row; in a gap, for the upper side's row, the lower side's row if it shows, else the gap's line, else the row below the gap, and for the lower side's row, the gap's line, else the row below the gap (§5.1) | §10 items 7, 12 and 14 |
+| the limit row's `EarlierShowAnyway` | it is pressed and the row becomes the progress row, or the page arrives (if the read fails first, the failure row takes its place and focus goes to its Try again, §5 "A pressed row") | the item that was just below the limit row, as app-placed focus, at the top edge or in a gap as for Try again | §10 items 12 and 14 |
 | a row of the open conversation | the session bound drops it | cannot happen: the focused row is never dropped (§7.1) | §10 item 12 |
 | a row of the open conversation | the held-row ceiling releases it | cannot happen: the focused item is never released (§5.1) | §10 item 14 |
 | a `ReadNotShown` line | a new drop adds to its count | stays on the line, whose count changes | §10 item 12 |
@@ -480,7 +530,18 @@ requires is that **paging never drops a read row on its own**.
   rows in today's order. From then until the conversation is closed,
   paging is automatic again (§5) and drops as it needs: the person
   chose that once for this opening. Closing and reopening the
-  conversation asks again.
+  conversation asks again. The conversation is closed when the person
+  leaves it for Chats (narrow layout), for another conversation, or
+  for one of these pages shown in its place, by whatever route (the
+  Chats screen's menu, the identity switch, Share): Trust, Peers,
+  Contacts, Your identities, Your card; coming back asks
+  again, since a choice about losing rows is asked again rather than
+  assumed (QUESTION 01a18b25, U5). It is not closed by a page opened
+  from inside it and left with Back (its Details, a contact page
+  reached from one of its proposals), nor by its app window losing
+  focus or the app going to the background: it is still the open
+  conversation, only not read meanwhile (§1). Whether its held rows are kept meanwhile
+  is the builder's (§3); the person sees no difference.
 - The unread rows not loaded stay unread and stored: the badge and
   `EarlierUnread` stay true, and they can be read later (after other
   read rows leave the session, or after a restart).
@@ -600,6 +661,30 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
    its stored copy gone) and go back to Chats. B's preview and time are
    that row's, not the older kept row's. Send a message in B and let it
    be accepted: B's preview is "You: " and that message.
+3b. **Placement** (§5, §5.1, §7.1, §11; QUESTION 01a18b25): with the
+   view at A's very top and the next page held (a test hook), the
+   progress row shows in view after 250 ms and the line and the rows
+   below move down by its height; release the page: the progress row
+   goes, the line moves back to the top once, and focus, if on the
+   line, stays on it through both. Again with no line and focus on the
+   oldest row: it moves down when the progress row shows and stays
+   there when the page arrives, the page's rows above it. Again with
+   the page's read failing: the failure row replaces the progress row
+   in view, what is below moves by the difference in height once, and
+   Try again is in view; pressing it leaves the failure row in place,
+   pressing again doing nothing, until the progress row replaces it
+   after 250 ms, what is below moving by the difference once; with the
+   page let through within 250 ms and no line, the page's rows take the
+   failure row's place and the oldest row does not move. With a held proposal standing among
+   released rows, two gaps show around it, each loading on its own,
+   and at the top edge every mark stands above a leading proposal.
+   With a gap wholly in view and no movement, its lower side fetches
+   first, then the upper, until it is full. After `EarlierShowAnyway`,
+   open Contacts in the conversation's place on a wide layout and come
+   back: reaching the bound asks again. While contacts are unread, a
+   proposal shows one button, Decline, with nothing below it where
+   Accept would stand, and a left swipe declines it; Decline, then
+   Undo on its snackbar: focus is on the row's Decline.
 4. **Load by scrolling, position kept**: scroll A to its top. The next
    page loads above (the progress row only if it takes longer than
    250 ms); the row that was at the top stays where it was on screen;
@@ -697,7 +782,17 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     count, where the run was. Paging goes on without asking until A is closed; reopening
     A and reaching the bound shows the limit row again. Keep a row
     before pressing: it stays. A row with an open snackbar is not
-    dropped; the focused row is not dropped.
+    dropped; the focused row is not dropped. With the view at A's very top and focus on
+    the line when the bound is reached, the limit row shows in view,
+    what is below moves down by its height once, and focus stays on the
+    line; pressing `EarlierShowAnyway` leaves the limit row in place,
+    pressing again doing nothing, until the progress row or the page
+    replaces it. With the read made to fail within 250 ms (item 7's
+    hook): the failure row takes the limit row's place, what is below
+    moves by the difference in height once, focus is on its Try again,
+    and `EarlierLoadFailed` is announced once; pressing Try again and
+    failing again within 250 ms leaves the row, focus on Try again,
+    and announces it once more.
 13. **An undecodable unread row**: add one to A's store, as its oldest
     row. It is not counted on the line or on A's badge; the line goes
     once every other unread row is loaded, and once the store holds
@@ -730,7 +825,9 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     the rows read. (c) In a gap, coming from above: make the gap's
     next read fail (a test hook). The failure row shows directly below
     the row above the gap and its text is announced once; focus on
-    that row stays where it was. Remove the failure, move focus to Try
+    that row stays where it was. Move focus to its Try again and press
+    it with the read still failing: the row stays, focus stays on Try
+    again, and the failure is announced once more. Remove the failure, move focus to Try
     again and press it: the page loads below the row above the gap,
     and focus is on the item that was just below the failure row. With
     the session bound brought within reach (the hook of item 12), the
@@ -772,7 +869,8 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     row older than the top edge (a test hook), so that the line shows,
     and reach the top edge again: the limit row shows.
 15. **Photos on demand** (§11), with photo loads slowed by a test hook.
-    The Contacts list, Chats and the app bar show a contact's initials
+    The Contacts list, and Chats and the app bar once they draw contact
+    avatars, show a contact's initials
     on its hue, at the photo's size, then the photo in its place:
     nothing else in the row moves, nothing animates and nothing is
     announced. A photo that cannot be read leaves the initials. A
@@ -822,9 +920,10 @@ line. Two of five failing is enough to reopen §6.
   PeerId (contact-cards §6.3): all are shown, and they are at most 63,
   since a 65th distinct source endpoint of a peer is malformed and
   stores nothing (§3, architect-cto's REPLY 01a17be2).
-- **Photos may load on demand** (U2 of QUESTION 01a17dc9). In the
-  Contacts list, on Chats and in the app bar, a contact whose photo
-  has not arrived shows its initials avatar (contact-cards §6.1), at
+- **Photos may load on demand** (U2 of QUESTION 01a17dc9). Wherever
+  a contact's avatar is drawn at contact-cards §6.1's sizes (the
+  Contacts list, Chats, the app bar, the contact page), a contact whose
+  photo has not arrived shows its initials avatar (contact-cards §6.1), at
   the photo's size, and the photo replaces it in place when it
   arrives: nothing else moves, nothing animates, nothing is announced
   (the avatar is not read, contact-cards §6.1), and the accessible
@@ -849,7 +948,10 @@ line. Two of five failing is enough to reopen §6.
   follows the lists' rule above. Evidence: the avatar is decoration, never
   a trust signal (contact-cards §3), so a moment of initials misleads
   no one about who a contact is; on the contact page the photo is what
-  the person acts on.
+  the person acts on. Chats and the app bar draw the PeerId's
+  letters in today's build, not yet §6.1's contact avatars (QUESTION
+  01a18b25, U4); this rule acts there from when they do, and item 15's
+  checks there wait for it. When that is built is outside this note.
 - **The Contacts list has no visible edge.** It grows only by the
   person's own Accepts. If the builder pages it, the paging is not
   seen: no progress row, no failure row unless a read fails. Every contact's name must be known for
@@ -894,7 +996,16 @@ line. Two of five failing is enough to reopen §6.
   then Contacts, then Try again." It offers no Accept,
   so its right swipe does nothing (contact-cards §5.4.4, a row with no
   Accept); a left swipe still declines it, and its menu and its screen
-  reader actions (contact-cards §8) offer no Accept. Details' naming by hand (contact-cards §5.6) is withheld in
+  reader actions (contact-cards §8) offer no Accept. Its one button is
+  Decline, first in contact-cards §5.4's stacked layout as always
+  (Decline above Accept), with no space kept below it for Accept; it is
+  never the one-button Close row of case S, which declines nothing
+  (QUESTION 01a18b25, U6). When the contacts are read and Accept comes
+  back, the lines above the buttons change too (the case line, and
+  `CardSameName` with its link where it applies), so the row may move;
+  nothing is announced (above). After an Undo of its Decline, focus
+  goes to its Decline, since the row has no Accept (contact-cards §9's
+  row for that Undo names Accept). Details' naming by hand (contact-cards §5.6) is withheld in
   the same way, with `NamingContactsUnread` in its place, because it writes a
   contact without knowing whether the route is already under one.
   When a read succeeds, from Contacts' Try again or the next start,
@@ -946,8 +1057,8 @@ line. Two of five failing is enough to reopen §6.
   zero (§6.1).
 - **U1 to U4, rust-ui-dev-02** (QUESTION 01a17dc9): answered here. U1,
   the held-row ceiling, releases rows silently and never shows the
-  limit row (§5.1). U2, initials until the photo arrives, holds in
-  lists and the app bar, not on the contact page (§11). U3, no list on
+  limit row (§5.1). U2, initials until the photo arrives, holds
+  wherever contact avatars are drawn, not on the contact page (§11). U3, no list on
   a proposal to cap; which contact is named is contact-cards §5.4.1's
   rule (§11). U4, the limit row a page early, is rejected: it shows at
   the bound, and a page near it is shortened (§7.1).
