@@ -268,7 +268,8 @@ impl Screens {
     }
 
     /// Whether the input method shows its window, by the platform's own
-    /// `mInputShown`, the one line API 30 and API 36 both print.
+    /// `mInputShown`, which API 30 and API 36 both print, at different
+    /// places on a line ([`keyboard_shown`]).
     fn keyboard_up(&self) -> Result<bool, String> {
         let out = self.adb_ok(&["shell", "dumpsys", "input_method"])?;
         keyboard_shown(&out).ok_or_else(|| "dumpsys input_method printed no mInputShown".to_owned())
@@ -485,11 +486,13 @@ fn typable(line: &str) -> bool {
 }
 
 /// `mInputShown` out of `dumpsys input_method`, the first one printed:
-/// the service's own, above any client's state it lists after.
+/// the service's own, above any client's state it lists after. A token
+/// anywhere on its line: API 36 (the Pixel) prints it alone, API 30 (the
+/// A40) after `mShowRequested=` and its kin on one line.
 fn keyboard_shown(dump: &str) -> Option<bool> {
-    dump.lines()
-        .find_map(|l| l.trim().strip_prefix("mInputShown="))
-        .and_then(|v| match v.trim() {
+    dump.split_whitespace()
+        .find_map(|t| t.strip_prefix("mInputShown="))
+        .and_then(|v| match v {
             "true" => Some(true),
             "false" => Some(false),
             _ => None,
@@ -530,6 +533,8 @@ mod tests {
         assert_eq!(keyboard_shown(up), Some(true));
         let down = "  mImeWindowVis=0\r\n      mInputShown=false\r\n";
         assert_eq!(keyboard_shown(down), Some(false));
+        let api30 = "  mShowRequested=true mShowExplicitlyRequested=false mShowForced=false mInputShown=true\n  mInputShown=false\n";
+        assert_eq!(keyboard_shown(api30), Some(true));
         assert_eq!(keyboard_shown("mImeWindowVis=0\n"), None);
         assert_eq!(keyboard_shown("mInputShown=maybe\n"), None);
     }
