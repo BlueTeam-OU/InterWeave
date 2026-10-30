@@ -367,9 +367,11 @@ nothing new for the person to learn:
   rows nearest that side are fetched, a page at a time, once each time
   that side is reached; no page of a gap is requested while another
   page of the same gap is in flight. When both sides are in view or
-  reached together, the side the person moved toward fetches first
-  (the scroll's direction, or focus's), and with no movement (opening,
-  or a page's arrival bringing a gap into view) the lower side does.
+  reached together, the side the person reached first fetches first:
+  moving up (scrolling up, or focus moving up), the lower side; moving
+  down, the upper side; with no movement (opening, or a page's arrival
+  bringing a gap into view), the lower side. This agrees with focus
+  moved onto a gap's line fetching from below (below).
   A side still in view when the other side's page arrives counts as
   reached again, so a gap wholly in view fills page by page without
   the person moving (QUESTION 01a18b25, U3).
