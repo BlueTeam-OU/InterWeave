@@ -3422,7 +3422,13 @@ export component AppWindow inherits Window {
     callback contact-chosen(int);
     // A contact's page.
     in property <string> contact-title;
+    // The contact holds a photo, read or not: Remove photo is offered.
     in property <bool> contact-has-photo;
+    // Its photo is drawn: read, and readable.
+    in property <bool> contact-photo-shown;
+    // A Contacts row came into view or left it: its photo is read when it
+    // shows (start-window section 11).
+    callback contact-in-view(int, bool);
     in property <image> contact-photo;
     in property <string> contact-letters;
     in property <int> contact-hue;
@@ -5329,7 +5335,7 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            Flickable {
+            cards-flick := Flickable {
                 vertical-stretch: 1;
                 content-height: cards-column.preferred-height;
                 cards-column := VerticalLayout {
@@ -5381,9 +5387,20 @@ export component AppWindow inherits Window {
                         accessible-role: text;
                         accessible-label: self.text;
                     }
-                    if root.cards-page == CardsPage.contacts: VerticalLayout {
+                    if root.cards-page == CardsPage.contacts: contacts-list := VerticalLayout {
                         spacing: 4px;
                         for row in root.contact-rows: OpenRow {
+                            // Any part of it in view: its photo is read then
+                            // (start-window section 11), and one in view is
+                            // never the one let go. Said on each change, and
+                            // at its creation when in view.
+                            property <bool> in-view: root.windowed
+                                && self.y + contacts-list.y + cards-column.y + cards-flick.content-y + self.height > 0px
+                                && self.y + contacts-list.y + cards-column.y + cards-flick.content-y < cards-flick.height;
+                            changed in-view => { root.contact-in-view(row.handle, self.in-view); }
+                            init => {
+                                if (self.in-view) { root.contact-in-view(row.handle, true); }
+                            }
                             text: row.name;
                             has-photo: row.has-photo;
                             photo: row.photo;
@@ -5405,7 +5422,7 @@ export component AppWindow inherits Window {
                             spacing: 16px;
                             PhotoCircle {
                                 size: 96px;
-                                has-photo: root.contact-has-photo;
+                                has-photo: root.contact-photo-shown;
                                 photo: root.contact-photo;
                                 letters: root.contact-letters;
                                 hue: root.contact-hue;

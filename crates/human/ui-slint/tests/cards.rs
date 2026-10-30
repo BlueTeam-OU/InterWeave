@@ -3934,3 +3934,130 @@ fn unread_contacts_show_their_failure_row_alone_and_try_again_reads_them() {
     assert!(!shows(&view, failed));
     assert!(shows(&view, text(UiText::ContactsEmpty)), "read: none");
 }
+
+/// A windowed model whose contacts, read without their photos, are
+/// `count` contacts named "Contact N", each with a photo not read yet.
+fn windowed_contacts(count: usize) -> UiModel {
+    let mut model = UiModel::new();
+    model.started(Vec::new(), Vec::new(), None);
+    model.contacts_directory(Ok((0..count)
+        .map(|i| interweave_human_ui_model::DirectoryContact {
+            view: ContactView {
+                photo_at: Some(5),
+                ..contact(&format!("c{i}"), &format!("Contact {i}"), P)
+            },
+            has_photo: true,
+        })
+        .collect()));
+    model
+}
+
+fn open_contacts(view: &mut View, model: &mut UiModel) {
+    view.render(model);
+    press(view, text(UiText::AppOptions));
+    press(view, text(UiText::ContactsTitle));
+    let _ = intents(view, model);
+    settle();
+    window_events(view, model);
+}
+
+fn photo_asks(view: &mut View) -> usize {
+    view.take_window_events()
+        .iter()
+        .filter(|e| matches!(e, interweave_human_ui_model::WindowEvent::PhotoShown(_)))
+        .count()
+}
+
+/// Start-window section 11: a Contacts row's photo is read as the row
+/// shows, its initials standing at the photo's size until it arrives,
+/// which replaces them in place: the row's name does not move. Mutation:
+/// the arrived photo never drawn, the rows set only when the contacts
+/// change.
+#[test]
+fn a_contact_rows_photo_replaces_its_initials_in_place_when_it_arrives() {
+    let mut view = view();
+    let mut model = windowed_contacts(1);
+    open_contacts(&mut view, &mut model);
+    let asks = model.take_photo_asks();
+    assert_eq!(asks.len(), 1, "read as the row shows: {asks:?}");
+    assert_eq!(images(&view), 0, "initials meanwhile");
+    let name_at = labelled(&view, &isolated("Contact 0"))[0].absolute_position();
+    model.photo_arrived("c0", Some(5), Some(photo()));
+    view.render(&model);
+    settle();
+    assert_eq!(images(&view), 1, "the photo in place");
+    assert_eq!(
+        labelled(&view, &isolated("Contact 0"))[0].absolute_position(),
+        name_at,
+        "nothing else moves"
+    );
+}
+
+/// Only the rows in view ask for their photos, so a long list never holds
+/// more photos than its view shows. Mutation: every row said in view.
+#[test]
+fn only_the_contact_rows_in_view_read_their_photos() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = windowed_contacts(200);
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::ContactsTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    let asked = photo_asks(&mut view);
+    assert!(asked > 0 && asked < 50, "{asked} of 200 asked");
+}
+
+/// A contact's page opens with its photo: choosing a contact whose photo
+/// was not read waits for it, with no loading state, and opens on it; one
+/// that cannot be read opens on the initials with Remove photo, the photo
+/// still stored. Mutations: the page opened at once on the initials; Remove
+/// photo offered by the photo's bytes.
+#[test]
+fn a_contact_page_waits_for_its_photo_and_an_unreadable_one_keeps_remove_photo() {
+    let mut view = view();
+    let mut model = windowed_contacts(2);
+    open_contacts(&mut view, &mut model);
+    let _ = model.take_photo_asks();
+    press(&view, &isolated("Contact 0"));
+    let _ = intents(&mut view, &mut model);
+    window_events(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::Contacts,
+        "waits for the photo"
+    );
+    model.photo_arrived("c0", Some(5), Some(photo()));
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::Contact
+    );
+    assert!(
+        view.window().get_contact_photo_shown(),
+        "opens on its photo"
+    );
+
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    if !shows(&view, &isolated("Contact 1")) {
+        open_contacts(&mut view, &mut model);
+    }
+    press(&view, &isolated("Contact 1"));
+    let _ = intents(&mut view, &mut model);
+    window_events(&mut view, &mut model);
+    model.photo_arrived("c1", Some(5), None);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::Contact
+    );
+    assert!(!view.window().get_contact_photo_shown(), "initials");
+    assert!(shows(&view, text(UiText::RemovePhoto)), "still removable");
+}

@@ -95,6 +95,9 @@ impl Marks {
 pub(crate) struct WindowReports {
     /// Contacts' Try again was pressed.
     pub(crate) contacts_try_again: bool,
+    /// Each contact whose avatar came into view (true) or left it, as it
+    /// last stood.
+    pub(crate) photos: HashMap<String, bool>,
     in_view: HashSet<i32>,
     at_top: bool,
     /// Which way it last moved: true toward older rows.
@@ -708,6 +711,18 @@ impl View {
             events.push(WindowEvent::ContactsTryAgain);
             self.focus_key(crate::cards::CONTACTS_TRY_AGAIN_FOCUS.to_owned());
         }
+        let mut photos: Vec<(String, bool)> =
+            std::mem::take(&mut self.shared.borrow_mut().window_view.photos)
+                .into_iter()
+                .collect();
+        photos.sort();
+        events.extend(photos.into_iter().map(|(id, shown)| {
+            if shown {
+                WindowEvent::PhotoShown(id)
+            } else {
+                WindowEvent::PhotoHidden(id)
+            }
+        }));
         let presses = std::mem::take(&mut self.shared.borrow_mut().window_presses);
         let Some(conversation) = self.marks.opened.clone() else {
             return events;
