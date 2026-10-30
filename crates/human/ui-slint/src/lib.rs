@@ -50,6 +50,7 @@ mod refusal;
 mod scan_images;
 mod store_screen;
 mod swipe;
+mod window_marks;
 
 pub use cards::{PhotoPick, PhotoRequest};
 pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
@@ -457,6 +458,9 @@ struct Shared {
     /// The own card's file dialog's answer, put here by its thread and
     /// taken on the window's, as the input it becomes.
     photo_pick: std::sync::Arc<std::sync::Mutex<Option<cards::CardsInput>>>,
+    /// The window marks' buttons pressed, by edge, taken by
+    /// [`View::take_window_events`].
+    window_presses: Vec<String>,
 }
 
 /// An Accept's snackbar's clock (contact-cards design section 5.4.2):
@@ -667,6 +671,16 @@ impl Shared {
     }
 }
 
+/// The callbacks of the screens with their own modules, and the trust
+/// settings'.
+fn wire_screens(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    wire_trust(window, shared);
+    window_marks::wire(window, shared);
+    peers::wire(window, shared);
+    connect::wire(window, shared);
+    cards::wire(window, shared);
+}
+
 /// The trust settings' callbacks: each becomes an input, taken by
 /// [`View::take_events`] as the others are.
 fn wire_trust(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
@@ -857,6 +871,8 @@ pub struct View {
     /// The monotonic time a leaving row closes by: `Instant::now`, or a
     /// test's, which steps it rather than sleeping through it under load.
     monotonic: Rc<dyn Fn() -> Instant>,
+    /// The open conversation's window marks.
+    marks: window_marks::Marks,
     /// Each conversation's preview, kept with the last message it is of:
     /// a body never changes.
     previews: HashMap<ConversationKey, (ItemKey, String)>,
@@ -1035,10 +1051,7 @@ impl View {
         window.on_close_trust(move || enqueue(&s, Input::TrustPage(false)));
         let s = Rc::clone(&shared);
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
-        wire_trust(&window, &shared);
-        peers::wire(&window, &shared);
-        connect::wire(&window, &shared);
-        cards::wire(&window, &shared);
+        wire_screens(&window, &shared);
 
         let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
         window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
@@ -1093,6 +1106,7 @@ impl View {
             bodies: HashMap::new(),
             clock: clock::Clock::default(),
             monotonic: Rc::new(Instant::now),
+            marks: window_marks::Marks::default(),
             previews: HashMap::new(),
             shown_items: HashMap::new(),
             message_times: Vec::new(),
@@ -1937,8 +1951,9 @@ impl View {
         let connect = self.render_connect(model);
         let peers = self.render_peers(model);
         let cards = self.render_cards(model);
+        let window = self.render_window();
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
-        let said = [conversation, trust, connect, peers, cards, outcome]
+        let said = [conversation, trust, connect, peers, cards, window, outcome]
             .into_iter()
             .flatten()
             .reduce(|first, rest| {
@@ -2404,6 +2419,19 @@ impl View {
             }
         }
         self.place_cards(model, &keys, &mut rows, &items, &leaving, channel);
+        let marks = self.visible_marks(model);
+        for (row, key) in rows.iter_mut().zip(&keys) {
+            let above = marks
+                .iter()
+                .filter(|m| {
+                    m.place
+                        == interweave_human_ui_model::MarkPlace::Above(
+                            interweave_human_ui_model::Anchor::Item(*key),
+                        )
+                })
+                .count();
+            row.marks_above = i32::try_from(above).unwrap_or(i32::MAX);
+        }
         if !self.leaving_messages.is_empty() {
             self.wake_after(LEAVING);
         }
@@ -3473,6 +3501,7 @@ fn message_row(
         outbound: item.direction == Direction::Outbound,
         hand_over: false,
         cards_after: 0,
+        marks_above: 0,
         show_author: placed.show_author,
         status_glyph: mark.glyph,
         status_dot: mark.dot,

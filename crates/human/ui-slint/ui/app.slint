@@ -197,8 +197,38 @@ export struct LinkRow {
     label: string,
 }
 
+// What the open conversation's window draws at an edge
+// (design/2026-10-27-start-window.md sections 5 to 8).
+export enum MarkKindRow {
+    // The progress row: the indicator alone, not focusable.
+    loading,
+    // The failure row: its text, and Try again.
+    failed,
+    // EarlierUnread or ReadNotShown: a MarkLine.
+    line,
+    // The limit row: its text, and Show more messages.
+    at-limit,
+}
+
+export struct MarkRow {
+    // 0 above everything drawn, 1 above the message `handle`, 2 above the
+    // card row `handle`, 3 below everything.
+    place: int,
+    handle: int,
+    kind: MarkKindRow,
+    text: string,
+    // The failure or limit row's button.
+    action: string,
+    // The edge it stands at, as the view reports it back.
+    edge: string,
+    focus-key: string,
+}
+
 export struct MessageRow {
     handle: int,
+    // How many window marks stand directly above it, before its day
+    // separator: 0 skips the loop over them.
+    marks-above: int,
     // Short author, then status, then body (U5a).
     label: string,
     author: string,
@@ -757,6 +787,66 @@ component WaitMark inherits Rectangle {
         commands: "M 8 1.5 A 6.5 6.5 0 1 1 1.5 8";
         transform-origin: { x: 8px, y: 8px };
         transform-rotation: root.still ? 0deg : mod(animation-tick() / 1ms, 1000) / 1000 * 360deg;
+    }
+}
+
+// One of the window's marks (start-window section 8's look): the progress
+// row, the indicator alone, 24 px with 8 px above and below; a line; or
+// the failure or limit row, its text centred in body medium -- `error` for
+// a failure -- over a text button of at least 48 by 48 px.
+component WindowMarkEntry inherits VerticalLayout {
+    in property <MarkRow> mark;
+    in property <bool> reduced-motion;
+    in property <int> focus-seq;
+    in property <string> focus-target;
+    callback pressed(string);
+    callback focused(string);
+    if root.mark.kind == MarkKindRow.loading: Rectangle {
+        height: 40px;
+        accessible-role: progress-indicator;
+        accessible-label: root.mark.text;
+        WaitMark {
+            width: 24px;
+            height: 24px;
+            still: root.reduced-motion;
+        }
+    }
+    if root.mark.kind == MarkKindRow.line: MarkLine {
+        text: root.mark.text;
+        focus-key: root.mark.focus-key;
+        focus-seq: root.focus-seq;
+        focus-wanted: root.focus-target == root.mark.focus-key;
+        focused(k) => { root.focused(k); }
+    }
+    if root.mark.kind == MarkKindRow.failed || root.mark.kind == MarkKindRow.at-limit: VerticalLayout {
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 4px;
+        Text {
+            text: root.mark.text;
+            font-size: Type.body-medium;
+            color: root.mark.kind == MarkKindRow.failed ? Palette.error : Palette.on-surface-variant;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        HorizontalLayout {
+            alignment: center;
+            ActionButton {
+                text: root.mark.action;
+                text-button: true;
+                target: 48px;
+                focus-key: "mark-action:" + root.mark.edge;
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == self.focus-key;
+                // A press while its read is on its way reports nothing: the
+                // view drops it (start-window section 5, "A pressed row").
+                pressed => { root.pressed(root.mark.edge); }
+                focused(k) => { root.focused(k); }
+            }
+        }
     }
 }
 
@@ -2765,6 +2855,11 @@ export component AppWindow inherits Window {
     // version cannot show; empty for none.
     in property <string> rows-not-shown;
     in property <[MessageRow]> messages;
+    // The open conversation's window marks, in reading order.
+    in property <[MarkRow]> window-marks;
+    // A failure row's Try again or a limit row's Show more messages, by
+    // the edge it stands at.
+    callback window-mark-pressed(string);
     in property <string> header-title;
     // The full PeerId of a direct conversation, or the channel id (U5a).
     in property <string> header-id;
@@ -5973,10 +6068,32 @@ export component AppWindow inherits Window {
             // only its item closes (swipe spec section 5;
             // tests/look.rs, `a_leaving_message_closes_its_space_without_a_jump`).
             // Clipped so it hides what it covered.
+            // The top edge's marks, above everything drawn, leading
+            // proposals included (start-window section 8's reading order).
+            for m in root.window-marks: VerticalLayout {
+                if m.place == 0: WindowMarkEntry {
+                    mark: m;
+                    reduced-motion: root.reduced-motion;
+                    focus-seq: root.focus-seq;
+                    focus-target: root.focus-target;
+                    pressed(e) => { root.window-mark-pressed(e); }
+                    focused(k) => { root.focus-id = k; }
+                }
+            }
             // The card proposals that arrived before the first message
             // (contact-cards design 5.4: each at its place in time); the
             // others follow the message they came after.
             for proposal in root.proposals: VerticalLayout {
+                for m in root.window-marks: VerticalLayout {
+                    if m.place == 2 && m.handle == proposal.handle && proposal.after < 0: WindowMarkEntry {
+                        mark: m;
+                        reduced-motion: root.reduced-motion;
+                        focus-seq: root.focus-seq;
+                        focus-target: root.focus-target;
+                        pressed(e) => { root.window-mark-pressed(e); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
                 if proposal.after < 0: ProposalEntry {
                     proposal: proposal;
                     swipe-key: root.swipe-key;
@@ -6049,6 +6166,21 @@ export component AppWindow inherits Window {
             row-content := VerticalLayout {
                 padding-top: row.gap;
                 spacing: 4px;
+                // The window's marks that stand above it, before its day
+                // separator: a line or an edge's row reads before the run
+                // it heads.
+                if row.marks-above > 0: VerticalLayout {
+                    for m in root.window-marks: VerticalLayout {
+                        if m.place == 1 && m.handle == row.handle: WindowMarkEntry {
+                            mark: m;
+                            reduced-motion: root.reduced-motion;
+                            focus-seq: root.focus-seq;
+                            focus-target: root.focus-target;
+                            pressed(e) => { root.window-mark-pressed(e); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                }
                 // A day change: "Today", "Yesterday", a weekday or the date,
                 // centred -- outside the message's item, so a screen reader
                 // reaches it as an item of its own before the run it heads
@@ -6540,6 +6672,16 @@ export component AppWindow inherits Window {
                 // spacing.
                 if row.cards-after > 0: VerticalLayout {
                     for proposal in root.proposals: VerticalLayout {
+                        for m in root.window-marks: VerticalLayout {
+                            if m.place == 2 && m.handle == proposal.handle && proposal.after == row.handle: WindowMarkEntry {
+                                mark: m;
+                                reduced-motion: root.reduced-motion;
+                                focus-seq: root.focus-seq;
+                                focus-target: root.focus-target;
+                                pressed(e) => { root.window-mark-pressed(e); }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                        }
                         if proposal.after == row.handle: ProposalEntry {
                             proposal: proposal;
                             swipe-key: root.swipe-key;
@@ -6572,6 +6714,17 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+            }
+            // The marks below everything drawn.
+            for m in root.window-marks: VerticalLayout {
+                if m.place == 3: WindowMarkEntry {
+                    mark: m;
+                    reduced-motion: root.reduced-motion;
+                    focus-seq: root.focus-seq;
+                    focus-target: root.focus-target;
+                    pressed(e) => { root.window-mark-pressed(e); }
+                    focused(k) => { root.focus-id = k; }
+                }
             }
             }
             }
