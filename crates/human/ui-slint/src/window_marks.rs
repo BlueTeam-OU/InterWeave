@@ -68,8 +68,9 @@ pub(crate) struct Marks {
     app_focus: RefCell<Option<String>>,
     /// The contacts last reported shown.
     avatars: HashSet<String>,
-    /// The message the person's focus was on at the last take.
-    focused: Option<ItemKey>,
+    /// Where the person's focus last stood among the rows, a message or a
+    /// mark, kept while focus is elsewhere.
+    focused: Option<FocusAt>,
     /// For each mark a person can focus, the focus target of what stands
     /// just below it as last drawn: the next mark at its place, else the
     /// row the marks stand above (section 7's focus table).
@@ -92,6 +93,16 @@ impl Marks {
                     .is_some_and(|h| id.strip_prefix("item:") == Some(h))
         })
     }
+}
+
+/// Where focus stands in the conversation's reading order: a mark at the
+/// top, a mark above a message, a message, a mark below everything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FocusAt {
+    Top,
+    Above(ItemKey),
+    Item(ItemKey),
+    End,
 }
 
 /// What the window says between takes of its reports.
@@ -618,15 +629,23 @@ impl View {
         // way the two stand: section 5.1 counts focus as it counts a
         // scroll, and the toolkit bringing a focused row into view says
         // no direction of its own
-        // (`focus_moving_down_onto_a_gap_fetches_its_upper_side_first`).
-        let before = std::mem::replace(&mut self.marks.focused, focused);
+        // (`focus_moving_down_onto_a_gaps_line_fetches_its_upper_side_first`).
+        // A mark stands where its row does: focus moving down onto a
+        // gap's line or failure row is a move down
+        // (`focus_moving_down_onto_a_gaps_line_fetches_its_upper_side_first`).
+        let focus_at = focused
+            .map(FocusAt::Item)
+            .or_else(|| self.mark_focus(&focus_id));
+        let before = self.marks.focused;
+        if focus_at.is_some() {
+            self.marks.focused = focus_at;
+        }
         let moved_up = moved_up.or_else(|| {
-            let (was, now) = (before?, focused?);
+            let (was, now) = (before?, focus_at?);
             if !by_person || was == now {
                 return None;
             }
-            let at = |k: ItemKey| self.message_keys.iter().position(|m| *m == k);
-            Some(at(now)? < at(was)?)
+            Some(self.focus_order(now)? < self.focus_order(was)?)
         });
         let mut now = HashSet::new();
         for (edge, at) in self.marks.edges.clone() {
@@ -741,6 +760,37 @@ impl View {
         }
     }
 
+    /// Where the window mark whose focus key is `id` stands, if one does.
+    fn mark_focus(&self, id: &str) -> Option<FocusAt> {
+        let row = self.marks.rows.iter().find(|r| r.focus_key == id)?;
+        match row.place {
+            0 => Some(FocusAt::Top),
+            1 => self
+                .item_handles
+                .key_of(row.handle)
+                .copied()
+                .map(FocusAt::Above),
+            3 => Some(FocusAt::End),
+            _ => None,
+        }
+    }
+
+    /// `at`'s place in the reading order, for comparing two.
+    fn focus_order(&self, at: FocusAt) -> Option<i64> {
+        let index = |k: ItemKey| {
+            self.message_keys
+                .iter()
+                .position(|m| *m == k)
+                .and_then(|i| i64::try_from(i).ok())
+        };
+        match at {
+            FocusAt::Top => Some(-1),
+            FocusAt::Above(k) => Some(index(k)? * 2),
+            FocusAt::Item(k) => Some(index(k)? * 2 + 1),
+            FocusAt::End => Some(i64::MAX),
+        }
+    }
+
     /// The handle of a message drawn now, `None` for one that is not.
     fn message_handle(&mut self, key: ItemKey) -> Option<i32> {
         self.message_keys
@@ -814,12 +864,13 @@ mod tests {
         assert_eq!(view.shared.borrow().window_view.moved_up, None);
     }
 
-    /// Focus the person moves down onto the row below a gap reaches both
-    /// sides with the upper side first, as moving down does (section 5.1);
-    /// the toolkit's scroll to the focused row says no direction. Mutation:
-    /// no direction from focus -- the lower side first.
+    /// Focus the person moves down onto the row below a gap, or onto the
+    /// gap's line standing in that row, reaches both sides with the upper
+    /// side first, as moving down does (section 5.1); the toolkit's scroll
+    /// to the focused row says no direction. Mutations: no direction from
+    /// focus; a mark given no place.
     #[test]
-    fn focus_moving_down_onto_a_gap_fetches_its_upper_side_first() {
+    fn focus_moving_down_onto_a_gaps_line_fetches_its_upper_side_first() {
         use interweave_human_core::RowId;
         use interweave_human_ui_model::{
             Anchor, ConversationKey, ItemKey, MarkPlace, WindowEvent, WindowInput,
@@ -863,7 +914,7 @@ mod tests {
         let handle = view.item_handles.of(&below);
         let at = MarkPlace::Above(Anchor::Item(below));
         view.marks.edges = vec![(Edge::GapUpper(1), at), (Edge::GapLower(1), at)];
-        view.marks.focused = Some(above);
+        view.marks.focused = Some(super::FocusAt::Item(above));
         view.window.set_focus_id(format!("item:{handle}").into());
         let reached: Vec<Edge> = view
             .reach_events(&key)
@@ -874,6 +925,34 @@ mod tests {
             })
             .collect();
         assert_eq!(reached, [Edge::GapUpper(1), Edge::GapLower(1)]);
+
+        // The same move onto the gap's line, which stands in the row below
+        // and is the first stop down: a move down, the upper side first
+        // (`focus_moving_down_onto_a_gaps_line_fetches_its_upper_side_first`).
+        view.marks.reached.clear();
+        view.marks.focused = Some(super::FocusAt::Item(above));
+        view.marks.rows.push(crate::generated::MarkRow {
+            place: 1,
+            handle,
+            focus_key: "earlier-unread:l1".into(),
+            ..Default::default()
+        });
+        view.window.set_focus_id("earlier-unread:l1".into());
+        // Focus on the line brings its row into view, as the toolkit does.
+        view.shared.borrow_mut().window_view.in_view.insert(handle);
+        let reached: Vec<Edge> = view
+            .reach_events(&key)
+            .into_iter()
+            .filter_map(|e| match e {
+                WindowEvent::Input(WindowInput::Reached { edge, .. }) => Some(edge),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            reached,
+            [Edge::GapUpper(1), Edge::GapLower(1)],
+            "onto the line"
+        );
     }
 
     #[test]
