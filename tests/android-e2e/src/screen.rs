@@ -232,11 +232,46 @@ impl Screens {
     }
 
     /// Back pressed, and every one of `then` seen after it.
+    ///
+    /// The soft keyboard is hidden first: while it is up the platform
+    /// spends a Back on it and the app never sees one, and a page whose
+    /// opening focuses a text field (the add page's address field) has
+    /// it up.
     fn back(&mut self, then: &[&str], patience: Duration) -> Result<(), String> {
         self.settle()?;
+        self.hide_keyboard()?;
         let from = self.seen.len();
         self.key("KEYCODE_BACK")?;
         self.wait_all(from, then, patience)
+    }
+
+    /// Back spent on the soft keyboard if it is up, and its going waited
+    /// for; nothing pressed when it is down, since that Back would reach
+    /// the app.
+    fn hide_keyboard(&mut self) -> Result<(), String> {
+        if !self.keyboard_up()? {
+            return Ok(());
+        }
+        self.key("KEYCODE_BACK")?;
+        let deadline = Instant::now() + TAB_PATIENCE;
+        loop {
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "the soft keyboard still up {TAB_PATIENCE:?} after a Back"
+                ));
+            }
+            if !self.keyboard_up()? {
+                return Ok(());
+            }
+            std::thread::sleep(POLL);
+        }
+    }
+
+    /// Whether the input method shows its window, by the platform's own
+    /// `mInputShown`, the one line API 30 and API 36 both print.
+    fn keyboard_up(&self) -> Result<bool, String> {
+        let out = self.adb_ok(&["shell", "dumpsys", "input_method"])?;
+        keyboard_shown(&out).ok_or_else(|| "dumpsys input_method printed no mInputShown".to_owned())
     }
 
     /// TAB until the trace names `key` (a prefix ending in `:` matches
@@ -449,6 +484,18 @@ fn typable(line: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | ':' | '-' | '_'))
 }
 
+/// `mInputShown` out of `dumpsys input_method`, the first one printed:
+/// the service's own, above any client's state it lists after.
+fn keyboard_shown(dump: &str) -> Option<bool> {
+    dump.lines()
+        .find_map(|l| l.trim().strip_prefix("mInputShown="))
+        .and_then(|v| match v.trim() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        })
+}
+
 fn step(case: &str, passed: bool, detail: String) -> Step {
     let mut out = Map::new();
     out.insert(keys::CASE.to_owned(), json!(case));
@@ -475,6 +522,16 @@ mod tests {
                 "ui-trace show=shown"
             ]
         );
+    }
+
+    #[test]
+    fn the_keyboard_is_read_from_the_first_input_shown_line() {
+        let up = "Input method service state:\n  mImeWindowVis=3\n  mInputShown=true\n  mInputShown=false\n";
+        assert_eq!(keyboard_shown(up), Some(true));
+        let down = "  mImeWindowVis=0\r\n      mInputShown=false\r\n";
+        assert_eq!(keyboard_shown(down), Some(false));
+        assert_eq!(keyboard_shown("mImeWindowVis=0\n"), None);
+        assert_eq!(keyboard_shown("mInputShown=maybe\n"), None);
     }
 
     #[test]
