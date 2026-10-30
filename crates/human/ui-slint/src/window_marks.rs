@@ -859,6 +859,28 @@ impl View {
             .then(|| self.item_handles.of(&key))
     }
 
+    /// A fresh model now reads this view -- Android makes one at each
+    /// change of the service's running state and at each attach: what was
+    /// reported to the last one is forgotten, so the next
+    /// [`Self::take_window_events`] reports the conversation shown as
+    /// opened and every avatar in view as shown again, with no place, edge,
+    /// press or failure carried over from a model that no longer reads
+    /// them (`a_fresh_model_is_told_the_open_conversation_and_avatars_again`).
+    pub fn forget_window_reports(&mut self) {
+        self.marks.opened = None;
+        self.marks.avatars.clear();
+        self.marks.reached.clear();
+        self.marks.place = None;
+        self.marks.focused = None;
+        self.marks.pressed.clear();
+        self.marks.failed.clear();
+        self.marks.loading_since.clear();
+        let mut shared = self.shared.borrow_mut();
+        shared.window_presses.clear();
+        shared.window_view.moved_up = None;
+        shared.window_view.in_view.clear();
+    }
+
     /// The window reports since the last call, for the root to apply: the
     /// conversation opened or closed, the person's place and the edges
     /// reached or left, and the presses of a failure row's Try again and a

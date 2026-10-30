@@ -55,7 +55,7 @@ fn a_case_on_the_hub_hears_the_listing_commands_the_facade_and_hears_the_stop() 
         assert!(Instant::now() < deadline, "listed {listed}, done {done}");
         for update in client.updates(Duration::from_millis(100)).expect("reading") {
             match update {
-                Update::Listed(_) => listed = true,
+                Update::Started(_) => listed = true,
                 Update::Done(Command::RecheckStorage) => done = true,
                 _ => {}
             }

@@ -11,6 +11,11 @@
 //! has not listed. With no view attached, updates are not kept: the store
 //! holds every row a view will list when it attaches, and what a person
 //! must hear while no view is open is a notice, not an update.
+//!
+//! "Listing" here names that first update, whatever it carries: since
+//! the windowed start it is `Update::Started` -- the summaries, not the
+//! rows, which the open conversation pages in -- and the hub neither
+//! reads nor shapes it.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
@@ -45,7 +50,7 @@ pub enum ToView {
     /// a change of [`ToView::Running`], as access does.
     AuthenticationNeeded(bool),
     /// An update for the model side, the first after an attach or a start
-    /// being `Update::Listed`.
+    /// being `Update::Started`.
     Update(Box<Update>),
     /// The store could not be listed for this view: what it holds stays
     /// unshown until the view attaches again. A class, never content.

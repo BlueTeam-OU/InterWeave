@@ -4158,3 +4158,222 @@ fn while_the_contacts_are_unread_a_proposals_menu_offers_no_accept() {
         assert!(!shows(&view, text(accept)), "no {accept:?}");
     }
 }
+
+/// ux-designer's check of the marks inside an Accept snackbar's span
+/// (contact-cards 5.4.2 as the INFO of 2026-10-30 rules it): a gap's
+/// failure row drawn after the confirmation row is in the span, so with
+/// focus on its Try again for longer than the snackbar's time the
+/// snackbar still waits, and its Undo is still reached. Mutation: a
+/// window mark's place not read for the span.
+#[test]
+fn an_accept_snackbar_waits_on_a_gaps_try_again_after_its_row() {
+    use interweave_human_ui_model::preview::cut;
+    use interweave_human_ui_model::{
+        Edge, ListedInbound, NewestRow, PageEnd, PageRows, READ_PROPOSAL_CAP, SESSION_ITEM_CAP,
+        StoredSummary, Table, WindowInput,
+    };
+    let clock = std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now()));
+    let key = direct(P);
+    let at = |n: i64| NOW - u64::try_from(20 - n).expect("small") * MINUTE;
+    let listed = |n: i64| {
+        let m = message(n, &format!("message {n}"), at(n));
+        ListedInbound {
+            row: m.row,
+            origin: m.origin,
+            envelope: m.envelope,
+            received_at: m.received_at,
+        }
+    };
+    let page = |model: &mut UiModel, rows: std::ops::RangeInclusive<i64>, proposals, end| {
+        let mut asks = model.take_page_asks();
+        assert_eq!(asks.len(), 1, "{asks:?}");
+        model.page_arrived(PageRows {
+            ask: asks.remove(0),
+            unread: Vec::new(),
+            kept: rows.map(listed).collect(),
+            proposals,
+            end,
+        });
+    };
+    let mut model = UiModel::new();
+    model.set_bounds_for_test(SESSION_ITEM_CAP, 12, READ_PROPOSAL_CAP);
+    model.started(
+        Vec::new(),
+        vec![StoredSummary {
+            conversation: key.clone(),
+            unread: 0,
+            newest: Some(NewestRow {
+                table: Table::Kept,
+                row: row(16),
+                received_at: at(16),
+                preview: cut("message 16"),
+                card: false,
+            }),
+        }],
+        Some(row(i64::MAX)),
+    );
+    model.contacts_directory(Ok(Vec::new()));
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(900.0, 2400.0));
+    let c = std::rc::Rc::clone(&clock);
+    view.set_monotonic(move || c.get());
+    let _ = shown(&mut view, &mut model, P);
+    for event in view.take_window_events() {
+        model.window_event(event);
+    }
+
+    // The newest page, then the rest up to the start, the card among the
+    // oldest rows; focus on the oldest; then an arrival past the ceiling
+    // of 12 lets go of the rows farthest from focus, short of the newest:
+    // a gap below the card.
+    page(&mut model, 9..=16, Vec::new(), PageEnd::More);
+    model.window_input(WindowInput::Reached {
+        conversation: key.clone(),
+        edge: Edge::Top,
+    });
+    let card_row = row(1_000);
+    page(
+        &mut model,
+        1..=8,
+        vec![Proposal {
+            received_at: at(3) + MINUTE / 2,
+            ..proposal(1_000, P, card("Ada", false), context())
+        }],
+        PageEnd::Exhausted,
+    );
+    let oldest = model.messages(&key)[0].key;
+    model.window_input(WindowInput::Place {
+        conversation: key.clone(),
+        focused: Some(oldest),
+        in_view: Vec::new(),
+    });
+    model.received(message(17, "message 17", at(17)));
+    let gap = model
+        .window_edges(&key)
+        .into_iter()
+        .find_map(|(edge, _)| match edge {
+            Edge::GapUpper(id) => Some(id),
+            _ => None,
+        })
+        .expect("a gap");
+    view.render(&model);
+    settle();
+
+    press(&view, text(UiText::CardAccept));
+    let _ = intents(&mut view, &mut model);
+    model.card_resolved(
+        card_row,
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: true,
+            photo_dropped: false,
+            photo_removed: false,
+        },
+    );
+    model.contacts_listed(vec![contact("c1", "Ada", P)]);
+    view.render(&model);
+    settle();
+    assert!(model.snackbar().is_some(), "the Accept's snackbar");
+
+    model.window_input(WindowInput::Reached {
+        conversation: key.clone(),
+        edge: Edge::GapUpper(gap),
+    });
+    let mut asks = model.take_page_asks();
+    assert_eq!(asks.len(), 1, "the gap's page: {asks:?}");
+    model.page_failed(&asks.remove(0));
+    view.render(&model);
+    settle();
+    assert!(
+        shows(&view, text(UiText::EarlierLoadFailed)),
+        "the failure row"
+    );
+    view.window()
+        .set_focus_id(format!("mark-action:u{gap}").as_str().into());
+    // Two ticks: the first starts the full time if focus is outside the
+    // span, and the second, past it, would close the snackbar.
+    step(&clock, std::time::Duration::from_millis(100));
+    step(&clock, std::time::Duration::from_secs(10));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        model.snackbar().is_some(),
+        "waits while focus is on the gap's Try again"
+    );
+    view.render(&model);
+    press(&view, text(UiText::Undo));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        [Intent::UndoCard(card_row)],
+        "its Undo is reached"
+    );
+}
+
+/// #517 review F1: Android makes a fresh model under a view that still
+/// shows what the last one read. Once told so, the view reports the
+/// conversation it shows as opened -- with nothing to close, since the
+/// fresh model has no window -- and every avatar in view as shown, so the
+/// fresh model pages the conversation and asks for the photos. Without
+/// it the view reports nothing: it told the last model already. Mutation:
+/// `forget_window_reports` forgetting nothing.
+#[test]
+fn a_fresh_model_is_told_the_open_conversation_and_avatars_again() {
+    use interweave_human_ui_model::preview::cut;
+    use interweave_human_ui_model::{NewestRow, StoredSummary, Table, WindowEvent, WindowInput};
+    let started = || {
+        let mut model = UiModel::new();
+        model.started(
+            Vec::new(),
+            vec![StoredSummary {
+                conversation: direct(P),
+                unread: 1,
+                newest: Some(NewestRow {
+                    table: Table::Unread,
+                    row: row(1),
+                    received_at: NOW,
+                    preview: cut("hello"),
+                    card: false,
+                }),
+            }],
+            Some(row(i64::MAX)),
+        );
+        model
+    };
+    let mut view = view();
+    let mut model = started();
+    let _ = shown(&mut view, &mut model, P);
+    view.render(&model);
+    settle();
+    let opened = WindowEvent::Input(WindowInput::Opened(direct(P)));
+    assert!(
+        view.take_window_events().contains(&opened),
+        "the first model"
+    );
+
+    let fresh = started();
+    view.render(&fresh);
+    settle();
+    assert!(
+        view.take_window_events().is_empty(),
+        "control: nothing new to report without being told"
+    );
+    view.forget_window_reports();
+    let again = view.take_window_events();
+    assert_eq!(again.first(), Some(&opened), "told again: {again:?}");
+    assert!(
+        !again
+            .iter()
+            .any(|e| matches!(e, WindowEvent::Input(WindowInput::Closed(_)))),
+        "the fresh model has nothing to close: {again:?}"
+    );
+
+    let mut model = windowed_contacts(3);
+    open_contacts(&mut view, &mut model);
+    let fresh = windowed_contacts(3);
+    view.render(&fresh);
+    settle();
+    assert_eq!(avatar_reports(&mut view), (0, 0), "control");
+    view.forget_window_reports();
+    assert_eq!(avatar_reports(&mut view), (3, 0), "every avatar in view");
+}

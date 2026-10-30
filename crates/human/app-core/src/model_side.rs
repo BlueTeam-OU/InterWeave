@@ -31,6 +31,11 @@ pub trait Surface {
     fn take_window(&mut self) -> Vec<WindowEvent> {
         Vec::new()
     }
+    /// A fresh model now reads this surface: what it reported to an
+    /// earlier one is reported again (Android makes a model per running
+    /// state and per attach, under one view; #517 review F1). Nothing by
+    /// default: a surface that reports nothing forgets nothing.
+    fn model_made(&mut self) {}
 }
 
 /// Opens a link a person activated, outside the client: a browser, a mail
@@ -124,7 +129,8 @@ pub struct ModelSide<S: Surface, O: Opener> {
 
 impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// A model side over `surface`, opening activated links with `opener`.
-    pub fn new(surface: S, opener: O) -> Self {
+    pub fn new(mut surface: S, opener: O) -> Self {
+        surface.model_made();
         Self {
             model: UiModel::new(),
             surface,
@@ -878,6 +884,28 @@ mod tests {
         fn open(&mut self, _destination: &str) {}
         fn ask_network_access(&mut self) {}
         fn authenticate(&mut self) {}
+    }
+
+    /// Each model side made tells its surface, once, that a fresh model
+    /// reads it (#517 review F1). Mutation: `new` not telling it.
+    #[test]
+    fn a_model_side_made_tells_its_surface_once() {
+        struct Counting(std::rc::Rc<std::cell::Cell<u32>>);
+        impl Surface for Counting {
+            fn render(&mut self, _model: &UiModel) {}
+            fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+                Vec::new()
+            }
+            fn model_made(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let made = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut side = ModelSide::new(Counting(std::rc::Rc::clone(&made)), Nothing);
+        let _ = side.turn();
+        assert_eq!(made.get(), 1);
+        let _second = ModelSide::new(Counting(std::rc::Rc::clone(&made)), Nothing);
+        assert_eq!(made.get(), 2, "one per model");
     }
 
     #[test]

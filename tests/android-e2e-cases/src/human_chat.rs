@@ -28,7 +28,9 @@ use std::time::{Duration, Instant};
 use interweave_human_app_core::{Command, ModelSide, Opener, Update};
 use interweave_human_chat_protocol::HumanChatV2;
 use interweave_human_client_api::OutboundStatus;
-use interweave_human_ui_model::{ConversationKey, Direction, ItemStatus, UiModel, ViewEvent};
+use interweave_human_ui_model::{
+    ConversationKey, Direction, ItemStatus, UiModel, ViewEvent, WindowEvent, WindowInput,
+};
 use interweave_local_client_api::{
     DataSessionBinding, DataSessionPort, LocalDataSession, SessionEvent, SessionRequest,
 };
@@ -308,6 +310,10 @@ impl HumanChatArgs {
 #[derive(Default)]
 struct Script {
     queue: VecDeque<Step>,
+    /// The conversation the person opens, reported at the next take: a
+    /// windowed start holds no conversation's rows until its window is
+    /// open, so the answers would be counted and never shown.
+    opens: Option<ConversationKey>,
 }
 
 enum Step {
@@ -331,6 +337,14 @@ impl interweave_human_app_core::Surface for Script {
                 .collect(),
         }
     }
+
+    fn take_window(&mut self) -> Vec<WindowEvent> {
+        self.opens
+            .take()
+            .map(|key| WindowEvent::Input(WindowInput::Opened(key)))
+            .into_iter()
+            .collect()
+    }
 }
 
 struct NoLinks;
@@ -348,9 +362,12 @@ impl Opener for NoLinks {
 /// What the case has seen of the facade, beyond the model.
 #[derive(Default)]
 struct Seen {
-    /// The store's listing arrived: the hub sends a view no update
-    /// before it, so nothing typed earlier could be followed.
+    /// The store's listing or windowed start arrived: the hub sends a
+    /// view no update before it, so nothing typed earlier could be
+    /// followed.
     listed: bool,
+    /// The first was a windowed start, whose conversation must be opened.
+    windowed: bool,
     /// Each send the facade committed, as committed.
     sent: Vec<HumanChatV2>,
 }
@@ -365,6 +382,10 @@ fn step(
     for update in client.updates(Duration::from_millis(100))? {
         match &update {
             Update::Listed(_) => seen.listed = true,
+            Update::Started(_) => {
+                seen.listed = true;
+                seen.windowed = true;
+            }
             Update::Sent { envelope, .. } => seen.sent.push(envelope.clone()),
             _ => {}
         }
@@ -419,6 +440,18 @@ pub(crate) fn human_chat(
         "the store's listing for the view",
         |_, seen| seen.listed,
     )?;
+    if seen.windowed {
+        side.surface_mut().opens = Some(key.clone());
+        // Open before the first draft: a turn takes the person's events
+        // before the window's, so a draft queued now would be sent first.
+        // The opening is taken in the turn that applies it.
+        while side.surface_mut().opens.is_some() {
+            step(client, &mut side, &mut seen)?;
+            if Instant::now() >= until {
+                return Err("the conversation was never opened".to_owned());
+            }
+        }
+    }
 
     // Each draft typed and sent as a person would, one at a time: the
     // window offers one send per conversation in flight. A refusal with

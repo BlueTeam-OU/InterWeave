@@ -150,37 +150,48 @@ impl FacadeLoop {
         let (close, mut closed) = oneshot::channel();
         let (report, reported) = std::sync::mpsc::sync_channel(1);
         let on_thread = Arc::clone(hub);
-        let spawned =
-            std::thread::Builder::new()
-                .name("human-facade".to_owned())
-                .spawn(move || {
-                    let hub = on_thread;
-                    let side = match make() {
-                        Ok(side) => side,
-                        Err(e) => {
-                            let _ = report.send(Err(e));
-                            return;
-                        }
-                    };
-                    let generation = hub.started(commands);
-                    let mut held = Held {
-                        side,
-                        _ends: Ends {
-                            hub: Arc::clone(&hub),
-                            generation,
-                        },
-                    };
-                    let side = &mut held.side;
-                    let _ = report.send(Ok(generation));
-                    let start = Instant::now();
-                    let now = || u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                    executor.block_on(async {
+        let spawned = std::thread::Builder::new()
+            .name("human-facade".to_owned())
+            .spawn(move || {
+                let hub = on_thread;
+                let side = match make() {
+                    Ok(side) => side,
+                    Err(e) => {
+                        let _ = report.send(Err(e));
+                        return;
+                    }
+                };
+                let generation = hub.started(commands);
+                let mut held = Held {
+                    side,
+                    _ends: Ends {
+                        hub: Arc::clone(&hub),
+                        generation,
+                    },
+                };
+                let side = &mut held.side;
+                let _ = report.send(Ok(generation));
+                let start = Instant::now();
+                let now = || u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                executor.block_on(async {
                     loop {
                         if let Some(relists) = hub.wants_listing(generation) {
-                            hub.listed(generation, relists, match side.listing() {
-                                Ok(listing) => ToView::Update(Box::new(Update::Listed(listing))),
-                                Err(_) => ToView::ListingFailed,
-                            });
+                            // The windowed start, as on the desktop
+                            // (design/2026-10-27-start-window.md): the
+                            // summaries and the contacts, no backlog; the
+                            // open conversation reads its rows a page at a
+                            // time. A view started already re-bases on it
+                            // (ui-model `started`).
+                            hub.listed(
+                                generation,
+                                relists,
+                                match side.start() {
+                                    Ok(start) => {
+                                        ToView::Update(Box::new(Update::Started(Box::new(start))))
+                                    }
+                                    Err(_) => ToView::ListingFailed,
+                                },
+                            );
                             // A view attaching to a facade that has run
                             // for a while missed the events that set its
                             // state: they went out with no view to take
@@ -239,10 +250,10 @@ impl FacadeLoop {
                     }
                     side.close().await;
                 });
-                    // Its own generation only: a facade that outlived its close
-                    // never stops one started after it, and owes it a listing.
-                    drop(held);
-                });
+                // Its own generation only: a facade that outlived its close
+                // never stops one started after it, and owes it a listing.
+                drop(held);
+            });
         let thread = spawned.map_err(SpawnError::Thread)?;
         match reported.recv() {
             Ok(Ok(generation)) => Ok(Self {

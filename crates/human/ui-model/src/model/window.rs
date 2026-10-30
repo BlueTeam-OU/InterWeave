@@ -434,17 +434,27 @@ impl Windows {
         self.open.as_ref().map(|w| &w.conversation)
     }
 
-    /// A held stored row of the open conversation, at `mark`.
-    pub(super) fn holds(&mut self, table: Table, row: RowId, mark: PageMark) {
-        if let Some(window) = self.open.as_mut() {
+    /// A held stored row of `conversation`, at `mark`, if it is the open
+    /// one.
+    pub(super) fn holds(
+        &mut self,
+        conversation: &ConversationKey,
+        table: Table,
+        row: RowId,
+        mark: PageMark,
+    ) {
+        if let Some(window) = self.open_for(conversation) {
             window.marks.insert((table, row), mark);
         }
-        self.seen(mark);
+        self.seen(conversation, mark);
     }
 
-    /// The open conversation held a stored row at `mark`.
-    pub(super) fn seen(&mut self, mark: PageMark) {
-        if let Some(window) = self.open.as_mut() {
+    /// `conversation` held a stored row at `mark`. Only the open
+    /// conversation's own rows move its newest seen: another's would hide
+    /// a row the facade never handed over
+    /// (`another_conversations_card_moves_no_newest_seen`).
+    pub(super) fn seen(&mut self, conversation: &ConversationKey, mark: PageMark) {
+        if let Some(window) = self.open_for(conversation) {
             window.newest_seen = window.newest_seen.max(Some(mark));
         }
     }
@@ -484,7 +494,7 @@ impl Windows {
         if let Some(window) = self.open_for(conversation) {
             window.card_marks.insert(row, mark);
         }
-        self.seen(mark);
+        self.seen(conversation, mark);
     }
 
     /// A row of the open conversation the session bound dropped, from
@@ -745,13 +755,14 @@ impl UiModel {
             self.card_received(proposal);
         }
         if let Some(newest) = newest {
-            self.windows.seen(newest);
+            self.windows.seen(&page.ask.conversation, newest);
         }
         // Each message row the model now holds has its place; a proposal is
         // not an item, and the ceiling counts items' rows.
         for ((table, row), mark, _) in &marks {
             if self.by_row.contains_key(&(*table, *row)) {
-                self.windows.holds(*table, *row, *mark);
+                self.windows
+                    .holds(&page.ask.conversation, *table, *row, *mark);
             }
         }
         let Some(window) = self.windows.open.as_mut() else {

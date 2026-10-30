@@ -807,11 +807,14 @@ impl UiModel {
         if self.windowed.is_some() && self.windows.open_conversation() != Some(&conversation) {
             return;
         }
-        self.windows.seen(super::window::PageMark {
-            received_at: proposal.received_at,
-            kept: false,
-            row: proposal.row,
-        });
+        self.windows.seen(
+            &conversation,
+            super::window::PageMark {
+                received_at: proposal.received_at,
+                kept: false,
+                row: proposal.row,
+            },
+        );
         self.card_received(proposal);
     }
 

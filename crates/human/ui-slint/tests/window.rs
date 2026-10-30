@@ -91,8 +91,19 @@ fn described(view: &View, description: &str) -> usize {
         .count()
 }
 
+/// The window's announcement slots: they carry what is said, not an item
+/// a person moves to.
+fn announcement(e: &ElementHandle) -> bool {
+    e.id()
+        .is_some_and(|id| id.ends_with("announce-a") || id.ends_with("announce-b"))
+}
+
+/// The elements labelled `label`, the announcement slots apart: a
+/// failure row's text is also what is announced.
 fn labelled(view: &View, label: &str) -> Vec<ElementHandle> {
-    ElementHandle::find_by_accessible_label(view.window(), label).collect()
+    ElementHandle::find_by_accessible_label(view.window(), label)
+        .filter(|e| !announcement(e))
+        .collect()
 }
 
 /// A Chats row's description for one unread message previewed as
@@ -958,4 +969,42 @@ fn each_page_in_the_conversations_place_ends_show_more_and_details_does_not() {
     reach(&mut model);
     assert!(!at_limit(&model), "no limit row after Details");
     assert_eq!(model.take_page_asks().len(), 1, "the next page, unasked");
+}
+
+/// The opening's page, and a page of earlier rows after it, are rows the
+/// person asked for: nothing is announced (design section 10, item 3);
+/// a message the drain hands over after them is, by its author. Mutation:
+/// every unread item new to the conversation announced as an arrival.
+#[test]
+fn an_opening_page_is_not_announced_an_arrival_is() {
+    let mut view = view();
+    let from = peer();
+    let mut model = opened(&mut view, &from, 20);
+    let slots = |view: &View| {
+        [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ]
+    };
+    page(&mut model, &from, 11..=20);
+    apply(&mut view, &mut model);
+    assert_eq!(slots(&view), ["", ""], "the opening's page");
+
+    model.window_input(WindowInput::Reached {
+        conversation: direct(&from),
+        edge: Edge::Top,
+    });
+    page(&mut model, &from, 1..=10);
+    apply(&mut view, &mut model);
+    assert_eq!(slots(&view), ["", ""], "a page of earlier rows");
+
+    model.received(received(1_001, &from, "just now"));
+    view.render(&model);
+    let short = interweave_human_ui_model::short_peer(from.as_str());
+    let arrival = fill(text(UiText::AnnounceArrival), &[("author", &short)]);
+    assert!(
+        slots(&view).contains(&arrival),
+        "the drain's message: {:?}",
+        slots(&view)
+    );
 }

@@ -1488,3 +1488,76 @@ fn a_small_session_bound_reaches_the_limit_row() {
             .any(|m| m.kind == MarkKind::AtLimit(Edge::Top))
     );
 }
+
+/// A card of another conversation -- listed while this one is open, or
+/// brought back by an Undo that finished after the person moved here --
+/// is none of this window's rows: a row the store holds here, newer than
+/// every one the window held, still opens it again at the newest.
+/// Mutations: `seen` or `holds_card` moving the open window's newest seen
+/// for a card of any conversation.
+#[test]
+fn another_conversations_card_moves_no_newest_seen() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+
+    let mut listed = card(RowId::from_stored(1_005), Q);
+    listed.received_at = 1_005;
+    model.card_received(listed);
+    let mut undone = card(RowId::from_stored(1_006), Q);
+    undone.received_at = 1_006;
+    model.card_restored(undone);
+
+    model.summaries_listed(newest_at(3, 1_003), None);
+    let again = one_ask(&mut model);
+    assert_eq!((again.older_than, again.newer_than), (None, None));
+    assert!(again.seq > ask.seq, "a new opening");
+}
+
+/// A second start on a live model -- Android's view listed again from a
+/// newer facade -- re-bases its counts as a relist does: the open window
+/// opens again at the newest row when the store's newest is one it never
+/// held, and stays as it is when it held it. Mutation: the second start
+/// replacing the counts and leaving the window alone.
+#[test]
+fn a_second_start_opens_the_window_again_on_a_row_never_held() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+
+    model.started(Vec::new(), newest_at(2, 1_000), None);
+    assert!(model.take_page_asks().is_empty(), "the newest is held");
+    assert_eq!(model.len(), 2, "the window as it was");
+
+    model.started(Vec::new(), newest_at(3, 1_001), None);
+    let again = one_ask(&mut model);
+    assert_eq!((again.older_than, again.newer_than), (None, None));
+    assert!(again.seq > ask.seq, "a new opening");
+}
+
+/// A page's rows are rows the person asked for, never arrivals: only one
+/// the drain hands over while the window is open is, for a view to
+/// announce (design section 10, item 3: the opening announces nothing).
+/// Mutations: a page's rows marked arrived; the drain's not.
+#[test]
+fn only_the_drains_rows_are_arrivals_never_a_pages() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+    let arrived = |model: &UiModel| -> Vec<String> {
+        model
+            .messages(&conversation())
+            .into_iter()
+            .filter(|m| m.arrived)
+            .map(|m| m.source)
+            .collect()
+    };
+    assert_eq!(model.messages(&conversation()).len(), 2);
+    assert!(arrived(&model).is_empty(), "the page's rows");
+
+    handed(&mut model, 1_001);
+    assert_eq!(arrived(&model), ["row 1001"], "the drain's row");
+}

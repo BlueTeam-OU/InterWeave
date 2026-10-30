@@ -264,6 +264,12 @@ pub struct MessageItem {
     /// The identity's own card this row sent, drawn in place of a text
     /// (contact-cards section 5.5); `None` for a message.
     pub card: Option<cards::SentCard>,
+    /// An inbound message the drain handed over as it reached the store,
+    /// in this session: an arrival a view may announce. `false` for one a
+    /// page, a listing or a start read back -- the person asked for those
+    /// rows (design/2026-10-27-start-window.md section 10, item 3:
+    /// "nothing is announced") -- and for this client's own.
+    pub arrived: bool,
 }
 
 /// One conversation in the list.
@@ -643,6 +649,9 @@ struct Item {
     hidden: bool,
     /// The own card an outbound row carries, as sent.
     card: Option<cards::SentCard>,
+    /// Handed over by the drain as it reached the store, rather than read
+    /// back by a page, a listing or a start: what a view may announce.
+    arrived: bool,
 }
 
 impl Item {
@@ -916,11 +925,13 @@ impl UiModel {
             &received.origin,
             received.envelope,
             received.received_at,
+            true,
         );
         // Held in the open conversation: its place, and the held-row
         // ceiling, which a flood while the window has no focus reaches.
         if self.windowed.is_some() && self.by_row.contains_key(&(Table::Unread, received.row)) {
             self.windows.holds(
+                &conversation,
                 Table::Unread,
                 received.row,
                 window::PageMark {
@@ -943,6 +954,7 @@ impl UiModel {
                 &row.origin,
                 row.envelope,
                 row.received_at,
+                false,
             );
         }
     }
@@ -956,6 +968,7 @@ impl UiModel {
                 &row.origin,
                 row.envelope,
                 row.received_at,
+                false,
             );
         }
     }
@@ -1130,6 +1143,7 @@ impl UiModel {
             // A kept row keeps its stored copy at the time the message
             // reached this app: its place in the window.
             self.windows.holds(
+                &item.conversation,
                 Table::Kept,
                 kept_row,
                 window::PageMark {
@@ -1357,6 +1371,7 @@ impl UiModel {
                 sent_at_ms: i.envelope.sent_at_ms,
                 local_at: i.local_at,
                 card: i.card.clone(),
+                arrived: i.arrived,
             })
             .collect();
         list.sort_by(|a, b| a.local_at.cmp(&b.local_at).then_with(|| a.key.cmp(&b.key)));
@@ -1751,6 +1766,7 @@ impl UiModel {
         origin: &Origin,
         envelope: HumanChatV2,
         at: u64,
+        arrived: bool,
     ) {
         // Merged by row: the same row listed again is the same item, and a
         // row already released is not listed back by a stale snapshot.
@@ -1821,6 +1837,7 @@ impl UiModel {
                 last_pending: None,
                 hidden: false,
                 card: None,
+                arrived,
             },
         );
         self.arrived_in(&conversation_key);
@@ -1876,6 +1893,7 @@ impl UiModel {
                 last_pending: Some(row),
                 hidden: false,
                 card,
+                arrived: false,
             },
         );
         self.arrived_in(&conversation_key);
