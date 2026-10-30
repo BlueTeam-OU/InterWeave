@@ -28,7 +28,10 @@ rust-ui-dev-02's QUESTION 01a17e5d (U-a, U-b): the preview's bound
 (§3) and the Contacts list when its read fails, with what that
 withholds (§11). Revised again for rust-ui-dev-02's
 QUESTION 01a180cb: what one conversation's backlog may do to another
-(§3).
+(§3). And for its QUESTION 01a18b25 (B3's views): the progress row
+at the very top, held proposals and gaps, which side of a gap
+fetches, when a conversation is closed, and the Decline-only
+proposal (§5, §5.1, §7.1, §10, §11).
 
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
@@ -259,7 +262,13 @@ one.
 an indeterminate circular progress indicator (Material), centred, with
 `EarlierLoading` as its accessible name. It is not focusable and is
 not announced. It shows only if the page has not arrived within
-250 ms, so a fast load does not flicker.
+250 ms, so a fast load does not flicker. If the view is at its very
+top when the row shows, the row shows in view and what is below it
+moves down by its height, once and without animation, so the person
+sees that something is loading (rust-ui-dev-02's QUESTION 01a18b25,
+U1); the page's arrival then keeps the person's place as below. If
+the top edge is reached by focus with the view elsewhere, the row
+shows where it stands and the view does not move to it.
 
 **When it arrives.** The page's rows are added in their order between
 the `EarlierUnread` line, when it shows, and the row that was oldest:
@@ -335,6 +344,15 @@ between them that the app does not hold. Since the newest row is never
 released, a gap always has a held row below it, and the conversation
 has no bottom edge.
 
+A card proposal the app holds is a held row like any other (§11),
+wherever it stands in time: a gap is bounded by the nearest held rows
+of either kind, so a held proposal inside a run of released rows
+splits it into two gaps, each with its own sides and its own
+`EarlierUnread` line, and nothing is shown out of its order. At the
+top edge, the marks of §5 and §6 (failure, limit, progress,
+`EarlierUnread`) stand above everything held, proposals included
+(QUESTION 01a18b25, U2).
+
 A gap behaves as the top edge does (§5), from either side, with
 nothing new for the person to learn:
 
@@ -342,7 +360,13 @@ nothing new for the person to learn:
   scrolls into view, or receives focus moved by the person. The gap's
   rows nearest that side are fetched, a page at a time, once each time
   that side is reached; no page of a gap is requested while another
-  page of the same gap is in flight.
+  page of the same gap is in flight. When both sides are in view or
+  reached together, the side the person moved toward fetches first
+  (the scroll's direction, or focus's), and with no movement (opening,
+  or a page's arrival bringing a gap into view) the lower side does.
+  A side still in view when the other side's page arrives counts as
+  reached again, so a gap wholly in view fills page by page without
+  the person moving (QUESTION 01a18b25, U3).
 - **While it loads, when it fails, at the session bound**: §5's
   progress row, §5's failure row with Try again, and §7.1's limit row
   (where §7.1 asks) show in the gap, on the side that fetched. The upper side's row
@@ -480,7 +504,13 @@ requires is that **paging never drops a read row on its own**.
   rows in today's order. From then until the conversation is closed,
   paging is automatic again (§5) and drops as it needs: the person
   chose that once for this opening. Closing and reopening the
-  conversation asks again.
+  conversation asks again. A conversation is closed when it is no
+  longer shown: another conversation, Trust, Peers or Contacts in its
+  place on a wide layout closes it too, as §1's read rule already
+  treats "open" as "shown", and coming back asks again, since a
+  choice about losing rows is asked again rather than assumed
+  (QUESTION 01a18b25, U5). Whether its held rows are kept meanwhile
+  is the builder's (§3); the person sees no difference.
 - The unread rows not loaded stay unread and stored: the badge and
   `EarlierUnread` stay true, and they can be read later (after other
   read rows leave the session, or after a restart).
@@ -600,6 +630,18 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
    its stored copy gone) and go back to Chats. B's preview and time are
    that row's, not the older kept row's. Send a message in B and let it
    be accepted: B's preview is "You: " and that message.
+3b. **Placement** (§5, §5.1, §7.1, §11; QUESTION 01a18b25): with the
+   view at A's very top and the next page held (a test hook), the
+   progress row shows in view after 250 ms and the rows below move
+   down by its height, once. With a held proposal standing among
+   released rows, two gaps show around it, each loading on its own,
+   and at the top edge every mark stands above a leading proposal.
+   With a gap wholly in view and no movement, its lower side fetches
+   first, then the upper, until it is full. After `EarlierShowAnyway`,
+   open Contacts in the conversation's place on a wide layout and come
+   back: reaching the bound asks again. While contacts are unread, a
+   proposal shows one button, Decline, in Decline's place, and a left
+   swipe declines it.
 4. **Load by scrolling, position kept**: scroll A to its top. The next
    page loads above (the progress row only if it takes longer than
    250 ms); the row that was at the top stays where it was on screen;
@@ -772,7 +814,8 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     row older than the top edge (a test hook), so that the line shows,
     and reach the top edge again: the limit row shows.
 15. **Photos on demand** (§11), with photo loads slowed by a test hook.
-    The Contacts list, Chats and the app bar show a contact's initials
+    The Contacts list, and Chats and the app bar once they draw contact
+    avatars, show a contact's initials
     on its hue, at the photo's size, then the photo in its place:
     nothing else in the row moves, nothing animates and nothing is
     announced. A photo that cannot be read leaves the initials. A
@@ -822,8 +865,11 @@ line. Two of five failing is enough to reopen §6.
   PeerId (contact-cards §6.3): all are shown, and they are at most 63,
   since a 65th distinct source endpoint of a peer is malformed and
   stores nothing (§3, architect-cto's REPLY 01a17be2).
-- **Photos may load on demand** (U2 of QUESTION 01a17dc9). In the
-  Contacts list, on Chats and in the app bar, a contact whose photo
+- **Photos may load on demand** (U2 of QUESTION 01a17dc9). Where a
+  contact's avatar is drawn (contact-cards §6.1: the Contacts list,
+  the contact page, and Chats and the app bar once those draw contact
+  avatars rather than the PeerId's letters; when that is built is the
+  builder's, QUESTION 01a18b25 U4), a contact whose photo
   has not arrived shows its initials avatar (contact-cards §6.1), at
   the photo's size, and the photo replaces it in place when it
   arrives: nothing else moves, nothing animates, nothing is announced
@@ -894,7 +940,12 @@ line. Two of five failing is enough to reopen §6.
   then Contacts, then Try again." It offers no Accept,
   so its right swipe does nothing (contact-cards §5.4.4, a row with no
   Accept); a left swipe still declines it, and its menu and its screen
-  reader actions (contact-cards §8) offer no Accept. Details' naming by hand (contact-cards §5.6) is withheld in
+  reader actions (contact-cards §8) offer no Accept. Its buttons are
+  one, Decline, where Decline stands in the two-button layout, the
+  place where Accept would be left empty, so Decline never moves
+  under a person's finger when Accept comes back; it is never the
+  one-button Close row of case S, which declines nothing (QUESTION
+  01a18b25, U6). Details' naming by hand (contact-cards §5.6) is withheld in
   the same way, with `NamingContactsUnread` in its place, because it writes a
   contact without knowing whether the route is already under one.
   When a read succeeds, from Contacts' Try again or the next start,
