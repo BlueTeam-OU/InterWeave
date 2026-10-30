@@ -264,9 +264,15 @@ an indeterminate circular progress indicator (Material), centred, with
 not announced. It shows only if the page has not arrived within
 250 ms, so a fast load does not flicker. If the view is at its very
 top when the row shows, the row shows in view and what is below it
-moves down by its height, once and without animation, so the person
-sees that something is loading (rust-ui-dev-02's QUESTION 01a18b25,
-U1); the page's arrival then keeps the person's place as below. If
+moves down by its height, without animation, so the person sees that
+something is loading (rust-ui-dev-02's QUESTION 01a18b25, U1). When
+the row goes (the page arrived, or failed and the failure row takes
+its place), the view settles back: with no `EarlierUnread` line, the
+page's rows fill the row's place and the item the person was looking
+at stays where it now is; with the line at the top, the line, which
+no row goes above, moves back up by the row's height, and everything
+below with it. These are the only two movements, each once and
+without animation, and focus stays on its item through both. If
 the top edge is reached by focus with the view elsewhere, the row
 shows where it stands and the view does not move to it.
 
