@@ -1627,3 +1627,65 @@ fn a_received_cards_item_is_the_one_its_held_proposal_shows() {
         [model.proposal_item(&proposal)]
     );
 }
+
+/// Each gap lies between two held rows drawn next to each other: its
+/// `above` before its `below`, nothing drawn strictly between them, and
+/// its upper side's marks standing above the row at `below`. Mutation:
+/// `above` and `below` swapped.
+#[test]
+fn a_gaps_span_is_where_its_edges_stand() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    let gaps = model.window_gaps(&conversation());
+    assert!(!gaps.is_empty(), "a gap past the ceiling");
+    let drawn = model.drawn_order(&conversation());
+    let edges = model.window_edges(&conversation());
+    for gap in gaps {
+        assert!(gap.above < gap.below, "{gap:?}");
+        assert!(
+            drawn.iter().any(|(at, _)| *at == gap.above),
+            "above is a held row"
+        );
+        let below = drawn
+            .iter()
+            .find(|(at, _)| *at == gap.below)
+            .map(|(_, anchor)| *anchor)
+            .expect("below is a held row");
+        assert!(
+            !drawn
+                .iter()
+                .any(|(at, _)| gap.above < *at && *at < gap.below),
+            "nothing drawn inside"
+        );
+        let upper = edges
+            .iter()
+            .find(|(edge, _)| *edge == gap.upper)
+            .map(|(_, place)| *place);
+        assert_eq!(upper, Some(MarkPlace::Above(below)));
+    }
+}
+
+/// The window's opening is numbered: a relist that leaves the window as
+/// it was keeps the number, and one that opens it again at the newest row
+/// gives a new one. Mutation: the number kept across a new opening.
+#[test]
+fn a_relist_that_reopens_gives_a_new_opening() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+    let first = model.window_opening().expect("open");
+    assert_eq!(first.0, conversation());
+
+    model.summaries_listed(newest_at(2, 1_000), None);
+    assert_eq!(
+        model.window_opening(),
+        Some(first.clone()),
+        "the newest held"
+    );
+    model.summaries_listed(newest_at(3, 1_001), None);
+    let again = model.window_opening().expect("open");
+    assert_eq!(again.0, conversation());
+    assert!(again.1 > first.1, "a new opening");
+}
