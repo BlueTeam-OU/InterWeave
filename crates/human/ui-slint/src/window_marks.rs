@@ -307,6 +307,13 @@ impl View {
         let marks = self.marks.now.clone();
         let rows: Vec<MarkRow> = marks.iter().map(|mark| self.mark_row(mark)).collect();
         self.focus_below_a_mark_gone(&rows);
+        // Where each focusable mark stands, for the Accept snackbar's span
+        // (`swipe::in_accept_span`).
+        self.shared.borrow_mut().order.marks = rows
+            .iter()
+            .filter(|r| !r.focus_key.is_empty())
+            .map(|r| (r.focus_key.to_string(), (r.place, r.handle)))
+            .collect();
         let model = &self.marks.rows;
         if model.row_count() == rows.len() {
             // Row by row: a reset would drop a touch held in the list.

@@ -329,12 +329,15 @@ pub(crate) const fn is_accept(confirms: Confirmation) -> bool {
 }
 
 /// The conversation's rows as drawn, for the reading order: its messages'
-/// handles in order, and the message each card row follows (-1 before
-/// them all), by the card row's handle.
+/// handles in order, the message each card row follows (-1 before them
+/// all), by the card row's handle, and where each window mark a person can
+/// focus stands, by its focus key: its place (0 the top, 1 above a
+/// message, 2 above a card row, 3 the end) and that row's handle.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Order {
     pub(crate) messages: Vec<i32>,
     pub(crate) card_after: Vec<i32>,
+    pub(crate) marks: std::collections::HashMap<String, (i32, i32)>,
 }
 
 /// Whether focus id `focus` is in an Accept snackbar's waiting span
@@ -343,7 +346,10 @@ pub(crate) struct Order {
 /// row or a message after it, the composer, the snackbar's Undo. Card
 /// rows stand at their place in time among the messages, so a message
 /// drawn after the confirmation row is in the span and one before it is
-/// not (`a_message_after_the_confirmation_row_is_in_its_span`).
+/// not (`a_message_after_the_confirmation_row_is_in_its_span`); a window
+/// mark -- a line, a gap's failure or limit row and its button -- by
+/// where it stands, after the row inside, before it outside
+/// (`a_window_mark_after_the_confirmation_row_is_in_its_span`).
 pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>, order: &Order) -> bool {
     if focus == "composer" || focus == "undo" {
         return true;
@@ -351,6 +357,18 @@ pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>, order: &Order
     let Some(row) = row_handle else {
         return false;
     };
+    if let Some(&(place, handle)) = order.marks.get(focus) {
+        return match place {
+            // Above everything: before the row.
+            0 => false,
+            // Above a message: inside when the message is.
+            1 => message_after_row(handle, row, order),
+            // Above a card row: inside when that card comes after the
+            // confirmation row; above the row itself it stands before it.
+            2 => handle > row,
+            _ => true,
+        };
+    }
     // A key's handle comes first after its prefix; a link's adds its
     // place after it.
     let handle_after = |prefixes: &[&str]| {
@@ -376,6 +394,11 @@ pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>, order: &Order
     let Some(message) = handle_after(&["item:", "link:", "action:", "source:"]) else {
         return false;
     };
+    message_after_row(message, row, order)
+}
+
+/// Whether the message at `message` is drawn after the card row `row`.
+fn message_after_row(message: i32, row: i32, order: &Order) -> bool {
     let Some(&follows) = usize::try_from(row)
         .ok()
         .and_then(|r| order.card_after.get(r))
@@ -443,6 +466,7 @@ mod tests {
         let order = Order {
             messages: vec![10, 11, 12, 13],
             card_after: vec![-1, 11],
+            ..Order::default()
         };
         assert!(in_accept_span("item:12", Some(1), &order));
         assert!(in_accept_span("link:13:0", Some(1), &order));
@@ -466,5 +490,43 @@ mod tests {
             "all after a row before them"
         );
         assert!(!in_accept_span("item:12", None, &order));
+    }
+
+    /// A window mark after the confirmation row is in the Accept
+    /// snackbar's span, one before it is not: a line above a later
+    /// message, a gap's Try again above a later card, a mark at the end;
+    /// not the top's marks, a mark above the row itself, or one above an
+    /// earlier message (contact-cards 5.4.2 as ux-designer's REPLY
+    /// 01a18cfd reads it). Mutation: marks never in the span.
+    #[test]
+    fn a_window_mark_after_the_confirmation_row_is_in_its_span() {
+        let marks = [
+            ("earlier-unread:l1", (1, 12)),
+            ("mark-action:u2", (2, 2)),
+            ("read-not-shown:3:-1", (3, -1)),
+            ("earlier-unread:t", (0, -1)),
+            ("mark-action:l3", (2, 1)),
+            ("read-not-shown:1:11", (1, 11)),
+        ];
+        let order = Order {
+            messages: vec![10, 11, 12, 13],
+            card_after: vec![-1, 11, 11],
+            marks: marks.iter().map(|(k, at)| ((*k).to_owned(), *at)).collect(),
+        };
+        assert!(in_accept_span("earlier-unread:l1", Some(1), &order));
+        assert!(in_accept_span("mark-action:u2", Some(1), &order));
+        assert!(in_accept_span("read-not-shown:3:-1", Some(1), &order));
+        assert!(
+            !in_accept_span("earlier-unread:t", Some(1), &order),
+            "the top"
+        );
+        assert!(
+            !in_accept_span("mark-action:l3", Some(1), &order),
+            "above the row itself"
+        );
+        assert!(
+            !in_accept_span("read-not-shown:1:11", Some(1), &order),
+            "above an earlier message"
+        );
     }
 }
