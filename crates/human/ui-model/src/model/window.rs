@@ -275,6 +275,10 @@ enum EdgeState {
     /// The next page would drop a read row: the limit row shows until the
     /// person chooses Show more messages.
     AtLimit,
+    /// Asked -- reached, Try again or Show more messages -- while the gap's
+    /// other side had a page on its way: asked when that page settles,
+    /// arrived or failed, never dropped (`a_deferred_side_is_asked_when_the_other_page_settles`).
+    Wanted,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -399,6 +403,9 @@ impl Windows {
                 g.upper.state == EdgeState::InFlight || g.lower.state == EdgeState::InFlight
             })
         {
+            if let Some(side) = window.side(edge) {
+                side.state = EdgeState::Wanted;
+            }
             return;
         }
         if let Some(side) = window.side(edge) {
@@ -784,21 +791,40 @@ impl UiModel {
                 };
             }
         }
-        // The gap's other side, reached while this page was on its way and
-        // so not asked then, is asked now that none is.
-        let other = match edge {
-            Edge::GapUpper(id) if !gap_done => Some(Edge::GapLower(id)),
-            Edge::GapLower(id) if !gap_done => Some(Edge::GapUpper(id)),
-            _ => None,
-        };
-        if let Some(other) = other
-            && window
-                .side(other)
-                .is_some_and(|s| s.at && matches!(s.state, EdgeState::Armed | EdgeState::AtLimit))
-        {
-            self.reach(other);
+        if !gap_done {
+            self.gap_settled(edge);
         }
         self.hold_ceiling();
+    }
+
+    /// A gap's page settled, arrived or failed: its other side is asked
+    /// now that no page of the gap is on its way, when it was asked
+    /// meanwhile, or when it is still where the person is -- a side still
+    /// in view when the other side's page arrives counts as reached again,
+    /// so a gap wholly in view fills page by page without the person moving
+    /// (design section 5.1, U3; `a_gap_in_view_fills_page_by_page`).
+    fn gap_settled(&mut self, edge: Edge) {
+        let other = match edge {
+            Edge::GapUpper(id) => Edge::GapLower(id),
+            Edge::GapLower(id) => Edge::GapUpper(id),
+            Edge::Top => return,
+        };
+        let asked = self
+            .windows
+            .open
+            .as_mut()
+            .and_then(|w| w.side(other))
+            .is_some_and(|s| {
+                s.state == EdgeState::Wanted
+                    || (s.at
+                        && matches!(
+                            s.state,
+                            EdgeState::Armed | EdgeState::AtLimit | EdgeState::Spent
+                        ))
+            });
+        if asked {
+            self.reach(other);
+        }
     }
 
     /// The page asked for `ask` could not be read: the edge shows the
@@ -810,6 +836,7 @@ impl UiModel {
             && let Some(side) = window.side(ask.edge)
         {
             side.state = EdgeState::Failed;
+            self.gap_settled(ask.edge);
         }
     }
 
@@ -1300,7 +1327,8 @@ fn place_at(drawn: &[(Pos, Anchor)], at: Pos) -> MarkPlace {
 
 const fn side_mark(state: EdgeState, edge: Edge) -> Option<MarkKind> {
     match state {
-        EdgeState::InFlight => Some(MarkKind::Loading(edge)),
+        // A side waiting on the other side's page is on its way too.
+        EdgeState::InFlight | EdgeState::Wanted => Some(MarkKind::Loading(edge)),
         EdgeState::Failed => Some(MarkKind::Failed(edge)),
         EdgeState::AtLimit => Some(MarkKind::AtLimit(edge)),
         EdgeState::Armed | EdgeState::Spent | EdgeState::Exhausted => None,

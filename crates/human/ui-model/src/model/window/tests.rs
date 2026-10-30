@@ -1241,3 +1241,72 @@ fn a_gaps_marks_follow_section_8s_reading_order() {
         ]
     );
 }
+
+fn reach_both(model: &mut UiModel, id: u64) {
+    for edge in [Edge::GapUpper(id), Edge::GapLower(id)] {
+        model.window_input(WindowInput::Reached {
+            conversation: conversation(),
+            edge,
+        });
+    }
+}
+
+/// A gap wholly in view fills page by page without the person moving: a
+/// side still in view when the other side's page arrives counts as
+/// reached again (section 5.1, U3), until the gap is gone. Mutation: a
+/// side the person stays at, its page in, never asked again -- the gap
+/// stalls after one page each side.
+#[test]
+fn a_gap_in_view_fills_page_by_page() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Kept, PageEnd::Exhausted);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Kept);
+    reach_both(&mut model, id);
+    for (edge, row, end) in [
+        (Edge::GapUpper(id), n - 4, PageEnd::More),
+        (Edge::GapLower(id), n - 1, PageEnd::More),
+        (Edge::GapUpper(id), n - 3, PageEnd::More),
+        (Edge::GapLower(id), n - 2, PageEnd::Exhausted),
+    ] {
+        let ask = one_ask(&mut model);
+        assert_eq!(ask.edge, edge);
+        model.page_arrived(rows_of(&ask, &[row], Table::Kept, end));
+    }
+    assert!(model.take_page_asks().is_empty(), "the gap is full");
+    for back in n - 4..n {
+        assert!(holds(&model, back, Table::Kept), "row {back} back");
+    }
+}
+
+/// A side asked while the other side's page is on its way is never
+/// dropped: when that page fails, the waiting side is asked; a Try again
+/// pressed while the other side's page is on its way is asked once that
+/// page arrives. Mutations: the failure handing nothing over; the
+/// deferred Try again forgotten.
+#[test]
+fn a_deferred_side_is_asked_when_the_other_page_settles() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Kept, PageEnd::Exhausted);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Kept);
+    reach_both(&mut model, id);
+    let upper = one_ask(&mut model);
+    assert_eq!(upper.edge, Edge::GapUpper(id));
+    model.page_failed(&upper);
+    let lower = one_ask(&mut model);
+    assert_eq!(lower.edge, Edge::GapLower(id), "asked as the other failed");
+    model.window_input(WindowInput::TryAgain {
+        conversation: conversation(),
+        edge: Edge::GapUpper(id),
+    });
+    assert!(
+        model.take_page_asks().is_empty(),
+        "one page of the gap at a time"
+    );
+    model.page_arrived(rows_of(&lower, &[n - 1], Table::Kept, PageEnd::More));
+    let again = one_ask(&mut model);
+    assert_eq!(again.edge, Edge::GapUpper(id), "the Try again, not dropped");
+}
