@@ -1256,3 +1256,107 @@ async fn contacts_are_printed_in_the_collated_order() {
         .collect();
     assert_eq!(names, ["Åke", "ben", "Ben", "Chloe", "Zoe"], "{out}");
 }
+
+/// Bob holds Alice's card between `HELD_ROW_CAP + 100` older and as many
+/// newer messages from her: past the held-row ceiling from either end,
+/// where the first pass's focus, moving up to the oldest, leaves it
+/// behind. Bob's windowed run, and how many rows his store holds unread.
+async fn a_card_behind_the_ceiling() -> (Side, Side, Session<FakeNode, FakeNode>, i64) {
+    let (alice, bob, mut b_run) = Box::pin(shared()).await;
+    // The step that takes the card from the node commits it.
+    run(&mut b_run, Verb::Proposals, false)
+        .await
+        .1
+        .expect("taken");
+    b_run.close().await;
+    let mut held = store(bob.dir.path());
+    let newer = interweave_human_ui_model::HELD_ROW_CAP + 100;
+    for n in 0..2 * newer {
+        let id = format!("{n:032x}");
+        let n = u64::try_from(n).expect("small");
+        let newer = u64::try_from(newer).expect("small");
+        held.commit_unread_inbound(&interweave_human_store::NewInbound {
+            app_message_id: interweave_human_store::AppMessageId::parse(id.clone()).expect("an id"),
+            origin: interweave_human_store::InboundOrigin {
+                peer: alice.node.peer().clone(),
+                endpoint: Some(endpoint()),
+                channel: None,
+            },
+            media_type: Some(
+                interweave_transport_api::MediaType::parse(
+                    "application/vnd.interweave-human-chat+json;v=2",
+                )
+                .expect("media"),
+            ),
+            payload: format!(r#"{{"v":2,"kind":"text","app_message_id":"{id}","text":"around"}}"#)
+                .into_bytes(),
+            received_at: if n < newer {
+                WALL + 1 + n
+            } else {
+                WALL - 1 - (n - newer)
+            },
+            kind: interweave_human_store::InboundKind::Text,
+        })
+        .expect("committed");
+    }
+    drop(held);
+    let b_run = bob.started();
+    let unread = i64::try_from(2 * newer + 1).expect("small");
+    assert_eq!(unread_rows(&bob), unread, "the card and the messages");
+    (alice, bob, b_run, unread)
+}
+
+/// The card's unread row: the first committed, before the messages.
+fn card_row(side: &Side) -> i64 {
+    rusqlite::Connection::open(side.dir.path().join("human.sqlite3"))
+        .expect("the store file")
+        .query_row("SELECT MIN(row_id) FROM unread_inbound", [], |r| r.get(0))
+        .expect("a row")
+}
+
+fn unread_rows(side: &Side) -> i64 {
+    rusqlite::Connection::open(side.dir.path().join("human.sqlite3"))
+        .expect("the store file")
+        .query_row("SELECT COUNT(*) FROM unread_inbound", [], |r| r.get(0))
+        .expect("a count")
+}
+
+/// architect-cto's 01a18ecf Q3: `proposals` walks each conversation with
+/// an unread row to its top, the first pass alone: a card older than
+/// the held-row ceiling is listed, and nothing is read. Mutation: the
+/// proposals the model holds at the start listed, unwalked -- none.
+#[tokio::test]
+async fn proposals_lists_a_card_older_than_the_held_row_ceiling_and_reads_none() {
+    let (alice, bob, mut b_run, unread) = Box::pin(a_card_behind_the_ceiling()).await;
+    let (out, listed) = run(&mut b_run, Verb::Proposals, true).await;
+    listed.expect("listed");
+    let held = lines(&out);
+    assert_eq!(held.len(), 1, "{out}");
+    assert_eq!(held[0]["name"], "Ada Lovelace");
+    assert_eq!(held[0]["peer"], alice.node.peer().as_str());
+    assert_eq!(held[0]["status"], "unread");
+    assert_eq!(unread_rows(&bob), unread, "nothing read");
+}
+
+/// `proposals read` walks the conversation to its top before an id is
+/// checked: a card older than the held-row ceiling is found, accepted and
+/// read, and no message beside it. Mutation: the walk removed -- the id
+/// refused as naming no proposal.
+#[tokio::test]
+async fn proposals_read_finds_a_card_older_than_the_held_row_ceiling() {
+    let (alice, bob, mut b_run, unread) = Box::pin(a_card_behind_the_ceiling()).await;
+    let (out, read) = run(
+        &mut b_run,
+        Verb::ProposalsRead {
+            conversation: alice.route(),
+            accept: vec![format!("u{}", card_row(&bob))],
+            accept_key_change: vec![],
+            decline: vec![],
+        },
+        true,
+    )
+    .await;
+    read.expect("accepted");
+    assert_eq!(lines(&out)[0]["status"], "accepted", "{out}");
+    assert_eq!(unread_rows(&bob), unread - 1, "the card read, alone");
+}

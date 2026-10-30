@@ -105,6 +105,31 @@ impl Walk {
         !matches!(self.pass, Pass::Up)
     }
 
+    /// Walk the first pass alone: every page of the conversation read, to
+    /// its top, nothing handed over and nothing read. The model holds an
+    /// open conversation's proposals whatever the held-row ceiling lets go
+    /// of, so they are all held once it returns: a card past the ceiling
+    /// from either end is found
+    /// (`proposals_read_finds_a_card_older_than_the_held_row_ceiling`).
+    ///
+    /// # Errors
+    /// As [`Self::advance`].
+    pub(crate) async fn up_to_the_top<B: DataSessionBinding, A: AdminBinding>(
+        &mut self,
+        s: &mut Session<B, A>,
+    ) -> Result<(), Failure> {
+        while !self.past_the_top() {
+            self.advance(s).await?;
+        }
+        Ok(())
+    }
+
+    /// Close the conversation: the rows it held are let go, and stay in
+    /// the store.
+    pub(crate) fn close<B: DataSessionBinding, A: AdminBinding>(self, s: &mut Session<B, A>) {
+        s.side().window(WindowInput::Closed(self.key));
+    }
+
     /// Take one step of the walk.
     ///
     /// # Errors

@@ -28,6 +28,7 @@ use crate::cli::{PhotoArg, conversation_text};
 use crate::output::{json_line, one_line, utc};
 use crate::session::{STEP, Session};
 use crate::verbs::{Run, look, problems, ready};
+use crate::walk::Walk;
 
 /// The largest photo file read: a chosen image is re-encoded to the card's
 /// bound by the facade, and this keeps what is read before that bounded
@@ -402,15 +403,47 @@ pub(crate) fn every_proposal<B: DataSessionBinding, A: AdminBinding>(
         .collect()
 }
 
-/// `proposals`: every proposal held, none of them shown read.
+/// `proposals`: every proposal in the store, none of them shown read.
+///
+/// Each direct conversation with an unread row is walked to its top, the
+/// first pass alone, which reads nothing (architect-cto's 01a18ecf Q3): a
+/// conversation not open holds none of its proposals
+/// (`proposals_lists_a_card_older_than_the_held_row_ceiling_and_reads_none`).
+///
+/// # Errors
+/// [`Failure::Store`] when a page of a conversation cannot be read.
 pub(crate) async fn proposals<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     out: &mut String,
 ) -> Result<(), Failure> {
     look(s, r).await;
-    for (key, p) in every_proposal(s) {
-        out.push_str(&proposal(&p, &key, "unread", r.json));
+    let model = s.model();
+    let mut keys: Vec<ConversationKey> = model
+        .conversations()
+        .into_iter()
+        .filter(|c| c.unread > 0)
+        .map(|c| c.key)
+        .chain(model.proposal_conversations())
+        .filter(|k| {
+            matches!(
+                k,
+                ConversationKey::Direct {
+                    endpoint: Some(_),
+                    ..
+                }
+            )
+        })
+        .collect();
+    keys.sort();
+    keys.dedup();
+    for key in keys {
+        let mut walk = Walk::open(s, &key);
+        walk.up_to_the_top(s).await?;
+        for p in s.model().proposals(&key) {
+            out.push_str(&proposal(&p, &key, "unread", r.json));
+        }
+        walk.close(s);
     }
     Ok(())
 }
@@ -449,6 +482,10 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
         ));
     }
     look(s, r).await;
+    // Its first pass alone, which reads nothing: every proposal of the
+    // conversation held before an id is checked
+    // (`proposals_read_finds_a_card_older_than_the_held_row_ceiling`).
+    Walk::open(s, key).up_to_the_top(s).await?;
     let shown = s.model().proposals(key);
     let find = |id: &str, n: usize, what: &str| {
         shown
