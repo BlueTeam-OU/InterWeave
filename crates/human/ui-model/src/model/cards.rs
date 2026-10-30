@@ -602,6 +602,9 @@ pub(super) struct Cards {
     /// The number of the choice whose prepared photo the editor shows,
     /// or showed before the choice now held.
     own_photo_shown_seq: u64,
+    /// The read-proposal bound when a test build set one lower than
+    /// [`READ_PROPOSAL_CAP`] (`UiModel::set_bounds_for_test`).
+    cap: Option<usize>,
 }
 
 /// The confirmation row an Accept leaves in its proposal's place: "You
@@ -678,12 +681,23 @@ impl Cards {
         if self.proposals.contains_key(&row) && self.read.insert(row) {
             self.read_order.push_back(row);
         }
-        while self.read_order.len() > READ_PROPOSAL_CAP {
+        while self.read_order.len() > self.read_cap() {
             if let Some(oldest) = self.read_order.pop_front() {
                 self.read.remove(&oldest);
                 self.proposals.remove(&oldest);
             }
         }
+    }
+
+    /// The read-proposal bound held to.
+    fn read_cap(&self) -> usize {
+        self.cap.unwrap_or(READ_PROPOSAL_CAP)
+    }
+
+    /// Hold to `cap` read proposals: a test build's lower bound.
+    #[cfg(feature = "test-hooks")]
+    pub(super) const fn set_read_cap(&mut self, cap: usize) {
+        self.cap = Some(cap);
     }
 
     fn resolved(&mut self, row: RowId) -> Option<Proposal> {
@@ -701,7 +715,7 @@ impl Cards {
 
     fn answered(&mut self, answer: CardAnswer) {
         self.answers.insert(answer.row, answer);
-        while self.answers.len() > READ_PROPOSAL_CAP {
+        while self.answers.len() > self.read_cap() {
             self.answers.pop_first();
         }
     }
@@ -754,6 +768,19 @@ impl UiModel {
             },
         );
         self.cards.proposals.insert(proposal.row, proposal);
+        self.card_marks_follow();
+    }
+
+    /// The open window's card marks follow the proposals held. Every
+    /// change to the proposals held ends here -- an arrival, a copy gone,
+    /// an answer, a read past the read-proposal bound, an Undo -- so no
+    /// mark outlives its proposal, where the held-row ceiling would read
+    /// it as a held row bounding a gap (`card_marks_are_the_held_proposals_alone`,
+    /// `a_declined_oldest_card_bounds_no_gap`). A window's opening and
+    /// closing drop its marks with it.
+    pub(super) fn card_marks_follow(&mut self) {
+        let held = &self.cards.proposals;
+        self.windows.retain_card_marks(|row| held.contains_key(row));
     }
 
     /// A card the drain just committed unread, with its context: as
@@ -828,6 +855,7 @@ impl UiModel {
     /// nothing to confirm or undo.
     pub fn card_gone(&mut self, row: RowId) {
         self.cards.resolved(row);
+        self.card_marks_follow();
     }
 
     /// The person's answer to a proposal was carried out: an Accept leaves
@@ -849,7 +877,9 @@ impl UiModel {
         {
             windowed.left_unread(&conversation);
         }
-        let Some(proposal) = self.cards.resolved(row) else {
+        let resolved = self.cards.resolved(row);
+        self.card_marks_follow();
+        let Some(proposal) = resolved else {
             self.swipe_release_card(row);
             return;
         };
@@ -913,8 +943,21 @@ impl UiModel {
     pub fn card_restored(&mut self, proposal: Proposal) {
         let row = proposal.row;
         self.cards.answers.remove(&row);
+        self.windows.holds_card(
+            &ConversationKey::Direct {
+                peer: proposal.peer.clone(),
+                endpoint: Some(proposal.endpoint.clone()),
+            },
+            row,
+            super::window::PageMark {
+                received_at: proposal.received_at,
+                kept: false,
+                row,
+            },
+        );
         self.cards.proposals.insert(row, proposal);
         self.cards.read(row);
+        self.card_marks_follow();
         self.card_undone(row);
     }
 

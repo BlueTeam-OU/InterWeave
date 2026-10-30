@@ -1233,13 +1233,48 @@ fn a_gaps_marks_follow_section_8s_reading_order() {
         kinds,
         [
             MarkKind::AtLimit(Edge::GapUpper(id)),
-            MarkKind::AtLimit(Edge::GapLower(id)),
             MarkKind::EarlierUnread {
                 edge: Edge::GapLower(id),
                 count: 4
             },
         ]
     );
+}
+
+/// At the session bound a gap shows one limit row, on the side that would
+/// have fetched -- the one reached first -- never one on each side; once
+/// its Show more messages brings that side's page, the other side, still
+/// where the person is, is asked in turn (design section 5.1, section 10
+/// item 14 (c)). Mutation: the other side marked at the limit too.
+#[test]
+fn a_gap_at_the_bound_shows_one_limit_row() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Unread);
+    reach_both(&mut model, id);
+    let limits: Vec<Edge> = model
+        .window_marks(&conversation())
+        .into_iter()
+        .filter_map(|m| match m.kind {
+            MarkKind::AtLimit(edge) => Some(edge),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        limits,
+        [Edge::GapUpper(id)],
+        "one, on the side reached first"
+    );
+    model.window_input(WindowInput::ShowAnyway {
+        conversation: conversation(),
+        edge: Edge::GapUpper(id),
+    });
+    let upper = one_ask(&mut model);
+    model.page_arrived(page(&upper, &[n - 4, n - 3], PageEnd::More));
+    let lower = one_ask(&mut model);
+    assert_eq!(lower.edge, Edge::GapLower(id), "the other side in turn");
 }
 
 fn reach_both(model: &mut UiModel, id: u64) {
@@ -1309,4 +1344,147 @@ fn a_deferred_side_is_asked_when_the_other_page_settles() {
     model.page_arrived(rows_of(&lower, &[n - 1], Table::Kept, PageEnd::More));
     let again = one_ask(&mut model);
     assert_eq!(again.edge, Edge::GapUpper(id), "the Try again, not dropped");
+}
+
+fn card_marks(model: &UiModel) -> usize {
+    model
+        .windows
+        .open
+        .as_ref()
+        .map_or(0, |w| w.card_marks.len())
+}
+
+/// A card proposal's mark goes with it, at once, whichever way the
+/// proposal goes -- its copy gone, declined, read past the read-proposal
+/// bound -- and comes back with it on an Undo. Mutations: any of
+/// `card_gone`, `card_resolved`, `read` and `card_restored` not following
+/// the proposals held.
+#[test]
+fn card_marks_are_the_held_proposals_alone() {
+    use super::super::cards::CardOutcome;
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, super::HELD_ROW_CAP, 1);
+    model.window_input(WindowInput::Opened(conversation()));
+    let _ = one_ask(&mut model);
+    let row = |n: i64| RowId::from_stored(2_000 + n);
+
+    model.card_received(card(row(1), P));
+    assert_eq!(card_marks(&model), 1, "held");
+    model.card_gone(row(1));
+    assert_eq!(card_marks(&model), 0, "its copy gone");
+
+    model.card_received(card(row(2), P));
+    model.card_resolved(row(2), CardOutcome::Declined);
+    assert_eq!(card_marks(&model), 0, "declined");
+
+    model.card_received(card(row(3), P));
+    model.card_received(card(row(4), P));
+    model.read(row(3));
+    model.read(row(4));
+    assert_eq!(
+        card_marks(&model),
+        1,
+        "the older read past the bound of one"
+    );
+
+    model.card_restored(card(row(3), P));
+    let marks: Vec<RowId> = model
+        .windows
+        .open
+        .as_ref()
+        .map(|w| w.card_marks.keys().copied().collect())
+        .unwrap_or_default();
+    assert_eq!(marks, [row(3)], "back with its Undo, the bound holding");
+}
+
+/// A declined card older than every held row is no held row for the
+/// held-row ceiling: letting go of the oldest message moves the top down
+/// to the oldest row left, with no gap above it (#515 review F1: a mark
+/// left behind made a gap there, bounded by a card no longer drawn).
+/// Mutation: `card_resolved` not following the proposals held.
+#[test]
+fn a_declined_oldest_card_bounds_no_gap() {
+    use super::super::cards::CardOutcome;
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, 8, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(
+        &ask,
+        &(2..=9).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::More,
+    ));
+    let mut oldest = card(RowId::from_stored(100), P);
+    oldest.received_at = 0;
+    model.card_received(oldest);
+    model.card_resolved(RowId::from_stored(100), CardOutcome::Declined);
+    place(&mut model, 9, Table::Kept);
+    reached(&mut model);
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(&ask, &[1], Table::Kept, PageEnd::More));
+    assert!(!holds(&model, 1, Table::Kept), "the farthest let go");
+    let gaps = model.windows.open.as_ref().map_or(0, |w| w.gaps.len());
+    assert_eq!(gaps, 0, "the top moved down, no gap made");
+}
+
+/// Built as it ships, the model holds to the published caps; only a test
+/// build sets them lower. Mutation: a default other than the caps.
+#[test]
+fn the_default_bounds_are_the_published_caps() {
+    let model = UiModel::new();
+    assert_eq!(
+        model.bounds,
+        crate::model::Bounds {
+            session_items: SESSION_ITEM_CAP,
+            held_rows: super::HELD_ROW_CAP,
+            read_proposals: crate::model::cards::READ_PROPOSAL_CAP,
+        }
+    );
+}
+
+/// A test build's held-row ceiling is the one the ceiling lets go at:
+/// twelve stored rows past a ceiling of eight leave eight held, the
+/// focused and the newest among them. Mutation: the ceiling read from
+/// the published cap -- all twelve held.
+#[test]
+fn a_small_held_ceiling_lets_go_at_its_figure() {
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, 8, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, 12, Table::Kept);
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(
+        &ask,
+        &(1..=12).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::More,
+    ));
+    let held = (1..=12).filter(|n| holds(&model, *n, Table::Kept)).count();
+    assert_eq!(held, 8);
+    assert!(holds(&model, 12, Table::Kept), "the focused, newest row");
+}
+
+/// A test build's session bound is the one a page's room is taken from:
+/// with a bound of eight and eight unread rows held, reaching the top
+/// with more unread beyond shows the limit row and asks nothing.
+/// Mutation: the room taken from the published cap -- a page asked.
+#[test]
+fn a_small_session_bound_reaches_the_limit_row() {
+    let mut model = started(20);
+    model.set_bounds_for_test(8, super::HELD_ROW_CAP, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &(13..=20).collect::<Vec<_>>(), PageEnd::More));
+    reached(&mut model);
+    assert!(
+        model.take_page_asks().is_empty(),
+        "the limit row asks nothing"
+    );
+    assert!(
+        model
+            .window_marks(&conversation())
+            .iter()
+            .any(|m| m.kind == MarkKind::AtLimit(Edge::Top))
+    );
 }

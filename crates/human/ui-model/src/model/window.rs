@@ -19,9 +19,9 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use interweave_human_core::RowId;
 
-use super::cards::{Proposal, READ_PROPOSAL_CAP};
+use super::cards::Proposal;
 use super::summaries::NewestRow;
-use super::{ConversationKey, ItemKey, ListedInbound, SESSION_ITEM_CAP, Table, UiModel};
+use super::{ConversationKey, ItemKey, ListedInbound, Table, UiModel};
 
 /// The most stored rows -- unread and kept, which keep their stored copy --
 /// the model holds at once (design section 5.1). Larger than the rows a
@@ -466,6 +466,14 @@ impl Windows {
         }
     }
 
+    /// Keep the card marks of the proposals `held` names, the rest gone with
+    /// their proposals (`UiModel::card_marks_follow`, its one caller).
+    pub(super) fn retain_card_marks(&mut self, held: impl Fn(&RowId) -> bool) {
+        if let Some(window) = self.open.as_mut() {
+            window.card_marks.retain(|row, _| held(row));
+        }
+    }
+
     /// A held card proposal of the open conversation, at `mark`.
     pub(super) fn holds_card(
         &mut self,
@@ -863,8 +871,28 @@ impl UiModel {
         };
         let room = self.page_room(&conversation);
         if room == 0 && beyond > 0 {
+            // One limit row, on the side that fetched (design section 5.1,
+            // section 10 item 14 (c)): a gap's side reached at the bound
+            // while its other side already shows the limit row stays
+            // armed, and is asked once that side's Show more messages
+            // brings its page (`a_gap_at_the_bound_shows_one_limit_row`).
+            let other_at_limit = match edge {
+                Edge::GapUpper(id) | Edge::GapLower(id) => window.gaps.get(&id).is_some_and(|g| {
+                    let other = if edge == Edge::GapUpper(id) {
+                        g.lower
+                    } else {
+                        g.upper
+                    };
+                    other.state == EdgeState::AtLimit
+                }),
+                Edge::Top => false,
+            };
             if let Some(side) = self.windows.open.as_mut().and_then(|w| w.side(edge)) {
-                side.state = EdgeState::AtLimit;
+                side.state = if other_at_limit {
+                    EdgeState::Armed
+                } else {
+                    EdgeState::AtLimit
+                };
             }
             return;
         }
@@ -879,8 +907,14 @@ impl UiModel {
     /// when read.
     fn page_room(&self, conversation: &ConversationKey) -> usize {
         let (messages, cards) = self.held_unread(conversation);
-        let session = SESSION_ITEM_CAP.saturating_sub(self.ephemeral.len() + messages);
-        let proposals = READ_PROPOSAL_CAP.saturating_sub(self.cards.read_count() + cards);
+        let session = self
+            .bounds
+            .session_items
+            .saturating_sub(self.ephemeral.len() + messages);
+        let proposals = self
+            .bounds
+            .read_proposals
+            .saturating_sub(self.cards.read_count() + cards);
         session.min(proposals)
     }
 
@@ -904,7 +938,7 @@ impl UiModel {
                 .iter()
                 .map(|(_, rows)| rows.iter().filter(|(t, _)| *t != Table::Pending).count())
                 .sum();
-            if count <= HELD_ROW_CAP {
+            if count <= self.bounds.held_rows {
                 return;
             }
             let order = self.conversation_order(&conversation);

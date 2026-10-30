@@ -813,3 +813,149 @@ fn the_views_own_moves_say_no_direction() {
     scroll(&view, -200.0);
     assert!(moves.get() > 0, "control: a scroll says its direction");
 }
+
+fn press(view: &View, label: &str) {
+    let found = labelled(view, label);
+    assert!(!found.is_empty(), "a control labelled {label:?}");
+    found[0].invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+}
+
+/// The view's events applied as the root applies them, the intents
+/// dropped (no store here), then its window's reports, returned.
+fn drained(view: &mut View, model: &mut UiModel) -> Vec<WindowEvent> {
+    use interweave_human_ui_slint::ViewEvent;
+    loop {
+        let events = view.take_events(model);
+        if events.is_empty() {
+            break;
+        }
+        for event in events {
+            match event {
+                ViewEvent::Trust(input) => drop(model.trust_settings_mut().input(input)),
+                ViewEvent::Peers(input) => drop(model.peers_input(input)),
+                ViewEvent::Connect(input) => drop(model.connect_input(input)),
+                _ => {}
+            }
+        }
+        view.render(model);
+    }
+    settle();
+    let reports = view.take_window_events();
+    for report in reports.clone() {
+        model.window_event(report);
+    }
+    view.render(model);
+    reports
+}
+
+/// Section 10 item 12's walk at a test bound, on a wide window: for each
+/// page section 7.1 lists that this build has -- Trust, Peers, Contacts,
+/// Your card, and Connect through the model's test hook -- Show more
+/// messages is chosen at the limit row, the page opened in A's place
+/// closes A's window, and back in A the top reached at the bound shows
+/// the limit row again. Details, which is not in that list, keeps the
+/// choice: the next page loads without asking. Mutations: Trust, or
+/// Connect, leaving the window open.
+#[test]
+fn each_page_in_the_conversations_place_ends_show_more_and_details_does_not() {
+    use interweave_human_ui_model::{ConnectInput, HELD_ROW_CAP, MarkKind, READ_PROPOSAL_CAP};
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 600.0));
+    let from = peer();
+    let key = direct(&from);
+    let mut model = opened(&mut view, &from, 400);
+    model.set_bounds_for_test(8, HELD_ROW_CAP, READ_PROPOSAL_CAP);
+    page(&mut model, &from, 393..=400);
+    let mut top = 392;
+    let _ = drained(&mut view, &mut model);
+    let reach = |model: &mut UiModel| {
+        model.window_input(WindowInput::Reached {
+            conversation: key.clone(),
+            edge: Edge::Top,
+        });
+    };
+    let at_limit = |model: &UiModel| {
+        model
+            .window_marks(&key)
+            .iter()
+            .any(|m| m.kind == MarkKind::AtLimit(Edge::Top))
+    };
+    let show_more = |model: &mut UiModel, top: &mut i64| {
+        model.window_input(WindowInput::Left {
+            conversation: key.clone(),
+            edge: Edge::Top,
+        });
+        reach(model);
+        assert!(at_limit(model), "the limit row");
+        assert!(model.take_page_asks().is_empty(), "asking nothing");
+        model.window_input(WindowInput::ShowAnyway {
+            conversation: key.clone(),
+            edge: Edge::Top,
+        });
+        page(model, &from, (*top - 7)..=*top);
+        *top -= 8;
+    };
+    for page_name in ["trust", "peers", "contacts", "own card", "connect"] {
+        show_more(&mut model, &mut top);
+        let _ = drained(&mut view, &mut model);
+        let item = match page_name {
+            "trust" => Some(UiText::TrustHeading),
+            "peers" => Some(UiText::PeersTitle),
+            "contacts" => Some(UiText::ContactsTitle),
+            "own card" => Some(UiText::OwnCardTitle),
+            _ => None,
+        };
+        if let Some(item) = item {
+            press(&view, text(UiText::AppOptions));
+            press(&view, text(item));
+        } else {
+            model.open_connect_for_test();
+        }
+        view.render(&model);
+        let closed = drained(&mut view, &mut model);
+        assert!(
+            closed.contains(&WindowEvent::Input(WindowInput::Closed(key.clone()))),
+            "{page_name} in A's place closes its window: {closed:?}"
+        );
+        if page_name == "connect" {
+            let _ = model.connect_input(ConnectInput::Leave);
+            view.render(&model);
+        } else {
+            assert!(view.back(), "back from {page_name}");
+        }
+        let opened = drained(&mut view, &mut model);
+        assert!(
+            opened.contains(&WindowEvent::Input(WindowInput::Opened(key.clone()))),
+            "back in A after {page_name}: {opened:?}"
+        );
+        // Opened again, the window starts over from the newest page.
+        page(&mut model, &from, 393..=400);
+        model.window_input(WindowInput::Left {
+            conversation: key.clone(),
+            edge: Edge::Top,
+        });
+        reach(&mut model);
+        assert!(at_limit(&model), "the limit row again after {page_name}");
+    }
+
+    show_more(&mut model, &mut top);
+    let _ = drained(&mut view, &mut model);
+    view.window().set_details_open(true);
+    let _ = drained(&mut view, &mut model);
+    view.window().set_details_open(false);
+    let events = drained(&mut view, &mut model);
+    assert!(
+        !events.contains(&WindowEvent::Input(WindowInput::Closed(key.clone()))),
+        "Details leaves the window open: {events:?}"
+    );
+    model.window_input(WindowInput::Left {
+        conversation: key.clone(),
+        edge: Edge::Top,
+    });
+    reach(&mut model);
+    assert!(!at_limit(&model), "no limit row after Details");
+    assert_eq!(model.take_page_asks().len(), 1, "the next page, unasked");
+}

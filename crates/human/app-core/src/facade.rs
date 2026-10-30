@@ -125,6 +125,16 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// The model was started from summaries ([`Self::start`]): a relist
     /// reads them again, never every unread row.
     windowed: bool,
+    /// TEST BUILDS ONLY: the faults a test lays on the windowed reads.
+    #[cfg(feature = "test-hooks")]
+    faults: Option<std::sync::Arc<crate::test_hooks::StoreFaults>>,
+}
+
+/// A windowed read a test build can lay a fault on.
+#[derive(Debug, Clone, Copy)]
+enum Hooked {
+    Page,
+    Contacts,
 }
 
 /// What the own card's editor holds of its photo, on the facade side.
@@ -303,7 +313,34 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             own_saves: VecDeque::new(),
             rows_read: 0,
             windowed: false,
+            #[cfg(feature = "test-hooks")]
+            faults: None,
         }
+    }
+
+    /// TEST BUILDS ONLY: lay `faults` on this side's windowed reads.
+    #[cfg(feature = "test-hooks")]
+    #[must_use]
+    pub fn with_store_faults(
+        mut self,
+        faults: std::sync::Arc<crate::test_hooks::StoreFaults>,
+    ) -> Self {
+        self.faults = Some(faults);
+        self
+    }
+
+    /// Whether a hooked `read` may go on; always, in a build without the
+    /// hooks.
+    #[allow(clippy::unused_self)]
+    fn admits(&self, #[allow(unused_variables)] read: Hooked) -> bool {
+        #[cfg(feature = "test-hooks")]
+        if let Some(faults) = &self.faults {
+            return faults.admits(match read {
+                Hooked::Page => crate::test_hooks::Read::Page,
+                Hooked::Contacts => crate::test_hooks::Read::Contacts,
+            });
+        }
+        true
     }
 
     /// The identity's own key, which signs the card Share sends. Its
@@ -419,6 +456,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let summarised = listing::summaries(store)?;
         let hidden = store.hidden_inbound()?;
         let contacts = cards::contact_directory(store).map_err(|e| store_failure(&e));
+        let contacts = if self.admits(Hooked::Contacts) {
+            contacts
+        } else {
+            Err(Failure::StorageUnavailable)
+        };
         let rows = pending.len() + undecodable_pending;
         self.rows_read += u64::try_from(rows).unwrap_or(u64::MAX) + summarised.read;
         self.read_card_rows()?;
@@ -442,6 +484,27 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         command: &WindowCommand,
         updates: &mut Vec<Update>,
     ) -> Result<(), Failure> {
+        match command {
+            WindowCommand::FetchPage(_) if !self.admits(Hooked::Page) => {
+                return Err(Failure::StorageUnavailable);
+            }
+            WindowCommand::ReadContacts if !self.admits(Hooked::Contacts) => {
+                updates.push(Update::ContactDirectory(Err(Failure::StorageUnavailable)));
+                return Ok(());
+            }
+            _ => {}
+        }
+        #[cfg(feature = "test-hooks")]
+        let unreadable = match (command, &self.faults) {
+            (WindowCommand::ReadPhoto(ask), Some(faults)) => {
+                let (delay, unreadable) = faults.photo(&ask.contact_id);
+                std::thread::sleep(delay);
+                unreadable
+            }
+            _ => false,
+        };
+        #[cfg(not(feature = "test-hooks"))]
+        let unreadable = false;
         let store = self.client.store_mut();
         match command {
             WindowCommand::FetchPage(ask) => {
@@ -465,7 +528,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                     .filter(|contact| contact.photo_at == ask.photo_at)
                     .and_then(|contact| contact.photo)
                     .as_deref()
-                    .and_then(cards::shown);
+                    .and_then(cards::shown)
+                    .filter(|_| !unreadable);
                 updates.push(Update::ContactPhoto {
                     contact_id: ask.contact_id.clone(),
                     photo_at: ask.photo_at,

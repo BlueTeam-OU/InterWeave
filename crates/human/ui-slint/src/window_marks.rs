@@ -66,6 +66,9 @@ pub(crate) struct Marks {
     place: Option<(Option<ItemKey>, Vec<ItemKey>)>,
     /// The focus the app last placed: focus there is not the person's.
     app_focus: RefCell<Option<String>>,
+    /// That focus has landed: a request applies after the next draw, so
+    /// until then focus elsewhere is not yet the person's move away.
+    app_landed: std::cell::Cell<bool>,
     /// The contacts last reported shown.
     avatars: HashSet<String>,
     /// Where the person's focus last stood among the rows, a message or a
@@ -81,6 +84,7 @@ impl Marks {
     /// The app placed focus on `target`.
     pub(crate) fn app_placed(&self, target: &str) {
         *self.app_focus.borrow_mut() = Some(target.to_owned());
+        self.app_landed.set(false);
     }
 
     /// Whether focus at `id` is where the app placed it. A message's
@@ -303,6 +307,13 @@ impl View {
         let marks = self.marks.now.clone();
         let rows: Vec<MarkRow> = marks.iter().map(|mark| self.mark_row(mark)).collect();
         self.focus_below_a_mark_gone(&rows);
+        // Where each focusable mark stands, for the Accept snackbar's span
+        // (`swipe::in_accept_span`).
+        self.shared.borrow_mut().order.marks = rows
+            .iter()
+            .filter(|r| !r.focus_key.is_empty())
+            .map(|r| (r.focus_key.to_string(), (r.place, r.handle)))
+            .collect();
         let model = &self.marks.rows;
         if model.row_count() == rows.len() {
             // Row by row: a reset would drop a touch held in the list.
@@ -525,7 +536,9 @@ impl View {
     /// The conversation whose window is open: the one shown while it is
     /// shown -- its Details and a contact page one of its proposals
     /// opened included -- and none in Chats on a narrow window, or with
-    /// Trust, Peers or a card page in its place (section 7.1's U5).
+    /// Trust, Peers, Connect (and the Peers pages it opens) or a card page
+    /// in its place (section 7.1's U5; ux-designer's REPLY 01a18cfd:
+    /// `connect_in_the_conversations_place_closes_its_window`).
     fn window_conversation(&self) -> Option<ConversationKey> {
         if !self.marks.windowed {
             return None;
@@ -535,7 +548,7 @@ impl View {
             return None;
         }
         match self.page {
-            Page::Conversation | Page::Connect => Some(shown),
+            Page::Conversation => Some(shown),
             Page::Cards
                 if self
                     .cards
@@ -545,7 +558,7 @@ impl View {
             {
                 Some(shown)
             }
-            Page::Cards | Page::Trust | Page::Peers => None,
+            Page::Cards | Page::Trust | Page::Peers | Page::Connect => None,
         }
     }
 
@@ -643,6 +656,14 @@ impl View {
             self.marks.place = Some(place);
         }
         let by_person = !self.marks.by_app(&focus_id);
+        // Focus the app placed is the app's only until it moves: once the
+        // person takes it elsewhere, coming back to the same place is the
+        // person's (`focus_the_app_placed_is_the_persons_once_it_moved`).
+        if !by_person {
+            self.marks.app_landed.set(true);
+        } else if self.marks.app_landed.get() {
+            self.marks.app_focus.borrow_mut().take();
+        }
         // Focus the person moved from one place to another moves the way
         // the two stand: section 5.1 counts focus as it counts a scroll,
         // and the toolkit bringing a focused row into view says no
@@ -849,7 +870,7 @@ impl View {
         // focus goes to the page as app-placed focus (section 7's table).
         if std::mem::take(&mut self.shared.borrow_mut().window_view.contacts_try_again) {
             events.push(WindowEvent::ContactsTryAgain);
-            self.focus_key(crate::cards::CONTACTS_TRY_AGAIN_FOCUS.to_owned());
+            self.focus_key(crate::cards::CARDS_TITLE_FOCUS.to_owned());
         }
         events.extend(self.avatar_events());
         let presses = std::mem::take(&mut self.shared.borrow_mut().window_presses);
@@ -1076,6 +1097,77 @@ mod tests {
         assert!(order(super::FocusAt::Card(0)) < order(super::FocusAt::AboveCard(1)));
         assert!(order(super::FocusAt::AboveCard(1)) < order(super::FocusAt::Card(1)));
         assert!(order(super::FocusAt::Card(1)) < order(super::FocusAt::Above(below)));
+    }
+
+    /// Focus the app placed reaches no edge while it stays there; once the
+    /// person moved it away, the same place is theirs when they come back.
+    /// Mutation: the app's mark of its focus never cleared -- the person's
+    /// return read as the app's.
+    #[test]
+    fn focus_the_app_placed_is_the_persons_once_it_moved() {
+        use interweave_human_ui_model::ConversationKey;
+        use interweave_transport_api::{EndpointId, TransportIdentity};
+        i_slint_backend_testing::init_no_event_loop();
+        let mut view =
+            crate::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
+        let key = ConversationKey::Direct {
+            peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+                .expect("a PeerId"),
+            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+        };
+        view.marks.app_placed("earlier-unread:t");
+        // Before the request lands focus is still where it was: not yet a
+        // move away.
+        view.window.set_focus_id("item:3".into());
+        let _ = view.reach_events(&key);
+        view.window.set_focus_id("earlier-unread:t".into());
+        let _ = view.reach_events(&key);
+        assert!(
+            view.marks.by_app("earlier-unread:t"),
+            "the app's, while it stays"
+        );
+        view.window.set_focus_id("item:3".into());
+        let _ = view.reach_events(&key);
+        view.window.set_focus_id("earlier-unread:t".into());
+        let _ = view.reach_events(&key);
+        assert!(
+            !view.marks.by_app("earlier-unread:t"),
+            "the person's, once moved"
+        );
+    }
+
+    /// Connect drawn in a conversation's place closes its window, as
+    /// Trust or Peers there does; back in the conversation it opens
+    /// again. Mutation: Connect keeping the window open.
+    #[test]
+    fn connect_in_the_conversations_place_closes_its_window() {
+        use interweave_human_ui_model::{ConversationKey, WindowEvent, WindowInput};
+        use interweave_transport_api::{EndpointId, TransportIdentity};
+        i_slint_backend_testing::init_no_event_loop();
+        let mut view =
+            crate::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
+        let key = ConversationKey::Direct {
+            peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+                .expect("a PeerId"),
+            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+        };
+        view.marks.windowed = true;
+        view.shown = Some(key.clone());
+        view.window.set_list_shown(false);
+        assert_eq!(
+            view.open_events(),
+            [WindowEvent::Input(WindowInput::Opened(key.clone()))]
+        );
+        view.page = crate::Page::Connect;
+        assert_eq!(
+            view.open_events(),
+            [WindowEvent::Input(WindowInput::Closed(key.clone()))]
+        );
+        view.page = crate::Page::Conversation;
+        assert_eq!(
+            view.open_events(),
+            [WindowEvent::Input(WindowInput::Opened(key))]
+        );
     }
 
     #[test]

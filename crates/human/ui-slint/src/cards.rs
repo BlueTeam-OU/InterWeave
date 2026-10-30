@@ -180,11 +180,10 @@ impl Drawn {
 
 /// The card screens' callbacks: each becomes an input, taken as the others
 /// are.
-/// Where Contacts' Try again puts focus as its row goes (start-window
-/// section 7's table names the page's title; the title here is no focus
-/// stop, and the back arrow beside it is where Contacts puts focus when it
-/// has no row to put it on).
-pub(crate) const CONTACTS_TRY_AGAIN_FOCUS: &str = "close-cards";
+/// The card pages' title, a heading focus rests on: where Contacts and Your
+/// card put focus when opened (contact-cards section 9 item 1), and where
+/// Contacts' Try again puts it as its row goes (start-window section 7).
+pub(crate) const CARDS_TITLE_FOCUS: &str = "cards-title";
 
 pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     let s = Rc::clone(shared);
@@ -742,7 +741,7 @@ impl View {
                 if self.page == crate::Page::Cards
                     && self.cards.page == Some(CardsPage::OwnCard) =>
             {
-                self.focus_key_after_draw("close-cards".to_owned());
+                self.focus_key_after_draw(CARDS_TITLE_FOCUS.to_owned());
             }
             CardsInput::Open(opened) => {
                 self.forget_page();
@@ -757,7 +756,7 @@ impl View {
                 self.cards.own_drawn = None;
                 self.cards.own_errors = (String::new(), String::new());
                 window.set_cards_page(page);
-                self.focus_key_after_draw("close-cards".to_owned());
+                self.focus_key_after_draw(CARDS_TITLE_FOCUS.to_owned());
                 // The editor opens on the card as saved.
                 if page == CardsPage::OwnCard && model.own_photo().is_some() {
                     return vec![Intent::ForgetOwnPhoto];
@@ -824,7 +823,9 @@ impl View {
                 }];
             }
             CardsInput::RemoveContactPhoto(id) => {
-                if model.contact(&id).is_some_and(|c| c.photo.is_some()) {
+                // A stored photo, read or not: one that cannot be read is
+                // still offered for removal (start-window section 11).
+                if model.contact_has_photo(&id) {
                     return vec![Intent::SetContactPhoto {
                         contact_id: id,
                         photo: PhotoEdit::Remove,
@@ -1088,10 +1089,9 @@ impl View {
     }
 
     /// The focus key a contact's focus target names on the card page
-    /// drawn, if it is drawn: the Contacts list's first row, else the
-    /// page's back arrow, its empty text and its title being no focus
-    /// stop; a contact's row; a contact page's back arrow; its Remove
-    /// photo.
+    /// drawn, if it is drawn: the Contacts list's first row, else its
+    /// empty text (contact-cards section 9); a contact's row; a contact
+    /// page's back arrow; its Remove photo.
     pub(crate) fn contact_focus(&self, focus: &FocusTarget) -> Option<String> {
         let shared = self.shared.borrow();
         let drawn = &shared.cards;
@@ -1102,7 +1102,7 @@ impl View {
                     .contacts
                     .keys()
                     .min()
-                    .map_or_else(|| "close-cards".to_owned(), |h| format!("contact:{h}"))
+                    .map_or_else(|| "contacts-empty".to_owned(), |h| format!("contact:{h}"))
             }),
             FocusTarget::Contact(id) => (page == Some(CardsPage::Contacts))
                 .then(|| drawn.contacts.iter().find(|(_, c)| *c == id))
@@ -1612,8 +1612,8 @@ impl View {
         self.shared.borrow_mut().cards.contacts = ids;
         self.cards.contacts_shown = contacts;
         // A deleted contact gone from the list: focus on its first row,
-        // else its back arrow (the empty text is no focus stop). A delete
-        // the store refused leaves it listed, and focus where it is.
+        // else its empty text (contact-cards section 9). A delete the
+        // store refused leaves it listed, and focus where it is.
         if self.cards.page != Some(CardsPage::Contacts) {
             self.cards.deleted = None;
         } else if let Some(id) = self.cards.deleted.take() {
@@ -1628,7 +1628,7 @@ impl View {
         // (section 7's table): success on the first row, else where an
         // empty list puts it; failure on the new row's Try again.
         if let Some(read) = answered
-            && window.get_focus_id() == CONTACTS_TRY_AGAIN_FOCUS
+            && window.get_focus_id() == CARDS_TITLE_FOCUS
         {
             let key = if read {
                 self.contact_focus(&FocusTarget::Contacts)

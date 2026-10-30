@@ -643,3 +643,165 @@ async fn a_report_that_changes_what_is_drawn_draws_and_a_place_never_does() {
         "drawn again by the same turn"
     );
 }
+
+/// TEST BUILDS ONLY (`test-hooks`): a store of `count` unread text rows
+/// from `from`.
+fn texts(from: &TransportIdentity, count: u32) -> HumanStore {
+    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    for n in 1..=count {
+        let mut row = message(n, from, u64::from(n));
+        row.kind = InboundKind::Text;
+        store.commit_unread_inbound(&row).expect("committed");
+    }
+    store
+}
+
+fn top_failed(root: &Root, key: &ConversationKey) -> bool {
+    root.model()
+        .window_marks(key)
+        .iter()
+        .any(|m| m.kind == MarkKind::Failed(Edge::Top))
+}
+
+/// A page read the hooks fail is its command's failure: the top shows the
+/// failure row and holds no row; with the fault lifted, Try again reads
+/// the page. Mutation: the hook not consulted -- the page read.
+#[tokio::test]
+async fn a_failed_page_read_is_its_commands_failure_and_try_again_reads_it() {
+    use interweave_human_app_core::test_hooks::{Fault, StoreFaults};
+    let from = peer();
+    let faults = std::sync::Arc::new(StoreFaults::default());
+    faults.set_pages(Fault::Fail);
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut root = Root::start(facade(&a, texts(&from, 10)).with_store_faults(faults.clone()));
+    let key = direct(&from);
+    root.model.window(WindowInput::Opened(key.clone()));
+    root.turn().await;
+    assert!(root.model().messages(&key).is_empty(), "nothing read");
+    assert!(top_failed(&root, &key), "the failure row");
+    faults.set_pages(Fault::Pass);
+    root.model.window(WindowInput::TryAgain {
+        conversation: key.clone(),
+        edge: Edge::Top,
+    });
+    root.turn().await;
+    assert_eq!(root.model().messages(&key).len(), 10, "Try again reads it");
+}
+
+/// A held page read waits for the test and then reads: what lets a
+/// headless test see the progress row and the pressed row while a read
+/// is on its way. Mutation: a hold that does not wait.
+#[tokio::test]
+async fn a_held_page_read_returns_once_released() {
+    use interweave_human_app_core::test_hooks::{Fault, StoreFaults};
+    let from = peer();
+    let faults = std::sync::Arc::new(StoreFaults::default());
+    faults.set_pages(Fault::Hold);
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut root = Root::start(facade(&a, texts(&from, 10)).with_store_faults(faults.clone()));
+    let key = direct(&from);
+    root.model.window(WindowInput::Opened(key.clone()));
+    let release = {
+        let faults = faults.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            faults.set_pages(Fault::Pass);
+        })
+    };
+    let began = std::time::Instant::now();
+    root.turn().await;
+    let waited = began.elapsed();
+    release.join().expect("released");
+    assert!(
+        waited >= std::time::Duration::from_millis(200),
+        "it waited: {waited:?}"
+    );
+    assert_eq!(root.model().messages(&key).len(), 10, "then read");
+}
+
+/// The contacts failing at start are the start's contacts error: the
+/// model knows them unread. Mutation: the hook not consulted at start.
+#[tokio::test]
+async fn contacts_failed_at_start_are_the_starts_contacts_error() {
+    use interweave_human_app_core::test_hooks::{Fault, StoreFaults};
+    let faults = std::sync::Arc::new(StoreFaults::default());
+    faults.set_contacts(Fault::Fail);
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let root = Root::start(facade(&a, texts(&peer(), 1)).with_store_faults(faults));
+    assert_eq!(
+        root.model().contacts_state(),
+        interweave_human_ui_model::ContactsState::Unread
+    );
+}
+
+/// A photo the hooks slow takes at least its delay, and one they make
+/// unreadable arrives as none, the contact's initials staying. Mutations:
+/// the delay not taken; the photo read as it is.
+#[tokio::test]
+async fn a_slowed_or_unreadable_photo_is_read_as_the_hooks_say() {
+    use interweave_human_app_core::test_hooks::StoreFaults;
+    let from = peer();
+    let key = IdentityKey::generate(human()).expect("a key");
+    let photo = interweave_human_app_core::card_photo::prepare_photo(&png()).expect("prepared");
+    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    store
+        .commit_unread_inbound(&card(1, &key, &from, 1, Some(&photo.bytes)))
+        .expect("committed");
+    let faults = std::sync::Arc::new(StoreFaults::default());
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut root = Root::start(facade(&a, store).with_store_faults(faults.clone()));
+    root.model.window(WindowInput::Opened(direct(&from)));
+    root.turn().await;
+    let proposal = root
+        .updates
+        .iter()
+        .find_map(|u| match u {
+            Update::Page(rows) => rows.proposals.first().cloned(),
+            _ => None,
+        })
+        .expect("the card's proposal");
+    root.execute(Command::AcceptCard {
+        row: proposal.row,
+        shown: Box::new(proposal.context.clone()),
+    })
+    .await;
+    let contact = root
+        .updates
+        .iter()
+        .rev()
+        .find_map(|u| match u {
+            Update::ContactDirectory(Ok(contacts)) => contacts.first().cloned(),
+            _ => None,
+        })
+        .expect("the contacts the Accept hands back");
+    let ask = PhotoAsk {
+        contact_id: contact.view.contact_id.clone(),
+        photo_at: contact.view.photo_at,
+    };
+    faults.set_photo_delay(std::time::Duration::from_millis(150));
+    let began = std::time::Instant::now();
+    root.updates.clear();
+    root.execute(Command::Window(WindowCommand::ReadPhoto(ask.clone())))
+        .await;
+    assert!(
+        began.elapsed() >= std::time::Duration::from_millis(150),
+        "slowed"
+    );
+    assert!(
+        root.updates
+            .iter()
+            .any(|u| matches!(u, Update::ContactPhoto { photo: Some(_), .. })),
+        "then read"
+    );
+    faults.set_photo_delay(std::time::Duration::ZERO);
+    faults.set_unreadable_photo(&ask.contact_id);
+    root.updates.clear();
+    root.execute(Command::Window(WindowCommand::ReadPhoto(ask)))
+        .await;
+    assert!(
+        root.updates
+            .iter()
+            .any(|u| matches!(u, Update::ContactPhoto { photo: None, .. })),
+        "unreadable: none"
+    );
+}

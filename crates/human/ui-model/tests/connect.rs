@@ -701,3 +701,15 @@ fn a_return_reads_its_adds_trust_before_it_is_said() {
     assert_eq!(m.connect_turn(), None);
     assert_eq!(said(&m), start + 1, "not said again");
 }
+
+/// The test hook opens Connect on a model that never owed it, and
+/// leaving it closes it as on any start. Mutation: the hook a no-op.
+#[test]
+fn the_test_hook_opens_connect_and_leaving_closes_it() {
+    let mut model = UiModel::new();
+    assert!(model.connect().is_none(), "never owed");
+    model.open_connect_for_test();
+    assert!(model.connect().is_some(), "open");
+    let _ = model.connect_input(ConnectInput::Leave);
+    assert!(model.connect().is_none(), "left");
+}

@@ -1256,7 +1256,7 @@ fn your_card_while_its_editor_is_open_leaves_nothing() {
     settle();
     assert!(!view.window().get_own_discard_open(), "nothing asked");
     assert_eq!(view.window().get_own_given(), "Grace", "its change kept");
-    assert_eq!(view.window().get_focus_id().as_str(), "close-cards");
+    assert_eq!(view.window().get_focus_id().as_str(), "cards-title");
 }
 
 /// On the desktop, Escape on a card page is its Back (contact-cards
@@ -2788,7 +2788,11 @@ fn a_deleted_contact_leaves_focus_on_the_lists_first_row() {
     model.contacts_listed(Vec::new());
     view.render(&model);
     settle();
-    assert_eq!(view.window().get_focus_id(), "close-cards", "none left");
+    assert_eq!(
+        view.window().get_focus_id(),
+        "contacts-empty",
+        "none left: its empty text"
+    );
 }
 
 /// #440 F1: a card page left some other way than its Back -- another
@@ -2826,8 +2830,8 @@ fn a_card_page_left_another_way_forgets_its_way_back() {
         press(view, text(UiText::ContactsTitle));
         let _ = intents(view, model);
         settle();
-        assert_eq!(view.window().get_focus_id(), "close-cards");
-        key(view, Key::Return);
+        assert_eq!(view.window().get_focus_id(), "cards-title");
+        press(view, text(UiText::BackToConversations));
         let _ = intents(view, model);
         settle();
     };
@@ -2854,8 +2858,8 @@ fn a_card_page_left_another_way_forgets_its_way_back() {
         settle();
     };
     open_card_from_share(&mut view, &mut model);
-    assert_eq!(view.window().get_focus_id(), "close-cards");
-    key(&view, Key::Return);
+    assert_eq!(view.window().get_focus_id(), "cards-title");
+    press(&view, text(UiText::BackToConversations));
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_share_open(), "control: back to the sheet");
     view.window().set_share_open(false);
@@ -3912,7 +3916,11 @@ fn unread_contacts_show_their_failure_row_alone_and_try_again_reads_them() {
     view.render(&model);
     settle();
     assert!(!shows(&view, failed), "the row goes at once");
-    assert_eq!(view.window().get_focus_id(), "close-cards");
+    assert_eq!(
+        view.window().get_focus_id(),
+        "cards-title",
+        "the page title"
+    );
     let loading = text(UiText::ContactsLoading);
     assert!(!shows(&view, loading), "no progress row at once");
     at.set(at.get() + std::time::Duration::from_millis(250));
@@ -4014,8 +4022,9 @@ fn only_the_contact_rows_in_view_read_their_photos() {
 /// A contact's page opens with its photo: choosing a contact whose photo
 /// was not read waits for it, with no loading state, and opens on it; one
 /// that cannot be read opens on the initials with Remove photo, the photo
-/// still stored. Mutations: the page opened at once on the initials; Remove
-/// photo offered by the photo's bytes.
+/// still stored, and its press removes it. Mutations: the page opened at
+/// once on the initials; Remove photo offered, or its press honoured, by
+/// the photo's bytes.
 #[test]
 fn a_contact_page_waits_for_its_photo_and_an_unreadable_one_keeps_remove_photo() {
     let mut view = view();
@@ -4060,6 +4069,15 @@ fn a_contact_page_waits_for_its_photo_and_an_unreadable_one_keeps_remove_photo()
     );
     assert!(!view.window().get_contact_photo_shown(), "initials");
     assert!(shows(&view, text(UiText::RemovePhoto)), "still removable");
+    press(&view, text(UiText::RemovePhoto));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::SetContactPhoto {
+            contact_id: "c1".to_owned(),
+            photo: PhotoEdit::Remove,
+        }],
+        "and removed by its press"
+    );
 }
 
 fn avatar_reports(view: &mut View) -> (usize, usize) {
@@ -4108,4 +4126,35 @@ fn leaving_contacts_hides_the_avatars_it_showed() {
     view.render(&model);
     settle();
     assert_eq!(avatar_reports(&mut view), (3, 0), "shown again");
+}
+
+/// Start-window section 11 (U6): while the contacts are unread, a
+/// proposal's menu offers Decline and no Accept, as its row does.
+/// Mutation: the menu's Accept offered whatever the row offers.
+#[test]
+fn while_the_contacts_are_unread_a_proposals_menu_offers_no_accept() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.contacts_directory(Err(()));
+    model.card_received(proposal(1, P, card("Ada", false), context()));
+    let _ = shown(&mut view, &mut model, P);
+    let mut on_card = false;
+    for _ in 0..200 {
+        key(&view, slint::platform::Key::Tab);
+        if view.window().get_focus_id().starts_with("proposal-") {
+            on_card = true;
+            break;
+        }
+    }
+    assert!(on_card, "a proposal's control takes focus");
+    key(&view, slint::platform::Key::Menu);
+    settle();
+    assert!(view.window().get_card_menu() >= 0, "the menu opened");
+    assert!(
+        labelled(&view, text(UiText::CardDecline)).len() >= 2,
+        "Decline in the row and the menu"
+    );
+    for accept in [UiText::CardAccept, UiText::AcceptAsNew, UiText::Close] {
+        assert!(!shows(&view, text(accept)), "no {accept:?}");
+    }
 }

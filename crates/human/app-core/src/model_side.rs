@@ -635,6 +635,19 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         }
     }
 
+    /// TEST BUILDS ONLY: hold the model to bounds below the published caps
+    /// (ui-model's `set_bounds_for_test`).
+    #[cfg(feature = "test-hooks")]
+    pub fn set_bounds_for_test(
+        &mut self,
+        session_items: usize,
+        held_rows: usize,
+        read_proposals: usize,
+    ) {
+        self.model
+            .set_bounds_for_test(session_items, held_rows, read_proposals);
+    }
+
     /// The person moved in the open conversation's window, or opened or
     /// closed one: what it asks of the store goes at the next turn.
     pub fn window(&mut self, input: WindowInput) {

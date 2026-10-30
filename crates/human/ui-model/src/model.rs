@@ -45,6 +45,28 @@ pub use swipe::{
 /// the store, so nothing else is evicted.
 pub const SESSION_ITEM_CAP: usize = 1_024;
 
+/// The bounds the model holds itself to: the published caps, which a test
+/// build alone may set lower (`set_bounds_for_test`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Bounds {
+    /// [`SESSION_ITEM_CAP`].
+    pub(super) session_items: usize,
+    /// [`window::HELD_ROW_CAP`].
+    pub(super) held_rows: usize,
+    /// [`cards::READ_PROPOSAL_CAP`].
+    pub(super) read_proposals: usize,
+}
+
+impl Default for Bounds {
+    fn default() -> Self {
+        Self {
+            session_items: SESSION_ITEM_CAP,
+            held_rows: window::HELD_ROW_CAP,
+            read_proposals: cards::READ_PROPOSAL_CAP,
+        }
+    }
+}
+
 /// How many outbound updates the model holds for rows not listed yet,
 /// latest per row, the oldest dropped past it (agreed U3b).
 pub const HELD_UPDATE_CAP: usize = 1_024;
@@ -723,6 +745,8 @@ pub struct UiModel {
     /// display: held in the store, and Chats' closing line says how many
     /// (design section 6.1).
     rows_not_shown: usize,
+    /// The bounds held to (`the_default_bounds_are_the_published_caps`).
+    bounds: Bounds,
 }
 
 impl Default for UiModel {
@@ -768,7 +792,36 @@ impl UiModel {
             windows: window::Windows::default(),
             directory: directory::Directory::default(),
             rows_not_shown: 0,
+            bounds: Bounds::default(),
         }
+    }
+
+    /// TEST BUILDS ONLY (the `test-hooks` feature): hold the model to a
+    /// session bound, a held-row ceiling and a read-proposal bound below
+    /// the published caps, so a test reaches each with a few rows.
+    #[cfg(feature = "test-hooks")]
+    pub fn set_bounds_for_test(
+        &mut self,
+        session_items: usize,
+        held_rows: usize,
+        read_proposals: usize,
+    ) {
+        self.bounds = Bounds {
+            session_items,
+            held_rows,
+            read_proposals,
+        };
+        self.cards.set_read_cap(read_proposals);
+    }
+
+    /// TEST BUILDS ONLY (the `test-hooks` feature): open Connect now,
+    /// whatever this start decided, so a test shows it after a
+    /// conversation was opened -- where the app itself opens it only on a
+    /// first start with nobody to reach (design/2026-10-27-start-window.md
+    /// section 10 item 12).
+    #[cfg(feature = "test-hooks")]
+    pub fn open_connect_for_test(&mut self) {
+        self.connect = ConnectState::Open(Connect::opened());
     }
 
     // --- inputs ------------------------------------------------------------
@@ -1055,6 +1108,7 @@ impl UiModel {
         self.windows.forget(Table::Unread, row);
         self.release(Table::Unread, row);
         self.cards.read(row);
+        self.card_marks_follow();
     }
 
     /// The content a Keep of `key` would keep is no longer held this
@@ -1930,7 +1984,7 @@ impl UiModel {
         // The item the person moved focus to is never dropped while focused:
         // the next in the order goes instead (design section 7.1).
         let focused = self.windows.focused();
-        while self.ephemeral.len() > SESSION_ITEM_CAP {
+        while self.ephemeral.len() > self.bounds.session_items {
             let Some(at) = self
                 .ephemeral
                 .iter()
