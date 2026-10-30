@@ -467,8 +467,7 @@ impl Windows {
     }
 
     /// Keep the card marks of the proposals `held` names, the rest gone with
-    /// their proposals: the marks are never more than the proposals held
-    /// (`card_marks_are_the_held_proposals_alone`).
+    /// their proposals (`UiModel::card_marks_follow`, its one caller).
     pub(super) fn retain_card_marks(&mut self, held: impl Fn(&RowId) -> bool) {
         if let Some(window) = self.open.as_mut() {
             window.card_marks.retain(|row, _| held(row));

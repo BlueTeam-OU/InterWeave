@@ -768,8 +768,17 @@ impl UiModel {
             },
         );
         self.cards.proposals.insert(proposal.row, proposal);
-        // The marks of proposals answered, let go or evicted since go now:
-        // each arrival keeps them to the proposals held.
+        self.card_marks_follow();
+    }
+
+    /// The open window's card marks follow the proposals held. Every
+    /// change to the proposals held ends here -- an arrival, a copy gone,
+    /// an answer, a read past the read-proposal bound, an Undo -- so no
+    /// mark outlives its proposal, where the held-row ceiling would read
+    /// it as a held row bounding a gap (`card_marks_are_the_held_proposals_alone`,
+    /// `a_declined_oldest_card_bounds_no_gap`). A window's opening and
+    /// closing drop its marks with it.
+    pub(super) fn card_marks_follow(&mut self) {
         let held = &self.cards.proposals;
         self.windows.retain_card_marks(|row| held.contains_key(row));
     }
@@ -846,6 +855,7 @@ impl UiModel {
     /// nothing to confirm or undo.
     pub fn card_gone(&mut self, row: RowId) {
         self.cards.resolved(row);
+        self.card_marks_follow();
     }
 
     /// The person's answer to a proposal was carried out: an Accept leaves
@@ -867,7 +877,9 @@ impl UiModel {
         {
             windowed.left_unread(&conversation);
         }
-        let Some(proposal) = self.cards.resolved(row) else {
+        let resolved = self.cards.resolved(row);
+        self.card_marks_follow();
+        let Some(proposal) = resolved else {
             self.swipe_release_card(row);
             return;
         };
@@ -931,8 +943,21 @@ impl UiModel {
     pub fn card_restored(&mut self, proposal: Proposal) {
         let row = proposal.row;
         self.cards.answers.remove(&row);
+        self.windows.holds_card(
+            &ConversationKey::Direct {
+                peer: proposal.peer.clone(),
+                endpoint: Some(proposal.endpoint.clone()),
+            },
+            row,
+            super::window::PageMark {
+                received_at: proposal.received_at,
+                kept: false,
+                row,
+            },
+        );
         self.cards.proposals.insert(row, proposal);
         self.cards.read(row);
+        self.card_marks_follow();
         self.card_undone(row);
     }
 

@@ -1108,6 +1108,7 @@ impl UiModel {
         self.windows.forget(Table::Unread, row);
         self.release(Table::Unread, row);
         self.cards.read(row);
+        self.card_marks_follow();
     }
 
     /// The content a Keep of `key` would keep is no longer held this

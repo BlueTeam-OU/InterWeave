@@ -1346,26 +1346,86 @@ fn a_deferred_side_is_asked_when_the_other_page_settles() {
     assert_eq!(again.edge, Edge::GapUpper(id), "the Try again, not dropped");
 }
 
-/// A card proposal's mark goes with it: proposals arriving and answered
-/// one after another in the open conversation leave a mark for the one
-/// held alone, never one per card ever received. Mutation: marks never
-/// dropped -- one per card.
-#[test]
-fn card_marks_are_the_held_proposals_alone() {
-    let mut model = started(0);
-    model.window_input(WindowInput::Opened(conversation()));
-    let _ = one_ask(&mut model);
-    for n in 0..50 {
-        let row = RowId::from_stored(2_000 + n);
-        model.card_received(card(row, P));
-        model.card_gone(row);
-    }
-    let marks = model
+fn card_marks(model: &UiModel) -> usize {
+    model
         .windows
         .open
         .as_ref()
-        .map_or(0, |w| w.card_marks.len());
-    assert!(marks <= 1, "{marks} marks for one held proposal at most");
+        .map_or(0, |w| w.card_marks.len())
+}
+
+/// A card proposal's mark goes with it, at once, whichever way the
+/// proposal goes -- its copy gone, declined, read past the read-proposal
+/// bound -- and comes back with it on an Undo. Mutations: any of
+/// `card_gone`, `card_resolved`, `read` and `card_restored` not following
+/// the proposals held.
+#[test]
+fn card_marks_are_the_held_proposals_alone() {
+    use super::super::cards::CardOutcome;
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, super::HELD_ROW_CAP, 1);
+    model.window_input(WindowInput::Opened(conversation()));
+    let _ = one_ask(&mut model);
+    let row = |n: i64| RowId::from_stored(2_000 + n);
+
+    model.card_received(card(row(1), P));
+    assert_eq!(card_marks(&model), 1, "held");
+    model.card_gone(row(1));
+    assert_eq!(card_marks(&model), 0, "its copy gone");
+
+    model.card_received(card(row(2), P));
+    model.card_resolved(row(2), CardOutcome::Declined);
+    assert_eq!(card_marks(&model), 0, "declined");
+
+    model.card_received(card(row(3), P));
+    model.card_received(card(row(4), P));
+    model.read(row(3));
+    model.read(row(4));
+    assert_eq!(
+        card_marks(&model),
+        1,
+        "the older read past the bound of one"
+    );
+
+    model.card_restored(card(row(3), P));
+    let marks: Vec<RowId> = model
+        .windows
+        .open
+        .as_ref()
+        .map(|w| w.card_marks.keys().copied().collect())
+        .unwrap_or_default();
+    assert_eq!(marks, [row(3)], "back with its Undo, the bound holding");
+}
+
+/// A declined card older than every held row is no held row for the
+/// held-row ceiling: letting go of the oldest message moves the top down
+/// to the oldest row left, with no gap above it (#515 review F1: a mark
+/// left behind made a gap there, bounded by a card no longer drawn).
+/// Mutation: `card_resolved` not following the proposals held.
+#[test]
+fn a_declined_oldest_card_bounds_no_gap() {
+    use super::super::cards::CardOutcome;
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, 8, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(
+        &ask,
+        &(2..=9).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::More,
+    ));
+    let mut oldest = card(RowId::from_stored(100), P);
+    oldest.received_at = 0;
+    model.card_received(oldest);
+    model.card_resolved(RowId::from_stored(100), CardOutcome::Declined);
+    place(&mut model, 9, Table::Kept);
+    reached(&mut model);
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(&ask, &[1], Table::Kept, PageEnd::More));
+    assert!(!holds(&model, 1, Table::Kept), "the farthest let go");
+    let gaps = model.windows.open.as_ref().map_or(0, |w| w.gaps.len());
+    assert_eq!(gaps, 0, "the top moved down, no gap made");
 }
 
 /// Built as it ships, the model holds to the published caps; only a test
