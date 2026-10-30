@@ -15,18 +15,20 @@
 //! sits inside other text ([`isolated`]).
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use interweave_human_ui_model::{
-    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, FocusTarget, Intent,
-    KeyProblem, KeyStep, KeyView, OwnPhotoStep, Photo, PhotoChange, PhotoEdit, ProposalItem,
-    ProposalNote, RowId, UiModel, UiText, fill, isolated, name_problem, placeholder_en, short_peer,
+    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ContactsState, ConversationKey,
+    FocusTarget, Intent, KeyProblem, KeyStep, KeyView, OwnPhotoStep, Photo, PhotoChange, PhotoEdit,
+    PhotoState, ProposalItem, ProposalNote, RowId, UiModel, UiText, fill, isolated, name_problem,
+    placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
 use slint::{
-    ComponentHandle as _, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
+    ComponentHandle as _, Image, Model as _, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString,
+    VecModel,
 };
 
 use crate::generated::{
@@ -178,7 +180,29 @@ impl Drawn {
 
 /// The card screens' callbacks: each becomes an input, taken as the others
 /// are.
+/// Where Contacts' Try again puts focus as its row goes (start-window
+/// section 7's table names the page's title; the title here is no focus
+/// stop, and the back arrow beside it is where Contacts puts focus when it
+/// has no row to put it on).
+pub(crate) const CONTACTS_TRY_AGAIN_FOCUS: &str = "close-cards";
+
 pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let s = Rc::clone(shared);
+    window.on_contact_in_view(move |handle, shown| {
+        // Only a row coming into view asks the root for a turn: its photo
+        // is to be read; one leaving waits for the next.
+        if shown {
+            crate::flag(&s, |s| {
+                s.window_view.contact_rows.insert(handle);
+            });
+        } else {
+            s.borrow_mut().window_view.contact_rows.remove(&handle);
+        }
+    });
+    let s = Rc::clone(shared);
+    window.on_contacts_try_again(move || {
+        crate::flag(&s, |s| s.window_view.contacts_try_again = true);
+    });
     let on = |s: &Rc<RefCell<Shared>>, input: CardsInput| {
         let s = Rc::clone(s);
         move || enqueue(&s, Input::Cards(input.clone()))
@@ -353,21 +377,27 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     let name = isolated(&p.name);
     let swipe = p.swipe();
     let swipe_key = proposal_swipe_key(p.row);
-    let context = match &p.accept {
-        AcceptLine::Creates => text(UiText::CardWillCreate).to_owned(),
-        AcceptLine::Updates(contact) => {
-            fill(text(UiText::CardUpdates), &[("name", &isolated(contact))])
-        }
-        // Case S says the card matches only when nothing is kept by a
-        // local choice: otherwise the kept lines stand in its place
-        // (design 5.4.1 as #443 left it).
-        AcceptLine::Matches(_)
-            if p.values.kept_name || p.values.photo != PhotoChange::Unchanged =>
-        {
-            String::new()
-        }
-        AcceptLine::Matches(contact) => {
-            fill(text(UiText::CardSame), &[("contact", &isolated(contact))])
+    // Unread contacts: no comparison with them, so no case line but the
+    // one saying why Accept is not offered (start-window section 11).
+    let context = if p.contacts_unread {
+        text(UiText::CardContactsUnread).to_owned()
+    } else {
+        match &p.accept {
+            AcceptLine::Creates => text(UiText::CardWillCreate).to_owned(),
+            AcceptLine::Updates(contact) => {
+                fill(text(UiText::CardUpdates), &[("name", &isolated(contact))])
+            }
+            // Case S says the card matches only when nothing is kept by a
+            // local choice: otherwise the kept lines stand in its place
+            // (design 5.4.1 as #443 left it).
+            AcceptLine::Matches(_)
+                if p.values.kept_name || p.values.photo != PhotoChange::Unchanged =>
+            {
+                String::new()
+            }
+            AcceptLine::Matches(contact) => {
+                fill(text(UiText::CardSame), &[("contact", &isolated(contact))])
+            }
         }
     };
     // What Accept changes and which of the person's edits it keeps, right
@@ -457,7 +487,8 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
             text(UiText::CardGoesAtClose).into()
         },
         received: received.into(),
-        closes: matches!(p.accept, AcceptLine::Matches(_)),
+        closes: matches!(p.accept, AcceptLine::Matches(_)) && !p.contacts_unread,
+        accept_offered: !p.contacts_unread,
         accept: text(p.accept_text()).into(),
         decline: text(UiText::CardDecline).into(),
         swipe_key: swipe_key.into(),
@@ -566,6 +597,20 @@ pub(crate) struct CardScreens {
     /// The proposal whose own Accept or Decline was pressed last: its
     /// answer moves focus, as a message row's own button does.
     pub(crate) pressed: Option<RowId>,
+    /// The proposals drawn with Decline alone, the contacts unread: focus
+    /// that would go to Accept goes to Decline (start-window section 11).
+    pub(crate) decline_only: HashSet<RowId>,
+    /// The contacts' state as last drawn, when Try again's read began, and
+    /// focus placed on the page by Try again.
+    contacts_state: Option<ContactsState>,
+    reading_since: Option<std::time::Instant>,
+    /// Each photo drawn, by its contact and photo time: the same image
+    /// each render, so a row whose photo did not change is not set again
+    /// (`a_contact_rows_photo_replaces_its_initials_in_place_when_it_arrives`).
+    photo_images: HashMap<(String, Option<u64>), Image>,
+    /// A contact chosen whose page waits for its photo (start-window
+    /// section 11: a contact page opens with its photo).
+    contact_waiting: Option<String>,
     contacts_shown: Vec<ContactView>,
     contact_rows: Option<Rc<VecModel<ContactListRow>>>,
     contact_drawn: Option<ContactView>,
@@ -588,7 +633,7 @@ pub(crate) struct CardScreens {
     /// The proposal link that opened the contact page: its conversation,
     /// its card and the note's place (contact-cards design section 9's
     /// focus table: Back returns to the control that opened it).
-    return_to_link: Option<(ConversationKey, RowId, i32)>,
+    pub(crate) return_to_link: Option<(ConversationKey, RowId, i32)>,
     /// That link, focused once its conversation draws it again.
     focus_link: Option<(RowId, i32)>,
     /// The platform's photo picker, when the root gives one (Android's
@@ -736,7 +781,7 @@ impl View {
             }
             CardsInput::Contact(id) => {
                 if model.contact(&id).is_some() {
-                    self.open_contact(&window, id);
+                    self.open_contact_with_photo(model, &window, id);
                 }
             }
             CardsInput::ProposalContact(handle, note) => {
@@ -759,7 +804,7 @@ impl View {
                     self.cards.forget_returns();
                     self.cards.return_to_link = Some((key, row, note));
                     self.page = crate::Page::Cards;
-                    self.open_contact(&window, id);
+                    self.open_contact_with_photo(model, &window, id);
                 }
             }
             CardsInput::SaveName(id, typed) => {
@@ -968,6 +1013,43 @@ impl View {
         self.cards.photo_picker.is_some() || cfg!(feature = "desktop")
     }
 
+    /// The contacts whose avatars the card pages show now: the Contacts
+    /// rows in view while the list is drawn, the contact whose page is
+    /// open or waited for. What a page no longer draws is not among them,
+    /// however its rows went (`leaving_contacts_hides_the_avatars_it_showed`).
+    pub(crate) fn avatars_shown(&self) -> HashSet<String> {
+        let shared = self.shared.borrow();
+        let mut shown = HashSet::new();
+        match self.cards.page {
+            Some(CardsPage::Contacts) => {
+                shown.extend(
+                    shared
+                        .window_view
+                        .contact_rows
+                        .iter()
+                        .filter_map(|h| shared.cards.contacts.get(h).cloned()),
+                );
+            }
+            Some(CardsPage::Contact) => shown.extend(self.cards.contact.clone()),
+            _ => {}
+        }
+        shown.extend(self.cards.contact_waiting.clone());
+        shown
+    }
+
+    /// Open a contact's page with its photo: one not read yet is asked,
+    /// and the page waits for it, with no loading state, so it opens on the
+    /// photo when the photo can be read (start-window section 11;
+    /// `a_contact_page_waits_for_its_photo_and_an_unreadable_one_keeps_remove_photo`).
+    fn open_contact_with_photo(&mut self, model: &UiModel, window: &AppWindow, id: String) {
+        if model.contact_photo(&id) == PhotoState::Initials {
+            self.cards.contact_waiting = Some(id);
+        } else {
+            self.cards.contact_waiting = None;
+            self.open_contact(window, id);
+        }
+    }
+
     /// Show contact `id`'s page, focus on its back arrow.
     fn open_contact(&mut self, window: &AppWindow, id: String) {
         self.cards.page = Some(CardsPage::Contact);
@@ -1056,6 +1138,17 @@ impl View {
             self.abandon_photo_pick();
         }
         self.render_proposals(model, &window);
+        // A contact chosen whose photo was not read: its page opens once
+        // the photo is in, or known unreadable; gone, or the person went
+        // elsewhere meanwhile, it does not.
+        if let Some(id) = self.cards.contact_waiting.clone() {
+            if self.page != crate::Page::Cards || model.contact(&id).is_none() {
+                self.cards.contact_waiting = None;
+            } else if model.contact_photo(&id) != PhotoState::Initials {
+                self.cards.contact_waiting = None;
+                self.open_contact(&window, id);
+            }
+        }
         // A contact's page whose contact is gone shows the list.
         if self.cards.page == Some(CardsPage::Contact)
             && self
@@ -1068,11 +1161,14 @@ impl View {
             self.cards.contact = None;
             window.set_cards_page(CardsPage::Contacts);
         }
-        self.render_contacts(model, &window);
+        let contacts_said = self.render_contacts(model, &window);
         self.render_contact(model, &window);
         self.render_own(model, &window);
         let photo_said = self.render_own_photo(model, &window);
-        let said = self.render_key(model, &window).or(photo_said);
+        let said = self
+            .render_key(model, &window)
+            .or(photo_said)
+            .or(contacts_said);
         self.render_share(model, &window);
         if let Some(key) = self.cards.share_on_open.take() {
             if self.shown.as_ref() == Some(&key) && self.page == crate::Page::Conversation {
@@ -1316,6 +1412,7 @@ impl View {
             let mut swipes = HashMap::new();
             let mut handles = HashMap::new();
             let mut links = HashMap::new();
+            let mut decline_only = HashSet::new();
             let drawn: Vec<ProposalRow> = shown
                 .iter()
                 .enumerate()
@@ -1354,6 +1451,18 @@ impl View {
                         }
                         [only] => {
                             answers.insert(handle, (only.clone(), only.clone()));
+                            // Unread contacts: Decline alone, a left swipe
+                            // declining as it always does (section 11).
+                            if p.contacts_unread {
+                                decline_only.insert(p.row);
+                                swipes.insert(
+                                    proposal_swipe_key(p.row),
+                                    crate::swipe::Swipeable::Proposal {
+                                        accept: None,
+                                        decline: Some(only.clone()),
+                                    },
+                                );
+                            }
                         }
                         _ => {}
                     }
@@ -1410,6 +1519,7 @@ impl View {
             shared.swipes.extend(swipes);
             drop(shared);
             self.cards.drawn_rows = handles;
+            self.cards.decline_only = decline_only;
             self.cards.proposals_shown = shown;
             shared_after(&self.shared, &places);
             self.cards.proposal_places = places;
@@ -1435,7 +1545,8 @@ impl View {
         }
     }
 
-    fn render_contacts(&mut self, model: &UiModel, window: &AppWindow) {
+    fn render_contacts(&mut self, model: &UiModel, window: &AppWindow) -> Option<String> {
+        let (said, answered) = self.render_contacts_state(model, window);
         window.set_contacts_title(text(UiText::ContactsTitle).into());
         window.set_own_card_title(text(UiText::OwnCardTitle).into());
         window.set_contacts_empty(text(UiText::ContactsEmpty).into());
@@ -1447,28 +1558,59 @@ impl View {
                 .contact_rows
                 .get_or_insert_with(|| Rc::new(VecModel::default())),
         );
-        if contacts != self.cards.contacts_shown {
-            let mut ids = HashMap::new();
-            let drawn: Vec<ContactListRow> = contacts
+        // Each row's photo as the model holds it now: one read on demand
+        // replaces the initials in place when it arrives (start-window
+        // section 11), so the rows are set one by one, a reset dropping a
+        // touch held in the list.
+        let mut ids = HashMap::new();
+        let mut live = HashSet::new();
+        let drawn: Vec<ContactListRow> = contacts
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let handle = i32::try_from(i).unwrap_or(i32::MAX);
+                ids.insert(handle, c.contact_id.clone());
+                let photo = self.photo_image(model, c, &mut live);
+                ContactListRow {
+                    handle,
+                    name: isolated(&c.name).into(),
+                    letters: initials(&c.name).into(),
+                    hue: contact_hue(c),
+                    has_photo: photo.is_some(),
+                    photo: photo.unwrap_or_default(),
+                }
+            })
+            .collect();
+        let same_rows = rows.row_count() == drawn.len()
+            && contacts
                 .iter()
-                .enumerate()
-                .map(|(i, c)| {
-                    let handle = i32::try_from(i).unwrap_or(i32::MAX);
-                    ids.insert(handle, c.contact_id.clone());
-                    ContactListRow {
-                        handle,
-                        name: isolated(&c.name).into(),
-                        letters: initials(&c.name).into(),
-                        hue: contact_hue(c),
-                        has_photo: c.photo.is_some(),
-                        photo: c.photo.as_ref().map(image).unwrap_or_default(),
-                    }
-                })
-                .collect();
-            rows.set_vec(drawn);
-            self.shared.borrow_mut().cards.contacts = ids;
-            self.cards.contacts_shown = contacts;
+                .zip(&self.cards.contacts_shown)
+                .all(|(a, b)| a.contact_id == b.contact_id);
+        // Rows made again report their place again: what the rows said
+        // before is no longer theirs.
+        if !same_rows || self.cards.page != Some(CardsPage::Contacts) {
+            self.shared.borrow_mut().window_view.contact_rows.clear();
         }
+        if same_rows {
+            for (i, row) in drawn.iter().enumerate() {
+                if rows.row_data(i).as_ref() != Some(row) {
+                    rows.set_row_data(i, row.clone());
+                }
+            }
+        } else {
+            rows.set_vec(drawn);
+        }
+        if let Some(contact) = self
+            .cards
+            .contact
+            .clone()
+            .and_then(|id| model.contact(&id).cloned())
+        {
+            let _ = self.photo_image(model, &contact, &mut live);
+        }
+        self.cards.photo_images.retain(|key, _| live.contains(key));
+        self.shared.borrow_mut().cards.contacts = ids;
+        self.cards.contacts_shown = contacts;
         // A deleted contact gone from the list: focus on its first row,
         // else its back arrow (the empty text is no focus stop). A delete
         // the store refused leaves it listed, and focus where it is.
@@ -1482,6 +1624,86 @@ impl View {
             }
         }
         window.set_contact_rows(ModelRc::from(rows));
+        // Try again's read answered while focus is still where it put it
+        // (section 7's table): success on the first row, else where an
+        // empty list puts it; failure on the new row's Try again.
+        if let Some(read) = answered
+            && window.get_focus_id() == CONTACTS_TRY_AGAIN_FOCUS
+        {
+            let key = if read {
+                self.contact_focus(&FocusTarget::Contacts)
+            } else {
+                Some("contacts-try-again".to_owned())
+            };
+            if let Some(key) = key {
+                self.focus_key_after_draw(key);
+            }
+        }
+        said
+    }
+
+    /// The Contacts list's read state (start-window section 11): the
+    /// failure row while the contacts are unread, the progress row once
+    /// Try again's read has taken 250 ms, `ContactsLoadFailed` announced
+    /// once as a failure arises with Contacts open -- a list opened
+    /// already failed says nothing -- and, as Try again's read answers,
+    /// whether it read them.
+    fn render_contacts_state(
+        &mut self,
+        model: &UiModel,
+        window: &AppWindow,
+    ) -> (Option<String>, Option<bool>) {
+        let state = model.contacts_state();
+        window.set_contacts_load_failed(text(UiText::ContactsLoadFailed).into());
+        window.set_contacts_loading(text(UiText::ContactsLoading).into());
+        window.set_contacts_unread(state != ContactsState::Read);
+        window.set_contacts_reading(state == ContactsState::Reading);
+        let now = (self.monotonic)();
+        let loading_shown = if state == ContactsState::Reading {
+            let since = *self.cards.reading_since.get_or_insert(now);
+            let waited = now.saturating_duration_since(since);
+            let after = crate::window_marks::LOADING_SHOWN_AFTER;
+            if waited < after {
+                self.wake_after(after.saturating_sub(waited));
+            }
+            waited >= after
+        } else {
+            self.cards.reading_since = None;
+            false
+        };
+        window.set_contacts_loading_shown(loading_shown);
+        let open = self.cards.page == Some(CardsPage::Contacts);
+        let before = self.cards.contacts_state.replace(state);
+        let said = (open
+            && state == ContactsState::Unread
+            && before.is_some_and(|b| b != ContactsState::Unread))
+        .then(|| text(UiText::ContactsLoadFailed).to_owned());
+        let answered = (before == Some(ContactsState::Reading) && state != ContactsState::Reading)
+            .then_some(state == ContactsState::Read);
+        (said, answered)
+    }
+
+    /// `contact`'s photo as drawn, when the model holds it decoded: the
+    /// same image each render while its photo time stands. Its key is
+    /// added to `live`, which the cache is trimmed to.
+    fn photo_image(
+        &mut self,
+        model: &UiModel,
+        contact: &ContactView,
+        live: &mut HashSet<(String, Option<u64>)>,
+    ) -> Option<Image> {
+        let PhotoState::Shown(photo) = model.contact_photo(&contact.contact_id) else {
+            return None;
+        };
+        let key = (contact.contact_id.clone(), contact.photo_at);
+        live.insert(key.clone());
+        Some(
+            self.cards
+                .photo_images
+                .entry(key)
+                .or_insert_with(|| image(photo))
+                .clone(),
+        )
     }
 
     fn render_contact(&mut self, model: &UiModel, window: &AppWindow) {
@@ -1505,6 +1727,15 @@ impl View {
             self.cards.contact_drawn = None;
             return;
         };
+        // The photo as the model holds it, whatever else changed: read on
+        // demand, a photo that cannot be read leaves the initials and
+        // Remove photo, since the contact still has one to remove.
+        let mut live = HashSet::new();
+        let photo = self.photo_image(model, &contact, &mut live);
+        window.set_contact_photo_shown(photo.is_some());
+        window.set_contact_photo(photo.unwrap_or_default());
+        let stored = model.contact_has_photo(&contact.contact_id);
+        window.set_contact_has_photo(stored);
         if self.cards.contact_drawn.as_ref() == Some(&contact) {
             return;
         }
@@ -1525,8 +1756,6 @@ impl View {
         );
         window.set_contact_letters(initials(&contact.name).into());
         window.set_contact_hue(contact_hue(&contact));
-        window.set_contact_has_photo(contact.photo.is_some());
-        window.set_contact_photo(contact.photo.as_ref().map(image).unwrap_or_default());
         let when = |at: Option<u64>| at.map_or_else(String::new, |at| self.clock.date_text(at));
         let name_source = if contact.name_from_card {
             UiText::ContactNameFromCard
@@ -1536,7 +1765,7 @@ impl View {
         window.set_contact_name_source(
             fill(text(name_source), &[("date", &when(contact.name_at))]).into(),
         );
-        let photo_source = match (contact.photo.is_some(), contact.photo_from_card) {
+        let photo_source = match (stored, contact.photo_from_card) {
             (true, Some(true)) => Some(UiText::ContactPhotoFromCard),
             (true, _) => Some(UiText::ContactPhotoChosen),
             (false, Some(false)) => Some(UiText::ContactPhotoRemoved),

@@ -23,7 +23,7 @@ use interweave_human_store::{
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
     ConversationKey, Edge, Intent, MarkKind, PhotoAsk, PhotoState, READ_PROPOSAL_CAP, UiModel,
-    ViewEvent, WindowInput,
+    ViewEvent, WindowEvent, WindowInput,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
@@ -89,12 +89,23 @@ fn message(n: u32, from: &TransportIdentity, at: u64) -> NewInbound {
     }
 }
 
-struct Blind;
+/// A surface that draws nothing: it counts its renders and hands over the
+/// window reports a test queues, as a view would.
+#[derive(Default)]
+struct Blind {
+    renders: usize,
+    window: Vec<WindowEvent>,
+}
 
 impl Surface for Blind {
-    fn render(&mut self, _model: &UiModel) {}
+    fn render(&mut self, _model: &UiModel) {
+        self.renders += 1;
+    }
     fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
         Vec::new()
+    }
+    fn take_window(&mut self) -> Vec<WindowEvent> {
+        std::mem::take(&mut self.window)
     }
 }
 
@@ -168,7 +179,7 @@ fn a_start_reads_a_row_per_conversation_never_the_backlog() {
     assert_eq!(start.undecodable_unread, 1);
     assert!(start.contacts.is_ok());
 
-    let mut model = ModelSide::new(Blind, NoOpener);
+    let mut model = ModelSide::new(Blind::default(), NoOpener);
     model.apply(Update::Started(Box::new(start)));
     assert!(model.model().windowed());
     assert!(model.model().is_empty(), "no row of a conversation is held");
@@ -190,6 +201,11 @@ fn a_start_reads_a_row_per_conversation_never_the_backlog() {
         assert!(!listed.last.preview.shown().is_empty());
     }
     assert_eq!(model.hidden_rows(), 1);
+    assert_eq!(
+        model.model().rows_not_shown(),
+        1,
+        "the count reaches the model"
+    );
 
     let before = side.rows_read();
     side.listing().expect("listed");
@@ -250,7 +266,7 @@ struct Root {
 
 impl Root {
     fn start(mut side: FacadeSide<FakeNode, FakeNode>) -> Self {
-        let mut model = ModelSide::new(Blind, NoOpener);
+        let mut model = ModelSide::new(Blind::default(), NoOpener);
         model.apply(Update::Started(Box::new(side.start().expect("started"))));
         Self {
             side,
@@ -553,4 +569,77 @@ async fn a_card_the_drain_hands_over_counts_once_in_its_badge() {
         .expect("the conversation is listed");
     assert_eq!(listed.unread, 1);
     assert!(listed.last.card);
+}
+
+/// What the view reports of the window reaches the model through the
+/// turn, and the page it reaches is read: an opening reported by the
+/// surface brings the conversation's first page with no call past the
+/// surface. Mutation: the turn not draining the surface's reports.
+#[tokio::test]
+async fn the_turn_takes_the_views_window_reports_and_reads_the_page() {
+    let from = peer();
+    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    for n in 1..=10 {
+        let mut row = message(n, &from, u64::from(n));
+        row.kind = InboundKind::Text;
+        store.commit_unread_inbound(&row).expect("committed");
+    }
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut root = Root::start(facade(&a, store));
+    let key = direct(&from);
+    root.model
+        .surface_mut()
+        .window
+        .push(WindowEvent::Input(WindowInput::Opened(key.clone())));
+    root.turn().await;
+    assert_eq!(root.model().messages(&key).len(), 10);
+}
+
+/// A report that changes what is drawn and asks the facade nothing --
+/// closing the open conversation lets its rows go and takes its marks
+/// away -- is drawn by the turn that takes it, since no update would bring
+/// another; the person's place, which a scroll reports on every move,
+/// draws nothing. Mutations: a changed report not drawn; every report
+/// drawn.
+#[tokio::test]
+async fn a_report_that_changes_what_is_drawn_draws_and_a_place_never_does() {
+    let from = peer();
+    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    for n in 1..=100 {
+        let mut row = message(n, &from, u64::from(n));
+        row.kind = InboundKind::Text;
+        store.commit_unread_inbound(&row).expect("committed");
+    }
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut root = Root::start(facade(&a, store));
+    let key = direct(&from);
+    root.model.window(WindowInput::Opened(key.clone()));
+    root.turn().await;
+    assert!(!root.model().window_marks(&key).is_empty(), "the top line");
+    let renders = |root: &mut Root| root.model.surface_mut().renders;
+
+    let before = renders(&mut root);
+    root.model
+        .surface_mut()
+        .window
+        .push(WindowEvent::Input(WindowInput::Place {
+            conversation: key.clone(),
+            focused: None,
+            in_view: Vec::new(),
+        }));
+    assert!(root.model.turn().is_empty());
+    assert_eq!(renders(&mut root), before + 1, "the turn's own render only");
+
+    let before = renders(&mut root);
+    root.model
+        .surface_mut()
+        .window
+        .push(WindowEvent::Input(WindowInput::Closed(key.clone())));
+    assert!(root.model.turn().is_empty(), "closing asks nothing");
+    assert!(root.model().window_marks(&key).is_empty());
+    assert_eq!(
+        renders(&mut root),
+        before + 2,
+        "drawn again by the same turn"
+    );
 }

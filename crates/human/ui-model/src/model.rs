@@ -719,6 +719,10 @@ pub struct UiModel {
     windows: window::Windows,
     /// The contacts as the windowed mode reads them, and their photos.
     directory: directory::Directory,
+    /// Stored rows the last listing or start could not decode for
+    /// display: held in the store, and Chats' closing line says how many
+    /// (design section 6.1).
+    rows_not_shown: usize,
 }
 
 impl Default for UiModel {
@@ -763,6 +767,7 @@ impl UiModel {
             windowed: None,
             windows: window::Windows::default(),
             directory: directory::Directory::default(),
+            rows_not_shown: 0,
         }
     }
 
@@ -798,14 +803,19 @@ impl UiModel {
             // A path notice -- a route's begin, a change, or the peer's
             // return -- updates the route indicator and nothing else: no
             // item, no unread count, no conversation (`human-client-ui.md`
-            // §7 and §13). Kept for a peer a direct conversation is with;
-            // the facade hands a path notice over after the messages of
-            // the same take, so the conversation a route's first message
-            // starts is there.
+            // §7 and §13). Kept for a peer a direct conversation is with --
+            // one holding a row here, or in the windowed mode one the start
+            // summarised, whose rows stay in the store
+            // (`a_summarised_conversations_path_is_kept`); the facade hands
+            // a path notice over after the messages of the same take, so the
+            // conversation a route's first message starts is there.
             ClientEvent::PeerPath { peer, path } => {
-                let known = self.items.values().any(|item| {
-                    matches!(&item.conversation, ConversationKey::Direct { peer: p, .. } if *p == peer)
-                });
+                let with = |c: &ConversationKey| matches!(c, ConversationKey::Direct { peer: p, .. } if *p == peer);
+                let known = self.items.values().any(|item| with(&item.conversation))
+                    || self
+                        .windowed
+                        .as_ref()
+                        .is_some_and(|w| w.iter().any(|s| with(&s.conversation)));
                 if known {
                     self.paths.insert(peer, path);
                 }
@@ -1938,8 +1948,12 @@ impl UiModel {
                 .get(&key)
                 .is_some_and(|i| Some(&i.conversation) == self.windows.open_conversation())
             {
-                let below = self.item_below(key);
-                self.windows.dropped(key, below);
+                if let Some(at) = self.drop_pos(key) {
+                    self.windows.dropped(at);
+                }
+                self.drop_items(&[key]);
+                self.join_runs();
+                continue;
             }
             self.drop_items(&[key]);
         }

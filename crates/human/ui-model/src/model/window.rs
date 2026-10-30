@@ -149,7 +149,8 @@ pub enum WindowInput {
         /// The edge.
         edge: Edge,
     },
-    /// The edge left the view and the person's focus.
+    /// The edge left the view or the person's focus (section 5: either
+    /// leaving arms it again).
     Left {
         /// The conversation.
         conversation: ConversationKey,
@@ -185,12 +186,48 @@ pub enum WindowInput {
     },
 }
 
-/// Something a view draws at an edge, anchored above an item.
+/// What a view reports of the windowed mode, beside its intents: the open
+/// conversation's window, the avatars it shows, and the Contacts list's
+/// Try again. A view queues these and the root applies them each turn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WindowEvent {
+    /// The open conversation's window.
+    Input(WindowInput),
+    /// A contact's avatar came into view.
+    PhotoShown(String),
+    /// A contact's avatar left the view.
+    PhotoHidden(String),
+    /// The Contacts list's Try again.
+    ContactsTryAgain,
+}
+
+/// Something the open conversation draws, in the order a view draws it:
+/// a message item, or a card proposal's row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Anchor {
+    /// A message item.
+    Item(ItemKey),
+    /// A card proposal's row.
+    Card(RowId),
+}
+
+/// Where a [`WindowMark`] stands among what the conversation draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MarkPlace {
+    /// Above everything the conversation draws, leading proposals
+    /// included: the top edge's marks.
+    Top,
+    /// Directly above this.
+    Above(Anchor),
+    /// Below everything.
+    End,
+}
+
+/// Something a view draws at an edge.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowMark {
-    /// The item it stands directly above; `None` when it stands below
-    /// every item.
-    pub above: Option<ItemKey>,
+    /// Where it stands.
+    pub place: MarkPlace,
     /// What it is.
     pub kind: MarkKind,
 }
@@ -238,6 +275,10 @@ enum EdgeState {
     /// The next page would drop a read row: the limit row shows until the
     /// person chooses Show more messages.
     AtLimit,
+    /// Asked -- reached, Try again or Show more messages -- while the gap's
+    /// other side had a page on its way: asked when that page settles,
+    /// arrived or failed, never dropped (`a_deferred_side_is_asked_when_the_other_page_settles`).
+    Wanted,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -269,6 +310,15 @@ struct Gap {
     lower: Side,
 }
 
+/// A place in a conversation's drawn order: when, a message before a card
+/// at the same instant (as a view places a card after every message that
+/// arrived no later), then the table and row. Positions are compared, not
+/// looked up among the held rows, so a mark keeps its place when the row it
+/// was taken from is read, hidden or let go
+/// (`a_gap_keeps_its_place_when_the_row_below_it_is_read`,
+/// `a_read_not_shown_line_stays_when_the_row_below_it_is_hidden`).
+type Pos = (u64, u8, Table, i64);
+
 /// The open conversation's window.
 #[derive(Debug)]
 struct Window {
@@ -281,6 +331,9 @@ struct Window {
     next_gap: u64,
     /// Each held stored row's place.
     marks: HashMap<(Table, RowId), PageMark>,
+    /// Each held card proposal's place: a held row like a message's, so it
+    /// bounds a gap (ux-designer's U2), but no item the ceiling counts.
+    card_marks: HashMap<RowId, PageMark>,
     /// The person chose Show more messages for this opening.
     show_anyway: bool,
     /// The item the person moved focus to.
@@ -288,8 +341,9 @@ struct Window {
     /// The items in view.
     in_view: Vec<ItemKey>,
     /// Each run of the conversation's rows the session bound dropped, by
-    /// the item it stands directly above (`None`: below every item).
-    runs: BTreeMap<Option<ItemKey>, u64>,
+    /// the place of the newest row it dropped: the line stands above
+    /// whatever is drawn next, whichever row that is by then.
+    runs: BTreeMap<Pos, u64>,
     /// The newest place of any stored row this opening held, a card's
     /// included: a stored row newer than it was never handed over.
     newest_seen: Option<PageMark>,
@@ -341,6 +395,21 @@ impl Windows {
         let Some((older_than, newer_than, order)) = window.bounds(edge) else {
             return;
         };
+        // One page of a gap at a time (section 5.1): the rows on its two
+        // sides stand next to each other on screen, so both are reached
+        // together, and two pages would read the same rows and count them
+        // twice out of the gap's line
+        // (`reaching_both_sides_of_a_gap_asks_one_page`).
+        if let Edge::GapUpper(id) | Edge::GapLower(id) = edge
+            && window.gaps.get(&id).is_some_and(|g| {
+                g.upper.state == EdgeState::InFlight || g.lower.state == EdgeState::InFlight
+            })
+        {
+            if let Some(side) = window.side(edge) {
+                side.state = EdgeState::Wanted;
+            }
+            return;
+        }
         if let Some(side) = window.side(edge) {
             side.state = EdgeState::InFlight;
         }
@@ -397,14 +466,25 @@ impl Windows {
         }
     }
 
-    /// A row of the open conversation the session bound dropped, `below`
-    /// the item now directly below where it stood: its run grows, and a
-    /// run that stood directly above the dropped row joins it, the two
-    /// being one run now.
-    pub(super) fn dropped(&mut self, dropped: ItemKey, below: Option<ItemKey>) {
+    /// A held card proposal of the open conversation, at `mark`.
+    pub(super) fn holds_card(
+        &mut self,
+        conversation: &ConversationKey,
+        row: RowId,
+        mark: PageMark,
+    ) {
+        if let Some(window) = self.open_for(conversation) {
+            window.card_marks.insert(row, mark);
+        }
+        self.seen(mark);
+    }
+
+    /// A row of the open conversation the session bound dropped, from
+    /// `at`: a run of its own, joined to its neighbours by
+    /// [`UiModel::join_runs`] once it is no longer drawn.
+    pub(super) fn dropped(&mut self, at: Pos) {
         if let Some(window) = self.open.as_mut() {
-            let joined = window.runs.remove(&Some(dropped)).unwrap_or(0);
-            *window.runs.entry(below).or_insert(0) += joined + 1;
+            *window.runs.entry(at).or_insert(0) += 1;
         }
     }
 
@@ -440,6 +520,7 @@ impl UiModel {
                     gaps: BTreeMap::new(),
                     next_gap: 0,
                     marks: HashMap::new(),
+                    card_marks: HashMap::new(),
                     show_anyway: false,
                     focused: None,
                     in_view: Vec::new(),
@@ -521,6 +602,41 @@ impl UiModel {
         }
     }
 
+    /// What a view reported, applied; true when what a view draws changed
+    /// -- the open conversation, its marks, the Contacts list's state --
+    /// so the root draws again although the facade was asked nothing. The
+    /// person's place and an avatar coming or going change nothing drawn,
+    /// so the reports a scroll sends draw nothing
+    /// (`a_window_event_says_whether_anything_drawn_changed`).
+    pub fn window_event(&mut self, event: WindowEvent) -> bool {
+        let before = self.window_drawn();
+        match event {
+            WindowEvent::Input(input) => self.window_input(input),
+            WindowEvent::PhotoShown(id) => self.photo_shown(&id),
+            WindowEvent::PhotoHidden(id) => self.photo_hidden(&id),
+            WindowEvent::ContactsTryAgain => {
+                self.contacts_try_again();
+            }
+        }
+        self.window_drawn() != before
+    }
+
+    /// What a view draws of the windowed mode, for [`Self::window_event`].
+    fn window_drawn(
+        &self,
+    ) -> (
+        Option<ConversationKey>,
+        Vec<WindowMark>,
+        super::directory::ContactsState,
+    ) {
+        let open = self.windows.open_conversation().cloned();
+        let marks = open
+            .as_ref()
+            .map(|c| self.window_marks(c))
+            .unwrap_or_default();
+        (open, marks, self.contacts_state())
+    }
+
     /// The pages asked since the last call, for the facade to read.
     pub fn take_page_asks(&mut self) -> Vec<PageAsk> {
         self.windows.asks.drain(..).collect()
@@ -539,6 +655,22 @@ impl UiModel {
                 && w.bounds(page.ask.edge).is_some()
         });
         if !current {
+            return;
+        }
+        // A top page asked from a top the held-row ceiling has since moved
+        // down reads only rows older than the old top, and would leave the
+        // rows let go between the two tops in no gap and above no edge,
+        // never read back. It adds nothing, and the top is asked again from
+        // where it stands now
+        // (`a_top_page_in_flight_when_the_ceiling_moves_the_top_adds_nothing`).
+        if page.ask.edge == Edge::Top
+            && let Some(window) = self.windows.open.as_mut()
+            && window.top != page.ask.older_than
+        {
+            window.top_side.state = EdgeState::Armed;
+            if window.top_side.at {
+                self.reach(Edge::Top);
+            }
             return;
         }
         let mut marks: Vec<((Table, RowId), PageMark, bool)> = Vec::new();
@@ -661,7 +793,40 @@ impl UiModel {
                 };
             }
         }
+        if !gap_done {
+            self.gap_settled(edge);
+        }
         self.hold_ceiling();
+    }
+
+    /// A gap's page settled, arrived or failed: its other side is asked
+    /// now that no page of the gap is on its way, when it was asked
+    /// meanwhile, or when it is still where the person is -- a side still
+    /// in view when the other side's page arrives counts as reached again,
+    /// so a gap wholly in view fills page by page without the person moving
+    /// (design section 5.1, U3; `a_gap_in_view_fills_page_by_page`).
+    fn gap_settled(&mut self, edge: Edge) {
+        let other = match edge {
+            Edge::GapUpper(id) => Edge::GapLower(id),
+            Edge::GapLower(id) => Edge::GapUpper(id),
+            Edge::Top => return,
+        };
+        let asked = self
+            .windows
+            .open
+            .as_mut()
+            .and_then(|w| w.side(other))
+            .is_some_and(|s| {
+                s.state == EdgeState::Wanted
+                    || (s.at
+                        && matches!(
+                            s.state,
+                            EdgeState::Armed | EdgeState::AtLimit | EdgeState::Spent
+                        ))
+            });
+        if asked {
+            self.reach(other);
+        }
     }
 
     /// The page asked for `ask` could not be read: the edge shows the
@@ -673,6 +838,7 @@ impl UiModel {
             && let Some(side) = window.side(ask.edge)
         {
             side.state = EdgeState::Failed;
+            self.gap_settled(ask.edge);
         }
     }
 
@@ -763,7 +929,7 @@ impl UiModel {
                     (!at.is_empty()).then(|| at[at.len() / 2])
                 })
                 .unwrap_or(order.len() - 1);
-            let victim = held
+            let mut candidates: Vec<_> = held
                 .iter()
                 .filter(|(key, rows)| {
                     *key != newest
@@ -782,11 +948,18 @@ impl UiModel {
                         )
                     })
                 })
-                .max_by_key(|(distance, older, key, _)| (*distance, *older, *key));
-            let Some((_, _, key, rows)) = victim else {
-                return;
-            };
-            if !self.let_go_item(key, &rows) {
+                .collect();
+            candidates.sort_by_key(|(distance, older, key, _)| (*distance, *older, *key));
+            // The farthest first; one that cannot go -- an item holding a
+            // stored row newer than every other held row, a later copy of
+            // an older message -- is passed over for the next, so the
+            // ceiling holds while anything can go
+            // (`the_ceiling_holds_past_an_item_holding_the_newest_stored_row`).
+            if !candidates
+                .into_iter()
+                .rev()
+                .any(|(_, _, key, rows)| self.let_go_item(key, &rows))
+            {
                 return;
             }
         }
@@ -811,8 +984,11 @@ impl UiModel {
             self.drop_items(&[key]);
             return true;
         };
-        let above = window.marks.values().filter(|m| **m < low).max().copied();
-        let Some(below) = window.marks.values().filter(|m| **m > high).min().copied() else {
+        // A held proposal bounds a gap as a held message does: released rows
+        // on its two sides are two gaps (ux-designer's U2).
+        let held = || window.marks.values().chain(window.card_marks.values());
+        let above = held().filter(|m| **m < low).max().copied();
+        let Some(below) = held().filter(|m| **m > high).min().copied() else {
             return false;
         };
         for (table, row) in rows {
@@ -905,12 +1081,17 @@ impl UiModel {
         keys.into_iter().map(|(_, k)| k).collect()
     }
 
-    /// What a view draws at the open conversation's edges, each above the
-    /// item it stands over: the progress, failure or limit row at the top,
-    /// then `EarlierUnread` with the count of the unread rows the store
-    /// holds that are not loaded and not in a gap (design section 6); each
-    /// gap's rows on its sides and its own `EarlierUnread`; and each
-    /// `ReadNotShown` run. Nothing for a conversation that is not open.
+    /// What a view draws at the open conversation's edges: the progress,
+    /// failure or limit row at the top, then `EarlierUnread` with the count
+    /// of the unread rows the store holds that are not loaded and not in a
+    /// gap (design section 6), all above everything drawn; each gap's rows
+    /// on its sides and its own `EarlierUnread`, where its released rows
+    /// stood; and each `ReadNotShown` run, runs with nothing drawn between
+    /// them read as one. Each is placed by position, so it keeps its place
+    /// when the row it was taken from is read, hidden or let go
+    /// (`a_gap_keeps_its_place_when_the_row_above_it_is_read`,
+    /// `a_read_not_shown_line_stays_when_the_row_below_it_is_hidden`).
+    /// Nothing for a conversation that is not open.
     #[must_use]
     pub fn window_marks(&self, conversation: &ConversationKey) -> Vec<WindowMark> {
         let Some(window) = self
@@ -921,21 +1102,18 @@ impl UiModel {
         else {
             return Vec::new();
         };
+        let drawn = self.drawn(conversation);
         let mut marks = Vec::new();
-        let side_mark = |state: EdgeState, edge: Edge| match state {
-            EdgeState::InFlight => Some(MarkKind::Loading(edge)),
-            EdgeState::Failed => Some(MarkKind::Failed(edge)),
-            EdgeState::AtLimit => Some(MarkKind::AtLimit(edge)),
-            EdgeState::Armed | EdgeState::Spent | EdgeState::Exhausted => None,
-        };
-        let above = self.oldest_item(conversation);
         if let Some(kind) = side_mark(window.top_side.state, Edge::Top) {
-            marks.push(WindowMark { above, kind });
+            marks.push(WindowMark {
+                place: MarkPlace::Top,
+                kind,
+            });
         }
         let count = self.unread_not_loaded(conversation);
         if count > 0 && window.top_side.state != EdgeState::Exhausted {
             marks.push(WindowMark {
-                above,
+                place: MarkPlace::Top,
                 kind: MarkKind::EarlierUnread {
                     edge: Edge::Top,
                     count,
@@ -943,23 +1121,19 @@ impl UiModel {
             });
         }
         for (id, gap) in &window.gaps {
-            let row_above = self.item_of(window, gap.above);
-            let row_below = self.item_of(window, gap.below);
+            let upper = place_after(&drawn, self.mark_pos(window, gap.above));
+            let lower = place_at(&drawn, self.mark_pos(window, gap.below));
+            // Section 8's reading order in a gap: the upper side's row, the
+            // lower side's row, then the gap's line, then the row below.
             if let Some(kind) = side_mark(gap.upper.state, Edge::GapUpper(*id)) {
-                marks.push(WindowMark {
-                    above: row_above.and_then(|k| self.item_below(k)),
-                    kind,
-                });
+                marks.push(WindowMark { place: upper, kind });
             }
             if let Some(kind) = side_mark(gap.lower.state, Edge::GapLower(*id)) {
-                marks.push(WindowMark {
-                    above: row_below,
-                    kind,
-                });
+                marks.push(WindowMark { place: lower, kind });
             }
             if gap.unread > 0 {
                 marks.push(WindowMark {
-                    above: row_below,
+                    place: lower,
                     kind: MarkKind::EarlierUnread {
                         edge: Edge::GapLower(*id),
                         count: gap.unread,
@@ -967,22 +1141,122 @@ impl UiModel {
                 });
             }
         }
-        for (below, count) in &window.runs {
-            marks.push(WindowMark {
-                above: *below,
-                kind: MarkKind::ReadNotShown { count: *count },
-            });
+        let mut runs: Vec<(MarkPlace, u64)> = Vec::new();
+        for (at, count) in &window.runs {
+            let place = place_after(&drawn, *at);
+            match runs.last_mut() {
+                Some((last, sum)) if *last == place => *sum += count,
+                _ => runs.push((place, *count)),
+            }
         }
+        marks.extend(runs.into_iter().map(|(place, count)| WindowMark {
+            place,
+            kind: MarkKind::ReadNotShown { count },
+        }));
         marks
     }
 
-    /// The held item at `mark`.
-    fn item_of(&self, window: &Window, mark: PageMark) -> Option<ItemKey> {
-        window
-            .marks
+    /// Where the person reaches each edge of the open conversation that a
+    /// page can still be asked for: the top, and both sides of every gap,
+    /// each at the place its marks stand. A view reports
+    /// [`WindowInput::Reached`] when that place comes into view or the
+    /// person moves focus onto what stands there, and
+    /// [`WindowInput::Left`] when it leaves either.
+    #[must_use]
+    pub fn window_edges(&self, conversation: &ConversationKey) -> Vec<(Edge, MarkPlace)> {
+        let Some(window) = self
+            .windows
+            .open
+            .as_ref()
+            .filter(|w| &w.conversation == conversation)
+        else {
+            return Vec::new();
+        };
+        let drawn = self.drawn(conversation);
+        let mut edges = Vec::new();
+        if window.top_side.state != EdgeState::Exhausted {
+            edges.push((Edge::Top, MarkPlace::Top));
+        }
+        for (id, gap) in &window.gaps {
+            edges.push((
+                Edge::GapUpper(*id),
+                place_after(&drawn, self.mark_pos(window, gap.above)),
+            ));
+            edges.push((
+                Edge::GapLower(*id),
+                place_at(&drawn, self.mark_pos(window, gap.below)),
+            ));
+        }
+        edges
+    }
+
+    /// Runs of dropped rows with nothing drawn between them are one run,
+    /// kept at the newest one's place
+    /// (`each_run_of_dropped_rows_has_one_line_with_its_count`).
+    pub(super) fn join_runs(&mut self) {
+        let Some(conversation) = self.windows.open_conversation().cloned() else {
+            return;
+        };
+        let drawn = self.drawn(&conversation);
+        let Some(window) = self.windows.open.as_mut() else {
+            return;
+        };
+        let mut joined: BTreeMap<Pos, u64> = BTreeMap::new();
+        let mut last: Option<(MarkPlace, Pos)> = None;
+        for (at, count) in std::mem::take(&mut window.runs) {
+            let place = place_after(&drawn, at);
+            match last {
+                Some((before, kept)) if before == place => {
+                    let sum = joined.remove(&kept).unwrap_or(0) + count;
+                    joined.insert(at, sum);
+                }
+                _ => {
+                    joined.insert(at, count);
+                }
+            }
+            last = Some((place, at));
+        }
+        window.runs = joined;
+    }
+
+    /// What `conversation` draws, in the order a view draws it: its shown
+    /// items, and its card proposals each after every message that arrived
+    /// no later.
+    fn drawn(&self, conversation: &ConversationKey) -> Vec<(Pos, Anchor)> {
+        let mut drawn: Vec<(Pos, Anchor)> = self
+            .items
             .iter()
-            .find(|(_, m)| **m == mark)
-            .and_then(|(at, _)| self.by_row.get(at).copied())
+            .filter(|(_, i)| &i.conversation == conversation && !i.hidden)
+            .map(|(k, i)| (item_pos(i.local_at, *k), Anchor::Item(*k)))
+            .collect();
+        drawn.extend(
+            self.proposals(conversation)
+                .into_iter()
+                .map(|p| (card_pos(p.received_at, p.row), Anchor::Card(p.row))),
+        );
+        drawn.sort_unstable_by_key(|(at, _)| *at);
+        drawn
+    }
+
+    /// The drawn position of a held row's place.
+    fn mark_pos(&self, window: &Window, mark: PageMark) -> Pos {
+        if window.card_marks.get(&mark.row) == Some(&mark) {
+            return card_pos(mark.received_at, mark.row);
+        }
+        let table = if mark.kept {
+            Table::Kept
+        } else {
+            Table::Unread
+        };
+        self.by_row
+            .get(&(table, mark.row))
+            .and_then(|k| self.items.get(k).map(|i| item_pos(i.local_at, *k)))
+            .unwrap_or_else(|| item_pos(mark.received_at, ItemKey(table, mark.row)))
+    }
+
+    /// The drawn position of a held item, for the session bound's runs.
+    pub(super) fn drop_pos(&self, key: ItemKey) -> Option<Pos> {
+        self.items.get(&key).map(|i| item_pos(i.local_at, key))
     }
 
     /// The unread rows of `conversation` the store holds above the top edge
@@ -1027,28 +1301,39 @@ impl UiModel {
         };
         (messages, cards)
     }
+}
 
-    /// The item directly below `key` in its conversation's order, `key`
-    /// itself not counted.
-    pub(super) fn item_below(&self, key: ItemKey) -> Option<ItemKey> {
-        let item = self.items.get(&key)?;
-        let at = (item.local_at, key);
-        self.items
-            .iter()
-            .filter(|(k, i)| {
-                i.conversation == item.conversation && !i.hidden && (i.local_at, **k) > at
-            })
-            .min_by_key(|(k, i)| (i.local_at, **k))
-            .map(|(k, _)| *k)
-    }
+fn item_pos(at: u64, key: ItemKey) -> Pos {
+    (at, 0, key.0, key.1.get())
+}
 
-    /// The oldest item a conversation holds, in its own order.
-    fn oldest_item(&self, conversation: &ConversationKey) -> Option<ItemKey> {
-        self.items
-            .iter()
-            .filter(|(_, i)| &i.conversation == conversation && !i.hidden)
-            .min_by_key(|(key, i)| (i.local_at, **key))
-            .map(|(key, _)| *key)
+fn card_pos(at: u64, row: RowId) -> Pos {
+    (at, 1, Table::Unread, row.get())
+}
+
+/// Directly above the first thing drawn after `at`, else at the end.
+fn place_after(drawn: &[(Pos, Anchor)], at: Pos) -> MarkPlace {
+    let i = drawn.partition_point(|(p, _)| *p <= at);
+    drawn
+        .get(i)
+        .map_or(MarkPlace::End, |(_, a)| MarkPlace::Above(*a))
+}
+
+/// Directly above the first thing drawn at or after `at`, else at the end.
+fn place_at(drawn: &[(Pos, Anchor)], at: Pos) -> MarkPlace {
+    let i = drawn.partition_point(|(p, _)| *p < at);
+    drawn
+        .get(i)
+        .map_or(MarkPlace::End, |(_, a)| MarkPlace::Above(*a))
+}
+
+const fn side_mark(state: EdgeState, edge: Edge) -> Option<MarkKind> {
+    match state {
+        // A side waiting on the other side's page is on its way too.
+        EdgeState::InFlight | EdgeState::Wanted => Some(MarkKind::Loading(edge)),
+        EdgeState::Failed => Some(MarkKind::Failed(edge)),
+        EdgeState::AtLimit => Some(MarkKind::AtLimit(edge)),
+        EdgeState::Armed | EdgeState::Spent | EdgeState::Exhausted => None,
     }
 }
 

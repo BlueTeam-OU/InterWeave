@@ -41,10 +41,17 @@ fn node() -> FakeConfig {
 }
 
 fn facade(node: FakeNode) -> FacadeSide<FakeNode, FakeNode> {
+    facade_over(
+        node,
+        HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+    )
+}
+
+fn facade_over(node: FakeNode, store: HumanStore) -> FacadeSide<FakeNode, FakeNode> {
     let client = TransportClient::new(
         node.clone(),
         node,
-        HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+        store,
         ClientConfig {
             client_kind: "human-client".to_owned(),
             endpoints: vec![human()],
@@ -75,11 +82,18 @@ impl Opener for NoLinks {
 }
 
 fn app(node: &FakeNode, daemon: Result<bool, &'static str>) -> App<SlintSurface, NoLinks> {
+    let node = node.clone();
+    app_with(move || facade(node), daemon)
+}
+
+fn app_with(
+    make: impl FnOnce() -> FacadeSide<FakeNode, FakeNode> + Send + 'static,
+    daemon: Result<bool, &'static str>,
+) -> App<SlintSurface, NoLinks> {
     i_slint_backend_testing::init_no_event_loop();
     let view = View::new(RuntimeHost::Daemon).expect("a window");
-    let node = node.clone();
     let thread = FacadeThread::spawn(
-        move || Ok(facade(node)),
+        move || Ok(make()),
         move || daemon.map_err(str::to_owned),
         Arc::new(|| {}),
         |_| {},
@@ -137,6 +151,13 @@ fn a_message_reaches_the_window_and_closing_releases_the_lease_not_the_daemon() 
         "{sent:?}"
     );
 
+    // The windowed start holds a conversation's rows once it is opened:
+    // Chats lists it from its summary, and opening it reads its page.
+    pump_until(&mut alice, "bob's conversation in alice's Chats", |app| {
+        app.side().model().conversations().len() == 1
+    });
+    let key = alice.side().model().conversations()[0].key.clone();
+    alice.side_mut().surface_mut().0.select(key);
     pump_until(&mut alice, "the message in alice's window", |app| {
         let model = app.side().model();
         model
@@ -685,6 +706,89 @@ fn a_path_change_reaches_the_route_indicator_and_nothing_else() {
         before,
         "no message and no conversation came of the begin or the change"
     );
+    assert!(
+        alice.close(Duration::from_secs(5)),
+        "the facade thread ended"
+    );
+}
+
+/// A store holding `count` unread text rows from `from`, the newest last.
+fn flooded(from: &interweave_transport_api::TransportIdentity, count: u32) -> HumanStore {
+    use interweave_human_store::{AppMessageId, InboundKind, InboundOrigin, NewInbound};
+    use interweave_transport_api::MediaType;
+    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    for n in 1..=count {
+        let id = format!("{n:032x}");
+        store
+            .commit_unread_inbound(&NewInbound {
+                app_message_id: AppMessageId::parse(id.clone()).expect("an id"),
+                origin: InboundOrigin {
+                    peer: from.clone(),
+                    endpoint: Some(human()),
+                    channel: None,
+                },
+                media_type: Some(
+                    MediaType::parse("application/vnd.interweave-human-chat+json;v=2")
+                        .expect("media"),
+                ),
+                payload: format!(
+                    r#"{{"v":2,"kind":"text","app_message_id":"{id}","text":"message {n}"}}"#
+                )
+                .into_bytes(),
+                received_at: u64::from(n),
+                kind: InboundKind::Text,
+            })
+            .expect("committed");
+    }
+    store
+}
+
+/// The desktop starts windowed (design/2026-10-27-start-window.md): a
+/// backlog of 300 unread rows from one peer lists its conversation with
+/// the store's count and holds none of its rows until it is opened, and
+/// opening it reads one page through the facade thread, the line counting
+/// the rest. Mutations: the start listing every row; the view's opening
+/// never reaching the model.
+#[test]
+fn the_desktop_starts_windowed_and_an_opened_conversation_reads_one_page() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let from = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer");
+    let store = flooded(&from, 300);
+    let node = a.clone();
+    let mut alice = app_with(move || facade_over(node, store), Ok(true));
+    let key = ConversationKey::Direct {
+        peer: from.clone(),
+        endpoint: Some(human()),
+    };
+    pump_until(&mut alice, "the conversation's summary", |app| {
+        app.side()
+            .model()
+            .conversations()
+            .iter()
+            .any(|c| c.key == key && c.unread == 300)
+    });
+    assert!(
+        alice.side().model().messages(&key).is_empty(),
+        "no row of the backlog held at start"
+    );
+    alice.side_mut().surface_mut().0.select(key.clone());
+    pump_until(&mut alice, "the first page", |app| {
+        !app.side().model().messages(&key).is_empty()
+    });
+    let held = alice.side().model().messages(&key).len();
+    assert!(held <= 64, "one page, not the backlog: {held}");
+    let line = alice
+        .side()
+        .model()
+        .window_marks(&key)
+        .into_iter()
+        .find_map(|m| match m.kind {
+            interweave_human_ui_model::MarkKind::EarlierUnread { count, .. } => Some(count),
+            _ => None,
+        });
+    assert_eq!(line, Some(300 - held as u64), "the line counts the rest");
     assert!(
         alice.close(Duration::from_secs(5)),
         "the facade thread ended"
