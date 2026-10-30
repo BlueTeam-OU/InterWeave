@@ -459,7 +459,9 @@ fn read_here(
     let ask = model.take_page_asks().pop().unwrap_or_else(|| PageAsk {
         conversation: conversation(),
         edge: Edge::Top,
-        older_than: None,
+        // A top page's ask carries the top it was read from; one that does
+        // not is stale.
+        older_than: model.windows.open.as_ref().and_then(|w| w.top),
         newer_than: None,
         order: PageOrder::NewestFirst,
         unread_room: None,
@@ -951,4 +953,52 @@ fn gap_id(model: &UiModel) -> u64 {
         .as_ref()
         .and_then(|w| w.gaps.keys().next().copied())
         .expect("a gap")
+}
+
+/// A top page on its way while arrivals push the ceiling to let go of the
+/// oldest rows, moving the top down past them: the page, read from the old
+/// top, adds nothing -- its rows would sit above rows let go into no gap,
+/// which nothing would read back -- and the top is asked again from where
+/// it stands (section 5.1: rows released, never lost). Mutation: the
+/// staleness check removed -- the page's rows are held and nothing asks
+/// past the rows let go.
+#[test]
+fn a_top_page_in_flight_when_the_ceiling_moves_the_top_adds_nothing() {
+    use super::HELD_ROW_CAP;
+    let cap = i64::try_from(HELD_ROW_CAP).expect("small");
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, 100 + cap - 1, Table::Kept);
+    let opening = one_ask(&mut model);
+    model.page_arrived(rows_of(
+        &opening,
+        &(100..100 + cap).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::More,
+    ));
+    reached(&mut model);
+    let top = one_ask(&mut model);
+    assert_eq!(top.older_than.map(|m| m.row), Some(RowId::from_stored(100)));
+    for n in 100 + cap..100 + cap + 4 {
+        handed(&mut model, n);
+    }
+    for gone in 100..104 {
+        assert!(!holds(&model, gone, Table::Kept), "row {gone} let go");
+    }
+    model.page_arrived(rows_of(
+        &top,
+        &(90..100).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::More,
+    ));
+    for n in 90..100 {
+        assert!(!holds(&model, n, Table::Kept), "row {n} not added");
+    }
+    let again = one_ask(&mut model);
+    assert_eq!(again.edge, Edge::Top);
+    assert_eq!(
+        again.older_than.map(|m| m.row),
+        Some(RowId::from_stored(104)),
+        "asked again from the top as it stands, above the rows let go"
+    );
 }

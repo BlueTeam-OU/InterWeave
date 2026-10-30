@@ -553,6 +553,22 @@ impl UiModel {
         if !current {
             return;
         }
+        // A top page asked from a top the held-row ceiling has since moved
+        // down reads only rows older than the old top, and would leave the
+        // rows let go between the two tops in no gap and above no edge,
+        // never read back. It adds nothing, and the top is asked again from
+        // where it stands now
+        // (`a_top_page_in_flight_when_the_ceiling_moves_the_top_adds_nothing`).
+        if page.ask.edge == Edge::Top
+            && let Some(window) = self.windows.open.as_mut()
+            && window.top != page.ask.older_than
+        {
+            window.top_side.state = EdgeState::Armed;
+            if window.top_side.at {
+                self.reach(Edge::Top);
+            }
+            return;
+        }
         let mut marks: Vec<((Table, RowId), PageMark, bool)> = Vec::new();
         for row in &page.unread {
             let mark = PageMark {
