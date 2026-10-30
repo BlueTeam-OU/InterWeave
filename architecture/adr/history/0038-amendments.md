@@ -10,8 +10,11 @@ control agent cannot answer a passphrase, so the v2.x option must keep
 an unattended unlock or it cannot be selected for an automated
 client's profile at all. The Decision now says where such a profile's
 passphrase comes from — a credential source no person types, the
-account's own secret store handed to the process environment at start
-— and that `filesystem-only` stays selectable per profile; SPIKE-007's
+account's own secret store read by the daemon and the client process
+themselves at start, never through the launching control agent's
+environment, arguments or IPC (the review's F1 struck a first draft
+that handed it to the process environment, which a child inherits) —
+and that `filesystem-only` stays selectable per profile; SPIKE-007's
 evidence names the source before the option becomes selectable, which
 SPIKES.md already asks of it ("explicit unlock UX/credential source").
 Operational implications name who runs the identity's destructive
@@ -21,4 +24,4 @@ named was withdrawn on 2026-10-28), and Revisit conditions keep the
 headless mode through a keychain or HSM adoption. ADR-0060 decision 3
 is amended the same day for the store key. Propagation: the Decision;
 Operational implications; Revisit conditions; this note; the log row;
-the digest entry.
+the digest entry; SPIKES.md's SPIKE-007 evidence line.

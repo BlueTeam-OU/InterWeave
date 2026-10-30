@@ -460,7 +460,7 @@ Three findings constrain the adapter:
 
 **Experiment:** evaluate maintained Rust implementations/formats that provide a memory-hard password KDF plus authenticated encryption (for example an age/scrypt-style envelope or another reviewed equivalent). Exercise wrong passphrase, parameter/version migration, atomic rewrite, crash recovery, unattended-daemon constraints, memory/secret handling, and interaction with mnemonic backup/restore. Do not design a bespoke cipher/KDF format in this repository.
 
-**Evidence:** pinned external format/library and parameters, interoperability fixture, failure/recovery behavior, explicit unlock UX/credential source — for an automated client's profile a source no person types, and `filesystem-only` kept selectable per profile (ADR-0038 and ADR-0060 decision 3, A 2026-10-30) — and proof that passphrases/plaintext private keys never enter normal config/logs/IPC/network traffic.
+**Evidence:** pinned external format/library and parameters, interoperability fixture, failure/recovery behavior, explicit unlock UX/credential source — for an automated client's profile a source no person types that the daemon and the client read themselves, never the launching control agent's environment, arguments or IPC, and `filesystem-only` kept selectable per profile (ADR-0038 and ADR-0060 decision 3, A 2026-10-30) — and proof that passphrases/plaintext private keys never enter normal config/logs/IPC/network traffic.
 
 **Decision unlocked:** add a versioned `identity.key_protection=passphrase-envelope` v2.x option. Until this spike/ADR follow-up lands, standard v1 remains `filesystem-only`.
 

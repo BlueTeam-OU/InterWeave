@@ -29,13 +29,19 @@ when SPIKE-007 lands ADR-0038's envelope the desktop store key must not
 become reachable only through an interactive unlock. Decision 3's
 desktop bullet now keeps `filesystem-only` as a selectable custody for
 an automated client's profile and has the envelope unlock from a
-credential source no person types (ADR-0038 amended the same day), so
+credential source no person types and that never passes through the
+launching control agent's environment, arguments or IPC (ADR-0038
+amended the same day; the review's F1 struck a first draft that handed
+the passphrase to the process environment, which a child inherits), so
 a restart opens the store unattended as the Android bullet already
 requires; SPIKE-007's adoption is bounded by it. Operational
 implications say who runs the destructive operations on such a
-profile: `store discard --confirm <scope>` is the operator's over the
-host's administrative path, never the control agent's; a lost endpoint
-key is ADR-0067 decision 5's new identity, minted by the deployment
+profile: `store discard --confirm <scope>` and, until ADR-0067's
+release, `identity new-key --confirm key-change` are the operator's
+over the host's administrative path, never the control agent's, which
+drives `listen` and `send` alone (the silent first key those verbs
+still make today goes with ADR-0067's release); a lost endpoint key is
+from that release ADR-0067 decision 5's new identity, minted by the deployment
 with `transportctl endpoint init` and a roster re-render on the owner's
 word (the key change the design still named was withdrawn by ADR-0067
 on 2026-10-28). Propagation: decision 3; Operational implications; this
