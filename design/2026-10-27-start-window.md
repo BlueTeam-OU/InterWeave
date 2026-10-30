@@ -825,9 +825,9 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     the rows read. (c) In a gap, coming from above: make the gap's
     next read fail (a test hook). The failure row shows directly below
     the row above the gap and its text is announced once; focus on
-    that row stays where it was. Press its Try again with the read
-    still failing: the row stays, focus stays on Try again, and the
-    failure is announced once more. Remove the failure, move focus to Try
+    that row stays where it was. Move focus to its Try again and press
+    it with the read still failing: the row stays, focus stays on Try
+    again, and the failure is announced once more. Remove the failure, move focus to Try
     again and press it: the page loads below the row above the gap,
     and focus is on the item that was just below the failure row. With
     the session bound brought within reach (the hook of item 12), the
