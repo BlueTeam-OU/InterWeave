@@ -949,10 +949,14 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
 17. **A reply's line** (§5.2). (a) Now: in A, a reply whose target is
     held shows `ReplyPresent`. Dismiss the target, then let the
     snackbar close: the reply shows `ReplyUnavailable`. With item 14's
-    test ceiling, page up through kept rows until a reply's target is
-    released while the reply stays on screen: the reply shows
-    `ReplyUnavailable` (§5.2's interim); scroll back to the target
-    until it loads: `ReplyPresent` again. Neither change is announced,
+    test ceiling, fill A with kept rows as in item 14 (b), with a reply
+    among the newest rows whose target is among the oldest. Page up to
+    the target, then come back down to the reply: as rows below load,
+    the rows farthest from the reply are released (§5.1), the target
+    among them, and once it is released with the reply in view the
+    reply shows `ReplyUnavailable` (§5.2's interim). Scroll back up to
+    the target until it loads: the reply, when next in view, shows
+    `ReplyPresent` again. Neither change is announced,
     and focus stays where it was. On a desktop with a screen reader,
     the line is read as part of its row in both states. (b) Blocked
     until the store can be asked by message id (§5.2): a reply whose
