@@ -740,6 +740,19 @@ impl UiModel {
     /// (`a_stored_card_handed_over_is_counted_once`); a card the drain just
     /// committed is [`UiModel::card_arrived`].
     pub fn card_received(&mut self, proposal: Proposal) {
+        let conversation = ConversationKey::Direct {
+            peer: proposal.peer.clone(),
+            endpoint: Some(proposal.endpoint.clone()),
+        };
+        self.windows.holds_card(
+            &conversation,
+            proposal.row,
+            super::window::PageMark {
+                received_at: proposal.received_at,
+                kept: false,
+                row: proposal.row,
+            },
+        );
         self.cards.proposals.insert(proposal.row, proposal);
     }
 

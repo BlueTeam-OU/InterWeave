@@ -8,7 +8,9 @@ use interweave_human_client_api::Origin;
 use interweave_human_core::RowId;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
-use super::{Edge, MarkKind, PageAsk, PageEnd, PageOrder, PageRows, WindowInput};
+use super::{
+    Anchor, Edge, MarkKind, MarkPlace, PageAsk, PageEnd, PageOrder, PageRows, WindowInput,
+};
 use crate::model::SESSION_ITEM_CAP;
 use crate::model::summaries::{NewestRow, StoredSummary};
 use crate::model::{ConversationKey, ListedInbound, Table, UiModel};
@@ -516,11 +518,11 @@ fn each_run_of_dropped_rows_has_one_line_with_its_count() {
         .window_marks(&conversation())
         .into_iter()
         .filter_map(|m| match m.kind {
-            MarkKind::ReadNotShown { count } => Some((m.above, count)),
+            MarkKind::ReadNotShown { count } => Some((m.place, count)),
             _ => None,
         })
         .collect();
-    assert_eq!(runs, [(Some(keys[2]), 2)]);
+    assert_eq!(runs, [(MarkPlace::Above(Anchor::Item(keys[2])), 2)]);
 }
 
 /// Closed, a conversation holds none of its stored rows in the windowed
@@ -1037,4 +1039,133 @@ fn the_ceiling_holds_past_an_item_holding_the_newest_stored_row() {
         .count();
     assert_eq!(held, HELD_ROW_CAP, "the next farthest went instead");
     assert!(!holds(&model, 2, Table::Kept));
+}
+
+fn kept(n: i64) -> crate::model::ItemKey {
+    crate::model::ItemKey(Table::Kept, RowId::from_stored(n))
+}
+
+/// The top edge's marks stand above everything the conversation draws --
+/// with nothing drawn yet too, where "above the oldest item" named no
+/// item and read as the end (ux-designer's U2). Mutation: the top's
+/// marks placed at the oldest item -- `End` here.
+#[test]
+fn top_marks_stand_at_the_top_with_nothing_drawn() {
+    let mut model = started(5);
+    model.window_input(WindowInput::Opened(conversation()));
+    let marks = model.window_marks(&conversation());
+    assert!(!marks.is_empty());
+    assert!(marks.iter().all(|m| m.place == MarkPlace::Top), "{marks:?}");
+}
+
+/// A gap's line keeps its place when the row below it is read: a read
+/// row is no held stored row, but it is still drawn, and the line stands
+/// above it as before. Mutation: a place found only through the held
+/// rows -- the line falls to the end.
+#[test]
+fn a_gap_keeps_its_place_when_the_row_below_it_is_read() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    let line = |model: &UiModel| {
+        model
+            .window_marks(&conversation())
+            .into_iter()
+            .find(|m| {
+                matches!(
+                    m.kind,
+                    MarkKind::EarlierUnread {
+                        edge: Edge::GapLower(_),
+                        ..
+                    }
+                )
+            })
+            .map(|m| m.place)
+    };
+    let newest = MarkPlace::Above(Anchor::Item(crate::model::ItemKey(
+        Table::Unread,
+        RowId::from_stored(n),
+    )));
+    assert_eq!(line(&model), Some(newest));
+    model.read(RowId::from_stored(n));
+    assert_eq!(line(&model), Some(newest), "still above the row read");
+}
+
+/// A `ReadNotShown` line stands where its rows stood: hiding the row
+/// below it moves it above the next row drawn, never off the screen.
+/// Mutation: hidden rows counted as drawn -- the line stays on the
+/// hidden row, which no view draws.
+#[test]
+fn a_read_not_shown_line_stays_when_the_row_below_it_is_hidden() {
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    let keys = read_here(&mut model, 1..=4);
+    let cap = i64::try_from(SESSION_ITEM_CAP).expect("small");
+    read_here(&mut model, 10..=10 + cap - 3);
+    model.hide(keys[2]);
+    let runs: Vec<_> = model
+        .window_marks(&conversation())
+        .into_iter()
+        .filter(|m| matches!(m.kind, MarkKind::ReadNotShown { .. }))
+        .map(|m| (m.place, m.kind))
+        .collect();
+    assert_eq!(
+        runs,
+        [(
+            MarkPlace::Above(Anchor::Item(keys[3])),
+            MarkKind::ReadNotShown { count: 2 }
+        )]
+    );
+}
+
+/// A held card proposal is a held row like a message: rows released on
+/// its two sides are two gaps, each with its own sides, the proposal
+/// standing between them where it arrived (ux-designer's U2). Mutation:
+/// proposals left out of the held rows that bound a gap -- one gap, and
+/// the proposal shown next to rows it is not next to in time.
+#[test]
+fn a_held_proposal_between_released_rows_splits_them_into_two_gaps() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, 10, Table::Kept);
+    let ask = one_ask(&mut model);
+    let mut rows = rows_of(
+        &ask,
+        &(1..=n).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::Exhausted,
+    );
+    // Times spaced apart, so the proposal stands strictly between two rows.
+    for r in &mut rows.kept {
+        r.received_at *= 2;
+    }
+    let card_row = RowId::from_stored(50_000);
+    let mut proposal = card(card_row, P);
+    proposal.received_at = u64::try_from(2 * (n - 3) + 1).expect("small");
+    rows.proposals.push(proposal);
+    model.page_arrived(rows);
+    let edges = model.window_edges(&conversation());
+    let at = |edge: fn(u64) -> Edge| -> Vec<MarkPlace> {
+        let gaps: Vec<u64> = model
+            .windows
+            .open
+            .as_ref()
+            .map(|w| w.gaps.keys().copied().collect())
+            .unwrap_or_default();
+        gaps.iter()
+            .filter_map(|id| edges.iter().find(|(e, _)| *e == edge(*id)).map(|(_, p)| *p))
+            .collect()
+    };
+    let mut upper = at(Edge::GapUpper);
+    upper.sort_by_key(|p| format!("{p:?}"));
+    assert_eq!(
+        upper,
+        [
+            MarkPlace::Above(Anchor::Card(card_row)),
+            MarkPlace::Above(Anchor::Item(kept(n))),
+        ],
+        "one gap above the proposal, one below it"
+    );
 }

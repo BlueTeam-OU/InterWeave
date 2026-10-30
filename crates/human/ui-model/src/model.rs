@@ -1938,8 +1938,12 @@ impl UiModel {
                 .get(&key)
                 .is_some_and(|i| Some(&i.conversation) == self.windows.open_conversation())
             {
-                let below = self.item_below(key);
-                self.windows.dropped(key, below);
+                if let Some(at) = self.drop_pos(key) {
+                    self.windows.dropped(at);
+                }
+                self.drop_items(&[key]);
+                self.join_runs();
+                continue;
             }
             self.drop_items(&[key]);
         }
