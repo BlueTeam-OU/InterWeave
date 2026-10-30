@@ -881,12 +881,10 @@ line. Two of five failing is enough to reopen §6.
   PeerId (contact-cards §6.3): all are shown, and they are at most 63,
   since a 65th distinct source endpoint of a peer is malformed and
   stores nothing (§3, architect-cto's REPLY 01a17be2).
-- **Photos may load on demand** (U2 of QUESTION 01a17dc9). Where a
-  contact's avatar is drawn (contact-cards §6.1: the Contacts list,
-  the contact page, and Chats and the app bar once those draw contact
-  avatars rather than the PeerId's letters; when that is built is the
-  builder's, QUESTION 01a18b25 U4), a contact whose photo
-  has not arrived shows its initials avatar (contact-cards §6.1), at
+- **Photos may load on demand** (U2 of QUESTION 01a17dc9). Wherever
+  a contact's avatar is drawn at contact-cards §6.1's sizes (the
+  Contacts list, Chats, the app bar, the contact page), a contact whose
+  photo has not arrived shows its initials avatar (contact-cards §6.1), at
   the photo's size, and the photo replaces it in place when it
   arrives: nothing else moves, nothing animates, nothing is announced
   (the avatar is not read, contact-cards §6.1), and the accessible
@@ -911,7 +909,10 @@ line. Two of five failing is enough to reopen §6.
   follows the lists' rule above. Evidence: the avatar is decoration, never
   a trust signal (contact-cards §3), so a moment of initials misleads
   no one about who a contact is; on the contact page the photo is what
-  the person acts on.
+  the person acts on. Chats and the app bar draw the PeerId's
+  letters in today's build, not yet §6.1's contact avatars (QUESTION
+  01a18b25, U4); this rule acts there from when they do, and item 15's
+  checks there wait for it. When that is built is outside this note.
 - **The Contacts list has no visible edge.** It grows only by the
   person's own Accepts. If the builder pages it, the paging is not
   seen: no progress row, no failure row unless a read fails. Every contact's name must be known for
@@ -1017,8 +1018,8 @@ line. Two of five failing is enough to reopen §6.
   zero (§6.1).
 - **U1 to U4, rust-ui-dev-02** (QUESTION 01a17dc9): answered here. U1,
   the held-row ceiling, releases rows silently and never shows the
-  limit row (§5.1). U2, initials until the photo arrives, holds in
-  lists and the app bar, not on the contact page (§11). U3, no list on
+  limit row (§5.1). U2, initials until the photo arrives, holds
+  wherever contact avatars are drawn, not on the contact page (§11). U3, no list on
   a proposal to cap; which contact is named is contact-cards §5.4.1's
   rule (§11). U4, the limit row a page early, is rejected: it shows at
   the bound, and a page near it is shortened (§7.1).
