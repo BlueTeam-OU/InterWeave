@@ -17,3 +17,33 @@ before the marker reads the file as corruption; that is ADR-0028's
 stated limit for every overlay, and nothing has shipped, so it binds no
 release. Stage 19's rollback row (plan §22) tests the marker's refusal,
 not a file name.
+
+### Amendment 2026-10-30 — A headless custody mode stays available for an automated client's profile
+
+agent-fabric's control plane rides each account's `fabric-control`
+endpoint through the command-line client since its records of
+2026-10-28 (its ADR-029 and ADR-064 amendments; the j422 design's R4,
+accepted on the owner's word), and the design named one constraint for
+this record: a lingering control agent cannot answer a passphrase, so
+when SPIKE-007 lands ADR-0038's envelope the desktop store key must not
+become reachable only through an interactive unlock. Decision 3's
+desktop bullet now keeps `filesystem-only` as a selectable custody for
+an automated client's profile and has the envelope unlock from a
+credential source no person types and that never passes through the
+launching control agent's environment, arguments or IPC (ADR-0038
+amended the same day; the review's F1 struck a first draft that handed
+the passphrase to the process environment, which a child inherits), so
+a restart opens the store unattended as the Android bullet already
+requires; SPIKE-007's adoption is bounded by it. Operational
+implications say who runs the destructive operations on such a
+profile: `store discard --confirm <scope>` and, until ADR-0067's
+release, `identity new-key --confirm key-change` are the operator's
+over the host's administrative path, never the control agent's, which
+drives `listen` and `send` alone (the silent first key those verbs
+still make today goes with ADR-0067's release); a lost endpoint key is
+from that release ADR-0067 decision 5's new identity, minted by the deployment
+with `transportctl endpoint init` and a roster re-render on the owner's
+word (the key change the design still named was withdrawn by ADR-0067
+on 2026-10-28). Propagation: decision 3; Operational implications; this
+note; the log row; the digest entry; ADR-0038's amendment; SPIKES.md's
+SPIKE-007 evidence line.
