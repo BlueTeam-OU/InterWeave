@@ -437,9 +437,12 @@ Here a held target is one the app holds and shows: a row hidden by a
 Dismiss whose snackbar is still open is held for its Undo (§5.1) but
 cannot be reached, so it counts as not held.
 
-- `ReplyPresent` when the target is held, or is not held but is in the
-  store (pending, unread or kept), since paging up brings it back
-  (§5, §5.1).
+- `ReplyPresent` when the target is held, or is not held but is
+  stored in this conversation, unread or kept, as a row the app can
+  show (§6.1), since paging up brings it back (§5, §5.1). A pending
+  target is always held (§3). A stored row of the same id in another
+  conversation, or one the app cannot show, cannot be paged to, and
+  counts as not stored.
 - `ReplyUnavailable` while the target is hidden by a Dismiss whose
   snackbar is open; its Undo puts the row back and the line back to
   `ReplyPresent`.
