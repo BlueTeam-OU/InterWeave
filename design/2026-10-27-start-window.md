@@ -649,8 +649,9 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
    first, then the upper, until it is full. After `EarlierShowAnyway`,
    open Contacts in the conversation's place on a wide layout and come
    back: reaching the bound asks again. While contacts are unread, a
-   proposal shows one button, Decline, in Decline's place, and a left
-   swipe declines it.
+   proposal shows one button, Decline, with nothing below it where
+   Accept would stand, and a left swipe declines it; Decline, then
+   Undo on its snackbar: focus is on the row's Decline.
 4. **Load by scrolling, position kept**: scroll A to its top. The next
    page loads above (the progress row only if it takes longer than
    250 ms); the row that was at the top stays where it was on screen;
@@ -949,12 +950,16 @@ line. Two of five failing is enough to reopen §6.
   then Contacts, then Try again." It offers no Accept,
   so its right swipe does nothing (contact-cards §5.4.4, a row with no
   Accept); a left swipe still declines it, and its menu and its screen
-  reader actions (contact-cards §8) offer no Accept. Its buttons are
-  one, Decline, where Decline stands in the two-button layout, the
-  place where Accept would be left empty, so Decline never moves
-  under a person's finger when Accept comes back; it is never the
-  one-button Close row of case S, which declines nothing (QUESTION
-  01a18b25, U6). Details' naming by hand (contact-cards §5.6) is withheld in
+  reader actions (contact-cards §8) offer no Accept. Its one button is
+  Decline, first in contact-cards §5.4's stacked layout as always
+  (Decline above Accept), with no space kept below it for Accept; it is
+  never the one-button Close row of case S, which declines nothing
+  (QUESTION 01a18b25, U6). When the contacts are read and Accept comes
+  back, the lines above the buttons change too (the case line, and
+  `CardSameName` with its link where it applies), so the row may move;
+  nothing is announced (above). After an Undo of its Decline, focus
+  goes to its Decline, since the row has no Accept (contact-cards §9's
+  row for that Undo names Accept). Details' naming by hand (contact-cards §5.6) is withheld in
   the same way, with `NamingContactsUnread` in its place, because it writes a
   contact without knowing whether the route is already under one.
   When a read succeeds, from Contacts' Try again or the next start,
