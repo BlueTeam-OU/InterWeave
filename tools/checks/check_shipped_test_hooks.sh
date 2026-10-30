@@ -125,8 +125,9 @@ line="${line#packages=(}"
 read -r -a linux_packages <<<"${line%)}"
 # Every other line naming the array only expands it whole: a
 # `packages+=(...)`, an index or a `read -a packages` would build a
-# package this check never graphs.
-others="$(grep -nwE 'packages' "$ARCHIVE" | grep -vE '^[0-9]+: *#' | grep -vE "^[0-9]+:packages=\(" \
+# package this check never graphs. Only the line read above is exempt,
+# by its whole shape, which the_line held to one line.
+others="$(grep -nwE 'packages' "$ARCHIVE" | grep -vE '^[0-9]+: *#' | grep -vE "^[0-9]+:packages=\\(($WORD)( $WORD)*\\)\$" \
     | sed 's/"\${packages\[@\]}"//g' | grep -wE 'packages')"
 if [[ -n "$others" ]]; then
     echo "$me: $ARCHIVE names packages other than by its packages=(...) line and \"\${packages[@]}\" — update this check's reading with the release:" >&2

@@ -234,6 +234,12 @@ archive daemon cli
 echo 'read -r -a packages <<<"$PKGS"' >> "$A_SH"
 expect 2 "a read into packages is exit 2" "names packages other than"
 archive daemon cli
+sed -i '/^packages=/a packages=("${packages[@]}" extra)' "$A_SH"
+expect 2 "a second packages=( line in another shape is exit 2" "names packages other than"
+archive daemon cli
+sed -i '/^packages=/a packages=(daemon cli extra) ' "$A_SH"
+expect 2 "a second packages=( line with a trailing space is exit 2" "names packages other than"
+archive daemon cli
 echo 'notices "${packages[@]}" "$stage"' >> "$A_SH"
 expect 0 "a line expanding \"\${packages[@]}\" whole passes"
 archive daemon cli
