@@ -1256,7 +1256,7 @@ fn your_card_while_its_editor_is_open_leaves_nothing() {
     settle();
     assert!(!view.window().get_own_discard_open(), "nothing asked");
     assert_eq!(view.window().get_own_given(), "Grace", "its change kept");
-    assert_eq!(view.window().get_focus_id().as_str(), "close-cards");
+    assert_eq!(view.window().get_focus_id().as_str(), "cards-title");
 }
 
 /// On the desktop, Escape on a card page is its Back (contact-cards
@@ -2788,7 +2788,11 @@ fn a_deleted_contact_leaves_focus_on_the_lists_first_row() {
     model.contacts_listed(Vec::new());
     view.render(&model);
     settle();
-    assert_eq!(view.window().get_focus_id(), "close-cards", "none left");
+    assert_eq!(
+        view.window().get_focus_id(),
+        "contacts-empty",
+        "none left: its empty text"
+    );
 }
 
 /// #440 F1: a card page left some other way than its Back -- another
@@ -2826,8 +2830,8 @@ fn a_card_page_left_another_way_forgets_its_way_back() {
         press(view, text(UiText::ContactsTitle));
         let _ = intents(view, model);
         settle();
-        assert_eq!(view.window().get_focus_id(), "close-cards");
-        key(view, Key::Return);
+        assert_eq!(view.window().get_focus_id(), "cards-title");
+        press(view, text(UiText::BackToConversations));
         let _ = intents(view, model);
         settle();
     };
@@ -2854,8 +2858,8 @@ fn a_card_page_left_another_way_forgets_its_way_back() {
         settle();
     };
     open_card_from_share(&mut view, &mut model);
-    assert_eq!(view.window().get_focus_id(), "close-cards");
-    key(&view, Key::Return);
+    assert_eq!(view.window().get_focus_id(), "cards-title");
+    press(&view, text(UiText::BackToConversations));
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_share_open(), "control: back to the sheet");
     view.window().set_share_open(false);
@@ -3912,7 +3916,11 @@ fn unread_contacts_show_their_failure_row_alone_and_try_again_reads_them() {
     view.render(&model);
     settle();
     assert!(!shows(&view, failed), "the row goes at once");
-    assert_eq!(view.window().get_focus_id(), "close-cards");
+    assert_eq!(
+        view.window().get_focus_id(),
+        "cards-title",
+        "the page title"
+    );
     let loading = text(UiText::ContactsLoading);
     assert!(!shows(&view, loading), "no progress row at once");
     at.set(at.get() + std::time::Duration::from_millis(250));

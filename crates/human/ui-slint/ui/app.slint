@@ -3578,12 +3578,14 @@ export component AppWindow inherits Window {
     // Back on a card page: the own card's editor with unsaved changes
     // asks first (contact-cards design 5.2), else the page closes.
     function close-cards-page() {
-        // Back to the editor's control that had focus -- each takes a
-        // focus request, its share-again rows included -- else, focus
+        // Back to the page's control that had focus -- its title, the
+        // editor's controls, its share-again rows, each taking a focus
+        // request -- else, focus
         // beside the editor on a wide window, to its first field
         // (`continue_editing_gives_focus_back_to_each_control`,
         // `continue_editing_gives_focus_back_to_a_share_again_row`).
         if (root.ask-before-leaving(0, -1, root.focus-id == "close-cards"
+                || root.focus-id == "cards-title"
                 || root.focus-id.starts-with("own-")
                 || root.focus-id.starts-with("share-again:") ? root.focus-id : "own-given")) {
             return;
@@ -5308,17 +5310,24 @@ export component AppWindow inherits Window {
                         focused(k) => { root.focus-id = k; }
                     }
                 }
-                Text {
+                // The page's title, a heading focus can rest on: where
+                // Contacts and Your card put focus when opened from the menu
+                // (contact-cards section 9, item 1).
+                VerticalLayout {
                     horizontal-stretch: 1;
-                    text: root.cards-page == CardsPage.contacts ? root.contacts-title
-                        : root.cards-page == CardsPage.contact ? root.contact-title
-                        : root.own-card-title;
-                    font-size: Type.title-large;
-                    overflow: elide;
-                    vertical-alignment: center;
-                    horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                    accessible-role: text;
-                    accessible-label: self.text;
+                    alignment: center;
+                    FocusHeading {
+                        text: root.cards-page == CardsPage.contacts ? root.contacts-title
+                            : root.cards-page == CardsPage.contact ? root.contact-title
+                            : root.own-card-title;
+                        font-size: Type.title-large;
+                        font-weight: 400;
+                        rtl: root.rtl;
+                        focus-key: "cards-title";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "cards-title";
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
                 if root.rtl: VerticalLayout {
                     alignment: center;
@@ -5380,12 +5389,18 @@ export component AppWindow inherits Window {
                             still: root.reduced-motion;
                         }
                     }
-                    if root.cards-page == CardsPage.contacts && !root.contacts-unread && root.contact-rows.length == 0: Text {
+                    // A focus stop: where focus goes when the list it would
+                    // go to has no row (contact-cards section 9).
+                    if root.cards-page == CardsPage.contacts && !root.contacts-unread && root.contact-rows.length == 0: FocusHeading {
                         text: root.contacts-empty;
-                        wrap: word-wrap;
-                        color: Palette.on-surface-variant;
-                        accessible-role: text;
-                        accessible-label: self.text;
+                        font-size: Type.body-medium;
+                        font-weight: 400;
+                        wraps: true;
+                        rtl: root.rtl;
+                        focus-key: "contacts-empty";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "contacts-empty";
+                        focused(k) => { root.focus-id = k; }
                     }
                     if root.cards-page == CardsPage.contacts: contacts-list := VerticalLayout {
                         spacing: 4px;

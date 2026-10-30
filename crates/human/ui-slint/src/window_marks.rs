@@ -849,7 +849,7 @@ impl View {
         // focus goes to the page as app-placed focus (section 7's table).
         if std::mem::take(&mut self.shared.borrow_mut().window_view.contacts_try_again) {
             events.push(WindowEvent::ContactsTryAgain);
-            self.focus_key(crate::cards::CONTACTS_TRY_AGAIN_FOCUS.to_owned());
+            self.focus_key(crate::cards::CARDS_TITLE_FOCUS.to_owned());
         }
         events.extend(self.avatar_events());
         let presses = std::mem::take(&mut self.shared.borrow_mut().window_presses);
