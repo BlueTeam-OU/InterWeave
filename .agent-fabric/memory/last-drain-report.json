@@ -79,17 +79,6 @@
     },
     {
       "agent": "architect-cto-01",
-      "applied_key": "bd1728698b64b52f",
-      "heading": "RETIRES the duplicated Stage 17 thread slice (threads-carried-2026-10-18-2): the (j) review was received 2026-10-19..22 and Stage 17 closed on #373 (2026-10-22, merge 8ef07343); nothing in that thread is awaited",
-      "host": "develop-qzapp",
-      "memory": "threads-carried-2026-10-18-retire-duplicate",
-      "replaced": "Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)",
-      "replaced_key": "d2dfce6367a57604",
-      "slice": ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18-2.md",
-      "stamp": "2026-10-28"
-    },
-    {
-      "agent": "architect-cto-01",
       "applied_key": "c68d4356172e452d",
       "heading": "LIVE since 2026-10-19 12:35Z — architect-cto is below_min_authority and boundary_authority in InterWeave and gzapp (authority_own_prs false): how to give the word (AUTHORIZES line or arm with basis \"architect-cto's word\"), only after reading the head and its posted review; own PRs stay the owner's; an ADR's ACCEPTANCE is still the owner's",
       "host": "develop-qzapp",
@@ -108,17 +97,6 @@
       "replaced": "STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still architect-cto's)",
       "replaced_key": "17a624878cb59bb5",
       "slice": ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md",
-      "stamp": "2026-10-28"
-    },
-    {
-      "agent": "architect-cto-01",
-      "applied_key": "b76c0f243654f194",
-      "heading": "A number or mechanism that arrives in a lane's message is not read in the tree: before it enters a contract sentence, read the constant, timer or buffer it rests on at the branch head and cite that; a measurement nowhere in the repository does not go into a contract at all",
-      "host": "develop-qzapp",
-      "memory": "reflection-a-figure-from-a-message-is-not-in-the-tree",
-      "replaced": "A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real",
-      "replaced_key": "80200d2fff06455f",
-      "slice": ".agent-fabric/memory/architect-cto/workflow/reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated.md",
       "stamp": "2026-10-28"
     }
   ],
@@ -222,13 +200,6 @@
     {
       "agent": "architect-cto-01",
       "decision": "supersede",
-      "key": "architect-cto/workflow:reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated#A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real",
-      "observed_at": "2026-10-25",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "architect-cto-01",
-      "decision": "supersede",
       "key": "architect-cto/workflow:rustsec-zbus-family-ignores-and-arming-below-minimum#The 2026-10-18 CI outage on InterWeave (zbus-family RustSec unmaintained advisories) and what landing #297 taught about folding a supply, the deny.toml boundary, and the architect-cto AUTHORIZES send",
       "observed_at": "2026-10-28",
       "rule": "same-agent"
@@ -249,7 +220,6 @@
     }
   ],
   "files": [
-    ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-04-already-landed.md",
     "memory/domains/architect-cto/domain/ed25519-malformed-vector-construction.md",
     "memory/domains/architect-cto/domain/reflection-a-change-only-notice-stream-also-owes-the-current-value.md",
     "memory/domains/architect-cto/domain/reflection-a-fail-closed-check-on-an-outside-service-needs-a-deadline.md",
@@ -312,6 +282,7 @@
     ".agent-fabric/memory/architect-cto/threads/adr-047-flutter-coverage-workflow-2026-10-26.md",
     ".agent-fabric/memory/architect-cto/threads/adr-079-stop-calls-2026-10-25.md",
     ".agent-fabric/memory/architect-cto/threads/card-shared-at-accepted-and-silent-key-pending-row-2026-10-27.md",
+    ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-04-already-landed.md",
     ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-20-main-a4538593.md",
     ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-27-main-1b37e0ef.md",
     ".agent-fabric/memory/architect-cto/threads/idle-developers-dispatch-2026-10-19.md",
@@ -334,8 +305,6 @@
     ".agent-fabric/memory/architect-cto/threads/stage-21-beside-17-2026-10-21.md",
     ".agent-fabric/memory/architect-cto/threads/stage-21-close-2026-10-24.md",
     ".agent-fabric/memory/architect-cto/threads/stage-22-several-identities-roadmap-only-2026-10-28.md",
-    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md",
-    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18-2.md",
     ".agent-fabric/memory/architect-cto/workflow/architect-cto-arms-gzapp-interweave.md",
     ".agent-fabric/memory/architect-cto/workflow/arming-words-2026-10-26.md",
     ".agent-fabric/memory/architect-cto/workflow/arming-words-2026-10-27-ii.md",
@@ -346,7 +315,6 @@
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-column-in-state-md-s-row-may-be-a-later-stage-s.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-count-in-prose-about-another-lanes-list-is-read-per-entry.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-distinct-in-a-count-is-read-against-the-tables-key.md",
-    ".agent-fabric/memory/architect-cto/workflow/reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-green-pinned-tree-that-turns-red-check-the-runner-image-first.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-held-commit-gets-bounded-carriers-and-a-date.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-landed-amendment-is-never-edited-a-later-body-change-is-a-new-amendment.md",
@@ -407,7 +375,7 @@
     ".agent-fabric/memory/rust-ui-dev/INDEX.md",
     ".agent-fabric/memory/ux-designer/INDEX.md"
   ],
-  "files_written": 157,
+  "files_written": 154,
   "harvest": {
     "host": "develop-qzapp",
     "in_scope": 150,
@@ -428,7 +396,12 @@
       "skipped_no_roles_class": []
     }
   },
-  "held_back": [],
+  "held_back": [
+    "architect-cto/threads:stage-17-closing-plan-2026-10-19",
+    "architect-cto/threads:threads-carried-2026-10-18-retire-duplicate",
+    "architect-cto/workflow:reflection-a-figure-from-a-message-is-not-in-the-tree",
+    "architect-cto/workflow:reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated"
+  ],
   "hygiene_problems": [],
   "memory_helpful": {},
   "memory_marks": {},
@@ -479,7 +452,6 @@
     "architect-cto/domain:reflection-a-new-value-in-a-closed-answer-set-is-served-as-a-known-reason-below-its-minor#When a minor adds a value to a closed refusal set, a client below that minor is answered a reason or error its decoder already knows, and the contract states this as a downgrade by version rather than the rule, since an older decoder refuses a name it does not know: merge_target 'unassigned codes and byte-exact details are contract text' names no section of architect-cto/domain; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/domain:reflection-an-overlay-persisted-over-a-config-is-validated-composed#Configuration that validates alone need not validate once an overlay is applied, so the composed result is validated: refused at set time with nothing written, fatal at start naming the overlay, and never normalised away: merge_target 'an invariant is enforced where it goes live' names no section of architect-cto/domain; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/intersection:reflection-store-released-mobile-binaries-are-the-long-lived-reader#For any wire or configuration change, first ask whether a store-released mobile binary reads it: a web sub-app is co-deployed and a stale tab ends at reload, a phone binary lives for months, so anything it binds (a required member, a dictionary baseline, a hostname) needs a versioned change, never an in-place one: merge_target 'mobile hostname lock-in' names no section of architect-cto/intersection; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
-    "architect-cto/workflow:reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated#A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real: merge_target 'evidence for the owner names its build and source' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/workflow:reflection-a-landed-amendment-is-never-edited-a-later-body-change-is-a-new-amendment#Once an amendment has landed, its history note, log row and digest bullet stay as they are; a later change to the body gets its own dated amendment heading, row and bullet, and appending a dated paragraph inside the old note is a defect the validator does not see: merge_target 'ADR history notes and amendment log rows are records' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/workflow:reflection-a-p2-every-round-on-a-new-shape-means-the-adr-has-no-design#When review finds a P2 in each new implementation of one feature and each shape leaves the decision to a caller, stop the rounds and write the design into the ADR first, one seam returning a typed outcome, then conform: merge_target \"the owner's rule for ADR work\" names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/workflow:reflection-a-refusal-reached-by-another-act-or-audience-gets-its-own-message-key#A message key carries one audience's remedy; a refusal reached by a different act or served to a different audience gets its own key, because shared copy tells someone the wrong fix: merge_target 'an error label names whose state caused it' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
@@ -504,9 +476,7 @@
     "architect-cto/workflow:reflection-when-an-adr-gives-an-existing-word-a-new-meaning-sweep-by-one-rule#When an ADR gives an existing word a new meaning, older records keep the old sense, so its use is ruled by one meaning across every flow rather than screen by screen, and a contract's proper name keeps the word until a rename with a compatibility story: merge_target 'Owner identity model' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/workflow:reflection-when-every-round-finds-a-new-shape-a-heuristic-misses-gate-on-a-human-read-list#When each review round finds another shape a free-text scan misses, stop patching the scan and move that class to an exact gate, a pinned list of input digests a person has read, the scan staying as a tripwire; a digest list made by a loop without the reading is the count under another name: merge_target 'split exact rules from heuristics when asking for a guard' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
   ],
-  "migrated": [
-    ".agent-fabric/memory/architect-cto/threads/external-review-2026-10-04-already-landed.md: links to corrected memories pointed at the slice they were written into"
-  ],
+  "migrated": [],
   "oversized_claims": [
     "architect-cto/rationale:adr-044-migration-timeout-2026-10-26: one claim is ~1827 tokens, over the 1800 budget; split the memory it came from",
     "architect-cto/rationale:cloudflare-admin-delegation-2026-10-25: one claim is ~2039 tokens, over the 1800 budget; split the memory it came from",
@@ -518,8 +488,7 @@
     "architect-cto/threads:owner-priority-cli-and-mcp-on-prod-host-2026-10-22: one claim is ~2711 tokens, over the 1800 budget; split the memory it came from",
     "architect-cto/threads:stage-18-record-and-close-census-2026-10-25: one claim is ~1850 tokens, over the 1800 budget; split the memory it came from",
     "architect-cto/threads:stage-20-fleet-carrier-2026-10-19: one claim is ~2648 tokens, over the 1800 budget; split the memory it came from",
-    "architect-cto/threads:stage-21-close-2026-10-24: one claim is ~7006 tokens, over the 1800 budget; split the memory it came from",
-    "architect-cto/threads:threads-carried-2026-10-18: one claim is ~4051 tokens, over the 1800 budget; split the memory it came from"
+    "architect-cto/threads:stage-21-close-2026-10-24: one claim is ~7006 tokens, over the 1800 budget; split the memory it came from"
   ],
   "project": "interweave",
   "redactions": [
@@ -909,20 +878,15 @@
       "host": "develop-qzapp",
       "observed": "2026-10-28"
     },
-    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18-2.md#RETIRES the duplicated Stage 17 thread slice (threads-carried-2026-10-18-2): the (j) review was received 2026-10-19..22 and Stage 17 closed on #373 (2026-10-22, merge 8ef07343); nothing in that thread is awaited": {
+    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18-2.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-24"
+      "observed": "2026-10-21"
     },
     ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-19"
-    },
-    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148) (2)": {
-      "agent": "architect-cto-01",
-      "host": "develop-qzapp",
-      "observed": "2026-10-21"
     },
     ".agent-fabric/memory/architect-cto/workflow/architect-cto-arms-gzapp-interweave.md#LIVE since 2026-10-19 12:35Z — architect-cto is below_min_authority and boundary_authority in InterWeave and gzapp (authority_own_prs false): how to give the word (AUTHORIZES line or arm with basis \"architect-cto's word\"), only after reading the head and its posted review; own PRs stay the owner's; an ADR's ACCEPTANCE is still the owner's": {
       "agent": "architect-cto-01",
@@ -977,12 +941,7 @@
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated.md#A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-25"
-    },
-    ".agent-fabric/memory/architect-cto/workflow/reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated.md#A number or mechanism that arrives in a lane's message is not read in the tree: before it enters a contract sentence, read the constant, timer or buffer it rests on at the branch head and cite that; a measurement nowhere in the repository does not go into a contract at all": {
-      "agent": "architect-cto-01",
-      "host": "develop-qzapp",
-      "observed": "2026-10-25"
+      "observed": "2026-10-23"
     },
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-green-pinned-tree-that-turns-red-check-the-runner-image-first.md#When a pinned tree that was green turns red with no code change, compare the runner image version in each run's log before blaming the dependency graph; a claim that main is green is only as current as main's last run": {
       "agent": "architect-cto-01",
@@ -3398,11 +3357,9 @@
       }
     }
   },
-  "title_collisions": [
-    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md: \"Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)\" appears twice — set merge_target to resolve"
-  ],
+  "title_collisions": [],
   "watermarks": {
-    "architect-cto-01@develop-qzapp": 1793195164670,
+    "architect-cto-01@develop-qzapp": 1792608733999,
     "develop-qzapp": 1789652045613,
     "devex-tooling@develop-qzapp": 1792735422935,
     "language-culture-en@develop-qzapp": 1792832202997,
