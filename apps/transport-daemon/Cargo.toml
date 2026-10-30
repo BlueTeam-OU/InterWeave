@@ -38,6 +38,7 @@ tracing-subscriber = { workspace = true }
 # dev targets (`cargo test`, `--all-targets`) unify it in; on 2026-10-10
 # `cargo tree -p interweave-transport-daemon -e normal,features -i
 # interweave-transport-composition` showed no `test-hooks`, and with
-# `dev` added it did. Nothing checks that continuously.
+# `dev` added it did. tools/checks/check_shipped_test_hooks.sh holds the
+# release build's graph to that.
 interweave-transport-composition = { path = "../../crates/transport/composition", features = ["test-hooks"] }
 tempfile = { workspace = true }
