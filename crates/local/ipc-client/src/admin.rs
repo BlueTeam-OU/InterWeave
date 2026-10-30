@@ -16,7 +16,7 @@ use interweave_ipc_protocol::{
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressesChange, AdminBinding, AdminCapability, AdminPort,
     AdminStatus, BootstrapAddress, EndpointAdminView, Generation, LocalAdminPort, OwnAddresses,
-    PeerGateView, TrustAdminView, TrustChange, TrustedPeer,
+    PeerGateView, PeerLastSeen, TrustAdminView, TrustChange, TrustedPeer,
 };
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
 
@@ -40,7 +40,8 @@ const fn requested(capability: AdminCapability) -> RequestedCapability {
 const MAX_TRUST_PAGES: usize = 8;
 
 /// Pages `peers` reads at most: a full allowlist is eight (4096 peers,
-/// 512 a page), and the gate's rows may move while they are read.
+/// 512 a page) below 2.12 and nine from it (456 a page), and the gate's
+/// rows may move while they are read.
 const MAX_PEER_PAGES: usize = 10;
 
 impl IpcBinding {
@@ -386,6 +387,11 @@ impl AdminPort for IpcAdmin {
             .map(|row| PeerGateView {
                 peer: row.peer,
                 connected: row.connected,
+                last_seen: match row.last_seen_ms {
+                    None => PeerLastSeen::Unreported,
+                    Some(None) => PeerLastSeen::Never,
+                    Some(Some(at)) => PeerLastSeen::At(at),
+                },
                 backoff_until: row.backoff_until,
                 quarantined_until: row.quarantined_until,
                 route_held_until: row.route_held_until,

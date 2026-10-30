@@ -87,6 +87,50 @@ pub struct Contact {
     pub routes: Vec<ContactRoute>,
 }
 
+/// A contact as the Contacts list reads it: everything a [`Contact`]
+/// holds but its photo's bytes, which [`HumanStore::contact_photo`] reads
+/// when the photo is shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactListing {
+    /// The store's id for it.
+    pub contact_id: String,
+    /// The name, then a space and the surname when there is one.
+    pub display_name: String,
+    /// Where the name came from.
+    pub name_source: ValueSource,
+    /// When the name was last set, if known.
+    pub name_at: Option<u64>,
+    /// Where the photo came from, if there is one.
+    pub photo_source: Option<ValueSource>,
+    /// When the photo was last set or removed, if known.
+    pub photo_at: Option<u64>,
+    /// Whether it has a photo.
+    pub has_photo: bool,
+    /// Its routes.
+    pub routes: Vec<ContactRoute>,
+}
+
+/// A contact as a proposal names it: its id and its name, read without
+/// its photo or its routes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactName {
+    /// The store's id for it.
+    pub contact_id: String,
+    /// Its display name.
+    pub display_name: String,
+}
+
+/// What [`HumanStore::delete_route`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteDeleted {
+    /// The route and its recorded key are gone; the contact stays.
+    Deleted,
+    /// The contact's only route: nothing was written.
+    LastRoute,
+    /// The contact holds no such route, or there is no such contact.
+    NoSuchRoute,
+}
+
 /// A card the person accepted, as the parser gave it.
 #[derive(Debug, Clone, Copy)]
 pub struct AcceptedCard<'a> {
@@ -138,16 +182,16 @@ pub struct CardStanding {
     pub updates: Option<Contact>,
     /// Contacts holding another endpoint of the card's `PeerId`: Accept
     /// makes a contact of its own, and the proposal names these.
-    pub shares_node: Vec<Contact>,
-    /// Contacts of the same display name on other `PeerIds`: the same-name
-    /// note.
-    pub same_name: Vec<Contact>,
+    pub shares_node: Vec<ContactName>,
+    /// Contacts on other `PeerIds` whose display name is the card's by
+    /// [`name_key`], a lookalike spelling included: the same-name note.
+    pub same_name: Vec<ContactName>,
     /// The key against the route's record.
     pub key: KeyStanding,
     /// A contact holding this card's key on another `PeerId`: the same
     /// identity on another node, which the proposal says (ADR-0063
     /// decision 4) and which groups nothing on its own.
-    pub key_matches: Vec<Contact>,
+    pub key_matches: Vec<ContactName>,
 }
 
 /// What Accept did.
@@ -159,12 +203,25 @@ pub struct Accepted {
     pub created: bool,
     /// Whether the contact's name was the person's and stayed.
     pub name_kept: bool,
-    /// Whether the contact's photo was the person's and stayed.
-    pub photo_kept: bool,
+    /// What became of the contact's photo.
+    pub photo: PhotoAccepted,
     /// How the key stood before.
     pub key: KeyStanding,
     /// What [`HumanStore::undo_accept`] writes back.
     pub undo: AcceptUndo,
+}
+
+/// What an Accept did to the contact's photo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhotoAccepted {
+    /// The card's photo, or its absence over none, is the contact's.
+    Written,
+    /// The contact's photo was the person's and stayed.
+    Kept,
+    /// The contact held a photo that was not the person's and the card,
+    /// carrying none, took it away (contact-cards design 5.4.2:
+    /// `CardPhotoNotUsedRemoved` when the card's photo was unusable).
+    Removed,
 }
 
 /// What an Accept changed, kept by the caller for the person's Undo
@@ -187,6 +244,135 @@ enum UndoOf {
         before: Box<ContactValues>,
         key: Option<Vec<u8>>,
     },
+}
+
+/// A contact the person deleted, as it was stored, kept by the caller for
+/// the person's Undo (contact-cards design section 6.3): its row and its
+/// routes' rows, every column as read, so the Undo writes back the same
+/// values and provenance. Held in memory only, like [`AcceptUndo`]: a
+/// process that ends inside the window leaves the contact deleted.
+#[derive(Clone, PartialEq)]
+pub struct DeletedContact {
+    contact_id: String,
+    contact: StoredRow,
+    routes: Vec<StoredRow>,
+}
+
+impl DeletedContact {
+    /// The deleted contact's id.
+    #[must_use]
+    pub fn contact_id(&self) -> &str {
+        &self.contact_id
+    }
+}
+
+// Names and photos are the person's: a log line says which contact only.
+impl std::fmt::Debug for DeletedContact {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeletedContact")
+            .field("contact_id", &self.contact_id)
+            .field("routes", &self.routes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// What [`HumanStore::restore_contact`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContactRestored {
+    /// The contact and its routes are back as they were.
+    Restored,
+    /// A route it held is under another contact now: nothing is written,
+    /// since one route is never under two contacts.
+    RouteTaken,
+    /// A contact of its id exists: nothing is written.
+    Exists,
+}
+
+/// A contact's photo the person removed, as it was stored, for the
+/// person's Undo (design section 6.3): the bytes, where they came from
+/// and when, and the time the removal wrote. Held in memory only.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RemovedPhoto {
+    contact_id: String,
+    photo: Vec<u8>,
+    photo_source: Option<String>,
+    photo_at: Option<i64>,
+    updated_at: i64,
+    removed_at: i64,
+}
+
+impl RemovedPhoto {
+    /// The contact whose photo it was.
+    #[must_use]
+    pub fn contact_id(&self) -> &str {
+        &self.contact_id
+    }
+}
+
+impl std::fmt::Debug for RemovedPhoto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemovedPhoto")
+            .field("contact_id", &self.contact_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// One stored row, every column as read: what an Undo writes back.
+#[derive(Debug, Clone, PartialEq)]
+struct StoredRow {
+    columns: Vec<String>,
+    values: Vec<rusqlite::types::Value>,
+}
+
+impl StoredRow {
+    /// The rows of `table` whose `key` column is `id`.
+    fn read(
+        tx: &rusqlite::Transaction<'_>,
+        table: &str,
+        key: &str,
+        id: &str,
+    ) -> rusqlite::Result<Vec<Self>> {
+        let mut stmt = tx.prepare(&format!("SELECT * FROM {table} WHERE {key} = ?1"))?;
+        let columns: Vec<String> = stmt
+            .column_names()
+            .iter()
+            .map(|c| (*c).to_owned())
+            .collect();
+        let rows = stmt.query_map(params![id], |row| {
+            (0..columns.len())
+                .map(|i| row.get::<_, rusqlite::types::Value>(i))
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })?;
+        rows.map(|values| {
+            values.map(|values| Self {
+                columns: columns.clone(),
+                values,
+            })
+        })
+        .collect()
+    }
+
+    /// Insert it into `table` as it was.
+    fn insert(&self, tx: &rusqlite::Transaction<'_>, table: &str) -> rusqlite::Result<()> {
+        let marks = vec!["?"; self.columns.len()].join(", ");
+        tx.execute(
+            &format!(
+                "INSERT INTO {table} ({}) VALUES ({marks})",
+                self.columns.join(", ")
+            ),
+            rusqlite::params_from_iter(self.values.iter()),
+        )?;
+        Ok(())
+    }
+
+    /// The text value of `column`, if it has one.
+    fn text(&self, column: &str) -> Option<&str> {
+        let i = self.columns.iter().position(|c| c == column)?;
+        match &self.values[i] {
+            rusqlite::types::Value::Text(t) => Some(t.as_str()),
+            _ => None,
+        }
+    }
 }
 
 /// A contact's values an Accept may overwrite, as stored.
@@ -230,6 +416,112 @@ pub fn direct_conversation_id(peer: &TransportIdentity, endpoint: &EndpointId) -
     format!("direct/{}/{}", peer.as_str(), endpoint.as_str())
 }
 
+/// The key two names are the same by (contact-cards design 5.4.1): NFKC,
+/// full case folding, each run of whitespace one space and the ends
+/// trimmed, then Unicode TS #39's confusable skeleton. A peer naming
+/// itself "Аnna" with a Cyrillic А, "Anna Rossi" with a no-break space or
+/// "Ａnna" in fullwidth letters meets the same warning as "Anna". The
+/// design keeps the key for comparison: a key is not a name to show or
+/// store. White space is Rust's `White_Space`,
+/// a superset of the design's Zs and tab; a card's name holds no other
+/// (HUMAN-CHAT.md refuses controls in it).
+#[must_use]
+pub fn name_key(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization as _;
+    let nfkc: String = name.nfkc().collect();
+    let folded = caseless::default_case_fold_str(&nfkc);
+    let spaced = folded.split_whitespace().collect::<Vec<_>>().join(" ");
+    unicode_security::skeleton(&spaced).collect()
+}
+
+/// A card's standing, read by name (schema v10): the contacts on the
+/// card's `PeerId` by the route index, those whose name key is the card's
+/// by the name-key index, and those holding its key on another `PeerId`
+/// by the identity-key index, each but the contact Accept updates.
+/// `the_standing_reads_use_their_indexes` reads their plans. Each in the
+/// store's id order, which no person sees: SQLite cannot collate a name,
+/// so the model orders what a proposal names (human-client-ui.md
+/// section 3, "How contacts are ordered").
+const SHARES_NODE: &str = "SELECT DISTINCT c.contact_id, c.display_name
+               FROM contact_routes r JOIN contacts c ON c.contact_id = r.contact_id
+              WHERE r.peer_id = ?1 AND c.contact_id IS NOT ?2
+              ORDER BY c.contact_id";
+const SAME_NAME: &str = "SELECT c.contact_id, c.display_name FROM contacts c
+              WHERE c.name_key = ?1 AND c.contact_id IS NOT ?2
+                AND NOT EXISTS (SELECT 1 FROM contact_routes r
+                                 WHERE r.contact_id = c.contact_id AND r.peer_id = ?3)
+              ORDER BY c.contact_id";
+const KEY_MATCHES: &str = "SELECT DISTINCT c.contact_id, c.display_name
+               FROM contact_routes r JOIN contacts c ON c.contact_id = r.contact_id
+              WHERE r.identity_key = ?1 AND r.peer_id <> ?2 AND c.contact_id IS NOT ?3
+              ORDER BY c.contact_id";
+
+/// The version of [`name_key`]'s output, kept in `settings` as
+/// `name_key_version` (STATE.md, schema v10). A build whose key differs
+/// for any name -- a new Unicode version in `unicode-normalization`,
+/// `caseless` or `unicode-security`, or a change here -- bumps it, and the
+/// first open recomputes every contact's key before any standing reads
+/// one. `the_name_key_is_pinned` fails when the output moves and this did
+/// not.
+pub(crate) const NAME_KEY_VERSION: &str = "1";
+
+/// The `settings` key [`NAME_KEY_VERSION`] is kept under.
+const NAME_KEY_SETTING: &str = "name_key_version";
+
+/// Contacts recomputed per statement batch: the open holds this many names
+/// at a time, never every contact.
+const NAME_KEY_BATCH: i64 = 256;
+
+/// At open: every contact's `name_key` recomputed when the store's keys
+/// were made by another version of [`name_key`] -- or by none, as after
+/// the v10 migration, which leaves them empty -- in one transaction with
+/// the version row, so a crash leaves the old version and the next open
+/// starts over.
+///
+/// # Errors
+/// A storage error; the open then fails as a migration's would.
+pub(crate) fn refresh_name_keys(conn: &mut rusqlite::Connection) -> Result<(), StoreError> {
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![NAME_KEY_SETTING],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if stored.as_deref() == Some(NAME_KEY_VERSION) {
+        return Ok(());
+    }
+    let tx = conn.transaction()?;
+    let mut after = String::new();
+    loop {
+        let batch: Vec<(String, String)> = tx
+            .prepare(
+                "SELECT contact_id, display_name FROM contacts
+                  WHERE contact_id > ?1 ORDER BY contact_id LIMIT ?2",
+            )?
+            .query_map(params![after, NAME_KEY_BATCH], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        let Some((last, _)) = batch.last() else {
+            break;
+        };
+        after.clone_from(last);
+        for (contact_id, display_name) in &batch {
+            tx.execute(
+                "UPDATE contacts SET name_key = ?2 WHERE contact_id = ?1",
+                params![contact_id, name_key(display_name)],
+            )?;
+        }
+    }
+    tx.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![NAME_KEY_SETTING, NAME_KEY_VERSION],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 fn new_contact_id() -> String {
     format!("{:032x}", rand::random::<u128>())
 }
@@ -243,14 +535,16 @@ fn key_of(blob: Option<Vec<u8>>) -> Result<Option<[u8; 32]>, StoreError> {
 }
 
 impl HumanStore {
-    /// Every contact, with its routes, ordered by name.
+    /// Every contact, with its routes, in the store's id order: a person
+    /// sees them in the model's collated order (human-client-ui.md
+    /// section 3), which no SQL here can give.
     ///
     /// # Errors
     /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
     pub fn contacts(&self) -> Result<Vec<Contact>, StoreError> {
         let ids: Vec<String> = self
             .conn
-            .prepare("SELECT contact_id FROM contacts ORDER BY display_name, contact_id")?
+            .prepare("SELECT contact_id FROM contacts ORDER BY contact_id")?
             .query_map([], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
         ids.iter()
@@ -266,6 +560,8 @@ impl HumanStore {
     /// # Errors
     /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
     pub fn contact(&self, contact_id: &str) -> Result<Option<Contact>, StoreError> {
+        #[cfg(test)]
+        self.contact_loads.set(self.contact_loads.get() + 1);
         let row = self
             .conn
             .query_row(
@@ -287,33 +583,7 @@ impl HumanStore {
         let Some((display_name, name_source, name_at, photo_source, photo, photo_at)) = row else {
             return Ok(None);
         };
-        let routes = self
-            .conn
-            .prepare(
-                "SELECT peer_id, endpoint_id, identity_key FROM contact_routes
-                  WHERE contact_id = ?1 ORDER BY peer_id, endpoint_id",
-            )?
-            .query_map(params![contact_id], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, Option<Vec<u8>>>(2)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .map(|(peer, endpoint, key)| {
-                Ok(ContactRoute {
-                    peer: TransportIdentity::parse(&peer).map_err(|_| {
-                        StoreError::Corrupt("a route's PeerId does not parse".to_owned())
-                    })?,
-                    endpoint: EndpointId::parse(&endpoint).map_err(|_| {
-                        StoreError::Corrupt("a route's EndpointId does not parse".to_owned())
-                    })?,
-                    identity_key: key_of(key)?,
-                })
-            })
-            .collect::<Result<_, StoreError>>()?;
+        let routes = self.routes_of(contact_id)?;
         Ok(Some(Contact {
             contact_id: contact_id.to_owned(),
             display_name,
@@ -348,6 +618,119 @@ impl HumanStore {
         id.map_or(Ok(None), |id| self.contact(&id))
     }
 
+    /// `contact_id`'s routes, by `PeerId` then endpoint.
+    fn routes_of(&self, contact_id: &str) -> Result<Vec<ContactRoute>, StoreError> {
+        self.conn
+            .prepare(
+                "SELECT peer_id, endpoint_id, identity_key FROM contact_routes
+                  WHERE contact_id = ?1 ORDER BY peer_id, endpoint_id",
+            )?
+            .query_map(params![contact_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<Vec<u8>>>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|(peer, endpoint, key)| {
+                Ok(ContactRoute {
+                    peer: TransportIdentity::parse(&peer).map_err(|_| {
+                        StoreError::Corrupt("a route's PeerId does not parse".to_owned())
+                    })?,
+                    endpoint: EndpointId::parse(&endpoint).map_err(|_| {
+                        StoreError::Corrupt("a route's EndpointId does not parse".to_owned())
+                    })?,
+                    identity_key: key_of(key)?,
+                })
+            })
+            .collect()
+    }
+
+    /// One page of the contacts, `max` at most, after `after` in id order
+    /// (the first at `None`), each with its routes and whether it has a
+    /// photo, never the photo's bytes: the Contacts list and every
+    /// conversation title need every contact's name, and a photo is read
+    /// when it is shown ([`Self::contact_photo`]). The cursor of the next
+    /// page is the last contact's id. Id order is no order a person sees
+    /// (human-client-ui.md section 3): a caller reads every page before
+    /// anything is shown, and the model orders the whole
+    /// (`UiModel::contacts_listed`). The windowed start pages them
+    /// (app-core's `FacadeSide::start`).
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn contact_directory_page(
+        &self,
+        after: Option<&str>,
+        max: usize,
+    ) -> Result<crate::Page<ContactListing, String>, StoreError> {
+        let max = max.max(1);
+        let fetch = i64::try_from(max.saturating_add(1)).unwrap_or(i64::MAX);
+        let rows = self
+            .conn
+            .prepare(
+                "SELECT contact_id, display_name, name_source, name_at, photo_source, photo_at,
+                        photo IS NOT NULL
+                   FROM contacts WHERE contact_id > ?1 ORDER BY contact_id LIMIT ?2",
+            )?
+            .query_map(params![after.unwrap_or(""), fetch], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<i64>>(5)?,
+                    r.get::<_, bool>(6)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let more = rows.len() > max;
+        let mut items = Vec::new();
+        for (contact_id, display_name, name_source, name_at, photo_source, photo_at, has_photo) in
+            rows.into_iter().take(max)
+        {
+            let routes = self.routes_of(&contact_id)?;
+            items.push(ContactListing {
+                contact_id,
+                display_name,
+                name_source: ValueSource::from_sql(name_source.as_deref()),
+                name_at: name_at.map(|t| stored_ms("name_at", t)).transpose()?,
+                photo_source: photo_source
+                    .as_deref()
+                    .map(|s| ValueSource::from_sql(Some(s))),
+                photo_at: photo_at.map(|t| stored_ms("photo_at", t)).transpose()?,
+                has_photo,
+                routes,
+            });
+        }
+        let next = if more {
+            items.last().map(|c| c.contact_id.clone())
+        } else {
+            None
+        };
+        Ok(crate::Page { items, next })
+    }
+
+    /// One contact's photo, as [`Contact::photo`] holds it: read when it
+    /// is shown, one at a time.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn contact_photo(&self, contact_id: &str) -> Result<Option<Vec<u8>>, StoreError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT photo FROM contacts WHERE contact_id = ?1",
+                params![contact_id],
+                |r| r.get::<_, Option<Vec<u8>>>(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
     /// What `card` would do if accepted, for its proposal.
     ///
     /// # Errors
@@ -367,35 +750,21 @@ impl HumanStore {
             Some(k) if k == card.identity_key => KeyStanding::Same,
             Some(recorded) => KeyStanding::Changed { recorded },
         };
-        let others = self.contacts()?;
-        let not_updated = |c: &&Contact| {
-            updates
-                .as_ref()
-                .is_none_or(|u| u.contact_id != c.contact_id)
-        };
-        let shares_node = others
-            .iter()
-            .filter(not_updated)
-            .filter(|c| c.routes.iter().any(|r| &r.peer == card.peer))
-            .cloned()
-            .collect();
-        let display = card.display_name();
-        let same_name = others
-            .iter()
-            .filter(not_updated)
-            .filter(|c| c.display_name == display && c.routes.iter().all(|r| &r.peer != card.peer))
-            .cloned()
-            .collect();
-        let key_matches = others
-            .iter()
-            .filter(not_updated)
-            .filter(|c| {
-                c.routes
-                    .iter()
-                    .any(|r| &r.peer != card.peer && r.identity_key == Some(card.identity_key))
-            })
-            .cloned()
-            .collect();
+        // Three indexed reads of names, never every contact decoded per
+        // card (schema v10): by the route index, the name-key index and
+        // the identity-key index, each excluding the contact Accept
+        // updates. `a_cards_standing_reads_no_contact_but_the_one_it_updates`
+        // counts the statements.
+        let excluded = updates.as_ref().map(|u| u.contact_id.as_str());
+        let shares_node = self.contact_names(SHARES_NODE, params![card.peer.as_str(), excluded])?;
+        let same_name = self.contact_names(
+            SAME_NAME,
+            params![name_key(&card.display_name()), excluded, card.peer.as_str()],
+        )?;
+        let key_matches = self.contact_names(
+            KEY_MATCHES,
+            params![card.identity_key.as_slice(), card.peer.as_str(), excluded],
+        )?;
         Ok(CardStanding {
             updates,
             shares_node,
@@ -403,6 +772,24 @@ impl HumanStore {
             key,
             key_matches,
         })
+    }
+
+    /// The `(contact_id, display_name)` rows `sql` selects.
+    fn contact_names(
+        &self,
+        sql: &str,
+        params: impl rusqlite::Params,
+    ) -> Result<Vec<ContactName>, StoreError> {
+        Ok(self
+            .conn
+            .prepare(sql)?
+            .query_map(params, |r| {
+                Ok(ContactName {
+                    contact_id: r.get(0)?,
+                    display_name: r.get(1)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?)
     }
 
     /// Accept `card`: update the contact holding its route, or create one.
@@ -446,6 +833,7 @@ impl HumanStore {
                         })
                     },
                 )?;
+                let had_photo = before.photo.is_some();
                 let undo = AcceptUndo(UndoOf::Updated {
                     contact_id: contact_id.clone(),
                     peer: card.peer.as_str().to_owned(),
@@ -467,9 +855,9 @@ impl HumanStore {
                     ValueSource::from_sql(name_source.as_deref()) == ValueSource::Person;
                 if !name_kept {
                     tx.execute(
-                        "UPDATE contacts SET display_name = ?2, name_at = ?3, updated_at = ?3
+                        "UPDATE contacts SET display_name = ?2, name_key = ?4, name_at = ?3, updated_at = ?3
                           WHERE contact_id = ?1",
-                        params![contact_id, display, at],
+                        params![contact_id, display, at, name_key(&display)],
                     )?;
                 }
                 // A photo the person set stays. Unlike a name, a contact
@@ -498,16 +886,22 @@ impl HumanStore {
                     contact_id,
                     created: false,
                     name_kept,
-                    photo_kept,
+                    photo: if photo_kept {
+                        PhotoAccepted::Kept
+                    } else if card.photo.is_none() && had_photo {
+                        PhotoAccepted::Removed
+                    } else {
+                        PhotoAccepted::Written
+                    },
                     key,
                     undo,
                 }
             } else {
                 let contact_id = new_contact_id();
                 tx.execute(
-                    "INSERT INTO contacts (contact_id, display_name, name_source, name_at,
+                    "INSERT INTO contacts (contact_id, display_name, name_key, name_source, name_at,
                                            photo, photo_source, photo_at, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?4, ?4)",
+                     VALUES (?1, ?2, ?8, ?3, ?4, ?5, ?6, ?7, ?4, ?4)",
                     params![
                         contact_id,
                         display,
@@ -515,7 +909,8 @@ impl HumanStore {
                         at,
                         card.photo,
                         card.photo.map(|_| ValueSource::Card.as_sql()),
-                        card.photo.map(|_| at)
+                        card.photo.map(|_| at),
+                        name_key(&display)
                     ],
                 )?;
                 tx.execute(
@@ -528,6 +923,10 @@ impl HumanStore {
                         card.identity_key.as_slice()
                     ],
                 )?;
+                // The route's pair is indexed with it, so deleting the
+                // route later forgets nothing: the per-peer bound counts it
+                // until a discard (STATE.md, #492's review F6).
+                super::window::index_direct(&tx, card.peer, card.endpoint)?;
                 Accepted {
                     undo: AcceptUndo(UndoOf::Created {
                         contact_id: contact_id.clone(),
@@ -535,7 +934,7 @@ impl HumanStore {
                     contact_id,
                     created: true,
                     name_kept: false,
-                    photo_kept: false,
+                    photo: PhotoAccepted::Written,
                     key: KeyStanding::Unrecorded,
                 }
             };
@@ -566,7 +965,7 @@ impl HumanStore {
         let result = (|| -> Result<bool, StoreError> {
             let tx = self.conn.transaction()?;
             let restored = tx.execute(
-                "UPDATE contacts SET display_name = ?2, name_source = ?3, name_at = ?4,
+                "UPDATE contacts SET display_name = ?2, name_key = ?9, name_source = ?3, name_at = ?4,
                         photo = ?5, photo_source = ?6, photo_at = ?7, updated_at = ?8
                   WHERE contact_id = ?1",
                 params![
@@ -577,7 +976,8 @@ impl HumanStore {
                     before.photo,
                     before.photo_source,
                     before.photo_at,
-                    before.updated_at
+                    before.updated_at,
+                    name_key(&before.display_name)
                 ],
             )?;
             tx.execute(
@@ -612,9 +1012,9 @@ impl HumanStore {
         let changed = self
             .conn
             .execute(
-                "UPDATE contacts SET display_name = ?2, name_source = ?3, name_at = ?4, updated_at = ?4
+                "UPDATE contacts SET display_name = ?2, name_key = ?5, name_source = ?3, name_at = ?4, updated_at = ?4
                   WHERE contact_id = ?1",
-                params![contact_id, name, ValueSource::Person.as_sql(), at],
+                params![contact_id, name, ValueSource::Person.as_sql(), at, name_key(name)],
             )
             .map_err(StoreError::from)
             .map_err(|e| self.note_store_failure(e))?;
@@ -659,8 +1059,25 @@ impl HumanStore {
     /// # Errors
     /// A storage error. Whether there was such a contact.
     pub fn delete_contact(&mut self, contact_id: &str) -> Result<bool, StoreError> {
-        let result = (|| -> Result<bool, StoreError> {
+        Ok(self.delete_contact_for_undo(contact_id)?.is_some())
+    }
+
+    /// [`HumanStore::delete_contact`], returning what it deleted for the
+    /// person's Undo ([`HumanStore::restore_contact`]): the rows are read
+    /// in the transaction that deletes them, so the Undo writes back what
+    /// was deleted and nothing else. `None` when there was no such
+    /// contact.
+    ///
+    /// # Errors
+    /// A storage error; nothing is deleted then.
+    pub fn delete_contact_for_undo(
+        &mut self,
+        contact_id: &str,
+    ) -> Result<Option<DeletedContact>, StoreError> {
+        let result = (|| -> Result<Option<DeletedContact>, StoreError> {
             let tx = self.conn.transaction()?;
+            let contact = StoredRow::read(&tx, "contacts", "contact_id", contact_id)?;
+            let routes = StoredRow::read(&tx, "contact_routes", "contact_id", contact_id)?;
             tx.execute(
                 "DELETE FROM contact_routes WHERE contact_id = ?1",
                 params![contact_id],
@@ -670,17 +1087,205 @@ impl HumanStore {
                 params![contact_id],
             )?;
             tx.commit()?;
-            Ok(deleted == 1)
+            Ok(contact
+                .into_iter()
+                .next()
+                .filter(|_| deleted == 1)
+                .map(|contact| DeletedContact {
+                    contact_id: contact_id.to_owned(),
+                    contact,
+                    routes,
+                }))
         })();
         let deleted = result.map_err(|e| self.note_store_failure(e))?;
-        if deleted {
+        if deleted.is_some() {
+            self.release_done();
+        }
+        Ok(deleted)
+    }
+
+    /// The person's Undo of a delete (design section 6.3): the contact
+    /// and its routes written back with the values and provenance they
+    /// had, in one transaction -- unless a route it held is under another
+    /// contact now, or a contact of its id exists, when nothing is
+    /// written.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn restore_contact(
+        &mut self,
+        deleted: &DeletedContact,
+    ) -> Result<ContactRestored, StoreError> {
+        let result = (|| -> Result<ContactRestored, StoreError> {
+            let tx = self.conn.transaction()?;
+            let exists: Option<i64> = tx
+                .query_row(
+                    "SELECT 1 FROM contacts WHERE contact_id = ?1",
+                    params![deleted.contact_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if exists.is_some() {
+                return Ok(ContactRestored::Exists);
+            }
+            for route in &deleted.routes {
+                let taken: Option<i64> = tx
+                    .query_row(
+                        "SELECT 1 FROM contact_routes WHERE peer_id = ?1 AND endpoint_id = ?2",
+                        params![route.text("peer_id"), route.text("endpoint_id")],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                if taken.is_some() {
+                    return Ok(ContactRestored::RouteTaken);
+                }
+            }
+            deleted.contact.insert(&tx, "contacts")?;
+            for route in &deleted.routes {
+                route.insert(&tx, "contact_routes")?;
+            }
+            tx.commit()?;
+            Ok(ContactRestored::Restored)
+        })();
+        result.map_err(|e| self.note_store_failure(e))
+    }
+
+    /// The person's removal of a contact's photo, as
+    /// [`HumanStore::set_contact_photo`] with no photo writes it, returning
+    /// what it removed for the person's Undo
+    /// ([`HumanStore::restore_contact_photo`]). `None` when there was no
+    /// such contact or it had no photo, and nothing is written then.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn remove_contact_photo(
+        &mut self,
+        contact_id: &str,
+        at_ms: u64,
+    ) -> Result<Option<RemovedPhoto>, StoreError> {
+        let at = sql_timestamp("at", at_ms)?;
+        let result = (|| -> Result<Option<RemovedPhoto>, StoreError> {
+            let tx = self.conn.transaction()?;
+            let before = tx
+                .query_row(
+                    "SELECT photo, photo_source, photo_at, updated_at FROM contacts
+                      WHERE contact_id = ?1 AND photo IS NOT NULL",
+                    params![contact_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                )
+                .optional()?;
+            let Some((photo, photo_source, photo_at, updated_at)) = before else {
+                return Ok(None);
+            };
+            tx.execute(
+                "UPDATE contacts SET photo = NULL, photo_source = ?2, photo_at = ?3, updated_at = ?3
+                  WHERE contact_id = ?1",
+                params![contact_id, ValueSource::Person.as_sql(), at],
+            )?;
+            tx.commit()?;
+            Ok(Some(RemovedPhoto {
+                contact_id: contact_id.to_owned(),
+                photo,
+                photo_source,
+                photo_at,
+                updated_at,
+                removed_at: at,
+            }))
+        })();
+        let removed = result.map_err(|e| self.note_store_failure(e))?;
+        if removed.is_some() {
+            // The removed bytes leave the log as a deleted contact's do
+            // (`a_removed_photo_leaves_both_files_before_the_call_returns`);
+            // what the Undo needs is the caller's, in memory.
+            self.release_done();
+        }
+        Ok(removed)
+    }
+
+    /// The person's Undo of a photo removal (design section 6.3): the
+    /// bytes written back with where they came from and when -- only
+    /// while the contact still shows the removal, so an Undo never
+    /// overwrites a photo set since. Whether it was written.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn restore_contact_photo(&mut self, removed: &RemovedPhoto) -> Result<bool, StoreError> {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE contacts SET photo = ?2, photo_source = ?3, photo_at = ?4, updated_at = ?5
+                  WHERE contact_id = ?1 AND photo IS NULL AND photo_at = ?6",
+                params![
+                    removed.contact_id,
+                    removed.photo,
+                    removed.photo_source,
+                    removed.photo_at,
+                    removed.updated_at,
+                    removed.removed_at
+                ],
+            )
+            .map_err(StoreError::from)
+            .map_err(|e| self.note_store_failure(e))?;
+        Ok(changed == 1)
+    }
+
+    /// Delete one route of a contact, with the identity key it recorded
+    /// (ADR-0059 decision 9: deleting a contact's routes): the contact
+    /// stays with its others. A contact's last route is refused in the
+    /// same transaction and nothing is written, since a contact with no
+    /// route is a delete of the contact, which is the person's
+    /// [`HumanStore::delete_contact`]. What was deleted leaves the log as a
+    /// deleted contact does
+    /// (`a_deleted_route_leaves_both_files_and_the_last_is_refused`). A
+    /// card from the route is a new proposal afterwards, its key
+    /// unrecorded.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn delete_route(
+        &mut self,
+        contact_id: &str,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+    ) -> Result<RouteDeleted, StoreError> {
+        let result = (|| -> Result<RouteDeleted, StoreError> {
+            let tx = self.conn.transaction()?;
+            let routes: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM contact_routes WHERE contact_id = ?1",
+                params![contact_id],
+                |r| r.get(0),
+            )?;
+            let held: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM contact_routes
+                                WHERE contact_id = ?1 AND peer_id = ?2 AND endpoint_id = ?3)",
+                params![contact_id, peer.as_str(), endpoint.as_str()],
+                |r| r.get(0),
+            )?;
+            if !held {
+                return Ok(RouteDeleted::NoSuchRoute);
+            }
+            if routes <= 1 {
+                return Ok(RouteDeleted::LastRoute);
+            }
+            tx.execute(
+                "DELETE FROM contact_routes
+                  WHERE contact_id = ?1 AND peer_id = ?2 AND endpoint_id = ?3",
+                params![contact_id, peer.as_str(), endpoint.as_str()],
+            )?;
+            tx.commit()?;
+            Ok(RouteDeleted::Deleted)
+        })();
+        let deleted = result.map_err(|e| self.note_store_failure(e))?;
+        if deleted == RouteDeleted::Deleted {
             self.release_done();
         }
         Ok(deleted)
     }
 
     /// Record that the conversation on this route shared its identity's
-    /// card at `at_ms` (`conversation_index.card_shared_at`).
+    /// card at `at_ms` (`conversation_index.card_shared_at`): the caller's
+    /// to call when the card's row reached Accepted by remote transport
+    /// (cards section 5.3), never when it is queued.
     ///
     /// # Errors
     /// A storage error.
@@ -704,8 +1309,9 @@ impl HumanStore {
     }
 
     /// Whether any conversation ever recorded a share of the identity's
-    /// card: what tells a first start from a key file lost after
-    /// counterparties got its key. `card_shared_at` is cleared by nothing
+    /// card: with the own card rows still pending, what tells a first
+    /// start from a key file lost after counterparties got, or may still
+    /// get, its key (app-core's `card_may_be_held`). `card_shared_at` is cleared by nothing
     /// short of a discard of the whole store.
     ///
     /// # Errors
@@ -844,5 +1450,189 @@ impl HumanStore {
         };
         self.set_own_card(&card, at_ms)?;
         Ok(card)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AcceptedCard, HumanStore, KEY_MATCHES, NAME_KEY_VERSION, SAME_NAME, SHARES_NODE, name_key,
+    };
+    use interweave_transport_api::{EndpointId, TransportIdentity};
+
+    /// Peer `n`: an Ed25519 `PeerId` over the key bytes `[n; 32]`, the
+    /// identity multihash of its protobuf public key in base58btc.
+    fn peer(n: u8) -> TransportIdentity {
+        const ALPHABET: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+        let mut bytes = vec![0x00, 0x24, 0x08, 0x01, 0x12, 0x20];
+        bytes.extend([n; 32]);
+        let mut digits: Vec<u8> = Vec::new();
+        for byte in &bytes {
+            let mut carry = u32::from(*byte);
+            for digit in &mut digits {
+                carry += u32::from(*digit) << 8;
+                *digit = u8::try_from(carry % 58).expect("a digit");
+                carry /= 58;
+            }
+            while carry > 0 {
+                digits.push(u8::try_from(carry % 58).expect("a digit"));
+                carry /= 58;
+            }
+        }
+        let zeros = bytes.iter().take_while(|b| **b == 0).count();
+        let text: String = std::iter::repeat_n('1', zeros)
+            .chain(
+                digits
+                    .iter()
+                    .rev()
+                    .map(|d| char::from(ALPHABET[usize::from(*d)])),
+            )
+            .collect();
+        TransportIdentity::parse(text).expect("a PeerId")
+    }
+
+    fn card<'a>(
+        peer: &'a TransportIdentity,
+        endpoint: &'a EndpointId,
+        name: &'a str,
+    ) -> AcceptedCard<'a> {
+        AcceptedCard {
+            peer,
+            endpoint,
+            name,
+            surname: None,
+            identity_key: [7; 32],
+            photo: None,
+        }
+    }
+
+    /// [`name_key`]'s output, pinned: stored keys are compared with keys
+    /// computed now, so an output that moves -- a Unicode update in a
+    /// dependency -- must move [`NAME_KEY_VERSION`] with it, and the open
+    /// recomputes every key. When this fails, bump the version and the
+    /// pins together. Mutation: the case folding dropped.
+    #[test]
+    fn the_name_key_is_pinned() {
+        assert_eq!(NAME_KEY_VERSION, "1", "the pins below are version 1's");
+        for (name, key) in [
+            ("Ada", "ada"),
+            ("  Ada   Lovelace ", "ada lovelace"),
+            ("\u{ff21}da", "ada"),
+            ("\u{410}da", "ada"),
+            ("ADA", "ada"),
+            ("Stra\u{df}e", "strasse"),
+            ("\u{fb01}le", "file"),
+            ("Ada\u{a0}L", "ada l"),
+            ("\u{1c4}emal", "dz\u{306}ernal"),
+            ("\u{130}stanbul", "i\u{307}stanbul"),
+            ("\u{3a9}mega", "\u{3c9}rnega"),
+            ("\u{1fbc}", "ai"),
+            ("m", "rn"),
+            ("0O", "Oo"),
+            ("\u{661}\u{662}\u{663}", "l\u{662}\u{663}"),
+        ] {
+            assert_eq!(name_key(name), key, "{name:?}");
+        }
+    }
+
+    /// A card's standing loads no whole contact but the one Accept would
+    /// update, however many contacts there are: the rest are read by name
+    /// (schema v10), so K unread cards cost K standings of a few indexed
+    /// reads, not K x C contacts decoded with their photos. Mutation: the
+    /// standing reading `contacts()` again.
+    #[test]
+    fn a_cards_standing_reads_no_contact_but_the_one_it_updates() {
+        let mut store = HumanStore::open_in_memory(crate::StoreOptions::default()).expect("store");
+        let human = EndpointId::parse("human").expect("an endpoint");
+        let peers: Vec<TransportIdentity> = (0..40).map(peer).collect();
+        for (n, peer) in peers.iter().enumerate() {
+            store
+                .accept_card(&card(peer, &human, &format!("Contact {n}")), 10)
+                .expect("a contact");
+        }
+        // An update of one of them, and a card from a stranger.
+        for (peer, expected) in [(&peers[3], 1), (&peers[39], 1)] {
+            store.contact_loads.set(0);
+            let standing = store
+                .card_standing(&card(peer, &human, "Contact 1"))
+                .expect("standing");
+            assert!(standing.updates.is_some(), "control: an update");
+            assert_eq!(standing.same_name.len(), 1, "control: the same name, read");
+            assert_eq!(
+                store.contact_loads.get(),
+                expected,
+                "the updated contact alone"
+            );
+        }
+        let stranger = peer(200);
+        store.contact_loads.set(0);
+        let standing = store
+            .card_standing(&card(&stranger, &human, "Contact 1"))
+            .expect("standing");
+        assert!(standing.updates.is_none());
+        assert_eq!(store.contact_loads.get(), 0, "no contact loaded at all");
+    }
+
+    /// Each standing read is planned on its index, never a scan of the
+    /// contacts. Mutation: the name-key index dropped from migration 10.
+    #[test]
+    fn the_standing_reads_use_their_indexes() {
+        let store = HumanStore::open_in_memory(crate::StoreOptions::default()).expect("store");
+        for (sql, index, params) in [
+            (SHARES_NODE, "contact_routes_by_route", 2),
+            (SAME_NAME, "contacts_by_name_key", 3),
+            (KEY_MATCHES, "contact_routes_by_key", 3),
+        ] {
+            let values = ["x", "y", "z"];
+            let plan: Vec<String> = store
+                .conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .expect("plan")
+                .query_map(rusqlite::params_from_iter(&values[..params]), |r| {
+                    r.get::<_, String>(3)
+                })
+                .expect("rows")
+                .collect::<Result<_, _>>()
+                .expect("plan rows");
+            assert!(
+                plan.iter().any(|step| step.contains(index)),
+                "{index} not used: {plan:?}"
+            );
+            assert!(
+                !plan
+                    .iter()
+                    .any(|step| step.starts_with("SCAN c") || step == "SCAN contacts"),
+                "a scan of the contacts: {plan:?}"
+            );
+        }
+    }
+
+    /// Every statement of this file that writes a contact's display name
+    /// writes its `name_key` too (schema v10): a key left behind by a
+    /// rename makes the same-name standing compare against a name the
+    /// contact no longer has. Read from the source, so a writer added
+    /// later is held as well; `every_writer_of_a_name_keeps_its_name_key`
+    /// holds the values. Mutation: one writer without `name_key`.
+    #[test]
+    fn every_statement_writing_a_display_name_writes_its_name_key() {
+        let source = include_str!("contacts.rs");
+        // Built here, so this test's own text does not match itself.
+        let writes = [
+            ["INSERT INTO ", "contacts ("].concat(),
+            ["UPDATE contacts SET ", "display_name"].concat(),
+        ];
+        let statements: Vec<&str> = source
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .filter(|literal| writes.iter().any(|w| literal.contains(w.as_str())))
+            .collect();
+        assert!(statements.len() >= 4, "control: the writers are found");
+        for statement in statements {
+            assert!(
+                statement.contains("name_key"),
+                "writes a display name without its key: {statement}"
+            );
+        }
     }
 }

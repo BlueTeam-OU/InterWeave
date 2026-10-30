@@ -12,7 +12,7 @@ use std::time::Duration;
 use interweave_human_android_platform::AvailabilityMode;
 use interweave_human_android_platform::{
     EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, ServiceHost,
-    ServiceLaunch, StartRefused, Told, addresses_from_wire, start_identity,
+    ServiceLaunch, StartRefused, Told, Transports, addresses_from_wire, start_identity,
 };
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_human_ui_slint::{TouchSettings, snackbar_ms};
@@ -230,13 +230,21 @@ fn store_cipher(env: &mut Env<'_>) -> Result<StoreKeystore, jint> {
         })
 }
 
+/// A refusal before the host was reached, said to the view as every
+/// start's answer is: a store screen waiting on this start learns it was
+/// refused (#377 review r3).
+fn refused_early(code: jint) -> jint {
+    ServiceHost::global().refused_before_start();
+    code
+}
+
 fn start_without_network(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     let cipher = match store_cipher(env) {
         Ok(cipher) => cipher,
-        Err(code) => return code,
+        Err(code) => return refused_early(code),
     };
     if let Err(code) = provision(app_data_dir) {
-        return code;
+        return refused_early(code);
     }
     let host = ServiceHost::global();
     let dir = std::path::Path::new(app_data_dir);
@@ -265,15 +273,15 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     // The profile first: a first run's identity is provisioned under the
     // unlock policy it configures.
     if let Err(code) = provision(app_data_dir) {
-        return code;
+        return refused_early(code);
     }
     let identity = match identity(env, app_data_dir) {
         Ok(identity) => identity,
-        Err(code) => return code,
+        Err(code) => return refused_early(code),
     };
     let store_cipher = match store_cipher(env) {
         Ok(cipher) => cipher,
-        Err(code) => return code,
+        Err(code) => return refused_early(code),
     };
     let host = ServiceHost::global();
     let dir = std::path::PathBuf::from(app_data_dir);
@@ -536,8 +544,9 @@ fn network(report: NetworkReport) {
 /// resolver or host.
 fn said(told: Told) -> String {
     format!(
-        "{} addresses, {} resolvers, strict Private DNS {}",
+        "{} addresses ({} on no local network), {} resolvers, strict Private DNS {}",
         told.addresses,
+        told.off_local_network,
         told.dns_servers
             .map_or_else(|| "unobserved".to_owned(), |n| n.to_string()),
         if told.strict_private_dns { "on" } else { "off" }
@@ -597,6 +606,32 @@ extern "system" fn Java_org_interweave_human_Native_networkLink<'caller>(
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.networkTransports(network, vpn, cellular, satellite)`: what a
+/// network's capabilities name, at every change of them; classified in
+/// android-platform (`Transports::local`).
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_networkTransports<'caller>(
+    _env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    handle: jlong,
+    vpn: jboolean,
+    cellular: jboolean,
+    satellite: jboolean,
+) {
+    network(NetworkReport::Transports {
+        network: handle.cast_unsigned(),
+        transports: Transports {
+            vpn,
+            cellular,
+            satellite,
+        },
+    });
 }
 
 /// `Native.networkDefault(network)`: the default network, or 0 when there
@@ -700,7 +735,8 @@ extern "system" fn Java_org_interweave_human_Native_identityState<'caller>(
 }
 
 /// `Native.waitIdentityAsk(timeoutMs)`: the identity screens' next ask of
-/// the Activity (onboard.rs's `ask`), or 0.
+/// the Activity (onboard.rs's `ask`) in its low `ASK_BITS`, its argument
+/// above them, or 0.
 #[allow(
     unsafe_code,
     reason = "the JVM finds a native method by its unmangled name"
@@ -710,8 +746,8 @@ extern "system" fn Java_org_interweave_human_Native_waitIdentityAsk<'caller>(
     mut env: EnvUnowned<'caller>,
     _class: JClass<'caller>,
     timeout_ms: jlong,
-) -> jint {
-    env.with_env(|_| -> Result<jint, jni::errors::Error> {
+) -> jlong {
+    env.with_env(|_| -> Result<jlong, jni::errors::Error> {
         let timeout = Duration::from_millis(u64::try_from(timeout_ms).unwrap_or(0));
         Ok(crate::onboard::ASKS.wait(timeout))
     })
@@ -842,6 +878,66 @@ extern "system" fn Java_org_interweave_human_Native_cameraDenied<'caller>(
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::activity::camera_denied(for_good);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.photoPicked(request, bytes)`: the photo picker's answer to
+/// `request`, `null` when nothing was chosen, empty when what was chosen
+/// could not be opened (contact-cards design 5.2).
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_photoPicked<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    request: jlong,
+    bytes: JByteArray<'caller>,
+) {
+    env.with_env(|env| -> Result<(), jni::errors::Error> {
+        let chosen = if bytes.is_null() {
+            None
+        } else {
+            Some(env.convert_byte_array(&bytes)?)
+        };
+        if let Ok(request) = u64::try_from(request) {
+            crate::activity::photo_picked(request, chosen);
+        }
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.photoRead(request, fd, leftMs)`: the file the picker chose for
+/// `request`, opened, its descriptor handed over to be read here and
+/// closed within `leftMs`, what the open left of the pick's deadline.
+/// BLOCKS until it is read, given up, or past that deadline.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name; the descriptor is owned from here on"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_photoRead<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    request: jlong,
+    fd: jint,
+    left_ms: jlong,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        if fd < 0 {
+            return Ok(());
+        }
+        // SAFETY: `ParcelFileDescriptor.detachFd` gave this descriptor up to
+        // the caller, which hands it here and keeps no copy.
+        let fd = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
+        if let Ok(request) = u64::try_from(request) {
+            let left = Duration::from_millis(u64::try_from(left_ms).unwrap_or(0));
+            crate::activity::photo_read(request, fd, left);
+        }
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();

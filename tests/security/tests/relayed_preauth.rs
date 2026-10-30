@@ -47,6 +47,10 @@ const RESERVATION_PATIENCE: Duration = Duration::from_secs(60);
 struct RelayBehaviour {
     identify: identify::Behaviour,
     relay: relay::Behaviour,
+    /// Answers the keepalive's pings, as this project's relays do: a
+    /// relay that refuses ping is closed (`transport/libp2p/
+    /// CONNECTIVITY.md` section 14, A 2026-10-25).
+    ping: libp2p::ping::Behaviour,
 }
 
 /// libp2p's relay server with its defaults, listening on loopback and
@@ -68,6 +72,7 @@ async fn relay_server() -> (TransportIdentity, Multiaddr) {
                 k.public(),
             )),
             relay: relay::Behaviour::new(k.public().to_peer_id(), relay::Config::default()),
+            ping: libp2p::ping::Behaviour::new(libp2p::ping::Config::new()),
         })
         .expect("behaviour")
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))

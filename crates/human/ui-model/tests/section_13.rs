@@ -93,12 +93,21 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::MakeNewKey
         | Intent::RetryKey
         | Intent::CloseKeyStep
+        // A chosen photo is prepared for the identity's own card, which
+        // carries no trust.
+        | Intent::ChooseOwnPhoto(_)
+        | Intent::ForgetOwnPhoto
+        | Intent::RemoveOwnPhoto
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
         | Intent::SetContactPhoto { .. }
         // Deleting a contact removes what the person accepted about
         // someone; the trust allowlist is not the contacts, and stays.
-        | Intent::DeleteContact { .. } => false,
+        | Intent::DeleteContact { .. }
+        // So does deleting one of its routes, and writing back a deleted
+        // contact or a removed photo: contacts, never trust.
+        | Intent::DeleteRoute { .. }
+        | Intent::UndoContact { .. } => false,
         // The addresses are administration (`admin.peers`, ADR-0062):
         // what the device dials, never a message's to ask.
         Intent::ReadTrust
@@ -485,6 +494,7 @@ fn model_from(store: &HumanStore) -> UiModel {
                 },
                 envelope: parse(&p.payload),
                 created_at: p.created_at,
+                card: None,
             })
             .collect(),
     );

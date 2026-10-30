@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use interweave_human_ui_model::{
-    Confirmation, ConversationKey, ItemKey, RowAction, SwipeOffer, UiText, placeholder_en,
+    Confirmation, ConversationKey, Intent, ItemKey, RowAction, SwipeOffer, UiText, placeholder_en,
 };
 use slint::ComponentHandle as _;
 
@@ -29,22 +29,46 @@ pub(crate) enum Swipeable {
     Item(ItemKey, SwipeOffer),
     /// A conversation row that may be hidden.
     Conversation(ConversationKey),
+    /// A card proposal (contact-cards design section 5.4.4): the model's
+    /// Accept and Decline for its row as drawn, each `None` where its
+    /// case withholds that way.
+    Proposal {
+        accept: Option<Intent>,
+        decline: Option<Intent>,
+    },
+}
+
+/// What a committed swipe does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Swiped {
+    /// A row action, on a message or a conversation.
+    Row(RowAction),
+    /// A proposal's Accept.
+    Accept(Intent),
+    /// A proposal's Decline, which takes its row away.
+    Decline(Intent),
 }
 
 impl Swipeable {
-    /// The action a swipe toward `side` of the screen does, if any.
-    fn toward(&self, side: Side, rtl: bool) -> Option<RowAction> {
+    /// What a swipe toward `side` of the screen does, if anything.
+    fn toward(&self, side: Side, rtl: bool) -> Option<Swiped> {
         // Toward the end of a line is right, left to right (§3).
         let toward_end = (side == Side::Right) != rtl;
         match self {
-            Self::Item(_, offer) => {
+            Self::Item(_, offer) => if toward_end {
+                offer.toward_end
+            } else {
+                offer.toward_start
+            }
+            .map(Swiped::Row),
+            Self::Conversation(_) => (!toward_end).then_some(Swiped::Row(RowAction::Hide)),
+            Self::Proposal { accept, decline } => {
                 if toward_end {
-                    offer.toward_end
+                    accept.clone().map(Swiped::Accept)
                 } else {
-                    offer.toward_start
+                    decline.clone().map(Swiped::Decline)
                 }
             }
-            Self::Conversation(_) => (!toward_end).then_some(RowAction::Hide),
         }
     }
 }
@@ -157,10 +181,14 @@ pub(crate) fn ended(shared: &Rc<RefCell<Shared>>, window: &slint::Weak<AppWindow
         window.set_swipe_offset(0.0);
         return;
     };
-    // Hide and Cancel take the row away: it carries on out and is held
-    // there until the render that removes it. Everything else slides back
-    // to rest as its result arrives (§5).
-    if matches!(action, RowAction::Hide | RowAction::Cancel) {
+    // Hide, Cancel and a proposal's Decline take the row away: it carries
+    // on out and is held there until the render that removes it.
+    // Everything else slides back to rest as its result arrives (§5); an
+    // Accept's row stays, as its confirmation (design section 5.4.2).
+    if matches!(
+        action,
+        Swiped::Row(RowAction::Hide | RowAction::Cancel) | Swiped::Decline(_)
+    ) {
         let out = if side == Side::Right {
             tracked.width
         } else {
@@ -184,9 +212,13 @@ pub(crate) fn ended(shared: &Rc<RefCell<Shared>>, window: &slint::Weak<AppWindow
     } else {
         window.set_swipe_offset(0.0);
     }
-    let input = match target {
-        Swipeable::Item(item, _) => Input::Action(item, action, By::Swipe),
-        Swipeable::Conversation(conversation) => Input::HideConversation(conversation),
+    let input = match (target, action) {
+        (Swipeable::Item(item, _), Swiped::Row(action)) => Input::Action(item, action, By::Swipe),
+        (Swipeable::Conversation(conversation), _) => Input::HideConversation(conversation),
+        (_, Swiped::Accept(intent) | Swiped::Decline(intent)) => {
+            Input::Cards(crate::cards::CardsInput::Swiped(intent))
+        }
+        (Swipeable::Proposal { .. }, Swiped::Row(_)) => return,
     };
     enqueue(shared, input);
 }
@@ -198,6 +230,37 @@ pub(crate) fn cancelled(shared: &Rc<RefCell<Shared>>, window: &slint::Weak<AppWi
     if let (Some(tracked), Some(window)) = (was, window.upgrade())
         && tracked.gesture.tracking()
     {
+        window.set_swipe_tracking(false);
+        window.set_swipe_armed(false);
+        window.set_swipe_offset(0.0);
+    }
+}
+
+/// The rows were drawn again under a touch: a direction its row no
+/// longer offers is withdrawn from the gesture (contact-cards design
+/// 5.4.4: the same-name warning appearing during a right drag on a
+/// proposal). A row moved toward it springs back to rest, as after a
+/// release short of the threshold, and nothing is done for that touch;
+/// a row gone takes every direction with it.
+pub(crate) fn reoffered(shared: &Rc<RefCell<Shared>>, window: &AppWindow) {
+    let cancelled = {
+        let mut s = shared.borrow_mut();
+        let rtl = s.touch.rtl;
+        let Some(key) = s.tracked.as_ref().map(|t| t.key.clone()) else {
+            return;
+        };
+        let target = s.swipes.get(&key).cloned();
+        let offers = |side| {
+            target
+                .as_ref()
+                .is_some_and(|t| t.toward(side, rtl).is_some())
+        };
+        let (left, right) = (offers(Side::Left), offers(Side::Right));
+        s.tracked
+            .as_mut()
+            .is_some_and(|t| t.gesture.withdraw(left, right))
+    };
+    if cancelled {
         window.set_swipe_tracking(false);
         window.set_swipe_armed(false);
         window.set_swipe_offset(0.0);
@@ -250,6 +313,8 @@ pub(crate) fn confirmation_text(confirms: Confirmation) -> &'static str {
         Confirmation::ContactSaved => placeholder_en::text(UiText::ConfirmContactSaved),
         Confirmation::ContactUpdated => placeholder_en::text(UiText::ConfirmContactUpdated),
         Confirmation::CardDeclined => placeholder_en::text(UiText::ConfirmCardDeclined),
+        Confirmation::ContactDeleted => placeholder_en::text(UiText::ConfirmContactDeleted),
+        Confirmation::PhotoRemoved => placeholder_en::text(UiText::ConfirmPhotoRemoved),
     }
 }
 
@@ -263,30 +328,143 @@ pub(crate) const fn is_accept(confirms: Confirmation) -> bool {
     )
 }
 
-/// Whether focus id `focus` is in an Accept snackbar's waiting span: the
-/// confirmation row at `row_handle`, a card row after it, the composer,
-/// or the snackbar's Undo -- the reading order from the row to the Undo,
-/// card rows being drawn after the messages.
-pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>) -> bool {
+/// The conversation's rows as drawn, for the reading order: its messages'
+/// handles in order, and the message each card row follows (-1 before
+/// them all), by the card row's handle.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Order {
+    pub(crate) messages: Vec<i32>,
+    pub(crate) card_after: Vec<i32>,
+}
+
+/// Whether focus id `focus` is in an Accept snackbar's waiting span
+/// (contact-cards design 5.4.2): from the confirmation row at
+/// `row_handle` to the snackbar in the reading order -- the row, a card
+/// row or a message after it, the composer, the snackbar's Undo. Card
+/// rows stand at their place in time among the messages, so a message
+/// drawn after the confirmation row is in the span and one before it is
+/// not (`a_message_after_the_confirmation_row_is_in_its_span`).
+pub(crate) fn in_accept_span(focus: &str, row_handle: Option<i32>, order: &Order) -> bool {
     if focus == "composer" || focus == "undo" {
         return true;
     }
     let Some(row) = row_handle else {
         return false;
     };
-    [
+    // A key's handle comes first after its prefix; a link's adds its
+    // place after it.
+    let handle_after = |prefixes: &[&str]| {
+        prefixes
+            .iter()
+            .find_map(|prefix| focus.strip_prefix(prefix))
+            .and_then(|rest| rest.split(':').next()?.parse::<i32>().ok())
+    };
+    if let Some(handle) = handle_after(&[
         "answer:",
         "proposal-copy:",
+        "proposal-contact:",
         "proposal-decline:",
         "proposal-accept:",
-    ]
-    .into_iter()
-    .find_map(|prefix| focus.strip_prefix(prefix))
-    .and_then(|rest| rest.parse::<i32>().ok())
-    .is_some_and(|handle| handle >= row)
+        "card-menu-accept:",
+        "card-menu-decline:",
+        "card-menu-copy:",
+    ]) {
+        return handle >= row;
+    }
+    // Every control of a message: its item, a link in it, and its
+    // menu's actions and Show source.
+    let Some(message) = handle_after(&["item:", "link:", "action:", "source:"]) else {
+        return false;
+    };
+    let Some(&follows) = usize::try_from(row)
+        .ok()
+        .and_then(|r| order.card_after.get(r))
+    else {
+        return false;
+    };
+    let first = if follows < 0 {
+        0
+    } else {
+        match order.messages.iter().position(|&m| m == follows) {
+            Some(at) => at + 1,
+            None => return false,
+        }
+    };
+    order.messages[first..].contains(&message)
 }
 
 /// Keep `window` reachable from a callback without keeping it alive.
 pub(crate) fn weak(window: &AppWindow) -> slint::Weak<AppWindow> {
     window.as_weak()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Order, in_accept_span};
+
+    /// Contact-cards design 5.4.2: the span runs from the confirmation row
+    /// through every card row after it, a proposal's "Open your contact"
+    /// link included, whose key carries its note's place after the
+    /// handle. Mutation: the link's prefix missing, or its handle read
+    /// with the note's place attached.
+    #[test]
+    fn a_proposal_link_after_the_confirmation_row_is_in_its_span() {
+        let order = Order::default();
+        assert!(in_accept_span("proposal-contact:3:1", Some(2), &order));
+        assert!(in_accept_span("proposal-contact:2:0", Some(2), &order));
+        assert!(
+            !in_accept_span("proposal-contact:1:0", Some(2), &order),
+            "before it"
+        );
+        assert!(
+            in_accept_span("proposal-copy:3", Some(2), &order),
+            "control"
+        );
+        assert!(!in_accept_span("proposal-contact:3:1", None, &order));
+        // A card's menu items are the card's controls.
+        assert!(
+            in_accept_span("card-menu-accept:3", Some(2), &order),
+            "its menu"
+        );
+        assert!(in_accept_span("card-menu-copy:2", Some(2), &order));
+        assert!(
+            !in_accept_span("card-menu-decline:1", Some(2), &order),
+            "before it"
+        );
+    }
+
+    /// The span's "any message ... after it": the confirmation row drawn
+    /// after message 11, a message after it -- its item, a link in it, its
+    /// source -- is in the span, and one at or before 11 is not; a row
+    /// before every message has them all after it. Mutations: messages
+    /// never in the span; every message in it.
+    #[test]
+    fn a_message_after_the_confirmation_row_is_in_its_span() {
+        let order = Order {
+            messages: vec![10, 11, 12, 13],
+            card_after: vec![-1, 11],
+        };
+        assert!(in_accept_span("item:12", Some(1), &order));
+        assert!(in_accept_span("link:13:0", Some(1), &order));
+        assert!(in_accept_span("source:12", Some(1), &order));
+        // Its menu's actions too, as its Show source is.
+        assert!(
+            in_accept_span("action:12:0", Some(1), &order),
+            "a menu action"
+        );
+        assert!(
+            !in_accept_span("action:11:0", Some(1), &order),
+            "one before it"
+        );
+        assert!(
+            !in_accept_span("item:11", Some(1), &order),
+            "the one before it"
+        );
+        assert!(!in_accept_span("item:10", Some(1), &order));
+        assert!(
+            in_accept_span("item:10", Some(0), &order),
+            "all after a row before them"
+        );
+        assert!(!in_accept_span("item:12", None, &order));
+    }
 }

@@ -12,13 +12,13 @@ use std::time::Duration;
 
 use interweave_human_client_api::{AddressOrigin, TrustProblem};
 use interweave_human_ui_model::{
-    ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, CODE_LINES, HostText,
-    LineSelection, ListProblem, Peers, PeersFocus, PeersInput, PeersSnack, Refusal, RowState,
-    RuntimeHost, ScanControl, ShowProblem, ShowState, TYPED_LINES, TrustLine, TrustSettings,
-    UiModel, UiText, fill, placeholder_en, short_peer,
+    ADDRESS_BOUND, AddNote, AddResult, Barred, BlockHeld, BlockProblem, BlockState, CODE_LINES,
+    HostText, LineSelection, ListProblem, Peers, PeersFocus, PeersInput, PeersSnack, Refusal,
+    RowState, RuntimeHost, ScanControl, ShowProblem, ShowState, TYPED_LINES, TrustLine,
+    TrustSettings, UiModel, UiText, fill, placeholder_en, short_peer,
 };
 use interweave_transport_api::TransportIdentity;
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 use crate::generated::{AppWindow, PeerAddressRow, PeerTrustBlock};
 use crate::{Input, Page, Shared, View, enqueue, update_by_key};
@@ -245,6 +245,14 @@ pub(crate) struct PeerLists {
     /// and no older request of the model's re-judged over it before it
     /// applies (`a_row_reached_without_an_act_a_later_read_drops_is_said`).
     gone_move: Option<String>,
+    /// The block whose problem line focus left for its new state line,
+    /// and that line's words: drawn without its live region while they
+    /// stand, since focus reads it (design section 5.3).
+    quiet_state: Option<(TransportIdentity, String)>,
+    /// The block whose control, taken away by an unasked read, has its
+    /// focus move scheduled: no older request of the model's is re-judged
+    /// over it before it applies, as for `gone_move`.
+    block_move: Option<TransportIdentity>,
     /// The row read back last acted on, by the model's count.
     read_back_seen: u64,
     /// The add page's note last drawn, by the model's count, and its text.
@@ -258,9 +266,9 @@ pub(crate) struct PeerLists {
     /// The snackbar last drawn, by the model's count, and the one timed.
     snack_seen: u64,
     snack_timed: u64,
-    /// The lines Show's code was last drawn for: drawn again only when
-    /// they change.
-    show_drawn: Option<Vec<String>>,
+    /// The lines Show's code was last drawn for, and whether a code holds
+    /// them: drawn again only when they change.
+    show_drawn: Option<(Vec<String>, bool)>,
     /// The platform's secure flag for Show, where it has one.
     pub(crate) show_guard: Option<ShowGuard>,
     /// The platform's camera, asked to start (`true`) or stop, where it
@@ -268,6 +276,8 @@ pub(crate) struct PeerLists {
     pub(crate) camera: Option<Rc<dyn Fn(bool)>>,
     /// The last code the camera read is no address list (§5.5).
     pub(crate) viewfinder_not_address: bool,
+    /// What of onboarding's Connect, which opens these pages, was drawn.
+    pub(crate) connect: crate::connect::ConnectDrawn,
 }
 
 /// Show's secure flag, asked of the platform ([`View::guard_show`]).
@@ -362,6 +372,7 @@ impl PeerLists {
         window.set_not_removable_label(set(UiText::PeerConfigNotRemovable));
         window.set_trust_this_label(set(UiText::TrustThisPeer));
         window.set_add_title(set(UiText::AddAddress));
+        window.set_add_close_label(set(UiText::AddClose));
         window.set_address_field_label(set(UiText::AddressField));
         window.set_address_help(set(UiText::AddressHelp));
         window.set_scan_code_label(set(UiText::ScanCode));
@@ -394,6 +405,8 @@ impl PeerLists {
             focus_sent: String::new(),
             focus_gone_said: false,
             gone_move: None,
+            quiet_state: None,
+            block_move: None,
             read_back_seen: 0,
             note_seen: 0,
             trust_line_seen: 0,
@@ -405,6 +418,7 @@ impl PeerLists {
             show_guard: None,
             camera: None,
             viewfinder_not_address: false,
+            connect: crate::connect::ConnectDrawn::default(),
         }
     }
 }
@@ -413,15 +427,19 @@ impl View {
     /// Peers and its add page, and Chats' no-reach notice: what changed
     /// is returned once, for the render's one announcement.
     pub(crate) fn render_peers(&mut self, model: &UiModel) -> Option<String> {
-        let on_page = self.page == Page::Peers;
+        // A page Connect opened is drawn in Peers' place, as from Peers.
+        let on_page = self.page == Page::Peers
+            || (self.page == Page::Connect && crate::connect::page_up(model));
         self.window.set_peers_page(on_page);
         self.window.set_no_reach_shown(model.no_reach());
         let (peers, trust) = (model.peers(), model.trust_settings());
         // The row focus is in, read before the list retires its handle.
         let held_row = self.focused_peer_row();
+        let held_block = self.focused_block_control();
         // Its move applied, or replaced by another request.
         if self.focus_wanted.borrow().as_deref() != Some(self.peer_lists.focus_sent.as_str()) {
             self.peer_lists.gone_move = None;
+            self.peer_lists.block_move = None;
         }
         self.render_peer_list(peers, trust, model);
         self.render_add_page(peers, trust);
@@ -489,6 +507,7 @@ impl View {
         let pending = !fresh
             && !self.peer_lists.focus_sent.is_empty()
             && self.peer_lists.gone_move.is_none()
+            && self.peer_lists.block_move.is_none()
             && self.focus_wanted.borrow().as_deref() == Some(self.peer_lists.focus_sent.as_str())
             && !matches!(focus, Some(PeersFocus::Field { .. }));
         if on_page && (fresh || pending) {
@@ -496,6 +515,7 @@ impl View {
             if fresh {
                 self.peer_lists.focus_gone_said = false;
                 self.peer_lists.gone_move = None;
+                self.peer_lists.block_move = None;
             }
             if let Some(focus) = focus {
                 let target = self.focus_target(&focus, peers.field());
@@ -525,6 +545,30 @@ impl View {
         }
         let handled = on_page && (fresh || pending);
         let free = on_page && !handled && !peers.add_open();
+        // Focus on a block's Trust, Not now or problem line, which went as
+        // a read the person did not ask for decided the block: where the
+        // model says (design sections 5.3 and 8). Focus anywhere else
+        // stays. Moved to the new line that took the problem line's
+        // place, it is read there, so its live region says nothing more.
+        if on_page
+            && !handled
+            && let Some((peer, held)) = held_block
+            && let Some(target) = peers.focus_after_block_decided(trust, &peer, held)
+        {
+            let key = self.focus_target(&target, peers.field());
+            // Judged against the move still waiting, not the last key
+            // sent: an earlier move to the same place has applied and is
+            // no reason to skip this one
+            // (`a_move_to_the_title_an_earlier_act_sent_focus_to_is_made_again`).
+            if self.focus_wanted.borrow().as_deref() != Some(key.as_str()) {
+                if held == BlockHeld::Problem {
+                    self.quieten_state_line(&peer);
+                }
+                self.peer_lists.focus_sent.clone_from(&key);
+                self.peer_lists.block_move = Some(peer.clone());
+                self.focus_key_after_draw(key);
+            }
+        }
         // A row's own Remove or Undo a read decided: focus on that row,
         // or a control of it, goes where the decision says, with neither
         // row-gone text; focus anywhere else stays (design section 8, the
@@ -603,6 +647,38 @@ impl View {
         .parse::<i32>()
         .ok()?;
         self.peer_lists.row_handles.key_of(handle).cloned()
+    }
+
+    /// Draw `peer`'s block's state line without its live region, as it
+    /// now reads, until its words change.
+    fn quieten_state_line(&mut self, peer: &TransportIdentity) {
+        let blocks = &self.peer_lists.blocks;
+        let Some(at) = self.peer_lists.block_keys.iter().position(|k| k == peer) else {
+            return;
+        };
+        let Some(mut row) = blocks.row_data(at) else {
+            return;
+        };
+        self.peer_lists.quiet_state = Some((peer.clone(), row.state.to_string()));
+        row.state_live = false;
+        blocks.set_row_data(at, row);
+    }
+
+    /// The peer of the step-two block whose Trust, Not now or problem
+    /// line focus is on, and which, by the window's `focus-id`, while its
+    /// handle lives. The id stays after the control goes, which is how a
+    /// decided block is found.
+    fn focused_block_control(&self) -> Option<(TransportIdentity, BlockHeld)> {
+        let id = self.window.get_focus_id();
+        let (handle, held) = [
+            ("block-trust:", BlockHeld::Choice),
+            ("block-later:", BlockHeld::Choice),
+            ("block-problem:", BlockHeld::Problem),
+        ]
+        .iter()
+        .find_map(|(prefix, held)| Some((id.strip_prefix(prefix)?, *held)))?;
+        let handle = handle.parse::<i32>().ok()?;
+        Some((self.peer_lists.block_handles.key_of(handle).cloned()?, held))
     }
 
     /// Peers' list, or why it is not on show.
@@ -777,13 +853,18 @@ impl View {
             self.peer_lists.show_drawn = None;
             return;
         };
-        if self.peer_lists.show_drawn.as_ref() != Some(lines) {
-            // A code that does not fit is no code: the lines still show.
-            let image = crate::code::drawn(lines).unwrap_or_default();
-            window.set_show_code(image);
-            self.peer_lists.show_drawn = Some(lines.clone());
+        if self.peer_lists.show_drawn.as_ref().map(|(l, _)| l) != Some(lines) {
+            // A code that does not fit is no code: no image and nothing
+            // announced as one, while the lines still show (#409 r3 F2).
+            let image = crate::code::drawn(lines);
+            let fits = image.is_some();
+            window.set_show_code(image.unwrap_or_default());
+            self.peer_lists.show_drawn = Some((lines.clone(), fits));
         }
+        let fits = self.peer_lists.show_drawn.as_ref().is_some_and(|(_, f)| *f);
         window.set_show_code_shown(true);
+        window.set_show_code_drawn(fits);
+        window.set_show_too_many(text(UiText::ShowTooManyForCode).into());
         let label = if lines.len() == 1 {
             text(UiText::QrLabelOne).to_owned()
         } else {
@@ -1001,9 +1082,27 @@ impl View {
                         .map(|p| block_problem(host, p, &short))
                         .unwrap_or_default()
                         .into(),
+                    state_live: true,
                 }
             })
             .collect();
+        // The line focus moved to stays quiet while its words stand; once
+        // they change, or the block goes, it is a live region again.
+        let quiet = self.peer_lists.quiet_state.take().filter(|(peer, said)| {
+            blocks
+                .iter()
+                .zip(&drawn)
+                .any(|(b, d)| &b.peer == peer && d.state.as_str() == said)
+        });
+        let drawn: Vec<PeerTrustBlock> = drawn
+            .into_iter()
+            .zip(&blocks)
+            .map(|(d, b)| PeerTrustBlock {
+                state_live: quiet.as_ref().is_none_or(|(peer, _)| peer != &b.peer),
+                ..d
+            })
+            .collect();
+        self.peer_lists.quiet_state = quiet;
         self.shared.borrow_mut().blocks = drawn
             .iter()
             .zip(&block_keys)
@@ -1015,7 +1114,7 @@ impl View {
             &block_keys,
             &drawn,
         );
-        window.set_blocks_done_shown(blocks.len() > 1);
+        window.set_blocks_done_shown(peers.done_shown(trust));
     }
 
     /// Peers' snackbar and its timeout, a later one replacing it: its text
@@ -1029,7 +1128,13 @@ impl View {
             .inputs
             .iter()
             .any(|i| matches!(i, Input::PeersSnackClosed(id) if *id == snacks));
-        window.set_peers_snack_shown(on_page && snack.is_some() && !closing);
+        let shown = on_page && snack.is_some() && !closing;
+        window.set_peers_snack_shown(shown);
+        // The pointer's report goes with the snackbar it was on; a new
+        // one sets it again as the pointer moves.
+        if !shown {
+            window.set_peers_snack_pointer_on(false);
+        }
         window.set_peers_snack_id(i32::try_from(snacks).unwrap_or(i32::MAX));
         let said_snack = snack.map(snack_text);
         if let Some(s) = snack {
@@ -1052,9 +1157,14 @@ impl View {
                 window.set_peers_snack_action_focused(false);
                 let shared = Rc::clone(&self.shared);
                 let ms = self.shared.borrow().touch.snackbar_ms;
-                slint::Timer::single_shot(Duration::from_millis(ms), move || {
-                    enqueue(&shared, Input::PeersSnackClosed(snacks));
-                });
+                if superseded_snack(s) {
+                    let up = Duration::from_millis(ms.max(NO_ACTION_MIN_MS));
+                    close_when_free(slint::ComponentHandle::as_weak(window), shared, snacks, up);
+                } else {
+                    slint::Timer::single_shot(Duration::from_millis(ms), move || {
+                        enqueue(&shared, Input::PeersSnackClosed(snacks));
+                    });
+                }
             }
         }
 
@@ -1067,6 +1177,45 @@ impl View {
     }
 }
 
+/// The least time up of a snackbar with no action, three sentences long
+/// with nothing to keep it on screen (add-a-peer §5.7): the platform's
+/// longer timeout still wins.
+pub(crate) const NO_ACTION_MIN_MS: u64 = 10_000;
+
+/// How soon a snackbar held by the pointer is looked at again.
+const HELD_RECHECK: Duration = Duration::from_secs(1);
+
+/// The two snackbars a superseded refusal says, which have no action.
+const fn superseded_snack(snack: &PeersSnack) -> bool {
+    matches!(
+        snack,
+        PeersSnack::RemoveSuperseded { .. } | PeersSnack::UndoSuperseded { .. }
+    )
+}
+
+/// Close snackbar `id` once `after` has passed and the pointer is not on
+/// it, looking again each [`HELD_RECHECK`] while it is (§5.7). It has no
+/// control, so keyboard focus cannot be on it.
+fn close_when_free(
+    window: slint::Weak<AppWindow>,
+    shared: Rc<RefCell<Shared>>,
+    id: u64,
+    after: Duration,
+) {
+    slint::Timer::single_shot(after, move || {
+        let held = window.upgrade().is_some_and(|w| {
+            w.get_peers_snack_shown()
+                && i64::from(w.get_peers_snack_id()) == i64::try_from(id).unwrap_or(-1)
+                && w.get_peers_snack_pointer_on()
+        });
+        if held {
+            close_when_free(window, shared, id, HELD_RECHECK);
+        } else {
+            enqueue(&shared, Input::PeersSnackClosed(id));
+        }
+    });
+}
+
 fn note_text(host: RuntimeHost, note: &AddNote) -> String {
     match note {
         AddNote::AddressNeeded => text(UiText::AddressNeeded).to_owned(),
@@ -1075,6 +1224,7 @@ fn note_text(host: RuntimeHost, note: &AddNote) -> String {
         AddNote::NotAddress => text(UiText::ScanNotAddress).to_owned(),
         AddNote::ImageUnreadable => text(UiText::ImageUnreadable).to_owned(),
         AddNote::ClipboardNoImage => text(UiText::ClipboardNoImage).to_owned(),
+        AddNote::ClipboardUnreadable => text(UiText::ClipboardUnreadable).to_owned(),
         AddNote::CameraDenied => text(UiText::CameraDenied).to_owned(),
         AddNote::CameraDeniedSettings => text(UiText::CameraDeniedSettings).to_owned(),
         AddNote::Refused { line, why } if why.names_line() => fill(
@@ -1095,6 +1245,8 @@ fn note_text(host: RuntimeHost, note: &AddNote) -> String {
         AddNote::Checking => String::new(),
         AddNote::Unknown { lines: 1 } => text(UiText::AddUnknownOne).to_owned(),
         AddNote::Unknown { .. } => text(UiText::AddUnknownOther).to_owned(),
+        AddNote::Superseded { lines: 1 } => text(UiText::AddSupersededOne).to_owned(),
+        AddNote::Superseded { .. } => text(UiText::AddSupersededOther).to_owned(),
         AddNote::SeveralIncompatible { lines } => fill(
             text(UiText::AddSeveralIncompatible),
             &[("n", &lines.to_string())],
@@ -1109,6 +1261,9 @@ fn block_problem(host: RuntimeHost, problem: BlockProblem, short: &str) -> Strin
         BlockProblem::NotMade => fill(text(UiText::TrustStepNotMade), &[("peer", short)]),
         BlockProblem::Unknown => fill(text(UiText::TrustStepUnknown), &[("peer", short)]),
         BlockProblem::Superseded => fill(text(UiText::TrustStepSuperseded), &[("peer", short)]),
+        BlockProblem::SupersededUnread => {
+            fill(text(UiText::TrustStepSupersededUnread), &[("peer", short)])
+        }
     }
 }
 
@@ -1216,6 +1371,8 @@ fn snack_text(snack: &PeersSnack) -> String {
         ) => return refusal_text(*why),
         PeersSnack::UndoFailed { .. } => text(UiText::UndoFailed),
         PeersSnack::UndoUnknown { .. } => text(UiText::UndoUnknown),
+        PeersSnack::RemoveSuperseded { .. } => text(UiText::RemoveSuperseded),
+        PeersSnack::UndoSuperseded { .. } => text(UiText::UndoSuperseded),
         PeersSnack::Added => text(UiText::ConfirmAddressAdded),
         // Step one's own line, as the page closes on it (section 5.3).
         PeersSnack::AddedUnchanged { lines } => {

@@ -29,11 +29,24 @@
 //!
 //! What makes the circuit R's only route is `paths.rs`'s module note.
 //!
+//! A third run, on a device only, crosses the phone's Wi-Fi rather than
+//! adb's tunnel, on `wifi.rs`'s topology (`src/wifi.rs`): no relay and
+//! no `adb reverse`, the phone listening on its wildcard at a fixed port
+//! and D dialling the phone's LAN address after the person's add
+//! (`admin.peers.add_address`). The same exchange, plain and compressed
+//! both ways, on the direct path alone; D's row for the phone reads not
+//! connected before the add, while the phone listens, which is the
+//! control; this host's TCP table holds the connection to the phone's
+//! address while the exchange runs, and `adb reverse --list` reads empty
+//! before and after. It proves nothing relayed over the radio, nor the
+//! phone dialling D (the host is a VM behind NAT, `wifi.rs`).
+//!
 //! What this does NOT prove, by name. On the stand-in, the device: the
 //! Android target build, its lifecycle, its network callbacks and
 //! SELinux-confined app data are the stand-in's limits (`src/lib.rs`),
 //! so a stand-in run is no evidence the phone does any of it. On a
-//! device, a radio network (adb's reversed ports, `src/adb.rs`). The
+//! device's first two runs, a radio network (adb's reversed ports,
+//! `src/adb.rs`); the Wi-Fi run below crosses one, direct only. The
 //! relayed run is #245's harness with #245's limits: one host, loopback,
 //! a bare-Swarm relay carrying the production relay-server field rather
 //! than a daemon acting as the relay, no NAT, and a host whose interface
@@ -52,6 +65,7 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -62,6 +76,9 @@ use interweave_android_e2e_cases::{
     parse_payloads,
 };
 use interweave_android_e2e_tests::adb::AdbDevice;
+use interweave_android_e2e_tests::wifi::{
+    established_to, listening_at, phone_address, reversed, until_listening,
+};
 use interweave_android_e2e_tests::{
     CaseRun, Desktop, Device, PATIENCE, PROFILE, Relay, free_port, human, relayed_example_of,
     schema_validator, try_provision,
@@ -77,8 +94,11 @@ use interweave_human_transport_client::{
     TransportClient,
 };
 use interweave_human_ui_model::{ConversationKey, UiModel};
-use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_local_client_api::{
+    AddressChange, AdminBinding, AdminCapability, AdminPort as _, DataSessionBinding,
+};
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
+use interweave_test_support::e2e::example;
 use interweave_transport_api::{MAX_PAYLOAD_BYTES, PeerPath, TransportIdentity};
 use serde_json::Value;
 
@@ -367,13 +387,129 @@ async fn on_a_device_the_phone_chats_over_the_direct_path_beside_a_relayed_stand
     relayed_and_direct(AppStandIn::new(), AdbDevice::connect()).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs a device on this host's LAN with the app's androidTest build: src/adb.rs's environment and INTERWEAVE_ANDROID_WIFI_ADDRESS (src/wifi.rs); one phone, so --test-threads 1"]
+async fn over_wifi_the_phone_chats_with_the_desktop_dialling_its_lan_address() {
+    let phone_ip = phone_address();
+    assert_eq!(reversed(), "", "a port reversed before the run");
+
+    let mut phone = AdbDevice::connect();
+    let mut d = Desktop::new();
+    let (d_peer, phone_peer) = (d.peer.clone(), phone.peer());
+    // The phone's port, which nothing on this host holds; this host's
+    // free-port answer only makes two runs unlikely to share one.
+    let phone_port = free_port(Ipv4Addr::LOCALHOST);
+    let listener = SocketAddrV4::new(phone_ip, phone_port);
+    let to_phone = format!(
+        "/ip4/{phone_ip}/tcp/{phone_port}/p2p/{}",
+        phone_peer.as_str()
+    );
+    // D on the wildcard: its dial to the LAN leaves from this host's own
+    // interface. Neither side is given an address for the other.
+    let d_port = free_port(Ipv4Addr::UNSPECIFIED);
+    d.start(&example(
+        "human-desktop.yaml",
+        &phone_peer,
+        &format!("/ip4/0.0.0.0/tcp/{d_port}"),
+        None,
+    ))
+    .await;
+    phone.start(&listening_at(
+        &example("human-android.yaml", &d_peer, "", None),
+        phone_port,
+    ));
+
+    let clock = Instant::now();
+    let mut side = Side::new(d.binding());
+    side.until(clock, || d.log(), "D's session ready", Side::is_ready)
+        .await;
+    let admin = d
+        .binding()
+        .admin(BTreeSet::from([
+            AdminCapability::Peers,
+            AdminCapability::Status,
+        ]))
+        .await
+        .expect("D's admin port");
+
+    let args = HumanChatArgs {
+        desktop: d_peer.clone(),
+        path: PeerPath::Direct,
+        side: "W".to_owned(),
+        sends: [1, 5],
+        answers: [2, 6],
+        deadline: PATIENCE * 2,
+    };
+    let log = || format!("D:\n{}\nW:\n{}", d.log(), phone.log());
+    let run = phone.run_case(cases::HUMAN_CHAT, &args.to_json());
+    until_listening(listener, &run, log).await;
+    // The control: the phone up and listening, and nobody connected,
+    // since neither side holds an address for the other.
+    let connected = || async {
+        admin
+            .peers()
+            .await
+            .expect("D's peer rows")
+            .iter()
+            .any(|row| row.peer == phone_peer && row.connected)
+    };
+    assert!(!connected().await, "connected before the add:\n{}", log());
+    let added = admin.add_bootstrap_address(to_phone.clone()).await;
+    assert!(
+        matches!(added, Ok(AddressChange::Added)),
+        "D's add of {to_phone}: {added:?}"
+    );
+    // The connection D's dial made is this host's, to the phone's LAN
+    // address: read while the phone's case runs, which ends only on D's
+    // close.
+    let deadline = Instant::now() + PATIENCE;
+    while !connected().await {
+        assert!(
+            Instant::now() < deadline && !run.is_finished(),
+            "D never connected to {to_phone}:\n{}",
+            log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let sockets = established_to(listener);
+    assert!(
+        !sockets.is_empty(),
+        "no TCP connection from this host to {listener} while D reads the phone connected"
+    );
+
+    let (seen, phone_handed) = chat(&mut side, &phone, &phone_peer, &args, run, clock, &log).await;
+    assert_eq!(
+        seen,
+        Some(PeerPath::Direct),
+        "D's route indicator to the phone"
+    );
+    assert_eq!(reversed(), "", "a port reversed during the run");
+    assert_eq!(
+        phone_handed.len(),
+        3,
+        "the phone was handed D's two answers and its close"
+    );
+    let d_handed = side.tap.lock().expect("the tap").clone();
+    assert_eq!(d_handed.len(), 2, "D was handed the phone's two");
+    assert_captured_payloads_validate(&[("W", phone_handed), ("D", d_handed)]);
+    println!(
+        "over Wi-Fi: D {} -> phone {to_phone}; sockets: {sockets:?}",
+        d_peer.as_str()
+    );
+
+    Box::pin(side.client.close()).await;
+    drop(side);
+    phone.stop();
+    d.stop().await;
+}
+
 /// The case over any two [`Device`]s, R and C unstarted with their
 /// `PeerId`s known. The exchanges run one Android side at a time.
 async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
     let mut d = Desktop::new();
     let (d_peer, r_peer, c_peer) = (d.peer.clone(), r.peer(), c.peer());
     let relay = Relay::start(&[&d_peer, &r_peer, &c_peer]).await;
-    let d_port = free_port(std::net::Ipv4Addr::LOCALHOST);
+    let d_port = free_port(Ipv4Addr::LOCALHOST);
     let d_listen = format!("/ip4/127.0.0.1/tcp/{d_port}");
     let direct_to_d = format!("{d_listen}/p2p/{}", d_peer.as_str());
     d.start(&relayed_example_of(
@@ -454,89 +590,9 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
             deadline: PATIENCE,
         };
         let run = device.run_case(cases::HUMAN_CHAT, &args.to_json());
-        let texts = [
-            chat_text(sends[0], name, false),
-            chat_text(sends[1], name, true),
-        ];
-        // A case that ends first has failed: its own detail says why.
-        side.until(clock, &log, &format!("D receiving {name}'s two"), |s| {
-            texts.iter().all(|t| s.got_text(peer, t).is_some()) || run.is_finished()
-        })
-        .await;
-        let run = if texts.iter().all(|t| side.got_text(peer, t).is_some()) {
-            run
-        } else {
-            let out = run.passed(log);
-            panic!("{name}'s case passed without D receiving its two: {out:?}");
-        };
-        // Read while the case still runs: a phone's case stops its runtime
-        // when it answers, the peer disconnects, and the model drops that
-        // path (`PeerDisconnected`), so read after the loop it is gone.
-        // The stand-ins stay up to the end, which hid this on the host.
-        side.until(
-            clock,
-            &log,
-            &format!("D's route indicator to {name}"),
-            |s| s.path_to(peer).is_some(),
-        )
-        .await;
-        seen_paths.push((name, side.path_to(peer)));
-        let replies = [
-            desktop_envelope(answers[0], false),
-            desktop_envelope(answers[1], true),
-        ];
-        for reply in &replies {
-            side.send(peer, reply).await;
-        }
-        // D's replies accepted while the Android side still runs: its case
-        // ends only on D's close, sent after, so the acceptances cannot be
-        // lost on a closing connection (HumanChatArgs::close_serial). A
-        // case that ends first has failed, and reports its own detail.
-        side.until(
-            clock,
-            &log,
-            &format!("D's replies accepted at {name}"),
-            |s| replies.iter().all(|m| s.accepted(&m.app_message_id)) || run.is_finished(),
-        )
-        .await;
-        if !replies.iter().all(|m| side.accepted(&m.app_message_id)) {
-            let out = run.passed(log);
-            panic!("{name}'s case ended before D's replies were accepted: {out:?}");
-        }
-        let close = desktop_envelope(args.close_serial(), false);
-        side.send(peer, &close).await;
-        side.until(clock, &log, &format!("{name}'s case answering"), |_| {
-            run.is_finished()
-        })
-        .await;
-        let out = run.passed(log);
-        // The instrumentation's status carries strings alone: a value the
-        // stand-in hands back structured would arrive as text on a phone.
-        for (key, value) in &out {
-            assert!(value.is_string(), "{name}'s {key} is not text: {value}");
-        }
-
-        // What D was handed is what the Android side's facade composed.
-        let sent: Vec<Value> =
-            serde_json::from_str(out.get(keys::SENT).and_then(Value::as_str).expect("sent"))
-                .expect("sent is a JSON array");
-        let sent: Vec<HumanChatV2> = sent
-            .iter()
-            .map(|v| HumanChatV2::parse(&v.to_string()).expect("an envelope"))
-            .collect();
-        assert_eq!(sent.len(), 2, "{name} sent two: {sent:?}");
-        for envelope in &sent {
-            let got = side
-                .got_text(peer, &envelope.text)
-                .unwrap_or_else(|| panic!("D never got {name}'s {}", envelope.app_message_id));
-            assert_eq!(&got.envelope, envelope, "{name} -> D arrived as composed");
-        }
-        let payloads = out
-            .get(keys::PAYLOADS)
-            .and_then(Value::as_str)
-            .expect("a payload file");
-        let text = String::from_utf8(device.pull(payloads)).expect("the payload file is text");
-        handed.push((name, parse_payloads(&text).expect("the payload file")));
+        let (seen, payloads) = chat(&mut side, device, peer, &args, run, clock, &log).await;
+        seen_paths.push((name, seen));
+        handed.push((name, payloads));
     }
 
     // D's route indicator, as read while each side was connected:
@@ -574,6 +630,102 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
     r.stop();
     c.stop();
     d.stop().await;
+}
+
+/// One Android side's exchange with D, its case `run` already started
+/// with `args`: its two arrive at D, D's route indicator to it is read
+/// while it runs, D's two answers and its close cross the other way.
+/// Answers that indicator and what the Android side's runtime handed it.
+async fn chat<B: DataSessionBinding + AdminBinding + Clone>(
+    side: &mut Side<B>,
+    device: &dyn Device,
+    peer: &TransportIdentity,
+    args: &HumanChatArgs,
+    run: CaseRun,
+    clock: Instant,
+    log: &dyn Fn() -> String,
+) -> (Option<PeerPath>, Vec<Handed>) {
+    let (name, sends, answers) = (args.side.as_str(), args.sends, args.answers);
+    let texts = [
+        chat_text(sends[0], name, false),
+        chat_text(sends[1], name, true),
+    ];
+    // A case that ends first has failed: its own detail says why.
+    side.until(clock, log, &format!("D receiving {name}'s two"), |s| {
+        texts.iter().all(|t| s.got_text(peer, t).is_some()) || run.is_finished()
+    })
+    .await;
+    let run = if texts.iter().all(|t| side.got_text(peer, t).is_some()) {
+        run
+    } else {
+        let out = run.passed(log);
+        panic!("{name}'s case passed without D receiving its two: {out:?}");
+    };
+    // Read while the case still runs: a phone's case stops its runtime
+    // when it answers, the peer disconnects, and the model drops that
+    // path (`PeerDisconnected`), so read after the loop it is gone.
+    // The stand-ins stay up to the end, which hid this on the host.
+    side.until(clock, log, &format!("D's route indicator to {name}"), |s| {
+        s.path_to(peer).is_some()
+    })
+    .await;
+    let seen = side.path_to(peer);
+    let replies = [
+        desktop_envelope(answers[0], false),
+        desktop_envelope(answers[1], true),
+    ];
+    for reply in &replies {
+        side.send(peer, reply).await;
+    }
+    // D's replies accepted while the Android side still runs: its case
+    // ends only on D's close, sent after, so the acceptances cannot be
+    // lost on a closing connection (HumanChatArgs::close_serial). A
+    // case that ends first has failed, and reports its own detail.
+    side.until(
+        clock,
+        log,
+        &format!("D's replies accepted at {name}"),
+        |s| replies.iter().all(|m| s.accepted(&m.app_message_id)) || run.is_finished(),
+    )
+    .await;
+    if !replies.iter().all(|m| side.accepted(&m.app_message_id)) {
+        let out = run.passed(log);
+        panic!("{name}'s case ended before D's replies were accepted: {out:?}");
+    }
+    let close = desktop_envelope(args.close_serial(), false);
+    side.send(peer, &close).await;
+    side.until(clock, log, &format!("{name}'s case answering"), |_| {
+        run.is_finished()
+    })
+    .await;
+    let out = run.passed(log);
+    // The instrumentation's status carries strings alone: a value the
+    // stand-in hands back structured would arrive as text on a phone.
+    for (key, value) in &out {
+        assert!(value.is_string(), "{name}'s {key} is not text: {value}");
+    }
+
+    // What D was handed is what the Android side's facade composed.
+    let sent: Vec<Value> =
+        serde_json::from_str(out.get(keys::SENT).and_then(Value::as_str).expect("sent"))
+            .expect("sent is a JSON array");
+    let sent: Vec<HumanChatV2> = sent
+        .iter()
+        .map(|v| HumanChatV2::parse(&v.to_string()).expect("an envelope"))
+        .collect();
+    assert_eq!(sent.len(), 2, "{name} sent two: {sent:?}");
+    for envelope in &sent {
+        let got = side
+            .got_text(peer, &envelope.text)
+            .unwrap_or_else(|| panic!("D never got {name}'s {}", envelope.app_message_id));
+        assert_eq!(&got.envelope, envelope, "{name} -> D arrived as composed");
+    }
+    let payloads = out
+        .get(keys::PAYLOADS)
+        .and_then(Value::as_str)
+        .expect("a payload file");
+    let text = String::from_utf8(device.pull(payloads)).expect("the payload file is text");
+    (seen, parse_payloads(&text).expect("the payload file"))
 }
 
 /// Gate (c)'s envelope clause: every payload a runtime handed a client,

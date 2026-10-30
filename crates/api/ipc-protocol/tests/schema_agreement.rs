@@ -16,9 +16,9 @@ use interweave_ipc_protocol::{
     HelloResponse, HelloTag, IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED,
     Method, Nonce, OwnAddressList, PeerList, PeerListParams, Ping, PublishParams, QueryParams,
     Request, RequestId, RequestedCapability, ResponseFrame, SUPERSEDED_SINCE_MINOR, SendParams,
-    SendResult, ServerCounters, ServerState, SetDefaultParams, SetEnabledParams, SetEnabledResult,
-    ShutdownParams, TrustList, TrustListParams, TrustSetParams, TrustSetResult, UnsupportedMajor,
-    encode_frame, supported,
+    SendResult, ServerCounters, ServerState, SessionLossesResult, SetDefaultParams,
+    SetEnabledParams, SetEnabledResult, ShutdownParams, TrustList, TrustListParams, TrustSetParams,
+    TrustSetResult, UnsupportedMajor, encode_frame, supported,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminCapability, AdminStatus,
@@ -478,7 +478,7 @@ fn the_authority_domain_is_not_a_frame_field() {
 /// covers nothing by itself -- `check_schemas_are_tested.sh` skips
 /// this list and counts only the sites below that read each schema, so a
 /// new schema needs a test that reads it, not only a line here.
-const IPC_SCHEMAS: [&str; 38] = [
+const IPC_SCHEMAS: [&str; 39] = [
     "architecture/contracts/schemas/ipc/admin-status.schema.json",
     "architecture/contracts/schemas/ipc/broadcast-received.schema.json",
     "architecture/contracts/schemas/ipc/capability.schema.json",
@@ -509,6 +509,7 @@ const IPC_SCHEMAS: [&str; 38] = [
     "architecture/contracts/schemas/ipc/request.schema.json",
     "architecture/contracts/schemas/ipc/send-params.schema.json",
     "architecture/contracts/schemas/ipc/send-result.schema.json",
+    "architecture/contracts/schemas/ipc/session-losses-result.schema.json",
     "architecture/contracts/schemas/ipc/set-default-params.schema.json",
     "architecture/contracts/schemas/ipc/set-enabled-params.schema.json",
     "architecture/contracts/schemas/ipc/set-enabled-result.schema.json",
@@ -734,6 +735,7 @@ fn every_request() -> Vec<Request> {
                 format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", peer().as_str()),
             ],
         }),
+        Request::SessionLosses,
     ];
     assert_eq!(
         requests.iter().map(Request::method).collect::<Vec<_>>(),
@@ -934,6 +936,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
                     PeerGateView {
                         peer: peer(),
                         connected: false,
+                        last_seen: interweave_local_client_api::PeerLastSeen::At(1_791_329_940_227),
                         backoff_until: Some(1_791_329_950_227),
                         quarantined_until: Some(u64::MAX),
                         route_held_until: Some(1_791_329_960_227),
@@ -942,6 +945,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
                     PeerGateView {
                         peer: TransportIdentity::parse(OTHER_PEER).expect("a peer"),
                         connected: true,
+                        last_seen: interweave_local_client_api::PeerLastSeen::Never,
                         backoff_until: None,
                         quarantined_until: None,
                         route_held_until: None,
@@ -950,6 +954,24 @@ fn every_result() -> Vec<(&'static str, Value)> {
                 ],
                 None,
                 interweave_ipc_protocol::IPC_MAX_MINOR,
+            )),
+        ),
+        // The 1.1 row a connection below 2.12 is served: no
+        // `last_seen_ms`, the route hold still there.
+        (
+            "architecture/contracts/schemas/ipc/peer-list.schema.json",
+            json(&PeerList::page(
+                vec![PeerGateView {
+                    peer: peer(),
+                    connected: false,
+                    last_seen: interweave_local_client_api::PeerLastSeen::At(1_791_329_940_227),
+                    backoff_until: None,
+                    quarantined_until: None,
+                    route_held_until: Some(1_791_329_960_227),
+                    last_outcome: Some(PeerOutcome::DialFailed),
+                }],
+                None,
+                interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR - 1,
             )),
         ),
         (
@@ -967,7 +989,43 @@ fn every_result() -> Vec<(&'static str, Value)> {
                 interweave_ipc_protocol::IPC_MAX_MINOR,
             )),
         ),
+        (
+            "architecture/contracts/schemas/ipc/session-losses-result.schema.json",
+            json(&SessionLossesResult {
+                queue_overflow: u64::MAX,
+                ingress_refused: 0,
+            }),
+        ),
     ]
+}
+
+/// `session-losses-result` both ways: the two counts and nothing else,
+/// a negative or fractional count refused by the schema and the type
+/// alike, the largest count read back whole.
+#[test]
+fn the_session_losses_shape_agrees_with_the_schema_both_ways() {
+    let schema = "architecture/contracts/schemas/ipc/session-losses-result.schema.json";
+    let good =
+        serde_json::json!({"queue_overflow": 3, "ingress_refused": 18_446_744_073_709_551_615_u64});
+    assert_valid(schema, &good);
+    let read: SessionLossesResult = serde_json::from_value(good.clone()).expect("reads");
+    assert_eq!(read.ingress_refused, u64::MAX);
+    assert_eq!(json(&read), good, "round-trips");
+    for bad in [
+        serde_json::json!({"queue_overflow": 1}),
+        serde_json::json!({"queue_overflow": -1, "ingress_refused": 0}),
+        serde_json::json!({"queue_overflow": 1.5, "ingress_refused": 0}),
+        serde_json::json!({"queue_overflow": 0, "ingress_refused": 0, "channel": "general"}),
+    ] {
+        assert!(
+            !validator(schema).is_valid(&bad),
+            "the schema refuses {bad}"
+        );
+        assert!(
+            serde_json::from_value::<SessionLossesResult>(bad.clone()).is_err(),
+            "the type refuses {bad}"
+        );
+    }
 }
 
 fn json<T: serde::Serialize>(value: &T) -> Value {
@@ -1201,7 +1259,8 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
             Method::AdminStatus
             | Method::AdminEndpointsList
             | Method::AdminPeersListAddresses
-            | Method::AdminPeersOwnAddresses => {
+            | Method::AdminPeersOwnAddresses
+            | Method::SessionLosses => {
                 return None;
             }
             Method::AdminEndpointsRevoke => {
@@ -1253,6 +1312,31 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
     assert_valid(
         "architecture/contracts/schemas/ipc/payload.schema.json",
         &serde_json::to_value(payload()).expect("ser"),
+    );
+}
+
+/// A request with no `params` at all: the schema takes it for exactly
+/// the methods the decoder takes it for -- a method taking none -- and
+/// refuses it for every method that takes some (the control).
+#[test]
+fn a_request_without_params_is_valid_exactly_where_the_decoder_takes_it() {
+    let request = validator("architecture/contracts/schemas/ipc/request.schema.json");
+    let mut without = 0;
+    for method in Method::ALL {
+        let decoded = Request::decode(method, None).is_ok();
+        let frame = serde_json::json!({"method": method.as_str()});
+        assert_eq!(
+            request.is_valid(&frame),
+            decoded,
+            "{}: the schema and the decoder disagree on an absent params",
+            method.as_str()
+        );
+        without += usize::from(decoded);
+    }
+    assert!(
+        without > 0 && without < Method::ALL.len(),
+        "both sides are exercised: {without} of {} take no params",
+        Method::ALL.len()
     );
 }
 

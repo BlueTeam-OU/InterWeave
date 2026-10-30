@@ -227,10 +227,21 @@ pub trait Device {
     fn run_case(&self, case: &str, args: &Value) -> CaseRun;
 
     /// What the Android side logged, for a failing case to show beside
-    /// the desktop's. The stand-in's runtime logs into this test's own
-    /// output, so it has nothing more to add.
+    /// the desktop's: a device's own log, or nothing by default; a
+    /// stand-in returns the test process's capture, which every side in
+    /// the process shares ([`log_is_process_wide`](Self::log_is_process_wide)).
     fn log(&self) -> String {
         String::new()
+    }
+
+    /// Whether [`log`](Self::log) reads one capture every side in this
+    /// process shares -- a stand-in's: one global subscriber takes every
+    /// runtime's events, both sides' and every concurrent test's, and
+    /// the embedded runtime's threads all carry one name, so a line
+    /// cannot be told to a side. A caller printing two sides' logs
+    /// prints such a capture once, and says what it is.
+    fn log_is_process_wide(&self) -> bool {
+        false
     }
 
     /// Begin a fresh log: what [`log`](Self::log) returns from here is
@@ -510,6 +521,10 @@ impl Device for HostStandIn {
     /// when the test process installed it.
     fn log(&self) -> String {
         log_capture::lines_from(self.log_from)
+    }
+
+    fn log_is_process_wide(&self) -> bool {
+        true
     }
 
     fn fresh_log(&mut self) {

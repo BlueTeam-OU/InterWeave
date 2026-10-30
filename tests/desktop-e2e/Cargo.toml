@@ -6,7 +6,11 @@
 # driven over its sockets. TEST-ONLY; nothing depends on this package.
 # The binaries are the workspace's own build: run the workspace's tests, or
 # build `interweave-transport-daemon` (and `interweave-claude-channel`) first -- a missing binary fails the
-# suite by name rather than skipping it.
+# suite by name rather than skipping it. INTERWEAVE_PACKAGE_BIN naming a
+# package's bin/ makes the daemon and transportctl the package's instead
+# (tests/support's e2e module); claude_channel.rs and user_units.rs, which
+# start programs the archive's bin/ does not hold, refuse while it is set:
+# run them with it unset.
 [package]
 name = "interweave-desktop-e2e-tests"
 version.workspace = true
@@ -31,6 +35,8 @@ image = { workspace = true }
 # presentation model
 # on each side of the two-daemon proof (plan section 17 (7)).
 interweave-human-chat-protocol = { path = "../../crates/human/chat-protocol" }
+# human_app/codes.rs: the client's two root halves, as the window composes them.
+interweave-human-app-core = { path = "../../crates/human/app-core" }
 interweave-human-store = { path = "../../crates/human/store", features = ["test-support"] }
 interweave-human-transport-client = { path = "../../crates/human/transport-client" }
 interweave-human-ui-model = { path = "../../crates/human/ui-model" }
@@ -55,6 +61,10 @@ atspi = { version = "0.29", default-features = false, features = ["proxies"] }
 # human_app/a11y.rs: announcements heard as a stream of AT-SPI signals.
 futures-util = { version = "0.3", default-features = false }
 jsonschema = "0.49"
+# human_app/codes.rs: the shown code read back from the window pixels,
+# and the code drawn for the image a case puts on the clipboard.
+qrcode = { workspace = true }
+rqrr = { workspace = true }
 # human_app/: the shipped client's store file, read-only, while it runs.
 rusqlite = { workspace = true }
 serde_json = { workspace = true }

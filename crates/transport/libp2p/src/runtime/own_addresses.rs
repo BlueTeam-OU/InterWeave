@@ -29,8 +29,10 @@ use crate::served_addresses::is_relayed;
 ///
 /// `confirmed` are the AutoNAT-verified addresses in the order they were
 /// confirmed, `circuits` the active reservations' addresses, `listen`
-/// the bound listener addresses in bind order, each as the runtime holds
-/// it. Each row ends in `/p2p/<peer>` (appended when absent; an address
+/// the bound listener addresses in bind order that the runtime offers --
+/// on an IP the host holds and not one on no local network (ADR-0052
+/// rule 10, `NetworkSet::offers`) -- each as the
+/// runtime holds it. Each row ends in `/p2p/<peer>` (appended when absent; an address
 /// naming another peer is not this node's and is omitted), meets the
 /// add's own rule and ADR-0052 rule 2's floor, and appears once, under
 /// the first kind that names it.

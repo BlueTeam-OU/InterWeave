@@ -195,7 +195,12 @@ impl<S: Surface, O: Opener> App<S, O> {
                     eprintln!("human-desktop: unread messages could not be listed: {why:?}");
                 }
                 Problem::CardsNotRead(why) => {
-                    eprintln!("human-desktop: cards or contacts could not be read back: {why:?}");
+                    eprintln!("human-desktop: cards or contacts could not be read: {why:?}");
+                }
+                Problem::ShareNotRecorded(why) => {
+                    eprintln!(
+                        "human-desktop: a card was accepted and its share could not be recorded yet: {why:?}"
+                    );
                 }
             }
         }
@@ -222,6 +227,7 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::ForgetCancelled(_) => "forget cancelled",
         Command::ForgetCopy(_) => "forget copy",
         Command::ForgetCard(_) => "forget card",
+        Command::ForgetContact(_) => "forget contact",
         Command::Reopen => "reopen",
         Command::RecheckStorage => "recheck storage",
         // Named only because the match is whole: the failure line is the
@@ -243,10 +249,18 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::AskNewKey => "ask new key",
         Command::MakeNewKey => "make new key",
         Command::RetryKey => "retry key",
+        Command::Window(interweave_human_app_core::WindowCommand::FetchPage(_)) => "fetch page",
+        Command::Window(interweave_human_app_core::WindowCommand::ReadContacts) => "read contacts",
+        Command::Window(interweave_human_app_core::WindowCommand::ReadPhoto(_)) => "read photo",
         Command::ShareCard(_) => "share card",
+        Command::PrepareOwnPhoto { .. } => "prepare own photo",
+        Command::RemoveOwnPhoto => "remove own photo",
+        Command::ForgetOwnPhoto => "forget own photo",
         Command::SetOwnCard { .. } => "set own card",
         Command::RenameContact { .. } => "rename contact",
         Command::DeleteContact(_) => "delete contact",
+        Command::UndoContact { .. } => "undo contact",
+        Command::DeleteRoute { .. } => "delete route",
         Command::SetContactPhoto { .. } => "set contact photo",
     }
 }

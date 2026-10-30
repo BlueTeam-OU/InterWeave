@@ -8,10 +8,12 @@ use std::collections::{HashSet, VecDeque};
 
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
-use interweave_human_ui_model::{ConversationKey, Intent, UiModel, ViewEvent};
+use interweave_human_ui_model::{
+    ConnectGate, ConversationKey, Intent, UiModel, ViewEvent, WindowInput,
+};
 
 use crate::facade::CANCELLED_CAP;
-use crate::protocol::{Command, Failure, Update};
+use crate::protocol::{Command, Failure, Update, WindowCommand};
 
 /// A view as the root drives it: show the model, then hand back what the
 /// person did. `ui-slint`'s `View` is one; a test can script one.
@@ -41,6 +43,13 @@ pub trait Opener {
     /// needs the person. Raised only while the root says it is needed
     /// ([`ModelSide::authentication_needed`]).
     fn authenticate(&mut self);
+
+    /// Onboarding's Connect is no longer owed: forget that it was, so no
+    /// later start opens it (add-a-peer §5.1). Raised once, only after the
+    /// root said it was owed ([`ModelSide::connect_owed`]); a platform
+    /// with no onboarding never owes it
+    /// (`connect_settled_reaches_the_platform_once_and_only_when_owed`).
+    fn connect_settled(&mut self) {}
 }
 
 /// An action still being carried out, so a second press of the same one
@@ -76,9 +85,12 @@ pub enum Problem {
     },
     /// The store's unread rows could not be listed again.
     UnreadNotListed(Failure),
-    /// A card's answer or its Undo was carried out, and the cards or
-    /// contacts could not be read back afterwards.
+    /// The cards could not be read: back after an answer or its Undo, or
+    /// the own cards on their way ([`Update::CardsNotRead`]).
     CardsNotRead(Failure),
+    /// An own card was accepted and its share could not be recorded yet;
+    /// the facade writes it again at each turn.
+    ShareNotRecorded(Failure),
 }
 
 /// How many problems wait for [`ModelSide::take_problems`], at most; past
@@ -117,6 +129,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             hidden_other: 0,
             reads_owed: false,
         }
+    }
+
+    /// Onboarding's Connect is owed (add-a-peer §5.1): a new or restored
+    /// identity's first start, or a later one whose earlier start left it
+    /// undecided. Said before the session's first reads answer; the root
+    /// opens it, or settles it through [`Opener::connect_settled`], or
+    /// leaves it owed for the next start when a read failed.
+    pub fn connect_owed(&mut self) {
+        self.model.connect_owed();
     }
 
     /// Whether a transport daemon serves the profile, as the root sees
@@ -199,22 +220,71 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     self.model.identity_shown(identity);
                 }
             }
+            Update::Started(start) => {
+                let crate::protocol::Start {
+                    pending,
+                    summaries,
+                    counted_through,
+                    undecodable_unread,
+                    undecodable_other,
+                    contacts,
+                    identity,
+                } = *start;
+                self.model.started(pending, summaries, counted_through);
+                self.hidden_unread = undecodable_unread;
+                self.hidden_other = undecodable_other;
+                self.model.contacts_directory(contacts.map_err(|_| ()));
+                if let Some(identity) = identity {
+                    self.model.identity_shown(identity);
+                }
+            }
+            Update::Page(rows) => self.model.page_arrived(*rows),
+            Update::ContactDirectory(answer) => {
+                self.model.contacts_directory(answer.map_err(|_| ()));
+            }
+            Update::ContactPhoto {
+                contact_id,
+                photo_at,
+                photo,
+            } => self.model.photo_arrived(&contact_id, photo_at, photo),
             Update::UnreadListed { rows, undecodable } => {
                 self.model.unread_listed(rows);
                 // A relist reads the unread rows only: their count is
                 // replaced, the start's count of the others stands.
                 self.hidden_unread = undecodable;
             }
+            Update::SummariesListed {
+                summaries,
+                counted_through,
+                undecodable,
+            } => {
+                self.model.summaries_listed(summaries, counted_through);
+                self.hidden_unread = undecodable;
+            }
             Update::UnreadNotListed(why) => self.problem(Problem::UnreadNotListed(why)),
             Update::Received(received) => self.model.received(received),
-            Update::ReceivedCard(proposal) => self.model.card_received(*proposal),
+            // Committed by the drain, or listed again: new to the windowed
+            // counts unless they hold it already, and the listed mode's
+            // proposal either way.
+            Update::ReceivedCard(proposal) => self.model.card_arrived(*proposal),
             Update::ProposalJudged(proposal) => self.model.card_judged(*proposal),
             Update::CardResolved { row, outcome } => self.model.card_resolved(row, outcome),
             Update::ProposalRestored(proposal) => self.model.card_restored(*proposal),
             Update::ProposalNotRestored(row) => self.model.card_not_restored(row),
             Update::CardsNotRead(why) => self.problem(Problem::CardsNotRead(why)),
+            Update::ShareNotRecorded(why) => self.problem(Problem::ShareNotRecorded(why)),
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
+            Update::ContactChanged {
+                contact_id,
+                change,
+                hold,
+            } => self.model.contact_changed(contact_id, change, hold),
+            Update::ContactRestored { contact_id, change } => {
+                self.model.contact_restored(&contact_id, change);
+            }
+            Update::ContactUndoWithdrawn(hold) => self.model.contact_undo_withdrawn(hold),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
+            Update::OwnPhotoPrepared { seq, photo } => self.model.own_photo_prepared(seq, photo),
             Update::NewKeyAsked { pending } => self.model.new_key_asked(pending),
             Update::KeyMade {
                 identity,
@@ -227,7 +297,16 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 gone,
             } => self.model.key_not_made(identity, problem, gone),
             Update::KeyRetried(identity) => self.model.key_retried(identity),
-            Update::CardShared { key, at, .. } => self.model.card_shared(key, at),
+            Update::CardShared { key, at } => self.model.card_shared(key, at),
+            // Its own card row (contact-cards section 5.5); a queued card
+            // is no share until its Accepted.
+            Update::CardQueued {
+                key,
+                row,
+                app_message_id,
+                card,
+                at,
+            } => self.model.card_queued(row, key, app_message_id, card, at),
             Update::Client(event) => {
                 // Every session that becomes ready reads both lists: the
                 // no-reach notice needs both, a runtime that was not up at
@@ -330,10 +409,29 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     Command::Restore(row) => Some(Intent::Restore(*row)),
                     Command::Cancel(row) => Some(Intent::Cancel(*row)),
                     Command::UndoCard(row) => Some(Intent::UndoCard(*row)),
+                    Command::UndoContact {
+                        contact_id,
+                        change,
+                        hold,
+                    } => Some(Intent::UndoContact {
+                        contact_id: contact_id.clone(),
+                        change: *change,
+                        hold: *hold,
+                    }),
                     _ => None,
                 };
                 if let Some(intent) = undone {
                     self.model.intent_refused(&intent);
+                }
+                // A read the window waits on ends here too: the edge shows
+                // its failure row, a photo its initials.
+                match &command {
+                    Command::Window(WindowCommand::FetchPage(ask)) => self.model.page_failed(ask),
+                    Command::Window(WindowCommand::ReadPhoto(ask)) => {
+                        self.model
+                            .photo_arrived(&ask.contact_id, ask.photo_at, None);
+                    }
+                    _ => {}
                 }
                 self.problem(Problem::Command { command, why });
             }
@@ -366,6 +464,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
         commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
         commands.extend(released.cards.into_iter().map(Command::ForgetCard));
+        commands.extend(released.contacts.into_iter().map(Command::ForgetContact));
         // A trust input changes what the settings show -- a proposal to
         // confirm, why a typed value was not proposed -- and may ask the
         // facade nothing, so no update would bring another turn: the
@@ -384,6 +483,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
                 commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
                 commands.extend(released.cards.into_iter().map(Command::ForgetCard));
+                commands.extend(released.contacts.into_iter().map(Command::ForgetContact));
                 // A change's answer may have left the list to read again.
                 if let Some(intent) = self.model.trust_settings_mut().take_reread()
                     && let Some(command) = self.command_for(intent)
@@ -404,10 +504,25 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 if *self.model.peers() != before {
                     unrendered = true;
                 }
+                // Once both start reads answered: Connect opens, is
+                // settled, or waits for the next start. While it is open
+                // its line follows a trust answer this turn took after
+                // its render, which may ask the facade nothing -- its
+                // `Done` came in the same batch -- so a Connect that
+                // changed is drawn again, as Peers is
+                // (`a_late_trust_answer_is_drawn_on_connect_by_the_turn_that_takes_it`).
+                let before = self.model.connect().cloned();
+                if self.model.connect_turn() == Some(ConnectGate::Settled) {
+                    self.opener.connect_settled();
+                }
+                if self.model.connect() != before.as_ref() {
+                    unrendered = true;
+                }
                 if std::mem::take(&mut unrendered) {
                     self.surface.render(&self.model);
                     continue;
                 }
+                self.window_reads(&mut commands);
                 return commands;
             }
             for event in events {
@@ -418,6 +533,14 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     ViewEvent::Peers(input) => {
                         unrendered = true;
                         for intent in self.model.peers_input(input) {
+                            if let Some(command) = self.command_for(intent) {
+                                commands.push(command);
+                            }
+                        }
+                    }
+                    ViewEvent::Connect(input) => {
+                        unrendered = true;
+                        for intent in self.model.connect_input(input) {
                             if let Some(command) = self.command_for(intent) {
                                 commands.push(command);
                             }
@@ -472,6 +595,41 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 }
             }
         }
+    }
+
+    /// What the windowed mode asks to read, since the last turn: its
+    /// pages, the contacts, the photos a view shows.
+    fn window_reads(&mut self, commands: &mut Vec<Command>) {
+        for ask in self.model.take_page_asks() {
+            commands.push(Command::Window(WindowCommand::FetchPage(Box::new(ask))));
+        }
+        if self.model.take_contacts_ask() {
+            commands.push(Command::Window(WindowCommand::ReadContacts));
+        }
+        for ask in self.model.take_photo_asks() {
+            commands.push(Command::Window(WindowCommand::ReadPhoto(ask)));
+        }
+    }
+
+    /// The person moved in the open conversation's window, or opened or
+    /// closed one: what it asks of the store goes at the next turn.
+    pub fn window(&mut self, input: WindowInput) {
+        self.model.window_input(input);
+    }
+
+    /// A view shows `contact_id`'s avatar: its photo is read, once.
+    pub fn photo_shown(&mut self, contact_id: &str) {
+        self.model.photo_shown(contact_id);
+    }
+
+    /// The avatar left the view.
+    pub fn photo_hidden(&mut self, contact_id: &str) {
+        self.model.photo_hidden(contact_id);
+    }
+
+    /// The Contacts list's Try again: the contacts are read once more.
+    pub fn contacts_try_again(&mut self) {
+        self.model.contacts_try_again();
     }
 
     /// The command for `intent`, or `None` when it needs none -- a link is
@@ -593,15 +751,34 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 return None;
             }
             Intent::ShareCard(key) => Command::ShareCard(key),
+            Intent::ChooseOwnPhoto(chosen) => {
+                let seq = self.model.own_photo_chosen();
+                let basis = self.model.own_photo_basis();
+                Command::PrepareOwnPhoto { chosen, seq, basis }
+            }
+            Intent::ForgetOwnPhoto => {
+                self.model.own_photo_forgotten();
+                Command::ForgetOwnPhoto
+            }
+            // The facade side lets go of a photo it holds or prepares, and
+            // holds the removal for a Save to write.
+            Intent::RemoveOwnPhoto => {
+                self.model.own_photo_removed();
+                Command::RemoveOwnPhoto
+            }
             Intent::SetOwnCard {
                 name,
                 surname,
                 photo,
-            } => Command::SetOwnCard {
-                name,
-                surname,
-                photo,
-            },
+            } => {
+                // Saved, or saved without it: the editor's choice is done.
+                self.model.own_photo_forgotten();
+                Command::SetOwnCard {
+                    name,
+                    surname,
+                    photo,
+                }
+            }
             Intent::RenameContact { contact_id, name } => {
                 Command::RenameContact { contact_id, name }
             }
@@ -609,6 +786,24 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 Command::SetContactPhoto { contact_id, photo }
             }
             Intent::DeleteContact { contact_id } => Command::DeleteContact(contact_id),
+            Intent::UndoContact {
+                contact_id,
+                change,
+                hold,
+            } => Command::UndoContact {
+                contact_id,
+                change,
+                hold,
+            },
+            Intent::DeleteRoute {
+                contact_id,
+                peer,
+                endpoint,
+            } => Command::DeleteRoute {
+                contact_id,
+                peer,
+                endpoint,
+            },
         };
         if !self.in_flight.insert(InFlight::of(&command)) {
             return None;
@@ -721,6 +916,7 @@ mod tests {
                 key: KeyView::New,
                 fingerprint: "0123456789abcdef".to_owned(),
                 changes_nothing: false,
+                values: interweave_human_ui_model::ValueChanges::default(),
             },
         })));
         side.apply(Update::CardResolved {
@@ -729,6 +925,7 @@ mod tests {
                 contact_id: "c1".to_owned(),
                 created: false,
                 photo_dropped: false,
+                photo_removed: false,
             },
         });
         side.apply(Update::ContactsListed(vec![ContactView {

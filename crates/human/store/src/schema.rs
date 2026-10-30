@@ -28,7 +28,7 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction};
 use crate::StoreError;
 
 /// The schema version this build writes and expects.
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 11;
 
 /// The three tables ADR-0044 lets hold content.
 const RETENTION_TABLES: &[&str] = &["pending_outbound", "unread_inbound", "kept_inbound"];
@@ -145,12 +145,84 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     if current < 9 {
         migration_9(&tx)?;
     }
+    if current < 10 {
+        migration_10(&tx)?;
+    }
+    if current < 11 {
+        migration_11(&tx)?;
+    }
     // The version bump rides the SAME transaction as the DDL above, which
     // is what makes a crashed migration a no-op rather than a schema the
     // store misreads on the next open.
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     Ok(())
+}
+
+/// v11 — the Chats list's conversations from indexes alone (STATE.md's
+/// v11 paragraph, #492's review F2): `kept_inbound_by_kind` widened from
+/// `(kind)` to `(kind, source_peer, source_endpoint, channel_id)`, the
+/// shape `unread_inbound_by_kind` has without its trailing
+/// `app_message_id`, over the table's own columns for v10's reason (a
+/// generated column is recomputed from its row, never read from the
+/// index), so the set of conversations with a kept row this build shows
+/// reads no kept row. An index rebuild only: no row is written.
+fn migration_11(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "
+        DROP INDEX kept_inbound_by_kind;
+        CREATE INDEX kept_inbound_by_kind
+            ON kept_inbound (kind, source_peer, source_endpoint, channel_id);
+        ",
+    )
+    .map_err(migration_error)
+}
+
+/// v10 — the start window (`design/2026-10-27-start-window.md`; STATE.md's
+/// v10 paragraph, architect-cto's rulings of 2026-10-27 to j68's A1-A5):
+/// two derived, content-free columns and the indexes the start's reads
+/// need, so that opening the app reads counts and summaries, never every
+/// row.
+///
+/// - `contacts.name_key`: the comparison key of the display name
+///   (`name_key`), so a card's standing is indexed queries, not every
+///   contact decoded per card.
+/// - `kind` on `unread_inbound` and `kept_inbound`: the row's envelope kind
+///   as the client classifies it at commit, `text`, `card` or `other` (a
+///   row this build cannot show), so the badge is an indexed count.
+///
+/// Both start as their column default here -- an empty key, `other` -- and
+/// carry no version row, so the first open recomputes every key and the
+/// client reclassifies every row before anything is counted: one path
+/// for this migration and for a later change of normalisation or
+/// classification (`refresh_name_keys`, the inbound-kind version). The
+/// indexes are on the columns already in the rows, and go with the row
+/// they index, two of them (`_by_kind`) covering the badge's and the
+/// hidden counts so that no row is read for either. No content table
+/// gains content.
+fn migration_10(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "
+        ALTER TABLE contacts ADD COLUMN name_key TEXT NOT NULL DEFAULT '';
+        ALTER TABLE unread_inbound ADD COLUMN kind TEXT NOT NULL DEFAULT 'other';
+        ALTER TABLE kept_inbound ADD COLUMN kind TEXT NOT NULL DEFAULT 'other';
+        CREATE INDEX contacts_by_name_key ON contacts (name_key);
+        CREATE INDEX contact_routes_by_route ON contact_routes (peer_id, endpoint_id);
+        CREATE INDEX contact_routes_by_key ON contact_routes (identity_key);
+        CREATE INDEX unread_inbound_by_conversation
+            ON unread_inbound (source_peer, source_endpoint_key, received_at, row_id);
+        CREATE INDEX unread_inbound_by_channel
+            ON unread_inbound (channel_key, received_at, row_id);
+        CREATE INDEX kept_inbound_by_conversation
+            ON kept_inbound (source_peer, source_endpoint_key, received_at, row_id);
+        CREATE INDEX kept_inbound_by_channel
+            ON kept_inbound (channel_key, received_at, row_id);
+        CREATE INDEX unread_inbound_by_kind
+            ON unread_inbound (kind, source_peer, source_endpoint, channel_id, app_message_id);
+        CREATE INDEX kept_inbound_by_kind ON kept_inbound (kind);
+        ",
+    )
+    .map_err(migration_error)
 }
 
 /// v9 — contact cards (plan §29 step 2; ADR-0059, ADR-0063; architect-cto's
@@ -175,7 +247,8 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
 ///   before v9, so no row can break it; one that did would fail the
 ///   migration loudly, never be dropped.
 /// - `conversation_index.card_shared_at`: when the conversation's
-///   identity last shared its card there.
+///   identity last shared its card there -- when its card row reached
+///   Accepted by remote transport (cards section 5.3).
 /// - `own_cards`: each identity's own card, keyed by its `EndpointId` —
 ///   what the person writes about themselves, outside ADR-0044's three
 ///   states, and nobody else's content.
@@ -1153,6 +1226,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("media_type", "TEXT", false),
             col("payload", "BLOB", true),
             col("received_at", "INTEGER", true),
+            col("kind", "TEXT", true),
         ],
         // SCOPED TO THE PEER, THE ENDPOINT *AND THE CHANNEL*. A bare
         // UNIQUE on the id alone let one peer collide with another's
@@ -1168,7 +1242,32 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         ]],
         generated: &[GENERATED_ENDPOINT_KEY, GENERATED_CHANNEL_KEY],
         autoincrement: true,
-        indexes: &[("unread_inbound_by_received", &["received_at", "row_id"])],
+        indexes: &[
+            ("unread_inbound_by_received", &["received_at", "row_id"]),
+            (
+                "unread_inbound_by_conversation",
+                &[
+                    "source_peer",
+                    "source_endpoint_key",
+                    "received_at",
+                    "row_id",
+                ],
+            ),
+            (
+                "unread_inbound_by_kind",
+                &[
+                    "kind",
+                    "source_peer",
+                    "source_endpoint",
+                    "channel_id",
+                    "app_message_id",
+                ],
+            ),
+            (
+                "unread_inbound_by_channel",
+                &["channel_key", "received_at", "row_id"],
+            ),
+        ],
         foreign_keys: &[],
     },
     TableShape {
@@ -1184,6 +1283,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("received_at", "INTEGER", true),
             col("read_at", "INTEGER", true),
             col("kept_at", "INTEGER", true),
+            col("kind", "TEXT", true),
         ],
         unique_keys: &[&[
             "source_peer",
@@ -1193,7 +1293,26 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         ]],
         generated: &[GENERATED_ENDPOINT_KEY, GENERATED_CHANNEL_KEY],
         autoincrement: true,
-        indexes: &[("kept_inbound_by_received", &["received_at", "row_id"])],
+        indexes: &[
+            ("kept_inbound_by_received", &["received_at", "row_id"]),
+            (
+                "kept_inbound_by_conversation",
+                &[
+                    "source_peer",
+                    "source_endpoint_key",
+                    "received_at",
+                    "row_id",
+                ],
+            ),
+            (
+                "kept_inbound_by_kind",
+                &["kind", "source_peer", "source_endpoint", "channel_id"],
+            ),
+            (
+                "kept_inbound_by_channel",
+                &["channel_key", "received_at", "row_id"],
+            ),
+        ],
         foreign_keys: &[],
     },
     TableShape {
@@ -1223,11 +1342,12 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("photo_source", "TEXT", false),
             col("photo_at", "INTEGER", false),
             col("photo", "BLOB", false),
+            col("name_key", "TEXT", true),
         ],
         unique_keys: &[&["contact_id"]],
         generated: &[],
         autoincrement: false,
-        indexes: &[],
+        indexes: &[("contacts_by_name_key", &["name_key"])],
         foreign_keys: &[],
     },
     TableShape {
@@ -1247,7 +1367,10 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         ],
         generated: &[],
         autoincrement: false,
-        indexes: &[],
+        indexes: &[
+            ("contact_routes_by_route", &["peer_id", "endpoint_id"]),
+            ("contact_routes_by_key", &["identity_key"]),
+        ],
         foreign_keys: &[(
             "contact_id",
             "contacts",

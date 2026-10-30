@@ -72,6 +72,12 @@ class MainActivity : NativeActivity() {
     /** Open settings was pressed: the return is told to the window. */
     private var inSettings = false
 
+    /** The request the photo picker open now answers, or -1 (j68 P3-2). */
+    private var photoRequest = -1L
+
+    /** The provider's open of the photo chosen, while it waits on it. */
+    private var photoOpening: CancellationSignal? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // A recreation the system made in this process (a language change,
         // a backgrounded instance rebuilt) is not a launch by the person:
@@ -207,6 +213,9 @@ class MainActivity : NativeActivity() {
     }
 
     override fun onDestroy() {
+        // The editor goes with the window: its photo's open is not wanted.
+        cancelPhotoOpen()
+        photoRequest = -1L
         // The words go with this instance; the service must not stay
         // offline for a window that no longer shows them.
         if (phraseShown) {
@@ -254,6 +263,94 @@ class MainActivity : NativeActivity() {
             }
         }
         super.onStop()
+    }
+
+    /**
+     * The own card's photo (contact-cards design 5.2): the system photo
+     * picker, images only, one item, which needs no permission; where the
+     * phone has no picker, the document picker for images.
+     */
+    private fun pickPhoto(request: Long) {
+        // A newer pick: the provider's open for the last is not wanted.
+        cancelPhotoOpen()
+        photoRequest = request
+        val picker = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ||
+            android.os.ext.SdkExtensions.getExtensionVersion(Build.VERSION_CODES.R) >= 2
+        val intent = if (picker) {
+            Intent(PICK_IMAGES).setType("image/*")
+        } else {
+            Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        try {
+            @Suppress("DEPRECATION") // NativeActivity has no result API of its own.
+            startActivityForResult(intent, PHOTO_REQUEST)
+        } catch (_: android.content.ActivityNotFoundException) {
+            photoRequest = -1L
+            Native.photoPicked(request, null)
+        }
+    }
+
+    /** The provider's open of a chosen photo cancelled, if one waits. */
+    private fun cancelPhotoOpen() {
+        photoOpening?.cancel()
+        photoOpening = null
+    }
+
+    @Deprecated("NativeActivity has no result API of its own.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != PHOTO_REQUEST) return
+        // The editor that asked is gone (closed, or a window made since):
+        // its answer is no one's.
+        val request = photoRequest.also { photoRequest = -1L }
+        if (request < 0) return
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) {
+            Native.photoPicked(request, null)
+            return
+        }
+        // Too many opens stuck on providers that ignored their cancel:
+        // this one is handed on empty rather than hold one more thread.
+        if (photoOpens.get() >= MAX_PHOTO_OPENS) {
+            Native.photoPicked(request, ByteArray(0))
+            return
+        }
+        // Opened off the main thread under a signal that a newer pick, the
+        // editor's close, the window's end or the deadline cancels; the
+        // native side then reads the descriptor within its own deadline and
+        // bound (src/photo_import.rs). Failed, it is handed on empty, which
+        // the editor says cannot be used.
+        val signal = CancellationSignal()
+        photoOpening = signal
+        val expire = Runnable { signal.cancel() }
+        val main = Handler(Looper.getMainLooper())
+        val openedAt = android.os.SystemClock.elapsedRealtime()
+        main.postDelayed(expire, PHOTO_DEADLINE_MS)
+        photoOpens.incrementAndGet()
+        Thread {
+            try {
+                val opened = try {
+                    contentResolver.openFileDescriptor(uri, "r", signal)
+                } catch (_: Exception) {
+                    null
+                }
+                main.removeCallbacks(expire)
+                // Handed on whatever cancelled it: the native side and the
+                // editor drop what is for a request no longer wanted, and a
+                // deadline's is said as unusable.
+                if (opened == null) {
+                    Native.photoPicked(request, ByteArray(0))
+                } else {
+                    // One deadline for the open and the read: what the
+                    // open left of it, nothing once it has passed.
+                    val left = PHOTO_DEADLINE_MS - (android.os.SystemClock.elapsedRealtime() - openedAt)
+                    Native.photoRead(request, opened.detachFd(), left.coerceAtLeast(0L))
+                }
+            } finally {
+                photoOpens.decrementAndGet()
+            }
+        }.start()
     }
 
     override fun onRequestPermissionsResult(
@@ -483,15 +580,17 @@ class MainActivity : NativeActivity() {
     /** What the identity screens ask, carried out on the main thread. */
     private fun relayIdentity() {
         while (shown) {
-            val ask = Native.waitIdentityAsk(ASK_WAIT_MS)
+            val packed = Native.waitIdentityAsk(ASK_WAIT_MS)
+            val ask = (packed and ASK_MASK).toInt()
+            val arg = packed ushr Ask.BITS
             // With no instance started, this one carries it out, as the
             // last that was.
-            if (ask != 0) runOnUiThread { (front ?: this).identityAsk(ask) }
+            if (ask != 0) runOnUiThread { (front ?: this).identityAsk(ask, arg) }
         }
     }
 
     /** One of the identity screens' asks, on the main thread. */
-    private fun identityAsk(ask: Int) {
+    private fun identityAsk(ask: Int, arg: Long) {
         when (ask) {
             // FLAG_SECURE goes on before any word can be drawn (onStart,
             // and OFFLINE below), and off only once the window drew a
@@ -543,6 +642,11 @@ class MainActivity : NativeActivity() {
                 startActivity(
                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
                 )
+            }
+            Ask.PICK_PHOTO -> pickPhoto(arg)
+            Ask.PHOTO_CANCEL -> {
+                cancelPhotoOpen()
+                photoRequest = -1L
             }
             // Show my address: the flag before its addresses are drawn,
             // which the window does once told (add-a-peer section 5.4).
@@ -612,8 +716,14 @@ class MainActivity : NativeActivity() {
         }
     }
 
-    /** API 33+: a notification is posted only with the person's leave. */
+    /**
+     * API 33+: a notification is posted only with the person's leave.
+     * Below it the permission does not exist and notifications are on;
+     * asking anyway opened an empty system activity over the window at
+     * every launch (the A40 at API 30, #436 round 4).
+     */
     private fun askNotifications() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATIONS_REQUEST)
         }
@@ -666,6 +776,15 @@ class MainActivity : NativeActivity() {
         private const val RUNTIME_INTERNET_SDK = 37
         private const val NETWORK_REQUEST = 2
         private const val CAMERA_REQUEST = 3
+        private const val PHOTO_REQUEST = 4
+        /** MediaStore.ACTION_PICK_IMAGES, by its value: an API 33 constant also served by the R extension 2. */
+        private const val PICK_IMAGES = "android.provider.action.PICK_IMAGES"
+        /** How long a pick may take, its open and its read together: src/photo_import.rs's PHOTO_DEADLINE. */
+        private const val PHOTO_DEADLINE_MS = 30_000L
+        /** The opens a provider may hold past their cancel before a pick is refused (j68 P3-1). */
+        private const val MAX_PHOTO_OPENS = 2
+        private val photoOpens = java.util.concurrent.atomic.AtomicInteger()
+        private const val ASK_MASK = (1L shl Ask.BITS) - 1
         /** The last CAMERA answer was a refusal: the next refusal the system will not ask again is "for good". */
         private const val CAMERA_REFUSED = "camera-refused"
         private const val NOTIFICATIONS_REQUEST = 1

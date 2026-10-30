@@ -230,6 +230,41 @@ where
     Ok((buffer, oversize))
 }
 
+/// Refuse a response stream that ended before carrying a single byte, as
+/// the exchange NOT COMPLETING rather than as a bad answer.
+///
+/// A responder that did not answer ends the stream with nothing written.
+/// Two such cases are tested over real sockets (`stage6_malformed_frames`,
+/// `Answer::OwnTimeout` and `Answer::Omitted`): its request-response
+/// worker hit its own `request_timeout` (the same deadline as ours, so
+/// which end fires first is SPIKE-002 finding 1's race), or its
+/// `ResponseChannel` was dropped. It has read our request to EOF by
+/// then, so dropping or closing the stream sends a FIN rather than an
+/// RST (yamux 0.14's `on_drop_stream`, `RecvClosed` arm), and here that
+/// reads as a clean, empty end of stream. Decoded, it was "an empty
+/// response", the `InvalidData` the caller is told is a protocol
+/// violation, so a remote that did not answer was reported as one that
+/// answered badly. Any other way a responder ends with zero bytes
+/// written lands here too.
+/// `UnexpectedEof` keeps it in the reachability class, which is where
+/// the contract puts a request-response timeout (`TRANSPORT.md`,
+/// outcome unknown: `PeerUnreachable`).
+///
+/// Shared by both request-response codecs, since the endpoint directory
+/// sits on the same handler and the same muxer.
+///
+/// # Errors
+/// `UnexpectedEof` when `bytes` is empty.
+pub(crate) fn refuse_an_unanswered_exchange(bytes: &[u8]) -> io::Result<()> {
+    if bytes.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "the responder ended the stream without answering",
+        ));
+    }
+    Ok(())
+}
+
 /// Parse an inbound request's bytes, AFTER admission has allowed it.
 ///
 /// Returns the decoded frame, or the coarse code its sender is owed and
@@ -317,6 +352,7 @@ impl Codec for DirectCodec {
         T: futures::AsyncRead + Unpin + Send,
     {
         let bytes = read_bounded(io, MAX_RESPONSE_BYTES).await?;
+        refuse_an_unanswered_exchange(&bytes)?;
         decode_response(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 

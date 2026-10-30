@@ -33,7 +33,7 @@ use tokio::net::UnixStream;
 
 mod common;
 
-use common::{Pair, arriving, payload};
+use common::{Pair, arriving, arriving_before, payload};
 
 fn claude() -> EndpointId {
     EndpointId::parse("claude").expect("endpoint")
@@ -348,6 +348,13 @@ async fn a_remote_message_shaped_as_an_admin_request_changes_nothing() {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut round = 0_u8;
     while broadcast.len() < payloads.len() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the broadcasts did not all arrive ({} of {}):\n{}",
+            broadcast.len(),
+            payloads.len(),
+            pair.logs()
+        );
         // Published until the mesh has formed; each round sends all four.
         round = round.wrapping_add(1);
         for (n, bytes) in payloads.iter().enumerate() {
@@ -366,7 +373,7 @@ async fn a_remote_message_shaped_as_an_admin_request_changes_nothing() {
                 .await
                 .expect("accepted locally");
         }
-        for event in arriving(&receiver, Duration::from_millis(500)).await {
+        for event in arriving_before(&receiver, Duration::from_millis(500), deadline).await {
             match event {
                 SessionEvent::Direct(d) => direct.push(d.payload.bytes().to_vec()),
                 SessionEvent::Broadcast(b) => {
@@ -378,13 +385,6 @@ async fn a_remote_message_shaped_as_an_admin_request_changes_nothing() {
                 SessionEvent::Local(_) => {}
             }
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the broadcasts did not all arrive ({} of {}):\n{}",
-            broadcast.len(),
-            payloads.len(),
-            pair.logs()
-        );
     }
     assert_eq!(direct, payloads, "each direct payload arrived as its bytes");
     broadcast.sort();

@@ -44,6 +44,18 @@ pub struct Photo {
     pub rgba: Vec<u8>,
 }
 
+/// The identity's own card as one share sent it, shown in its own card
+/// row (contact-cards section 5.5): what went, never the card as it is
+/// now -- an edit after the share does not rewrite the row (app-core's
+/// `a_shared_card_is_its_own_card_row_as_it_went`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SentCard {
+    /// The name and surname it carried, as one line.
+    pub name: String,
+    /// Its photo, decoded from the bytes it carried, if any.
+    pub photo: Option<Photo>,
+}
+
 /// Why a name typed for a card or a contact cannot be saved, checked on
 /// Save and shown under its field (design section 5.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +127,43 @@ pub enum PhotoEdit {
     /// The image the person chose, as its file holds it: re-encoded and
     /// stripped of every metadata block before anything keeps it.
     Chosen(Vec<u8>),
+    /// The photo the facade side prepared from the last
+    /// [`Intent::ChooseOwnPhoto`](crate::Intent::ChooseOwnPhoto), as the
+    /// editor previewed it; the card stays as it was if there is none.
+    /// The bytes are the facade side's own, never the view's.
+    Prepared,
+}
+
+/// What a new photo choice falls back to, as the model shows it: the
+/// facade side keeps a prepared photo as the fallback only when its number
+/// is the one named here, found under any answer the model has not taken
+/// yet, so a Save writes what the editor showed (#449 F4; app-core's
+/// `a_choices_fallback_is_what_the_model_showed` and
+/// `a_basis_finds_its_photo_under_an_answer_not_taken`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PhotoBasis {
+    /// The saved card's photo, or none.
+    Card,
+    /// Removed in the editor.
+    Removed,
+    /// The prepared photo of this choice.
+    Prepared(u64),
+}
+
+/// The photo the own card's editor holds, chosen and not yet saved
+/// (contact-cards design section 5.2, "The photo").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnPhotoStep {
+    /// Being prepared: the circle shows progress, and Save waits for it.
+    Preparing,
+    /// Prepared: exactly what a share sends, decoded for the preview.
+    Prepared(Photo),
+    /// It could not be read or prepared: the card stays as it was
+    /// (`PhotoUnusable`).
+    Unusable,
+    /// Removed in the editor, which Save writes (design 5.2 as #443
+    /// proposes it: an unsaved change, with no snackbar and no Undo).
+    Removed,
 }
 
 /// A contact named in a proposal's context.
@@ -162,6 +211,42 @@ pub struct ProposalContext {
     /// of its values is the person's or already the card's. The proposal
     /// then offers Close alone.
     pub changes_nothing: bool,
+    /// Which of the contact's values Accept would change and which of the
+    /// person's own it keeps (cases U and E); empty with no contact.
+    pub values: ValueChanges,
+}
+
+/// What Accept would do to the contact holding the card's route, value by
+/// value (contact-cards design section 5.4.1, cases U and E).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct ValueChanges {
+    /// The name it would take, when it changes.
+    pub new_name: Option<String>,
+    /// The card's name differs from one the person chose, which stays.
+    pub kept_name: bool,
+    /// What becomes of the contact's photo.
+    pub photo: PhotoChange,
+}
+
+/// What Accept would do to the contact's photo (contact-cards design
+/// section 5.4.1, cases U and E): one line, or none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum PhotoChange {
+    /// Nothing changes, and nothing is said.
+    #[default]
+    Unchanged,
+    /// The card's photo would replace the contact's (`CardUpdatesPhoto`).
+    New,
+    /// The card carries none, so the contact's, which the person did not
+    /// choose, would go (`CardUpdatesPhotoRemoved`).
+    Removed,
+    /// The person chose the contact's photo, which stays whatever the
+    /// card carries (`CardKeepsPhoto`).
+    Kept,
+    /// The card carries a photo, and the person removed the contact's:
+    /// it stays without one and the card's is not used
+    /// (`CardKeepsNoPhoto`, contact-cards design 5.4.1).
+    KeptNone,
 }
 
 /// What became of a proposal the person answered: what the confirmation
@@ -178,6 +263,10 @@ pub enum CardOutcome {
         /// The card carried a photo that did not decode within its
         /// bound, so the contact was saved without it.
         photo_dropped: bool,
+        /// The contact's previous photo, which the person did not
+        /// choose, went with this Accept (`CardPhotoNotUsedRemoved` when
+        /// `photo_dropped` too).
+        photo_removed: bool,
     },
     /// Declined: nothing was written.
     Declined,
@@ -215,8 +304,9 @@ pub enum AcceptLine {
 /// A note a proposal shows before Accept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProposalNote {
-    /// A contact of the same name on another node.
-    SameName(String),
+    /// A contact of the same name on another node, which the note links
+    /// to (`ShowContact`, contact-cards design 5.4.1).
+    SameName(ContactRef),
     /// A contact on the same node, another identity of it.
     SharesNode(String),
     /// A contact holding the same key on another node.
@@ -244,8 +334,17 @@ pub struct ProposalItem {
     pub accept: AcceptLine,
     /// The notes to show before Accept.
     pub notes: Vec<ProposalNote>,
+    /// Which values Accept changes and which edits it keeps.
+    pub values: ValueChanges,
     /// When it arrived.
     pub received_at: u64,
+    /// The contacts could not be read: the card was compared with none, so
+    /// it shows `CardContactsUnread` in place of its case, with no notes,
+    /// and offers no Accept (design/2026-10-27-start-window.md section 11).
+    pub contacts_unread: bool,
+    /// Case P: how many contacts on the card's `PeerId` there are besides
+    /// the one its note names (`CardSharesDeviceMany`).
+    pub shares_node_others: usize,
 }
 
 impl ProposalItem {
@@ -269,6 +368,41 @@ impl ProposalItem {
             AcceptLine::Creates => UiText::CardAccept,
         }
     }
+
+    /// Which ways the proposal's row swipes (contact-cards design section
+    /// 5.4.4): toward the line's end Accept, toward its start Decline.
+    /// Case S moves neither way, since Close is no swipe action. A row
+    /// that shows `CardSameName` -- case D, and P, U or E when Accept
+    /// would write a clashing name -- never accepts by swipe (the owner's
+    /// O2, "whenever warned"): a swipe can happen without reading, and a
+    /// stranger saved under a contact's name by a stray thumb is the
+    /// impersonation ADR-0059 makes visible. Its Accept button, or its
+    /// menu's Accept, saves it: each pressed on purpose, beside the
+    /// warning (`a_proposal_swipes_both_ways_but_never_accepts_when_warned_or_moves_in_s`).
+    /// Judged on what the row shows now, so a row judged again after a
+    /// change (5.4.5) swipes as it then reads.
+    #[must_use]
+    pub fn swipe(&self) -> CardSwipe {
+        let closes = matches!(self.accept, AcceptLine::Matches(_));
+        let warned = self
+            .notes
+            .iter()
+            .any(|n| matches!(n, ProposalNote::SameName(_)));
+        CardSwipe {
+            accept: !closes && !warned && !self.contacts_unread,
+            decline: !closes,
+        }
+    }
+}
+
+/// Which ways a proposal's row swipes, named by the direction of reading
+/// as [`super::swipe::SwipeOffer`] is: the view mirrors them right to left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CardSwipe {
+    /// Toward the line's end: Accept, under the label of its case.
+    pub accept: bool,
+    /// Toward the line's start: Decline.
+    pub decline: bool,
 }
 
 /// One route of a contact, for its page.
@@ -456,6 +590,18 @@ pub(super) struct Cards {
     answers: BTreeMap<RowId, CardAnswer>,
     /// Make a new key or Try again, on the card page.
     key_step: Option<KeyStep>,
+    /// The editor's chosen photo, until it is saved or the editor closes.
+    own_photo: Option<OwnPhotoStep>,
+    /// What the editor showed before the choice being prepared, or found
+    /// unusable: a prepared photo, a removal, or (`None`) the saved card's
+    /// (design 5.2: the buttons stay as they were before the choice).
+    own_photo_before: Option<OwnPhotoStep>,
+    /// The last choice's number: an answer for an earlier one is not
+    /// this one's.
+    own_photo_seq: u64,
+    /// The number of the choice whose prepared photo the editor shows,
+    /// or showed before the choice now held.
+    own_photo_shown_seq: u64,
 }
 
 /// The confirmation row an Accept leaves in its proposal's place: "You
@@ -476,6 +622,9 @@ pub struct CardAnswer {
     /// The card's photo did not decode and was not saved
     /// (`CardPhotoNotUsed`).
     pub photo_dropped: bool,
+    /// The contact's previous photo went too (`CardPhotoNotUsedRemoved`
+    /// in place of `CardPhotoNotUsed`).
+    pub photo_removed: bool,
     /// When the card arrived: its place in the conversation.
     pub received_at: u64,
 }
@@ -488,6 +637,38 @@ impl Cards {
             .filter(|p| &p.peer == peer && &p.endpoint == endpoint && !self.read.contains(&p.row))
             .map(|p| p.row)
             .collect()
+    }
+
+    /// Stop holding `conversation`'s unread proposals, which stay unread in
+    /// the store for its next opening. A read one has no stored row and
+    /// stays, under [`READ_PROPOSAL_CAP`].
+    pub(super) fn let_go_unread(&mut self, conversation: &ConversationKey) {
+        if let ConversationKey::Direct {
+            peer,
+            endpoint: Some(at),
+        } = conversation
+        {
+            for row in self.unread_in(peer, at) {
+                self.proposals.remove(&row);
+            }
+        }
+    }
+
+    /// How many read proposals are held: what [`READ_PROPOSAL_CAP`] bounds.
+    pub(super) fn read_count(&self) -> usize {
+        self.read.len()
+    }
+
+    /// The conversation of a proposal held unread: `None` once it was read,
+    /// or for a row no proposal is.
+    pub(super) fn unread_conversation(&self, row: RowId) -> Option<ConversationKey> {
+        self.proposals
+            .get(&row)
+            .filter(|_| !self.read.contains(&row))
+            .map(|p| ConversationKey::Direct {
+                peer: p.peer.clone(),
+                endpoint: Some(p.endpoint.clone()),
+            })
     }
 
     /// A row was marked read: if it is a proposal's, it is shown now.
@@ -553,9 +734,45 @@ fn card_name(card: &Card) -> String {
 }
 
 impl UiModel {
-    /// A card the facade committed unread, with its context.
+    /// A card the store holds unread, with its context: listed at a start
+    /// or a relist, or read with a conversation's page. In the windowed
+    /// mode it is already among the store's count, so nothing is counted
+    /// (`a_stored_card_handed_over_is_counted_once`); a card the drain just
+    /// committed is [`UiModel::card_arrived`].
     pub fn card_received(&mut self, proposal: Proposal) {
         self.cards.proposals.insert(proposal.row, proposal);
+    }
+
+    /// A card the drain just committed unread, with its context: as
+    /// [`UiModel::card_received`], and in the windowed mode new to the
+    /// store's count too, so the conversation's badge takes it and it is
+    /// the newest row -- once, a card already held being counted already
+    /// (#498 review F1). The facade hands its drained cards here once it
+    /// starts windowed, the next batch.
+    pub fn card_arrived(&mut self, proposal: Proposal) {
+        let conversation = ConversationKey::Direct {
+            peer: proposal.peer.clone(),
+            endpoint: Some(proposal.endpoint.clone()),
+        };
+        if let Some(windowed) = self.windowed.as_mut()
+            && windowed.handed_over(proposal.row)
+            && !self.cards.proposals.contains_key(&proposal.row)
+        {
+            windowed.arrived(
+                &conversation,
+                super::summaries::NewestRow::card(proposal.row, proposal.received_at),
+            );
+        }
+        // As a message is: a closed conversation holds only its summary.
+        if self.windowed.is_some() && self.windows.open_conversation() != Some(&conversation) {
+            return;
+        }
+        self.windows.seen(super::window::PageMark {
+            received_at: proposal.received_at,
+            kept: false,
+            row: proposal.row,
+        });
+        self.card_received(proposal);
     }
 
     /// A proposal held here, judged again by the facade after a contact
@@ -612,6 +829,13 @@ impl UiModel {
         // snackbar's Undo with this one: that Undo is gone whatever this
         // answer opens.
         self.close_card_snackbar();
+        // Resolved while still unread, its unread row is gone from the
+        // store: the count loses it.
+        if let (Some(windowed), Some(conversation)) =
+            (self.windowed.as_mut(), self.cards.unread_conversation(row))
+        {
+            windowed.left_unread(&conversation);
+        }
         let Some(proposal) = self.cards.resolved(row) else {
             self.swipe_release_card(row);
             return;
@@ -625,6 +849,7 @@ impl UiModel {
                 contact_id,
                 created,
                 photo_dropped,
+                photo_removed,
             } => {
                 self.cards.answered(CardAnswer {
                     row,
@@ -633,6 +858,7 @@ impl UiModel {
                     contact_id,
                     created,
                     photo_dropped,
+                    photo_removed,
                     received_at: proposal.received_at,
                 });
                 let confirms = if created {
@@ -751,8 +977,11 @@ impl UiModel {
         self.cards.shared.get(key).copied()
     }
 
-    /// The contacts, as the facade listed them after a change.
-    pub fn contacts_listed(&mut self, contacts: Vec<ContactView>) {
+    /// The contacts, as the facade listed them after a change, held in
+    /// the client's one order ([`crate::contact_order`]) whatever order
+    /// the store read them in.
+    pub fn contacts_listed(&mut self, mut contacts: Vec<ContactView>) {
+        contacts.sort_by(crate::contact_order);
         self.cards.contacts = contacts;
     }
 
@@ -802,10 +1031,12 @@ impl UiModel {
     /// The confirmation's Make a new key: the key is made from here.
     #[must_use]
     pub fn confirm_new_key(&mut self) -> Option<Intent> {
-        matches!(self.cards.key_step, Some(KeyStep::Confirming { .. })).then(|| {
-            self.cards.key_step = Some(KeyStep::Making);
-            Intent::MakeNewKey
-        })
+        if !matches!(self.cards.key_step, Some(KeyStep::Confirming { .. })) {
+            return None;
+        }
+        self.close_own_card_undo();
+        self.cards.key_step = Some(KeyStep::Making);
+        Some(Intent::MakeNewKey)
     }
 
     /// The new key was made: the identity with its fingerprint -- or, when
@@ -872,6 +1103,117 @@ impl UiModel {
         self.cards.key_step = again.then_some(KeyStep::StillNotNow);
     }
 
+    /// A photo chosen in the own card's editor: being prepared, under the
+    /// number its answer must carry. Any earlier choice not saved is
+    /// replaced; what the editor showed before it is kept, to show while
+    /// it is prepared and should it be unusable (design 5.2).
+    pub fn own_photo_chosen(&mut self) -> u64 {
+        let was = self.cards.own_photo.take();
+        self.cards.own_photo_before = match was {
+            Some(shown @ (OwnPhotoStep::Prepared(_) | OwnPhotoStep::Removed)) => Some(shown),
+            Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) => {
+                self.cards.own_photo_before.take()
+            }
+            None => None,
+        };
+        self.cards.own_photo = Some(OwnPhotoStep::Preparing);
+        self.cards.own_photo_seq += 1;
+        self.cards.own_photo_seq
+    }
+
+    /// What preparing choice `seq` came to: the photo as a share would
+    /// send it, or `None` when it could not be read or prepared. Only the
+    /// last choice, still being prepared, takes it: an earlier choice's
+    /// answer, or one forgotten, removed or saved meanwhile, changes
+    /// nothing.
+    pub fn own_photo_prepared(&mut self, seq: u64, photo: Option<Photo>) {
+        if seq != self.cards.own_photo_seq
+            || !matches!(self.cards.own_photo, Some(OwnPhotoStep::Preparing))
+        {
+            return;
+        }
+        if let Some(photo) = photo {
+            self.cards.own_photo = Some(OwnPhotoStep::Prepared(photo));
+            self.cards.own_photo_before = None;
+            self.cards.own_photo_shown_seq = seq;
+        } else {
+            self.cards.own_photo = Some(OwnPhotoStep::Unusable);
+        }
+    }
+
+    /// Remove photo in the editor: no photo, once saved. A photo being
+    /// prepared is dropped, and its answer changes nothing.
+    pub fn own_photo_removed(&mut self) {
+        self.cards.own_photo = Some(OwnPhotoStep::Removed);
+        self.cards.own_photo_before = None;
+    }
+
+    /// The editor closed, or its card saved: the chosen photo is let go.
+    pub fn own_photo_forgotten(&mut self) {
+        self.cards.own_photo = None;
+        self.cards.own_photo_before = None;
+    }
+
+    /// The editor's chosen photo, if any.
+    #[must_use]
+    pub const fn own_photo(&self) -> Option<&OwnPhotoStep> {
+        self.cards.own_photo.as_ref()
+    }
+
+    /// What the last choice falls back to, for the facade side to keep:
+    /// what the editor showed before it.
+    #[must_use]
+    pub const fn own_photo_basis(&self) -> PhotoBasis {
+        match self.cards.own_photo_before {
+            Some(OwnPhotoStep::Prepared(_)) => PhotoBasis::Prepared(self.cards.own_photo_shown_seq),
+            Some(OwnPhotoStep::Removed) => PhotoBasis::Removed,
+            Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) | None => PhotoBasis::Card,
+        }
+    }
+
+    /// What the editor showed before the choice being prepared or found
+    /// unusable: a prepared photo or a removal; `None` for the saved
+    /// card's photo.
+    #[must_use]
+    pub const fn own_photo_before(&self) -> Option<&OwnPhotoStep> {
+        self.cards.own_photo_before.as_ref()
+    }
+
+    /// Whether the editor's photo differs from the saved card's, as design
+    /// 5.2 judges unsaved changes: a removal over a card with no photo, or
+    /// an unusable choice over what the card already shows, is none.
+    #[must_use]
+    pub fn own_photo_unsaved(&self) -> bool {
+        let saved = self.identity().is_some_and(|i| i.has_photo);
+        let shows = |step: Option<&OwnPhotoStep>| match step {
+            Some(OwnPhotoStep::Prepared(_)) => true,
+            Some(OwnPhotoStep::Removed) => saved,
+            Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) | None => false,
+        };
+        match self.own_photo() {
+            None => false,
+            // A photo on its way is a change whatever it comes to.
+            Some(OwnPhotoStep::Preparing) => true,
+            Some(OwnPhotoStep::Unusable) => shows(self.own_photo_before()),
+            step => shows(step),
+        }
+    }
+
+    /// What Save does to the photo: no photo after Remove; the facade
+    /// side's own while a choice is held -- the prepared one, or, while it
+    /// is prepared or when it is unusable, what the editor showed before
+    /// it (the facade side keeps that too); else the card's as it is.
+    #[must_use]
+    pub const fn own_photo_edit(&self) -> PhotoEdit {
+        match self.cards.own_photo {
+            Some(OwnPhotoStep::Removed) => PhotoEdit::Remove,
+            Some(OwnPhotoStep::Preparing | OwnPhotoStep::Prepared(_) | OwnPhotoStep::Unusable) => {
+                PhotoEdit::Prepared
+            }
+            None => PhotoEdit::Keep,
+        }
+    }
+
     /// The confirmation cancelled, or the card page left: what it showed
     /// of a key step goes; one under way stays.
     pub fn key_step_closed(&mut self) {
@@ -903,23 +1245,50 @@ impl UiModel {
             .filter(|p| &p.peer == peer && &p.endpoint == at)
             .map(|p| {
                 let c = &p.context;
+                // Each kind of note in the contacts' one order, so the
+                // contact a note names first is the list's first; the
+                // context itself stays as the store read it, since Accept
+                // carries it back to be compared.
+                let ordered = |refs: &[ContactRef]| {
+                    let mut refs = refs.to_vec();
+                    crate::order::sort_refs(&mut refs, &self.cards.contacts);
+                    refs
+                };
+                // One contact named, the first in the Contacts list's order,
+                // whichever the store gave first (design/2026-10-27-start-
+                // window.md section 11, contact-cards 5.4.1): case P names
+                // the first and counts the others.
                 let mut notes = Vec::new();
                 notes.extend(
-                    c.same_name
-                        .iter()
-                        .map(|r| ProposalNote::SameName(r.name.clone())),
+                    ordered(&c.same_name)
+                        .into_iter()
+                        .take(1)
+                        .map(ProposalNote::SameName),
+                );
+                let shares = ordered(&c.shares_node);
+                let shares_node_others = shares.len().saturating_sub(1);
+                notes.extend(
+                    shares
+                        .into_iter()
+                        .take(1)
+                        .map(|r| ProposalNote::SharesNode(r.name)),
                 );
                 notes.extend(
-                    c.shares_node
-                        .iter()
-                        .map(|r| ProposalNote::SharesNode(r.name.clone())),
+                    ordered(&c.key_matches)
+                        .into_iter()
+                        .map(|r| ProposalNote::KeyMatches(r.name)),
                 );
-                notes.extend(
-                    c.key_matches
-                        .iter()
-                        .map(|r| ProposalNote::KeyMatches(r.name.clone())),
-                );
+                let contacts_unread = self.directory.state != super::directory::ContactsState::Read;
+                if contacts_unread {
+                    notes.clear();
+                }
                 ProposalItem {
+                    contacts_unread,
+                    shares_node_others: if contacts_unread {
+                        0
+                    } else {
+                        shares_node_others
+                    },
                     row: p.row,
                     peer: p.peer.clone(),
                     route: RouteLabel::from(&p.endpoint),
@@ -933,6 +1302,7 @@ impl UiModel {
                         Some(u) => AcceptLine::Updates(u.name.clone()),
                     },
                     notes,
+                    values: c.values.clone(),
                     received_at: p.received_at,
                 }
             })
@@ -965,6 +1335,9 @@ impl UiModel {
     #[must_use]
     pub fn card_actions(&self, row: RowId) -> Vec<Intent> {
         match self.cards.proposals.get(&row) {
+            Some(_) if self.directory.state != super::directory::ContactsState::Read => {
+                vec![Intent::DeclineCard(row)]
+            }
             Some(p) if p.context.changes_nothing && p.context.updates.is_some() => {
                 vec![Intent::DeclineCard(row)]
             }
@@ -991,6 +1364,29 @@ impl UiModel {
     pub fn delete_contact(&self, contact_id: &str) -> Option<Intent> {
         self.contact(contact_id).map(|c| Intent::DeleteContact {
             contact_id: c.contact_id.clone(),
+        })
+    }
+
+    /// Delete one route of a contact the model holds, by the person's act
+    /// alone: offered only while the contact holds the route and another,
+    /// since the last route goes only with its contact
+    /// (`a_route_is_deleted_only_while_its_contact_holds_another`).
+    #[must_use]
+    pub fn delete_route(
+        &self,
+        contact_id: &str,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+    ) -> Option<Intent> {
+        let contact = self.contact(contact_id)?;
+        let held = contact
+            .routes
+            .iter()
+            .any(|r| &r.peer == peer && &r.endpoint == endpoint);
+        (held && contact.routes.len() > 1).then(|| Intent::DeleteRoute {
+            contact_id: contact.contact_id.clone(),
+            peer: peer.clone(),
+            endpoint: endpoint.clone(),
         })
     }
 
@@ -1022,7 +1418,11 @@ impl UiModel {
             .collect()
     }
 
-    /// The contacts, by name.
+    /// The contacts in the client's one order: by name under the root's
+    /// Unicode collation, then by the smallest route
+    /// ([`crate::contact_order`]; human-client-ui.md section 3). Every
+    /// list of contacts a person sees is this one, a view's and the
+    /// command line's alike.
     #[must_use]
     pub fn contacts(&self) -> &[ContactView] {
         &self.cards.contacts
@@ -1031,24 +1431,16 @@ impl UiModel {
     /// The names of every contact of the identity in front with a route
     /// on `peer`, for Peers' rows (add-a-peer design section 5.2): one
     /// per line, never joined, since a typed name may hold "and" or a
-    /// comma. Ordered case-insensitively, then by the exact name, in
-    /// place of the locale's collation, which no part of the client has
-    /// yet.
+    /// comma. In the contacts' one order ([`UiModel::contacts`]), which
+    /// they are held in.
     #[must_use]
     pub fn contact_names_on(&self, peer: &TransportIdentity) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .cards
+        self.cards
             .contacts
             .iter()
             .filter(|c| c.routes.iter().any(|r| &r.peer == peer))
             .map(|c| c.name.clone())
-            .collect();
-        names.sort_by(|a, b| {
-            a.to_lowercase()
-                .cmp(&b.to_lowercase())
-                .then_with(|| a.cmp(b))
-        });
-        names
+            .collect()
     }
 
     /// One contact.
@@ -1103,6 +1495,7 @@ mod tests {
             key: KeyView::New,
             fingerprint: "0123456789abcdef".to_owned(),
             changes_nothing: false,
+            values: ValueChanges::default(),
         }
     }
 
@@ -1165,6 +1558,101 @@ mod tests {
                 fingerprint: Some("0123456789abcdef".to_owned()),
             }],
         }
+    }
+
+    #[test]
+    fn the_contacts_a_peers_row_and_a_proposals_notes_take_one_order() {
+        // The fixture every site's test orders (human-client-ui.md section
+        // 3): the store reads "Zoe", "Ben", "Chloe", "Åke", "ben" in that
+        // order. A proposal names one contact of a case P, the first in
+        // that order, and counts the others (start-window section 11).
+        // Mutations: `contacts_listed` keeping the store's order (the list
+        // and the row read Zoe first); `proposals` sorting nothing (the
+        // notes keep the context's order); the others counted with the
+        // one named.
+        let fixture = ["Zoe", "Ben", "Chloe", "Åke", "ben"];
+        let order = ["Åke", "ben", "Ben", "Chloe", "Zoe"];
+        let mut model = UiModel::new();
+        model.contacts_listed(
+            fixture
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    let mut c = contact(&format!("c{i}"), n, P);
+                    c.routes[0].endpoint = endpoint(&format!("e{i}"));
+                    c
+                })
+                .collect(),
+        );
+        let listed: Vec<&str> = model.contacts().iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(listed, order, "the Contacts list");
+        assert_eq!(
+            model.contact_names_on(&peer(P)),
+            order,
+            "a Peers row's names"
+        );
+        let refs: Vec<ContactRef> = fixture
+            .iter()
+            .enumerate()
+            .map(|(i, n)| ContactRef {
+                contact_id: format!("c{i}"),
+                name: (*n).to_owned(),
+            })
+            .collect();
+        let mut standing = context();
+        standing.shares_node = refs.clone();
+        standing.key_matches = refs;
+        model.card_received(proposal(1, P, "Ada", standing));
+        let notes = &model.proposals(&direct(P, "human"))[0].notes;
+        let named = |want: fn(&ProposalNote) -> Option<&str>| -> Vec<&str> {
+            notes.iter().filter_map(want).collect()
+        };
+        let shares = named(|n| match n {
+            ProposalNote::SharesNode(name) => Some(name.as_str()),
+            _ => None,
+        });
+        assert_eq!(shares, ["Åke"], "case P names the first in order alone");
+        assert_eq!(
+            model.proposals(&direct(P, "human"))[0].shares_node_others,
+            4
+        );
+        let keys = named(|n| match n {
+            ProposalNote::KeyMatches(name) => Some(name.as_str()),
+            _ => None,
+        });
+        assert_eq!(keys, order);
+    }
+
+    /// Of two contacts of one name, `CardSameName` names the one first in
+    /// the Contacts list's order: same name, so the one whose route's
+    /// `PeerId` sorts first by code point, whichever the store gave first
+    /// (start-window section 11, contact-cards 6.2). Mutations: the note
+    /// naming the store's first; every contact of the name named.
+    #[test]
+    fn two_contacts_of_one_name_the_note_names_the_one_first_in_order() {
+        let mut model = UiModel::new();
+        model.contacts_listed(vec![
+            contact("on-k", "Anna Rossi", Q),
+            contact("on-d", "Anna Rossi", P),
+        ]);
+        let mut standing = context();
+        standing.same_name = ["on-k", "on-d"]
+            .iter()
+            .map(|id| ContactRef {
+                contact_id: (*id).to_owned(),
+                name: "Anna Rossi".to_owned(),
+            })
+            .collect();
+        model.card_received(proposal(1, P, "Anna", standing));
+        let same: Vec<String> = model.proposals(&direct(P, "human"))[0]
+            .notes
+            .iter()
+            .filter_map(|n| match n {
+                ProposalNote::SameName(r) => Some(r.contact_id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(same, ["on-d"], "D sorts before K");
     }
 
     #[test]
@@ -1243,7 +1731,10 @@ mod tests {
         assert_eq!(
             shown.notes,
             vec![
-                ProposalNote::SameName("Ada Lovelace".to_owned()),
+                ProposalNote::SameName(ContactRef {
+                    contact_id: "c2".to_owned(),
+                    name: "Ada Lovelace".to_owned(),
+                }),
                 ProposalNote::SharesNode("Ada at work".to_owned())
             ]
         );
@@ -1312,6 +1803,52 @@ mod tests {
                     ("peer", &crate::labels::short_peer(P))
                 ]
             )
+        );
+    }
+
+    #[test]
+    fn a_route_is_deleted_only_while_its_contact_holds_another() {
+        let route = |p: &str| RouteView {
+            peer: peer(p),
+            endpoint: endpoint("human"),
+            fingerprint: None,
+        };
+        let contact = |routes: Vec<RouteView>| ContactView {
+            contact_id: "c1".to_owned(),
+            name: "Ada".to_owned(),
+            name_from_card: true,
+            name_at: None,
+            photo_from_card: None,
+            photo_at: None,
+            photo: None,
+            routes,
+        };
+        let mut model = UiModel::new();
+        let human = endpoint("human");
+        assert_eq!(model.delete_route("c1", &peer(P), &human), None);
+        model.contacts_listed(vec![contact(vec![route(P), route(Q)])]);
+        let delete = model.delete_route("c1", &peer(Q), &human).expect("offered");
+        assert_eq!(
+            delete,
+            Intent::DeleteRoute {
+                contact_id: "c1".to_owned(),
+                peer: peer(Q),
+                endpoint: human.clone(),
+            }
+        );
+        assert!(model.offers(&delete));
+        assert_eq!(
+            model.delete_route("c1", &peer(Q), &endpoint("other")),
+            None,
+            "a route the contact does not hold"
+        );
+        assert_eq!(model.delete_route("c2", &peer(Q), &human), None);
+        model.contacts_listed(vec![contact(vec![route(P)])]);
+        assert!(!model.offers(&delete), "a route gone is not deleted twice");
+        assert_eq!(
+            model.delete_route("c1", &peer(P), &human),
+            None,
+            "the last route goes only with its contact"
         );
     }
 
@@ -1411,6 +1948,7 @@ mod tests {
         model.read(row(1));
         let changed = ProposalContext {
             changes_nothing: true,
+            values: ValueChanges::default(),
             updates: Some(ContactRef {
                 contact_id: "c1".to_owned(),
                 name: "Ada".to_owned(),
@@ -1487,6 +2025,7 @@ mod tests {
             ProposalContext {
                 updates: Some(near("u")),
                 changes_nothing: true,
+                values: ValueChanges::default(),
                 ..context()
             },
         ));
@@ -1500,6 +2039,94 @@ mod tests {
             vec![Intent::DeclineCard(row(5))],
             "Close alone, which declines"
         );
+    }
+
+    // Section 5.4.4's swipes by case, from the same contexts the labels
+    // are judged on: no Accept swipe wherever CardSameName shows (O2), the
+    // same cases without it keeping theirs. Mutations: `closes` not
+    // withholding Decline (case S moves); `warned` dropped (a warned row
+    // accepts by swipe).
+    #[test]
+    fn a_proposal_swipes_both_ways_but_never_accepts_when_warned_or_moves_in_s() {
+        let near = |kind: &str| ContactRef {
+            contact_id: kind.to_owned(),
+            name: "Ada".to_owned(),
+        };
+        let both = CardSwipe {
+            accept: true,
+            decline: true,
+        };
+        let cases = [
+            ("N", context(), both),
+            (
+                "D",
+                ProposalContext {
+                    same_name: vec![near("d")],
+                    ..context()
+                },
+                CardSwipe {
+                    accept: false,
+                    decline: true,
+                },
+            ),
+            (
+                "P",
+                ProposalContext {
+                    shares_node: vec![near("p")],
+                    ..context()
+                },
+                both,
+            ),
+            (
+                "P, warned",
+                ProposalContext {
+                    shares_node: vec![near("p")],
+                    same_name: vec![near("d")],
+                    ..context()
+                },
+                CardSwipe {
+                    accept: false,
+                    decline: true,
+                },
+            ),
+            (
+                "U",
+                ProposalContext {
+                    updates: Some(near("u")),
+                    ..context()
+                },
+                both,
+            ),
+            (
+                "U, warned",
+                ProposalContext {
+                    updates: Some(near("u")),
+                    same_name: vec![near("d")],
+                    ..context()
+                },
+                CardSwipe {
+                    accept: false,
+                    decline: true,
+                },
+            ),
+            (
+                "S",
+                ProposalContext {
+                    updates: Some(near("u")),
+                    changes_nothing: true,
+                    values: ValueChanges::default(),
+                    ..context()
+                },
+                CardSwipe::default(),
+            ),
+        ];
+        for (n, (case, judged, swipe)) in cases.into_iter().enumerate() {
+            let mut model = UiModel::new();
+            let at = i64::try_from(n).expect("small");
+            model.card_received(proposal(at + 1, Q, "Ada", judged));
+            let shown = model.proposals(&direct(Q, "human"));
+            assert_eq!(shown[0].swipe(), swipe, "case {case}");
+        }
     }
 
     #[test]
@@ -1528,6 +2155,7 @@ mod tests {
             contact_id: contact_id.to_owned(),
             created: true,
             photo_dropped: false,
+            photo_removed: false,
         }
     }
 
@@ -1795,6 +2423,55 @@ mod tests {
         assert_eq!(model.key_step(), None, "opened");
     }
 
+    /// Identity-key design 5.2 (#471 R2 F1): confirming Make a new key
+    /// closes an open Cancel snackbar of one of the identity's own cards,
+    /// its Undo with it -- that card carries the key being replaced -- and
+    /// lets its record go. Mutation: the confirmation leaving the snackbar
+    /// open.
+    #[test]
+    fn confirming_a_new_key_closes_an_own_cards_cancel_undo() {
+        use interweave_human_client_api::{ClientEvent, OutboundStatus, OutboundUpdate};
+        let cancel = |model: &mut UiModel, row: i64| {
+            model.client_event(ClientEvent::Outbound(OutboundUpdate {
+                row: RowId::from_stored(row),
+                app_message_id: interweave_human_core::AppMessageId::parse(format!("{row:032x}"))
+                    .expect("id"),
+                status: OutboundStatus::Cancelled {
+                    may_have_reached: false,
+                },
+                last_code: None,
+            }));
+            model.cancelled(RowId::from_stored(row), true);
+        };
+        let mut model = UiModel::new();
+        model.identity_shown(own(OwnKey::Unusable(KeyProblem::Damaged)));
+        model.card_queued(
+            RowId::from_stored(1),
+            direct(P, "human"),
+            format!("{:032x}", 1),
+            SentCard {
+                name: "Ada".to_owned(),
+                photo: None,
+            },
+            1,
+        );
+        cancel(&mut model, 1);
+        assert!(
+            model.snackbar().is_some_and(|s| s.undo),
+            "control: the card's Cancel offers its Undo"
+        );
+        assert_eq!(model.ask_new_key(), Some(Intent::AskNewKey));
+        model.new_key_asked(false);
+        let _ = model.take_released();
+        assert_eq!(model.confirm_new_key(), Some(Intent::MakeNewKey));
+        assert!(model.snackbar().is_none(), "closed, its Undo with it");
+        assert_eq!(
+            model.take_released().cancelled,
+            vec![RowId::from_stored(1)],
+            "its record let go"
+        );
+    }
+
     /// #423 F1: a key step the facade refused, or one whose identity could
     /// not be read, still ends -- an Ask as never pressed, a Make as not
     /// made -- and a key made but not read back shows its fingerprint on
@@ -1820,5 +2497,233 @@ mod tests {
         let held = model.identity().expect("held");
         assert_eq!(held.name, "Ada", "the card as it was");
         assert_eq!(held.key.fingerprint(), Some("fedcba9876543210"));
+    }
+
+    // Contact-cards design section 6.3: Delete contact and Remove photo
+    // each open a snackbar on the card pages with an Undo the facade side
+    // carries out; its answer restores and is announced, a refusal or a
+    // close lets go of what it held, and focus goes by the focus table.
+    // Mutations: the snackbar not naming its contact; a close not
+    // releasing it; a refused Undo leaving it awaited.
+    #[test]
+    fn a_contacts_delete_and_photo_removal_offer_an_undo_that_restores() {
+        use super::super::swipe::ContactChange;
+        let mut model = UiModel::new();
+        model.contact_changed("c1".to_owned(), ContactChange::Deleted, 1);
+        let snack = model.snackbar().expect("up");
+        assert_eq!(snack.confirms, Confirmation::ContactDeleted);
+        assert_eq!(snack.contact.as_deref(), Some("c1"));
+        assert_eq!(snack.conversation, None);
+        assert!(snack.undo);
+        assert_eq!(
+            model.outcome().and_then(|o| o.announce),
+            Some(crate::Announce::Confirmed(Confirmation::ContactDeleted)),
+            "announced (section 8)"
+        );
+        assert_eq!(
+            model.undo(snack.id),
+            Some(Intent::UndoContact {
+                contact_id: "c1".to_owned(),
+                change: ContactChange::Deleted,
+                hold: 1,
+            })
+        );
+        assert!(model.snackbar().is_none());
+        model.contact_restored("c1", ContactChange::Deleted);
+        let outcome = model.outcome().expect("restored");
+        assert_eq!(outcome.announce, Some(crate::Announce::Restored));
+        assert_eq!(outcome.focus, Some(FocusTarget::Contact("c1".to_owned())));
+        assert!(model.take_released().is_empty(), "the Undo used it");
+
+        // A refused Undo: the removal stands, its hold let go.
+        model.contact_changed("c2".to_owned(), ContactChange::PhotoRemoved, 2);
+        let snack = model.snackbar().expect("up");
+        assert_eq!(snack.confirms, Confirmation::PhotoRemoved);
+        let undo = model.undo(snack.id).expect("raised");
+        model.intent_refused(&undo);
+        assert_eq!(model.take_released().contacts, vec![2]);
+        assert_eq!(
+            model.outcome().and_then(|o| o.focus.clone()),
+            Some(FocusTarget::ContactPage("c2".to_owned()))
+        );
+        model.contact_restored("c2", ContactChange::PhotoRemoved);
+        assert_ne!(
+            model.outcome().and_then(|o| o.announce),
+            Some(crate::Announce::Restored),
+            "nothing awaited any more"
+        );
+
+        // Closed with no Undo: let go, focus on the list if it held it.
+        model.contact_changed("c3".to_owned(), ContactChange::Deleted, 3);
+        let id = model.snackbar().expect("up").id;
+        model.snackbar_closed(id);
+        assert_eq!(model.take_released().contacts, vec![3]);
+        assert_eq!(
+            model.undo_closed().map(|u| u.focus.clone()),
+            Some(FocusTarget::Contacts)
+        );
+
+        // Withdrawn: another hold's withdrawal closes nothing.
+        model.contact_changed("c4".to_owned(), ContactChange::Deleted, 4);
+        model.contact_undo_withdrawn(5);
+        assert!(model.snackbar().is_some());
+        model.contact_undo_withdrawn(4);
+        assert!(model.snackbar().is_none());
+        assert_eq!(model.take_released().contacts, vec![4]);
+    }
+
+    // #433 F1: two changes of one contact in a row -- Remove photo, then
+    // Delete -- release the first change's hold alone, and the second's
+    // Undo names its own. Mutation: a release by the contact's id, which
+    // let the facade side drop the newer hold.
+    #[test]
+    fn a_contacts_second_change_releases_the_first_hold_and_keeps_its_own() {
+        use super::super::swipe::ContactChange;
+        let mut model = UiModel::new();
+        model.contact_changed("c1".to_owned(), ContactChange::PhotoRemoved, 7);
+        model.contact_changed("c1".to_owned(), ContactChange::Deleted, 8);
+        assert_eq!(model.take_released().contacts, vec![7], "the replaced one");
+        let id = model.snackbar().expect("up").id;
+        assert_eq!(
+            model.undo(id),
+            Some(Intent::UndoContact {
+                contact_id: "c1".to_owned(),
+                change: ContactChange::Deleted,
+                hold: 8,
+            })
+        );
+    }
+
+    /// Contact-cards design section 5.2, "The photo": a chosen photo is
+    /// being prepared, and Save then takes the facade side's own; an
+    /// answer counts only for the last choice still being prepared; while
+    /// a choice is prepared or found unusable, what the editor showed
+    /// before it stays known (a prepared photo, a removal, or the saved
+    /// card's); Remove is an unsaved removal. Mutations: an earlier
+    /// choice's answer taken for a later one; what was shown before
+    /// forgotten at a second choice; Save keeping the card's photo while
+    /// one is prepared.
+    #[test]
+    fn a_chosen_photo_is_prepared_before_save_takes_it() {
+        let photo = |n: u8| Photo {
+            width: 2,
+            height: 2,
+            rgba: vec![n; 16],
+        };
+        let mut model = UiModel::new();
+        assert_eq!(model.own_photo(), None);
+        assert_eq!(model.own_photo_edit(), PhotoEdit::Keep, "nothing chosen");
+
+        let first = model.own_photo_chosen();
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Preparing));
+        assert_eq!(model.own_photo_before(), None, "the saved card's, before");
+        assert_eq!(model.own_photo_basis(), PhotoBasis::Card);
+        assert_eq!(
+            model.own_photo_edit(),
+            PhotoEdit::Prepared,
+            "Save waits for it"
+        );
+        model.own_photo_prepared(first, Some(photo(1)));
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Prepared(photo(1))));
+
+        // A second choice: P1 is what the editor showed before it, through
+        // an earlier answer arriving late, and through an unusable one.
+        let second = model.own_photo_chosen();
+        assert_eq!(
+            model.own_photo_before(),
+            Some(&OwnPhotoStep::Prepared(photo(1)))
+        );
+        assert_eq!(
+            model.own_photo_basis(),
+            PhotoBasis::Prepared(first),
+            "by its number"
+        );
+        model.own_photo_prepared(first, Some(photo(9)));
+        assert_eq!(
+            model.own_photo(),
+            Some(&OwnPhotoStep::Preparing),
+            "not this choice's"
+        );
+        let third = model.own_photo_chosen();
+        assert_eq!(
+            model.own_photo_before(),
+            Some(&OwnPhotoStep::Prepared(photo(1))),
+            "a choice replacing one being prepared keeps what was shown before"
+        );
+        model.own_photo_prepared(second, Some(photo(2)));
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Preparing));
+        model.own_photo_prepared(third, None);
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Unusable));
+        assert_eq!(
+            model.own_photo_before(),
+            Some(&OwnPhotoStep::Prepared(photo(1)))
+        );
+        assert_eq!(
+            model.own_photo_edit(),
+            PhotoEdit::Prepared,
+            "the facade side keeps P1 for Save"
+        );
+
+        // Remove, then a choice: the removal is what was shown before.
+        model.own_photo_removed();
+        assert_eq!(model.own_photo_edit(), PhotoEdit::Remove);
+        let fourth = model.own_photo_chosen();
+        assert_eq!(model.own_photo_before(), Some(&OwnPhotoStep::Removed));
+        assert_eq!(model.own_photo_basis(), PhotoBasis::Removed);
+        model.own_photo_removed();
+        model.own_photo_prepared(fourth, Some(photo(4)));
+        assert_eq!(model.own_photo(), Some(&OwnPhotoStep::Removed), "dropped");
+
+        let fifth = model.own_photo_chosen();
+        model.own_photo_forgotten();
+        model.own_photo_prepared(fifth, Some(photo(5)));
+        assert_eq!(model.own_photo(), None, "a late answer changes nothing");
+        assert_eq!(model.own_photo_before(), None);
+    }
+
+    /// Design 5.2: unsaved changes are judged against the saved card. A
+    /// photo prepared or on its way is one; a removal is one only over a
+    /// card with a photo; an unusable choice is one only if what the editor
+    /// showed before it was. Mutation: a removal counted whatever the card
+    /// holds.
+    #[test]
+    fn the_editors_photo_is_unsaved_only_when_it_differs_from_the_card() {
+        let photo = Photo {
+            width: 2,
+            height: 2,
+            rgba: vec![1; 16],
+        };
+        let identity = |has_photo: bool| IdentityView {
+            endpoint: EndpointId::parse("human").expect("an endpoint"),
+            name: "Ada".to_owned(),
+            given: "Ada".to_owned(),
+            surname: None,
+            has_photo,
+            photo: has_photo.then(|| photo.clone()),
+            key: OwnKey::Ready {
+                fingerprint: "0123456789abcdef".to_owned(),
+            },
+            peer: None,
+        };
+        let mut model = UiModel::new();
+        model.identity_shown(identity(false));
+        assert!(!model.own_photo_unsaved(), "nothing chosen");
+        model.own_photo_removed();
+        assert!(!model.own_photo_unsaved(), "no photo removed from no photo");
+        let seq = model.own_photo_chosen();
+        assert!(model.own_photo_unsaved(), "one on its way");
+        model.own_photo_prepared(seq, None);
+        assert!(!model.own_photo_unsaved(), "unusable over the card's none");
+        let seq = model.own_photo_chosen();
+        model.own_photo_prepared(seq, Some(photo.clone()));
+        assert!(model.own_photo_unsaved(), "a prepared one");
+
+        model.own_photo_forgotten();
+        model.identity_shown(identity(true));
+        model.own_photo_removed();
+        assert!(model.own_photo_unsaved(), "the card's photo removed");
+        let seq = model.own_photo_chosen();
+        model.own_photo_prepared(seq, None);
+        assert!(model.own_photo_unsaved(), "unusable over a removal");
     }
 }

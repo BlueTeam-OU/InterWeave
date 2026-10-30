@@ -69,11 +69,12 @@ pub use request::{
 pub use result::{
     AddressList, AddressResult, AddressRow, AddressesResult, AdminStatusResult, DirectoryResult,
     ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, EndpointRow, IngressCounters,
-    IpcCounters, LeaseRow, LineOutcome, LineRow, MAX_ADDRESS_DETAIL_CHARS,
-    MAX_BOOTSTRAP_ADDRESS_ROWS, MAX_ENDPOINT_ROWS, MAX_PEER_PAGE_ROWS, MAX_TRUST_PAGE_ROWS,
-    NotDialled, OWN_PEER_SINCE_MINOR, OwnAddressList, OwnAddressRow, OwnKind, PeerList, PeerRow,
-    PreAuthCounters, ROUTE_HELD_SINCE_MINOR, RowSource, SUPERSEDED_SINCE_MINOR, SendResult,
-    ServerCounters, SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList, TrustRow,
+    IpcCounters, LAST_SEEN_SINCE_MINOR, LeaseRow, LineOutcome, LineRow, MAX_ADDRESS_DETAIL_CHARS,
+    MAX_BOOTSTRAP_ADDRESS_ROWS, MAX_ENDPOINT_ROWS, MAX_PEER_PAGE_ROWS,
+    MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN, MAX_TRUST_PAGE_ROWS, NotDialled, OWN_PEER_SINCE_MINOR,
+    OwnAddressList, OwnAddressRow, OwnKind, PeerList, PeerRow, PreAuthCounters,
+    ROUTE_HELD_SINCE_MINOR, RowSource, SUPERSEDED_SINCE_MINOR, SendResult, ServerCounters,
+    SessionLossesResult, SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList, TrustRow,
     TrustSetResult,
 };
 pub use version::{IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, UnsupportedMajor, negotiate, supported};

@@ -25,6 +25,12 @@ interweave-human-core = { path = "../core" }
 interweave-transport-api = { path = "../../api/transport-api" }
 # The card name rule counts after NFC; name_problem counts as it does.
 unicode-normalization = { workspace = true }
+# A Chats preview is cut between whole characters (`preview.rs`).
+unicode-segmentation = { workspace = true }
+# The one order contacts take everywhere (`order.rs`).
+icu_collator = { workspace = true }
+icu_normalizer = { workspace = true }
+icu_provider = { workspace = true }
 
 [dev-dependencies]
 interweave-human-store = { path = "../store" }

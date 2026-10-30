@@ -235,6 +235,11 @@ pub struct PeerGateRow {
     pub peer: TransportIdentity,
     /// Whether any connection to it is open.
     pub connected: bool,
+    /// The last moment a retained connection to it was open, milliseconds
+    /// since the Unix epoch: the reading's time while `connected`, else
+    /// when the last one closed; absent when none has been since the
+    /// runtime started (the substrate's, kept in memory: a restart forgets it).
+    pub last_seen_ms: Option<u64>,
     /// Dials to it are refused until then, milliseconds since the Unix
     /// epoch.
     pub backoff_until_ms: Option<u64>,

@@ -82,6 +82,9 @@ struct Scripted {
     pending_shown: Vec<bool>,
     /// Peers as the last render was shown it.
     peers_shown: Option<interweave_human_ui_model::Peers>,
+    /// Connect as the last render was shown it: `None` while it is not
+    /// open.
+    connect_shown: Option<interweave_human_ui_model::Connect>,
 }
 
 impl Scripted {
@@ -96,6 +99,7 @@ impl Surface for Scripted {
         self.pending_shown
             .push(model.trust_settings().pending().is_some());
         self.peers_shown = Some(model.peers().clone());
+        self.connect_shown = model.connect().cloned();
     }
 
     fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
@@ -115,6 +119,9 @@ const NETWORK_ASKED: &str = "<network access>";
 /// What [`Opened`] records for an ask for the person's authentication.
 const AUTHENTICATION_ASKED: &str = "<authentication>";
 
+/// What [`Opened`] records for onboarding's Connect settled.
+const CONNECT_SETTLED: &str = "<connect settled>";
+
 impl Opener for Opened {
     fn open(&mut self, destination: &str) {
         self.0.borrow_mut().push(destination.to_owned());
@@ -126,6 +133,10 @@ impl Opener for Opened {
 
     fn authenticate(&mut self) {
         self.0.borrow_mut().push(AUTHENTICATION_ASKED.to_owned());
+    }
+
+    fn connect_settled(&mut self) {
+        self.0.borrow_mut().push(CONNECT_SETTLED.to_owned());
     }
 }
 
@@ -676,6 +687,8 @@ async fn an_undecodable_stored_row_is_not_shown_and_is_counted() {
                 media_type: Some(media.clone()),
                 payload,
                 received_at: 1,
+                // As schema v10 leaves a row no client has classified.
+                kind: interweave_human_store::InboundKind::Other,
             })
             .expect("committed");
     }
@@ -1645,6 +1658,118 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
         }),
         "{:?}",
         root.model().peers().add_page_note()
+    );
+}
+
+/// Onboarding's Connect owed and settled at the start -- the pair's trust
+/// lists each hold the other, so the device can reach someone -- is said
+/// to the platform once, and turns after say nothing more; a start that
+/// does not owe it never says it (§5.1: the platform forgets that it was
+/// owed only on this word).
+#[tokio::test]
+async fn connect_settled_reaches_the_platform_once_and_only_when_owed() {
+    for owed in [true, false] {
+        let (a, _) = FakeNetwork::pair(node(), node());
+        let (mut root, opened) = Root::new(facade(&a, memory()));
+        if owed {
+            root.model.connect_owed();
+        }
+        root.settled(0).await;
+        for _ in 0..3 {
+            root.pump(0).await;
+        }
+        let said = opened
+            .0
+            .borrow()
+            .iter()
+            .filter(|o| *o == CONNECT_SETTLED)
+            .count();
+        assert_eq!(said, usize::from(owed), "owed: {owed}");
+    }
+}
+
+/// A trust answer that came after Connect's page closed, its Trust lost
+/// there, moves Connect's line at the turn that takes it, and that turn
+/// draws it: the answer and its `Done` come in one batch, so no later
+/// turn would (add-a-peer §5.1, §5.3).
+#[test]
+fn a_late_trust_answer_is_drawn_on_connect_by_the_turn_that_takes_it() {
+    use interweave_human_client_api::{
+        AddressAnswer, AddressList, AddressOrigin, AddressOutcome, PeerAddress, TrustList, TrustRow,
+    };
+    use interweave_human_ui_model::{ConnectInput, ConnectLine, PeersInput};
+    let (me, them) = (peer(), peer());
+    let line = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", them.as_str());
+    let trusts = |allowed: &[TransportIdentity]| TrustList {
+        local_peer: Some(me.clone()),
+        allowed: allowed.iter().cloned().map(TrustRow::added_here).collect(),
+    };
+    let mut side = ModelSide::new(Scripted::default(), Opened::default());
+    let drawn = |side: &ModelSide<Scripted, Opened>| {
+        side.surface()
+            .connect_shown
+            .as_ref()
+            .map(interweave_human_ui_model::Connect::line)
+    };
+    side.connect_owed();
+    side.apply(Update::TrustRead(Ok(trusts(&[]))));
+    side.apply(Update::AddressesRead(Ok(AddressList::default())));
+    let _ = side.turn();
+    assert_eq!(drawn(&side), Some(None), "Connect open");
+
+    side.surface_mut().will(vec![
+        ViewEvent::Connect(ConnectInput::Add),
+        ViewEvent::Peers(PeersInput::FieldChanged(line.clone())),
+        ViewEvent::Peers(PeersInput::Add),
+    ]);
+    let _ = side.turn();
+    let row = PeerAddress {
+        address: line.clone(),
+        peer: Some(them.clone()),
+        origin: AddressOrigin::AddedHere,
+        dialled: true,
+    };
+    side.apply(Update::AddressesAdded {
+        lines: vec![line],
+        answer: Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(them.clone()),
+            },
+            list: Ok(AddressList {
+                addresses: vec![row],
+            }),
+        }),
+    });
+    let _ = side.turn();
+    let change = TrustChange {
+        peer: them.clone(),
+        allowed: true,
+    };
+    side.surface_mut().will(vec![
+        ViewEvent::Peers(PeersInput::Trust(them.clone())),
+        ViewEvent::Peers(PeersInput::Close),
+    ]);
+    let commands = side.turn();
+    assert!(
+        commands.contains(&Command::SetTrust(change.clone())),
+        "{commands:?}"
+    );
+    assert_eq!(
+        drawn(&side),
+        Some(Some(ConnectLine::TrustUnknown)),
+        "the Trust lost as its page closed"
+    );
+
+    side.apply(Update::TrustSet {
+        change: change.clone(),
+        answer: Ok(trusts(std::slice::from_ref(&them))),
+    });
+    side.apply(Update::Done(Command::SetTrust(change)));
+    let _ = side.turn();
+    assert_eq!(
+        drawn(&side),
+        Some(Some(ConnectLine::Trusted)),
+        "drawn by the turn that took the answer"
     );
 }
 

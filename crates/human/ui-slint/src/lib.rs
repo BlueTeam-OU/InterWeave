@@ -35,10 +35,13 @@ use interweave_human_ui_model::{
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
-mod body;
+use interweave_human_ui_model::body;
 mod cards;
+#[cfg(all(feature = "desktop", target_os = "linux"))]
+mod clipboard;
 mod clock;
 pub mod code;
+mod connect;
 mod gesture;
 mod identity;
 mod peers;
@@ -50,6 +53,7 @@ mod swipe;
 #[cfg(feature = "ui-trace")]
 mod trace;
 
+pub use cards::{PhotoPick, PhotoRequest};
 pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
 pub use identity::{
     IdentityInput, apply as apply_identity, grouped as grouped_peer, page as identity_page,
@@ -87,7 +91,7 @@ pub use generated::Palette;
 /// The start-up refusal screen's window, for a test that reads its tree.
 pub use generated::RefusalWindow;
 use generated::{ActionRow, BodyLine, ConversationRow, LineKind, LinkRow, MessageRow, TrustRow};
-use interweave_human_ui_model::PeersInput;
+use interweave_human_ui_model::{ConnectInput, PeersInput};
 
 /// The view's window, to run the event loop on: shows it, and returns
 /// once the person closes it or [`quit_event_loop`] is called.
@@ -320,6 +324,22 @@ enum Input {
     /// What the person did on a card screen: a proposal's answer names
     /// the model's intent as drawn, a contact names its id.
     Cards(cards::CardsInput),
+    /// What the person did on onboarding's Connect.
+    Connect(ConnectInput),
+}
+
+/// An input the root applies before the next take, handed over as it
+/// is: a draft's edit, or a press on the trust settings, Peers or
+/// Connect, which the model judges when it applies it. Any other input is
+/// the view's to resolve.
+fn handed_over(input: Input) -> Result<ViewEvent, Input> {
+    match input {
+        Input::Draft(key, draft) => Ok(ViewEvent::DraftChanged { key, draft }),
+        Input::Trust(input) => Ok(ViewEvent::Trust(input)),
+        Input::Peers(input) => Ok(ViewEvent::Peers(input)),
+        Input::Connect(input) => Ok(ViewEvent::Connect(input)),
+        other => Err(other),
+    }
 }
 
 /// What made an item action: its row button, or a touch swipe.
@@ -416,6 +436,9 @@ struct Shared {
     snack: Option<SnackUp>,
     /// An Accept's snackbar whose timeout waits on focus (#416).
     accept_snack: Option<AcceptSnack>,
+    /// The conversation's rows in the reading order, which an Accept's
+    /// snackbar's span is judged in.
+    order: swipe::Order,
     /// The window, to take a snackbar off screen when an input that closes
     /// it is queued.
     window: slint::Weak<AppWindow>,
@@ -433,6 +456,9 @@ struct Shared {
     /// The scan a reader runs for: bumped as each scan ends, so a result
     /// that outlives its scan is dropped (#409 C4).
     scan_number: u64,
+    /// The own card's file dialog's answer, put here by its thread and
+    /// taken on the window's, as the input it becomes.
+    photo_pick: std::sync::Arc<std::sync::Mutex<Option<cards::CardsInput>>>,
 }
 
 /// An Accept's snackbar's clock (contact-cards design section 5.4.2):
@@ -500,7 +526,10 @@ impl Shared {
     fn push(&mut self, input: Input) -> Option<Rc<dyn Fn()>> {
         let closes = self.snack.as_ref().is_some_and(|s| s.closed_by(&input));
         let refused = self.refused;
+        let photo = self.cards.changes_own_photo(&input);
         let wake = self.queue(input);
+        // Only a change the queue accepted is waiting to be drawn.
+        self.cards.own_photo_queued |= photo && self.refused == refused;
         if closes
             && self.refused == refused
             && let Some(window) = self.window.upgrade()
@@ -740,6 +769,9 @@ enum Page {
     Peers,
     /// A card page -- Contacts, a contact, the own card -- in its place.
     Cards,
+    /// Onboarding's Connect, over everything; the pages it opens are
+    /// Peers', drawn in its place while they are up.
+    Connect,
 }
 
 /// The reference view: one window, bound to a [`UiModel`].
@@ -835,6 +867,9 @@ pub struct View {
     previews: HashMap<ConversationKey, (ItemKey, String)>,
     /// The messages last drawn, by key, kept while a row leaves.
     shown_items: HashMap<ItemKey, MessageItem>,
+    /// Each message drawn and not leaving, in order: its handle and when
+    /// it arrived, which the card rows are placed among.
+    message_times: Vec<(i32, u64)>,
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
@@ -910,6 +945,7 @@ impl View {
         window.set_composer_label(text(UiText::Composer));
         window.set_send_label(text(UiText::Send));
         window.set_show_source_label(text(UiText::ShowSource));
+        window.set_card_sent_label(text(UiText::CardSentLabel));
         window.set_show_formatted_label(text(UiText::ShowFormatted));
         window.set_code_font(code_font());
         window.set_app_options_label(text(UiText::AppOptions));
@@ -1006,6 +1042,7 @@ impl View {
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
         wire_trust(&window, &shared);
         peers::wire(&window, &shared);
+        connect::wire(&window, &shared);
         cards::wire(&window, &shared);
 
         let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
@@ -1063,6 +1100,7 @@ impl View {
             monotonic: Rc::new(Instant::now),
             previews: HashMap::new(),
             shown_items: HashMap::new(),
+            message_times: Vec::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
             copy_feedback: CopyFeedback::Snackbar,
@@ -1170,21 +1208,11 @@ impl View {
             if let WindowEvent::Focused(now) = event {
                 focused(*now);
             }
-            // Minimised: the desktop's background, where Show is never left
-            // on screen (add-a-peer §5.4). Asked of the window itself at
-            // each change that may come with it -- focus lost, a resize, an
-            // occlusion -- since no event says it on every platform, and
-            // occlusion alone is not it: X11 and macOS report a window only
-            // covered as occluded, and the person switches away to paste
-            // the address (#409 C2). Wayland never says a window is
-            // minimised, and a session lock is not reported to the window:
-            // both are known limits.
-            if matches!(
-                event,
-                WindowEvent::Focused(false) | WindowEvent::Resized(_) | WindowEvent::Occluded(_)
-            ) && window.with_winit_window(winit::window::Window::is_minimized)
-                == Some(Some(true))
-            {
+            if minimised_closes_show(event, || {
+                window
+                    .with_winit_window(winit::window::Window::is_minimized)
+                    .flatten()
+            }) {
                 enqueue(&shared, Input::Peers(PeersInput::CloseShow));
             }
             EventResult::Propagate
@@ -1193,14 +1221,16 @@ impl View {
 
     /// The scan controls this platform offers on the add page
     /// (`design/2026-10-22-add-a-peer.md` §5.5): the camera on a phone
-    /// that has one, an image file and the clipboard's image on the
-    /// desktop. None by default, and none is drawn: typing or pasting the
-    /// text does all a scan does. The images' reader is compiled only
-    /// with the `desktop` feature; without it an image scan ends at once
-    /// as a cancelled one. The clipboard's image is offered apart: the
-    /// clipboard crate decodes it whole before any bound of this client's
-    /// applies, so the desktop withholds it until a bounded read exists
-    /// (#409 F1).
+    /// that has one, an image file on the desktop, and the clipboard's
+    /// image where offered. None by default, and none is drawn: typing or
+    /// pasting the text does all a scan does. The images' reader is
+    /// compiled only with the `desktop` feature; without it an image scan
+    /// ends at once as a cancelled one. The clipboard's image is offered
+    /// apart, since Linux alone reads it within bounds (`clipboard.rs`;
+    /// desktop-e2e `a_hostile_clipboard_owner_is_given_up_at_the_deadline`);
+    /// elsewhere a Paste press ends as a cancelled scan (#409 F1;
+    /// `a_paste_press_reads_no_clipboard_and_ends_cancelled`, which
+    /// compiles only off Linux, so a Linux-only CI does not run it).
     pub fn offer_scans(&self, camera: bool, files: bool, clipboard: bool) {
         self.window.set_scan_camera(camera);
         self.window.set_scan_images(files);
@@ -1410,6 +1440,28 @@ impl View {
         }
     }
 
+    /// Give the own card's editor the platform's photo picker (contact-
+    /// cards design 5.2: Android's Photo Picker, images only, one item):
+    /// `pick(PhotoPick::Open(request))` opens it, and the root answers with
+    /// [`Self::photo_picked`] for that request; `pick(PhotoPick::Abandon)`
+    /// when the editor that asked closed, or a newer `Open`, says the
+    /// outstanding read is no longer wanted. Without one, the desktop
+    /// build opens its file dialog.
+    pub fn photo_picker_hook(&mut self, pick: impl Fn(PhotoPick) + 'static) {
+        self.cards.photo_picker = Some(Rc::new(pick));
+    }
+
+    /// The picker's answer to `request`: the image as its file holds it,
+    /// or `None` when the person chose nothing. An image that could not be
+    /// read is handed on empty, so the editor says it cannot be used. Only
+    /// the answer to the request the open editor waits on is taken.
+    pub fn photo_picked(&self, request: PhotoRequest, chosen: Option<Vec<u8>>) {
+        enqueue(
+            &self.shared,
+            Input::Cards(cards::CardsInput::PhotoPicked(request, chosen)),
+        );
+    }
+
     /// Give the add page the platform's camera (add-a-peer §5.5):
     /// `camera(true)` when a camera scan opens, `camera(false)` when it
     /// ends, however it ended. Frames come back through
@@ -1563,6 +1615,13 @@ impl View {
             let Some(input) = next else {
                 break;
             };
+            let input = match handed_over(input) {
+                Ok(event) => {
+                    out.push(event);
+                    return out;
+                }
+                Err(input) => input,
+            };
             match input {
                 Input::Select(key) => {
                     // A conversation picked in the list beside the trust
@@ -1682,10 +1741,6 @@ impl View {
                 Input::Send(key) => {
                     out.extend(model.send_draft(&key).map(ViewEvent::Intent));
                 }
-                Input::Draft(key, draft) => {
-                    out.push(ViewEvent::DraftChanged { key, draft });
-                    return out;
-                }
                 // The root applies a trust input before the next take, as
                 // it does an edit. Leaving the settings drops a change still
                 // waiting for confirmation: none is made from a page the
@@ -1709,10 +1764,6 @@ impl View {
                     }));
                     return out;
                 }
-                Input::Trust(input) => {
-                    out.push(ViewEvent::Trust(input));
-                    return out;
-                }
                 // The root applies a Peers input before the next take.
                 Input::PeersPage(open) => {
                     self.page = if open {
@@ -1730,10 +1781,8 @@ impl View {
                         return out;
                     }
                 }
-                Input::Peers(input) => {
-                    out.push(ViewEvent::Peers(input));
-                    return out;
-                }
+                // Handed over before this match (`handed_over`).
+                Input::Draft(..) | Input::Trust(_) | Input::Peers(_) | Input::Connect(_) => {}
                 // A card page opened in the trust settings' or Peers'
                 // place leaves them as a pick of a conversation does.
                 Input::Cards(input) => {
@@ -1781,7 +1830,9 @@ impl View {
         // an unrelated event (seen over AT-SPI in the shipped client).
         // After a draft edit returns early, the next call renders it.
         if std::mem::take(&mut self.selection_unrendered) {
+            self.cards.rendering_in_take = true;
             self.render(model);
+            self.cards.rendering_in_take = false;
         }
         // The queue has drained: a render's "viewed" is resolved against the
         // focus and the conversation of this moment, so it can only read
@@ -1898,7 +1949,7 @@ impl View {
     fn on_screen(&self) -> Option<&ConversationKey> {
         match self.page {
             Page::Conversation if self.window.get_pane_shown() => self.shown.as_ref(),
-            Page::Conversation | Page::Trust | Page::Peers | Page::Cards => None,
+            Page::Conversation | Page::Trust | Page::Peers | Page::Cards | Page::Connect => None,
         }
     }
 
@@ -1930,10 +1981,12 @@ impl View {
         // slot, and the first would never be heard (review F5).
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
+        // Before Peers, which draws the pages Connect opened by its page.
+        let connect = self.render_connect(model);
         let peers = self.render_peers(model);
         let cards = self.render_cards(model);
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
-        let said = [conversation, trust, peers, cards, outcome]
+        let said = [conversation, trust, connect, peers, cards, outcome]
             .into_iter()
             .flatten()
             .reduce(|first, rest| {
@@ -2098,7 +2151,7 @@ impl View {
                 .filter(|(_, row)| !row.leaving)
                 .map(|(key, row)| (row.handle, key.clone()))
                 .collect();
-            shared.swipes.retain(|k, _| k.starts_with("m:"));
+            shared.swipes.retain(|k, _| !k.starts_with("c:"));
             for (key, row) in keys.iter().zip(&rows) {
                 if row.hide != generated::SwipeKind::None && !row.leaving {
                     shared.swipes.insert(
@@ -2128,7 +2181,18 @@ impl View {
             return text.clone();
         }
         let first = body::first_line(&last.body, &image_text);
-        let text = if last.direction == Direction::Outbound {
+        // One's own card row has no text: its line is the preview, and
+        // already says whose (contact-cards 5.5). The design's
+        // CardPreviewSent reads the same words, and no two interface texts
+        // may (`labels::tests::every_ui_text_appears_once_in_all`), so it is
+        // this key. A card someone sent is previewed as a card, never by
+        // the name it claims (contact-cards 5.4.5, `CardPreviewReceived`;
+        // #498 review F2).
+        let text = if last.card && last.direction == Direction::Outbound {
+            placeholder_en::text(UiText::CardSentLabel).to_owned()
+        } else if last.card {
+            placeholder_en::text(UiText::CardPreviewReceived).to_owned()
+        } else if last.direction == Direction::Outbound {
             fill(
                 placeholder_en::text(UiText::OwnLastMessage),
                 &[("message", &first)],
@@ -2366,6 +2430,7 @@ impl View {
                 entry.2 = entry.2.max(last);
             }
         }
+        self.place_cards(model, &keys, &mut rows, &items, &leaving, channel);
         if !self.leaving_messages.is_empty() {
             self.wake_after(LEAVING);
         }
@@ -2383,12 +2448,99 @@ impl View {
         {
             let mut shared = self.shared.borrow_mut();
             shared.items = rendered;
-            shared.swipes.retain(|k, _| k.starts_with("c:"));
+            shared.swipes.retain(|k, _| !k.starts_with("m:"));
             shared.swipes.extend(swipes);
         }
         update_by_key(&*self.messages, &mut self.message_keys, &keys, &rows);
         let drawn = &self.message_keys;
         self.pressed.retain(|key| drawn.contains(key));
+    }
+
+    /// The card rows among the messages (contact-cards design 5.4: each
+    /// at its place in time). A card follows the last message that did
+    /// not arrive after it, so each kept row counts the cards drawn below
+    /// it; the message after them is placed as after a row of its own,
+    /// its day separator judged against the last card's day and its run
+    /// broken (`a_card_is_drawn_between_the_messages_it_arrived_between`).
+    /// A leaving row holds no card: they go to the row before it. The
+    /// card rows themselves are placed by the same rule in
+    /// `render_proposals`, from `message_times`.
+    fn place_cards(
+        &mut self,
+        model: &UiModel,
+        keys: &[ItemKey],
+        rows: &mut [MessageRow],
+        items: &[MessageItem],
+        leaving: &HashSet<ItemKey>,
+        channel: bool,
+    ) {
+        let cards = self.card_times(model);
+        let by_key: HashMap<ItemKey, &MessageItem> = items.iter().map(|i| (i.key, i)).collect();
+        let mut times = Vec::new();
+        let mut next = 0;
+        let mut kept: Option<usize> = None;
+        for (i, key) in keys.iter().enumerate() {
+            if leaving.contains(key) {
+                // A leaving row holds no card, whatever its last copy held.
+                rows[i].cards_after = 0;
+                continue;
+            }
+            let Some(item) = by_key.get(key) else {
+                continue;
+            };
+            let first = next;
+            while next < cards.len() && cards[next] < item.local_at {
+                next += 1;
+            }
+            if next > first {
+                if let Some(before) = kept {
+                    rows[before].cards_after += i32::try_from(next - first).unwrap_or(i32::MAX);
+                }
+                // Only leaving rows stand between the kept row and this
+                // one. A card that arrived after one of them moved up past
+                // it: that row gives its separator's hand-over up, the card
+                // heading the day now
+                // (`a_card_that_moves_up_takes_its_days_separator_from_a_leaving_row`);
+                // a row the cards never passed keeps it
+                // (`a_card_before_a_leaving_row_leaves_its_hand_over_alone`,
+                // `a_card_between_two_leaving_rows_takes_no_hand_over_from_the_later`).
+                // This message is judged against the last card only when
+                // that card arrived after every leaving row, so stands
+                // right above it.
+                let last_card = cards[next - 1];
+                let left_at = |key: &ItemKey| self.shown_items.get(key).map(|left| left.local_at);
+                let start = kept.map_or(0, |k| k + 1);
+                for (row, key) in rows[start..i].iter_mut().zip(&keys[start..i]) {
+                    if left_at(key).is_none_or(|at| last_card >= at) {
+                        row.hand_over = false;
+                    }
+                }
+                let next_to_it = keys[start..i]
+                    .last()
+                    .is_none_or(|key| left_at(key).is_none_or(|at| last_card >= at));
+                if !next_to_it {
+                    times.push((rows[i].handle, item.local_at));
+                    kept = Some(i);
+                    continue;
+                }
+                let card_day = self.clock.local(cards[next - 1]).day;
+                let day = self.clock.local(item.local_at).day;
+                rows[i].day = if card_day == day {
+                    SharedString::new()
+                } else {
+                    clock::day_text(day).into()
+                };
+                rows[i].gap = 8.0;
+                rows[i].show_author = channel && item.direction == Direction::Inbound;
+            }
+            times.push((rows[i].handle, item.local_at));
+            kept = Some(i);
+        }
+        if let Some(last) = kept {
+            rows[last].cards_after += i32::try_from(cards.len() - next).unwrap_or(i32::MAX);
+        }
+        self.shared.borrow_mut().order.messages = times.iter().map(|(h, _)| *h).collect();
+        self.message_times = times;
     }
 
     /// One wake at `due`, the soonest age change of a shown waiting
@@ -2559,16 +2711,28 @@ impl View {
         let snack = model.snackbar();
         let up = snack.as_ref().map(SnackUp::of);
         let closing = up.as_ref().is_some_and(|s| self.shared.borrow().closing(s));
+        // A contact's snackbar is the card pages', and leaving them closes
+        // it, as leaving a conversation closes its own (contact-cards
+        // design section 6.3, message-swipe section 5).
+        let on_cards = self.page == Page::Cards;
+        if let Some(s) = &snack
+            && s.contact.is_some()
+            && !on_cards
+        {
+            enqueue(&self.shared, Input::SnackClosed(s.id));
+        }
         let shown = snack.as_ref().filter(|s| {
             !closing
-                && match &s.conversation {
-                    None => true,
-                    Some(c) => self.on_screen() == Some(c),
+                && match (&s.contact, &s.conversation) {
+                    (Some(_), _) => on_cards,
+                    (None, None) => true,
+                    (None, Some(c)) => self.on_screen() == Some(c),
                 }
         });
         window.set_snack_shown(shown.is_some());
         if let Some(s) = shown {
-            window.set_snack_on_list(s.conversation.is_none());
+            window.set_snack_on_cards(s.contact.is_some());
+            window.set_snack_on_list(s.conversation.is_none() && s.contact.is_none());
             window.set_snack_id(i32::try_from(s.id).unwrap_or(i32::MAX));
             window.set_snack_text(swipe::confirmation_text(s.confirms).into());
             window.set_snack_undo(s.undo);
@@ -2622,6 +2786,9 @@ impl View {
                 .is_some_and(|key| model.conversation_hide_offered(key)),
         );
 
+        // The rows' offers as this render drew them, against the touch
+        // that may be dragging one (contact-cards design 5.4.4).
+        swipe::reoffered(&self.shared, window);
         let outcome = model.outcome().cloned();
         let outcome_id = outcome.as_ref().map(|o| o.id);
         // A row a committed swipe slid out stays there until the render
@@ -2740,11 +2907,12 @@ impl View {
                 let focus = window.get_focus_id();
                 let now = monotonic();
                 let closes = {
-                    let mut s = shared.borrow_mut();
+                    let mut held = shared.borrow_mut();
+                    let s = &mut *held;
                     let Some(a) = s.accept_snack.as_mut() else {
                         return;
                     };
-                    if swipe::in_accept_span(focus.as_str(), a.handle) {
+                    if swipe::in_accept_span(focus.as_str(), a.handle, &s.order) {
                         a.deadline = None;
                     } else if a.deadline.is_none() {
                         a.deadline = Some(now + Duration::from_millis(a.ms));
@@ -2795,13 +2963,29 @@ impl View {
                 .get(row)
                 .filter(|(_, answered)| !answered)
                 .map(|(handle, _)| format!("proposal-accept:{handle}")),
+            FocusTarget::Contacts
+            | FocusTarget::Contact(_)
+            | FocusTarget::ContactPage(_)
+            | FocusTarget::ContactRemovePhoto(_) => self.contact_focus(focus),
         };
         let Some(target) = target else {
             return false;
         };
         // Once the rows it names exist: a restored row is drawn by this
-        // render, and its controls are made after it.
-        self.focus_key(target);
+        // render, and its controls are made after it. The card pages'
+        // lists are replaced whole, so a contact's row is a control made
+        // by this render, which misses a first request.
+        if matches!(
+            focus,
+            FocusTarget::Contacts
+                | FocusTarget::Contact(_)
+                | FocusTarget::ContactPage(_)
+                | FocusTarget::ContactRemovePhoto(_)
+        ) {
+            self.focus_key_after_draw(target);
+        } else {
+            self.focus_key(target);
+        }
         true
     }
 
@@ -3262,10 +3446,40 @@ fn message_row(
         Some(Reply::Unavailable(_)) => placeholder_en::text(UiText::ReplyUnavailable),
         None => "",
     };
+    // One's own card row is read as its line, the name as sent, and, when
+    // the card carried a photo, CardSentPhoto as a sentence of its own
+    // (contact-cards 5.5), then status and time, as any item's. The
+    // template ends the body with its period, so CardSentPhoto's own is
+    // not said twice.
+    let (said_author, body) = match &item.card {
+        Some(card) => {
+            // A name may end in its own full stop ("Ada L."): no second
+            // one is added after it, and the template's own after the body
+            // is not doubled (#471 R1 F1).
+            let ends_a_sentence = |s: &str| s.ends_with(['.', '!', '?', '\u{2026}']);
+            let mut body = card.name.clone();
+            if card.photo.is_some() {
+                if !ends_a_sentence(&body) {
+                    body.push('.');
+                }
+                body.push(' ');
+                body.push_str(placeholder_en::text(UiText::CardSentPhoto));
+            }
+            // Only a full stop goes: the template ends the body with one.
+            // A name's own "!", "?" or "…" stays, as a message's does
+            // (#471 R2 F2).
+            if body.ends_with('.') {
+                body.pop();
+            }
+            (placeholder_en::text(UiText::CardSentLabel).to_owned(), body)
+        }
+        None => (author.clone(), drawn.plain.clone()),
+    };
+    let has_actions = actions.row_count() > 0;
     let mut values = vec![
-        ("author", author.as_str()),
+        ("author", said_author.as_str()),
         ("status", status.text.as_str()),
-        ("body", drawn.plain.as_str()),
+        ("body", body.as_str()),
         ("time", placed.time.as_str()),
     ];
     let template = match status.reason {
@@ -3285,6 +3499,7 @@ fn message_row(
         reason: status.reason.unwrap_or_default().into(),
         outbound: item.direction == Direction::Outbound,
         hand_over: false,
+        cards_after: 0,
         show_author: placed.show_author,
         status_glyph: mark.glyph,
         status_dot: mark.dot,
@@ -3310,6 +3525,27 @@ fn message_row(
             .unwrap_or_default()
             .into(),
         leaving: false,
+        card: item.card.is_some(),
+        card_name: item
+            .card
+            .as_ref()
+            .map(|c| c.name.as_str())
+            .unwrap_or_default()
+            .into(),
+        card_letters: item
+            .card
+            .as_ref()
+            .map(|c| cards::initials(&c.name))
+            .unwrap_or_default()
+            .into(),
+        card_has_photo: item.card.as_ref().is_some_and(|c| c.photo.is_some()),
+        card_photo: item
+            .card
+            .as_ref()
+            .and_then(|c| c.photo.as_ref())
+            .map(cards::image)
+            .unwrap_or_default(),
+        has_menu: item.card.is_none() || has_actions,
     }
 }
 
@@ -3596,6 +3832,7 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::OpenLink(_)
         | Intent::Restore(_)
         | Intent::UndoCard(_)
+        | Intent::UndoContact { .. }
         // The key's actions are the card page's own controls.
         | Intent::AskNewKey
         | Intent::MakeNewKey
@@ -3610,10 +3847,14 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::ReadOwnAddresses
         // Edits come from the settings and the contact page's own
         // controls, never an item's.
+        | Intent::ChooseOwnPhoto(_)
+        | Intent::ForgetOwnPhoto
+        | Intent::RemoveOwnPhoto
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
         | Intent::SetContactPhoto { .. }
-        | Intent::DeleteContact { .. } => return None,
+        | Intent::DeleteContact { .. }
+        | Intent::DeleteRoute { .. } => return None,
     };
     Some(placeholder_en::text(text))
 }
@@ -3666,6 +3907,27 @@ fn full_id(key: &ConversationKey) -> String {
         ConversationKey::Direct { peer, .. } => peer.as_str().to_owned(),
         ConversationKey::Channel(channel) => channel.as_str().to_owned(),
     }
+}
+
+/// Whether `event` closes Show: the window minimised, the desktop's
+/// background, where Show is never left on screen (add-a-peer §5.4).
+/// `minimised` asks the window itself, at each change that may come with
+/// it -- focus lost, a resize, an occlusion -- since no event says it on
+/// every platform; and occlusion alone is not it: X11 and macOS report a
+/// window only covered as occluded, and the person switches away to paste
+/// the address (#409 C2). Wayland never says a window is minimised (the
+/// answer is `None`), and a session lock is not reported to the window:
+/// both are known limits. `minimised_closes_show_only_when_minimised`.
+#[cfg(feature = "desktop")]
+fn minimised_closes_show(
+    event: &slint::winit_030::winit::event::WindowEvent,
+    minimised: impl FnOnce() -> Option<bool>,
+) -> bool {
+    use slint::winit_030::winit::event::WindowEvent;
+    matches!(
+        event,
+        WindowEvent::Focused(false) | WindowEvent::Resized(_) | WindowEvent::Occluded(_)
+    ) && minimised() == Some(true)
 }
 
 #[cfg(test)]
@@ -3776,5 +4038,39 @@ mod tests {
         assert_eq!(inserts("abcd", "acd").0, 0, "a removal moves nothing");
         assert_eq!(inserts("abcd", "abxcd").0, 1, "an insertion is one");
         assert_eq!(inserts("abcd", "dcba").0, 3, "a reversal is still correct");
+    }
+
+    /// Show closes when the window says it is minimised, at focus lost, a
+    /// resize or an occlusion; never when it is only covered or the answer
+    /// is unknown (Wayland), and never at another event (#409 r3 F3).
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn minimised_closes_show_only_when_minimised() {
+        use slint::winit_030::winit::dpi::PhysicalSize;
+        use slint::winit_030::winit::event::WindowEvent;
+        let events = [
+            WindowEvent::Focused(false),
+            WindowEvent::Resized(PhysicalSize::new(0, 0)),
+            WindowEvent::Occluded(true),
+        ];
+        for event in &events {
+            assert!(
+                super::minimised_closes_show(event, || Some(true)),
+                "{event:?}"
+            );
+            assert!(
+                !super::minimised_closes_show(event, || Some(false)),
+                "{event:?}"
+            );
+            assert!(!super::minimised_closes_show(event, || None), "{event:?}");
+        }
+        assert!(!super::minimised_closes_show(
+            &WindowEvent::Focused(true),
+            || Some(true)
+        ));
+        assert!(!super::minimised_closes_show(
+            &WindowEvent::CloseRequested,
+            || Some(true)
+        ));
     }
 }

@@ -13,8 +13,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use interweave_ipc_protocol::{
     AddressList, AddressResult, AddressesResult, AdminStatusResult, DirectoryResult,
     ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, OwnAddressList, PeerList, Request,
-    RequestId, ResponseFrame, SUPERSEDED_SINCE_MINOR, SendResult, SetEnabledResult,
-    TRUST_SOURCE_SINCE_MINOR, TrustList, TrustSetResult,
+    RequestId, ResponseFrame, SUPERSEDED_SINCE_MINOR, SendResult, SessionLossesResult,
+    SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList, TrustSetResult,
 };
 use interweave_local_client_api::{AddressChange, AdminPort, DataSessionPort, TrustChange};
 use interweave_transport_api::{BroadcastMessageV1, DirectDestination, TransportError};
@@ -63,6 +63,10 @@ pub(crate) async fn data<S: DataSessionPort>(
         }
         Request::EndpointsQuery(p) => match session.query_endpoints(p.peer).await {
             Ok(directory) => ResponseFrame::success(id, &DirectoryResult::from(directory)),
+            Err(code) => ResponseFrame::failure(id, code),
+        },
+        Request::SessionLosses => match session.losses().await {
+            Ok(losses) => ResponseFrame::success(id, &SessionLossesResult::from(losses)),
             Err(code) => ResponseFrame::failure(id, code),
         },
         // Admission refuses the admin domain on the data socket before
@@ -218,9 +222,8 @@ pub(crate) async fn admin<A: AdminPort>(
         | Request::ChannelLeave(_)
         | Request::BroadcastPublish(_)
         | Request::DirectSend(_)
-        | Request::EndpointsQuery(_) => {
-            ResponseFrame::failure(id, TransportError::CapabilityDenied)
-        }
+        | Request::EndpointsQuery(_)
+        | Request::SessionLosses => ResponseFrame::failure(id, TransportError::CapabilityDenied),
     }
 }
 
@@ -324,6 +327,12 @@ mod tests {
                 serde_json::json!({"peer": PEER}),
                 "query ",
                 r#""endpoints":["agent"]"#,
+            ),
+            (
+                Method::SessionLosses,
+                serde_json::json!({}),
+                "losses",
+                r#""result":{"queue_overflow":3,"ingress_refused":5}"#,
             ),
         ];
         for (method, params, call, result) in cases {
@@ -545,6 +554,7 @@ mod tests {
                     ))
                     .expect("peer"),
                     connected: false,
+                    last_seen: interweave_local_client_api::PeerLastSeen::At(5),
                     backoff_until: Some(1),
                     quarantined_until: None,
                     route_held_until: Some(7),
@@ -563,13 +573,32 @@ mod tests {
                 frame.outcome::<PeerList>().expect("a page")
             }
         };
-        let max = interweave_ipc_protocol::IPC_MAX_MINOR;
-        let first = page(serde_json::json!({}), max).await;
-        assert_eq!(first.peers.len(), MAX_PEER_PAGE_ROWS);
-        let next = first.next.expect("one more remains");
-        let second = page(serde_json::json!({"after": next.as_str()}), max).await;
-        assert_eq!(second.peers.len(), 1);
-        assert_eq!(second.next, None, "the last page");
+        // Each minor's page bound: 512 below 2.12, fewer from it, where
+        // the row is longer.
+        let last_seen = interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR;
+        for (minor, per_page) in [
+            (last_seen - 1, MAX_PEER_PAGE_ROWS),
+            (
+                last_seen,
+                interweave_ipc_protocol::MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN,
+            ),
+        ] {
+            let first = page(serde_json::json!({}), minor).await;
+            assert_eq!(first.peers.len(), per_page, "minor {minor}");
+            let next = first.next.expect("more remain");
+            let second = page(serde_json::json!({"after": next.as_str()}), minor).await;
+            assert_eq!(second.peers.len(), MAX_PEER_PAGE_ROWS + 1 - per_page);
+            assert_eq!(second.next, None, "the last page");
+        }
+        // The last-seen time from 2.12, and not below it.
+        assert_eq!(
+            page(serde_json::json!({}), last_seen).await.peers[0].last_seen_ms,
+            Some(Some(5))
+        );
+        assert_eq!(
+            page(serde_json::json!({}), last_seen - 1).await.peers[0].last_seen_ms,
+            None
+        );
         // The route hold is served on the connection's own minor: from
         // 2.6, and not below it (#329 review F4).
         let since = interweave_ipc_protocol::ROUTE_HELD_SINCE_MINOR;

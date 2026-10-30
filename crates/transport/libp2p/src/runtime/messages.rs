@@ -96,6 +96,13 @@ pub enum SwarmCommand {
         /// Answered with the events, oldest first.
         reply: oneshot::Sender<Vec<interweave_transport_runtime::session_queue::BroadcastEvent>>,
     },
+    /// Read one session's broadcast losses (IPC 2.11 `session.losses`).
+    SessionLosses {
+        /// The session reading its own counts.
+        session: String,
+        /// Answered with its two counts, zero for a session with none.
+        reply: oneshot::Sender<interweave_transport_runtime::SessionLosses>,
+    },
     /// Stop a listener, naming it by an address `listen` returned.
     ///
     /// Answers `true` when a listener was serving that address and has
@@ -403,6 +410,24 @@ pub struct NetworkView {
     /// this build has no DNS-over-TLS, and plain DNS is what the user's
     /// setting refuses (architect-cto's ruling, `GZCoord` 01a13bb7).
     pub private_dns: Option<String>,
+    /// The members of `addresses` the platform classifies as lying on NO
+    /// LOCAL NETWORK: on Android every address of a carrier's network,
+    /// cellular or satellite, that no local network also has
+    /// (`CONNECTIVITY.md` §14, A 2026-10-26; ADR-0052 rule 10). The
+    /// classification of an address and nothing else: never the
+    /// transport, a network id or a carrier fact. The runtime acts on
+    /// its private-range members alone: not advertised by Identify, not
+    /// offered to DCUtR, not shown, no own private listener for rule 3
+    /// (`NetworkSet::offers`); a global one is AutoNAT's. Empty -- the
+    /// default -- classifies nothing, but the VIEW still judges: a
+    /// private listener on an IP `addresses` does not hold is on no local
+    /// network all the same (A 2026-10-27). With no view at all, the
+    /// desktop, every private listener counts as local, as before the
+    /// rule. A listener in the shared address space, `100.64.0.0/10`, is
+    /// on no local network whatever this field and the view say (A
+    /// 2026-10-27 (iii), `listen_scope::lies_on_no_local_network`). An entry
+    /// absent from `addresses` names nothing.
+    pub off_local_network: Vec<std::net::IpAddr>,
 }
 
 impl NetworkView {
@@ -430,6 +455,13 @@ impl NetworkView {
         self.private_dns = private_dns;
         self
     }
+
+    /// The addresses the platform classifies as on no local network.
+    #[must_use]
+    pub fn with_off_local_network(mut self, off_local_network: Vec<std::net::IpAddr>) -> Self {
+        self.off_local_network = off_local_network;
+        self
+    }
 }
 
 /// The gate's hold on one peer, on the wall clock (`CONNECTIVITY.md`
@@ -440,6 +472,12 @@ pub struct PeerGate {
     pub peer: TransportIdentity,
     /// Whether any connection to it is open.
     pub connected: bool,
+    /// The last moment a retained connection to it was open,
+    /// milliseconds since the Unix epoch: the photograph's own time
+    /// while `connected`, else when the last one closed; absent when
+    /// none has been since the runtime started, which keeps no record of
+    /// it across a restart.
+    pub last_seen_ms: Option<u64>,
     /// Dials to it are refused until then, milliseconds since the Unix
     /// epoch.
     pub backoff_until_ms: Option<u64>,

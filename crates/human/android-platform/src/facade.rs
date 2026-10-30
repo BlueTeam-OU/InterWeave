@@ -66,10 +66,54 @@ enum Woke {
     Poll,
 }
 
+/// A facade closing: withdrawn from the hub, so a command sent from now
+/// on is handed back to the view to fail, then every command the hub
+/// accepted before, for the loop to carry out. Withdrawn first, so none
+/// can arrive after the drain (owner's finding P2-2;
+/// `closing_hands_back_every_command_accepted_before_it`).
+fn closing(
+    hub: &Hub,
+    generation: u64,
+    waiting: &mut mpsc::UnboundedReceiver<Command>,
+) -> Vec<Command> {
+    hub.withdraw(generation);
+    let mut accepted = Vec::new();
+    while let Ok(command) = waiting.try_recv() {
+        accepted.push(command);
+    }
+    accepted
+}
+
 /// The running facade loop.
 pub struct FacadeLoop {
     close: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
+    hub: Arc<Hub>,
+    generation: u64,
+}
+
+/// Says the facade's thread ended to the hub however it ends, a panic
+/// included: a thread counted alive forever would refuse every store
+/// discard.
+struct Ends {
+    hub: Arc<Hub>,
+    generation: u64,
+}
+
+impl Drop for Ends {
+    fn drop(&mut self) {
+        self.hub.ended(self.generation);
+    }
+}
+
+/// What the facade's thread holds. Fields drop in order, so the side --
+/// its store connection with it, the WAL truncated and closed -- goes
+/// before the hub hears the thread ended, on every path, an unwind
+/// included: until then a store discard is refused (#495 review F3,
+/// `the_side_drops_before_the_hub_hears_the_thread_ended`).
+struct Held<S> {
+    side: S,
+    _ends: Ends,
 }
 
 impl FacadeLoop {
@@ -106,25 +150,34 @@ impl FacadeLoop {
         let (close, mut closed) = oneshot::channel();
         let (report, reported) = std::sync::mpsc::sync_channel(1);
         let on_thread = Arc::clone(hub);
-        let spawned = std::thread::Builder::new()
-            .name("human-facade".to_owned())
-            .spawn(move || {
-                let hub = on_thread;
-                let mut side = match make() {
-                    Ok(side) => side,
-                    Err(e) => {
-                        let _ = report.send(Err(e));
-                        return;
-                    }
-                };
-                hub.set_running(Some(commands));
-                let _ = report.send(Ok(()));
-                let start = Instant::now();
-                let now = || u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                executor.block_on(async {
+        let spawned =
+            std::thread::Builder::new()
+                .name("human-facade".to_owned())
+                .spawn(move || {
+                    let hub = on_thread;
+                    let side = match make() {
+                        Ok(side) => side,
+                        Err(e) => {
+                            let _ = report.send(Err(e));
+                            return;
+                        }
+                    };
+                    let generation = hub.started(commands);
+                    let mut held = Held {
+                        side,
+                        _ends: Ends {
+                            hub: Arc::clone(&hub),
+                            generation,
+                        },
+                    };
+                    let side = &mut held.side;
+                    let _ = report.send(Ok(generation));
+                    let start = Instant::now();
+                    let now = || u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    executor.block_on(async {
                     loop {
-                        if hub.wants_listing() {
-                            hub.listed(match side.listing() {
+                        if let Some(relists) = hub.wants_listing(generation) {
+                            hub.listed(generation, relists, match side.listing() {
                                 Ok(listing) => ToView::Update(Box::new(Update::Listed(listing))),
                                 Err(_) => ToView::ListingFailed,
                             });
@@ -138,20 +191,36 @@ impl FacadeLoop {
                             // replay, so a route indicator shows nothing
                             // until the path next changes (carried to the
                             // Android client's batch 2).
-                            for update in snapshot(&side) {
-                                hub.update(update);
+                            for update in snapshot(side) {
+                                hub.update(generation, update);
                             }
                         }
+                        // A close is taken first when both are ready: what
+                        // was accepted before it is carried out by the
+                        // close's own drain below, never dropped.
                         let woke = tokio::select! {
-                            command = waiting.recv() => command.map_or(Woke::Closed, Woke::Command),
+                            biased;
                             _ = &mut closed => Woke::Closed,
+                            command = waiting.recv() => command.map_or(Woke::Closed, Woke::Command),
                             () = tokio::time::sleep(POLL) => Woke::Poll,
                         };
                         // Every command waiting now rather than one per
                         // turn, as the desktop does: a burst of reads is
                         // carried out before the next turn.
                         let mut batch = match woke {
-                            Woke::Closed => break,
+                            Woke::Closed => {
+                                // Every command accepted before the close
+                                // is carried out, never dropped (owner's
+                                // finding P2-2); past the stop's grace its
+                                // answer is refused at the retired hub.
+                                for command in closing(&hub, generation, &mut waiting) {
+                                    hub.before_command();
+                                    for update in side.execute(command, now()).await {
+                                        hub.update(generation, update);
+                                    }
+                                }
+                                break;
+                            }
                             Woke::Command(command) => vec![command],
                             Woke::Poll => Vec::new(),
                         };
@@ -159,23 +228,28 @@ impl FacadeLoop {
                             batch.push(more);
                         }
                         for command in batch {
+                            hub.before_command();
                             for update in side.execute(command, now()).await {
-                                hub.update(update);
+                                hub.update(generation, update);
                             }
                         }
                         for update in side.turn(now()).await {
-                            hub.update(update);
+                            hub.update(generation, update);
                         }
                     }
                     side.close().await;
                 });
-                hub.set_running(None);
-            });
+                    // Its own generation only: a facade that outlived its close
+                    // never stops one started after it, and owes it a listing.
+                    drop(held);
+                });
         let thread = spawned.map_err(SpawnError::Thread)?;
         match reported.recv() {
-            Ok(Ok(())) => Ok(Self {
+            Ok(Ok(generation)) => Ok(Self {
                 close: Some(close),
                 thread: Some(thread),
+                hub: Arc::clone(hub),
+                generation,
             }),
             Ok(Err(e)) => {
                 let _ = thread.join();
@@ -192,9 +266,21 @@ impl FacadeLoop {
     }
 
     /// Close the session -- the lease is released -- and wait for the
-    /// thread, at most `wait`. True when it ended in time.
+    /// thread, at most `wait`; then retire the facade at the hub, whether
+    /// or not it ended. True when it ended in time.
+    ///
+    /// Left running, it finishes the commands it accepted against the
+    /// store and publishes nothing (`human-client-android.md`, a facade
+    /// past its stop): it is not waited for, since a command that never
+    /// returns would hold the service.
     #[must_use]
     pub fn close(mut self, wait: Duration) -> bool {
+        let ended = self.wait_closed(wait);
+        self.hub.retire(self.generation);
+        ended
+    }
+
+    fn wait_closed(&mut self, wait: Duration) -> bool {
         if let Some(close) = self.close.take() {
             let _ = close.send(());
         }
@@ -212,5 +298,77 @@ impl FacadeLoop {
         }
         let _ = thread.join();
         true
+    }
+}
+
+#[cfg(test)]
+mod closing_tests {
+    use super::closing;
+    use crate::hub::Hub;
+    use interweave_human_app_core::Command;
+
+    /// Every command the hub accepted before the close is handed to the
+    /// loop to carry out, and none is accepted after it. Mutation: the
+    /// close not draining what waits.
+    #[test]
+    fn closing_hands_back_every_command_accepted_before_it() {
+        let hub = Hub::new();
+        let (sender, mut waiting) = tokio::sync::mpsc::unbounded_channel();
+        let generation = hub.started(sender);
+        for _ in 0..3 {
+            assert_eq!(hub.command(Command::Reopen), Ok(()));
+        }
+        let accepted = closing(&hub, generation, &mut waiting);
+        assert_eq!(accepted, vec![Command::Reopen; 3]);
+        assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
+    }
+
+    /// #495 review F3: the side drops while the facade still counts as
+    /// alive, and the hub hears it ended only after, on a plain drop and on
+    /// an unwind alike. Mutation: `Held`'s fields in the other order.
+    #[test]
+    fn the_side_drops_before_the_hub_hears_the_thread_ended() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct Probe {
+            hub: Arc<Hub>,
+            alive_at_drop: Arc<AtomicBool>,
+        }
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                self.alive_at_drop
+                    .store(self.hub.facade_alive(), Ordering::SeqCst);
+            }
+        }
+        for unwind in [false, true] {
+            let hub = Arc::new(Hub::new());
+            let (sender, _waiting) = tokio::sync::mpsc::unbounded_channel();
+            let generation = hub.started(sender);
+            let seen = Arc::new(AtomicBool::new(false));
+            let held = super::Held {
+                side: Probe {
+                    hub: Arc::clone(&hub),
+                    alive_at_drop: Arc::clone(&seen),
+                },
+                _ends: super::Ends {
+                    hub: Arc::clone(&hub),
+                    generation,
+                },
+            };
+            if unwind {
+                let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                    let _held = held;
+                    panic!("the facade's thread unwinds");
+                }));
+                assert!(ended.is_err());
+            } else {
+                drop(held);
+            }
+            assert!(
+                seen.load(Ordering::SeqCst),
+                "unwind {unwind}: alive as the side dropped"
+            );
+            assert!(!hub.facade_alive(), "unwind {unwind}: ended after");
+        }
     }
 }

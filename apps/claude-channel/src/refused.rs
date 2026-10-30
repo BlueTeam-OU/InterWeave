@@ -35,14 +35,18 @@ pub struct Refusal {
     pub reason: String,
 }
 
-/// What every answer says the refusal is.
+/// What every answer says the refusal is. The remedy is the form that
+/// writes the settings: `claude plugin configure` without
+/// `--values-stdin` only lists them, on a terminal or not (SPIKE-001 S25,
+/// `runs/s25-i-plugin-configure`).
 #[must_use]
 pub fn refusal_text(reason: &str) -> String {
     format!(
         "The InterWeave bridge did not start: {reason}. It is serving this session without \
-         a channel or a connection to the transport daemon. Fix the plugin's profile or \
-         endpoint setting (claude plugin configure interweave@interweave), or the \
-         environment Claude Code starts it in, then start a new session."
+         a channel or a connection to the transport daemon. Set the plugin's profile or \
+         endpoint by piping a JSON object such as {{\"profile\": \"<profile>\", \"endpoint\": \
+         \"<endpoint>\"}} to claude plugin configure interweave@interweave --values-stdin, or \
+         fix the environment Claude Code starts it in, then start a new session."
     )
 }
 
@@ -170,6 +174,22 @@ mod tests {
                 .expect("text")
                 .contains("XDG_RUNTIME_DIR is unset")
         );
+    }
+
+    #[test]
+    fn the_remedy_is_the_configure_form_that_writes() {
+        let text = refusal_text("a reason");
+        assert!(
+            text.contains("claude plugin configure interweave@interweave --values-stdin"),
+            "{text}"
+        );
+        let object = text
+            .split_once("such as ")
+            .and_then(|(_, rest)| rest.split_once(" to claude"))
+            .map(|(object, _)| object)
+            .expect("the example object");
+        let object: Value = serde_json::from_str(object).expect("the example is JSON");
+        assert!(object.get("profile").is_some() && object.get("endpoint").is_some());
     }
 
     #[test]

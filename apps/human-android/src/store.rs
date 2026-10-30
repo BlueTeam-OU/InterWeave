@@ -13,7 +13,9 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
-use interweave_human_android_platform::{ServiceHost, StoreRefusal};
+use interweave_human_android_platform::{
+    ServiceHost, StoreAnswer, StoreDiscarded, StoreGeneration, StoreRefusal,
+};
 use interweave_human_store::at_rest::{DiscardPlan, DiscardScope};
 use interweave_human_ui_model::{DiscardKind, StoreEffect, StoreRecovery, StoreScreen};
 use interweave_human_ui_slint::{
@@ -23,18 +25,16 @@ use interweave_human_ui_slint::{
 use crate::jni::{PROFILE, log};
 use crate::keystore::StoreKeystore;
 use crate::onboard::{ask, ask_activity, platform};
-use crate::store_follow::{Follow, ShownState, follow as decide};
+use crate::store_follow::{Answer, Follow, ShownState, follow as decide};
 
 /// The flow while a store screen shows, and the plan it confirmed.
 struct Shown {
     flow: StoreRecovery,
     plan: Option<DiscardPlan>,
     view: Weak<RefCell<View>>,
-    /// The hub's store answers as last seen.
-    answers: u64,
-    /// The answer count when the discard finished: a refusal counted
-    /// past it is the restart's.
-    done_at: Option<u64>,
+    /// The hub's count of start answers when the discard finished, read
+    /// under the start lock: an answer counted past it is the restart's.
+    done_at: Option<StoreGeneration>,
 }
 
 thread_local! {
@@ -49,6 +49,14 @@ const fn screen(refused: StoreRefusal) -> StoreScreen {
     }
 }
 
+const fn answer(said: StoreAnswer) -> Answer {
+    match said {
+        StoreAnswer::Opened => Answer::Opened,
+        StoreAnswer::Refused(refused) => Answer::Refused(screen(refused)),
+        StoreAnswer::OtherRefusal => Answer::OtherRefusal,
+    }
+}
+
 const fn kind(scope: DiscardScope) -> DiscardKind {
     match scope {
         DiscardScope::Everything => DiscardKind::Full,
@@ -56,20 +64,20 @@ const fn kind(scope: DiscardScope) -> DiscardKind {
     }
 }
 
-/// Follow what the hub last said of the store: show the screen it calls
-/// for, or, once a start opened the store, take it away -- with the
-/// discard's notice in Chats when one ran. Called at every turn.
-pub(crate) fn follow(view: &Rc<RefCell<View>>, refused: Option<StoreRefusal>, answers: u64) {
+/// Follow the last start's answer as the hub said it, with the hub's
+/// count: show the screen it calls for, or, once a start opened the store
+/// -- or the restart after a discard was refused elsewhere -- take it
+/// away, with the discard's notice in Chats when one ran. Called at every
+/// turn.
+pub(crate) fn follow(view: &Rc<RefCell<View>>, said: Option<(StoreAnswer, StoreGeneration)>) {
     SHOWN.with(|shown| {
         let mut shown = shown.borrow_mut();
-        if let Some(s) = shown.as_mut() {
-            s.answers = answers;
-        }
         let state = shown.as_ref().map(|s| ShownState {
             screen: s.flow.screen(),
-            done_at: s.done_at,
+            done_at: s.done_at.map(StoreGeneration::count),
         });
-        match decide(state, refused.map(screen), answers) {
+        let generation = said.map_or(0, |(_, generation)| generation.count());
+        match decide(state, said.map(|(said, _)| answer(said)), generation) {
             Follow::Keep => {}
             Follow::Show(screen) => {
                 // The desktop and the phone hold one identity until Stage 22.
@@ -77,7 +85,6 @@ pub(crate) fn follow(view: &Rc<RefCell<View>>, refused: Option<StoreRefusal>, an
                     flow: StoreRecovery::new(screen, 1),
                     plan: None,
                     view: Rc::downgrade(view),
-                    answers,
                     done_at: None,
                 });
                 view.borrow()
@@ -172,9 +179,12 @@ fn discard() {
             return false;
         };
         let ok = match done {
-            Ok(discarded) => {
+            Ok(StoreDiscarded {
+                discarded,
+                answered,
+            }) => {
                 s.flow.discarded(kind(discarded.scope));
-                s.done_at = Some(s.answers);
+                s.done_at = Some(answered);
                 true
             }
             Err(why) => {

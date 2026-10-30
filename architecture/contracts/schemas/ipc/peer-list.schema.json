@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:ipc:peer-list",
   "title": "IPC admin.peers.list result",
-  "description": "One page of the dial gate's state per allowlisted peer (2.2, CONNECTIVITY.md §19): ascending by canonical string, at most 512 rows a page (a row is up to 194 bytes with the three original fields and about 220 with `route_held_until` — 512 of them about 110 KB against the 128 KiB body, 1024 would overflow it; architect-cto's ruling of 2026-10-07, re-read 2026-10-21), `next` the last row's peer when more remain and absent on the last page. Never an address: what holds a peer is read as times and a bounded class. `route_held_until` is served on a connection that negotiated 2.6 or later; below 2.6 the 2.2 row -- 1.0.0's shape, without it -- is served unchanged (1.1.0 widens behind the minor under ADR-0017 A 2026-10-07: a closed result shape widens behind a new minor while the old shape is served below it, a 2.2 client refusing an unknown member).",
+  "description": "One page of the dial gate's state per allowlisted peer (2.2, CONNECTIVITY.md §19): ascending by canonical string, at most 512 rows a page (a row is up to 194 bytes with the three original fields and about 220 with `route_held_until` — 512 of them about 110 KB against the 128 KiB body, 1024 would overflow it; architect-cto's ruling of 2026-10-07, re-read 2026-10-21; from 2.12 `last_seen_ms` makes a row up to about 270 bytes, so a server puts at most 456 on a page there, about 124 KB, while a reader still accepts 512), `next` the last row's peer when more remain and absent on the last page. Never an address: what holds a peer is read as times and a bounded class. `route_held_until` is served on a connection that negotiated 2.6 or later; below 2.6 the 2.2 row -- 1.0.0's shape, without it -- is served unchanged (1.1.0 widens behind the minor under ADR-0017 A 2026-10-07: a closed result shape widens behind a new minor while the old shape is served below it, a 2.2 client refusing an unknown member).",
   "type": "object",
   "required": [
     "peers"
@@ -25,6 +25,18 @@
           },
           "connected": {
             "type": "boolean"
+          },
+          "last_seen_ms": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last moment a retained connection to the peer was open, in milliseconds since the Unix epoch on the daemon's wall clock: the time of the reading while `connected` is true, else the moment the last one closed. One thing, the connection's lifetime -- not the last frame, and not the last establishment. `null` when the peer has had no retained connection since the daemon started: the daemon keeps it in memory only, so a restart reads `null` until the peer connects again. Present on every row served on a connection that negotiated 2.12 or later, never present below it (1.2.0), so `null` says never seen and an absent key says the daemon does not report it."
           },
           "backoff_until": {
             "type": "integer",
@@ -61,7 +73,7 @@
   "x-contract": {
     "name": "ipc.peer-list",
     "status": "approved",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "adr": [
       "0017",
       "0037",

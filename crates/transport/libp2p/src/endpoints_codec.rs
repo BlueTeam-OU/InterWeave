@@ -234,6 +234,7 @@ impl Codec for EndpointsCodec {
         T: futures::AsyncRead + Unpin + Send,
     {
         let bytes = read_bounded(io, MAX_RESPONSE_BYTES).await?;
+        crate::direct_codec::refuse_an_unanswered_exchange(&bytes)?;
         decode_response(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 

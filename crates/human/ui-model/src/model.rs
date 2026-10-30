@@ -19,6 +19,7 @@ use interweave_transport_api::{
     ChannelId, EndpointId, PeerPath, TransportError, TransportIdentity,
 };
 
+use crate::connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectState};
 use crate::labels::{
     ErrorClass, LabelKey, UiText, fill, outbound_label, placeholder_en, send_error_class,
     session_problem_class, short_peer,
@@ -28,11 +29,14 @@ use crate::peers::{Peers, PeersInput, ScanVerdict};
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
 pub(crate) mod cards;
+pub(crate) mod directory;
+pub(crate) mod summaries;
 mod swipe;
+pub(crate) mod window;
 
 pub use swipe::{
-    Announce, Confirmation, FocusTarget, Outcome, Released, RowAction, Snackbar, SwipeOffer,
-    UndoClosed,
+    Announce, Confirmation, ContactChange, FocusTarget, Outcome, Released, RowAction, Snackbar,
+    SwipeOffer, UndoClosed,
 };
 
 /// How many items the model holds that the store no longer does --
@@ -116,6 +120,9 @@ pub enum ViewEvent {
     /// The person acted on Peers or its add page: the root passes it to
     /// [`UiModel::peers_input`] and carries out the intents it returns.
     Peers(PeersInput),
+    /// The person acted on onboarding's Connect: the root passes it to
+    /// [`UiModel::connect_input`] and carries out the intents it returns.
+    Connect(ConnectInput),
     /// The person pressed the Undo of the snackbar with this id: the root
     /// passes it to [`UiModel::undo`] and carries out what it returns.
     Undo(u64),
@@ -232,6 +239,9 @@ pub struct MessageItem {
     pub sent_at_ms: Option<u64>,
     /// The local wall-clock time the list is ordered by.
     pub local_at: u64,
+    /// The identity's own card this row sent, drawn in place of a text
+    /// (contact-cards section 5.5); `None` for a message.
+    pub card: Option<cards::SentCard>,
 }
 
 /// One conversation in the list.
@@ -279,6 +289,12 @@ pub struct LastMessage {
     /// The local time it reached this app: never the time a sender
     /// asserts.
     pub local_at: u64,
+    /// A card row, previewed as that: one's own, or in the windowed mode
+    /// one someone sent (`direction` tells which), never by its text.
+    pub card: bool,
+    /// Its first line, cut to the preview's bound ([`crate::preview`]):
+    /// the same whether the row is held or only the store's newest.
+    pub preview: crate::preview::Preview,
 }
 
 impl LastMessage {
@@ -400,6 +416,19 @@ pub enum Intent {
     /// Take back the Accept or Decline of this proposal: only the open
     /// snackbar's Undo makes one ([`UiModel::undo`]).
     UndoCard(RowId),
+    /// Take back the delete of this contact, or the removal of its
+    /// photo: only the open snackbar's Undo makes one ([`UiModel::undo`]),
+    /// and the facade side writes back what it held for it.
+    UndoContact {
+        /// The contact.
+        contact_id: String,
+        /// What is taken back.
+        change: swipe::ContactChange,
+        /// The facade side's hold for this change: one per change, so
+        /// a release or an Undo names this change and no other of the
+        /// same contact.
+        hold: u64,
+    },
     /// Send this conversation's identity's own card to its route. Only
     /// [`UiModel::share_card`] makes one, for a direct conversation.
     ShareCard(ConversationKey),
@@ -415,6 +444,15 @@ pub enum Intent {
     /// Close what the card page shows of a key step: the confirmation
     /// cancelled, or the page left. The model's alone.
     CloseKeyStep,
+    /// A photo chosen for the own card, as its file holds it: the facade
+    /// side prepares it (contact-cards design section 5.2), and the editor
+    /// shows what it came to ([`UiModel::own_photo`]).
+    ChooseOwnPhoto(Vec<u8>),
+    /// The own card's editor closed without saving its chosen photo.
+    ForgetOwnPhoto,
+    /// Remove photo in the own card's editor: no photo once saved, and a
+    /// photo being prepared is let go.
+    RemoveOwnPhoto,
     /// The person's edit of their identity's own card, from its settings.
     SetOwnCard {
         /// The name.
@@ -446,6 +484,19 @@ pub enum Intent {
     DeleteContact {
         /// The contact.
         contact_id: String,
+    },
+    /// Delete one route of a contact and the key it recorded, the contact
+    /// staying with its others (ADR-0059 decision 9). Only
+    /// [`UiModel::delete_route`] makes one, for a route the model holds
+    /// under a contact with another: the last route goes only with its
+    /// contact.
+    DeleteRoute {
+        /// The contact.
+        contact_id: String,
+        /// The route's `PeerId`.
+        peer: TransportIdentity,
+        /// The route's `EndpointId`.
+        endpoint: EndpointId,
     },
     /// Read the addresses this device holds for reaching peers (ADR-0062):
     /// Peers opened, the app started, or a change's list was not read
@@ -491,10 +542,35 @@ pub struct ListedOutbound {
     pub row: RowId,
     /// Where it is going.
     pub destination: Destination,
-    /// The envelope it carries.
+    /// The envelope it carries: for an own card, one holding only the
+    /// card's id, its text empty.
     pub envelope: HumanChatV2,
     /// When it was composed, on the wall clock.
     pub created_at: u64,
+    /// The identity's own card it carries, as sent; `None` for a message.
+    pub card: Option<cards::SentCard>,
+}
+
+impl ListedOutbound {
+    /// A pending row holding the identity's own card, read back as it went:
+    /// held under an envelope that carries only the card's id, as
+    /// [`UiModel::card_queued`] holds one queued this session.
+    #[must_use]
+    pub fn own_card(
+        row: RowId,
+        destination: Destination,
+        app_message_id: String,
+        card: cards::SentCard,
+        created_at: u64,
+    ) -> Self {
+        Self {
+            row,
+            destination,
+            envelope: card_envelope(app_message_id),
+            created_at,
+            card: Some(card),
+        }
+    }
 }
 
 /// An inbound message the store holds, as the root read it.
@@ -543,6 +619,8 @@ struct Item {
     /// Hidden by the person (Hide, a conversation hide, a cancel): not
     /// shown, and dropped once the snackbar that could undo it closes.
     hidden: bool,
+    /// The own card an outbound row carries, as sent.
+    card: Option<cards::SentCard>,
 }
 
 impl Item {
@@ -628,10 +706,19 @@ pub struct UiModel {
     diagnostics: Diagnostics,
     trust: TrustSettings,
     peers: Peers,
+    /// Onboarding's Connect: owed, open, or done with (add-a-peer §5.1).
+    connect: ConnectState,
     /// The snackbar, its Undo and the latest outcome.
     swipe: swipe::SwipeState,
     /// Card proposals, the contacts and the identity in front.
     cards: cards::Cards,
+    /// The windowed mode's summaries, once the model started from them
+    /// ([`UiModel::started`]); `None` for a model given a whole listing.
+    windowed: Option<summaries::Summaries>,
+    /// The open conversation's window, in the windowed mode.
+    windows: window::Windows,
+    /// The contacts as the windowed mode reads them, and their photos.
+    directory: directory::Directory,
 }
 
 impl Default for UiModel {
@@ -670,8 +757,12 @@ impl UiModel {
             diagnostics: Diagnostics::default(),
             trust: TrustSettings::default(),
             peers: Peers::default(),
+            connect: ConnectState::NotOwed,
             swipe: swipe::SwipeState::default(),
             cards: cards::Cards::default(),
+            windowed: None,
+            windows: window::Windows::default(),
+            directory: directory::Directory::default(),
         }
     }
 
@@ -735,6 +826,27 @@ impl UiModel {
 
     /// A message `drain` handed over: committed unread already.
     pub fn received(&mut self, received: interweave_human_client_api::Received) {
+        let conversation = conversation_of_origin(&received.origin);
+        if let Some(windowed) = self.windowed.as_mut()
+            && windowed.handed_over(received.row)
+            && !self.by_row.contains_key(&(Table::Unread, received.row))
+            && !self.released.contains(&(Table::Unread, received.row))
+        {
+            windowed.arrived(
+                &conversation,
+                summaries::NewestRow::received(
+                    received.row,
+                    received.received_at,
+                    &received.envelope.text,
+                ),
+            );
+        }
+        // A closed conversation holds none of its stored rows in the
+        // windowed mode, only its summary: the row stays unread in the
+        // store and its opening's page brings it (design section 3).
+        if self.windowed.is_some() && self.windows.open_conversation() != Some(&conversation) {
+            return;
+        }
         self.inbound(
             received.row,
             Table::Unread,
@@ -742,6 +854,20 @@ impl UiModel {
             received.envelope,
             received.received_at,
         );
+        // Held in the open conversation: its place, and the held-row
+        // ceiling, which a flood while the window has no focus reaches.
+        if self.windowed.is_some() && self.by_row.contains_key(&(Table::Unread, received.row)) {
+            self.windows.holds(
+                Table::Unread,
+                received.row,
+                window::PageMark {
+                    received_at: received.received_at,
+                    kept: false,
+                    row: received.row,
+                },
+            );
+            self.hold_ceiling();
+        }
     }
 
     /// The store's unread rows, at start or after `UnreadInStore`: merged
@@ -788,7 +914,21 @@ impl UiModel {
             }
             composer.refused = None;
         }
-        self.outbound(row, conversation, envelope, at);
+        self.outbound(row, conversation, envelope, None, at);
+    }
+
+    /// Share queued the identity's own card on `key` as pending `row`: its
+    /// own card row (contact-cards section 5.5), the card as it went,
+    /// with the status of any outbound message from here.
+    pub fn card_queued(
+        &mut self,
+        row: RowId,
+        key: ConversationKey,
+        app_message_id: String,
+        card: cards::SentCard,
+        at: u64,
+    ) {
+        self.outbound(row, key, card_envelope(app_message_id), Some(card), at);
     }
 
     /// The person pressed Send in conversation `key`, for the draft as it
@@ -816,7 +956,13 @@ impl UiModel {
     pub fn pending_listed(&mut self, rows: Vec<ListedOutbound>) {
         for row in rows {
             let conversation = conversation_of(&row.destination);
-            self.outbound(row.row, conversation, row.envelope, row.created_at);
+            self.outbound(
+                row.row,
+                conversation,
+                row.envelope,
+                row.card,
+                row.created_at,
+            );
         }
         self.held.clear();
         self.held_order.clear();
@@ -886,6 +1032,17 @@ impl UiModel {
     /// The root marked an unread row read: its durable copy is gone, and
     /// the content stays for this session unless another row holds it.
     pub fn read(&mut self, row: RowId) {
+        // The store's count loses the row once, whichever kind it is.
+        let conversation = self
+            .by_row
+            .get(&(Table::Unread, row))
+            .and_then(|key| self.items.get(key))
+            .map(|item| item.conversation.clone())
+            .or_else(|| self.cards.unread_conversation(row));
+        if let (Some(windowed), Some(conversation)) = (self.windowed.as_mut(), conversation) {
+            windowed.left_unread(&conversation);
+        }
+        self.windows.forget(Table::Unread, row);
         self.release(Table::Unread, row);
         self.cards.read(row);
     }
@@ -906,6 +1063,17 @@ impl UiModel {
         if let Some(item) = self.items.get_mut(&key) {
             item.rows.push((Table::Kept, kept_row));
             self.by_row.insert((Table::Kept, kept_row), key);
+            // A kept row keeps its stored copy at the time the message
+            // reached this app: its place in the window.
+            self.windows.holds(
+                Table::Kept,
+                kept_row,
+                window::PageMark {
+                    received_at: item.local_at,
+                    kept: true,
+                    row: kept_row,
+                },
+            );
             if self.ephemeral_set.remove(&key) {
                 self.ephemeral.retain(|k| *k != key);
             }
@@ -917,6 +1085,7 @@ impl UiModel {
     /// The root removed Keep from `kept_row`.
     pub fn unkept(&mut self, kept_row: RowId) {
         let key = self.by_row.get(&(Table::Kept, kept_row)).copied();
+        self.windows.forget(Table::Kept, kept_row);
         self.release(Table::Kept, kept_row);
         if let Some(key) = key {
             self.swipe_unkept(key);
@@ -959,7 +1128,28 @@ impl UiModel {
     #[must_use]
     pub fn conversations(&self) -> Vec<ConversationSummary> {
         let shared = self.peers_with_routes();
+        let row = |key: &ConversationKey, last: LastMessage| ConversationSummary {
+            key: key.clone(),
+            title: self.contact_title(key, &shared, Isolate::No),
+            drawn_title: self.contact_title(key, &shared, Isolate::Yes),
+            unread: 0,
+            last_activity: last.local_at,
+            avatar: Avatar::of(key),
+            last,
+        };
         let mut by: BTreeMap<&ConversationKey, ConversationSummary> = BTreeMap::new();
+        // The windowed mode lists every conversation the store shows a row
+        // of, held or not, counted as the store counts it: a held unread
+        // row is among the store's, so it is not counted again below.
+        if let Some(windowed) = &self.windowed {
+            for stored in windowed.iter() {
+                if let Some(newest) = &stored.newest {
+                    let mut summary = row(&stored.conversation, newest.last());
+                    summary.unread = usize::try_from(stored.unread).unwrap_or(usize::MAX);
+                    by.insert(&stored.conversation, summary);
+                }
+            }
+        }
         for (key, item) in self.items.iter().filter(|(_, i)| !i.hidden) {
             let last = || LastMessage {
                 key: *key,
@@ -967,19 +1157,13 @@ impl UiModel {
                 label: item.label(),
                 body: item.body.clone(),
                 local_at: item.local_at,
+                card: item.card.is_some(),
+                preview: summaries::held_preview(&item.body),
             };
             let summary = by
                 .entry(&item.conversation)
-                .or_insert_with(|| ConversationSummary {
-                    key: item.conversation.clone(),
-                    title: self.contact_title(&item.conversation, &shared, Isolate::No),
-                    drawn_title: self.contact_title(&item.conversation, &shared, Isolate::Yes),
-                    unread: 0,
-                    last_activity: 0,
-                    avatar: Avatar::of(&item.conversation),
-                    last: last(),
-                });
-            if item.outbound.is_none() && item.has(Table::Unread) {
+                .or_insert_with(|| row(&item.conversation, last()));
+            if self.windowed.is_none() && item.outbound.is_none() && item.has(Table::Unread) {
                 summary.unread += 1;
             }
             summary.last_activity = summary.last_activity.max(item.local_at);
@@ -1108,6 +1292,7 @@ impl UiModel {
                 reply: self.reply(&i.conversation, i.envelope.reply_to.as_deref()),
                 sent_at_ms: i.envelope.sent_at_ms,
                 local_at: i.local_at,
+                card: i.card.clone(),
             })
             .collect();
         list.sort_by(|a, b| a.local_at.cmp(&b.local_at).then_with(|| a.key.cmp(&b.key)));
@@ -1156,6 +1341,13 @@ impl UiModel {
             // so a delete of a contact already gone is not issued. Two in
             // one take are one command by the root's in-flight set.
             Intent::DeleteContact { contact_id } => return self.contact(contact_id).is_some(),
+            Intent::DeleteRoute {
+                contact_id,
+                peer,
+                endpoint,
+            } => return self.delete_route(contact_id, peer, endpoint).is_some(),
+            // Not while the contacts are unread (design section 11).
+            Intent::AcceptCard(row) => return self.card_actions(*row).contains(intent),
             _ => return true,
         };
         key.is_some_and(|key| match intent {
@@ -1262,7 +1454,112 @@ impl UiModel {
     /// on step two passes through the trust settings, the one way a trust
     /// change is made.
     pub fn peers_input(&mut self, input: PeersInput) -> Vec<Intent> {
-        self.peers.input(input, &mut self.trust)
+        let intents = self.peers.input(input, &mut self.trust);
+        self.connect_sync();
+        intents
+    }
+
+    /// Connect is owed: a new or restored identity's first start, or a
+    /// later one whose earlier start left it undecided (§5.1). The
+    /// platform says so before the session's first reads answer.
+    pub fn connect_owed(&mut self) {
+        if self.connect == ConnectState::NotOwed {
+            self.connect = ConnectState::Owed;
+        }
+    }
+
+    /// What this start does about an owed Connect, said once each: open
+    /// it when both reads succeeded on two empty lists, settle it when
+    /// either list has an entry or once the person left it, defer it
+    /// when a read failed (§5.1, §5.6). `None` while nothing is to say.
+    /// While Connect is open, each turn reads its added peers' trust from
+    /// the list again, so its line follows an answer that came late.
+    pub fn connect_turn(&mut self) -> Option<ConnectGate> {
+        match self.connect {
+            ConnectState::Owed => {
+                let list = self.peers.list_answered()?;
+                let trust = self.trust.read_answered()?;
+                if !(list && trust) {
+                    self.connect = ConnectState::Decided;
+                    return Some(ConnectGate::Deferred);
+                }
+                if self.no_reach() {
+                    self.connect = ConnectState::Open(Connect::opened());
+                    Some(ConnectGate::Open)
+                } else {
+                    self.connect = ConnectState::Decided;
+                    Some(ConnectGate::Settled)
+                }
+            }
+            ConnectState::Left => {
+                self.connect = ConnectState::Decided;
+                Some(ConnectGate::Settled)
+            }
+            ConnectState::Open(ref mut connect) => {
+                connect.trust_read(&self.trust);
+                None
+            }
+            ConnectState::NotOwed | ConnectState::Decided => None,
+        }
+    }
+
+    /// Connect, while it is open.
+    #[must_use]
+    pub const fn connect(&self) -> Option<&Connect> {
+        match &self.connect {
+            ConnectState::Open(connect) => Some(connect),
+            _ => None,
+        }
+    }
+
+    /// Apply what the person did on Connect: the intents it asks for.
+    pub fn connect_input(&mut self, input: ConnectInput) -> Vec<Intent> {
+        let ConnectState::Open(connect) = &mut self.connect else {
+            return Vec::new();
+        };
+        connect.trust_read(&self.trust);
+        // One page at a time: a press reaching Connect while a page it
+        // opened is still up is a stale one.
+        if self.peers.add_open() || self.peers.show().is_some() {
+            return Vec::new();
+        }
+        let (from, peers_input) = match input {
+            ConnectInput::Add => (ConnectFocus::Add, PeersInput::OpenAddFromConnect),
+            ConnectInput::Show => (ConnectFocus::Show, PeersInput::OpenShow),
+            ConnectInput::Trust => {
+                let peers = connect.to_trust();
+                if peers.is_empty() {
+                    return Vec::new();
+                }
+                (ConnectFocus::Trust, PeersInput::TrustFromConnect(peers))
+            }
+            ConnectInput::Leave => {
+                self.connect = ConnectState::Left;
+                return Vec::new();
+            }
+        };
+        connect.opening(from);
+        // Show drawn before this visit -- from Peers -- is not this
+        // visit's.
+        self.peers.take_show_drew();
+        let intents = self.peers.input(peers_input, &mut self.trust);
+        self.connect_sync();
+        intents
+    }
+
+    /// Hand Connect what a page it opened came to, once that page is
+    /// gone; with Connect not open, what Show drew is nobody's.
+    fn connect_sync(&mut self) {
+        let ConnectState::Open(connect) = &mut self.connect else {
+            self.peers.take_show_drew();
+            return;
+        };
+        if self.peers.add_open() || self.peers.show().is_some() {
+            return;
+        }
+        let adds = self.peers.take_connect_return();
+        let shown = self.peers.take_show_drew();
+        connect.returned(adds, shown, &self.trust);
     }
 
     /// This node's `PeerId`, as the session that became ready knows it.
@@ -1298,6 +1595,7 @@ impl UiModel {
         answer: Result<AddressAnswer, AddressChangeFailure>,
     ) {
         self.peers.add_answer(lines, answer, &self.trust);
+        self.connect_sync();
     }
 
     /// The runtime's answer to a removal of `address`.
@@ -1314,6 +1612,7 @@ impl UiModel {
     /// add page once trust's answers decided it.
     pub fn peers_turn(&mut self) -> Option<Intent> {
         let intent = self.peers.turn(&self.trust);
+        self.connect_sync();
         // A trust step an add opened reads the trust set itself, once the
         // turn asks nothing else.
         if intent.is_none() && self.peers.take_trust_read() {
@@ -1457,6 +1756,7 @@ impl UiModel {
                 released_from: None,
                 last_pending: None,
                 hidden: false,
+                card: None,
             },
         );
         self.arrived_in(&conversation_key);
@@ -1467,6 +1767,7 @@ impl UiModel {
         row: RowId,
         conversation: ConversationKey,
         envelope: HumanChatV2,
+        card: Option<cards::SentCard>,
         at: u64,
     ) {
         // Merged by row, and a row already terminal is not listed back by
@@ -1510,6 +1811,7 @@ impl UiModel {
                 released_from: None,
                 last_pending: Some(row),
                 hidden: false,
+                card,
             },
         );
         self.arrived_in(&conversation_key);
@@ -1615,15 +1917,50 @@ impl UiModel {
     /// only those, since everything else is re-listed from the store, and
     /// never one an open snackbar's Undo needs (it goes once that closes).
     fn evict(&mut self) {
+        // The item the person moved focus to is never dropped while focused:
+        // the next in the order goes instead (design section 7.1).
+        let focused = self.windows.focused();
         while self.ephemeral.len() > SESSION_ITEM_CAP {
-            let Some(at) = self.ephemeral.iter().position(|k| !self.swipe.protects(k)) else {
+            let Some(at) = self
+                .ephemeral
+                .iter()
+                .position(|k| !self.swipe.protects(k) && Some(*k) != focused)
+            else {
                 return;
             };
             let Some(key) = self.ephemeral.remove(at) else {
                 return;
             };
+            // A row of the open conversation leaves a ReadNotShown line
+            // where it stood; another conversation's goes with nothing said.
+            if self
+                .items
+                .get(&key)
+                .is_some_and(|i| Some(&i.conversation) == self.windows.open_conversation())
+            {
+                let below = self.item_below(key);
+                self.windows.dropped(key, below);
+            }
             self.drop_items(&[key]);
         }
+    }
+
+    /// Stop holding `conversation`'s stored rows -- unread and kept -- which
+    /// stay in the store unchanged and load again when reached: not
+    /// released, which would refuse them for good (design sections 3 and
+    /// 5.1). An item a pending row holds stays, as does a session-only one.
+    pub(super) fn let_go(&mut self, conversation: &ConversationKey) {
+        let keys: Vec<ItemKey> = self
+            .items
+            .iter()
+            .filter(|(_, i)| {
+                &i.conversation == conversation
+                    && !i.rows.is_empty()
+                    && i.rows.iter().all(|(t, _)| *t != Table::Pending)
+            })
+            .map(|(k, _)| *k)
+            .collect();
+        self.drop_items(&keys);
     }
 
     /// Forget `keys` entirely: shown nowhere, offered nothing, no reply
@@ -1646,6 +1983,19 @@ impl UiModel {
                 }
             }
         }
+    }
+}
+
+/// The conversation a received row belongs to, as [`UiModel::received`]'s
+/// item takes it: a direct route by its peer and endpoint, a channel by its
+/// id whoever published.
+fn conversation_of_origin(origin: &Origin) -> ConversationKey {
+    match origin {
+        Origin::Direct { peer, endpoint } => ConversationKey::Direct {
+            peer: peer.clone(),
+            endpoint: Some(endpoint.clone()),
+        },
+        Origin::Channel { channel, .. } => ConversationKey::Channel(channel.clone()),
     }
 }
 
@@ -1691,5 +2041,20 @@ fn title(key: &ConversationKey, shared: &BTreeSet<&TransportIdentity>) -> String
                 },
             )
         }
+    }
+}
+
+/// The envelope an own card row is held under: the card's id, which the
+/// item is keyed by as any outbound row is, and no text -- the row draws
+/// the card ([`MessageItem::card`]).
+fn card_envelope(app_message_id: String) -> HumanChatV2 {
+    HumanChatV2 {
+        v: 2,
+        kind: interweave_human_chat_protocol::MessageKind::Text,
+        app_message_id,
+        text: String::new(),
+        reply_to: None,
+        sent_at_ms: None,
+        from_endpoint: None,
     }
 }

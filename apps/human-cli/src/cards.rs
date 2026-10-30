@@ -20,6 +20,7 @@ use interweave_human_ui_model::{
     KeyView, OwnKey, PhotoEdit, ProposalItem, ProposalNote, ViewEvent,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_transport_api::{EndpointId, TransportIdentity};
 use serde_json::{Value, json};
 
 use crate::Failure;
@@ -78,7 +79,7 @@ fn proposal_value(p: &ProposalItem, key: &ConversationKey, status: &str) -> Valu
         .notes
         .iter()
         .map(|n| match n {
-            ProposalNote::SameName(name) => json!({ "same_name": name }),
+            ProposalNote::SameName(c) => json!({ "same_name": c.name }),
             ProposalNote::SharesNode(name) => json!({ "shares_node": name }),
             ProposalNote::KeyMatches(name) => json!({ "key_matches": name }),
         })
@@ -142,7 +143,7 @@ fn proposal(p: &ProposalItem, key: &ConversationKey, status: &str, json: bool) -
     }
     for note in &p.notes {
         let (what, name) = match note {
-            ProposalNote::SameName(n) => ("a contact of the same name on another node", n),
+            ProposalNote::SameName(c) => ("a contact of the same name on another node", &c.name),
             ProposalNote::SharesNode(n) => ("a contact on the same node", n),
             ProposalNote::KeyMatches(n) => ("a contact holding the same key", n),
         };
@@ -245,17 +246,23 @@ pub(crate) const fn key_problem_name(problem: &KeyProblem) -> &'static str {
     }
 }
 
-/// A proposal as `listen` prints it: an event, unread.
-pub(crate) fn proposal_line(p: &ProposalItem, key: &ConversationKey, json: bool) -> String {
+/// A proposal as `listen` prints it: an event, with what became of it
+/// (`unread`, or `declined` under `--consume`).
+pub(crate) fn proposal_line(
+    p: &ProposalItem,
+    key: &ConversationKey,
+    status: &str,
+    json: bool,
+) -> String {
     if json {
-        let mut value = proposal_value(p, key, "unread");
+        let mut value = proposal_value(p, key, status);
         value["event"] = json!("proposal");
         return json_line(&value);
     }
     format!(
         "proposal {}\n{}",
         conversation_text(key),
-        proposal(p, key, "unread", false)
+        proposal(p, key, status, false)
     )
 }
 
@@ -321,7 +328,7 @@ pub(crate) async fn card_share<B: DataSessionBinding, A: AdminBinding>(
     let row = first
         .iter()
         .find_map(|u| match u {
-            Update::CardShared { row, .. } => Some(*row),
+            Update::CardQueued { row, .. } => Some(*row),
             _ => None,
         })
         .ok_or_else(|| Failure::Refused("the card was not shared".to_owned()))?;
@@ -379,7 +386,7 @@ pub(crate) async fn card_share<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// Every proposal held, read or not, in conversation order.
-fn every_proposal<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) fn every_proposal<B: DataSessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
 ) -> Vec<(ConversationKey, ProposalItem)> {
     let model = s.model();
@@ -408,6 +415,16 @@ pub(crate) async fn proposals<B: DataSessionBinding, A: AdminBinding>(
     Ok(())
 }
 
+/// The decisions `proposals read` was given, by id.
+pub(crate) struct Decided<'a> {
+    /// `--accept`: none of them a key change.
+    pub(crate) accept: &'a [String],
+    /// `--accept-key-change`: each of them one.
+    pub(crate) accept_key_change: &'a [String],
+    /// `--decline`.
+    pub(crate) decline: &'a [String],
+}
+
 /// `proposals read`: the conversation's proposals shown, and so read, and
 /// the named ones accepted or declined in the same run. Every id is
 /// checked before anything is read; whatever fails after, what was shown
@@ -416,8 +433,7 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     key: &ConversationKey,
-    accept: &[String],
-    decline: &[String],
+    decided: &Decided<'_>,
     out: &mut String,
 ) -> Result<(), Failure> {
     if !matches!(
@@ -446,8 +462,13 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
                 ))
             })
     };
+    let changes_key = |row: RowId| {
+        shown
+            .iter()
+            .any(|p| p.row == row && matches!(p.key, KeyView::Changed { .. }))
+    };
     let mut decisions: Vec<(RowId, bool)> = Vec::new();
-    for (n, id) in accept.iter().enumerate() {
+    for (n, id) in decided.accept.iter().enumerate() {
         let row = find(id, n, "accept")?;
         if shown
             .iter()
@@ -458,9 +479,30 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
                 n + 1
             )));
         }
+        // The client never accepts a changed key on its own (ADR-0063
+        // decision 4): a plain --accept of one is refused before anything
+        // is read (`a_key_change_is_accepted_only_by_the_flag_named_for_it`).
+        if changes_key(row) {
+            return Err(Failure::Refused(format!(
+                "--accept number {}: {id} is a key change; --accept-key-change {id} accepts it",
+                n + 1
+            )));
+        }
         decisions.push((row, true));
     }
-    for (n, id) in decline.iter().enumerate() {
+    // And the flag accepts a key change only: a script that confirmed a
+    // key change never accepts something else under that confirmation.
+    for (n, id) in decided.accept_key_change.iter().enumerate() {
+        let row = find(id, n, "accept-key-change")?;
+        if !changes_key(row) {
+            return Err(Failure::Refused(format!(
+                "--accept-key-change number {}: {id} is not a key change; --accept accepts it",
+                n + 1
+            )));
+        }
+        decisions.push((row, true));
+    }
+    for (n, id) in decided.decline.iter().enumerate() {
         decisions.push((find(id, n, "decline")?, false));
     }
     let mut rows: Vec<RowId> = decisions.iter().map(|(row, _)| *row).collect();
@@ -627,6 +669,46 @@ pub(crate) async fn contact_delete<B: DataSessionBinding, A: AdminBinding>(
     s.step().await;
     problems(s)?;
     let _ = writeln!(out, "{id} deleted");
+    Ok(())
+}
+
+/// `contacts route delete`: one route of a contact, as the model offers
+/// it, and never the last, which goes only with the contact
+/// (`a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete`).
+pub(crate) async fn route_delete<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    id: &str,
+    peer: &TransportIdentity,
+    endpoint: &EndpointId,
+    out: &mut String,
+) -> Result<(), Failure> {
+    let c = s
+        .model()
+        .contact(id)
+        .ok_or_else(|| Failure::Refused("no contact has that id".to_owned()))?;
+    if !c
+        .routes
+        .iter()
+        .any(|r| &r.peer == peer && &r.endpoint == endpoint)
+    {
+        return Err(Failure::Refused(
+            "the contact holds no such route (see contacts show)".to_owned(),
+        ));
+    }
+    let intent = s.model().delete_route(id, peer, endpoint).ok_or_else(|| {
+        Failure::Refused(format!(
+            "that is the contact's only route: contacts delete {id} removes the contact"
+        ))
+    })?;
+    s.will(move |_| vec![ViewEvent::Intent(intent)]);
+    s.step().await;
+    problems(s)?;
+    let _ = writeln!(
+        out,
+        "{}/{} deleted from {id}",
+        peer.as_str(),
+        endpoint.as_str()
+    );
     Ok(())
 }
 

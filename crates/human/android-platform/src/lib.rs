@@ -27,7 +27,7 @@ pub mod service;
 pub mod stand_in;
 pub mod view_side;
 
-pub use hub::{Hub, StoreRefusal, TO_VIEW, ToView, ViewLink};
+pub use hub::{Hub, StoreAnswer, StoreGeneration, StoreRefusal, TO_VIEW, ToView, ViewLink};
 pub use identity::{
     Expected, FirstRun, IdentityRefused, RestoreRefused, phrase_peer, restore_identity,
     start_identity,
@@ -37,10 +37,10 @@ pub use interweave_profile_config::runtime::KeyUnlockPolicy;
 /// `SeedCipher` seam.
 pub use interweave_transport_embedded::custody;
 pub use interweave_transport_embedded::{EmbeddedRefused, StayReachable, log_admits};
-pub use network::{Link, NetworkReport, Told, addresses_from_wire};
+pub use network::{Link, NetworkReport, Told, Transports, addresses_from_wire};
 pub use notice::Notices;
 pub use service::{
     AvailabilityMode, CLIENT_KIND, Ended, LogLevel, ServiceHost, ServiceLaunch, StartRefused,
-    Stopped, StoreActionRefused, profile_log_level,
+    Stopped, StoreActionRefused, StoreDiscarded, profile_log_level,
 };
 pub use view_side::{ListingFailed, ViewSide};

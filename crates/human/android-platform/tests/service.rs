@@ -15,9 +15,9 @@ use std::time::{Duration, Instant};
 use interweave_human_android_platform::stand_in;
 use interweave_human_android_platform::{
     AvailabilityMode, Ended, Link, NetworkReport, ServiceHost, ServiceLaunch, StartRefused,
-    StayReachable, ToView, ViewLink,
+    StayReachable, StoreAnswer, ToView, ViewLink,
 };
-use interweave_human_app_core::Update;
+use interweave_human_app_core::{Command, Update};
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_transport_embedded::EmbeddedRefused;
@@ -190,6 +190,146 @@ fn a_stop_releases_the_waiter_tells_the_view_and_frees_the_profile() {
     });
     until(&mut link, &mut held, "a fresh listing", is_listing);
     let _ = service.stop(GRACE);
+}
+
+/// Owner's finding P2-2, through the running service: every command the
+/// hub accepted before a stop is carried out and, within the stop's
+/// grace, answered before the view hears the service stopped -- none is
+/// dropped unanswered -- and one sent
+/// once it stopped is handed back. Whether any is still queued when the
+/// close is seen is timing: with the close's drain removed this fails in
+/// about two runs of five. The drain itself is held without timing by
+/// facade.rs's `closing_hands_back_every_command_accepted_before_it`.
+#[test]
+fn a_command_accepted_before_a_stop_is_answered() {
+    let app = app();
+    let service = started(&app);
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    until(&mut link, &mut held, "listing", is_listing);
+    let rows: Vec<_> = (1_000..1_200)
+        .map(interweave_human_ui_model::RowId::from_stored)
+        .collect();
+    for row in &rows {
+        assert!(service.hub().command(Command::MarkRead(*row)).is_ok());
+    }
+    let _ = service.stop(GRACE).expect("it ran");
+    let mut answered = std::collections::BTreeSet::new();
+    let deadline = Instant::now() + WAIT;
+    'heard: loop {
+        let mut waiting = std::mem::take(&mut held);
+        waiting.extend(link.take());
+        for message in waiting {
+            match message {
+                ToView::Update(update) => match *update {
+                    Update::Done(Command::MarkRead(row))
+                    | Update::Failed {
+                        command: Command::MarkRead(row),
+                        ..
+                    } => {
+                        answered.insert(row);
+                    }
+                    _ => {}
+                },
+                ToView::Running(false) => break 'heard,
+                _ => {}
+            }
+        }
+        assert!(Instant::now() < deadline, "no stop within {WAIT:?}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        answered.len(),
+        rows.len(),
+        "every accepted command answered before the stop"
+    );
+    assert_eq!(
+        service.hub().command(Command::Reopen),
+        Err(Command::Reopen),
+        "handed back once stopped"
+    );
+}
+
+/// `human-client-android.md`, a facade past its stop: a facade whose
+/// command outlasts the stop's grace is retired at the stop -- the view
+/// hears that nothing runs and no command is taken -- a discard is refused
+/// while its thread lives, its command is answered to no view, and when it
+/// ends after the next start the new facade lists again. What the test
+/// holds is the command, at the loop; the interleaving on a device is not
+/// this test's. Mutations: the close not retiring; the plan and the
+/// discard each not asking for a live facade; an update not asking its
+/// generation; the late end not owing the view a listing.
+#[test]
+fn a_facade_past_its_stop_publishes_nothing_and_holds_the_store_until_it_ends() {
+    use interweave_human_android_platform::StoreActionRefused;
+    use interweave_human_store::key_custody::FilesystemCustody;
+    let app = app();
+    let service = started(&app);
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    until(&mut link, &mut held, "listing", is_listing);
+    // A plan made while nothing holds the store, to be confirmed while
+    // the retired facade still does.
+    let _ = service.stop(GRACE).expect("it ran");
+    let plan = service
+        .plan_store_discard(&app.dir, PROFILE, &FilesystemCustody)
+        .expect("control: nothing holds the store");
+    service.start(launch(&app)).expect("started again");
+    until(&mut link, &mut held, "listing", is_listing);
+
+    let release = service.hub().hold_commands_for_test();
+    let row = interweave_human_ui_model::RowId::from_stored(4_242);
+    assert!(service.hub().command(Command::MarkRead(row)).is_ok());
+    let stopped = service.stop(GRACE).expect("it ran");
+    assert!(
+        !stopped.session_closed,
+        "the held command outlasted the grace"
+    );
+    until(&mut link, &mut held, "the stop said", |m| {
+        matches!(m, ToView::Running(false))
+    });
+    assert_eq!(service.hub().command(Command::Reopen), Err(Command::Reopen));
+    assert!(matches!(
+        service.plan_store_discard(&app.dir, PROFILE, &FilesystemCustody),
+        Err(StoreActionRefused::Running)
+    ));
+    assert!(matches!(
+        service.discard_store(&app.dir, PROFILE, &FilesystemCustody, plan.confirm()),
+        Err(StoreActionRefused::Running)
+    ));
+
+    service.start(launch(&app)).expect("started again");
+    until(&mut link, &mut held, "the next start", |m| {
+        matches!(m, ToView::Running(true))
+    });
+    until(&mut link, &mut held, "the next start's listing", is_listing);
+    drop(release);
+    // The old facade answers its command before its thread ends, and its
+    // end is what lists again: an answer reaching the view comes first.
+    let answers = |m: &ToView| {
+        matches!(m, ToView::Update(u) if matches!(
+            &**u,
+            Update::Done(Command::MarkRead(r)) | Update::Failed { command: Command::MarkRead(r), .. }
+                if *r == row
+        ))
+    };
+    let mut seen = Vec::new();
+    until(&mut link, &mut held, "the listing again", |m| {
+        seen.push(answers(m));
+        is_listing(m)
+    });
+    assert!(
+        !seen.contains(&true),
+        "the retired facade's answer reached the view"
+    );
+
+    let _ = service.stop(GRACE).expect("it ran");
+    assert!(
+        service
+            .plan_store_discard(&app.dir, PROFILE, &FilesystemCustody)
+            .is_ok(),
+        "control: with every facade ended the discard is planned"
+    );
 }
 
 /// The network callback's reports (plan section 20 step 5) are taken
@@ -644,7 +784,6 @@ fn without_network_a_missing_profile_is_refused_and_nothing_runs() {
 /// kept row.
 #[test]
 fn without_network_a_message_is_read_and_kept_as_with_one() {
-    use interweave_human_app_core::Command;
     use interweave_human_chat_protocol::{HumanChatV2, MessageKind, encode_outbound};
     use interweave_human_store::{
         AppMessageId, HumanStore, InboundOrigin, NewInbound, StoreOptions,
@@ -705,6 +844,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
                     media_type: Some(MediaType::parse(&encoded.media_type).expect("media type")),
                     payload: encoded.bytes,
                     received_at: u64::from(serial),
+                    kind: interweave_human_store::InboundKind::Text,
                 })
                 .expect("committed unread");
         }
@@ -739,7 +879,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     // Read both; keep one.
     for row in [kept_row, read_row] {
         assert!(
-            service.hub().command(Command::MarkRead(row)),
+            service.hub().command(Command::MarkRead(row)).is_ok(),
             "a facade takes commands"
         );
         until(
@@ -760,7 +900,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
             _ => None,
         })
         .expect("Keep offered on the read message");
-    assert!(service.hub().command(keep));
+    assert!(service.hub().command(keep).is_ok());
     until(
         &mut link,
         &mut held,
@@ -790,7 +930,6 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
 /// attempt ("Sending"), and the facade reports a row only when it changes.
 #[test]
 fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
-    use interweave_human_app_core::Command;
     use interweave_human_client_api::OutboundStatus;
     use interweave_human_ui_model::ConversationKey;
 
@@ -805,13 +944,18 @@ fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
     let stranger = interweave_profile_identity::ProfileIdentity::generate()
         .transport_identity()
         .expect("a PeerId");
-    assert!(service.hub().command(Command::Send {
-        key: ConversationKey::Direct {
-            peer: stranger,
-            endpoint: None,
-        },
-        draft: "to nobody".to_owned(),
-    }));
+    assert!(
+        service
+            .hub()
+            .command(Command::Send {
+                key: ConversationKey::Direct {
+                    peer: stranger,
+                    endpoint: None,
+                },
+                draft: "to nobody".to_owned(),
+            })
+            .is_ok()
+    );
     let settled = |status: &OutboundStatus| matches!(status, OutboundStatus::NeedsAttention { .. });
     let mut row = None;
     until(&mut first, &mut held, "a settled pending row", |message| {
@@ -942,15 +1086,16 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
         Err(StartRefused::StoreKeyInvalidated)
     );
     assert!(!service.is_running());
-    // A view attached now hears which screen the refusal calls for.
+    // A view attached now hears which screen the refusal calls for, at
+    // the hub's count: the opened first start, then this refusal.
     let mut link = service.hub().attach(Arc::new(|| {}));
-    assert!(
-        link.take().iter().any(|m| matches!(
-            m,
-            ToView::StoreRefused(Some(
-                interweave_human_android_platform::StoreRefusal::KeyLost
-            ))
-        )),
+    let refused = store_answers(&mut link);
+    assert_eq!(
+        refused,
+        [(
+            StoreAnswer::Refused(interweave_human_android_platform::StoreRefusal::KeyLost),
+            2
+        )],
         "the key-lost screen"
     );
     let health = service
@@ -966,17 +1111,77 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
         .expect("a plan");
     assert_eq!(plan.scope(), DiscardScope::Everything);
     assert!(plan.removes_key());
-    service
+    let discarded = service
         .discard_store(&app.dir, PROFILE, &keystore, plan.confirm())
         .expect("discarded");
+    assert_eq!(
+        discarded.answered.count(),
+        2,
+        "the discard ends after the refusal's answer"
+    );
     service
         .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("the store is recreated under a new key");
+    let opened = store_answers(&mut link);
+    assert_eq!(
+        opened,
+        [(StoreAnswer::Opened, 3)],
+        "the screen goes once a start opened the store, counted past the discard"
+    );
+    let _ = service.stop(GRACE);
+}
+
+/// The store answers a view took from `link`, with the hub's count.
+fn store_answers(link: &mut ViewLink) -> Vec<(StoreAnswer, u64)> {
+    link.take()
+        .into_iter()
+        .filter_map(|m| match m {
+            ToView::Store(answer, generation) => Some((answer, generation.count())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A start refused for a reason no store screen shows answers so, never
+/// as an opened store, whether the host refused it -- here no profile --
+/// or the platform side did before reaching it (#377 review r3,
+/// pre-existing); a start while the client runs answers nothing new.
+#[test]
+fn a_start_refused_elsewhere_answers_so_and_never_as_an_opened_store() {
+    let app = app();
+    let keystore = std::sync::Arc::new(StoreKeystore {
+        invalidated: std::sync::atomic::AtomicBool::new(false),
+    });
+    let service = ServiceHost::new();
+    let mut link = service.hub().attach(Arc::new(|| {}));
+    assert!(store_answers(&mut link).is_empty(), "no start, no answer");
     assert!(
-        link.take()
-            .iter()
-            .any(|m| matches!(m, ToView::StoreRefused(None))),
-        "the screen goes once a start opened the store"
+        service
+            .start_without_network(&app.dir, PROFILE, keystore.clone())
+            .is_err(),
+        "no profile"
+    );
+    service.refused_before_start();
+    assert_eq!(
+        store_answers(&mut link),
+        [
+            (StoreAnswer::OtherRefusal, 1),
+            (StoreAnswer::OtherRefusal, 2)
+        ]
+    );
+
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    service
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
+        .expect("started");
+    service
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
+        .expect("a start while running does nothing");
+    service.refused_before_start();
+    assert_eq!(
+        store_answers(&mut link),
+        [(StoreAnswer::Opened, 3)],
+        "the second start and the late refusal changed nothing"
     );
     let _ = service.stop(GRACE);
 }

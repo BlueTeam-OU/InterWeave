@@ -47,6 +47,7 @@ fn inbound(n: u32, payload: &[u8]) -> NewInbound {
         media_type: None,
         payload: payload.to_vec(),
         received_at: 2_000,
+        kind: interweave_human_store::InboundKind::Text,
     }
 }
 
@@ -194,6 +195,9 @@ fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every
     // it) and no walk indexes (migration 8's). In read_pairs' place, an index of that name: migration 7's
     // CREATE TABLE fails on it, AFTER migration 6 has rebuilt
     // pending_outbound inside the same transaction.
+    raw(&path)
+        .execute_batch(common::UNDO_V10)
+        .expect("back before v10");
     raw(&path)
         .execute_batch(
             "CREATE TABLE pending_outbound_v5 (

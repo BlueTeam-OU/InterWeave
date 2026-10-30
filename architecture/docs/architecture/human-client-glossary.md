@@ -24,7 +24,7 @@ headings. A complete sentence ends with a period.
 | trust, trusted | A peer on this profile's list of trusted peers may exchange messages with it (human-client-ui.md §8). | allow, approve, verify, friend, follow |
 | Remove trust | The removal action; its confirmation says that connections close (human-client-ui.md §8). | block, ban, delete, revoke |
 | list of trusted peers | The list the trust settings show and change (human-client-ui.md §8). | allowlist, whitelist, trust list |
-| route | A remote PeerId with the EndpointId it asserts (human-client-ui.md §3, §4). It is a routing label, never a name. | address, account, recipient, identity |
+| route | A remote PeerId with the EndpointId it asserts (human-client-ui.md §3, §4). It is a routing label until the Stage 22 release and never a name; from that release (ADR-0067, A 2026-10-28) the EndpointId is derived from the endpoint's own key, as a PeerId is from the node's, and what a person types to pick one is a local alias. | address, account, recipient, identity |
 | endpoint | This device's routing selector (the local EndpointId), named to a person only in errors about this device (human-client-ui.md §12). A remote EndpointId is shown as part of a route, never as "endpoint". | identity, user, role, account |
 | Connected directly | The route indicator for a direct path (human-client-ui.md §7). | online (as a route indicator), secure |
 | Connected through a relay | The route indicator for a relayed path (human-client-ui.md §7). | slow, indirect, insecure, via server |

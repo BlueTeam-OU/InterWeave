@@ -261,8 +261,7 @@
     {
       "type": "object",
       "required": [
-        "method",
-        "params"
+        "method"
       ],
       "additionalProperties": false,
       "properties": {
@@ -277,8 +276,7 @@
     {
       "type": "object",
       "required": [
-        "method",
-        "params"
+        "method"
       ],
       "additionalProperties": false,
       "properties": {
@@ -305,12 +303,27 @@
           "$ref": "urn:interweave:schemas:ipc:peers-addresses-params"
         }
       }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "session.losses"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:empty-result"
+        }
+      }
     }
   ],
   "x-contract": {
     "name": "ipc.request",
     "status": "active",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "adr": [
       "0017",
       "0037",

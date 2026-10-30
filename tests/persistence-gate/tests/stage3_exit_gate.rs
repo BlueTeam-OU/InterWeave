@@ -91,6 +91,7 @@ fn write_whole_profile(p: &ProfilePaths) {
             media_type: None,
             payload: b"not yet read".to_vec(),
             received_at: 2_000,
+            kind: interweave_human_store::InboundKind::Text,
         })
         .expect("unread");
 }
@@ -234,6 +235,7 @@ fn a_full_human_store_degrades_without_touching_the_rest_of_the_profile() {
             media_type: None,
             payload: vec![0_u8; interweave_transport_api::MAX_PAYLOAD_BYTES],
             received_at: 2_000 + u64::from(i),
+            kind: interweave_human_store::InboundKind::Text,
         };
         match store.commit_unread_inbound(&new) {
             Ok(_) => survivor = Some(i),

@@ -286,3 +286,184 @@ The same amendment reads rule 2's "whoever supplies them" as
 whatever its class, and the two sentences had read against each other
 (#340's review, rounds 4 and 5); the floor is the peer-supplied path's,
 and the person's add brings its own.
+
+### Amendment 2026-10-26 — A private-range address of this host on no local network is not this node's address toward anyone
+
+rust-ui-dev-01 observed on the Pixel 9a (2026-10-26) that ADR-0062's
+Show listed three rows: the Wi-Fi address a LAN peer could reach and
+two carrier-assigned `10.x/32` addresses on the phone's mobile-data
+interfaces, which a LAN peer could not; a second phone scanning the
+code added all three. p2p-network-dev-02 read the code and found it
+doing what decision 4 said — a private range is admitted — and that
+the same addresses went further than Show: Identify advertised every
+listen address to every connected peer, and a punch candidate set and
+rule 3's own-listener test read the same listener set. The runtime
+could not tell: its listener set and the platform's view carried IP
+addresses and nothing about the network each came from.
+
+Ruled: the reason a private range is admitted anywhere in this record
+is the LAN, and a carrier's private address on a cellular network is on
+none, so it is no address of this node toward anyone — not shown, not
+advertised, not offered, not counted — while the listener stays bound
+for what it can reach outward. Rule 10 states it; rule 3's own-listener
+clause gains the exception, because the former reading let a phone on
+mobile data alone admit a far end's private candidate and dial it into
+the carrier's network. The classification crosses the platform bridge
+as a derived fact about each address, read off the network's transport
+in the platform layer (cellular is no local network; a VPN is, since
+its peers reach its private address; a prefix length decides nothing),
+so `CONNECTIVITY.md` §14's rule that no transport, network id or
+carrier fact crosses stands. Rejected: Show alone (the leak to every
+connected peer and their dead dials stay); no change (the same, plus a
+scan spending its lines on dead rows). Measured once, on one carrier;
+whether a carrier routes between its own subscribers' private addresses
+was not measured and the rule does not depend on it.
+
+Propagation: rules 3 and 10; this note; the log row; the digest entry
+and keyword row; the README row; ADR-0062 decision 4 and its
+conformance cases (its own note); `CONNECTIVITY.md` §14 (the view's
+classification, the Identify and offer sites); `DCUTR.md` §6;
+`human-client-android.md` §Android network lifecycle. The code is
+p2p-network-dev-02's (the view's field, `own_addresses::select`, the
+Identify listen set, the offer sites, rule 3's test) with rust-ui-dev's
+bridge half (the Kotlin callback reading each network's transport, the
+`android-platform` seam), one PR.
+
+### Amendment 2026-10-27 — An address the platform's view does not hold is on no local network
+
+rust-ui-dev-01 re-ran ADR-0062's gate (e) on the Pixel 9a at main
+bdc7ac89, the first build carrying rule 10, with Wi-Fi and mobile
+data on (OBSERVATION 01a17bb8): Show still listed both carrier
+`10.x/32` addresses beside the Wi-Fi one. The platform's connectivity
+service had reported neither carrier network to the bridge's listen —
+one was the cellular network held in the background behind validated
+Wi-Fi, the other the carrier's IMS network, which an app cannot
+request — so the view held the Wi-Fi network alone and classified
+nothing, while the wildcard listener bound both addresses.
+p2p-network-dev-02 read the four surfaces on `origin/main`
+(OBSERVATION 01a17bbb): the known set is the view's addresses plus the
+listeners' bound set (`CONNECTIVITY.md` §14), the off-local set holds
+only what the view classifies, so an address the view never named was
+shown, advertised, offered and counted as an own private listener —
+rule 10's unclassified-counts-as-local default, applied to a network
+the platform never described. On cellular alone the IMS address is
+still bound, so rule 3 still admitted a far end's private candidate:
+the probe rule 10 was written to refuse.
+
+Ruled: where a view is present, a bound private-range address the
+view does not hold lies on no local network for rule 10's four
+consequences, and is lifted when a view names it. The reason is what
+the view is: every network the platform lets the app use. A network
+it withholds is one the app cannot use and no peer reaches it on,
+whichever reason the platform has, so the measurement of whether a
+different listen would see the background network was not needed.
+Written as a rule of the runtime with no platform in it; the desktop,
+with no view, is unchanged. The fail direction is the opposite of the
+unclassified-transport default and chosen on the weights: wrongly
+hiding costs a LAN address the view missed, with the other phone's
+code still connecting the pair one way; wrongly showing is the rule 3
+probe into the carrier's network and the carrier address handed to
+every Identify peer. Two things follow for the bridge. Its listen
+admits every network the platform reports to the app, not only
+Internet-capable ones, since a Wi-Fi with no uplink or a local-only
+hotspot is a LAN the person is on and would otherwise fall outside
+the view. And the one LAN a platform may report to no app, a
+tethering downstream — the phone's own hotspot access point, a Wi-Fi
+Direct group owner — enters the view as a local network where the
+platform lets an app read it; where it does not, the hotspot host's
+unshown address is the recorded limit, unmeasured at the time of this
+note (rust-ui-dev-01's row). Rejected: the bridge reading the host's
+interfaces and classifying by absence (a second address source in the
+platform layer, classifying from the interface names §14 keeps out,
+for a fact the runtime already holds); keeping the rule and widening
+the listen alone (the IMS network is withheld whatever the listen
+asks, so the rule 3 probe stays).
+
+Propagation: rule 10 and rule 3's own-listener clause, which names
+the second case beside the first; this note; the log row; the digest
+entry; ADR-0062 decision 4 and its note; `CONNECTIVITY.md` §14;
+`DCUTR.md` §6; `human-client-android.md` §Android network lifecycle.
+The code is p2p-network-dev-02's (the off-local set in
+`network_change.rs`, read
+by the four sites as before; j82) with rust-ui-dev-01's bridge half
+(the listen, the tethering read if one exists, the Pixel rows), one
+PR; the stage record says gate (e) passes only on the re-run row.
+
+### Amendment 2026-10-27 (ii) — What the widened listen admits, measured; the hotspot limit's cause
+
+The first amendment of the day said the bridge's listen admits every
+network the platform reports so that a Wi-Fi with no uplink stays
+shown, and that a tethering downstream enters the view "where the
+platform lets an app read it". #474's review (F1) read the second as
+built, which it was not, and rust-ui-dev-01 then measured both on the
+Pixel 9a (OBSERVATIONS 01a17c25 and 01a17c33, the combined build of
+the rule and the widened listen): a Wi-Fi with no uplink — the A40's
+hotspot with mobile data off, the Pixel joined — carries the Internet
+capability unvalidated and was heard by the old listen too, so the
+no-uplink case never needed the widening; what the widening admits is
+a network carrying the local-network capability and no Internet one,
+the phone's own hotspot access point, and the platform reports such a
+network to an app only when the app targets Android SDK 37 — the
+`ENABLE_MATCH_NON_THREAD_LOCAL_NETWORKS` compatibility gate, enabled
+from that target, which forced on for the debuggable build made Show
+list the access-point address beside the Wi-Fi one; a network held in
+the background is never heard, the platform adding the foreground
+requirement to an app's listen. The app targets SDK 36. Ruled: the
+hotspot host's own address stays the recorded limit, now with its
+cause, its cost one direction (the client's shown code connects the
+pair); raising the target is the owner's release decision, not this
+rule's, since it needs a compile-SDK pin (devex-tooling) and brings
+Android 17's runtime local-network permission before any LAN traffic,
+the in-room scan included (ux-designer and the owner); the
+recommendation given to the owner was not now. Propagation: rule 10;
+this note; the log row; the digest entry; `CONNECTIVITY.md` §14;
+`human-client-android.md` §Android network lifecycle; the bridge's
+own comment (rust-ui-dev-01's cc12f4a8).
+
+### Amendment 2026-10-27 (iii) — The shared address space is on no local network, with or without a view
+
+#474's review noted that rule 10 withheld private-range addresses
+only (RFC 1918, ULA), so a carrier that numbers a phone's cellular or
+IMS interface from the shared address space, `100.64.0.0/10`
+(RFC 6598), would still have that address advertised by Identify;
+the book, Show and the punch offer sites already refused it as
+special-use, and rule 3 counts private listeners only, so Identify
+was the one surface it reached (p2p-network-dev-02's OBSERVATION
+01a17c11). Ruled: the range is on no local network unconditionally,
+with or without a platform view, the desktop with a cellular modem
+included, there being no classification to wait for. The first
+reason given — that the space is provider-numbered and no person's
+LAN — was wrong as a premise and p2p-network-dev-02 said so while
+building it (OBSERVATION 01a17c69): mesh overlays number a person's
+own peers from the same space, and ADR-0055 decision 5b's two-host
+case runs on it. The ruling stands on the record's own rules instead:
+rule 2's floor refuses the range as a peer-supplied candidate at
+every learn site, so no peer may learn and dial such an address of
+this node, advertising it serves nobody and withholding it costs
+nothing, whoever numbered it; a peer's address in that space enters
+by the configuration half of rule 9's operator door, as a static
+entry (ADR-0055 decision 5b, the run-time add keeping ADR-0062's
+floor); and should the floor ever admit the range for a peer-learned
+address, this treatment moves with it. Built by p2p-network-dev-02 on
+#476 (j84) as one predicate, with the owed case (a listener on a
+shared-space address, no view, not advertised, beside a private
+listener as the control). Propagation: rule 10; this note; the log
+row; the digest entry; the README row; `CONNECTIVITY.md` §14;
+`DCUTR.md` §6.
+
+### Amendment 2026-10-27 (iv) — The app stays on target SDK 36 for now
+
+Amendment (ii) of the same day named raising the Android target to 37
+as the owner's release decision, with its costs: a compile-SDK pin
+(devex-tooling's) and Android 17's runtime local-network permission
+asked of the person before any LAN traffic, the in-room scan included
+(ux-designer's and the owner's). The recommendation put to the owner
+was not now. The owner's word, 2026-10-27, in architect-cto's session,
+verbatim: "stay on 36 for now". So the hotspot host's own address
+stays the recorded limit with its cause, rule 10's text unchanged
+beyond this sentence, and the target is revisited when a release
+targets Android 17 for its own reasons or when the hotspot host case
+matters to a user. Propagation: rule 10's sentence; the Revisit
+conditions; this note; the log row; the digest entry;
+`human-client-android.md`'s network lifecycle.
+

@@ -347,6 +347,14 @@ pub(super) fn handle_command(
                     // The queue is opened by the JOIN, which is what
                     // bounds the key set by local state rather than by
                     // anything a remote peer names.
+                    // Marked from the join on, and only once the join
+                    // holds: a rolled-back join is no channel of this
+                    // session's, and what it would have lost is not
+                    // counted for it.
+                    broadcast_state
+                        .queues
+                        .losses_mut()
+                        .joined(&session, &channel);
                     if !broadcast_state.queues.is_open(&session) {
                         broadcast_state
                             .queues
@@ -367,6 +375,9 @@ pub(super) fn handle_command(
             reply,
         } => {
             broadcast_state.subs.leave(&channel, &session);
+            // Its losses stay with the session, which still lives: only
+            // its release forgets them.
+            broadcast_state.queues.losses_mut().left(&session, &channel);
 
             // A SESSION THAT HOLDS NOTHING GETS ITS QUEUE BACK. Without
             // this the map keeps an entry per session id ever seen, and a
@@ -493,6 +504,9 @@ pub(super) fn handle_command(
             reply,
         } => {
             let _ = reply.send(broadcast_state.queues.drain_up_to(&session, max));
+        }
+        SwarmCommand::SessionLosses { session, reply } => {
+            let _ = reply.send(broadcast_state.queues.losses().read(&session));
         }
         SwarmCommand::Dial {
             peer,
@@ -1024,6 +1038,8 @@ pub(super) fn handle_command(
                 reply.send(direct_state.claim(LocalSessionId(session), &endpoint, &client_kind));
         }
         SwarmCommand::ReleaseSession { session, reply } => {
+            // The session's end: its losses go with it, after its leaves.
+            broadcast_state.queues.losses_mut().released(&session);
             let _ = reply.send(direct_state.release(&LocalSessionId(session)));
         }
         SwarmCommand::RevokeEndpoint { endpoint, reply } => {
@@ -1789,7 +1805,7 @@ fn permission_denied(e: &(dyn std::error::Error + 'static)) -> bool {
 /// `libp2p-tcp`'s `listen_on` -- answered an empty string, and a device
 /// run reported `transport: ` with no cause (2026-10-10). Pinned by
 /// `a_listener_that_cannot_bind_says_why` (`tests/listen_refusal.rs`).
-fn error_chain(e: &(dyn std::error::Error + 'static)) -> String {
+pub(super) fn error_chain(e: &(dyn std::error::Error + 'static)) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut next = Some(e);
     while let Some(err) = next {

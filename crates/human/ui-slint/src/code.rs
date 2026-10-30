@@ -8,11 +8,7 @@
 //! never here. Reading a file is held to bounds a hostile image cannot
 //! move: its bytes, sides and the decoder's allocation are capped before
 //! a pixel is decoded ([`read_image`]), and the code's text by the QR
-//! format itself ([`rqrr::MAX_PAYLOAD_SIZE`]). A pasted image is not: the
-//! clipboard crate reads the clipboard's bytes whole and decodes them
-//! under the image crate's default allocation bound (512 MiB) before this
-//! client sees a pixel, and [`read_pasted`] can only refuse its sides
-//! afterwards -- a known limit, stated in the PR that built it (#409).
+//! format itself ([`rqrr::MAX_PAYLOAD_SIZE`]).
 
 use std::io::Cursor;
 
@@ -55,8 +51,9 @@ pub enum ImageUnread {
 /// smoothing. Error correction is M -- about 15 % of the code may be lost
 /// and still read, enough for a smudged screen -- or, for a list too long
 /// for M, L, so sixteen circuit routes still fit; the higher levels make a
-/// short list's code denser for no reading a phone needs. `None` only for
-/// text no code holds, which the model's sixteen lines never are.
+/// short list's code denser for no reading a phone needs. `None` for
+/// text no code holds: sixteen lines can, past version 40-L's 2953 bytes,
+/// and the view then draws the lines alone.
 #[must_use]
 pub fn drawn(lines: &[String]) -> Option<Image> {
     let text = lines.join("\n");
@@ -118,20 +115,6 @@ pub fn read_rgba(width: usize, height: usize, rgba: &[u8]) -> CodeRead {
     read_luma(width, height, &luma)
 }
 
-/// Read the first code in an image pasted from the clipboard, already
-/// decoded by the clipboard crate: refused past [`MAX_IMAGE_SIDE`], as a
-/// file is, before anything more is allocated for it.
-///
-/// # Errors
-/// [`ImageUnread::TooLarge`] past the side bound.
-pub fn read_pasted(width: usize, height: usize, rgba: &[u8]) -> Result<CodeRead, ImageUnread> {
-    let side = usize::try_from(MAX_IMAGE_SIDE).unwrap_or(usize::MAX);
-    if width > side || height > side {
-        return Err(ImageUnread::TooLarge);
-    }
-    Ok(read_rgba(width, height, rgba))
-}
-
 /// Read the first code in a PNG or JPEG file's bytes, within bounds.
 ///
 /// # Errors
@@ -191,6 +174,28 @@ fn luma_over_white(red: u8, green: u8, blue: u8, alpha: u8) -> u8 {
     let luma = (299 * red + 587 * green + 114 * blue) / 1000;
     let over = (luma * alpha + 255 * (255 - alpha)) / 255;
     u8::try_from(over).unwrap_or(u8::MAX)
+}
+
+/// A PNG of the code for `lines`, four pixels a module, as a screenshot
+/// of Show would be: what the scan tests give a reader. Only the
+/// clipboard's tests read one, which build where the clipboard is read;
+/// a caller elsewhere leaves the `expect` below unfulfilled, a warning
+/// clippy's `-D warnings` refuses.
+#[cfg(test)]
+#[cfg_attr(not(all(feature = "desktop", target_os = "linux")), expect(dead_code))]
+pub(crate) fn png_for(lines: &[String]) -> Vec<u8> {
+    const SCALE: u32 = 4;
+    let code = drawn(lines).expect("fits").to_rgba8().expect("pixels");
+    let (w, h) = (code.width(), code.height());
+    let scaled = image::RgbaImage::from_fn(w * SCALE, h * SCALE, |x, y| {
+        let p = code.as_slice()[((y / SCALE) * w + x / SCALE) as usize];
+        image::Rgba([p.r, p.g, p.b, p.a])
+    });
+    let mut png = Vec::new();
+    scaled
+        .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("encoded");
+    png
 }
 
 #[cfg(test)]
@@ -352,15 +357,5 @@ mod tests {
         chunk(&mut png, *b"IDAT", &[0x78, 0x9c, 0x03, 0x00, 0, 0, 0, 1]);
         chunk(&mut png, *b"IEND", &[]);
         png
-    }
-
-    /// A pasted image is refused past the side bound, as a file is, and
-    /// read within it (#409 C1).
-    #[test]
-    fn a_pasted_image_is_refused_past_the_side_bound() {
-        let side = MAX_IMAGE_SIDE as usize;
-        assert_eq!(read_pasted(side + 1, 1, &[]), Err(ImageUnread::TooLarge));
-        assert_eq!(read_pasted(1, side + 1, &[]), Err(ImageUnread::TooLarge));
-        assert_eq!(read_pasted(4, 4, &[255; 64]), Ok(CodeRead::NoCode));
     }
 }

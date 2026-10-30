@@ -776,12 +776,41 @@ ui_texts! {
     /// card's route.
     CardWillCreate => "If you accept, a new contact is saved.",
     /// CARD PROPOSAL, Accept's context line when a contact holds the
-    /// route: `{contact}` is that contact's name. The person's own edits
-    /// stay, and the line says so.
-    CardWillUpdate => "If you accept, your contact {contact} is updated. If you chose a name or photo yourself, it does not change.",
+    /// route (contact-cards design 5.4.1, cases U and E): `{name}` is that
+    /// contact's name. The values that change and the edits that stay
+    /// follow it, a line each.
+    // PLACEHOLDER (en)
+    CardUpdates => "If you accept, your contact {name} is updated.",
+    /// CARD PROPOSAL, case U: the name the contact will take, `{name}`.
+    // PLACEHOLDER (en)
+    CardUpdatesName => "New name: {name}",
+    /// CARD PROPOSAL, case U: the card's photo will replace the contact's.
+    // PLACEHOLDER (en)
+    CardUpdatesPhoto => "New photo",
+    /// CARD PROPOSAL, cases U and E: the card carries no photo, so the
+    /// contact's photo, not a local choice, goes (contact-cards
+    /// design 5.4.1). Says the current photo goes, not that the card's is
+    /// missing.
+    CardUpdatesPhotoRemoved => "Your contact's photo will be removed.",
+    /// CARD PROPOSAL, case E: the person named the contact `{name}`, and
+    /// that name stays.
+    // PLACEHOLDER (en)
+    CardKeepsEdit => "You named this contact {name} yourself. That name stays.",
+    /// CARD PROPOSAL, case E: the person chose the contact's photo, and
+    /// it stays.
+    // PLACEHOLDER (en)
+    CardKeepsPhoto => "You chose this contact's photo yourself. That photo stays.",
+    /// CARD PROPOSAL, cases E and S: the card carries a photo, and the
+    /// person removed the contact's, which stays without one (design
+    /// 5.4.1, #443).
+    CardKeepsNoPhoto => "You removed this contact's photo yourself. The contact stays without a photo, and the photo on this card is not used.",
     /// CARD PROPOSAL, the same-name note: `{contact}` is a contact of this
     /// identity with the same name on another `PeerId`.
     CardSameName => "One of your contacts is named {contact} and has a different PeerId. Compare the two PeerIds before you accept.",
+    /// CARD PROPOSAL, the link beside `CardSameName`: opens that contact's
+    /// page, `{name}` the contact's name as stored (contact-cards design
+    /// 5.4.1).
+    ShowContact => "Open your contact {name}",
     /// CARD PROPOSAL: the card came from another identity of a device one
     /// of this identity's contacts is on; `{contact}` is that contact.
     CardSharesNode => "This card comes from the same device as your contact {contact}.",
@@ -802,6 +831,10 @@ ui_texts! {
     /// CARD CONFIRMATION ROW, added when the card's photo did not decode
     /// within its bound and the contact was saved without it.
     CardPhotoNotUsed => "The card's photo could not be used, so the contact was saved without it.",
+    /// CARD CONFIRMATION ROW, in place of `CardPhotoNotUsed` (cases U and
+    /// E): the card's photo did not decode within its bound, and the
+    /// contact's previous photo, not a local choice, went too.
+    CardPhotoNotUsedRemoved => "The card's photo could not be used, so the contact no longer has a photo.",
     /// CARD CONFIRMATION ROW's accessible description while its Accept's
     /// snackbar is open, never shown as text (contact-cards design
     /// 5.4.2, #416): read after `CardAccepted` or `CardUpdated`.
@@ -813,6 +846,13 @@ ui_texts! {
     /// SNACKBAR, with Undo, after a Decline: the proposal is gone from
     /// the session unless the person takes it back.
     ConfirmCardDeclined => "Card declined",
+    /// SNACKBAR, with Undo, after Delete contact (contact-cards design
+    /// section 6.3): the contact and its routes are gone unless the
+    /// person takes it back.
+    ConfirmContactDeleted => "Contact deleted",
+    /// SNACKBAR, with Undo, after a contact's Remove photo (section
+    /// 6.3).
+    ConfirmPhotoRemoved => "Photo removed",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 heading
     KeyStateTitle => "This identity's key cannot be used",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): Android, invalidated or gone; must not claim a cause the client cannot know
@@ -898,9 +938,7 @@ ui_texts! {
     // PLACEHOLDER (en)
     CardSame => "This card matches your contact {contact}.",
     /// CARD PROPOSAL: when the card came, `{date}` its calendar date and
-    /// `{time}` its clock time. A proposal is drawn after the
-    /// conversation's messages, not at its place in time, so the row says
-    /// when.
+    /// `{time}` its clock time.
     // PLACEHOLDER (en)
     CardReceivedAt => "Card received {date} at {time}",
     /// The Chats menu item and the page listing this identity's contacts.
@@ -944,6 +982,31 @@ ui_texts! {
     /// A contact's page and the own card: remove the photo.
     // PLACEHOLDER (en)
     RemovePhoto => "Remove photo",
+    /// The own card's editor: Back with unsaved changes asks this
+    /// (contact-cards design 5.2).
+    CardDiscardChanges => "Close without saving your changes?",
+    /// Its action that stays in the editor, focused when it opens.
+    KeepEditing => "Continue editing",
+    /// Its action that leaves the editor without saving.
+    DiscardChanges => "Close without saving",
+    /// The own card's editor, under the circle with no photo: choose one
+    /// (contact-cards design 5.2).
+    AddPhoto => "Add a photo",
+    /// The own card's editor, under the circle with a photo.
+    ChangePhoto => "Change photo",
+    /// The own card's editor, under the circle: the chosen image could not
+    /// be read or prepared, and the card stays as it was.
+    PhotoUnusable => "This photo cannot be used. Choose another one.",
+    /// The editor's photo circle, accessible label, with a photo.
+    CardPhotoLabel => "Photo for this card",
+    /// The same, with no photo.
+    CardPhotoNone => "No photo for this card",
+    /// The same, while the chosen photo is being prepared (design 5.2 as
+    /// #443 proposes it): the photo is not ready yet.
+    CardPhotoPreparing => "Preparing the photo…",
+    /// Announced once in the editor when a chosen photo has been
+    /// prepared: never that it is saved or sent (design 5.2, #443).
+    PhotoAdded => "Photo ready",
     /// A contact's page and the own card: save the edit.
     // PLACEHOLDER (en)
     Save => "Save",
@@ -959,6 +1022,16 @@ ui_texts! {
     /// The own card: a card already shared does not change.
     // PLACEHOLDER (en)
     CardSharedStays => "People who already have this card still see it as it was. To show them your changes, share the card with them again.",
+    /// One's own card row (contact-cards design 5.5): the line under the
+    /// card as it was sent, and what the row's label opens with. Read
+    /// beside every status, Sending and Not sent too, so it claims no
+    /// sending.
+    CardSentLabel => "Your contact card",
+    /// One's own card row, its spoken label: a sentence after the name
+    /// when the card as sent carried a photo; the photo itself is not
+    /// described (contact-cards design 5.5). A whole sentence, its own
+    /// period included.
+    CardSentPhoto => "The card includes your photo.",
     /// The own card: the photo is set with the command-line client while
     /// the graphical clients cannot choose one.
     // PLACEHOLDER (en)
@@ -1006,6 +1079,11 @@ ui_texts! {
     AddAddress => "Add an address",
     /// Peers and Connect: opens the show page.
     ShowMyAddress => "Show my address",
+    /// The back arrow of the add page and of Show, its accessible label:
+    /// one text for both pages and both openers, since each leaves for
+    /// whichever of Peers or Connect opened it, and never names
+    /// conversations. Named for the add page, as the design names it.
+    AddClose => "Back",
     /// Under Peers' two actions: an address is not trust.
     PeersNoTrust => "An address lets this device reach a peer. Adding an address does not mean that you trust the peer. Trust is a separate step.",
     /// In `PeersNoTrust`'s place while the trust list is unread or not
@@ -1139,6 +1217,18 @@ ui_texts! {
     AddUnknownOne => "InterWeave could not check whether the address was saved. Choose Add to try again. If an address is already saved, it is not saved again.",
     /// The same, several lines.
     AddUnknownOther => "InterWeave could not check whether the addresses were saved. Choose Add to try again. If an address is already saved, it is not saved again.",
+    /// Under Add: the add was refused `superseded` (IPC 2.10) and the list
+    /// read back lacks a line, or could not be read: no Try again, and
+    /// nothing said of the list (add-a-peer §5.7). One line.
+    AddSupersededOne => "This attempt to add the address saved nothing. Another program or window on this device might have changed this address at about the same time. Check the list of addresses before you add it again.",
+    /// The same, several lines.
+    AddSupersededOther => "This attempt to add the addresses saved nothing. Another program or window on this device might have changed one or more of these addresses at about the same time. Check the list of addresses before you add them again.",
+    /// The snackbar, with no action, after a removal refused `superseded`
+    /// whose list read back still lists the address (§5.7).
+    RemoveSuperseded => "The address was not removed. Another program or window on this device might have changed this address at about the same time. The address is still in the list.",
+    /// The snackbar, with no action, after an Undo refused `superseded`
+    /// whose list read back does not list the address (§5.7).
+    UndoSuperseded => "The address was not added back. Another program or window on this device might have changed this address at about the same time. The address is not in the list.",
     /// The snackbar after a removal not made, with Try again.
     RemoveFailed => "The address could not be removed. It is still in the list.",
     /// The snackbar after a removal whose answer was lost and whose list
@@ -1164,12 +1254,17 @@ ui_texts! {
     /// A step-two block: the trust read back after a lost answer does not
     /// list the peer.
     TrustStepNotMade => "{peer} is still not trusted. Your choice of Trust was not saved. Choose Trust to try again.",
-    // PLACEHOLDER (en)
-    /// A step-two block: the trust was refused because a later change of
-    /// the same peer from another admin connection stands (IPC 2.10,
-    /// `superseded`), and the list read again does not list the peer;
-    /// `{peer}` the short `PeerId`. Nothing is retried.
-    TrustStepSuperseded => "{peer} is still not trusted. Your choice of Trust was not saved, because a change made at the same time in another app or window on this device was kept.",
+    /// A step-two block: the Trust was refused `superseded` (IPC 2.10) and
+    /// the trust list read again does not list the peer, or a later read
+    /// decided an unread block so; `{peer}` the short `PeerId`. Trust
+    /// stays in the block, named only under a condition: no retry is
+    /// asked for (add-a-peer §5.3, §5.7).
+    TrustStepSuperseded => "{peer} is not trusted. Your choice of Trust was not saved. Another program or window on this device might have changed whether {peer} is trusted at about the same time. If you still want to trust {peer}, choose Trust again.",
+    /// A step-two block: the Trust was refused `superseded` and the trust
+    /// list could not be read again; `{peer}` the short `PeerId`. Claims
+    /// no trust state and points to the trust settings before any Trust
+    /// again: never `TrustStepUnknown`, which says retrying does no harm.
+    TrustStepSupersededUnread => "Your choice of Trust for {peer} was not saved. Another program or window on this device might have changed whether {peer} is trusted at about the same time. InterWeave could not check whether {peer} is trusted. To see whether {peer} is trusted, open the trust settings.",
     /// Under Add: a daemon with the one-address add only did not take
     /// several lines; `{n}` the lines. Daemon only: the embedded runtime
     /// is this app's own version.
@@ -1187,8 +1282,20 @@ ui_texts! {
     ImageUnreadable => "This image could not be opened. Try another image of the other person's code.",
     /// Desktop, under the scan controls: Paste an image found no image.
     ClipboardNoImage => "There is no image on the clipboard. Copy an image of the other person's code, then choose Paste an image.",
+    /// Desktop, under the scan controls: Paste an image could not read the
+    /// clipboard at all (held by another program, not offered, a read
+    /// error), so what it holds is not known: it must not say there is no
+    /// image or that an image could not be opened, and says what to do
+    /// (add-a-peer §5.5, §9). A rule for the words, held by
+    /// language-culture-en's read (c3815c98), not by a test; the note that
+    /// shows them is `a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit`'s.
+    ClipboardUnreadable => "InterWeave could not read the clipboard. Choose Paste an image to try again, or choose Open an image… to use an image file instead.",
     /// Show, first, before the code: what showing discloses.
     ShowWarning => "Anyone who sees this screen can learn this device's addresses and its PeerId.",
+    /// Show, in the code's place when the lines are more than one code
+    /// holds (add-a-peer §5.4, §9): why there is no code, and what to do
+    /// instead. Read after the warning; not a stop of its own.
+    ShowTooManyForCode => "This device has more addresses than one code can hold. Choose Copy all addresses, then send them to the other person in another way, for example by email.",
     /// The code's accessible label, one address.
     QrLabelOne => "Code with 1 address. The same address is listed below as text.",
     /// The code's accessible label, `{n}` addresses.
@@ -1232,6 +1339,46 @@ ui_texts! {
     ConnectDoneTrustUnknown => "You added an address. InterWeave could not check whether you trust this peer.",
     /// Connect after Show drew this device's addresses.
     ConnectDoneShown => "The other person can now add your address. You still need to add their address.",
+    /// THE START WINDOW (design/2026-10-27-start-window.md §9, and
+    /// contact-cards §10 for the last three; every value below
+    /// language-culture-en's, REPLY 01a180d6): the line
+    /// over the rows not loaded yet, at the top edge or in a gap.
+    /// `{count}` is how many unread items are there, one text for every
+    /// count.
+    EarlierUnread => "Unread messages and contact cards not shown yet: {count}",
+    /// The line where the session bound let go of one read or sent row.
+    ReadNotShownOne => "1 message that you read or sent is no longer shown. It cannot be shown again.",
+    /// The same for more than one; `{count}` is the number.
+    ReadNotShown => "{count} messages that you read or sent are no longer shown. They cannot be shown again.",
+    /// The line at the end of Chats: one stored row this build cannot show.
+    RowsNotShownOne => "1 message is saved on this device, but this version of InterWeave cannot show it.",
+    /// The same for more than one; `{count}` is the number.
+    RowsNotShown => "{count} messages are saved on this device, but this version of InterWeave cannot show them.",
+    /// The limit row's text, before anything is let go (§7.1).
+    EarlierAtLimit => "If you choose Show more messages, InterWeave makes room for more messages by no longer showing some messages that you read or sent in this session. It begins with the ones you read or sent first, in any conversation, including this one. It never stops showing kept messages. The messages that it no longer shows cannot be shown again.",
+    /// The limit row's button.
+    EarlierShowAnyway => "Show more messages",
+    /// The progress row's accessible name, never visible text.
+    EarlierLoading => "Loading more messages",
+    /// The failure row at an edge, and its announcement.
+    EarlierLoadFailed => "Could not load more messages.",
+    /// A proposal's case line while the contacts are unread (§11).
+    CardContactsUnread => "InterWeave could not read your contacts to compare this card with them, so you cannot accept it yet. To read your contacts again, choose App options on the Conversations screen, then Contacts, then Try again.",
+    /// Details, in place of naming by hand, while the contacts are unread.
+    NamingContactsUnread => "InterWeave could not read your contacts, so you cannot add this person as a contact yet.",
+    /// The Contacts list's progress row's accessible name, never visible.
+    ContactsLoading => "Loading your contacts",
+    /// The Contacts list's failure row, and its announcement.
+    ContactsLoadFailed => "Could not load your contacts.",
+    /// Case P with one other contact on the `PeerId` (contact-cards §10):
+    /// `{contact}` the first in the Contacts list's order, as in
+    /// `CardSharesNode`.
+    CardSharesDeviceManyOne => "This card comes from the same device as your contact {contact} and 1 other contact.",
+    /// The same with more; `{n}` the number of the others.
+    CardSharesDeviceMany => "This card comes from the same device as your contact {contact} and {n} other contacts.",
+    /// A Chats preview whose last item is a contact card someone sent
+    /// (contact-cards §5.4.5): never the claimed name.
+    CardPreviewReceived => "Contact card",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
@@ -1441,6 +1588,12 @@ pub mod placeholder_en {
             ErrorClass::AlreadyPending => "This message is already waiting to be sent.",
             ErrorClass::EndpointInUse => "Another app or window is already using this endpoint.",
             ErrorClass::EndpointNotAvailable => "This endpoint is not available to this app.",
+            ErrorClass::NotSentEndpointLimit => {
+                "This device already keeps 64 routes of this peer, the limit for all its \
+                 identities and contacts together, so it cannot open a new route; check that \
+                 this is the route you want, or send in a conversation with this peer if you \
+                 have one."
+            }
             ErrorClass::Internal => "Something went wrong.",
         }
     }
@@ -1581,6 +1734,14 @@ fn is_hidden(c: char) -> bool {
     c.is_control() || HIDDEN.iter().any(|&(low, high)| (low..=high).contains(&c))
 }
 
+/// The text of a count that has a form for one and a form for every
+/// other count, `one` for 1 and `many` otherwise -- zero included, which no
+/// caller shows (`a_count_of_one_takes_the_one_text_and_every_other_the_many`).
+#[must_use]
+pub const fn by_count(count: u64, one: UiText, many: UiText) -> UiText {
+    if count == 1 { one } else { many }
+}
+
 /// `template` with each `{name}` replaced by its value, inserted verbatim
 /// -- an id is never translated or reshaped (U4b). A name the template
 /// does not hold is ignored; a placeholder left unfilled stays visible.
@@ -1665,6 +1826,9 @@ pub enum ErrorClass {
     EndpointInUse,
     /// The endpoint is not available to this client.
     EndpointNotAvailable,
+    /// A send that would open a peer's 65th endpoint: the device keeps at
+    /// most 64 of one peer's (HUMAN-CHAT.md's malformed rule).
+    NotSentEndpointLimit,
     /// Anything else; the raw code is in diagnostics.
     Internal,
 }
@@ -1706,6 +1870,7 @@ pub const fn send_error_class(error: &SendError) -> ErrorClass {
         SendError::NotConfigured => ErrorClass::NotConfigured,
         SendError::StorageUnavailable => ErrorClass::StorageUnavailable,
         SendError::AlreadyPending => ErrorClass::AlreadyPending,
+        SendError::EndpointBound => ErrorClass::NotSentEndpointLimit,
     }
 }
 
@@ -1789,7 +1954,7 @@ mod tests {
     /// Every error class. The exhaustive match fails to compile on a
     /// class added to the enum until it is named there; the array must
     /// gain it too, which nothing enforces.
-    fn every_class() -> [ErrorClass; 14] {
+    fn every_class() -> [ErrorClass; 15] {
         const fn listed(class: ErrorClass) -> ErrorClass {
             match class {
                 ErrorClass::PeerNotTrusted
@@ -1805,6 +1970,7 @@ mod tests {
                 | ErrorClass::AlreadyPending
                 | ErrorClass::EndpointInUse
                 | ErrorClass::EndpointNotAvailable
+                | ErrorClass::NotSentEndpointLimit
                 | ErrorClass::Internal => class,
             }
         }
@@ -1822,6 +1988,7 @@ mod tests {
             ErrorClass::AlreadyPending,
             ErrorClass::EndpointInUse,
             ErrorClass::EndpointNotAvailable,
+            ErrorClass::NotSentEndpointLimit,
             ErrorClass::Internal,
         ]
         .map(listed)
@@ -2171,5 +2338,16 @@ mod tests {
             session_problem_class(SessionProblem::NotAvailableToThisClient),
             ErrorClass::EndpointInUse
         );
+    }
+
+    /// A text with a form for one takes it for 1 and the other form for
+    /// every other count. Mutation: `count <= 1`.
+    #[test]
+    fn a_count_of_one_takes_the_one_text_and_every_other_the_many() {
+        let pick = |count| super::by_count(count, UiText::ReadNotShownOne, UiText::ReadNotShown);
+        assert_eq!(pick(1), UiText::ReadNotShownOne);
+        for count in [0, 2, u64::MAX] {
+            assert_eq!(pick(count), UiText::ReadNotShown, "{count}");
+        }
     }
 }

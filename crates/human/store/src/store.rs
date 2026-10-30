@@ -25,12 +25,14 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::StoreError;
 use crate::records::{
-    AppMessageId, BackupCursor, BackupTable, Cursor, InboundOrigin, NewInbound, NewOutbound,
-    OutboundDestination, Page, PageLimits, PendingOutbound, ReadEphemeral, RowId, StoredInbound,
+    AppMessageId, BackupCursor, BackupTable, Cursor, InboundKind, InboundOrigin, NewInbound,
+    NewOutbound, OutboundDestination, Page, PageLimits, PendingOutbound, ReadEphemeral, RowId,
+    StoredInbound,
 };
 use crate::schema::{migrate, verify_shape};
 
 pub mod contacts;
+pub mod window;
 
 /// A stored timestamp, refusing a negative one rather than flattening it.
 ///
@@ -84,6 +86,11 @@ pub struct HumanStore {
     /// database's size is raised to that size. While it is, the store is
     /// degraded, whatever a probe finds (`recheck_health`).
     quota: Option<u32>,
+    /// Whole contacts loaded, photo and routes: what a card's standing
+    /// must keep to the one it updates (schema v10). Counted for the
+    /// tests only.
+    #[cfg(test)]
+    contact_loads: std::cell::Cell<usize>,
 }
 
 /// The settings key that marks a store rewritten without the freed space a
@@ -97,17 +104,32 @@ const SCRUBBED: &str = "released_content_scrubbed";
 /// whole table on every page; `the_inbound_walk_reads_its_index_not_a_sort`
 /// pins the plan.
 const WALK_UNREAD: &str = "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
-        media_type, payload, received_at, NULL, NULL
+        media_type, payload, received_at, NULL, NULL, kind
    FROM unread_inbound
   WHERE (received_at, row_id) > (?1, ?2)
   ORDER BY received_at, row_id
   LIMIT ?3";
 const WALK_KEPT: &str = "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
-        media_type, payload, received_at, read_at, kept_at
+        media_type, payload, received_at, read_at, kept_at, kind
    FROM kept_inbound
   WHERE (received_at, row_id) > (?1, ?2)
   ORDER BY received_at, row_id
   LIMIT ?3";
+
+/// The `settings` key the client's inbound classification version is
+/// kept under (STATE.md schema v10).
+const INBOUND_KIND_SETTING: &str = "inbound_kind_version";
+
+/// How long a statement waits for another connection's write before it
+/// fails busy. Two connections of one process may hold one store: on
+/// Android a facade left running past its stop's grace finishes its
+/// accepted commands while the next start's facade opens the same file
+/// (`human-client-android.md`, a facade past its stop, rule 3), and the
+/// two are serialised here, never by a failed write. rusqlite sets the
+/// same five seconds at open; it is said here so a change of that default
+/// is not a change of this store
+/// (`a_second_connection_waits_for_a_write_rather_than_failing`).
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// THE CLOSE truncates the WAL too (`RETENTION.md` §8: absent "after a
 /// clean close"). DEFENCE IN DEPTH, NOT SEPARATELY PINNED: SQLite's own
@@ -286,6 +308,7 @@ impl HumanStore {
         if let Some(key) = key {
             crate::at_rest::apply_key(&conn, key)?;
         }
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         // The database and its WAL/SHM companions hold the same message
         // content as the directory, and SQLite creates the companions
         // itself with the process umask. Checked after the connection so
@@ -398,13 +421,41 @@ impl HumanStore {
         // ceiling asked for, when `recheck_health` compacts the file and
         // applies it (its re-review, F2: an earlier version let a
         // successful probe report Healthy under the looser ceiling).
+        //
+        // Zero is refused before anything is written: SQLite ignores it,
+        // answering the ceiling it already had
+        // (`a_zero_quota_is_refused_before_the_open_writes_anything`).
+        if options.max_pages == Some(0) {
+            let effective: i64 =
+                conn.pragma_update_and_check(None, "max_page_count", 0, |row| row.get(0))?;
+            return Err(StoreError::QuotaNotApplied {
+                requested: 0,
+                effective,
+            });
+        }
+
+        // THE OPEN'S OWN WRITES RUN ABOVE THE QUOTA (STATE.md, Store
+        // health, A 2026-10-27 (ii), #492's review F3): a migration, the
+        // key refresh and the index backfill are bounded by the store's own
+        // size and none is a peer's doing, and a store whose open had to
+        // write under a quota it was already at refused to open at all.
+        // The quota is applied once they are done; a store over it then
+        // opens degraded, below; one exactly at it is healthy
+        // (`a_store_exactly_at_its_quota_opens_healthy`).
+        migrate(&mut conn)?;
+        verify_shape(&conn)?;
+        // Before anything can read a key: a store whose keys another build
+        // made, or the v10 migration left empty, has them all again here.
+        contacts::refresh_name_keys(&mut conn)?;
+        window::backfill_conversation_index(&mut conn)?;
+
         let mut health = StorageHealth::Healthy;
         if let Some(max_pages) = options.max_pages {
             let effective: i64 =
                 conn.pragma_update_and_check(None, "max_page_count", max_pages, |row| row.get(0))?;
             if effective != i64::from(max_pages) {
                 let size: i64 = conn.pragma_query_value(None, "page_count", |row| row.get(0))?;
-                if max_pages == 0 || effective != size {
+                if effective != size {
                     return Err(StoreError::QuotaNotApplied {
                         requested: max_pages,
                         effective,
@@ -414,13 +465,12 @@ impl HumanStore {
             }
         }
 
-        migrate(&mut conn)?;
-        verify_shape(&conn)?;
-
         Ok(Self {
             conn,
             health,
             quota: options.max_pages,
+            #[cfg(test)]
+            contact_loads: std::cell::Cell::new(0),
         })
     }
 
@@ -708,32 +758,50 @@ impl HumanStore {
             .map(|at| sql_timestamp("last_attempt_at", at))
             .transpose()?;
 
-        let result = self.conn.execute(
-            "INSERT INTO pending_outbound
+        let created_at = sql_timestamp("created_at", new.created_at)?;
+        // The row and its conversation's index entry in one transaction: a
+        // direct send to a named endpoint indexes the conversation it opens
+        // (STATE.md, the per-peer endpoint bound), a send to the default
+        // endpoint or a channel names none.
+        let indexed = match &new.destination {
+            OutboundDestination::Direct(d) => d.endpoint.as_ref().map(|e| (&d.peer, e)),
+            OutboundDestination::Broadcast(_) => None,
+        };
+        let result = (|| -> rusqlite::Result<i64> {
+            let tx = self.conn.unchecked_transaction()?;
+            tx.execute(
+                "INSERT INTO pending_outbound
                  (app_message_id, transport_message_id, destination_peer,
                   destination_endpoint, channel_id, media_type, payload, created_at,
                   last_attempt_at, attempts)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                new.app_message_id.as_str(),
-                new.transport_message_id.as_bytes().as_slice(),
-                // A broadcast row has no peer; the column is NOT NULL, so
-                // the channel row stores the empty string and the channel
-                // column is what identifies it. Reading discriminates on
-                // channel_id, never on this.
-                peer.unwrap_or_default(),
-                endpoint,
-                channel,
-                new.media_type.as_ref().map(MediaType::as_str),
-                new.payload,
-                sql_timestamp("created_at", new.created_at)?,
-                last_attempt_at,
-                attempts,
-            ],
-        );
+                params![
+                    new.app_message_id.as_str(),
+                    new.transport_message_id.as_bytes().as_slice(),
+                    // A broadcast row has no peer; the column is NOT NULL, so
+                    // the channel row stores the empty string and the channel
+                    // column is what identifies it. Reading discriminates on
+                    // channel_id, never on this.
+                    peer.unwrap_or_default(),
+                    endpoint,
+                    channel,
+                    new.media_type.as_ref().map(MediaType::as_str),
+                    new.payload,
+                    created_at,
+                    last_attempt_at,
+                    attempts,
+                ],
+            )?;
+            let row = tx.last_insert_rowid();
+            if let Some((peer, endpoint)) = indexed {
+                window::index_direct(&tx, peer, endpoint)?;
+            }
+            tx.commit()?;
+            Ok(row)
+        })();
 
         match result {
-            Ok(_) => Ok(RowId::from_stored(self.conn.last_insert_rowid())),
+            Ok(row) => Ok(RowId::from_stored(row)),
             Err(e) => Err(self.note_failure(e)),
         }
     }
@@ -929,37 +997,58 @@ impl HumanStore {
         // copy is the same message and is not unread again (STATE.md
         // `read_pairs`). The check is IN the insert, so nothing can slip
         // between them.
-        let result = self.conn.execute(
-            "INSERT INTO unread_inbound
+        let received_at = sql_timestamp("received_at", new.received_at)?;
+        // The row and, for a direct one, its conversation's index entry in
+        // one transaction (STATE.md: the index holds every direct
+        // conversation the store holds rows of).
+        let indexed = match (&new.origin.endpoint, &new.origin.channel) {
+            (Some(endpoint), None) => Some((&new.origin.peer, endpoint)),
+            _ => None,
+        };
+        let result = (|| -> rusqlite::Result<Option<i64>> {
+            let tx = self.conn.unchecked_transaction()?;
+            let inserted = tx.execute(
+                "INSERT INTO unread_inbound
                  (app_message_id, source_peer, source_endpoint, channel_id,
-                  media_type, payload, received_at)
-             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+                  media_type, payload, received_at, kind)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
               WHERE NOT EXISTS (
                     SELECT 1 FROM read_pairs
                      WHERE source_peer = ?2
                        AND source_endpoint_key = IFNULL(?3, '')
                        AND channel_key = IFNULL(?4, '')
                        AND app_message_id = ?1)",
-            params![
-                new.app_message_id.as_str(),
-                new.origin.peer.as_str(),
-                new.origin
-                    .endpoint
-                    .as_ref()
-                    .map(interweave_transport_api::EndpointId::as_str),
-                new.origin
-                    .channel
-                    .as_ref()
-                    .map(interweave_transport_api::ChannelId::as_str),
-                new.media_type.as_ref().map(MediaType::as_str),
-                new.payload,
-                sql_timestamp("received_at", new.received_at)?,
-            ],
-        );
+                params![
+                    new.app_message_id.as_str(),
+                    new.origin.peer.as_str(),
+                    new.origin
+                        .endpoint
+                        .as_ref()
+                        .map(interweave_transport_api::EndpointId::as_str),
+                    new.origin
+                        .channel
+                        .as_ref()
+                        .map(interweave_transport_api::ChannelId::as_str),
+                    new.media_type.as_ref().map(MediaType::as_str),
+                    new.payload,
+                    received_at,
+                    new.kind.as_sql(),
+                ],
+            )?;
+            if inserted == 0 {
+                return Ok(None);
+            }
+            let row = tx.last_insert_rowid();
+            if let Some((peer, endpoint)) = indexed {
+                window::index_direct(&tx, peer, endpoint)?;
+            }
+            tx.commit()?;
+            Ok(Some(row))
+        })();
 
         match result {
-            Ok(0) => Err(StoreError::AlreadyRead),
-            Ok(_) => Ok(RowId::from_stored(self.conn.last_insert_rowid())),
+            Ok(None) => Err(StoreError::AlreadyRead),
+            Ok(Some(row)) => Ok(RowId::from_stored(row)),
             Err(e) => Err(self.note_failure(e)),
         }
     }
@@ -1005,7 +1094,7 @@ impl HumanStore {
             let row = tx
                 .query_row(
                     "SELECT app_message_id, source_peer, source_endpoint, channel_id,
-                            media_type, payload, received_at
+                            media_type, payload, received_at, kind
                        FROM unread_inbound WHERE row_id = ?1",
                     params![row_id.get()],
                     |r| {
@@ -1017,6 +1106,7 @@ impl HumanStore {
                             media_type: r.get(4)?,
                             payload: r.get(5)?,
                             received_at: r.get(6)?,
+                            kind: r.get(7)?,
                         })
                     },
                 )
@@ -1123,8 +1213,8 @@ impl HumanStore {
         let result = self.conn.query_row(
             "INSERT INTO kept_inbound
                  (app_message_id, source_peer, source_endpoint, channel_id,
-                  media_type, payload, received_at, read_at, kept_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                  media_type, payload, received_at, read_at, kept_at, kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(source_peer, source_endpoint_key, channel_key, app_message_id)
              DO UPDATE SET
                  read_at = excluded.read_at,
@@ -1151,6 +1241,7 @@ impl HumanStore {
                 sql_timestamp("received_at", held.received_at)?,
                 sql_timestamp("read_at", held.read_at)?,
                 sql_timestamp("at_ms", at_ms)?,
+                held.kind.as_sql(),
             ],
             |r| r.get::<_, i64>(0),
         );
@@ -1197,7 +1288,7 @@ impl HumanStore {
             let row = tx
                 .query_row(
                     "SELECT app_message_id, source_peer, source_endpoint, channel_id,
-                            media_type, payload, received_at, read_at
+                            media_type, payload, received_at, read_at, kind
                        FROM kept_inbound WHERE row_id = ?1",
                     params![row_id.get()],
                     |r| {
@@ -1210,6 +1301,7 @@ impl HumanStore {
                                 media_type: r.get(4)?,
                                 payload: r.get(5)?,
                                 received_at: r.get(6)?,
+                                kind: r.get(8)?,
                             },
                             r.get::<_, i64>(7)?,
                         ))
@@ -1302,6 +1394,81 @@ impl HumanStore {
         Ok(page.items)
     }
 
+    /// The client's classification version the inbound kinds were made
+    /// under (`inbound_kind_version`, STATE.md schema v10), or `None`
+    /// when no client has classified them yet, as after the v10 migration.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn inbound_kind_version(&self) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![INBOUND_KIND_SETTING],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Every unread and kept row classified again by `classify`, and
+    /// `version` recorded, in one transaction: the client runs it at open
+    /// when [`Self::inbound_kind_version`] is not its own, before any
+    /// count is read (STATE.md schema v10). Rows are read a page at a
+    /// time, never all at once, and only a kind that changes is written.
+    /// A failure leaves every kind and the old version as they were, and
+    /// the next open runs it again.
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn reclassify_inbound(
+        &mut self,
+        version: &str,
+        mut classify: impl FnMut(&StoredInbound) -> InboundKind,
+    ) -> Result<(), StoreError> {
+        let result = (|| -> Result<(), StoreError> {
+            let tx = self.conn.unchecked_transaction()?;
+            for table in ["unread_inbound", "kept_inbound"] {
+                // A kind this build does not write -- a newer build's -- reads
+                // back as `Other`, which the classifier may also answer, so
+                // the comparison below would leave it in place. It is made
+                // `other` first, and the classifier then decides.
+                tx.execute(
+                    &format!(
+                        "UPDATE {table} SET kind = 'other'
+                          WHERE kind NOT IN ('text', 'card', 'other')"
+                    ),
+                    [],
+                )?;
+                let mut after = None;
+                loop {
+                    let page = self.read_inbound_table(table, after, PageLimits::default())?;
+                    for row in &page.items {
+                        let kind = classify(row);
+                        if kind != row.kind {
+                            // `table` is one of the two literals above.
+                            tx.execute(
+                                &format!("UPDATE {table} SET kind = ?2 WHERE row_id = ?1"),
+                                params![row.row_id.get(), kind.as_sql()],
+                            )?;
+                        }
+                    }
+                    match page.next {
+                        Some(next) => after = Some(next),
+                        None => break,
+                    }
+                }
+            }
+            tx.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+                params![INBOUND_KIND_SETTING, version],
+            )?;
+            tx.commit()?;
+            Ok(())
+        })();
+        result.map_err(|e| self.note_store_failure(e))
+    }
+
     fn read_inbound_table(
         &self,
         table: &str,
@@ -1316,56 +1483,22 @@ impl HumanStore {
         let (sort_key, row_id) = cursor_bounds(after)?;
         let fetch = i64::try_from(limits.max_records().saturating_add(1)).unwrap_or(i64::MAX);
         let mut stmt = self.conn.prepare(sql)?;
-        let rows = stmt.query_map(params![sort_key, row_id, fetch], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, Option<String>>(3)?,
-                r.get::<_, Option<String>>(4)?,
-                r.get::<_, Option<String>>(5)?,
-                r.get::<_, Vec<u8>>(6)?,
-                r.get::<_, i64>(7)?,
-                r.get::<_, Option<i64>>(8)?,
-                r.get::<_, Option<i64>>(9)?,
-            ))
-        })?;
+        let rows = stmt.query_map(params![sort_key, row_id, fetch], InboundRow::read)?;
 
         let mut out = Vec::new();
         let mut bytes = 0usize;
         let mut more = false;
         for row in rows {
-            let (id, amid, peer, endpoint, channel, media_type, payload, received, read, keptat) =
-                row?;
+            let row = row?;
             if !out.is_empty()
                 && (out.len() >= limits.max_records()
-                    || bytes.saturating_add(payload.len()) > limits.max_bytes())
+                    || bytes.saturating_add(row.payload.len()) > limits.max_bytes())
             {
                 more = true;
                 break;
             }
-            bytes = bytes.saturating_add(payload.len());
-            out.push(StoredInbound {
-                row_id: RowId::from_stored(id),
-                app_message_id: AppMessageId::parse(amid)?,
-                origin: InboundOrigin {
-                    peer: TransportIdentity::parse(peer)
-                        .map_err(|e| StoreError::Corrupt(e.to_string()))?,
-                    endpoint: endpoint
-                        .map(EndpointId::parse)
-                        .transpose()
-                        .map_err(|e| StoreError::Corrupt(e.to_string()))?,
-                    channel: channel
-                        .map(ChannelId::parse)
-                        .transpose()
-                        .map_err(|e| StoreError::Corrupt(e.to_string()))?,
-                },
-                media_type: parse_media_type(media_type)?,
-                payload,
-                received_at: stored_ms("received_at", received)?,
-                read_at: read.map(|v| stored_ms("read_at", v)).transpose()?,
-                kept_at: keptat.map(|v| stored_ms("kept_at", v)).transpose()?,
-            });
+            bytes = bytes.saturating_add(row.payload.len());
+            out.push(row.parse()?);
         }
         Ok(Page {
             next: more.then(|| Cursor {
@@ -1672,6 +1805,69 @@ fn record_pair(
     Ok(())
 }
 
+/// One inbound row as the walks and the window select it: `row_id,
+/// app_message_id, source_peer, source_endpoint, channel_id, media_type,
+/// payload, received_at, read_at, kept_at, kind`, in that order.
+pub(crate) struct InboundRow {
+    id: i64,
+    app_message_id: String,
+    peer: String,
+    endpoint: Option<String>,
+    channel: Option<String>,
+    media_type: Option<String>,
+    pub(crate) payload: Vec<u8>,
+    received_at: i64,
+    read_at: Option<i64>,
+    kept_at: Option<i64>,
+    kind: String,
+}
+
+impl InboundRow {
+    pub(crate) fn read(r: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: r.get(0)?,
+            app_message_id: r.get(1)?,
+            peer: r.get(2)?,
+            endpoint: r.get(3)?,
+            channel: r.get(4)?,
+            media_type: r.get(5)?,
+            payload: r.get(6)?,
+            received_at: r.get(7)?,
+            read_at: r.get(8)?,
+            kept_at: r.get(9)?,
+            kind: r.get(10)?,
+        })
+    }
+
+    /// The row as the store hands it out, its identifiers checked.
+    pub(crate) fn parse(self) -> Result<StoredInbound, StoreError> {
+        Ok(StoredInbound {
+            row_id: RowId::from_stored(self.id),
+            app_message_id: AppMessageId::parse(self.app_message_id)?,
+            origin: InboundOrigin {
+                peer: TransportIdentity::parse(self.peer)
+                    .map_err(|e| StoreError::Corrupt(e.to_string()))?,
+                endpoint: self
+                    .endpoint
+                    .map(EndpointId::parse)
+                    .transpose()
+                    .map_err(|e| StoreError::Corrupt(e.to_string()))?,
+                channel: self
+                    .channel
+                    .map(ChannelId::parse)
+                    .transpose()
+                    .map_err(|e| StoreError::Corrupt(e.to_string()))?,
+            },
+            media_type: parse_media_type(self.media_type)?,
+            payload: self.payload,
+            received_at: stored_ms("received_at", self.received_at)?,
+            read_at: self.read_at.map(|v| stored_ms("read_at", v)).transpose()?,
+            kept_at: self.kept_at.map(|v| stored_ms("kept_at", v)).transpose()?,
+            kind: InboundKind::from_sql(&self.kind),
+        })
+    }
+}
+
 /// An inbound row's columns as SQLite holds them, before validation: what
 /// `mark_read` reads from `unread_inbound` and `unkeep` from
 /// `kept_inbound`, so both build a [`ReadEphemeral`] the same way.
@@ -1683,6 +1879,7 @@ struct InboundColumns {
     media_type: Option<String>,
     payload: Vec<u8>,
     received_at: i64,
+    kind: String,
 }
 
 impl InboundColumns {
@@ -1709,6 +1906,7 @@ impl InboundColumns {
             payload: self.payload,
             received_at: stored_ms("received_at", self.received_at)?,
             read_at,
+            kind: InboundKind::from_sql(&self.kind),
         })
     }
 }

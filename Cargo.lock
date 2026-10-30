@@ -305,12 +305,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf"
 dependencies = [
  "clipboard-win",
- "image",
  "log",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
- "objc2-core-foundation",
- "objc2-core-graphics",
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
@@ -938,6 +935,15 @@ dependencies = [
  "rustix 0.38.44",
  "wayland-backend",
  "wayland-client",
+]
+
+[[package]]
+name = "caseless"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b6fd507454086c8edfd769ca6ada439193cdb209c7681712ef6275cccbfe5d8"
+dependencies = [
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1749,12 +1755,6 @@ name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
-
-[[package]]
-name = "fax"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "caf1079563223d5d59d83c85886a56e586cfd5c1a26292e971a0fa266531ac5a"
 
 [[package]]
 name = "fdeflate"
@@ -2963,6 +2963,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "icu_collator"
+version = "2.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08984ed58ac439ebf3e13d2cf26b0c46a60afcd21721c1d14087c0b240344dda"
+dependencies = [
+ "icu_collator_data",
+ "icu_collections",
+ "icu_locale_core",
+ "icu_locale_fallback",
+ "icu_normalizer",
+ "icu_properties",
+ "icu_provider",
+ "smallvec",
+ "utf16_iter",
+ "utf8_iter",
+ "zerovec",
+]
+
+[[package]]
+name = "icu_collator_data"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7d7e54efdddeb1208c08dd5d32b53a879ac00d2d3d051b2255fd26821d16368"
+
+[[package]]
 name = "icu_collections"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3044,6 +3069,9 @@ dependencies = [
  "icu_properties",
  "icu_provider",
  "smallvec",
+ "utf16_iter",
+ "utf8_iter",
+ "write16",
  "zerovec",
 ]
 
@@ -3217,7 +3245,6 @@ dependencies = [
  "moxcms",
  "num-traits",
  "png",
- "tiff",
  "zune-core",
  "zune-jpeg",
 ]
@@ -3284,7 +3311,7 @@ checksum = "36eee07d8e02bd95bf52b2e642cf13d33701b94c6e4b04fbf1d1fb07e9cb19e7"
 
 [[package]]
 name = "interweave-android-e2e-cases"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-human-app-core",
  "interweave-human-chat-protocol",
@@ -3301,7 +3328,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-android-e2e-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-android-e2e-cases",
  "interweave-human-android-platform",
@@ -3327,20 +3354,21 @@ dependencies = [
 
 [[package]]
 name = "interweave-automated-client-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-ipc-client",
  "interweave-local-client-api",
  "interweave-test-support",
  "interweave-transport-api",
  "interweave-transport-runtime",
+ "serde_json",
  "tempfile",
  "tokio",
 ]
 
 [[package]]
 name = "interweave-claude-channel"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-claude-channel-core",
  "interweave-human-chat-protocol",
@@ -3360,7 +3388,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-claude-channel-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "brotli",
@@ -3376,7 +3404,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-connectivity-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "interweave-local-client-api",
@@ -3394,12 +3422,13 @@ dependencies = [
 
 [[package]]
 name = "interweave-desktop-e2e-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "atspi",
  "base64 0.23.1",
  "futures-util",
  "image",
+ "interweave-human-app-core",
  "interweave-human-chat-protocol",
  "interweave-human-store",
  "interweave-human-transport-client",
@@ -3413,6 +3442,8 @@ dependencies = [
  "interweave-transport-api",
  "jsonschema",
  "libp2p",
+ "qrcode",
+ "rqrr",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -3423,7 +3454,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-direct-v2-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "interweave-kademlia-control-api",
@@ -3441,7 +3472,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-transport-api",
  "serde",
@@ -3450,7 +3481,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-cache"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -3462,7 +3493,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-conformance-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-discovery-api",
  "interweave-discovery-cache",
@@ -3481,7 +3512,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-kademlia"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -3492,7 +3523,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-mdns"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -3501,7 +3532,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-static"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -3510,7 +3541,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-endpoint-routing-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-local-client-api",
  "interweave-profile-config",
@@ -3525,7 +3556,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-android"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "interweave-android-e2e-cases",
@@ -3539,6 +3570,7 @@ dependencies = [
  "interweave-transport-api",
  "jni 0.22.4",
  "ndk-sys 0.6.0+11769913",
+ "rustix 1.1.5",
  "serde_json",
  "tracing",
  "tracing-subscriber",
@@ -3547,7 +3579,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-android-platform"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bip39",
  "interweave-android-e2e-cases",
@@ -3572,7 +3604,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-app-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "image",
@@ -3595,7 +3627,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-chat-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "brotli",
@@ -3612,7 +3644,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-chat-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-human-chat-protocol",
  "interweave-transport-api",
@@ -3622,9 +3654,10 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-human-app-core",
+ "interweave-human-chat-protocol",
  "interweave-human-client-api",
  "interweave-human-store",
  "interweave-human-transport-client",
@@ -3643,7 +3676,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-client-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-human-chat-protocol",
  "interweave-human-core",
@@ -3652,14 +3685,14 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "interweave-human-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "i-slint-backend-testing",
  "interweave-human-app-core",
@@ -3679,7 +3712,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-retention-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-human-chat-protocol",
  "interweave-human-core",
@@ -3696,11 +3729,12 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes",
  "aes-gcm",
  "base64 0.23.1",
+ "caseless",
  "ed25519-dalek",
  "interweave-human-core",
  "interweave-human-store",
@@ -3710,12 +3744,14 @@ dependencies = [
  "rusqlite",
  "sha2 0.10.9",
  "tempfile",
+ "unicode-normalization",
+ "unicode-security",
  "zeroize",
 ]
 
 [[package]]
 name = "interweave-human-transport-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "interweave-human-chat-protocol",
@@ -3724,6 +3760,7 @@ dependencies = [
  "interweave-human-store",
  "interweave-local-client-api",
  "interweave-local-client-fake",
+ "interweave-profile-config",
  "interweave-profile-identity",
  "interweave-transport-api",
  "rand 0.10.3",
@@ -3735,8 +3772,11 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-ui-model"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "icu_collator",
+ "icu_normalizer",
+ "icu_provider",
  "interweave-human-chat-protocol",
  "interweave-human-client-api",
  "interweave-human-core",
@@ -3748,13 +3788,13 @@ dependencies = [
  "tempfile",
  "tokio",
  "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
 name = "interweave-human-ui-slint"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
- "arboard",
  "chrono",
  "i-slint-backend-testing",
  "i-slint-common",
@@ -3772,16 +3812,19 @@ dependencies = [
  "qrcode",
  "rfd",
  "rqrr",
+ "rustix 1.1.5",
  "serde_json",
  "slint",
  "slint-build",
  "spin_on",
+ "wl-clipboard-rs",
+ "x11rb",
  "yeslogic-fontconfig-sys",
 ]
 
 [[package]]
 name = "interweave-independent-codecs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde_json",
  "sha2 0.10.9",
@@ -3789,7 +3832,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-interoperability-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "interweave-independent-codecs",
@@ -3815,7 +3858,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-ipc-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-ipc-protocol",
  "interweave-local-client-api",
@@ -3829,7 +3872,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-ipc-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-local-client-api",
  "interweave-transport-api",
@@ -3840,7 +3883,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-ipc-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-ipc-protocol",
  "interweave-local-client-api",
@@ -3853,7 +3896,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-ipc-v2-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-ipc-protocol",
  "interweave-ipc-server",
@@ -3871,7 +3914,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-kademlia-control-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-discovery-api",
  "interweave-transport-api",
@@ -3881,7 +3924,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-kademlia-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "interweave-discovery-api",
@@ -3899,7 +3942,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-local-client-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-transport-api",
  "serde",
@@ -3908,7 +3951,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-local-client-conformance-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-ipc-client",
  "interweave-ipc-server",
@@ -3927,7 +3970,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-local-client-fake"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-local-client-api",
  "interweave-profile-config",
@@ -3936,7 +3979,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-persistence-gate-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-discovery-cache",
  "interweave-human-core",
@@ -3948,7 +3991,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-profile-config"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -3969,7 +4012,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-profile-identity"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bip39",
  "interweave-profile-config",
@@ -3982,7 +4025,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-pubsub-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "interweave-local-client-api",
@@ -3999,7 +4042,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-security-local-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-human-store",
  "interweave-ipc-protocol",
@@ -4015,7 +4058,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-security-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "interweave-discovery-api",
@@ -4036,7 +4079,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-test-support"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "interweave-ipc-client",
@@ -4057,7 +4100,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "serde",
@@ -4066,7 +4109,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-composition"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-discovery-api",
  "interweave-discovery-cache",
@@ -4094,7 +4137,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-contract-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-discovery-api",
  "interweave-human-chat-protocol",
@@ -4115,7 +4158,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-daemon"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-ipc-server",
  "interweave-profile-config",
@@ -4129,7 +4172,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-embedded"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "interweave-local-client-api",
@@ -4148,7 +4191,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-libp2p"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "either",
@@ -4176,7 +4219,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-runtime"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -4190,7 +4233,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transportctl"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-ipc-client",
  "interweave-local-client-api",
@@ -4207,7 +4250,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-trust-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "interweave-transport-api",
  "serde",
@@ -6479,9 +6522,9 @@ dependencies = [
 
 [[package]]
 name = "pulldown-cmark"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+checksum = "278e9268c93b9e498a2da46c34d90ba93a3255eb99009646398f34bc73ab36eb"
 dependencies = [
  "bitflags 2.13.2",
  "memchr",
@@ -7923,20 +7966,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tiff"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b63feaf3343d35b6ca4d50483f94843803b0f51634937cc2ec519fc32232bc52"
-dependencies = [
- "fax",
- "flate2",
- "half",
- "quick-error",
- "weezl",
- "zune-jpeg",
-]
-
-[[package]]
 name = "time"
 version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8364,6 +8393,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "383ad40bb927465ec0ce7720e033cb4ca06912855fc35db31b5755d0de75b1ee"
 
 [[package]]
+name = "unicode-security"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e4ddba1535dd35ed8b61c52166b7155d7f4e4b8847cec6f48e71dc66d8b5e50"
+dependencies = [
+ "unicode-normalization",
+ "unicode-script",
+]
+
+[[package]]
 name = "unicode-segmentation"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8460,6 +8499,12 @@ dependencies = [
  "unicode-vo",
  "xmlwriter",
 ]
+
+[[package]]
+name = "utf16_iter"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8232dd3cdaed5356e0f716d285e4b40b932ac434100fe9b7e0e8e935b9e6246"
 
 [[package]]
 name = "utf8_iter"
@@ -9459,6 +9504,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "write16"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1890f4022759daae28ed4fe62859b1236caebfc61ede2f63ed4e695f3f6d936"
+
+[[package]]
 name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9593,7 +9644,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "yamux"

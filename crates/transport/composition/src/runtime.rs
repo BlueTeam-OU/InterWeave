@@ -2013,6 +2013,7 @@ impl Driver {
             .map(|gate| PeerGateRow {
                 last_outcome: self.outcomes.get(&gate.peer),
                 connected: gate.connected,
+                last_seen_ms: gate.last_seen_ms,
                 backoff_until_ms: gate.backoff_until_ms,
                 quarantined_until_ms: gate.quarantined_until_ms,
                 route_held_until_ms: gate.route_held_until_ms,
@@ -2038,7 +2039,11 @@ impl Driver {
             let _ = self.swarm.kademlia(command).await;
         }
         self.discovery.pump(now);
-        for (peer, addresses) in self.discovery.changed_candidates(now) {
+        // The widenings count is read BEFORE the offers, so an offer the
+        // book judged before a widening is recorded under the older count
+        // and made again next round (`Discovery::changed_candidates`).
+        let widenings = self.swarm.listener_widenings().count();
+        for (peer, addresses) in self.discovery.changed_candidates(now, widenings) {
             let _ = self.swarm.learn(peer, addresses).await;
         }
         // AND DIALS THE PEERS THIS PROFILE WANTS a data-plane connection

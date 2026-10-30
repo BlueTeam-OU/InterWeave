@@ -58,7 +58,6 @@ tokio = { workspace = true, features = ["net", "io-util"] }
 # each one off this list in the commit that adds its first use.
 [package.metadata.cargo-machete]
 ignored = [
-  "interweave-local-client-api",
   "interweave-transport-composition",
   "interweave-discovery-api",
 ]

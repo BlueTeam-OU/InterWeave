@@ -18,7 +18,7 @@ use interweave_human_ui_model::ConversationKey;
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::Failure;
 use crate::cli::Verb;
@@ -104,6 +104,7 @@ fn send(key: &ConversationKey, text: &str) -> Verb {
     Verb::Send {
         conversation: key.clone(),
         text: Some(text.to_owned()),
+        pending: true,
     }
 }
 
@@ -386,7 +387,12 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
     let mut out = Vec::new();
     verbs::listen(
         &mut bob,
-        true,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: false,
+            input: None,
+        },
         &mut out,
         tokio::time::sleep(Duration::from_millis(500)),
     )
@@ -401,6 +407,259 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
     assert_eq!(message["text"], "while listening");
     assert_eq!(message["status"], "unread");
     assert!(message["conversation"].is_string());
+    assert_eq!(
+        message["local_endpoint"], "human",
+        "G6: the endpoint it reached"
+    );
+}
+
+/// G1: `listen --input` sends each JSON line over the lease it holds and
+/// answers each with its `ref`: an outbound event for a send, an
+/// input-refused one for a line it cannot read, and it goes on after
+/// both and after EOF. Mutations: a refused line ending listen; the
+/// answer losing its ref.
+#[tokio::test]
+async fn listen_input_sends_each_line_and_answers_with_its_ref() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    // As stdin hands them over: a line that is not UTF-8 among them, and
+    // two sends, answered in the order read.
+    let mut stdin = Vec::new();
+    stdin.extend_from_slice(b"not json\n");
+    stdin.extend_from_slice(br#"{"send":{"conversation":"x","ref":"bad"}}"#);
+    stdin.extend_from_slice(b"\n\xff\xfe{\"send\"}\r\n");
+    stdin.extend_from_slice(
+        format!(
+            "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"x\",\"ref\":\"ep\",\"endpoint\":\"other\"}}}}\n"
+        )
+        .as_bytes(),
+    );
+    for (text, reference) in [("over the lease", 7), ("and after it", 8)] {
+        stdin.extend_from_slice(
+            format!(
+                "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"{text}\",\"ref\":{reference}}}}}\n"
+            )
+            .as_bytes(),
+        );
+    }
+    // On a thread of its own, as main runs it: it waits while the channel
+    // is full.
+    std::thread::spawn(move || verbs::read_input(stdin.as_slice(), &lines_in));
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_500)),
+    )
+    .await
+    .expect("listened past EOF");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    let refused: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "input-refused")
+        .collect();
+    let refs: Vec<&Value> = refused.iter().map(|e| &e["ref"]).collect();
+    assert_eq!(
+        refs,
+        [&Value::Null, &json!("bad"), &Value::Null, &json!("ep")],
+        "{out}"
+    );
+    assert_eq!(refused[2]["reason"], "not UTF-8 text", "{out}");
+    let answered: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "outbound" && e["ref"].is_number())
+        .map(|e| &e["ref"])
+        .collect();
+    assert_eq!(answered.first(), Some(&&json!(7)), "{out}");
+    assert!(
+        answered.contains(&&json!(8)),
+        "the second send, after: {out}"
+    );
+    let sent = events
+        .iter()
+        .find(|e| e["event"] == "outbound" && e["ref"] == 7)
+        .unwrap_or_else(|| panic!("an outbound answer for ref 7: {out}"));
+    assert!(
+        sent["id"].as_str().is_some_and(|id| id.starts_with('p')),
+        "{out}"
+    );
+    let of_its_row: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "outbound" && e["id"] == sent["id"])
+        .collect();
+    assert!(
+        of_its_row.iter().all(|e| e["ref"] == 7),
+        "every outbound event of its row names its ref: {out}"
+    );
+    let (out, _) = run(&mut alice, Verb::Messages(to(b.peer())), true).await;
+    for text in ["over the lease", "and after it"] {
+        assert!(
+            lines(&out).iter().any(|m| m["text"] == text),
+            "it reached alice: {out}"
+        );
+    }
+}
+
+/// G5: an outbound event names the send problem its status carries
+/// beside the status, `null` when there is none, so a carrier tells a
+/// refusal from a route that may come back. Mutation: the problem left
+/// out of the event.
+#[tokio::test]
+async fn an_input_sends_outbound_event_names_its_problem() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    b.inject_send(TransportError::UnauthorizedPeer);
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    lines_in
+        .try_send(Ok(format!(
+            r#"{{"send":{{"conversation":"{to_alice}","text":"held","ref":"r1"}}}}"#
+        )))
+        .expect("queued");
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_000)),
+    )
+    .await
+    .expect("listened");
+    drop(lines_in);
+    let out = String::from_utf8(out).expect("utf-8");
+    let outbound: Vec<Value> = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "outbound")
+        .collect();
+    assert!(
+        outbound.iter().all(|e| e.get("problem").is_some()),
+        "every outbound event has the field: {out}"
+    );
+    assert!(
+        outbound.iter().any(|e| e["ref"] == "r1"
+            && e["status"] == "needs-attention"
+            && e["problem"] == "peer-untrusted"),
+        "{out}"
+    );
+}
+
+/// A line's `ref` is capped at [`verbs::MAX_INPUT_REF_BYTES`] serialised:
+/// one at the cap is sent and echoed; one byte over is refused
+/// input-refused with `ref` null, the send not made. Mutation: the cap
+/// taken as exclusive.
+#[tokio::test]
+async fn a_ref_past_its_cap_is_refused_and_one_at_it_is_echoed() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    // A JSON string serialises with its two quotes.
+    let at_cap = "a".repeat(verbs::MAX_INPUT_REF_BYTES - 2);
+    let over = "b".repeat(verbs::MAX_INPUT_REF_BYTES - 1);
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    for (text, reference) in [("over", &over), ("at the cap", &at_cap)] {
+        let line = json!({"send": {"conversation": to_alice, "text": text, "ref": reference}});
+        lines_in.try_send(Ok(line.to_string())).expect("queued");
+    }
+    drop(lines_in);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_000)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    let refused: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "input-refused")
+        .collect();
+    assert_eq!(refused.len(), 1, "{out}");
+    assert_eq!(refused[0]["ref"], Value::Null, "{out}");
+    assert!(
+        events
+            .iter()
+            .any(|e| e["event"] == "outbound" && e["ref"] == Value::String(at_cap.clone())),
+        "{out}"
+    );
+    assert!(!out.contains(&over), "the long ref is echoed nowhere");
+}
+
+/// G3: `listen --consume` marks each message read once its line is
+/// written, so the store holds it unread no more. Mutation: consume
+/// marking nothing.
+#[tokio::test]
+async fn listen_consume_marks_each_printed_message_read() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    run(&mut alice, send(&to(b.peer()), "consumed"), false)
+        .await
+        .1
+        .expect("sent");
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(800)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    assert!(lines(&out).iter().any(|e| e["text"] == "consumed"), "{out}");
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert!(unread.is_empty(), "read once printed: {unread:?}");
 }
 
 #[tokio::test]
@@ -516,4 +775,677 @@ async fn a_keep_that_fails_after_the_read_still_prints_what_was_read() {
     assert_eq!(shown.len(), 2, "both are printed: {out}");
     assert_eq!(shown[0]["status"], "read", "{out}");
     assert_eq!(shown[0]["text"], "first");
+}
+
+/// G4: `send --no-pending` that is not accepted by the end of `--wait` is
+/// cancelled, said so with `"pending": false`, and leaves no pending row
+/// for a later run to send; without it the send stays pending (exit 6).
+/// Mutation: --no-pending leaving the send pending.
+#[tokio::test]
+async fn a_send_with_no_pending_is_cancelled_when_its_wait_ends() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let mut alice = session(&a, store(dir.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    // A peer with no address: the send is retried, never accepted.
+    let nobody = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer");
+    let verb = Verb::Send {
+        conversation: to(&nobody),
+        text: Some("ephemeral".to_owned()),
+        pending: false,
+    };
+    let (out, sent) = run(&mut alice, verb, true).await;
+    assert!(matches!(sent, Err(Failure::Refused(_))), "{sent:?}");
+    let line = &lines(&out)[0];
+    assert_eq!(line["status"], "cancelled", "{out}");
+    assert_eq!(line["pending"], false);
+    alice.close().await;
+    let pending = store(dir.path()).pending_outbound().expect("read");
+    assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
+}
+
+/// G4 for a send held for attention: the next run's facade attempts every
+/// pending row again, so `--no-pending` cancels it too, rather than
+/// leaving it for a later run to send once the peer is trusted.
+/// Mutation: the needs-attention arm returning before the cancel.
+#[tokio::test]
+async fn a_send_with_no_pending_that_needs_attention_is_cancelled() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    a.inject_send(TransportError::UnauthorizedPeer);
+    let verb = Verb::Send {
+        conversation: to(b.peer()),
+        text: Some("held".to_owned()),
+        pending: false,
+    };
+    let (out, sent) = run(&mut alice, verb, true).await;
+    assert!(matches!(sent, Err(Failure::Refused(_))), "{sent:?}");
+    let line = &lines(&out)[0];
+    assert_eq!(line["status"], "cancelled", "{out}");
+    assert_eq!(line["pending"], false);
+    alice.close().await;
+    let pending = store(dir_a.path()).pending_outbound().expect("read");
+    assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
+}
+
+/// Bob's store holding `texts` unread from alice, committed by a run that
+/// reads nothing, and bob's session opened afresh over it.
+async fn unread_at_open(
+    texts: &[&str],
+) -> (
+    FakeNode,
+    tempfile::TempDir,
+    Session<FakeNode, FakeNode>,
+    tempfile::TempDir,
+) {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    for text in texts {
+        run(&mut alice, send(&to(b.peer()), text), false)
+            .await
+            .1
+            .expect("sent");
+    }
+    run(&mut bob, Verb::Conversations, true)
+        .await
+        .1
+        .expect("listed");
+    bob.close().await;
+    alice.close().await;
+    assert_eq!(
+        store(dir_b.path()).unread_inbound().expect("read").len(),
+        texts.len()
+    );
+    let bob = session(&b, store(dir_b.path()));
+    (b, dir_b, bob, dir_a)
+}
+
+/// G3: `--consume` drains what the store held unread when it opened --
+/// printed as it would have been, `local_endpoint` `null` since the store
+/// keeps no record of the endpoint that received it -- and the store holds
+/// it unread no more. Mutation: no drain at open.
+#[tokio::test]
+async fn listen_consume_drains_what_the_store_held_unread_at_open() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["held", "and this"])).await;
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let messages: Vec<Value> = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "message")
+        .collect();
+    let texts: Vec<&Value> = messages.iter().map(|m| &m["text"]).collect();
+    assert_eq!(texts.len(), 2, "each once: {out}");
+    assert!(texts.contains(&&json!("held")) && texts.contains(&&json!("and this")));
+    assert!(
+        messages.iter().all(|m| m["local_endpoint"].is_null()),
+        "{out}"
+    );
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert!(unread.is_empty(), "drained: {unread:?}");
+}
+
+/// What `put` is handed, failing every write once `messages` message
+/// lines are written with a broken pipe, and stopping `listen` once a
+/// `message` line is written.
+struct Tap {
+    out: Vec<u8>,
+    messages: Option<usize>,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl std::io::Write for Tap {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let message = buf.windows(17).any(|w| w == br#""event":"message""#);
+        if let Some(left) = self.messages.as_mut()
+            && message
+        {
+            if *left == 0 {
+                return Err(std::io::ErrorKind::BrokenPipe.into());
+            }
+            *left -= 1;
+        }
+        self.out.extend_from_slice(buf);
+        if message && let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A message whose line was written is read before `listen` ends, even
+/// when the stop comes the moment the line is out. Mutation: the read
+/// left for a later step.
+#[tokio::test]
+async fn a_printed_message_is_read_before_listen_ends() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["last words"])).await;
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let mut tap = Tap {
+        out: Vec::new(),
+        messages: None,
+        stop: Some(stop),
+    };
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut tap,
+        // The bound only keeps a broken listen from hanging the test.
+        async {
+            let _ = tokio::time::timeout(Duration::from_secs(5), stopped).await;
+        },
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(tap.out).expect("utf-8");
+    assert!(out.contains("last words"), "{out}");
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert!(unread.is_empty(), "read as written: {unread:?}");
+}
+
+/// A reader that goes away mid-batch: the line written is read, the one
+/// not written stays unread, and `listen` ends as a stop does. Mutation:
+/// the reads of a batch dropped when the pipe breaks.
+#[tokio::test]
+async fn a_line_not_written_leaves_its_message_unread() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["one", "two"])).await;
+    let mut tap = Tap {
+        out: Vec::new(),
+        messages: Some(1),
+        stop: None,
+    };
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut tap,
+        // Ended by the reader going away; the bound only keeps a broken
+        // listen from hanging the test.
+        tokio::time::sleep(Duration::from_secs(5)),
+    )
+    .await
+    .expect("the reader gone ends it");
+    let out = String::from_utf8(tap.out).expect("utf-8");
+    let written = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "message")
+        .count();
+    assert_eq!(written, 1, "{out}");
+    bob.close().await;
+    let unread = store(dir_b.path()).unread_inbound().expect("read");
+    assert_eq!(unread.len(), 1, "the one not written: {unread:?}");
+}
+
+/// Every read `--consume` asks that the store cannot carry out is said
+/// as a `failed` event naming its row, never dropped: a drain's reads run
+/// in one step. Mutations: listen leaving the model side's problems
+/// untaken; only the first of a step's said.
+#[tokio::test]
+async fn every_read_the_store_refuses_is_said_by_its_row() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["gone", "and gone"])).await;
+    // Gone from the store after the session listed them: each read finds
+    // no row.
+    let conn = rusqlite::Connection::open(dir_b.path().join("human.sqlite3")).expect("open");
+    conn.execute("DELETE FROM unread_inbound", [])
+        .expect("deleted");
+    drop(conn);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    let printed: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "message")
+        .map(|e| &e["id"])
+        .collect();
+    let mut failed: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event"] == "failed" && e["reason"].as_str().is_some_and(|r| !r.is_empty()))
+        .map(|e| &e["id"])
+        .collect();
+    failed.sort_by_key(|id| id.as_str().map(str::to_owned));
+    let mut printed = printed;
+    printed.sort_by_key(|id| id.as_str().map(str::to_owned));
+    assert_eq!(printed.len(), 2, "{out}");
+    assert_eq!(failed, printed, "each read refused, by its row: {out}");
+}
+
+/// A send the facade refuses before any row is made answers its own line
+/// `input-refused` with the facade's reason, and the next line is sent.
+/// Mutation: the refusal left unanswered, which stalls the input.
+#[tokio::test]
+async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    // Past the payload bound however it is encoded: text that does not
+    // compress.
+    let mut seed: u64 = 1;
+    let symbols = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let big: String = (0..120_000)
+        .map(|_| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            char::from(symbols[usize::try_from(seed >> 58).unwrap_or(0)])
+        })
+        .collect();
+    for (text, reference) in [(big, "big"), ("after".to_owned(), "after")] {
+        let line = json!({"send": {"conversation": to_alice, "text": text, "ref": reference}});
+        lines_in.try_send(Ok(line.to_string())).expect("queued");
+    }
+    drop(lines_in);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_000)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    assert!(
+        events.iter().any(|e| e["event"] == "input-refused"
+            && e["ref"] == "big"
+            && e["reason"] == "too-large"),
+        "{out}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e["event"] == "outbound" && e["ref"] == "after"),
+        "{out}"
+    );
+}
+
+/// Every line `reader` gives under `ceiling`, read as `listen --input`
+/// reads stdin: on a thread of its own, into the bounded channel.
+fn read_all(
+    reader: impl std::io::BufRead + Send + 'static,
+    ceiling: usize,
+) -> Vec<verbs::InputLine> {
+    let (lines_in, mut lines) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    let reading = std::thread::spawn(move || verbs::read_input_under(reader, &lines_in, ceiling));
+    let mut read = Vec::new();
+    while let Some(line) = lines.blocking_recv() {
+        read.push(line);
+    }
+    reading.join().expect("the reader");
+    read
+}
+
+/// A line past the ceiling, checked as its bytes arrive, is refused and
+/// drained through its newline, and the next line is read; a line at the
+/// ceiling is taken, a carriage return before the newline counting toward
+/// it, and a last line without a newline too. Read three bytes at a time,
+/// so a line spans many reads. Mutations: the ceiling taken as exclusive;
+/// the drain ending before the newline.
+#[test]
+fn a_line_past_the_ceiling_is_refused_and_the_next_is_read() {
+    let input = b"12345678\n123456789abc\n1234567\r\nnext\ntail".to_vec();
+    let read = read_all(
+        std::io::BufReader::with_capacity(3, std::io::Cursor::new(input)),
+        8,
+    );
+    assert_eq!(
+        read,
+        [
+            Ok("12345678".to_owned()),
+            Err("longer than 8 bytes".to_owned()),
+            Ok("1234567".to_owned()),
+            Ok("next".to_owned()),
+            Ok("tail".to_owned()),
+        ]
+    );
+}
+
+/// The program's own ceiling: a line of exactly
+/// [`verbs::MAX_INPUT_LINE_BYTES`] is taken and one byte more is refused.
+#[test]
+fn a_line_at_the_input_ceiling_is_taken_and_one_byte_more_is_not() {
+    let mut input = vec![b'a'; verbs::MAX_INPUT_LINE_BYTES];
+    input.push(b'\n');
+    input.extend(vec![b'b'; verbs::MAX_INPUT_LINE_BYTES + 1]);
+    input.push(b'\n');
+    let read = read_all(
+        std::io::BufReader::new(std::io::Cursor::new(input)),
+        verbs::MAX_INPUT_LINE_BYTES,
+    );
+    assert_eq!(read.len(), 2);
+    assert_eq!(
+        read[0].as_ref().map(String::len),
+        Ok(verbs::MAX_INPUT_LINE_BYTES)
+    );
+    assert!(read[1].is_err(), "one byte past it");
+}
+
+/// A reader ahead of listen waits once [`verbs::INPUT_QUEUE`] lines are
+/// not yet taken, rather than reading on into memory, and every line is
+/// still delivered once they are taken. Mutation: the send not waiting
+/// (a full channel dropping the line).
+#[test]
+fn a_reader_ahead_of_listen_waits_rather_than_growing() {
+    let input: Vec<u8> = (0..100)
+        .flat_map(|n| format!("line {n}\n").into_bytes())
+        .collect();
+    let (lines_in, mut lines) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    let reading = std::thread::spawn(move || {
+        verbs::read_input(std::io::Cursor::new(input), &lines_in);
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(lines.len(), verbs::INPUT_QUEUE, "the channel is full");
+    assert!(!reading.is_finished(), "and the reader waits on it");
+    let mut taken = 0;
+    while let Some(line) = lines.blocking_recv() {
+        assert_eq!(line, Ok(format!("line {taken}")));
+        taken += 1;
+    }
+    assert_eq!(taken, 100, "none dropped");
+    reading.join().expect("the reader");
+}
+
+/// The line ceiling is checked as the bytes arrive: a 256 MiB line far
+/// past it is drained while the process's peak memory grows by less than
+/// 16 MiB, and the next line is read (#495 review F5, F7). Read from the
+/// kernel's high-water mark, which a line held before it is judged raises
+/// by what is held. What it holds is that much: a part of the line under
+/// 16 MiB held is not seen. Mutation: a `read_until` of the whole line,
+/// then the length check.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_over_long_line_is_refused_without_being_held() {
+    use std::io::Read as _;
+    fn peak_kib() -> u64 {
+        std::fs::read_to_string("/proc/self/status")
+            .expect("status")
+            .lines()
+            .find_map(|l| l.strip_prefix("VmHWM:"))
+            .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
+            .expect("VmHWM")
+    }
+    const LINE: u64 = 256 << 20;
+    let before = peak_kib();
+    let input = std::io::repeat(b'a')
+        .take(LINE)
+        .chain(std::io::Cursor::new(b"\nnext\n".to_vec()));
+    let read = read_all(std::io::BufReader::new(input), 8);
+    let grown = peak_kib().saturating_sub(before);
+    assert_eq!(
+        read,
+        [Err("longer than 8 bytes".to_owned()), Ok("next".to_owned())]
+    );
+    assert!(
+        grown < 16 << 10,
+        "peak memory grew {grown} KiB for a {} KiB line",
+        LINE >> 10
+    );
+}
+
+/// G7: a filtered `listen --consume` consumes only what it prints. A
+/// message arriving in another conversation than `--conversation` names
+/// is not printed and stays unread; one in the conversation named is
+/// printed and read. Mutation: the filter ignored for a message that
+/// arrives.
+#[tokio::test]
+async fn a_filtered_listen_consumes_only_what_it_prints() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    run(
+        &mut alice,
+        send(&to(b.peer()), "not for this filter"),
+        false,
+    )
+    .await
+    .1
+    .expect("sent");
+    let elsewhere = to(&node().peer);
+    let listen = |filter: crate::cli::ListenFilter| verbs::ListenMode {
+        filter,
+        json: true,
+        consume: true,
+        input: None,
+    };
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        listen(crate::cli::ListenFilter {
+            events: None,
+            conversation: Some(elsewhere),
+        }),
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(800)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    assert!(
+        !lines(&out).iter().any(|e| e["event"] == "message"),
+        "{out}"
+    );
+    assert_eq!(
+        store(dir_b.path()).unread_inbound().expect("read").len(),
+        1,
+        "not printed, not read"
+    );
+
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        listen(crate::cli::ListenFilter {
+            events: Some(vec!["message"]),
+            conversation: Some(ConversationKey::Direct {
+                peer: a.peer().clone(),
+                endpoint: None,
+            }),
+        }),
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(800)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    assert!(events.iter().all(|e| e["event"] == "message"), "{out}");
+    assert!(
+        events.iter().any(|e| e["text"] == "not for this filter"),
+        "{out}"
+    );
+    bob.close().await;
+    assert!(
+        store(dir_b.path())
+            .unread_inbound()
+            .expect("read")
+            .is_empty()
+    );
+}
+
+/// G7: `--events` drops the events it does not name, and what the store
+/// held unread at open is drained only if `message` is named: here it is
+/// not, so nothing is printed of it and it stays unread. Mutation: the
+/// drain at open filtered by nothing.
+#[tokio::test]
+async fn a_listen_not_naming_messages_drains_none_of_them() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["held"])).await;
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter {
+                events: Some(vec!["session"]),
+                conversation: None,
+            },
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    assert!(!events.is_empty(), "the session event: {out}");
+    assert!(events.iter().all(|e| e["event"] == "session"), "{out}");
+    bob.close().await;
+    assert_eq!(store(dir_b.path()).unread_inbound().expect("read").len(), 1);
+}
+
+/// G7: an `--input` line is answered whatever the filter -- its first
+/// `outbound` line and each later status of the row it made, all with its
+/// `ref` -- though the filter names no `outbound` event (#508 review F1).
+/// Mutation: a later outbound event of an input's row filtered like any.
+#[tokio::test]
+async fn an_input_lines_answers_print_whatever_the_filter() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    let stdin = format!(
+        "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"filtered\",\"ref\":9}}}}\n"
+    )
+    .into_bytes();
+    std::thread::spawn(move || verbs::read_input(stdin.as_slice(), &lines_in));
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter {
+                events: Some(vec!["session"]),
+                conversation: None,
+            },
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let answers: Vec<Value> = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "outbound")
+        .collect();
+    assert!(answers.iter().all(|e| e["ref"] == 9), "{out}");
+    // One from the send's own answer, the rest the row's later status
+    // events: the send answers once, so a second is a later one.
+    assert!(answers.len() >= 2, "the answer and a later status: {out}");
+}
+
+/// A read the store refuses for a message this listen printed is said,
+/// by its row, though `failed` is not among the events named: the program
+/// was told of a consumption that did not happen (#508 review F2).
+/// Mutation: every failure filtered like an event.
+#[tokio::test]
+async fn a_refused_read_of_a_printed_message_is_said_whatever_the_filter() {
+    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["gone"])).await;
+    let conn = rusqlite::Connection::open(dir_b.path().join("human.sqlite3")).expect("open");
+    conn.execute("DELETE FROM unread_inbound", [])
+        .expect("deleted");
+    drop(conn);
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter {
+                events: Some(vec!["message"]),
+                conversation: None,
+            },
+            json: true,
+            consume: true,
+            input: None,
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let events = lines(&out);
+    let printed = events
+        .iter()
+        .find(|e| e["event"] == "message")
+        .unwrap_or_else(|| panic!("the message: {out}"));
+    assert!(
+        events
+            .iter()
+            .any(|e| e["event"] == "failed" && e["id"] == printed["id"]),
+        "{out}"
+    );
 }

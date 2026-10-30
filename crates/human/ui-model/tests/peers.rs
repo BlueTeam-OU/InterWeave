@@ -13,7 +13,7 @@ use interweave_human_client_api::{
     TrustSetFailure,
 };
 use interweave_human_ui_model::{
-    AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES, Intent,
+    AddNote, AddResult, Barred, BlockHeld, BlockProblem, BlockState, BlockView, CODE_LINES, Intent,
     LineSelection, ListProblem, PeersFocus, PeersInput, PeersSnack, Refusal, RowReadBack, RowState,
     ScanControl, ScanVerdict, TYPED_LINES, TrustChange, TrustLine, UiModel,
 };
@@ -353,8 +353,9 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
 /// line selects that line -- the device at its bound names the first new
 /// line past it -- and one of the whole add, the list off, selects
 /// nothing, the caret at the end (§5.3); a removal's refusal answering an
-/// add, and an add another admin connection's later write superseded, are
-/// a failure, never a reason: nothing was written.
+/// add is a failure, never a reason: nothing was written. A superseded
+/// add is decided on its read back
+/// (`a_superseded_add_is_decided_on_its_list_read_back`).
 #[test]
 fn each_runtime_refusal_is_named_and_stores_nothing() {
     let me = peer();
@@ -364,7 +365,6 @@ fn each_runtime_refusal_is_named_and_stores_nothing() {
         (AddressRefused::Bound, Some(Refusal::Limit)),
         (AddressRefused::ListOff, Some(Refusal::ListOff)),
         (AddressRefused::Configured, None),
-        (AddressRefused::Superseded, None),
     ] {
         let mut m = opened(&me, &[], &[]);
         let _ = input(&mut m, PeersInput::OpenAdd);
@@ -791,6 +791,262 @@ fn a_failed_or_lost_removal_is_said_truly() {
     assert_eq!(unread.peers().list_problem(), None);
 }
 
+/// The facade's answer to a change refused `superseded`, its list read
+/// back as `list`.
+#[allow(clippy::unnecessary_wraps)]
+fn superseded(
+    line: Option<usize>,
+    list: Result<AddressList, AddressProblem>,
+) -> Result<AddressAnswer, AddressChangeFailure> {
+    let outcome = match line {
+        Some(line) => AddressOutcome::RefusedLine {
+            why: AddressRefused::Superseded,
+            line,
+        },
+        None => AddressOutcome::Refused(AddressRefused::Superseded),
+    };
+    Ok(AddressAnswer { outcome, list })
+}
+
+/// An add refused `superseded` is decided on its list read back, as a
+/// lost add's is (§5.7's superseded table): every line listed, as
+/// checked with step two; a line missing, or the read failing,
+/// `AddSuperseded` with the field kept and focus on Add -- never the
+/// not-written `AddFailed` nor `AddUnknown` -- and no read beyond the one
+/// made.
+#[test]
+fn a_superseded_add_is_decided_on_its_list_read_back() {
+    let me = peer();
+    let (a, b) = (peer(), peer());
+    let lines = vec![at(&a), at(&b)];
+    let add = |m: &mut UiModel, field: &str| {
+        let _ = input(m, PeersInput::OpenAdd);
+        let _ = input(m, PeersInput::FieldChanged(field.to_owned()));
+        let asked = input(m, PeersInput::Add);
+        assert!(matches!(asked[..], [Intent::AddAddresses(_)]), "{asked:?}");
+    };
+
+    // Listed: the other change added it; as an add read back as checked.
+    let mut m = opened(&me, &[], &[]);
+    add(&mut m, &at(&a));
+    m.addresses_added(&[at(&a)], superseded(None, Ok(list(&[added(&a)]))));
+    assert_eq!(
+        m.peers().add_result(),
+        Some(&AddResult::Checked { lines: 1 })
+    );
+    assert_eq!(m.peers().blocks(m.trust_settings())[0].peer, a);
+    assert_eq!(m.peers_turn(), None, "the list was read once");
+
+    // A line missing, one line and several (the refusal naming a line).
+    for (sent, line) in [(vec![at(&a)], None), (lines.clone(), Some(1))] {
+        let mut m = opened(&me, &[], &[]);
+        add(&mut m, &sent.join("\n"));
+        m.addresses_added(&sent, superseded(line, Ok(list(&[added(&b)]))));
+        assert_eq!(
+            m.peers().add_page_note(),
+            Some(&AddNote::Superseded { lines: sent.len() })
+        );
+        assert_eq!(m.peers().add_result(), None);
+        assert_eq!(m.peers().field(), sent.join("\n"), "the field is kept");
+        assert_eq!(focus(&m), Some(PeersFocus::AddButton));
+        assert_eq!(m.peers().list(), Some(&list(&[added(&b)])), "as read back");
+        assert_eq!(m.peers_turn(), None, "the list was read once");
+    }
+
+    // The read failing: the same line, which claims nothing of the list,
+    // and nothing read again.
+    let mut m = opened(&me, &[], &[]);
+    add(&mut m, &at(&a));
+    m.addresses_added(&[at(&a)], superseded(None, Err(AddressProblem::Internal)));
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Superseded { lines: 1 })
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::AddButton));
+    assert_eq!(m.peers_turn(), None, "the one read made, and it failed");
+}
+
+/// The lines an earlier add left unknown stay unknown through a
+/// superseded add whose read back failed, which still says
+/// `AddSuperseded`; a read back that succeeds settles them, listed or
+/// not (§5.7, "unsettled lines") -- listed, after an add of another
+/// line, too.
+#[test]
+fn a_superseded_add_settles_unknown_lines_only_by_its_read() {
+    let (me, a, b) = (peer(), peer(), peer());
+    // A left unknown; an add of B superseded, its read back listing A
+    // and not B; A again, writing nothing: its own outcome, AddFailed.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Internal));
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&b)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&b)], superseded(None, Ok(list(&[added(&a)]))));
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Superseded { lines: 1 })
+    );
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::NotMade(AddressProblem::Internal)),
+    );
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Failed),
+        "settled by the read that listed it"
+    );
+
+    let lost = || {
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        ))
+    };
+    let wrote_nothing = || Err(AddressChangeFailure::NotMade(AddressProblem::Internal));
+    for read in [false, true] {
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+        let _ = input(&mut m, PeersInput::Add);
+        m.addresses_added(&[at(&a)], lost());
+        assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+        m.addresses_read(Err(AddressProblem::Internal));
+        assert_eq!(
+            m.peers().add_page_note(),
+            Some(&AddNote::Unknown { lines: 1 })
+        );
+
+        let _ = input(&mut m, PeersInput::Add);
+        let back = if read {
+            Ok(list(&[]))
+        } else {
+            Err(AddressProblem::Internal)
+        };
+        m.addresses_added(&[at(&a)], superseded(None, back));
+        assert_eq!(
+            m.peers().add_page_note(),
+            Some(&AddNote::Superseded { lines: 1 }),
+            "never AddUnknown, read {read}"
+        );
+
+        let _ = input(&mut m, PeersInput::Add);
+        m.addresses_added(&[at(&a)], wrote_nothing());
+        let expected = if read {
+            AddNote::Failed
+        } else {
+            AddNote::Unknown { lines: 1 }
+        };
+        assert_eq!(m.peers().add_page_note(), Some(&expected), "read {read}");
+    }
+}
+
+/// A removal refused `superseded` is decided on its list read back: the
+/// row listed, `RemoveSuperseded` with no action and focus on the row's
+/// menu; not listed, as Remove done, its snackbar with Undo; the read
+/// failing, Peers unreadable with the read's line, focus on it, nothing
+/// read again. No Try again in any (§5.7, §8).
+#[test]
+fn a_superseded_removal_is_decided_on_its_list_read_back() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let remove = |m: &mut UiModel| {
+        assert_eq!(
+            input(m, PeersInput::Remove(at(&a))),
+            vec![Intent::RemoveAddress(at(&a))]
+        );
+    };
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    remove(&mut m);
+    m.address_removed(&at(&a), superseded(None, Ok(list(&[added(&a), added(&b)]))));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveSuperseded { address: at(&a) })
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::RowMenu(at(&a))));
+    assert!(
+        input(&mut m, PeersInput::TryAgain).is_empty(),
+        "no Try again"
+    );
+    assert!(input(&mut m, PeersInput::Undo).is_empty(), "no Undo");
+    assert_eq!(m.peers_turn(), None, "the list was read once");
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    remove(&mut m);
+    m.address_removed(&at(&a), superseded(None, Ok(list(&[added(&b)]))));
+    assert!(matches!(
+        m.peers().snack().0,
+        Some(PeersSnack::Removed { undo: true, .. })
+    ));
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))));
+
+    let mut m = opened(&me, &[], &[added(&a)]);
+    remove(&mut m);
+    m.address_removed(&at(&a), superseded(None, Err(AddressProblem::Unavailable)));
+    assert_eq!(m.peers().list(), None);
+    assert_eq!(m.peers().list_problem(), Some(ListProblem::Unavailable));
+    assert_eq!(m.peers().snack().0, None);
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem));
+    assert_eq!(m.peers_turn(), None, "the one read made, and it failed");
+}
+
+/// An Undo refused `superseded` is decided the same way: the row listed,
+/// as Undo done, the row back and focus on it; not listed,
+/// `UndoSuperseded` with no action and focus as after the Remove; the
+/// read failing, Peers unreadable (§5.7, §8).
+#[test]
+fn a_superseded_undo_is_decided_on_its_list_read_back() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let removed = |m: &mut UiModel| {
+        let _ = input(m, PeersInput::Remove(at(&a)));
+        m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[added(&b)]));
+        assert_eq!(
+            input(m, PeersInput::Undo),
+            vec![Intent::AddAddresses(vec![at(&a)])]
+        );
+    };
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    removed(&mut m);
+    m.addresses_added(
+        &[at(&a)],
+        superseded(None, Ok(list(&[added(&a), added(&b)]))),
+    );
+    assert_eq!(m.peers().snack().0, None);
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))));
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    removed(&mut m);
+    m.addresses_added(&[at(&a)], superseded(None, Ok(list(&[added(&b)]))));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoSuperseded { address: at(&a) })
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))), "as after Remove");
+    assert!(
+        input(&mut m, PeersInput::TryAgain).is_empty(),
+        "no Try again"
+    );
+    assert!(input(&mut m, PeersInput::Undo).is_empty(), "no Undo");
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    removed(&mut m);
+    m.addresses_added(&[at(&a)], superseded(None, Err(AddressProblem::Internal)));
+    assert_eq!(m.peers().list(), None);
+    assert_eq!(m.peers().list_problem(), Some(ListProblem::Failed));
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem));
+    assert_eq!(m.peers_turn(), None);
+}
+
 /// Rows read newest added first, then the configuration's, each in its
 /// state against the trust list.
 #[test]
@@ -823,7 +1079,7 @@ fn rows_are_newest_added_first_then_configured_in_their_states() {
 }
 
 /// At the bound, or with the list off, Add an address opens nothing and
-/// says why under itself.
+/// says why under itself; the list off when it is both.
 #[test]
 fn add_an_address_opens_nothing_at_the_bound_or_with_the_list_off() {
     let me = peer();
@@ -838,8 +1094,17 @@ fn add_an_address_opens_nothing_at_the_bound_or_with_the_list_off() {
         dialled: false,
         ..added(&peer())
     };
-    let mut m = opened(&me, &[], &[off]);
+    let mut m = opened(&me, &[], std::slice::from_ref(&off));
     let _ = input(&mut m, PeersInput::OpenAdd);
+    assert_eq!(m.peers().add_note(), Some(Refusal::ListOff));
+
+    // Both: off, since no removal mends it (§5.2).
+    let both: Vec<PeerAddress> = std::iter::once(off)
+        .chain((0..63).map(|_| added(&peer())))
+        .collect();
+    let mut m = opened(&me, &[], &both);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    assert!(!m.peers().add_open());
     assert_eq!(m.peers().add_note(), Some(Refusal::ListOff));
 }
 
@@ -1206,6 +1471,99 @@ fn a_superseded_trust_is_checked_and_says_why_it_was_not_made() {
             assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(them)));
         }
         assert_eq!(m.trust_settings_mut().take_reread(), None, "read once");
+    }
+}
+
+/// A superseded Trust whose trust list cannot be read again says so in
+/// its own line, never `TrustStepUnknown`: its trust not known, Trust and
+/// Not now kept. Nothing is pending after it, so a Trust again that
+/// writes nothing is `TrustFailed`'s class; and a later read the person
+/// did not ask for, started after the refusal, decides the block by the
+/// Trust's own outcomes (§5.3).
+#[test]
+fn a_superseded_trust_left_unread_is_decided_by_a_later_read() {
+    for later in [None, Some(false), Some(true)] {
+        let (me, them) = (peer(), peer());
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::FieldChanged(at(&them)));
+        let _ = input(&mut m, PeersInput::Add);
+        m.addresses_added(
+            &[at(&them)],
+            answer(
+                AddressOutcome::Added {
+                    peer: Some(them.clone()),
+                },
+                &[added(&them)],
+            ),
+        );
+        let change = TrustChange {
+            peer: them.clone(),
+            allowed: true,
+        };
+        let _ = input(&mut m, PeersInput::Trust(them.clone()));
+        m.trust_settings_mut()
+            .set(change.clone(), Err(TrustSetFailure::Superseded));
+        let _ = m.peers_turn();
+        assert_eq!(
+            m.trust_settings_mut().take_reread(),
+            Some(Intent::ReadTrust)
+        );
+        m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+        let _ = m.peers_turn();
+        assert_eq!(
+            m.peers().blocks(m.trust_settings())[0],
+            BlockView {
+                peer: them.clone(),
+                state: BlockState::Undecided,
+                problem: Some(BlockProblem::SupersededUnread),
+            }
+        );
+        assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(them.clone())));
+        assert!(!m.trust_settings().is_pending(&them));
+        match later {
+            None => {
+                // Trust again, writing nothing: no Trust is pending.
+                let _ = input(&mut m, PeersInput::Trust(them.clone()));
+                m.trust_settings_mut().set(
+                    change,
+                    Err(TrustSetFailure::NotMade(TrustProblem::Internal)),
+                );
+                let _ = m.peers_turn();
+                assert_eq!(
+                    m.peers().blocks(m.trust_settings())[0].problem,
+                    Some(BlockProblem::Trust(TrustProblem::Internal))
+                );
+            }
+            Some(trusted) => {
+                // Peers reading the trust set again, unasked.
+                assert_eq!(m.trust_settings_mut().opened(), Some(Intent::ReadTrust));
+                let allowed = if trusted {
+                    vec![TrustRow::added_here(them.clone())]
+                } else {
+                    Vec::new()
+                };
+                m.trust_settings_mut().read(Ok(TrustList {
+                    local_peer: Some(me),
+                    allowed,
+                }));
+                let _ = m.peers_turn();
+                let blocks = m.peers().blocks(m.trust_settings());
+                assert!(m.peers().add_open(), "the page stays open");
+                assert_eq!(
+                    focus(&m),
+                    Some(PeersFocus::BlockProblem(them.clone())),
+                    "focus not moved by the read"
+                );
+                if trusted {
+                    assert_eq!(blocks[0].state, BlockState::Trusted);
+                    assert_eq!(blocks[0].problem, None);
+                } else {
+                    assert_eq!(blocks[0].state, BlockState::Undecided);
+                    assert_eq!(blocks[0].problem, Some(BlockProblem::Superseded));
+                }
+            }
+        }
     }
 }
 
@@ -2345,8 +2703,10 @@ fn a_read_ends_only_the_trusts_sent_before_it() {
 }
 
 /// The contact names on a row's `PeerId` (§5.2): every contact of the
-/// identity in front with a route on it, one name each, in order --
-/// case set aside, then the exact name -- and none for another `PeerId`.
+/// identity in front with a route on it, one name each, in the contacts'
+/// one order (`contact_order`, human-client-ui.md section 3), and none
+/// for another `PeerId`. Mutation: the lowercase-then-exact-name order
+/// this replaced puts "Ben" before "ben" and "Åke" last.
 #[test]
 fn a_rows_contact_names_are_every_contact_on_its_peer_in_order() {
     use interweave_human_ui_model::{ContactView, RouteView};
@@ -2372,14 +2732,13 @@ fn a_rows_contact_names_are_every_contact_on_its_peer_in_order() {
         contact("2", "Smith, John", &p, "home"),
         contact("3", "Alice", &q, "home"),
         contact("4", "Mum and Dad", &p, "family"),
+        contact("5", "Ben", &p, "b1"),
+        contact("6", "Åke", &p, "a"),
+        contact("7", "ben", &p, "b2"),
     ]);
     assert_eq!(
         m.contact_names_on(&p),
-        vec![
-            "Mum and Dad".to_owned(),
-            "Smith, John".to_owned(),
-            "zoe".to_owned()
-        ]
+        ["Åke", "ben", "Ben", "Mum and Dad", "Smith, John", "zoe"]
     );
     assert_eq!(m.contact_names_on(&q), vec!["Alice".to_owned()]);
     assert!(m.contact_names_on(&peer()).is_empty());
@@ -4077,7 +4436,8 @@ fn a_removal_answered_after_a_failed_read_is_told_against_its_own_list() {
 /// A block whose Trust was left unknown, the page kept open, and a later
 /// read of the trust list succeeding: the read decides it (§5.7, "until a
 /// read shows it") -- not listed, the block says its Trust was not made
-/// and offers Trust again; listed, it is trusted. Never left unknown.
+/// and offers Trust again; listed, it is trusted. Never left unknown, and
+/// the page stays open either way, focus where it was (§5.3, §8).
 #[test]
 fn an_unknown_trust_a_later_read_decides_is_no_longer_unknown() {
     for listed in [false, true] {
@@ -4128,10 +4488,27 @@ fn an_unknown_trust_a_later_read_decides_is_no_longer_unknown() {
         }));
         let _ = m.peers_turn();
         let block = &m.peers().blocks(m.trust_settings());
+        // Decided in place either way: the page stays open, since only
+        // the person's act closes it (§5.3).
+        assert!(m.peers().add_open(), "the page stays open");
         if listed {
-            assert!(
-                block.is_empty() || block[0].problem.is_none(),
-                "listed: trusted, {block:?}"
+            assert_eq!(block[0].state, BlockState::Trusted, "listed: trusted");
+            assert_eq!(block[0].problem, None);
+            assert_eq!(focus(&m), before, "focus not moved by the read");
+            // Decided, the one block's page shows Done as its exit, and
+            // focus held on its Trust or Not now, now gone, goes there.
+            assert!(m.peers().done_shown(m.trust_settings()), "Done shows");
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &them, BlockHeld::Choice),
+                Some(PeersFocus::Done)
+            );
+            // Its problem line went too: focus on it goes to the block's
+            // new line, in its place.
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &them, BlockHeld::Problem),
+                Some(PeersFocus::BlockState(them.clone()))
             );
         } else {
             assert_eq!(
@@ -4140,6 +4517,118 @@ fn an_unknown_trust_a_later_read_decides_is_no_longer_unknown() {
                 "not listed: not made"
             );
             assert_eq!(focus(&m), before, "focus not moved by the read");
+            // Undecided, Trust offered again: no Done, and its Trust and
+            // Not now stay, so focus on them stays too.
+            assert!(!m.peers().done_shown(m.trust_settings()), "no Done");
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &them, BlockHeld::Choice),
+                None
+            );
+            // The line stays, its words changed: focus on it stays.
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &them, BlockHeld::Problem),
+                None
+            );
+        }
+    }
+}
+
+/// A block of several left not known -- `TrustStepUnknown`, or
+/// `TrustStepSupersededUnread` -- that a read the person did not ask for
+/// decides trusted: its Trust and Not now go, so focus held on them goes
+/// to the next undecided block's title, else Done; the page stays open
+/// with Done shown (§5.3, §8's row for that read).
+#[test]
+fn a_block_of_several_decided_by_an_unasked_read_sends_its_buttons_focus_on() {
+    for superseded in [false, true] {
+        for other_decided in [false, true] {
+            let (me, a, b) = (peer(), peer(), peer());
+            let mut m = opened(&me, &[], &[]);
+            let _ = input(&mut m, PeersInput::OpenAdd);
+            let _ = input(
+                &mut m,
+                PeersInput::FieldChanged(format!("{}\n{}", at(&a), at(&b))),
+            );
+            let _ = input(&mut m, PeersInput::Add);
+            m.addresses_added(
+                &[at(&a), at(&b)],
+                answer(
+                    AddressOutcome::Added { peer: None },
+                    &[added(&a), added(&b)],
+                ),
+            );
+            let _ = m.peers_turn();
+            let _ = input(&mut m, PeersInput::Trust(a.clone()));
+            m.trust_settings_mut().set(
+                TrustChange {
+                    peer: a.clone(),
+                    allowed: true,
+                },
+                Err(if superseded {
+                    TrustSetFailure::Superseded
+                } else {
+                    TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)
+                }),
+            );
+            let _ = m.peers_turn();
+            assert_eq!(
+                m.trust_settings_mut().take_reread(),
+                Some(Intent::ReadTrust)
+            );
+            m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+            let _ = m.peers_turn();
+            assert_eq!(
+                m.peers().blocks(m.trust_settings())[0].problem,
+                Some(if superseded {
+                    BlockProblem::SupersededUnread
+                } else {
+                    BlockProblem::Unknown
+                })
+            );
+            if other_decided {
+                let _ = input(&mut m, PeersInput::NotNow(b.clone()));
+            }
+            // Undecided, A still draws its Trust and Not now.
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &a, BlockHeld::Choice),
+                None
+            );
+            let _ = m.trust_settings_mut().opened();
+            m.trust_settings_mut().read(Ok(TrustList {
+                local_peer: Some(me.clone()),
+                allowed: vec![TrustRow::added_here(a.clone())],
+            }));
+            let _ = m.peers_turn();
+            assert!(m.peers().add_open(), "the page stays open");
+            assert_eq!(
+                m.peers().blocks(m.trust_settings())[0].state,
+                BlockState::Trusted
+            );
+            assert!(m.peers().done_shown(m.trust_settings()));
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &a, BlockHeld::Choice),
+                Some(if other_decided {
+                    PeersFocus::Done
+                } else {
+                    PeersFocus::Block(b.clone())
+                }),
+                "superseded {superseded}, B decided {other_decided}"
+            );
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &a, BlockHeld::Problem),
+                Some(PeersFocus::BlockState(a.clone()))
+            );
+            // B, not decided by the read, has no move of its own.
+            assert_eq!(
+                m.peers()
+                    .focus_after_block_decided(m.trust_settings(), &b, BlockHeld::Choice),
+                None
+            );
         }
     }
 }
@@ -4491,6 +4980,23 @@ fn an_image_scan_that_adds_nothing_returns_to_its_control() {
     assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::Camera)));
 }
 
+/// A scan press while a scan is open changes nothing: the dialog's
+/// result, its line and focus stay with the control that opened it, and
+/// no line of the open scan is cleared (§5.5, §8; #409 r3 F4).
+#[test]
+fn a_scan_press_while_a_scan_is_open_changes_nothing() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::OpenImage));
+    assert!(m.peers().scan_open());
+    assert!(input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage)).is_empty());
+    assert!(m.peers().scan_open(), "the open scan is still the one");
+    assert!(input(&mut m, PeersInput::ImageNoCode).is_empty());
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::ImageNoCode));
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::OpenImage)));
+}
+
 /// A scanned add on its way waits with focus on Add, which reads as
 /// waiting (§5.3, §8).
 #[test]
@@ -4622,7 +5128,7 @@ fn show_says_no_address_and_each_failure_by_what_is_true() {
 }
 
 /// Each scan line says what went wrong with the image -- unreadable, no
-/// image on the clipboard -- focus on the control used, and goes at the
+/// image on the clipboard, a clipboard unreadable -- focus on the control used, and goes at the
 /// next scan press or an edit of the field (§5.5, §8).
 #[test]
 fn a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit() {
@@ -4639,6 +5145,11 @@ fn a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit() {
             ScanControl::PasteImage,
             PeersInput::ClipboardNoImage,
             AddNote::ClipboardNoImage,
+        ),
+        (
+            ScanControl::PasteImage,
+            PeersInput::ClipboardUnreadable,
+            AddNote::ClipboardUnreadable,
         ),
     ] {
         let _ = input(&mut m, PeersInput::ScanPressed(control));

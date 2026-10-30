@@ -22,8 +22,9 @@ From `android/app/build.gradle.kts` and `android/app/src/main/AndroidManifest.xm
 |---|---|
 | applicationId | `org.interweave.human` |
 | minSdk / targetSdk / compileSdk | 30 / 36 / 36 |
-| versionCode / versionName | 1 / the workspace version (ADR-0065 decision 5: the root `Cargo.toml`'s `[workspace.package] version`, today `0.1.0`); versionCode is a committed counter raised for every published APK (`RELEASE.md`) |
-| permissions | `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_REMOTE_MESSAGING`, `POST_NOTIFICATIONS`, `USE_BIOMETRIC` |
+| versionCode / versionName | 2 / the workspace version (ADR-0065 decision 5: the root `Cargo.toml`'s `[workspace.package] version`, today `0.2.0`); versionCode is a committed counter raised for every published APK (`RELEASE.md`) |
+| permissions | `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_REMOTE_MESSAGING`, `POST_NOTIFICATIONS`, `USE_BIOMETRIC`, `CAMERA` (asked at the first Scan a code) -- the allow-list of plan §29 step 2, held by the check below |
+| features | `android.hardware.camera` and `android.hardware.camera.any`, both `required="false"`: a phone without a camera installs and offers typing |
 | foreground service | `.NetworkService`, `foregroundServiceType="remoteMessaging"`, not exported |
 
 ## What the application ships, with its licences
@@ -150,6 +151,16 @@ rules are declared in the main manifest alone, and every shipped source
 set's copy of the rules file is read, in `res/xml` and in each qualified
 `res/xml-*` directory, since a variant's replaces main's at the resource
 merge and a qualified one is the copy the platform picks.
+
+The same check pins the permission set as plan §29 step 2's allow-list
+(the permissions row above: any other permission, by either tag and in
+any shipped manifest, fails by name, as does one the list names left
+out of main or a permission the app defines), every camera feature
+declared `required="false"` in so many words, and the camera APIs to
+the Scan module: named in `CodeCamera.kt`, in `MainActivity.kt` only as
+its use of the module (CAMERA asked, the camera feature asked of the
+package manager), and nowhere else in the app's sources or
+`crates/human/android-platform`'s.
 
 ## SPIKE-008's target-SDK half
 

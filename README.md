@@ -4,7 +4,7 @@
 
 **InterWeave** is a peer-to-peer transport for agent harnesses that speak MCP and for first-party human clients: the agent bridge delivers by Claude Code's channel extension, or to any MCP host through a `receive` tool. One configured profile owns one persistent peer identity; many local applications share it through configured endpoints. On the wire it combines signed GossipSub broadcast, a dedicated directed-message protocol, an endpoint directory, replaceable discovery, Kademlia peer routing, and mandatory Internet reachability through AutoNAT v2, Circuit Relay v2 and DCUtR. The design is under [`architecture/`](./architecture/); the code is built one stage at a time in the order that design fixes.
 
-> **Repository status: Stage 18 open** (`stage-18-adversarial-security-gate`). Stages 0–17 are complete (Stage 17, the Android human client, closed 2026-10-22 on the plan's §20 record), and Stage 20 (automated clients and the one-host deployment, plan §28, ADR-0055) ran beside Stage 17 and closed 2026-10-19; Stage 18 (the adversarial and security gate, plan §21) and Stage 19 (packaging, migration and release, plan §22) ran beside Stage 17 by their records and run beside Stage 18 now, the status value naming the lowest open stage.
+> **Repository status: Stage 18 open** (`stage-18-adversarial-security-gate`). Stages 0–17 are complete (Stage 17, the Android human client, closed 2026-10-22 on the plan's §20 record), and Stage 20 (automated clients and the one-host deployment, plan §28, ADR-0055) ran beside Stage 17 and closed 2026-10-19; Stage 18 (the adversarial and security gate, plan §21), Stage 19 (packaging, migration and release, plan §22) and Stage 21 (contacts, cards and the encrypted store, plan §29) ran beside Stage 17 by their records; Stage 21 closed 2026-10-25 on the plan's §29 record, Stage 19 runs beside Stage 18 now, the status value naming the lowest open stage.
 
 ## Where the work stands
 
@@ -23,8 +23,9 @@ Every closed stage has a closing record in the [implementation plan](./architect
 | 15 | 2026-10-06 | the desktop human client as one binary, proved without a person against two real daemons: process kill, restart, storage failure, trust mutation over the admin socket, and the accessibility tree read over AT-SPI | plan §18 |
 | 16 | 2026-10-06 | the Claude Code Channel bridge: a stdio MCP server holding one endpoint lease, turning direct and broadcast messages into channel notifications with provenance-only metadata, exchanging messages with a far peer from inside an installed Claude Code | plan §19 |
 | 17 | 2026-10-22 | the Android human client: the APK hosting the embedded runtime, the Keystore-sealed identity, recovery, the device-run records, the design review's six rounds | plan §20 |
+| 21 | 2026-10-25 | contacts, cards and the encrypted store (ran beside Stages 17, 18 and 19): a contact built from a card the counterparty sends and the person accepts, signed by its identity's key; the human store ciphertext at rest under a platform-sealed key; a peer added by address and one's own shown as a QR; the command-line human client | plan §29 |
 
-Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migration and release, plan §22) and 21 (contacts, cards and the encrypted store, plan §29) ran beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20; §29, the owner's word of 2026-10-21) and, since Stage 17 closed on 2026-10-22, Stages 19 and 21 run beside Stage 18; the status value names the lowest open stage.
+Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migration and release, plan §22) and 21 (contacts, cards and the encrypted store, plan §29) ran beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20; §29, the owner's word of 2026-10-21) and, since Stage 17 closed on 2026-10-22, Stages 19 and 21 ran beside Stage 18; Stage 21 closed 2026-10-25 on §29's closing record, and Stage 19 runs beside Stage 18; the status value names the lowest open stage.
 
 ## What runs today
 
@@ -32,6 +33,7 @@ Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migrati
 - **`transportctl`** (`apps/transportctl`): administers a live daemon and backs up, verifies and restores an identity offline.
 - **`human-desktop`** (`apps/human-desktop`): the first-party desktop client, a Slint window over a headless application core.
 - **`claude-channel`** (`apps/claude-channel`): the Claude Code Channel bridge, a stdio MCP server over the daemon's data socket; the plugin that starts it is `packaging/claude-plugin/interweave`.
+- **`human-cli`** (`apps/human-cli`, the binary `interweave-human`): the command-line human client over the same data and admin sockets (Stage 21, plan §29 step 4), shipped in the Linux archive.
 
 `apps/human-android` is the Android client Stage 17 built: its APK draws the client's views and hosts the profile's runtime in-process — the embedded transport (`crates/transport/embedded`) inside its foreground network service, with the identity seed sealed by a key held in the Android Keystore; its device runs on a Pixel 9a (API 37) and a Samsung A40 (API 30) are recorded under `apps/human-android/device-runs/`, and what the stage did not prove is carried by name in the plan's §20 closing record.
 
@@ -87,7 +89,7 @@ The accepted details live in the contracts and ADRs; this README is an orientati
 | Path | Role |
 |---|---|
 | [`architecture/`](./architecture/README.md) | Normative ADRs, contracts, architecture, research, configuration schema/examples, and roadmap |
-| [`apps/`](./apps/README.md) | The thin executables: the daemon, `transportctl`, the desktop client, the Claude Channel bridge; the Android landing zone |
+| [`apps/`](./apps/README.md) | The thin executables: the daemon, `transportctl`, the desktop client, the Claude Channel bridge, the command-line client and the Android client's native library with its Gradle project |
 | [`crates/`](./crates/README.md) | The Rust crates, one directory per compile-time boundary: neutral `api`, `config`, `identity`, `discovery`, `transport`, `local` (IPC), `human`, `claude` |
 | [`tests/`](./tests/README.md) | Cross-crate, conformance, real-network, security, desktop E2E, and Android E2E suites |
 | [`fixtures/`](./fixtures/README.md) | Frozen normative protocol/crypto/config vectors |
@@ -95,7 +97,7 @@ The accepted details live in the contracts and ADRs; this README is an orientati
 | [`spikes/`](./spikes/README.md) | Empirical investigations and their evidence harnesses; never production dependencies |
 | [`third_party/`](./third_party/README.md) | Vendored dependency sources, each under its own licence and each with an ADR; a patched one also records its diff |
 | [`assets/`](./assets/README.md) | The InterWeave icon, its generator and the register of every image in the repository and where it is used |
-| [`packaging/`](./packaging/README.md) | The Claude Code plugin that starts the Channel bridge (`claude-plugin/`); Linux/macOS/Windows/Android landing zones, implemented with Stage 19 |
+| [`packaging/`](./packaging/README.md) | The Claude Code plugin that starts the Channel bridge (`claude-plugin/`); the Linux release archive, user units and install scripts and the Android release run (Stage 19); macOS and Windows landing zones, postponed indefinitely (the owner, 2026-10-28) |
 | [`xtask/`](./xtask/README.md) | Repository/test orchestration — `cargo xtask checks` / `cargo xtask ci` |
 | [`tools/`](./tools/) | Repository tooling — PR/review scripts and tree checks, each with a self-test beside it |
 | `.claude/` | Committed agent configuration and task-scoped skills; per-developer overrides stay untracked |
@@ -111,7 +113,7 @@ The workspace builds with the Rust toolchain pinned in [`rust-toolchain.toml`](.
 cargo xtask checks       # the tree checks under tools/checks/
 cargo xtask selftests    # every check's own self-test
 cargo xtask fmt --check
-cargo xtask clippy
+cargo xtask clippy       # the workspace, then each package with its own features
 cargo xtask test
 cargo xtask ci           # all of the above
 ```
@@ -225,7 +227,7 @@ In every stage:
 
 Do not commit private transport identities, recovery phrases, Android signing material, Keystore exports, local profile state, or real credentials. The `.gitignore` is a guardrail, not a secret-management boundary.
 
-Security-sensitive implementation changes should be checked against the threat model, resource limits, security review, and the permanent `tests/security/` landing zone. Discovery, trust, connection admission, endpoint routing, and connectivity-infrastructure authorization are intentionally separate boundaries.
+Security-sensitive implementation changes should be checked against the threat model, resource limits, security review, and the permanent `tests/security/` suite. Discovery, trust, connection admission, endpoint routing, and connectivity-infrastructure authorization are intentionally separate boundaries.
 
 ## License
 

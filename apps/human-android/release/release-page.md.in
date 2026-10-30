@@ -84,18 +84,48 @@ download it again from this page.
 
 Download [`{linux_archive}`]({linux_archive_url}).
 
-It runs on Linux computers with a 64-bit x86 processor. On such a
-computer, the command `uname -m` shows `x86_64`. There is no archive
-for macOS, for Windows, or for Linux on an ARM processor.
+It runs on Linux computers that have a 64-bit x86 processor (x86_64)
+and version 2.35 or higher of the GNU C Library (glibc). Ubuntu 22.04
+or later, Debian 12 or later, and Fedora 36 or later have a glibc
+version that is new enough. To check a computer, run these two commands
+in a terminal:
 
-Use this value to check that the archive is the one published here:
+- `uname -m` must show `x86_64`.
+- `ldd --version` must show 2.35 or a higher number at the end of its
+  first line.
+
+If either command shows something else, this archive does not run on
+that computer.
+
+There is no archive for macOS, for Windows, or for Linux on an ARM
+processor.
+
+Use these checks to see whether the archive is the file published on
+this page. Run each command in a terminal, in the folder that holds the
+archive. If any check that you run fails, do not install the archive.
+Delete it and download it again from this page.
 
 - SHA-256 of the archive: `{linux_sha256}`
 
-The Linux archive has no signature, so this value is the only check.
-In the folder that holds the archive, run `sha256sum {linux_archive}`.
-It must show the same value. If the value is different, do not install
-the archive. Delete it and download it again from this page.
+  Run `sha256sum {linux_archive}`. The value at the start of its output
+  must be the same as the value above.
+
+- Signature. Download `{linux_archive}.minisig` from the files of this
+  release into the same folder. If minisign is installed, run
+  `minisign -Vm {linux_archive} -P {linux_minisign_public_key}`. It
+  must show `Signature and comment signature verified`.
+
+- Build record. If the GitHub CLI (`gh`) is installed and signed in to
+  GitHub (`gh auth login`), run
+  `gh attestation verify {linux_archive} --repo BlueTeam-OU/InterWeave`.
+  It must report that the verification succeeded. This shows that the
+  archive was built on GitHub by a workflow of the
+  BlueTeam-OU/InterWeave repository.
+
+The SHA-256 check needs only `sha256sum`, which most Linux systems
+have, so every reader can run it. The other two checks are for readers
+who have minisign or `gh`; a check that you cannot run is not a
+failure.
 
 ### What the archive contains
 

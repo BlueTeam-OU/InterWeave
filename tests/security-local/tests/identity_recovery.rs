@@ -33,7 +33,7 @@ use interweave_transport_api::{
 
 mod common;
 
-use common::{Pair, arriving, payload};
+use common::{Pair, arriving_before, payload};
 
 /// A profile of one endpoint, `human`, on loopback.
 fn profile() -> String {
@@ -544,6 +544,11 @@ async fn exchange(pair: &Pair, peer: &TransportIdentity) {
     let mut got_broadcast = false;
     let mut n = 16_u8;
     while !(got_direct && got_broadcast) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "A received direct {got_direct}, broadcast {got_broadcast}:\n{}",
+            pair.logs()
+        );
         n = n.wrapping_add(1);
         theirs
             .broadcast(
@@ -556,18 +561,13 @@ async fn exchange(pair: &Pair, peer: &TransportIdentity) {
             )
             .await
             .expect("accepted locally");
-        for event in arriving(&mine, Duration::from_millis(500)).await {
+        for event in arriving_before(&mine, Duration::from_millis(500), deadline).await {
             match event {
                 SessionEvent::Direct(_) => got_direct = true,
                 SessionEvent::Broadcast(_) => got_broadcast = true,
                 SessionEvent::Local(_) => {}
             }
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "A received direct {got_direct}, broadcast {got_broadcast}:\n{}",
-            pair.logs()
-        );
     }
     let port = pair
         .a

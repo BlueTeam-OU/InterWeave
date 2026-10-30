@@ -47,6 +47,12 @@ base64 = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
 zeroize = { version = "1", default-features = false, features = ["alloc"] }
+# A card's name against each contact's, by design 5.4.1's key
+# (`contacts.rs`, `name_key`): NFKC, full case folding, whitespace, then
+# the confusable skeleton, so a lookalike spelling meets the warning.
+caseless = { workspace = true }
+unicode-normalization = { workspace = true }
+unicode-security = { workspace = true }
 
 [features]
 # The rewrite's crash points (`at_rest::RewriteStep`): a test build ends

@@ -908,11 +908,7 @@ async fn a_trust_revocation_over_the_admin_socket_reaches_the_data_socket_as_pol
         a_id.transport_identity().expect("peer"),
         b_id.transport_identity().expect("peer"),
     );
-    let port = std::net::TcpListener::bind((ip, 0))
-        .expect("a free port")
-        .local_addr()
-        .expect("addr")
-        .port();
+    let port = interweave_test_support::net::free_port(ip);
     let b_listen = format!("/ip4/{ip}/tcp/{port}");
     let target = Node::start_with(
         &b_id,
@@ -1081,11 +1077,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         a_id.transport_identity().expect("peer"),
         b_id.transport_identity().expect("peer"),
     );
-    let port = std::net::TcpListener::bind((ip, 0))
-        .expect("a free port")
-        .local_addr()
-        .expect("addr")
-        .port();
+    let port = interweave_test_support::net::free_port(ip);
     let b_listen = format!("/ip4/{ip}/tcp/{port}");
     let target = Node::start_with(
         &b_id,
@@ -1250,14 +1242,34 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         }
     }
 
+    // `session.losses` on a connection of its own at 2.11, the minor it
+    // came with: the one above is at 2.0, where it is no method.
+    let mut losses = Client::connect(&subject.paths.data).await;
+    losses
+        .hello(
+            r#"{"type":"hello","ipc_version":{"major":2,"minor":11},
+            "client":{"kind":"human-client"},"requested_capabilities":["commands"],
+            "features":["keepalive"]}"#,
+        )
+        .await;
+    losses
+        .send(&request_body("losses", Request::SessionLosses))
+        .await;
+    let answer = losses.response().await;
+    assert!(
+        answer.contains(r#""ok":true"#) && answer.contains(r#""queue_overflow":0"#),
+        "losses: {answer}"
+    );
+
     let mut answered = data.audit();
     answered.extend(admin.audit());
+    answered.extend(losses.audit());
     assert_eq!(
         answered,
         method_table().into_keys().collect::<BTreeSet<_>>(),
         "every method of the catalogue answered ok and held to its result schema"
     );
-    drop((receiver, data, admin));
+    drop((receiver, data, admin, losses));
     subject.stop().await;
     target.stop().await;
 }

@@ -8,12 +8,13 @@ use std::sync::Arc;
 
 use interweave_ipc_protocol::{
     ChannelParams, ClientInfo, DirectoryResult, EmptyResult, EndpointClaim, FEATURE_KEEPALIVE,
-    Hello, HelloResponse, HelloTag, IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, PublishParams,
+    Hello, HelloResponse, HelloTag, IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, Method, PublishParams,
     QueryParams, ROUTE_NOTICE_SINCE_MINOR, Request, RequestedCapability, SendParams, SendResult,
+    SessionLossesResult,
 };
 use interweave_local_client_api::{
     DEFAULT_EVENT_QUEUE, DataCapability, DataSessionBinding, DataSessionPort, EndpointLease,
-    Generation, LocalDataSession, MAX_EVENT_QUEUE, SessionEvent, SessionRequest,
+    Generation, LocalDataSession, MAX_EVENT_QUEUE, SessionEvent, SessionLosses, SessionRequest,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointDirectoryV1, EndpointId, MessageId,
@@ -190,6 +191,7 @@ impl DataSessionBinding for IpcBinding {
         .map_err(|_| TransportError::ProtocolViolation)?;
         Ok(IpcSession {
             session,
+            minor: response.ipc_version.minor,
             connection: opened.connection,
             events: opened
                 .events
@@ -211,6 +213,9 @@ impl DataSessionBinding for IpcBinding {
 /// the one event its reader holds while it pauses.
 pub struct IpcSession {
     session: LocalDataSession,
+    /// The minor the server selected: a method above it is answered
+    /// here, never sent.
+    minor: u64,
     connection: Connection,
     /// Present exactly when `events` was granted: the buffer, and the
     /// inbox holding the server's newest state and the wake.
@@ -346,6 +351,20 @@ impl DataSessionPort for IpcSession {
             .call::<DirectoryResult>(Request::EndpointsQuery(QueryParams { peer }))
             .await
             .map(EndpointDirectoryV1::from)
+    }
+
+    /// Sent only on a connection that negotiated 2.11 or later: below it
+    /// the server would answer an unknown method, and this answers the
+    /// same without asking. A session that declined route notices asked
+    /// for a minor below 2.4 and is one of those.
+    async fn losses(&self) -> Result<SessionLosses, TransportError> {
+        if self.minor < Method::SessionLosses.entry().since_minor {
+            return Err(TransportError::ProtocolUnsupported);
+        }
+        self.connection
+            .call::<SessionLossesResult>(Request::SessionLosses)
+            .await
+            .map(SessionLosses::from)
     }
 
     async fn close(self) -> Result<(), TransportError> {

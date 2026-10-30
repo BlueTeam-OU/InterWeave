@@ -103,6 +103,18 @@ internal object Native {
         privateDns: String?,
     )
 
+    /**
+     * The transports the network [network]'s capabilities name, at every
+     * change of them: whether it is a local network is decided from these
+     * in android-platform (ADR-0052 rule 10), where a host test holds it.
+     */
+    @JvmStatic external fun networkTransports(
+        network: Long,
+        vpn: Boolean,
+        cellular: Boolean,
+        satellite: Boolean,
+    )
+
     /** The default network is [network]; 0 when there is none. */
     @JvmStatic external fun networkDefault(network: Long)
 
@@ -156,8 +168,11 @@ internal object Native {
      */
     const val IDENTITY_AUTHENTICATION_NEEDED = 3
 
-    /** The identity screens' next ask of the Activity ([Ask]), or 0. BLOCKS. */
-    @JvmStatic external fun waitIdentityAsk(timeoutMs: Long): Int
+    /**
+     * The identity screens' next ask of the Activity ([Ask]) in its low
+     * [Ask.BITS], its argument above them, or 0. BLOCKS.
+     */
+    @JvmStatic external fun waitIdentityAsk(timeoutMs: Long): Long
 
     /**
      * The platform's Back, for the window: a screen with a way back takes
@@ -182,6 +197,19 @@ internal object Native {
 
     /** Back from the app's system settings, opened by Open settings. */
     @JvmStatic external fun settingsReturned()
+
+    /**
+     * The photo picker's answer to [Ask.PICK_PHOTO]'s request: empty when
+     * what was chosen could not be opened, null when nothing was chosen.
+     */
+    @JvmStatic external fun photoPicked(request: Long, bytes: ByteArray?)
+
+    /**
+     * The photo chosen for `request`, opened: its descriptor, detached and
+     * owned by the native side from here, read there within `leftMs`, what
+     * the open left of the pick's deadline. BLOCKS until read or given up.
+     */
+    @JvmStatic external fun photoRead(request: Long, fd: Int, leftMs: Long)
 
     /** True when Back found no way back: finish. BLOCKS. */
     @JvmStatic external fun waitLeave(timeoutMs: Long): Boolean
@@ -213,6 +241,15 @@ internal object Ask {
     const val CAMERA_STOP = 12
     // Open settings on the camera's denied-for-good line.
     const val OPEN_SETTINGS = 13
+    // The own card's Add a photo or Change photo: the photo picker, for
+    // the request the ask's argument names.
+    const val PICK_PHOTO = 14
+    // The editor that asked for a photo closed: its open is cancelled.
+    const val PHOTO_CANCEL = 15
+
+    // The bits of a waited ask that name it: src/ask_word.rs's ASK_BITS,
+    // which its test holds to this line.
+    const val BITS = 8
 }
 
 /** The keys of the texts the platform shows, as `jni.rs` maps them. */

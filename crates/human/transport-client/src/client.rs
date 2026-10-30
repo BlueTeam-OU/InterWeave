@@ -408,6 +408,22 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         self.session.as_ref().map(|s| s.session().local_peer())
     }
 
+    /// Whether a direct conversation with `peer`'s `endpoint` may be held:
+    /// it is held already, or the peer has fewer than a profile's most
+    /// endpoints (`MAX_ENDPOINTS`) in the store's conversations and its
+    /// contacts' routes together.
+    fn admits_endpoint(
+        &self,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+    ) -> Result<bool, interweave_human_store::StoreError> {
+        if self.store.holds_endpoint(peer, endpoint)? {
+            return Ok(true);
+        }
+        let held = self.store.remote_endpoints(peer)?;
+        Ok(held < u64::try_from(interweave_profile_config::MAX_ENDPOINTS).unwrap_or(u64::MAX))
+    }
+
     async fn commit_send(
         &mut self,
         destination: Destination,
@@ -425,6 +441,20 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         };
         if !self.config.allows(&destination) {
             return Err(SendError::NotConfigured);
+        }
+        // The person's own send counts toward the peer's endpoints as an
+        // inbound does: one that would open a 65th is refused before its
+        // pending row is written (HUMAN-CHAT.md, the bound's send side).
+        if let OutboundDestination::Direct(DirectDestination {
+            peer,
+            endpoint: Some(endpoint),
+        }) = &destination
+        {
+            match self.admits_endpoint(peer, endpoint) {
+                Ok(true) => {}
+                Ok(false) => return Err(SendError::EndpointBound),
+                Err(_) => return Err(SendError::StorageUnavailable),
+            }
         }
         let new = NewOutbound {
             app_message_id: app_message_id.clone(),
@@ -1273,6 +1303,22 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         let Some(decoded) = self.decode(payload, &origin) else {
             return Committed::Skipped;
         };
+        // A peer's 65th distinct source endpoint: malformed, stored
+        // nothing, counted under its one reason (HUMAN-CHAT.md). A read the
+        // check needs that fails is a commit failure (RETENTION.md).
+        if let Origin::Direct { peer, endpoint } = &origin {
+            match self.admits_endpoint(peer, endpoint) {
+                Ok(true) => {}
+                Ok(false) => {
+                    self.diagnostics.malformed_endpoint_bound += 1;
+                    return Committed::Skipped;
+                }
+                Err(_) => {
+                    self.diagnostics.dropped_unstored += 1;
+                    return Committed::StoreFailed;
+                }
+            }
+        }
         let id = match &decoded {
             Decoded::Message(envelope) => envelope.app_message_id.clone(),
             Decoded::Card(card) => card.app_message_id.clone(),
@@ -1282,12 +1328,20 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             return Committed::Skipped;
         };
         let received_at = (self.wall)();
+        // Classified as the listing classifies a stored row (STATE.md
+        // schema v10): what is committed here decoded, as a message or a
+        // card, and a row this build cannot read is never committed.
+        let kind = match &decoded {
+            Decoded::Message(_) => interweave_human_store::InboundKind::Text,
+            Decoded::Card(_) => interweave_human_store::InboundKind::Card,
+        };
         let new = NewInbound {
             app_message_id,
             origin: stored,
             media_type: payload.media_type().cloned(),
             payload: payload.bytes().to_vec(),
             received_at,
+            kind,
         };
         match self.store.commit_unread_inbound(&new) {
             Ok(row) => Committed::Yes(Box::new(match decoded {

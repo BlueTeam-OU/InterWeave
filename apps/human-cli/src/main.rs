@@ -19,6 +19,7 @@ mod cards;
 #[cfg(test)]
 mod cards_tests;
 mod cli;
+mod identity;
 mod output;
 mod session;
 mod startup;
@@ -37,7 +38,7 @@ use interweave_human_store::{HumanStore, StoreError};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_profile_config::ProfileLock;
-use interweave_transport_api::MAX_PAYLOAD_BYTES;
+use interweave_transport_api::{EndpointId, MAX_PAYLOAD_BYTES};
 
 /// The workspace version with the commit as build metadata (ADR-0065
 /// decision 6; `tools/stamp/commit_stamp.rs`).
@@ -168,12 +169,30 @@ fn stopped() -> std::io::Result<impl std::future::Future<Output = ()>> {
     })
 }
 
-fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
+fn run(
+    profile: &str,
+    verb: &cli::Verb,
+    json: bool,
+    wait: Duration,
+    endpoint: Option<&EndpointId>,
+) -> Outcome {
     let until = Instant::now() + wait;
-    let profile = match startup::resolve(profile) {
+    let mut profile = match startup::resolve(profile) {
         Ok(profile) => profile,
         Err(failure) => return failure.into(),
     };
+    // `--endpoint`: one of the profile's human endpoints is leased in place
+    // of the first. Never one it does not offer: no endpoint is made here
+    // (G2; ENDPOINTS.md, configured only).
+    if let Some(endpoint) = endpoint {
+        if !profile.endpoints.contains(endpoint) {
+            return Failure::Refused(
+                "that endpoint is not one a human client may use in this profile".to_owned(),
+            )
+            .into();
+        }
+        profile.endpoints = vec![endpoint.clone()];
+    }
     // One worker, as the desktop's facade runtime: the IPC client's reader
     // task runs there, so a store call blocking this thread cannot starve
     // the session's keepalive.
@@ -186,7 +205,7 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
         Err(e) => return Failure::Refused(format!("the runtime: {e}")).into(),
     };
     // Before the lock: from here a signal is `listen`'s to answer.
-    let stop = if *verb == cli::Verb::Listen {
+    let stop = if matches!(verb, cli::Verb::Listen { .. }) {
         let _entered = runtime.enter();
         match stopped() {
             Ok(stop) => Some(stop),
@@ -207,7 +226,9 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
         verb,
         cli::Verb::PeersList
             | cli::Verb::PeersShow
+            | cli::Verb::PeersState
             | cli::Verb::PeerAdd(_)
+            | cli::Verb::PeerAddList(_)
             | cli::Verb::PeerRemove(_)
     ) {
         let result = runtime.block_on(admin::peers(&profile, verb, json, &mut out));
@@ -224,6 +245,20 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
         }
         _ => {}
     }
+    // Another identity than the one in front has no model: its key file
+    // is read, under the lock, as the store's files are.
+    if let cli::Verb::IdentityShow(Some(endpoint)) = verb
+        && profile.endpoints.first() != Some(endpoint)
+    {
+        let result = if profile.endpoints.contains(endpoint) {
+            identity::show_file(&profile.paths, endpoint, json, &mut out)
+        } else {
+            Err(Failure::Refused(
+                "that endpoint is not one a human client may use in this profile".to_owned(),
+            ))
+        };
+        return Outcome { out, result };
+    }
     let (_lock, store) = match startup::open_store(&profile) {
         Ok(store) => (lock, store),
         Err(failure) => return failure.into(),
@@ -238,7 +273,21 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
         })?;
         let mut session = session::Session::new(facade, move || ProfileLock::is_held(&paths).ok())?;
         let result = if let Some(stop) = stop {
-            verbs::listen(&mut session, json, &mut std::io::stdout(), stop).await
+            let (input, consume, filter) = match verb {
+                cli::Verb::Listen {
+                    input,
+                    consume,
+                    filter,
+                } => (*input, *consume, filter.clone()),
+                _ => (false, false, cli::ListenFilter::default()),
+            };
+            let mode = verbs::ListenMode {
+                json,
+                consume,
+                input: input.then(stdin_lines),
+                filter,
+            };
+            verbs::listen(&mut session, mode, &mut std::io::stdout(), stop).await
         } else {
             let r = verbs::Run {
                 profile: &name,
@@ -253,18 +302,59 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
     Outcome { out, result }
 }
 
-/// The text `send ... -` reads: stdin, less the one trailing newline the
-/// shell adds.
-fn stdin_text() -> Option<String> {
-    let mut read = String::new();
-    std::io::stdin().read_to_string(&mut read).ok()?;
+/// `listen --input`'s lines, read from stdin on a thread of its own so a
+/// blocked read never holds the session's turns (G1), and a full channel
+/// holds the read rather than the session.
+fn stdin_lines() -> tokio::sync::mpsc::Receiver<verbs::InputLine> {
+    let (send, lines) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    std::thread::spawn(move || verbs::read_input(std::io::stdin().lock(), &send));
+    lines
+}
+
+/// The most bytes `send ... -` reads from stdin, derived so it moves with
+/// the envelope: a message's text is at most the envelope's decompressed
+/// ceiling, the envelope carrying it at a byte a byte at best, and the
+/// room is the shell's newline and slack -- 262,144 bytes (256 KiB)
+/// today, the figure the README states (#495 review F4).
+const MAX_SEND_STDIN_BYTES: usize =
+    interweave_human_chat_protocol::MAX_DECOMPRESSED_BYTES + SEND_ROOM_BYTES;
+
+/// The room beside the text in what `send ... -` reads.
+const SEND_ROOM_BYTES: usize = 64 << 10;
+
+// The README states this figure: a ceiling that moves fails here until it
+// is changed there too.
+const _: () = assert!(MAX_SEND_STDIN_BYTES == 262_144);
+
+/// The text `send ... -` reads: stdin, at most [`MAX_SEND_STDIN_BYTES`],
+/// less the one trailing newline the shell adds. Read before the profile
+/// or the session: a text past the bound opens nothing. Refused with the
+/// exit code and why: past the bound or unreadable, refused (1); not
+/// UTF-8, a usage error (2), as it was before the bound.
+fn stdin_text(reader: impl std::io::Read) -> Result<String, (u8, String)> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_SEND_STDIN_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| (1, format!("the message on stdin could not be read: {e}")))?;
+    if bytes.len() > MAX_SEND_STDIN_BYTES {
+        return Err((
+            1,
+            format!(
+                "the message on stdin is larger than {} KiB",
+                MAX_SEND_STDIN_BYTES / 1024
+            ),
+        ));
+    }
+    let mut read = String::from_utf8(bytes)
+        .map_err(|_| (2, "the message on stdin is not UTF-8 text".to_owned()))?;
     if read.ends_with('\n') {
         read.pop();
         if read.ends_with('\r') {
             read.pop();
         }
     }
-    Some(read)
+    Ok(read)
 }
 
 fn main() -> ExitCode {
@@ -293,18 +383,21 @@ fn main() -> ExitCode {
             mut verb,
             json,
             wait,
+            endpoint,
         } => {
             if let cli::Verb::Send {
                 text: text @ None, ..
             } = &mut verb
             {
-                let Some(read) = stdin_text() else {
-                    eprintln!("interweave-human: the message on stdin is not UTF-8 text");
-                    return ExitCode::from(2);
-                };
-                *text = Some(read);
+                match stdin_text(std::io::stdin().lock()) {
+                    Ok(read) => *text = Some(read),
+                    Err((code, why)) => {
+                        eprintln!("interweave-human: {why}");
+                        return ExitCode::from(code);
+                    }
+                }
             }
-            run(&profile, &verb, json, wait)
+            run(&profile, &verb, json, wait, endpoint.as_ref())
         }
     };
     let mut stdout = std::io::stdout().lock();
@@ -340,5 +433,38 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(5), stop)
             .await
             .expect("the signal was caught and ends the wait");
+    }
+
+    /// `send -`'s bound is on the read, not only on what was read: a
+    /// stdin far past it is refused having read exactly the bound and a
+    /// byte, counted at the reader (#495 review F5, F7). Mutations: the
+    /// read's `take` removed; its limit loosened.
+    #[test]
+    fn a_stdin_far_past_its_bound_is_refused_having_read_the_bound_and_a_byte() {
+        use std::io::Read as _;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        struct Counting<R> {
+            inner: R,
+            read: Arc<AtomicU64>,
+        }
+        impl<R: std::io::Read> std::io::Read for Counting<R> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.inner.read(buf)?;
+                self.read.fetch_add(n as u64, Ordering::SeqCst);
+                Ok(n)
+            }
+        }
+        let read = Arc::new(AtomicU64::new(0));
+        let stdin = Counting {
+            inner: std::io::repeat(b'a').take(256 << 20),
+            read: Arc::clone(&read),
+        };
+        let answer = super::stdin_text(stdin);
+        assert!(matches!(answer, Err((1, _))), "{answer:?}");
+        assert_eq!(
+            read.load(Ordering::SeqCst),
+            super::MAX_SEND_STDIN_BYTES as u64 + 1
+        );
     }
 }

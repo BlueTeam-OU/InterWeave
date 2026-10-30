@@ -118,7 +118,7 @@ members = [
 # inherits it with `version.workspace = true`, and the release run refuses a
 # tag that is not `v` and this. tools/checks/check_workspace_version.sh keeps
 # it the only one.
-version = "0.1.0"
+version = "0.2.0"
 license = "Apache-2.0"
 edition = "2024"
 # Kept in lockstep with rust-toolchain.toml. Stating a minimum the pinned
@@ -223,9 +223,31 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 # NFC for the card's name and surname, the form their bounds are checked
 # and signed in. Already in the graph via bip39.
 unicode-normalization = { version = "0.1", default-features = false, features = ["std"] }
+# Grapheme clusters, to cut a Chats preview at 160 characters as a person
+# counts them (design/2026-10-27-start-window.md section 3). unicode-rs,
+# MIT/Apache-2.0, already in the graph through the Slint toolkit.
+unicode-segmentation = { version = "1.13", default-features = false }
 # The card's names refuse format characters (Cf), which no std predicate
 # names. Already in the graph via jsonschema; Apache-2.0, no dependencies.
 unicode-general-category = "1.1"
+# The same-name key a card's name is compared by (contact-cards design
+# 5.4.1, the human store's `name_key`): full case folding, and Unicode TS
+# #39's confusable skeleton. Both unicode-rs, MIT and MIT/Apache-2.0, over
+# unicode-normalization and unicode-script, already in the graph.
+caseless = "0.2"
+unicode-security = "0.1"
+# Contacts are ordered by Unicode collation (human-client-ui.md section 3,
+# "How contacts are ordered"): UTS #10 with the CLDR root order until the
+# localisation contract gives the client a locale. ICU4X, the 2.3 line the
+# Slint toolkit's other icu_* crates already resolve, Unicode-3.0. Held to
+# 2.3: a newer collator moves every icu_* crate of the graph with it.
+icu_collator = "~2.3"
+# The root-only data provider beside it (ui-model's `order.rs`) names the
+# collator's data markers and the NFD data it reads: the same 2.3 line,
+# held to it because a provider's markers are not semver-stable across
+# minor versions.
+icu_provider = "~2.3"
+icu_normalizer = "~2.3"
 # A card's photo (app-core's card_photo.rs): the sender re-encodes the
 # chosen image, the receiver decodes an accepted one at 256 x 256. PNG and
 # JPEG only, pure Rust (png, zune-jpeg), the version and the two features
@@ -247,13 +269,17 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # allow-list.
 qrcode = { version = "0.14.1", default-features = false }
 rqrr = { version = "0.11.0", default-features = false }
-# The desktop's Paste an image: the clipboard crate the toolkit's winit
-# backend already uses, with the image read it leaves off; on Linux that
-# decodes PNG with the `image` crate already in the graph.
-arboard = { version = "3.6.1", default-features = false, features = ["image-data"] }
 # The desktop's Open an image…: the platform's file dialog, through the
 # XDG desktop portal on Linux (no GTK), MIT.
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+# The desktop's Paste an image on Linux (`clipboard.rs`): the clipboard's
+# encoded image read as bytes, within bounds, through Wayland's
+# data-control protocol or the X server, and the non-blocking wait that
+# holds the read to its deadline. All three are in the graph already,
+# through the toolkit's winit backend and its clipboard crate.
+wl-clipboard-rs = { version = "0.9.4", default-features = false }
+x11rb = { version = "0.13.2", default-features = false }
+rustix = { version = "1.1.5", default-features = false, features = ["std", "event"] }
 # The reference views (plan §17 (8)), admitted under the Slint Royalty-free
 # licence by the owner's decision of 2026-10-01 (deny.toml carries the
 # per-crate exceptions). The toolkit only: no windowing backend and no
@@ -704,9 +730,10 @@ overflow-checks = true
 # tests/security and tests/security-local and whose exit gate is
 # tests/SECURITY-MATRIX.md. STAGE 19 RUNS BESIDE IT by the plan's section
 # 22 record (activated 2026-10-20 on the owner's word): packaging,
-# migration and release. STAGE 21 RUNS BESIDE IT by the plan's section 29
-# record (the owner's word of 2026-10-21): contacts, cards and the
-# encrypted store, in the human crates. This value names the lowest open
+# migration and release. STAGE 21 CLOSED on 2026-10-25 (the plan's section
+# 29 closing record, on the owner's word): contacts, cards and the
+# encrypted store, in the human crates, with what it did not prove
+# carried by name. This value names the lowest open
 # stage because the guards read it as one number.
 status = "stage-18-adversarial-security-gate"
 architecture_root = "architecture"

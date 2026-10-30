@@ -9,7 +9,8 @@
 mod common;
 
 use interweave_human_store::{
-    AcceptedCard, HumanStore, KeyStanding, OwnCard, StoreOptions, ValueSource,
+    AcceptedCard, ContactListing, ContactRestored, HumanStore, KeyStanding, OwnCard, PhotoAccepted,
+    RouteDeleted, StoreOptions, ValueSource, name_key,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -146,7 +147,7 @@ fn a_second_card_from_the_same_route_updates_it_and_overwrites_no_local_edit() {
 fn two_same_name_cards_from_two_peer_ids_are_two_contacts_and_each_names_the_other() {
     let (_dir, mut store) = store();
     let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
-    store
+    let from_p = store
         .accept_card(&card(&p, &human, "Ada", 1), 10)
         .expect("from P");
     let from_q = card(&q, &human, "Ada", 2);
@@ -160,10 +161,59 @@ fn two_same_name_cards_from_two_peer_ids_are_two_contacts_and_each_names_the_oth
         1,
         "the same-name note names P's contact"
     );
-    assert_eq!(standing.same_name[0].routes[0].peer, p);
+    assert_eq!(standing.same_name[0].contact_id, from_p.contact_id, "P's");
     let second = store.accept_card(&from_q, 20).expect("from Q");
     assert!(second.created, "a second contact, never a merge");
     assert_eq!(store.contacts().expect("read").len(), 2);
+}
+
+/// Contact-cards design 5.4.1's key: each spelling the design names is
+/// the same name as "Anna", and a different name is not.
+#[test]
+fn a_lookalike_spelling_is_the_same_name_and_another_name_is_not() {
+    let anna = name_key("Anna Rossi");
+    for (why, spelling) in [
+        ("a Cyrillic A", "\u{410}nna Rossi"),
+        ("a no-break space", "Anna\u{a0}Rossi"),
+        ("fullwidth letters", "\u{ff21}nna Rossi"),
+        (
+            "a circled letter, one only NFKC unifies",
+            "\u{24b6}nna Rossi",
+        ),
+        ("a mathematical bold letter", "\u{1d400}nna Rossi"),
+        ("another case", "anna ROSSI"),
+        ("runs of white space and its ends", " Anna \t  Rossi "),
+    ] {
+        assert_eq!(name_key(spelling), anna, "{why}");
+    }
+    assert_ne!(name_key("Anne Rossi"), anna, "the control: another name");
+    assert_eq!(
+        name_key("\u{ff8a}\u{ff85}"),
+        name_key("\u{30cf}\u{30ca}"),
+        "halfwidth katakana"
+    );
+}
+
+#[test]
+fn a_lookalike_name_on_another_peer_id_is_named_as_the_same_name() {
+    let (_dir, mut store) = store();
+    let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
+    store
+        .accept_card(&card(&p, &human, "Ada", 1), 10)
+        .expect("from P");
+    let lookalike = store
+        .card_standing(&card(&q, &human, "\u{410}da", 2))
+        .expect("standing");
+    assert_eq!(
+        lookalike.same_name.len(),
+        1,
+        "a Cyrillic A is the same name"
+    );
+    assert_eq!(lookalike.same_name[0].display_name, "Ada", "as stored");
+    let other = store
+        .card_standing(&card(&q, &human, "Ida", 2))
+        .expect("standing");
+    assert!(other.same_name.is_empty(), "the control: another name");
 }
 
 #[test]
@@ -336,7 +386,7 @@ fn an_accepted_photo_is_kept_as_bytes_and_a_photo_the_person_set_is_never_replac
             .expect("set")
     );
     let third = store.accept_card(&with(b"jpeg three"), 40).expect("third");
-    assert!(third.photo_kept);
+    assert_eq!(third.photo, PhotoAccepted::Kept);
     let contact = store
         .contact(&first.contact_id)
         .expect("read")
@@ -347,6 +397,55 @@ fn an_accepted_photo_is_kept_as_bytes_and_a_photo_the_person_set_is_never_replac
         "the person's photo stands"
     );
     assert_eq!(contact.photo_source, Some(ValueSource::Person));
+}
+
+#[test]
+fn an_accept_with_no_photo_says_it_removed_a_cards_photo_and_only_that() {
+    // Design 5.4.2: the confirmation row says the previous photo went too
+    // only when Accept took away a photo the person did not choose.
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let with = |photo: Option<&'static [u8]>| AcceptedCard {
+        photo,
+        ..card(&p, &human, "Ada", 1)
+    };
+    let first = store.accept_card(&with(None), 10).expect("created");
+    assert_eq!(first.photo, PhotoAccepted::Written, "created");
+    let none_over_none = store.accept_card(&with(None), 20).expect("none");
+    assert_eq!(
+        none_over_none.photo,
+        PhotoAccepted::Written,
+        "nothing was there to remove"
+    );
+    store.accept_card(&with(Some(b"jpeg")), 30).expect("photo");
+    let removed = store.accept_card(&with(None), 40).expect("removed");
+    assert_eq!(
+        removed.photo,
+        PhotoAccepted::Removed,
+        "the card's photo went"
+    );
+    let contact = store
+        .contact(&first.contact_id)
+        .expect("read")
+        .expect("there");
+    assert_eq!(contact.photo, None);
+    assert!(store.undo_accept(&removed.undo).expect("undone"));
+    let contact = store
+        .contact(&first.contact_id)
+        .expect("read")
+        .expect("there");
+    assert_eq!(
+        contact.photo.as_deref(),
+        Some(b"jpeg".as_slice()),
+        "Undo gives the photo back"
+    );
+    assert!(
+        store
+            .set_contact_photo(&first.contact_id, Some(b"mine"), 50)
+            .expect("set")
+    );
+    let kept = store.accept_card(&with(None), 60).expect("kept");
+    assert_eq!(kept.photo, PhotoAccepted::Kept, "the person's photo stays");
 }
 
 #[test]
@@ -593,4 +692,396 @@ fn the_conversations_a_card_was_shared_in_come_most_recent_first() {
         store.cards_shared().expect("read"),
         vec![(peer(Q), human.clone(), 20), (peer(P), human, 10)]
     );
+}
+
+/// A second route under `contact_id`, as no flow writes one yet (moving a
+/// route between contacts is Stage 22's): inserted as the store's own
+/// writer inserts a route.
+fn seed_route(path: &std::path::Path, contact_id: &str, peer: &TransportIdentity, key: &[u8]) {
+    let conn = rusqlite::Connection::open(path).expect("open");
+    conn.execute(
+        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
+         VALUES (?1, ?2, 'human', ?3)",
+        rusqlite::params![contact_id, peer.as_str(), key],
+    )
+    .expect("seeded");
+}
+
+#[test]
+fn a_deleted_route_leaves_both_files_and_the_last_is_refused() {
+    // The second route's key, findable in the files.
+    const KEY: [u8; 32] = *b"route-key-deleted-marker-0123456";
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let wal = path.with_extension("sqlite3-wal");
+    let holds = |p: &std::path::Path| {
+        std::fs::read(p).is_ok_and(|bytes| bytes.windows(KEY.len()).any(|w| w == KEY))
+    };
+    let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let ada = store
+        .accept_card(&card(&p, &human, "Ada", 1), 10)
+        .expect("accepted");
+    drop(store);
+    seed_route(&path, &ada.contact_id, &q, &KEY);
+    assert!(
+        holds(&path) || holds(&wal),
+        "the setup: the key reached the files"
+    );
+
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    assert_eq!(
+        store
+            .delete_route(&ada.contact_id, &q, &endpoint("other"))
+            .expect("asked"),
+        RouteDeleted::NoSuchRoute
+    );
+    assert_eq!(
+        store
+            .delete_route("no-such-contact", &q, &human)
+            .expect("asked"),
+        RouteDeleted::NoSuchRoute
+    );
+    assert_eq!(
+        store
+            .delete_route(&ada.contact_id, &q, &human)
+            .expect("deleted"),
+        RouteDeleted::Deleted
+    );
+    assert!(
+        !holds(&path) && !holds(&wal),
+        "the route's key left both files"
+    );
+    let contact = store
+        .contact(&ada.contact_id)
+        .expect("read")
+        .expect("stays");
+    assert_eq!(contact.routes.len(), 1, "the other route stays");
+    assert_eq!(contact.routes[0].peer, p);
+
+    // The last route is the contact's: refused, nothing written.
+    assert_eq!(
+        store
+            .delete_route(&ada.contact_id, &p, &human)
+            .expect("asked"),
+        RouteDeleted::LastRoute
+    );
+    let contact = store
+        .contact(&ada.contact_id)
+        .expect("read")
+        .expect("stays");
+    assert_eq!(contact.routes.len(), 1);
+    assert_eq!(contact.routes[0].identity_key, Some([1; 32]));
+}
+
+/// Contact-cards design section 6.3: Delete's Undo writes the contact
+/// and its routes back with the same values, provenance and keys, once;
+/// a contact of its id there already is refused, nothing written.
+/// Mutations: a route row not written back; the existence check dropped.
+#[test]
+fn a_deleted_contact_is_written_back_as_it_was_by_its_undo() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let ada = store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(b"jpeg"),
+                ..card(&p, &human, "Ada", 1)
+            },
+            10,
+        )
+        .expect("accepted");
+    assert!(
+        store
+            .set_contact_name(&ada.contact_id, "Countess", 20)
+            .expect("named")
+    );
+    let before = store
+        .contact(&ada.contact_id)
+        .expect("read")
+        .expect("there");
+    let deleted = store
+        .delete_contact_for_undo(&ada.contact_id)
+        .expect("deleted")
+        .expect("there was one");
+    assert!(store.contact(&ada.contact_id).expect("read").is_none());
+    assert_eq!(
+        store.restore_contact(&deleted).expect("restored"),
+        ContactRestored::Restored
+    );
+    assert_eq!(
+        store.contact(&ada.contact_id).expect("read"),
+        Some(before.clone()),
+        "name, provenance, photo, route and key as they were"
+    );
+    assert_eq!(
+        store
+            .card_standing(&card(&p, &human, "Ada", 1))
+            .expect("standing")
+            .key,
+        KeyStanding::Same,
+        "the route's key is back"
+    );
+    assert_eq!(
+        store.restore_contact(&deleted).expect("asked"),
+        ContactRestored::Exists
+    );
+    assert_eq!(store.contacts().expect("read").len(), 1, "written once");
+}
+
+/// Section 6.3: the Undo never puts one route under two contacts. A card
+/// accepted on the deleted contact's route after the delete makes its own
+/// contact, and the Undo is refused, nothing written. Mutation: the
+/// route check dropped.
+#[test]
+fn a_deleted_contacts_undo_is_refused_once_its_route_is_under_another() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let ada = store
+        .accept_card(&card(&p, &human, "Ada", 1), 10)
+        .expect("accepted");
+    let deleted = store
+        .delete_contact_for_undo(&ada.contact_id)
+        .expect("deleted")
+        .expect("there was one");
+    let again = store
+        .accept_card(&card(&p, &human, "Ada", 2), 20)
+        .expect("accepted again");
+    assert!(again.created);
+    assert_eq!(
+        store.restore_contact(&deleted).expect("asked"),
+        ContactRestored::RouteTaken
+    );
+    let contacts = store.contacts().expect("read");
+    assert_eq!(contacts.len(), 1, "nothing written");
+    assert_eq!(contacts[0].contact_id, again.contact_id);
+    assert!(
+        store.contact(&ada.contact_id).expect("read").is_none(),
+        "the deleted contact stays deleted"
+    );
+}
+
+/// Section 6.3: Remove photo marks the removal the person's, and its Undo
+/// writes the bytes back with the source and time they had -- but never
+/// over a photo the person set since. Mutations: the Undo's guard on the
+/// removal dropped; the removal not recording the source it replaced.
+#[test]
+fn a_removed_photo_is_written_back_by_its_undo_and_never_over_a_later_one() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let ada = store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(b"card jpeg"),
+                ..card(&p, &human, "Ada", 1)
+            },
+            10,
+        )
+        .expect("accepted");
+    let before = store
+        .contact(&ada.contact_id)
+        .expect("read")
+        .expect("there");
+    let removed = store
+        .remove_contact_photo(&ada.contact_id, 20)
+        .expect("removed")
+        .expect("it had one");
+    let now = store
+        .contact(&ada.contact_id)
+        .expect("read")
+        .expect("there");
+    assert_eq!(now.photo, None);
+    assert_eq!(now.photo_source, Some(ValueSource::Person), "the person's");
+    assert!(
+        store
+            .remove_contact_photo(&ada.contact_id, 21)
+            .expect("asked")
+            .is_none(),
+        "no photo, nothing removed"
+    );
+    assert!(store.restore_contact_photo(&removed).expect("restored"));
+    assert_eq!(
+        store.contact(&ada.contact_id).expect("read"),
+        Some(before),
+        "bytes, source and time as they were"
+    );
+
+    let removed = store
+        .remove_contact_photo(&ada.contact_id, 30)
+        .expect("removed")
+        .expect("it had one");
+    assert!(
+        store
+            .set_contact_photo(&ada.contact_id, Some(b"chosen"), 40)
+            .expect("chosen")
+    );
+    assert!(
+        !store.restore_contact_photo(&removed).expect("asked"),
+        "a photo set since stays"
+    );
+    assert_eq!(
+        store
+            .contact(&ada.contact_id)
+            .expect("read")
+            .expect("there")
+            .photo
+            .as_deref(),
+        Some(b"chosen".as_slice())
+    );
+}
+
+/// A contact's removed photo leaves both store files as a deleted
+/// contact does, before the removal returns; what its Undo writes back is
+/// the caller's, in memory. Mutation: the release dropped.
+#[test]
+fn a_removed_photo_leaves_both_files_before_the_call_returns() {
+    const GONE: &[u8] = b"Zebulon-photo-marker";
+    const STAYS: &str = "Quentin-kept-marker";
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let wal = path.with_extension("sqlite3-wal");
+    let holds = |p: &std::path::Path, what: &[u8]| {
+        std::fs::read(p).is_ok_and(|bytes| bytes.windows(what.len()).any(|w| w == what))
+    };
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let (p, human) = (peer(P), endpoint("human"));
+    let ada = store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(GONE),
+                ..card(&p, &human, STAYS, 1)
+            },
+            10,
+        )
+        .expect("accepted");
+    drop(store);
+    assert!(holds(&path, GONE), "the setup: the photo reached the file");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let removed = store
+        .remove_contact_photo(&ada.contact_id, 20)
+        .expect("removed");
+    assert!(removed.is_some());
+    assert!(
+        !holds(&path, GONE) && !holds(&wal, GONE),
+        "the removed photo left both files"
+    );
+    assert!(
+        holds(&path, STAYS.as_bytes()) || holds(&wal, STAYS.as_bytes()),
+        "the control: the search sees the contact's name"
+    );
+    drop(store);
+}
+
+/// Schema v10: every writer of a contact's display name -- a new
+/// contact, a card's update, an accept undone, the person's rename, a
+/// deleted contact restored -- leaves `name_key` the key of the name it
+/// wrote, as the file holds it. Mutation: the rename without `name_key`.
+#[test]
+fn every_writer_of_a_name_keeps_its_name_key() {
+    let (dir, mut store) = store();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let keys_agree = |what: &str| {
+        let conn = rusqlite::Connection::open(&path).expect("a reader beside the store");
+        let rows: Vec<(String, String)> = conn
+            .prepare("SELECT display_name, name_key FROM contacts")
+            .expect("prepare")
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .expect("query")
+            .collect::<Result<_, _>>()
+            .expect("rows");
+        assert!(!rows.is_empty(), "{what}: control, a contact");
+        for (name, key) in rows {
+            assert_eq!(key, name_key(&name), "{what}: {name:?}");
+        }
+    };
+    let (p, human) = (peer(P), endpoint("human"));
+    let first = store
+        .accept_card(&card(&p, &human, "\u{ff21}da", 1), 10)
+        .expect("a new contact");
+    keys_agree("a new contact");
+    let second = store
+        .accept_card(&card(&p, &human, "Ada Lovelace", 1), 20)
+        .expect("an update");
+    keys_agree("a card's update");
+    assert!(store.undo_accept(&second.undo).expect("undone"));
+    keys_agree("an accept undone");
+    assert!(
+        store
+            .set_contact_name(&first.contact_id, "Countess", 30)
+            .expect("renamed")
+    );
+    keys_agree("the person's rename");
+    let deleted = store
+        .delete_contact_for_undo(&first.contact_id)
+        .expect("deleted")
+        .expect("it existed");
+    assert_eq!(
+        store.restore_contact(&deleted).expect("restored"),
+        ContactRestored::Restored
+    );
+    keys_agree("a deleted contact restored");
+}
+
+/// The Contacts list's read (j68 P2-1): every contact once, in id order,
+/// a page at a time, each with its routes and whether it has a photo but
+/// never the photo's bytes, which are read one contact at a time.
+/// Mutations: the cursor read as `>=` (a contact twice); `has_photo`
+/// always false.
+#[test]
+fn the_contact_directory_is_paged_without_photos() {
+    let (_dir, mut store) = store();
+    let human = endpoint("human");
+    let peers = [P, Q, "12D3KooWRBy97UB99e3J6hiPesre1MZeuNQvfan4gBziswrRJsNK"];
+    let mut ids = Vec::new();
+    for (n, p) in peers.iter().enumerate() {
+        let p = peer(p);
+        let photo: &[u8] = b"jpeg";
+        let accepted = store
+            .accept_card(
+                &AcceptedCard {
+                    photo: (n == 1).then_some(photo),
+                    ..card(&p, &human, &format!("Contact {n}"), 1)
+                },
+                10,
+            )
+            .expect("a contact");
+        ids.push(accepted.contact_id);
+    }
+    ids.sort();
+    let mut seen: Vec<ContactListing> = Vec::new();
+    let mut after: Option<String> = None;
+    loop {
+        let page = store
+            .contact_directory_page(after.as_deref(), 2)
+            .expect("a page");
+        assert!(page.items.len() <= 2);
+        seen.extend(page.items);
+        assert!(seen.len() <= 10, "the walk does not end");
+        match page.next {
+            Some(next) => after = Some(next),
+            None => break,
+        }
+    }
+    let seen_ids: Vec<&str> = seen.iter().map(|c| c.contact_id.as_str()).collect();
+    assert_eq!(seen_ids, ids.iter().map(String::as_str).collect::<Vec<_>>());
+    let with_photo: Vec<&str> = seen
+        .iter()
+        .filter(|c| c.has_photo)
+        .map(|c| c.display_name.as_str())
+        .collect();
+    assert_eq!(with_photo, ["Contact 1"]);
+    assert!(
+        seen.iter().all(|c| c.routes.len() == 1),
+        "each with its route"
+    );
+    let one = seen.iter().find(|c| c.has_photo).expect("one");
+    assert_eq!(
+        store
+            .contact_photo(&one.contact_id)
+            .expect("read")
+            .as_deref(),
+        Some(b"jpeg".as_slice())
+    );
+    let other = seen.iter().find(|c| !c.has_photo).expect("another");
+    assert_eq!(store.contact_photo(&other.contact_id).expect("read"), None);
 }

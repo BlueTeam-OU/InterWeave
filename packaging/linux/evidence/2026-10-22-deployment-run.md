@@ -10,8 +10,11 @@ disable.
 
 **Not a second uid.** It ran in the deploying account's own user manager
 under a scratch `HOME` and XDG roots (architect-cto's decision of
-2026-10-22, until a second login is provisioned; the run on one is to be
-added here). The manager does not search a scratch config directory, so
+2026-10-22, until a second login is provisioned). The port rule between
+two accounts was later measured on their own user managers, in
+[`2026-10-27-second-uid-port.md`](2026-10-27-second-uid-port.md); this
+document's steps under a second uid, from a fresh install, have not been
+run. The manager does not search a scratch config directory, so
 the templates `install.sh` placed there were linked into the manager's
 runtime unit directory, and a per-instance drop-in named the installed
 binary and the scratch XDG tree -- the method of

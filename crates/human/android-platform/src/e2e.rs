@@ -13,7 +13,7 @@ use std::time::Duration;
 use interweave_android_e2e_cases::{AppClient, Handed, Tap};
 use interweave_human_app_core::{Command, Update};
 
-use crate::hub::{Hub, ToView, ViewLink};
+use crate::hub::{Hub, StoreAnswer, ToView, ViewLink};
 
 /// A view on the hub, for a case.
 pub struct HubClient {
@@ -52,7 +52,7 @@ impl HubClient {
 
 impl AppClient for HubClient {
     fn command(&mut self, command: Command) -> bool {
-        self.hub.command(command)
+        self.hub.command(command).is_ok()
     }
 
     fn updates(&mut self, wait: Duration) -> Result<Vec<Update>, String> {
@@ -74,9 +74,11 @@ impl AppClient for HubClient {
                 ToView::Running(false)
                 | ToView::NetworkAccess(true)
                 | ToView::AuthenticationNeeded(false)
-                | ToView::StoreRefused(None) => {}
+                // An answer that calls for no store screen: a start refused
+                // elsewhere leaves the service not running, which the case waits on.
+                | ToView::Store(StoreAnswer::Opened | StoreAnswer::OtherRefusal, _) => {}
                 // The store refused the start: the case cannot run.
-                ToView::StoreRefused(Some(why)) => {
+                ToView::Store(StoreAnswer::Refused(why), _) => {
                     return Err(format!("the message store refused the start: {why:?}"));
                 }
                 // The case's profile is background-compatible: a need to

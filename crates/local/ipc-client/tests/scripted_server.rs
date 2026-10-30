@@ -1866,3 +1866,44 @@ async fn the_all_or_none_add_is_sent_only_at_two_nine_and_reads_back_line_for_li
         }
     }
 }
+
+/// `session.losses` is sent only at 2.11 or later and read as the
+/// schema's two counts; below it the client answers `ProtocolUnsupported`
+/// without writing a frame, which the server's next read, the end of the
+/// stream once the session goes, shows.
+#[tokio::test]
+async fn session_losses_is_sent_from_2_11_and_answered_unsupported_below_it() {
+    let script = Script::new();
+    let (session, mut server) = opened_at(&script, 10).await;
+    // Bounded: a client that sent it would wait for an answer this
+    // server never writes.
+    assert_eq!(
+        tokio::time::timeout(PATIENCE, session.losses())
+            .await
+            .expect("answered without asking the server"),
+        Err(interweave_transport_api::TransportError::ProtocolUnsupported)
+    );
+    drop(session);
+    assert!(server.read().await.is_none(), "nothing was sent at 2.10");
+
+    let (session, mut server) = opened_at(&script, 11).await;
+    let (answer, ()) = tokio::join!(session.losses(), async {
+        let Some(Frame::Request(request)) = server.read().await else {
+            panic!("a request");
+        };
+        assert_eq!(request.method, "session.losses");
+        server
+            .write(
+                &json!({"type": "response", "id": request.id.as_str(), "ok": true,
+                           "result": {"queue_overflow": 2, "ingress_refused": 7}}),
+            )
+            .await;
+    });
+    assert_eq!(
+        answer,
+        Ok(interweave_local_client_api::SessionLosses {
+            queue_overflow: 2,
+            ingress_refused: 7,
+        })
+    );
+}

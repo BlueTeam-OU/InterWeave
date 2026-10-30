@@ -83,3 +83,38 @@ be taken out; below IPC minor 2.9 the refusal is answered as
 batch (p2p-network-dev's, 06dc78cc). Propagation: decision 1; this
 note; the log row; the digest entry; `LOCAL-IPC.md`'s two paragraphs
 (p2p-network-dev's, same branch); the add-a-peer design note (#390).
+
+### Amendment 2026-10-26 — A carrier-assigned cellular address is not shown
+
+rust-ui-dev-01's device row of 2026-10-26: the Pixel 9a's Show listed
+the Wi-Fi address and two carrier-assigned `10.x/32` addresses on its
+mobile-data interfaces, and a second phone on the same Wi-Fi scanned
+all three, two of which it could never reach. Decision 4 said "the
+classes the add admits", and a private range is one; the rule it
+inherits now is ADR-0052 rule 10 (A 2026-10-26): a private-range
+address of this host on no local network is no address of this node
+toward anyone. The show side omits it as `own_addresses::select`
+already omits the special-use classes, from the classification the
+platform's view carries; nothing else in the decision moves.
+Propagation: decision 4; the conformance cases; this note; the log
+row; the digest entry; ADR-0052's own note names the specifications.
+
+### Amendment 2026-10-27 — An address the platform's view does not hold is not shown
+
+rust-ui-dev-01's device row of 2026-10-27, on the first build carrying
+rule 10 (main bdc7ac89): the Pixel 9a's Show listed both carrier
+addresses beside the Wi-Fi one as before. The platform had reported
+neither carrier network to the bridge, so the view classified nothing
+and the show side, reading the view's classification, omitted
+nothing. ADR-0052 rule 10 (A 2026-10-27, its own note) now says what
+such an address is — bound on a network the platform reports to no
+app, it lies on no local network — and decision 4 inherits it as it
+inherited the first case: the show side omits what the runtime holds
+back, from the one off-local set. The limit the rule admits is named
+here because it is the show side that a person meets: a phone hosting
+a hotspot whose access point the platform lets no app read shows no
+address for it, and the client's code connects the pair one way.
+Gate (e)'s case is the same case, re-run on the build that carries
+this. Propagation: decision 4; this note; the log row; the digest
+entry; ADR-0052's note names the specifications.
+

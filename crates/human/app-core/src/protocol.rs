@@ -13,10 +13,11 @@ use interweave_human_client_api::{
 };
 use interweave_human_store::RowId;
 use interweave_human_ui_model::{
-    CardOutcome, ContactView, ConversationKey, IdentityView, ItemKey, ListedInbound,
-    ListedOutbound, PhotoEdit, Proposal, ProposalContext, Table, TrustChange,
+    CardOutcome, ContactChange, ContactView, ConversationKey, DirectoryContact, IdentityView,
+    ItemKey, ListedInbound, ListedOutbound, PageAsk, PageRows, Photo, PhotoAsk, PhotoEdit,
+    Proposal, ProposalContext, StoredSummary, Table, TrustChange,
 };
-use interweave_transport_api::TransportIdentity;
+use interweave_transport_api::{EndpointId, TransportIdentity};
 
 /// A person's intent, resolved by the model, for the facade side to carry
 /// out against the facade and the store.
@@ -92,6 +93,22 @@ pub enum Command {
     ForgetCard(RowId),
     /// Send this identity's own card on a direct conversation's route.
     ShareCard(ConversationKey),
+    /// Prepare a photo chosen for the own card, as its file holds it, off
+    /// the facade's own task, and hold it for the Save that names it
+    /// ([`PhotoEdit::Prepared`](interweave_human_ui_model::PhotoEdit)).
+    PrepareOwnPhoto {
+        /// The image, as its file holds it.
+        chosen: Vec<u8>,
+        /// The model's number for this choice, which the answer carries.
+        seq: u64,
+        /// What it falls back to, as the model shows it.
+        basis: interweave_human_ui_model::PhotoBasis,
+    },
+    /// Let go of the own card's prepared photo: its editor closed unsaved.
+    ForgetOwnPhoto,
+    /// The own card's editor removed its photo: unsaved, so a Save naming
+    /// the prepared photo writes none.
+    RemoveOwnPhoto,
     /// Write the identity's own card as the person edited it.
     SetOwnCard {
         /// The name.
@@ -117,12 +134,53 @@ pub enum Command {
     },
     /// Delete a contact, its routes and their recorded keys.
     DeleteContact(String),
+    /// Take back the last delete of this contact, or removal of its
+    /// photo: what was removed is written back as it was (contact-cards
+    /// design section 6.3). Only while the facade side holds it.
+    UndoContact {
+        /// The contact.
+        contact_id: String,
+        /// What is taken back.
+        change: ContactChange,
+        /// The hold [`Update::ContactChanged`] named.
+        hold: u64,
+    },
+    /// Let go of what that Undo would have needed, by its hold: its
+    /// snackbar closed.
+    ForgetContact(u64),
+    /// Delete one route of a contact and its recorded key; the store
+    /// refuses the contact's last.
+    DeleteRoute {
+        /// The contact.
+        contact_id: String,
+        /// The route's `PeerId`.
+        peer: TransportIdentity,
+        /// The route's `EndpointId`.
+        endpoint: EndpointId,
+    },
     /// Say whether a new key would cancel own cards on their way.
     AskNewKey,
     /// Make a new key for the identity in front, as the person confirmed.
     MakeNewKey,
     /// Open the identity in front's key once more.
     RetryKey,
+    /// What the windowed mode reads from the store as the person moves
+    /// (design/2026-10-27-start-window.md): one variant, so the platforms
+    /// that name every command name these once.
+    Window(WindowCommand),
+}
+
+/// The windowed mode's reads.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum WindowCommand {
+    /// One page of the open conversation's stored rows, as the model asked
+    /// it ([`UiModel::take_page_asks`](interweave_human_ui_model::UiModel::take_page_asks)).
+    FetchPage(Box<PageAsk>),
+    /// Every contact again, without their photos: the Contacts list's Try
+    /// again.
+    ReadContacts,
+    /// One contact's photo, as it stood when the model asked.
+    ReadPhoto(PhotoAsk),
 }
 
 /// The store's rows at start, decoded for the model.
@@ -147,18 +205,74 @@ pub struct Listing {
     pub identity: Option<IdentityView>,
 }
 
+/// The store at a windowed start (design/2026-10-27-start-window.md
+/// section 3): the pending rows, each conversation's summary, the contacts
+/// without their photos -- and no conversation's rows, which its opening
+/// pages in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Start {
+    /// Pending outbound rows: every one held, whatever the window.
+    pub pending: Vec<ListedOutbound>,
+    /// Each conversation the store shows a row of: its unread count and
+    /// its newest row.
+    pub summaries: Vec<StoredSummary>,
+    /// The unread table's high-water mark, read with the counts: a row
+    /// handed over later at or below it is in them already.
+    pub counted_through: Option<RowId>,
+    /// Unread rows of a kind this build cannot show: never shown, counted.
+    pub undecodable_unread: usize,
+    /// Kept rows likewise, and pending rows that do not decode.
+    pub undecodable_other: usize,
+    /// The contacts, or the read's failure: no contact is then known, and
+    /// none is written until a read succeeds (section 11).
+    pub contacts: Result<Vec<DirectoryContact>, Failure>,
+    /// The identity in front, when the root holds its key.
+    pub identity: Option<IdentityView>,
+}
+
 /// What the facade side did, for the model side to apply.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Update {
     /// The store's rows at start. Applied before anything else, since the
     /// model treats the pending listing as authoritative.
     Listed(Listing),
+    /// The store at a windowed start, in place of [`Update::Listed`]:
+    /// applied before anything else for the same reason.
+    Started(Box<Start>),
+    /// A page of the open conversation, as its [`WindowCommand::FetchPage`]
+    /// asked: a failed read is that command's [`Update::Failed`].
+    Page(Box<PageRows>),
+    /// Every contact, without their photos, read again: or why not, and
+    /// none is then known.
+    ContactDirectory(Result<Vec<DirectoryContact>, Failure>),
+    /// A contact's photo as [`WindowCommand::ReadPhoto`] asked it: `None`
+    /// when it cannot be decoded, or is no longer the one asked for.
+    ContactPhoto {
+        /// The contact.
+        contact_id: String,
+        /// The photo's time, as asked.
+        photo_at: Option<u64>,
+        /// The photo, decoded.
+        photo: Option<Photo>,
+    },
     /// The store's unread rows again, after the facade reported unread
     /// content it holds but did not hand over (`ClientEvent::UnreadInStore`).
     UnreadListed {
         /// The rows that could be decoded.
         rows: Vec<ListedInbound>,
         /// Rows held but not decodable for display: never shown, counted.
+        undecodable: usize,
+    },
+    /// The windowed mode's [`Update::UnreadListed`]: each conversation's
+    /// summary read again, with the unread table's mark read beside it,
+    /// and no row of any conversation.
+    SummariesListed {
+        /// Each conversation's count and newest row.
+        summaries: Vec<StoredSummary>,
+        /// The unread table's high-water mark, read with the counts.
+        counted_through: Option<RowId>,
+        /// Unread rows of a kind this build cannot show: never shown,
+        /// counted.
         undecodable: usize,
     },
     /// The unread rows could not be listed again: content the store holds
@@ -186,13 +300,49 @@ pub enum Update {
     /// An Undo of this row's answer was carried out, but its card could not
     /// be judged again, so its proposal does not return.
     ProposalNotRestored(RowId),
-    /// A card's answer or its Undo was carried out, and reading the cards
-    /// or contacts back afterwards failed: what is shown may lag the store.
+    /// Reading the cards failed: the cards or contacts after an answer or
+    /// its Undo, so what is shown may lag the store; or the own cards on
+    /// their way, before a turn or command, so a share accepted until the
+    /// read holds may not be recorded.
     CardsNotRead(Failure),
+    /// An own card was accepted and the store refused to record the share
+    /// (`card_shared_at`): the facade writes it again at each turn until
+    /// it holds, and says this once.
+    ShareNotRecorded(Failure),
     /// The contacts, after a change to them.
     ContactsListed(Vec<ContactView>),
+    /// A contact was deleted, or its photo removed, and the facade side
+    /// holds what its Undo writes back.
+    ContactChanged {
+        /// The contact.
+        contact_id: String,
+        /// What changed.
+        change: ContactChange,
+        /// The facade side's hold for it, one per change: what its Undo
+        /// and its release name.
+        hold: u64,
+    },
+    /// That Undo was carried out.
+    ContactRestored {
+        /// The contact.
+        contact_id: String,
+        /// What was taken back.
+        change: ContactChange,
+    },
+    /// The facade side let go of a deleted contact's Undo: a route it held
+    /// came under another contact, and one route is never under two.
+    ContactUndoWithdrawn(u64),
     /// The identity in front, after its own card changed.
     IdentityShown(IdentityView),
+    /// What preparing the own card's chosen photo `seq` came to: the photo
+    /// as a share sends it, decoded for the preview, or `None` when it
+    /// could not be read or prepared.
+    OwnPhotoPrepared {
+        /// The choice's number, as the command carried it.
+        seq: u64,
+        /// The photo, decoded.
+        photo: Option<interweave_human_ui_model::Photo>,
+    },
     /// Whether a new key would cancel own cards still on their way.
     NewKeyAsked {
         /// Own card rows not yet accepted by the remote transport.
@@ -220,12 +370,26 @@ pub enum Update {
     },
     /// The key was opened once more.
     KeyRetried(IdentityView),
-    /// This identity's card was shared on `key` as pending `row`.
-    CardShared {
+    /// This identity's card was queued on `key` as pending `row`: not yet
+    /// a share, which only its Accepted makes ([`Update::CardShared`]).
+    CardQueued {
         /// The conversation.
         key: ConversationKey,
         /// Its pending row.
         row: RowId,
+        /// The card's application id.
+        app_message_id: String,
+        /// The card as it went, for its own card row.
+        card: interweave_human_ui_model::SentCard,
+        /// When, on the wall clock.
+        at: u64,
+    },
+    /// The conversation's card row reached Accepted by remote transport,
+    /// and its `card_shared_at` is written (cards section 5.3): the share
+    /// Details names. A card cancelled or never accepted says nothing.
+    CardShared {
+        /// The conversation.
+        key: ConversationKey,
         /// When, on the wall clock.
         at: u64,
     },
@@ -364,4 +528,7 @@ pub enum Failure {
     /// Nothing was written, and the proposal is given again as it stands
     /// ([`Update::ProposalJudged`]) for the person to decide.
     ProposalChanged,
+    /// No facade took the command: the service was not running, or was
+    /// stopping. Nothing was carried out (owner's finding P2-2).
+    ServiceStopped,
 }

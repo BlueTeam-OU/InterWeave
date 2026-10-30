@@ -76,6 +76,13 @@ pub struct DiscoveryDiagnostics {
     pub kademlia_effective_target: Option<u32>,
 }
 
+/// One record of what `learn` was given (`Discovery::learned`).
+struct Offer {
+    addresses: Vec<String>,
+    at_ms: u64,
+    widenings: u64,
+}
+
 pub(crate) struct Discovery {
     manager: DiscoveryManager,
     statics: Option<StaticBootstrapDiscovery>,
@@ -83,10 +90,12 @@ pub(crate) struct Discovery {
     mdns: Option<MdnsDiscovery>,
     kademlia: Option<KademliaDiscovery>,
     trust: PeerTrustPolicy,
-    /// What `learn` was last given per peer, and when; pruned to the
+    /// What `learn` was last given per peer, when, and the substrate's
+    /// rule 3 widenings count read before it was given; pruned to the
     /// manager's current candidates each round, so bounded by the
-    /// candidate set, and offered again after [`RELEARN_INTERVAL_MS`].
-    learned: HashMap<TransportIdentity, (Vec<String>, u64)>,
+    /// candidate set, and offered again after [`RELEARN_INTERVAL_MS`] or
+    /// once the count has moved.
+    learned: HashMap<TransportIdentity, Offer>,
     /// Where the next round's reconnect window starts.
     reconnect_cursor: usize,
     /// The providers whose candidates seed Kademlia (`seed_sources`).
@@ -405,9 +414,25 @@ impl Discovery {
     /// since they were last handed to the book, or were last handed to it
     /// [`RELEARN_INTERVAL_MS`] ago or more
     /// (`an_unchanged_candidate_is_offered_again_after_the_interval`).
+    ///
+    /// AND THOSE OFFERED BEFORE RULE 3'S BOUNDARY LAST WIDENED:
+    /// `widenings` is the substrate's count
+    /// (`SwarmRuntime::listener_widenings`), read BEFORE the offers this
+    /// round makes. A private address refused while this node offered no
+    /// private listener of its family -- a wildcard listener whose LAN
+    /// address came after its loopback one, the peer cache's restart
+    /// route offered in between -- is admitted after, and held back for
+    /// the interval it was a reconnect that never dialled: the
+    /// android-e2e cache-alone row, 1 run in 24 under a loaded host
+    /// (j133). Every candidate is offered again, not only a refused one:
+    /// the substrate's answer counts what entered, not why the rest did
+    /// not, and a widening is rare -- a listener or the platform's view
+    /// moving -- so the cost is one `learn` per candidate per widening
+    /// (`a_candidate_offered_before_a_widening_is_offered_again_at_once`).
     pub(crate) fn changed_candidates(
         &mut self,
         now_ms: u64,
+        widenings: u64,
     ) -> Vec<(TransportIdentity, Vec<String>)> {
         self.manager.sweep(now_ms);
         let candidates: Vec<AggregatedCandidate> = self.manager.candidates(now_ms);
@@ -420,15 +445,20 @@ impl Discovery {
                 .into_iter()
                 .map(str::to_owned)
                 .collect();
-            let due = self
-                .learned
-                .get(&candidate.peer_id)
-                .is_none_or(|(offered, at)| {
-                    offered != &addresses || now_ms.saturating_sub(*at) >= RELEARN_INTERVAL_MS
-                });
+            let due = self.learned.get(&candidate.peer_id).is_none_or(|offer| {
+                offer.addresses != addresses
+                    || now_ms.saturating_sub(offer.at_ms) >= RELEARN_INTERVAL_MS
+                    || offer.widenings != widenings
+            });
             if due {
-                self.learned
-                    .insert(candidate.peer_id.clone(), (addresses.clone(), now_ms));
+                self.learned.insert(
+                    candidate.peer_id.clone(),
+                    Offer {
+                        addresses: addresses.clone(),
+                        at_ms: now_ms,
+                        widenings,
+                    },
+                );
                 changed.push((candidate.peer_id.clone(), addresses));
             }
         }
@@ -822,13 +852,13 @@ mod tests {
         d.pump(0);
         let named =
             |v: Vec<(TransportIdentity, Vec<String>)>| v.into_iter().any(|(p, _)| p == seed);
-        assert!(named(d.changed_candidates(0)), "offered first");
+        assert!(named(d.changed_candidates(0, 0)), "offered first");
         assert!(
-            !named(d.changed_candidates(RELEARN_INTERVAL_MS - 1)),
+            !named(d.changed_candidates(RELEARN_INTERVAL_MS - 1, 0)),
             "unchanged, and not yet due"
         );
         assert!(
-            named(d.changed_candidates(RELEARN_INTERVAL_MS)),
+            named(d.changed_candidates(RELEARN_INTERVAL_MS, 0)),
             "offered again once due"
         );
     }
@@ -839,18 +869,40 @@ mod tests {
         d.pump(0);
         let named =
             |v: Vec<(TransportIdentity, Vec<String>)>| v.into_iter().any(|(p, _)| p == seed);
-        assert!(named(d.changed_candidates(0)), "offered while trusted");
+        assert!(named(d.changed_candidates(0, 0)), "offered while trusted");
         d.set_trust(PeerTrustPolicy::default());
         assert!(
-            !named(d.changed_candidates(1)),
+            !named(d.changed_candidates(1, 0)),
             "a revocation alone makes nothing due (the control)"
         );
         d.set_trust(PeerTrustPolicy::new([seed.clone()]).expect("one peer"));
         assert!(
-            named(d.changed_candidates(2)),
+            named(d.changed_candidates(2, 0)),
             "allowed again, offered without waiting out the interval"
         );
-        assert!(!named(d.changed_candidates(3)), "and then not again");
+        assert!(!named(d.changed_candidates(3, 0)), "and then not again");
+    }
+
+    #[test]
+    fn a_candidate_offered_before_a_widening_is_offered_again_at_once() {
+        // The book refused a private address while this node offered no
+        // private listener of its family; once one is offered the count
+        // moves, and the unchanged candidate is offered again without
+        // waiting out the interval (j133).
+        let (mut d, seed) = discovery("[]");
+        d.pump(0);
+        let named =
+            |v: Vec<(TransportIdentity, Vec<String>)>| v.into_iter().any(|(p, _)| p == seed);
+        assert!(named(d.changed_candidates(0, 4)), "offered first");
+        assert!(
+            !named(d.changed_candidates(1, 4)),
+            "the same count makes nothing due (the control)"
+        );
+        assert!(
+            named(d.changed_candidates(2, 5)),
+            "the boundary widened: offered again at once"
+        );
+        assert!(!named(d.changed_candidates(3, 5)), "and then not again");
     }
 
     #[test]

@@ -111,11 +111,18 @@ struct Listener {
 
 impl Listener {
     fn start(home: &Home) -> Self {
-        let mut child = command(home, &["listen", "--json"])
+        Self::with(home, &["listen", "--json"]).0
+    }
+
+    /// `listen` with `args`, its stdin piped for `--input` lines.
+    fn with(home: &Home, args: &[&str]) -> (Self, std::process::ChildStdin) {
+        let mut child = command(home, args)
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
             .expect("listen runs");
+        let stdin = child.stdin.take().expect("stdin");
         let stdout = child.stdout.take().expect("stdout");
         let (send, lines) = mpsc::channel();
         std::thread::spawn(move || {
@@ -128,18 +135,19 @@ impl Listener {
                 }
             }
         });
-        Self { child, lines }
+        (Self { child, lines }, stdin)
     }
 
     /// The first line `matches` takes, within `PATIENCE`.
     fn until(&self, what: &str, matches: impl Fn(&Value) -> bool) -> Value {
         let deadline = Instant::now() + PATIENCE;
+        let mut seen = Vec::new();
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             match self.lines.recv_timeout(left) {
                 Ok(line) if matches(&line) => return line,
-                Ok(_) => {}
-                Err(e) => panic!("listen never printed {what}: {e}"),
+                Ok(line) => seen.push(line),
+                Err(e) => panic!("listen never printed {what}: {e}; it printed {seen:?}"),
             }
         }
     }
@@ -154,6 +162,17 @@ impl Listener {
         assert!(killed.success());
         let status = self.child.wait().expect("listen ends");
         assert_eq!(status.code(), Some(0), "listen ends cleanly on SIGTERM");
+    }
+}
+
+/// A case that fails before `stop` leaves no `listen` running: it goes on
+/// after stdin ends, so nothing else would end it.
+impl Drop for Listener {
+    fn drop(&mut self) {
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 }
 
@@ -585,6 +604,404 @@ async fn a_peer_added_by_address_is_listed_refused_by_class_and_removed() {
     b_daemon.terminate().await;
 }
 
+/// `peers state` names each peer A trusts, one line each from its dial
+/// gate: B, whose daemon runs, connected and seen; C, trusted with no
+/// daemon, not connected and never seen -- with no `last_seen` member,
+/// since this daemon reports the time (j76, G8). Mutation: the
+/// `last_seen` member written whatever the daemon reports.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn peers_state_says_which_trusted_peer_is_connected_and_when_each_was_seen() {
+    let (a, mut a_daemon, _a_peer, _b, mut b_daemon, b_peer) = two_daemons().await;
+    let c_peer = Home::new("human-desktop").write_key();
+    let out = human(&a, &["trust", "allow", c_peer.as_str()], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+
+    let row = |rows: &[Value], peer: &TransportIdentity| {
+        rows.iter()
+            .find(|r| r["peer"] == peer.as_str())
+            .cloned()
+            .unwrap_or_else(|| panic!("no row for {}: {rows:?}", peer.as_str()))
+    };
+    let deadline = Instant::now() + PATIENCE;
+    let rows = loop {
+        let out = human(&a, &["peers", "state", "--json"], "");
+        assert_eq!(code(&out), Some(0), "{}", said(&out));
+        let rows = lines(&out);
+        if row(&rows, &b_peer)["connected"] == true {
+            break rows;
+        }
+        assert!(Instant::now() < deadline, "B never connected: {rows:?}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+    assert_eq!(rows.len(), 2, "one row per trusted peer: {rows:?}");
+    let b_row = row(&rows, &b_peer);
+    assert!(b_row["last_seen_ms"].is_u64(), "{b_row}");
+    assert!(b_row.get("last_seen").is_none(), "{b_row}");
+    let c_row = row(&rows, &c_peer);
+    assert_eq!(c_row["connected"], false, "{c_row}");
+    assert_eq!(c_row["last_seen_ms"], Value::Null, "{c_row}");
+    assert!(
+        c_row.get("last_seen").is_none(),
+        "never, not unreported: {c_row}"
+    );
+
+    let out = human(&a, &["peers", "state"], "");
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        text.contains(&format!("{}  connected", b_peer.as_str())),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "{}  not connected, last seen never",
+            c_peer.as_str()
+        )),
+        "{text}"
+    );
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
+/// `listen --consume --events` run as the binary consumes only what it
+/// prints: B listens for session events alone while A's message arrives,
+/// and the message is not printed and is still unread after (j76, G7).
+/// Mutation: main handing listen no filter.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listen_filtered_to_session_events_leaves_a_message_unread() {
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let to_b = format!("{}/human", b_peer.as_str());
+    let (listener, _stdin) = Listener::with(
+        &b,
+        &["listen", "--json", "--consume", "--events", "session"],
+    );
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    send_accepted(&a, &to_b, "not printed, not read");
+    // Long enough for B's client to have been handed the message.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut printed = Vec::new();
+    while let Ok(line) = listener.lines.try_recv() {
+        printed.push(line);
+    }
+    assert!(
+        printed.iter().all(|l| l["event"] == "session"),
+        "{printed:?}"
+    );
+    listener.stop();
+    let out = human(
+        &b,
+        &["messages", &format!("{}/human", a_peer.as_str()), "--json"],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let rows = lines(&out);
+    assert!(
+        rows.iter()
+            .any(|m| m["text"] == "not printed, not read" && m["status"] == "unread"),
+        "{rows:?}"
+    );
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
+/// Share A's card to `to_b` until B's daemon accepts it, B listening so
+/// its store takes the card: the proposal B hears.
+fn share_heard(a: &Home, b: &Home, to_b: &str) -> Value {
+    let listener = Listener::start(b);
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        let out = human(a, &["--wait", "3000", "card", "share", to_b, "--json"], "");
+        if code(&out) == Some(0) {
+            break;
+        }
+        assert_eq!(code(&out), Some(6), "{}", said(&out));
+        let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+        assert_eq!(code(&human(a, &["cancel", &id], "")), Some(0));
+        assert!(Instant::now() < deadline, "never accepted: {}", said(&out));
+    }
+    let heard = listener.until("the proposal", |l| l["event"] == "proposal");
+    listener.stop();
+    heard
+}
+
+/// ADR-0063 decisions 4 and 6, and ADR-0059 decision 9's route deletion,
+/// as a shell runs them across two daemons: A's identity shows its
+/// fingerprint, B accepts A's card, A's key is damaged and A makes a new
+/// one only on its confirmation flag, and B accepts the changed key only
+/// with the flag named for it. B's contact has one route, A's, so its
+/// deletion is refused as a contact delete and nothing changes: no flow
+/// makes a second route yet (moving one is Stage 22's).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_key_change_is_made_and_accepted_only_on_its_flags_across_two_daemons() {
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let to_b = format!("{}/human", b_peer.as_str());
+    let to_a = format!("{}/human", a_peer.as_str());
+
+    let out = human(&a, &["card", "set", "Ada"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&a, &["identity", "show", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let shown = &lines(&out)[0];
+    assert_eq!(shown["endpoint"], "human");
+    let old = shown["fingerprint"]
+        .as_str()
+        .expect("fingerprint")
+        .to_owned();
+    let out = human(&a, &["card", "show", "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["fingerprint"],
+        old.as_str(),
+        "one key, one fingerprint"
+    );
+    let out = human(&a, &["identity", "show", "claude"], "");
+    assert_eq!(code(&out), Some(1), "not a human endpoint: {}", said(&out));
+    let out = human(&a, &["identity", "new-key", "--confirm", "key-change"], "");
+    assert_eq!(code(&out), Some(1), "a usable key stays: {}", said(&out));
+
+    let heard = share_heard(&a, &b, &to_b);
+    assert_eq!(heard["key"]["state"], "new");
+    let id = heard["id"].as_str().expect("id").to_owned();
+    let out = human(
+        &b,
+        &["proposals", "read", &to_a, "--accept-key-change", &id],
+        "",
+    );
+    assert_eq!(
+        code(&out),
+        Some(1),
+        "a first card is no key change: {}",
+        said(&out)
+    );
+    let out = human(&b, &["proposals", "read", &to_a, "--accept", &id], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&b, &["contacts", "--json"], "");
+    let contact = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+
+    // The contact's only route: refused as a contact delete, unchanged.
+    let out = human(&b, &["contacts", "route", "delete", &contact, &to_a], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains(&format!("contacts delete {contact}")),
+        "{}",
+        said(&out)
+    );
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    let routes = &lines(&out)[0]["routes"];
+    assert_eq!(routes.as_array().map(Vec::len), Some(1), "{}", said(&out));
+    assert_eq!(routes[0]["fingerprint"], old.as_str());
+
+    // A's key file damaged: shown as such, and a new key made only once
+    // confirmed.
+    let file = a.paths.state_dir().join("identity-keys").join("human.key");
+    std::fs::write(&file, "not a record\n").expect("damaged");
+    let damaged = std::fs::read(&file).expect("read");
+    let out = human(&a, &["identity", "show", "--json"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["key_problem"], "damaged", "{}", said(&out));
+    let out = human(&a, &["identity", "new-key", "--json"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["deletes_old_key"], true, "{}", said(&out));
+    assert_eq!(
+        std::fs::read(&file).expect("read"),
+        damaged,
+        "nothing removed"
+    );
+    let out = human(
+        &a,
+        &["identity", "new-key", "--confirm", "key-change", "--json"],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let made = &lines(&out)[0];
+    let new = made["fingerprint"]
+        .as_str()
+        .expect("fingerprint")
+        .to_owned();
+    assert_ne!(new, old);
+    assert_eq!(made["share_again"][0], to_b.as_str(), "{}", said(&out));
+
+    // B is told the key changed, and accepts it only with the flag.
+    let heard = share_heard(&a, &b, &to_b);
+    assert_eq!(heard["key"]["state"], "changed");
+    assert_eq!(heard["key"]["recorded"], old.as_str());
+    assert_eq!(heard["fingerprint"], new.as_str());
+    let id = heard["id"].as_str().expect("id").to_owned();
+    let out = human(&b, &["proposals", "read", &to_a, "--accept", &id], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("--accept-key-change"),
+        "{}",
+        said(&out)
+    );
+    let out = human(&b, &["proposals", "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["status"],
+        "unread",
+        "refused before the read"
+    );
+    let out = human(
+        &b,
+        &[
+            "proposals",
+            "read",
+            &to_a,
+            "--accept-key-change",
+            &id,
+            "--json",
+        ],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["status"], "accepted", "{}", said(&out));
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["routes"][0]["fingerprint"],
+        new.as_str(),
+        "{}",
+        said(&out)
+    );
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
+/// A list of addresses as a script pipes one in (ADR-0062, IPC 2.9's
+/// `add_addresses`): added whole, again unchanged, and a list with one
+/// refused line adds none of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_list_of_addresses_is_added_whole_or_refused_by_its_line() {
+    let (a, mut a_daemon, _a_peer, _b, mut b_daemon, b_peer) = two_daemons().await;
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let at = |port: u16| format!("/ip4/{ip}/tcp/{port}/p2p/{}", b_peer.as_str());
+    let list = format!("{}\n\n  {}\n", at(4997), at(4998));
+
+    let out = human(&a, &["peers", "add", "-"], &list);
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        format!("added {}\nadded {}\n", at(4997), at(4998))
+    );
+    let file = a.paths.state_dir().join("list.txt");
+    std::fs::write(&file, &list).expect("written");
+    let path = file.to_str().expect("a UTF-8 path");
+    let out = human(&a, &["peers", "add", "--file", path], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        format!("unchanged {}\nunchanged {}\n", at(4997), at(4998))
+    );
+
+    let loopback = format!("/ip4/127.0.0.1/tcp/4999/p2p/{}", b_peer.as_str());
+    let refused = format!("{}\n{loopback}\n", at(4996));
+    let out = human(&a, &["peers", "add", "-"], &refused);
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("address 2 of 2") && err.contains("special_use"),
+        "{err}"
+    );
+    let out = human(&a, &["peers", "--json"], "");
+    let listed = lines(&out);
+    assert!(
+        listed.iter().any(|row| row["address"] == at(4997).as_str()),
+        "{}",
+        said(&out)
+    );
+    assert!(
+        !listed.iter().any(|row| row["address"] == at(4996).as_str()),
+        "all or none: {}",
+        said(&out)
+    );
+    let out = human(&a, &["peers", "add", "-"], "\n \n");
+    assert_eq!(code(&out), Some(1), "an empty list: {}", said(&out));
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
+/// With no daemon at all: `identity show` names any human endpoint of the
+/// profile -- the one in front by name or not, another one's key file
+/// read and never made -- and a list of addresses this client refuses is
+/// refused before any socket, exit 1 rather than 3.
+#[test]
+fn identity_show_names_any_human_endpoint_and_a_list_is_judged_before_any_daemon() {
+    let home = Home::new("human-desktop");
+    let peer = Home::new("human-desktop").write_key();
+    home.write_key();
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let shipped = example(
+        "human-desktop.yaml",
+        &peer,
+        &format!("/ip4/{ip}/tcp/{}", free_port(ip)),
+        None,
+    );
+    let claude = "    - { id: claude,";
+    assert_eq!(shipped.matches(claude).count(), 1, "the example's shape");
+    home.write_config(&shipped.replace(
+        claude,
+        "    - { id: human-spare, enabled: true, advertise: true, \
+         allowed_client_kinds: [human-client], inbound: inherit_profile_trust, \
+         outbound: inherit_profile_trust }\n    - { id: claude,",
+    ));
+
+    let out = human(&home, &["identity", "show", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let front = lines(&out)[0]["fingerprint"].clone();
+    assert!(front.is_string(), "{}", said(&out));
+    let out = human(&home, &["identity", "show", "human", "--json"], "");
+    assert_eq!(
+        code(&out),
+        Some(0),
+        "named, the one in front: {}",
+        said(&out)
+    );
+    assert_eq!(lines(&out)[0]["fingerprint"], front);
+    let out = human(&home, &["identity", "show", "human-spare", "--json"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["key_problem"], "absent", "{}", said(&out));
+    assert!(
+        !home
+            .paths
+            .state_dir()
+            .join("identity-keys")
+            .join("human-spare.key")
+            .exists(),
+        "no key is made for it"
+    );
+    let out = human(&home, &["identity", "show", "claude"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+
+    let list = home.paths.state_dir().join("empty.txt");
+    std::fs::write(&list, "\n  \n").expect("written");
+    let path = list.to_str().expect("a UTF-8 path");
+    let out = human(&home, &["peers", "add", "--file", path], "");
+    assert_eq!(
+        code(&out),
+        Some(1),
+        "refused before any daemon: {}",
+        said(&out)
+    );
+    let seventeen = (1..=17)
+        .map(|n| format!("/ip4/{ip}/tcp/{n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let out = human(&home, &["peers", "add", "-"], &seventeen);
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let out = human(&home, &["peers", "add", "-"], &format!("/ip4/{ip}/tcp/1\n"));
+    assert_eq!(
+        code(&out),
+        Some(3),
+        "the control: a list it takes needs the daemon: {}",
+        said(&out)
+    );
+}
+
 /// ADR-0060 decision 6 as a shell runs it: a store whose key is gone is
 /// reported needing recovery, its discard is refused without the scope it
 /// lists, and the confirmed discard recreates it empty. The daemon is A's
@@ -960,4 +1377,371 @@ async fn a_photo_set_from_a_file_reaches_the_contact_and_the_key_stays_in_its_fi
             "daemon {who} logged the key"
         );
     }
+}
+
+/// Each `HumanChatV2` card in what one direction of an IPC connection
+/// carried, as its text: the payloads [`ipc_plain`] decodes, kept apart.
+fn ipc_cards(stream: &[u8]) -> Vec<String> {
+    use base64::Engine as _;
+    fn cards(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                if let (Some(Value::String(media)), Some(Value::String(bytes))) =
+                    (map.get("media_type"), map.get("bytes"))
+                    && let Ok(info) = interweave_human_chat_protocol::parse_media_type(media)
+                {
+                    let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                        .decode(bytes.trim_end_matches('='))
+                        .expect("a payload's bytes are base64url");
+                    let text =
+                        interweave_human_chat_protocol::decode_envelope_bytes(&raw, info.encoding)
+                            .expect("a HumanChatV2 payload decodes");
+                    if interweave_human_chat_protocol::is_card(&text) {
+                        out.push(text);
+                    }
+                }
+                map.values().for_each(|v| cards(v, out));
+            }
+            Value::Array(list) => list.iter().for_each(|v| cards(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    let mut rest = stream;
+    while rest.len() >= 4 {
+        let len = u32::from_be_bytes(rest[..4].try_into().expect("four bytes")) as usize;
+        let Some(body) = rest.get(4..4 + len) else {
+            break;
+        };
+        if let Ok(value) = serde_json::from_slice::<Value>(body) {
+            cards(&value, &mut out);
+        }
+        rest = &rest[4 + len..];
+    }
+    out
+}
+
+/// Plan section 29's exit gate (b): A's card shared into two conversations
+/// with B, at B's `human` and at B's `claude` -- two identities of one
+/// node, which the fake cannot hold apart (app-core's `cards.rs`) -- is
+/// A's `human` identity's card each time, read back where it arrived:
+/// from that route, verifying on it and on no other identity of A's node,
+/// with A's own card's name and key. And every card A's client handed its
+/// daemon over IPC verifies as that identity's and no other. The tap's
+/// control: it read both shares. A's other identity, `claude`, holds no
+/// key here, so "no other" is shown by the signature, which binds the
+/// route it was made for (two identities each with a key are section 30's).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_each_time() {
+    use interweave_human_chat_protocol::{CardRoute, Classified, classify};
+    use interweave_human_store::identity_key::{self, FilesystemCustody};
+    use interweave_local_client_api::{
+        DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionEvent, SessionRequest,
+    };
+    use interweave_transport_api::EndpointId;
+
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let (human_id, claude_id) = (
+        EndpointId::parse("human").expect("valid"),
+        EndpointId::parse("claude").expect("valid"),
+    );
+    let out = human(&a, &["card", "set", "Ada", "Lovelace"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let key = identity_key::open(&a.paths, &human_id, &FilesystemCustody)
+        .expect("opens")
+        .expect("made with the card");
+
+    // B's two identities, each held by a session of the kind its entry
+    // admits, so what arrives at each is read as the daemon handed it over.
+    let binding = b.binding();
+    let open = |kind: &str, endpoint: &EndpointId| {
+        binding.open(
+            SessionRequest::new(
+                kind,
+                Some(endpoint.clone()),
+                [DataCapability::Commands, DataCapability::Events],
+            )
+            .expect("bounds"),
+        )
+    };
+    let at_human = open("human-client", &human_id).await.expect("B's human");
+    let at_claude = open("claude-channel", &claude_id)
+        .await
+        .expect("B's claude");
+
+    let tap = Tap::start(&a);
+    let mut arrived = Vec::new();
+    for (to, session) in [(&human_id, &at_human), (&claude_id, &at_claude)] {
+        let conversation = format!("{}/{}", b_peer.as_str(), to.as_str());
+        let deadline = Instant::now() + PATIENCE;
+        loop {
+            let out = tap.human(
+                &a,
+                &["--wait", "3000", "card", "share", &conversation, "--json"],
+            );
+            if code(&out) == Some(0) {
+                break;
+            }
+            assert_eq!(code(&out), Some(6), "{}", said(&out));
+            let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+            assert_eq!(code(&tap.human(&a, &["cancel", &id])), Some(0));
+            assert!(Instant::now() < deadline, "never accepted: {}", said(&out));
+        }
+        let deadline = Instant::now() + PATIENCE;
+        let direct = loop {
+            let got = session.events(usize::MAX).await.expect("B's events");
+            if let Some(d) = got.into_iter().find_map(|e| match e {
+                SessionEvent::Direct(d) => Some(d),
+                _ => None,
+            }) {
+                break d;
+            }
+            assert!(Instant::now() < deadline, "{conversation}: nothing arrived");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        assert_eq!(&direct.destination_endpoint, to, "{conversation}");
+        arrived.push((conversation, direct));
+    }
+
+    let as_identity = |text: &str, endpoint: &EndpointId| {
+        classify(
+            text,
+            CardRoute {
+                source_peer: &a_peer,
+                source_endpoint: endpoint,
+            },
+        )
+    };
+    for (conversation, direct) in &arrived {
+        assert_eq!(direct.source_peer, a_peer, "{conversation}");
+        assert_eq!(
+            direct.source_endpoint, human_id,
+            "{conversation}: from the identity A's client holds"
+        );
+        let media = direct.payload.media_type().expect("a media type");
+        let info =
+            interweave_human_chat_protocol::parse_media_type(media.as_str()).expect("HumanChatV2");
+        let text = interweave_human_chat_protocol::decode_envelope_bytes(
+            direct.payload.bytes(),
+            info.encoding,
+        )
+        .expect("decodes");
+        let Classified::Card(card) = as_identity(&text, &human_id) else {
+            panic!("{conversation}: not A's human card: {text}");
+        };
+        assert_eq!(card.name, "Ada", "{conversation}");
+        assert_eq!(card.surname.as_deref(), Some("Lovelace"), "{conversation}");
+        assert_eq!(
+            card.identity_key,
+            key.public_key(),
+            "{conversation}: its key"
+        );
+        assert!(
+            matches!(as_identity(&text, &claude_id), Classified::MalformedCard(_)),
+            "{conversation}: it would not pass as A's other identity's"
+        );
+    }
+
+    let sent: Vec<String> = tap.seen().iter().flat_map(|s| ipc_cards(s)).collect();
+    tap.stop();
+    assert!(
+        sent.len() >= 2,
+        "the control: the tap read both shares, {sent:?}"
+    );
+    for text in &sent {
+        assert!(
+            matches!(as_identity(text, &human_id), Classified::Card(_)),
+            "a card A's client sent is not its human identity's: {text}"
+        );
+        let envelope: Value = serde_json::from_str(text).expect("JSON");
+        assert!(
+            envelope
+                .get("from_endpoint")
+                .is_none_or(|e| e == human_id.as_str()),
+            "a card names another identity: {text}"
+        );
+    }
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
+/// The control-plane carrier (architect-cto's REQUEST of 2026-10-27, the
+/// owner's priority), through the binary and two daemons: `listen --json
+/// --input --consume` sends a stdin line over its own lease and answers it
+/// with its ref (G1), prints a message with the local endpoint that got it
+/// (G6) and leaves it read, no unread row in the store (G3); `send
+/// --no-pending` that is never accepted is cancelled and leaves nothing
+/// pending (G4); and an endpoint the profile does not offer is refused
+/// (G2).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_control_plane_carrier_sends_consumes_and_names_its_endpoint() {
+    use std::io::Write as _;
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let to_a = format!("{}/human", a_peer.as_str());
+    let to_b = format!("{}/human", b_peer.as_str());
+
+    let (listener, mut input) = Listener::with(&b, &["listen", "--json", "--input", "--consume"]);
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    // A takes what B sends only while a client of A holds its lease.
+    let a_listener = Listener::start(&a);
+    a_listener.until("A's session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    writeln!(input, "not json").expect("written");
+    let refused = listener.until("the refusal", |l| l["event"] == "input-refused");
+    assert_eq!(refused["ref"], Value::Null);
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        writeln!(
+            input,
+            r#"{{"send":{{"conversation":"{to_a}","text":"over the lease","ref":"r1"}}}}"#
+        )
+        .expect("written");
+        input.flush().expect("flushed");
+        let answer = listener.until("the send's answer", |l| {
+            l["event"] == "outbound" && l["ref"] == "r1"
+        });
+        let id = answer["id"].as_str().expect("an id").to_owned();
+        let last = listener.until("its last status", |l| {
+            l["event"] == "outbound"
+                && l["id"] == id.as_str()
+                && matches!(l["status"].as_str(), Some("accepted" | "needs-attention"))
+        });
+        assert_eq!(
+            last["ref"], "r1",
+            "every outbound event of its row names its ref"
+        );
+        if last["status"] == "accepted" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "never accepted: {last}");
+    }
+    a_listener.until("B's line at A", |l| {
+        l["event"] == "message" && l["text"] == "over the lease"
+    });
+    a_listener.stop();
+
+    send_accepted(&a, &to_b, "consumed by the carrier");
+    let message = listener.until("the message", |l| {
+        l["event"] == "message" && l["text"] == "consumed by the carrier"
+    });
+    assert_eq!(message["local_endpoint"], "human", "G6");
+    // Read as printed, before listen looks at the stop: no wait here.
+    drop(input);
+    listener.stop();
+    let out = human(&b, &["store", "health", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["unread"], 0, "consumed: {}", said(&out));
+
+    // G4: with B's daemon gone, an ephemeral send to B is never accepted:
+    // it is cancelled when its wait ends.
+    b_daemon.terminate().await;
+    let out = human(
+        &a,
+        &[
+            "--wait",
+            "1500",
+            "send",
+            &to_b,
+            "ephemeral",
+            "--no-pending",
+            "--json",
+        ],
+        "",
+    );
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["status"], "cancelled");
+    assert_eq!(lines(&out)[0]["pending"], false);
+    let out = human(&a, &["store", "health", "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["pending"],
+        0,
+        "nothing left to send: {}",
+        said(&out)
+    );
+
+    // G2: an endpoint the profile does not offer is refused, none made --
+    // and refused before the store or a lease is asked for: with another
+    // client holding both, the refusal is the endpoint's (exit 1), not the
+    // held store's (exit 4). A lease the refused run took would end with
+    // it, so only that order shows it took none (#477 F11).
+    let holder = Listener::start(&a);
+    holder.until("the holder's session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    let out = human(&a, &["listen", "--endpoint", "not-offered"], "");
+    assert_eq!(
+        code(&out),
+        Some(1),
+        "the endpoint's refusal: {}",
+        said(&out)
+    );
+    assert!(
+        said(&out).contains("not one a human client may use"),
+        "{}",
+        said(&out)
+    );
+    holder.stop();
+    let listed = a.transportctl(&["endpoints", "list", "--json"], "");
+    let listed: Value = serde_json::from_slice(&listed.stdout).expect("the list");
+    assert!(
+        listed["endpoints"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .all(|row| row["id"] != "not-offered"),
+        "none made: {listed}"
+    );
+
+    a_daemon.terminate().await;
+}
+
+/// G2 through the binary: on a profile with a second human endpoint,
+/// `listen --endpoint` leases that one and no other, and its events name
+/// it. Mutation: `--endpoint` parsed and the profile's first endpoint
+/// leased all the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn listen_with_endpoint_leases_the_one_named() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let a = Home::new("human-desktop");
+    a.write_key();
+    // A peer the profile names, never started.
+    let other = Home::new("human-desktop").write_key();
+    let claude = "    - { id: claude,";
+    let config = example(
+        "human-desktop.yaml",
+        &other,
+        &format!("/ip4/{ip}/tcp/{}", free_port(ip)),
+        None,
+    );
+    assert!(config.contains(claude), "the example's claude row");
+    a.write_config(&config.replacen(
+        claude,
+        &format!(
+            "    - {{ id: control, enabled: true, advertise: true, allowed_client_kinds: [human-client], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}\n{claude}"
+        ),
+        1,
+    ));
+    let mut a_daemon = a.start(&[]);
+    a_daemon.serving(&a).await;
+    runtime_up(&mut a_daemon).await;
+
+    let listener = Listener::with(&a, &["listen", "--json", "--endpoint", "control"]).0;
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    let listed = a.transportctl(&["endpoints", "list", "--json"], "");
+    let listed: Value = serde_json::from_slice(&listed.stdout).expect("the list");
+    let leased: Vec<&Value> = listed["endpoints"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .filter(|row| !row["lease"].is_null())
+        .map(|row| &row["id"])
+        .collect();
+    assert_eq!(leased, [&Value::from("control")], "{listed}");
+    listener.stop();
+    a_daemon.terminate().await;
 }

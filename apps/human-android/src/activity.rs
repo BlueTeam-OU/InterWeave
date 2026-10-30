@@ -11,14 +11,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide};
-use interweave_human_app_core::{ModelSide, Opener, Problem, Surface};
+use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboarding};
+use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent};
 use interweave_human_ui_slint::{
-    ActivityEvent, AndroidApp, TouchSettings, View, defer, init_android, invoke_on_window,
+    ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, TouchSettings, View, defer, init_android,
+    invoke_on_window,
 };
 
-use crate::jni::log;
+use crate::jni::{PROFILE, log};
 
 /// The view, shared by every model side the Activity makes: one per
 /// attach, since a service that starts again lists its store from new.
@@ -192,6 +193,37 @@ pub(crate) fn camera_denied(for_good: bool) {
     with_view(move |view| view.camera_denied(for_good));
 }
 
+/// `Native.photoPicked`: what the photo picker came to for `request` --
+/// the image's bytes, empty when they could not be read, or `None` when
+/// nothing was chosen. The view takes it only as the answer to its latest
+/// request.
+pub(crate) fn photo_picked(request: u64, chosen: Option<Vec<u8>>) {
+    // Handed over once: `with_view` may run its task again on a retry.
+    let chosen = Mutex::new(Some(chosen));
+    with_view(move |view| {
+        if let Some(chosen) = chosen.lock().ok().and_then(|mut c| c.take()) {
+            view.photo_picked(PhotoRequest(request), chosen);
+        }
+    });
+}
+
+/// `Native.photoRead`: the chosen file for `request`, read within what
+/// the open left of the pick's deadline (`left`) unless a newer pick, the
+/// editor's close or the Activity's end gives it up first (j68 P3-1;
+/// #483 F4: one deadline for the open and the read).
+pub(crate) fn photo_read(request: u64, fd: std::os::fd::OwnedFd, left: Duration) {
+    let deadline = Instant::now() + left.min(crate::photo_import::PHOTO_DEADLINE);
+    match PHOTO_IMPORTS.read(request, fd, deadline) {
+        crate::photo_import::Read::Bytes(bytes) => photo_picked(request, Some(bytes)),
+        crate::photo_import::Read::Unusable => photo_picked(request, Some(Vec::new())),
+        crate::photo_import::Read::NotWanted => {}
+    }
+}
+
+/// The own card editor's picks: the latest the only one read.
+static PHOTO_IMPORTS: std::sync::LazyLock<crate::photo_import::Imports> =
+    std::sync::LazyLock::new(crate::photo_import::Imports::new);
+
 /// `Native.cameraClosed`: the camera stopped under the scan.
 pub(crate) fn camera_closed() {
     with_view(|view| view.camera_closed());
@@ -318,6 +350,16 @@ impl Opener for AndroidOpener {
     fn authenticate(&mut self) {
         crate::onboard::authenticate();
     }
+
+    fn connect_settled(&mut self) {
+        if let Some((dir, _)) = crate::onboard::platform()
+            && let Err(why) = onboarding::set_connect_owed(&dir, PROFILE, false)
+        {
+            // Left set, Connect is decided again at the next start, and
+            // opens only if the device still knows no one.
+            log(&format!("the connect-owed marker: {why:?}"));
+        }
+    }
 }
 
 struct Root {
@@ -333,8 +375,17 @@ impl Root {
         }));
         let surface = Rc::clone(&view);
         Self {
+            // Each fresh model -- a service restart makes one -- asks the
+            // marker again, so a Connect a start left undecided is owed to
+            // the next (add-a-peer §5.1).
             side: ViewSide::new(move || {
-                ModelSide::new(AndroidSurface(Rc::clone(&surface)), AndroidOpener)
+                let mut side = ModelSide::new(AndroidSurface(Rc::clone(&surface)), AndroidOpener);
+                if crate::onboard::platform()
+                    .is_some_and(|(dir, _)| onboarding::connect_owed(&dir, PROFILE))
+                {
+                    side.connect_owed();
+                }
+                side
             }),
             view,
             link,
@@ -352,13 +403,10 @@ impl Root {
                 log("the message store could not be listed");
             }
         }
-        // The store refused the service's start: its screen in place of
-        // the chats, or, once a start opened it, gone (ADR-0060).
-        crate::store::follow(
-            &self.view,
-            self.side.store_refused(),
-            self.side.store_answers(),
-        );
+        // The last start's answer: the store's screen in place of the
+        // chats, gone once a start opened the store or the restart after a
+        // discard was refused elsewhere (ADR-0060; store::follow).
+        crate::store::follow(&self.view, self.side.store_answer());
         if self.link.lost() {
             // Detached by the hub: attach again, and start from a listing.
             let view = Rc::clone(&self.view);
@@ -367,8 +415,15 @@ impl Root {
             return;
         }
         for command in self.side.side_mut().turn() {
-            if !hub.command(command) {
+            if let Err(command) = hub.command(command) {
+                // Failed explicitly, so the model lets go of it and says so,
+                // rather than holding it in flight with no answer (owner's
+                // finding P2-2).
                 log("a command found no running network service");
+                self.side.side_mut().apply(Update::Failed {
+                    command,
+                    why: Failure::ServiceStopped,
+                });
             }
         }
         for problem in self.side.side_mut().take_problems() {
@@ -378,8 +433,11 @@ impl Root {
                     log(&format!("unread messages could not be listed: {why:?}"));
                 }
                 Problem::CardsNotRead(why) => {
+                    log(&format!("cards or contacts could not be read: {why:?}"));
+                }
+                Problem::ShareNotRecorded(why) => {
                     log(&format!(
-                        "cards or contacts could not be read back: {why:?}"
+                        "a card was accepted and its share could not be recorded yet: {why:?}"
                     ));
                 }
             }
@@ -440,7 +498,12 @@ fn android_main(app: AndroidApp) {
     if let Err(e) = init_android(app, |event| match event {
         ActivityEvent::Focus(focused) => focus(focused),
         ActivityEvent::Stop => stopped(),
-        ActivityEvent::Destroy => ServiceHost::global().hub().set_focused(false),
+        ActivityEvent::Destroy => {
+            // The window and its editor go: a read for either is not
+            // wanted (the Activity cancels its open itself).
+            PHOTO_IMPORTS.abandon();
+            ServiceHost::global().hub().set_focused(false);
+        }
     }) {
         log(&format!("the views' platform could not be set: {e}"));
         return;
@@ -487,6 +550,21 @@ fn android_main(app: AndroidApp) {
     view.on_open_settings(|| {
         use crate::onboard::{ASKS, ask};
         ASKS.push(ask::OPEN_SETTINGS);
+    });
+    // The own card's photo: Android's photo picker, which needs no
+    // permission (contact-cards design section 3).
+    view.photo_picker_hook(|pick| {
+        use crate::onboard::{ASKS, ask};
+        match pick {
+            PhotoPick::Open(PhotoRequest(request)) => {
+                PHOTO_IMPORTS.begin(request);
+                ASKS.push_with(ask::PICK_PHOTO, request);
+            }
+            PhotoPick::Abandon => {
+                PHOTO_IMPORTS.abandon();
+                ASKS.push(ask::PHOTO_CANCEL);
+            }
+        }
     });
     view.offer_scans(CAMERA_PRESENT.load(Ordering::SeqCst), false, false);
     let view = Rc::new(RefCell::new(view));

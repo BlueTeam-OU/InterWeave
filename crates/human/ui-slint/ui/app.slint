@@ -19,7 +19,7 @@ import { Palette as Style } from "std-widgets.slint";
 // What a row's swipe does in one direction (design/2026-10-16-message-
 // swipe.md section 3): `none` when it does nothing that way, and then the
 // row does not move that way.
-export enum SwipeKind { none, keep, hide, unkeep, retry, cancel }
+export enum SwipeKind { none, keep, hide, unkeep, retry, cancel, accept, decline }
 
 // Every icon the views draw, from first-party paths on a 24 x 24 grid:
 // each is decorative beside a label or names a control that carries its
@@ -64,6 +64,8 @@ export struct ShareAgainRow {
 export struct ProposalNoteRow {
     text: string,
     warning: bool,
+    // "Open your contact {name}" under a same-name warning, or empty.
+    link: string,
 }
 
 // A received card in its conversation (design section 5.4), every
@@ -71,6 +73,11 @@ export struct ProposalNoteRow {
 // photo is not decoded, and the row says only that there is one.
 export struct ProposalRow {
     handle: int,
+    // The handle of the message it follows, or -1 before them all: its
+    // place in time among the messages.
+    after: int,
+    // The day separator above it; empty for none.
+    day: string,
     // "This peer says they are {name}", the name isolated.
     heading: string,
     // The full name, for Accept's accessible description.
@@ -88,10 +95,18 @@ export struct ProposalRow {
     notes: [ProposalNoteRow],
     // It goes when InterWeave stops unless accepted.
     goes: string,
-    // When it came: the row is drawn after the messages, not at its time.
+    // When it came.
     received: string,
     // The card changes nothing (case S): Close alone, in Accept's place.
     closes: bool,
+    // The row's swipes (design section 5.4.4): Accept toward the line's
+    // end, Decline toward its start, `none` where the case withholds one;
+    // each labelled as its button is; the swipe's key names the card.
+    swipe-key: string,
+    end-kind: SwipeKind,
+    end-label: string,
+    start-kind: SwipeKind,
+    start-label: string,
     accept: string,
     decline: string,
     copy: string,
@@ -214,6 +229,10 @@ export struct MessageRow {
     // A leaving row whose day separator the next row takes over once it is
     // gone: its gap and separator stay while only its item closes.
     hand-over: bool,
+    // How many card proposals follow it, before the next message: each
+    // drawn below its item (contact-cards design 5.4, at its place in
+    // time).
+    cards-after: int,
     // The source as received, shown on the person's request: always
     // viewable, however it rendered (HUMAN-CHAT.md).
     source: string,
@@ -230,6 +249,18 @@ export struct MessageRow {
     start-label: string,
     // The row is leaving the list: its space closes.
     leaving: bool,
+    // One's own card row (contact-cards design 5.5): the card as it was
+    // sent, drawn in place of a text -- its name, its photo or the
+    // identity's initials, and `CardSentLabel` under them.
+    card: bool,
+    card-name: string,
+    card-letters: string,
+    card-has-photo: bool,
+    card-photo: image,
+    // Whether the row has a menu: a message always does (Show source at
+    // least); an own card row only while it has an action (5.5: an
+    // accepted one has none, and nothing opens).
+    has-menu: bool,
 }
 
 // A trusted peer: its full PeerId, exact, where it comes from (the
@@ -282,6 +313,10 @@ export struct PeerTrustBlock {
     trust-offered: bool,
     // Its state once decided, or its Trust on its way.
     state: string,
+    // The state line is a polite live region, except the line focus
+    // moved to in place of the problem line it replaced: read there on
+    // focus, it is not said a second time (design section 5.3).
+    state-live: bool,
     // Why its last Trust did not trust it.
     problem: string,
 }
@@ -553,10 +588,15 @@ component ActionButton inherits FocusScope {
     // section 7's Delete stored data).
     in property <bool> danger;
     in property <color> ink: Palette.primary;
+    // A button the full width of its column whose label wraps inside it,
+    // centred, rather than set its width (contact-cards design section
+    // 5.4's actions, one per line at every width and text scale).
+    in property <bool> wraps;
     min-height: root.target;
     // Never narrower than its label: squeezed beside a wrapping text, the
     // label ran out of the button (seen in the rendered window).
-    min-width: max(root.target, label.preferred-width + (root.filled || root.tonal ? 48px : 16px));
+    min-width: root.wraps ? root.target
+        : max(root.target, label.preferred-width + (root.filled || root.tonal ? 48px : 16px));
     Rectangle {
         border-width: root.text-button || root.filled || root.tonal ? 0px : 1px;
         border-color: root.on-notice ? Palette.notice-text
@@ -567,9 +607,13 @@ component ActionButton inherits FocusScope {
         HorizontalLayout {
             padding-left: root.filled || root.tonal ? 24px : 8px;
             padding-right: root.filled || root.tonal ? 24px : 8px;
+            padding-top: root.wraps ? 12px : 0px;
+            padding-bottom: root.wraps ? 12px : 0px;
             // The caption is the button's label already: not a second node.
             label := Text {
                 text: root.text;
+                wrap: root.wraps ? word-wrap : no-wrap;
+                horizontal-alignment: root.wraps ? center : left;
                 font-size: root.text-button || root.filled || root.tonal ? Type.label-large : Type.body-medium;
                 font-weight: root.text-button || root.filled || root.tonal ? 500 : 400;
                 color: root.filled ? (root.danger ? Palette.on-error : Palette.on-primary)
@@ -608,6 +652,9 @@ component FocusHeading inherits FocusScope {
     in property <length> font-size: Type.title-medium;
     in property <int> font-weight: 700;
     in property <bool> rtl;
+    // A heading alone on its line wraps rather than elide: a full-screen
+    // step's title at 200 % is wider than a phone.
+    in property <bool> wraps;
     in property <int> focus-seq;
     in property <bool> focus-wanted;
     changed focus-seq => {
@@ -629,7 +676,8 @@ component FocusHeading inherits FocusScope {
                 font-weight: root.font-weight;
                 font-size: root.font-size;
                 color: Palette.on-surface;
-                overflow: elide;
+                wrap: root.wraps ? word-wrap : no-wrap;
+                overflow: root.wraps ? clip : elide;
                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 accessible-role: none;
             }
@@ -986,6 +1034,8 @@ component SwipeIcon inherits GlyphIcon {
         : kind == SwipeKind.hide ? Glyph.hide
         : kind == SwipeKind.retry ? Glyph.retry
         : kind == SwipeKind.cancel ? Glyph.cancel
+        : kind == SwipeKind.accept ? Glyph.check
+        : kind == SwipeKind.decline ? Glyph.hide
         : Glyph.none;
 }
 
@@ -1095,7 +1145,7 @@ component SwipeReveal inherits Rectangle {
     in property <bool> reduced-motion;
     accessible-role: none;
     background: !root.armed ? Palette.swipe-neutral
-        : root.kind == SwipeKind.keep ? Palette.swipe-keep
+        : root.kind == SwipeKind.keep || root.kind == SwipeKind.accept ? Palette.swipe-keep
         : root.kind == SwipeKind.retry ? Palette.swipe-retry
         : Palette.swipe-remove;
     HorizontalLayout {
@@ -1144,6 +1194,9 @@ component Snackbar inherits Rectangle {
     // The action's focus as it changes: true while it holds focus, and
     // still true once the snackbar goes from under it.
     callback action-focus-changed(bool);
+    // Whether the pointer is on it: a snackbar with no action stays up
+    // while it is (add-a-peer section 5.7).
+    out property <bool> pointer-on: hover.has-hover;
     // Material's snackbar (section 7): the inverse surface, 4 px corners,
     // at least 48 px tall.
     background: Palette.inverse-surface;
@@ -1153,6 +1206,8 @@ component Snackbar inherits Rectangle {
         handle-swipe-left: true;
         handle-swipe-right: true;
         swiped => { root.dismissed(root.snack-id); }
+        // Beneath the line and its action, only to see the pointer.
+        hover := TouchArea { }
         // The Undo sits at the line's end in either direction. It is
         // placed, not laid out, so the tree keeps the text before it in
         // both: a screen reader reads what happened, then its Undo.
@@ -1359,6 +1414,12 @@ component NoticeCard inherits Rectangle {
     in property <string> message;
     in property <bool> has-action;
     in property <string> action;
+    // The action's focus key, and a focus request for it: a notice whose
+    // action asked the unsaved-changes dialog gets focus back on Continue
+    // editing (`continue_editing_after_the_no_reach_notice_refocuses_its_action`).
+    in property <string> action-key: "notice";
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
     callback pressed();
     callback focused(string);
     background: Palette.notice-background;
@@ -1377,7 +1438,9 @@ component NoticeCard inherits Rectangle {
         }
         if root.has-action: ActionButton {
             text: root.action;
-            focus-key: "notice";
+            focus-key: root.action-key;
+            focus-seq: root.focus-seq;
+            focus-wanted: root.focus-wanted;
             on-notice: true;
             pressed => { root.pressed(); }
             focused(k) => { root.focused(k); }
@@ -1905,6 +1968,28 @@ component NameField inherits VerticalLayout {
 // renderer does not clip an image to rounded corners, so the corners
 // outside the circle are painted over in `backdrop`, the colour of what
 // lies behind: a circle on every renderer, as the initials are.
+// Work under way, drawn over what it is for: a quarter arc that turns,
+// held still when the person asked for less motion. Not a focus stop and
+// not read: what it is for says so in its own label.
+component ProgressRing inherits Rectangle {
+    in property <bool> reduced-motion;
+    in property <length> size: 40px;
+    in property <brush> ink: Palette.primary;
+    accessible-role: none;
+    width: root.size;
+    height: root.size;
+    Path {
+        width: root.size;
+        height: root.size;
+        viewbox-width: 2;
+        viewbox-height: 2;
+        stroke: root.ink;
+        stroke-width: 4px;
+        transform-rotation: root.reduced-motion ? 0deg : animation-tick() * 360deg / 1000ms;
+        commands: "M 1 0.1 A 0.9 0.9 0 0 1 1.9 1";
+    }
+}
+
 component PhotoCircle inherits Rectangle {
     in property <bool> has-photo;
     in property <image> photo;
@@ -1979,6 +2064,13 @@ component PathField {
     in property <string> path;
     in property <string> code-font;
     in property <string> focus-key;
+    // A focus request lands on the field (a dialog closing over it gives
+    // focus back, `continue_editing_gives_focus_back_to_each_control`).
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { input.focus(); }
+    }
     callback focused(string);
     VerticalLayout {
         spacing: 2px;
@@ -2094,11 +2186,89 @@ component ProposalCard inherits Rectangle {
     callback accept();
     callback decline();
     callback copy();
+    // A note's link chosen, by the note's place.
+    callback open-contact(int);
     callback focused(string);
+    // Its menu (design section 5.4.4, message-swipe section 7): a press
+    // held within the slop for the long-press time, the first `true` for
+    // the haptic tick; a secondary click; or a key, the second `true`, on
+    // the control that has focus.
+    callback menu(bool, bool);
+    in property <bool> swipe-tracking;
+    in property <bool> menu-open;
     background: Palette.surface-container;
     border-radius: 12px;
     border-width: 1px;
     border-color: Palette.outline-variant;
+    // Its size is this layout's: a conditional child passes none to the
+    // card, which would be drawn 0 px tall, its text spilling past the
+    // list's end; and bound to it, since left implicit it was measured
+    // before its lines wrapped at the card's width, and a phone drew the
+    // actions under the card (tests/cards.rs,
+    // `a_proposal_row_is_as_tall_as_what_it_says`).
+    min-height: body.min-height;
+    preferred-height: body.preferred-height;
+    // Every wrapped line in it takes its own height at the width it is
+    // drawn as its minimum (`min-height: self.preferred-height`): through
+    // the conditional and repeated layouts it sits in, Slint measured a
+    // wrapped Text a line or two short, and the card came out shorter
+    // than what it draws -- its end under the next message, or Accept
+    // outside it (`a_card_between_messages_is_whole_at_a_phones_width`,
+    // `a_proposal_fits_a_narrow_window_with_large_text`).
+    // The menu from the keyboard (#433 F3): the Menu key or Shift+F10
+    // on any of the card's controls, which pass them up here. The card is
+    // no focus stop of its own, so Enter stays the focused control's.
+    keys := FocusScope {
+    focus-on-click: false;
+    focus-on-tab-navigation: false;
+    key-pressed(event) => {
+        if (!root.card.answered
+            && (event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift))) {
+            root.menu(false, true);
+            // The result's own name: the card's `accept` callback shadows it.
+            return EventResult.accept;
+        }
+        EventResult.reject
+    }
+    // Under the controls, the part of the row that is no control takes
+    // the press, as a message row's does: left to the swipe handler, a
+    // drag the row does not offer ends with no callback and the next
+    // drag is read as its continuation (swipe spec section 11, item 5).
+    // A press past the slop is a swipe or a scroll and never opens the
+    // menu; an answered row has none.
+    card-touch := TouchArea {
+        property <bool> drifted;
+        // This press's long press has fired. Never `running = false` in
+        // the timer: that assignment drops the binding for good, and the
+        // row's next long press would open nothing (seen in a test).
+        property <bool> fired;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                self.drifted = false;
+                self.fired = false;
+                FocusMode.keyboard = false;
+                if (event.button == PointerEventButton.right && !root.card.answered) {
+                    root.menu(false, false);
+                }
+            }
+        }
+        moved => {
+            if (abs(self.mouse-x - self.pressed-x) > Touch.slop
+                || abs(self.mouse-y - self.pressed-y) > Touch.slop) {
+                self.drifted = true;
+            }
+        }
+        Timer {
+            interval: Touch.long-press;
+            running: card-touch.pressed && !card-touch.drifted && !card-touch.fired
+                && !root.menu-open && !root.swipe-tracking && !root.card.answered;
+            triggered => {
+                card-touch.fired = true;
+                root.menu(true, false);
+            }
+        }
+    }
+    body := VerticalLayout {
     if root.card.answered: VerticalLayout {
         padding: 16px;
         spacing: 8px;
@@ -2115,6 +2285,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.photo-note;
             font-size: Type.body-medium;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2134,6 +2305,7 @@ component ProposalCard inherits Rectangle {
                 text: root.card.heading;
                 font-size: Type.title-medium;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
                 color: Palette.on-surface;
                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 accessible-role: text;
@@ -2144,6 +2316,7 @@ component ProposalCard inherits Rectangle {
             text: root.card.photo-line;
             font-size: Type.body-medium;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2153,6 +2326,7 @@ component ProposalCard inherits Rectangle {
             font-size: Type.body-medium;
             font-weight: 700;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.error;
             accessible-role: text;
             accessible-label: self.text;
@@ -2172,9 +2346,25 @@ component ProposalCard inherits Rectangle {
                 font-family: root.code-font;
                 font-size: Type.body-medium;
                 wrap: char-wrap;
+                min-height: self.preferred-height;
                 color: Palette.on-surface;
                 accessible-role: text;
                 accessible-label: self.text;
+            }
+            // Copy PeerId under the PeerId it copies (design section
+            // 5.4), which leaves the action line Decline and Accept alone.
+            HorizontalLayout {
+                alignment: start;
+                ActionButton {
+                    text: root.card.copy;
+                    text-button: true;
+                    target: 48px;
+                    focus-key: "proposal-copy:" + root.card.handle;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "proposal-copy:" + root.card.handle;
+                    pressed => { root.copy(); }
+                    focused(k) => { root.focused(k); }
+                }
             }
         }
         VerticalLayout {
@@ -2187,36 +2377,63 @@ component ProposalCard inherits Rectangle {
                 accessible-role: text;
                 accessible-label: self.text;
             }
+            // Wrapping as the PeerId does: unwrapped in the code font at
+            // 200 % it set the card wider than a 320 px window (seen
+            // rendered).
             Text {
                 text: root.card.fingerprint;
                 font-family: root.code-font;
                 font-size: Type.body-medium;
+                wrap: char-wrap;
+                min-height: self.preferred-height;
                 color: Palette.on-surface;
                 accessible-role: text;
                 accessible-label: self.text;
             }
         }
-        Text {
+        if root.card.context != "": Text {
             text: root.card.context;
             font-size: Type.body-medium;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface;
             accessible-role: text;
             accessible-label: self.text;
         }
-        for note in root.card.notes: Text {
-            text: note.text;
-            font-size: Type.body-medium;
-            font-weight: note.warning ? 700 : 400;
-            wrap: word-wrap;
-            color: note.warning ? Palette.error : Palette.on-surface;
-            accessible-role: text;
-            accessible-label: self.text;
+        for note[i] in root.card.notes: VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: note.text;
+                font-size: Type.body-medium;
+                font-weight: note.warning ? 700 : 400;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+                color: note.warning ? Palette.error : Palette.on-surface;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            // The contact the warning names, a step away (design section
+            // 5.4.1): after Copy PeerId and before Decline in focus order.
+            if note.link != "": HorizontalLayout {
+                alignment: start;
+                ActionButton {
+                    text: note.link;
+                    text-button: true;
+                    wraps: true;
+                    target: 48px;
+                    focus-key: "proposal-contact:" + root.card.handle + ":" + i;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "proposal-contact:" + root.card.handle + ":" + i;
+                    pressed => { root.open-contact(i); }
+                    focused(k) => { root.focused(k); }
+                }
+            }
         }
         Text {
             text: root.card.received;
             font-size: Type.body-small;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
@@ -2225,30 +2442,29 @@ component ProposalCard inherits Rectangle {
             text: root.card.goes;
             font-size: Type.body-small;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
             accessible-label: self.text;
         }
-        // The actions wrap to their own lines when the row is narrow,
-        // rather than squeezing a label out of its button.
-        HorizontalLayout {
-            alignment: end;
+        // One per line at every width and text scale, Decline first and
+        // Accept, filled, at the card's end; a label longer than the column
+        // wraps inside its full-width button (ux-designer, 2026-10-25,
+        // provisional until contact-cards' revision): a layout choosing
+        // lines by width would read the window's, a binding loop on Slint
+        // 1.18, and a translated Accept may not fit one line at 100 %
+        // (tests/cards.rs,
+        // `a_proposal_fits_a_phone_with_its_longest_accept`).
+        VerticalLayout {
             spacing: 8px;
-            ActionButton {
-                text: root.card.copy;
-                text-button: true;
-                target: 48px;
-                focus-key: "proposal-copy:" + root.card.handle;
-                focus-seq: root.focus-seq;
-                focus-wanted: root.focus-target == "proposal-copy:" + root.card.handle;
-                pressed => { root.copy(); }
-                focused(k) => { root.focused(k); }
-            }
             if !root.card.closes: ActionButton {
                 text: root.card.decline;
                 text-button: true;
+                wraps: true;
                 target: 48px;
                 focus-key: "proposal-decline:" + root.card.handle;
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "proposal-decline:" + root.card.handle;
                 pressed => { root.decline(); }
                 focused(k) => { root.focused(k); }
             }
@@ -2256,6 +2472,7 @@ component ProposalCard inherits Rectangle {
                 text: root.card.accept;
                 detail: root.card.full-name;
                 filled: true;
+                wraps: true;
                 target: 48px;
                 focus-key: "proposal-accept:" + root.card.handle;
                 focus-seq: root.focus-seq;
@@ -2264,6 +2481,8 @@ component ProposalCard inherits Rectangle {
                 focused(k) => { root.focused(k); }
             }
         }
+    }
+    }
     }
 }
 
@@ -2276,6 +2495,13 @@ component OpenRow inherits FocusScope {
     }
     in property <string> text;
     in property <string> focus-key;
+    // A focus request, as `ActionButton` takes one: the Contacts list's
+    // first row after a delete, a contact's row after its page closes.
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
     in property <bool> has-photo;
     in property <image> photo;
     in property <string> letters;
@@ -2329,6 +2555,125 @@ component OpenRow inherits FocusScope {
         height: root.height + 10px;
         shown: root.has-focus;
     }
+}
+
+// A received card's row in a conversation (contact-cards design section
+// 5.4): its card, swiped Accept and Decline, and its menu. Placed among the
+// messages at its place in time, so the AppWindow draws it in more than one
+// place.
+component ProposalEntry inherits Rectangle {
+    in property <ProposalRow> proposal;
+    in property <string> swipe-key;
+    in property <length> swipe-offset;
+    in property <bool> swipe-armed;
+    in property <bool> swipe-tracking;
+    in property <bool> reduced-motion;
+    in property <bool> rtl;
+    in property <string> code-font;
+    in property <int> focus-seq;
+    in property <string> focus-target;
+    in property <int> card-menu;
+    in property <length> window-width;
+    callback swipe-moved(string, length, length, length, length, length, length);
+    callback swipe-ended(string);
+    callback swipe-cancelled(string);
+    callback menu-haptic();
+    callback open-menu(ProposalRow, length, length, length, length, bool);
+    callback proposal-accept(int);
+    callback proposal-decline(int);
+    callback proposal-open-contact(int, int);
+    callback copy-peer(string);
+    callback focused(string);
+    // The space a day separator takes above the card.
+    property <length> day-space: root.proposal.day != "" ? day-measure.preferred-height + 4px : 0px;
+    day-measure := Text {
+        text: root.proposal.day;
+        font-size: Type.body-small;
+        visible: false;
+        accessible-role: none;
+    }
+    // A day change, as a message's: before the card it heads, drawn in
+    // the space the card's layout leaves above it.
+    if root.proposal.day != "": Text {
+        x: 0;
+        y: 8px;
+        width: parent.width;
+        height: day-measure.preferred-height;
+        text: root.proposal.day;
+        font-size: Type.body-small;
+        color: Palette.on-surface-variant;
+        horizontal-alignment: center;
+        accessible-role: text;
+        accessible-label: self.text;
+    }
+                VerticalLayout {
+                padding-top: 8px + root.day-space;
+                proposal-row := Rectangle {
+                property <string> swipe-key: root.proposal.swipe-key;
+                property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
+                animate offset {
+                    duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
+                    easing: ease-out;
+                }
+                clip: true;
+                border-radius: 12px;
+                // Accept toward the line's end, Decline toward its start
+                // (design section 5.4.4), mirrored right to left; a way
+                // the case withholds does not move.
+                SwipeGestureHandler {
+                    enabled: root.proposal.end-kind != SwipeKind.none || root.proposal.start-kind != SwipeKind.none;
+                    handle-swipe-right: root.rtl ? root.proposal.start-kind != SwipeKind.none : root.proposal.end-kind != SwipeKind.none;
+                    handle-swipe-left: root.rtl ? root.proposal.end-kind != SwipeKind.none : root.proposal.start-kind != SwipeKind.none;
+                    moved => {
+                        root.swipe-moved(proposal-row.swipe-key,
+                            self.absolute-position.x + self.pressed-position.x,
+                            self.absolute-position.y + self.pressed-position.y,
+                            self.absolute-position.x + self.current-position.x,
+                            self.absolute-position.y + self.current-position.y,
+                            self.width, root.window-width);
+                    }
+                    swiped => { root.swipe-ended(proposal-row.swipe-key); }
+                    cancelled => { root.swipe-cancelled(proposal-row.swipe-key); }
+                    if proposal-row.offset != 0px: SwipeReveal {
+                        property <bool> toward-end: (proposal-row.offset > 0px) != root.rtl;
+                        kind: self.toward-end ? root.proposal.end-kind : root.proposal.start-kind;
+                        label: self.toward-end ? root.proposal.end-label : root.proposal.start-label;
+                        armed: root.swipe-armed;
+                        at-left: proposal-row.offset > 0px;
+                        reduced-motion: root.reduced-motion;
+                        border-radius: 12px;
+                    }
+                    // Moved by its padding, as a message row is, so the
+                    // card keeps its width.
+                    HorizontalLayout {
+                        padding-left: proposal-row.offset;
+                        padding-right: -proposal-row.offset;
+                ProposalCard {
+                    card: root.proposal;
+                    code-font: root.code-font;
+                    rtl: root.rtl;
+                    focus-seq: root.focus-seq;
+                    focus-target: root.focus-target;
+                    swipe-tracking: root.swipe-tracking;
+                    menu-open: root.card-menu == root.proposal.handle;
+                    menu(haptic, by-key) => {
+                        if (haptic) { root.menu-haptic(); }
+                        root.open-menu(root.proposal, proposal-row.absolute-position.x,
+                            proposal-row.absolute-position.y, proposal-row.width,
+                            proposal-row.height, by-key);
+                    }
+                    accept => { root.proposal-accept(root.proposal.handle); }
+                    decline => { root.proposal-decline(root.proposal.handle); }
+                    open-contact(note) => { root.proposal-open-contact(root.proposal.handle, note); }
+                    copy => {
+                        root.copy-peer(root.proposal.peer);
+                    }
+                    focused(k) => { root.focused(k); }
+                }
+                    }
+                }
+                }
+                }
 }
 
 export component AppWindow inherits Window {
@@ -2463,6 +2808,9 @@ export component AppWindow inherits Window {
     // no Undo can be pressed on screen for one the queue has closed.
     in property <bool> snack-shown;
     in property <bool> snack-on-list;
+    // The snackbar is a contact's (contact-cards design section 6.3): shown
+    // on the card pages, and only there.
+    in property <bool> snack-on-cards;
     in property <int> snack-id;
     in property <string> snack-text;
     in property <bool> snack-undo;
@@ -2562,6 +2910,11 @@ export component AppWindow inherits Window {
     in property <string> show-my-address-label;
     in property <string> show-warning;
     in property <bool> show-code-shown;
+    // False when the lines are more than any code holds: then no image,
+    // and nothing announced as a code, while the lines still show.
+    in property <bool> show-code-drawn;
+    // Said in the code's place when no code is drawn (add-a-peer 5.4).
+    in property <string> show-too-many;
     in property <image> show-code;
     in property <string> show-code-label;
     in property <string> show-lines;
@@ -2575,7 +2928,23 @@ export component AppWindow inherits Window {
     in property <bool> show-problem-retry;
     // The list's own column, neither the add page nor Show covering it.
     property <bool> peers-list-shown: !root.peers-add-open && !root.peers-show-open;
+    // Onboarding's Connect (add-a-peer section 5.1), over everything else
+    // until it is left; the add page and Show it opens are Peers' own,
+    // drawn in its place while they are up (`peers-page`).
+    in property <bool> connect-open;
+    property <bool> connect-shown: root.connect-open && !root.peers-page;
+    in property <string> connect-title;
+    in property <string> connect-body;
+    // What this visit did, once something was: empty before. With a line,
+    // Continue is the primary and Not now goes.
+    in property <string> connect-line;
+    // The line names a peer still to trust: Trust beside it.
+    in property <bool> connect-line-trust;
+    in property <string> continue-label;
     in property <string> add-title;
+    // The back arrow of the add page and of Show, which go back to Peers
+    // or Connect, so it never takes the conversations' Back.
+    in property <string> add-close-label;
     in property <string> address-field-label;
     in property <string> address-help;
     in-out property <string> address-text;
@@ -2585,11 +2954,13 @@ export component AppWindow inherits Window {
     in property <int> address-select-to;
     in property <int> address-select-seq;
     // The scan controls this platform offers: the camera on Android,
-    // an image file or a pasted one on the desktop.
+    // an image file on the desktop, and `scan-paste` the clipboard's
+    // image where it is read within bounds (Linux).
     in property <bool> scan-camera;
     in property <bool> scan-images;
-    // Paste an image, offered apart from the image file: withheld until
-    // the clipboard can be read within the file's bounds (#409 F1).
+    // Paste an image, offered apart from the image file: only where the
+    // clipboard is read within the file's bounds (#409 F1; desktop-e2e
+    // a_hostile_clipboard_owner_is_given_up_at_the_deadline).
     in property <bool> scan-paste;
     // The camera's viewfinder (add-a-peer section 5.5), over everything
     // while a camera scan is open: the frames as they come, the square
@@ -2650,6 +3021,8 @@ export component AppWindow inherits Window {
     // Whether the snackbar's action held focus when it last changed: so
     // a snackbar leaving says whether focus went with its Try again.
     in-out property <bool> peers-snack-action-focused;
+    // The pointer is on Peers' snackbar (add-a-peer section 5.7).
+    in-out property <bool> peers-snack-pointer-on;
     // Chats' no-reach notice (section 5.6): a state, not news, so it has
     // no Close; its action opens Peers.
     in property <bool> no-reach-shown;
@@ -2665,11 +3038,43 @@ export component AppWindow inherits Window {
     in-out property <int> row-menu: -1;
     property <[ActionRow]> row-menu-actions;
     property <string> row-menu-source;
+    in property <string> card-sent-label;
     property <string> row-menu-detail;
     property <length> row-menu-x;
     property <length> row-menu-y;
     property <length> row-menu-w;
     property <length> row-menu-h;
+    // The proposal whose menu is open, by its handle, or -1, with its row
+    // as drawn and the card it is anchored to (design section 5.4.4).
+    in-out property <int> card-menu: -1;
+    property <ProposalRow> card-menu-row;
+    property <length> card-menu-x;
+    property <length> card-menu-y;
+    property <length> card-menu-w;
+    property <length> card-menu-h;
+    // Where focus goes when the menu closes with nothing chosen, or with
+    // a choice that leaves the row (design section 5.4.4).
+    property <string> card-menu-return;
+    function open-card-menu(row: ProposalRow, x: length, y: length, w: length, h: length,
+        by-key: bool) {
+        // A key: the control it was pressed on. A long press or a
+        // secondary click: the row's first control, Copy PeerId.
+        root.card-menu-return = by-key ? root.focus-id : "proposal-copy:" + row.handle;
+        root.card-menu-row = row;
+        root.card-menu-x = x;
+        root.card-menu-y = y;
+        root.card-menu-w = w;
+        root.card-menu-h = h;
+        root.card-menu = row.handle;
+    }
+    // Closed, or a choice made that leaves the row in place: focus back
+    // where the menu came from.
+    public function close-card-menu() {
+        if (root.card-menu < 0) { return; }
+        root.focus-target = root.card-menu-return;
+        root.card-menu = -1;
+        root.focus-seq += 1;
+    }
     // Show source chosen from a menu, for the row that keeps the choice.
     property <int> source-toggle: -1;
     property <int> source-toggle-seq;
@@ -2729,6 +3134,11 @@ export component AppWindow inherits Window {
     callback row-remove(int);
     callback peers-snack-pressed(int);
     callback peers-snack-closed(int);
+    callback connect-add();
+    callback connect-show();
+    callback connect-trust();
+    // Not now, Continue, Back or Escape: Chats.
+    callback connect-leave();
     // A row's swipe: the press and the current position, in window
     // coordinates, and the row's width; then its end or its cancel.
     callback swipe-moved(string, length, length, length, length, length, length);
@@ -2811,6 +3221,9 @@ export component AppWindow inherits Window {
     in property <[ProposalRow]> proposals;
     callback proposal-accept(int);
     callback proposal-decline(int);
+    // A proposal's "Open your contact" link: the row's handle, the note's
+    // place.
+    callback proposal-open-contact(int, int);
     // What a proposal's Copy PeerId copies, set by the press. Never shown.
     in-out property <string> proposal-copy-text;
     in-out property <CardsPage> cards-page;
@@ -2821,6 +3234,9 @@ export component AppWindow inherits Window {
     callback open-contacts();
     callback open-own-card();
     callback close-cards();
+    // The card pages closed on the way to another page (Close without
+    // saving after a pick or a menu item): without their way back.
+    callback close-cards-onward();
     callback contact-chosen(int);
     // A contact's page.
     in property <string> contact-title;
@@ -2841,6 +3257,15 @@ export component AppWindow inherits Window {
     in property <string> delete-contact-label;
     in property <string> delete-contact-confirm;
     in property <string> cards-cancel-label;
+    // Back with unsaved changes on the own card (design 5.2): the dialog's
+    // words, whether it is open, where focus was, and whether what the
+    // fields hold, with the photo, differs from the saved card.
+    in property <string> discard-title;
+    in property <string> keep-editing-label;
+    in property <string> discard-label;
+    in-out property <bool> own-discard-open;
+    property <string> own-discard-return;
+    pure callback own-card-unsaved(string, string) -> bool;
     in property <string> peer-id-label;
     in property <string> fingerprint-label;
     in-out property <bool> contact-confirming-delete;
@@ -2860,6 +3285,21 @@ export component AppWindow inherits Window {
     in property <string> own-surname-error;
     in property <string> surname-label;
     in property <string> own-photo-note;
+    // The editor's photo (contact-cards design 5.2): what the circle shows
+    // -- the chosen photo once prepared, the initials once removed, else
+    // the card's -- its label, whether it is being prepared, why a chosen
+    // one cannot be used, and whether a photo can be chosen here at all.
+    in property <bool> own-edit-has-photo;
+    in property <image> own-edit-photo;
+    in property <string> own-circle-label;
+    in property <bool> own-photo-preparing;
+    in property <string> own-photo-unusable;
+    in property <bool> own-photo-choosable;
+    in property <string> add-photo-label;
+    in property <string> change-photo-label;
+    callback own-card-choose-photo();
+    // A file dialog's answer, handed over on the window's thread.
+    callback own-photo-picked-done();
     in property <string> own-shared-note;
     in property <string> own-fingerprint;
     // The identity's key that cannot be used, in the fingerprint's place
@@ -2924,28 +3364,142 @@ export component AppWindow inherits Window {
     callback share-confirmed();
     // Details: whether this identity's card was shared here, and when.
     in property <string> details-card;
+    // Contact-cards design 5.2, "Leaving with unsaved changes": every way
+    // off the own card's editor with an unsaved change asks first, and on
+    // Close without saving the way taken goes on -- 0 Back, 1 the
+    // conversation picked (its handle below), 2 Trust, 3 Peers, 4
+    // Contacts, 5 a share-again row (its handle below)
+    // (`a_conversation_picked_beside_the_editor_with_a_change_asks_first`,
+    // `a_share_again_row_with_a_change_asks_first`,
+    // `a_page_from_the_app_options_with_a_change_asks_first`).
+    property <int> own-discard-then;
+    property <int> own-discard-then-handle;
+    // Whether this way off the editor must ask first; if so, the dialog
+    // opens, holding the way taken and where focus goes back to.
+    function ask-before-leaving(then: int, handle: int, back-to: string) -> bool {
+        if (root.cards-page != CardsPage.own-card || root.own-discard-open
+            || !root.own-card-unsaved(root.own-given, root.own-surname)) {
+            return false;
+        }
+        root.own-discard-then = then;
+        root.own-discard-then-handle = handle;
+        root.own-discard-return = back-to;
+        root.own-discard-open = true;
+        return true;
+    }
+    // Back on a card page: the own card's editor with unsaved changes
+    // asks first (contact-cards design 5.2), else the page closes.
     function close-cards-page() {
+        // Back to the editor's control that had focus -- each takes a
+        // focus request, its share-again rows included -- else, focus
+        // beside the editor on a wide window, to its first field
+        // (`continue_editing_gives_focus_back_to_each_control`,
+        // `continue_editing_gives_focus_back_to_a_share_again_row`).
+        if (root.ask-before-leaving(0, -1, root.focus-id == "close-cards"
+                || root.focus-id.starts-with("own-")
+                || root.focus-id.starts-with("share-again:") ? root.focus-id : "own-given")) {
+            return;
+        }
+        root.leave-cards-page();
+    }
+    function leave-cards-page() {
+        root.cards-left();
+        root.close-cards();
+    }
+    // The card pages left, by Back or by a valid Save: the list again on a
+    // phone, and focus back on the app options button that opened them
+    // (contact-cards design 5.2; `saving_your_card_closes_it_back_to_the_list`).
+    public function cards-left() {
         root.contact-confirming-delete = false;
         root.list-shown = true;
-        root.close-cards();
         root.chats-menu-closed-seq += 1;
+    }
+    // The unsaved-changes dialog closed on Continue editing: focus where
+    // it was when the dialog opened (section 9's focus table) -- an app
+    // options item being gone with its menu, the app options button.
+    function keep-editing() {
+        root.own-discard-open = false;
+        if (root.own-discard-return == "app-options") {
+            root.chats-menu-closed-seq += 1;
+            return;
+        }
+        root.focus-target = root.own-discard-return;
+        root.focus-seq += 1;
+    }
+    // Close without saving: the editor goes without its changes, and the
+    // way taken goes on.
+    function discard-changes() {
+        root.own-discard-open = false;
+        if (root.own-discard-then == 0) {
+            root.leave-cards-page();
+            return;
+        }
+        // Another page opens: the editor's way back -- to a share sheet,
+        // to a proposal's link -- is Back's alone
+        // (`closing_without_saving_after_a_pick_opens_no_share_sheet`).
+        root.cards-left();
+        root.close-cards-onward();
+        if (root.own-discard-then == 1) {
+            root.go-to-conversation(root.own-discard-then-handle);
+        } else if (root.own-discard-then == 2) {
+            root.go-to-trust();
+        } else if (root.own-discard-then == 3) {
+            root.go-to-peers();
+        } else if (root.own-discard-then == 4) {
+            root.go-to-contacts();
+        } else if (root.own-discard-then == 5) {
+            // Its conversation's pane, on a phone, as each `go-to-` shows
+            // its page's (`a_share_again_row_with_a_change_asks_first`).
+            root.list-shown = false;
+            root.own-key-share-again-chosen(root.own-discard-then-handle);
+        }
     }
     function close-share() {
         root.share-open = false;
         root.menu-closed-seq += 1;
     }
 
+    // Each way that puts another page in the editor's place asks first
+    // when the editor holds a change (design 5.2); `go-to-` goes.
     function choose(handle: int) {
+        if (root.ask-before-leaving(1, handle, "c:" + handle)) { return; }
+        root.go-to-conversation(handle);
+    }
+    function go-to-conversation(handle: int) {
         root.list-shown = false;
         root.select(handle);
     }
     function open-settings() {
+        if (root.ask-before-leaving(2, -1, "app-options")) { return; }
+        root.go-to-trust();
+    }
+    function go-to-trust() {
         root.list-shown = false;
         root.open-trust();
     }
-    function open-peers-page() {
+    // `back-to` is where Continue editing puts focus: the control that
+    // asked, or the app options button for a menu item gone with its menu.
+    function open-peers-page(back-to: string) {
+        if (root.ask-before-leaving(3, -1, back-to)) { return; }
+        root.go-to-peers();
+    }
+    function go-to-peers() {
         root.list-shown = false;
         root.open-peers();
+    }
+    // A share-again row opens its conversation and the share sheet there,
+    // leaving the editor: it asks first like every other way off it.
+    function share-again(handle: int) {
+        if (root.ask-before-leaving(5, handle, "share-again:" + handle)) { return; }
+        root.own-key-share-again-chosen(handle);
+    }
+    function open-contacts-page() {
+        if (root.ask-before-leaving(4, -1, "app-options")) { return; }
+        root.go-to-contacts();
+    }
+    function go-to-contacts() {
+        root.list-shown = false;
+        root.open-contacts();
     }
     function close-peers-page() {
         root.peer-menu = -1;
@@ -2967,8 +3521,23 @@ export component AppWindow inherits Window {
             root.identity-back();
             return true;
         }
+        // Back on Connect is Not now (section 5.1); on a page it opened,
+        // that page's own Back, below.
+        if (root.connect-shown) {
+            root.connect-leave();
+            return true;
+        }
         if (root.share-open) {
             root.close-share();
+            return true;
+        }
+        // A dialog over a card page answers Back before the page does.
+        if (root.new-key-open) {
+            root.new-key-cancel();
+            return true;
+        }
+        if (root.own-discard-open) {
+            root.keep-editing();
             return true;
         }
         if (root.cards-page == CardsPage.contact && root.contact-confirming-delete) {
@@ -2981,6 +3550,10 @@ export component AppWindow inherits Window {
         }
         if (root.row-menu >= 0) {
             root.close-row-menu();
+            return true;
+        }
+        if (root.card-menu >= 0) {
+            root.close-card-menu();
             return true;
         }
         if (root.chats-menu-open) {
@@ -3073,6 +3646,9 @@ export component AppWindow inherits Window {
     // Placed, so the window's size is not taken from it (the minimum
     // above says why).
     panes := HorizontalLayout {
+        // Hidden under Connect: a screen reader's walk would otherwise
+        // reach Chats behind it.
+        visible: !root.connect-shown;
         x: 0;
         y: 0;
         width: root.width;
@@ -3182,7 +3758,10 @@ export component AppWindow inherits Window {
                     message: root.no-reach-text;
                     has-action: true;
                     action: root.peers-title;
-                    pressed => { root.open-peers-page(); }
+                    action-key: "no-reach-peers";
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "no-reach-peers";
+                    pressed => { root.open-peers-page("no-reach-peers"); }
                     focused(k) => { root.focus-id = k; }
                 }
             }
@@ -3744,7 +4323,7 @@ export component AppWindow inherits Window {
                 spacing: 8px;
                 // The top app bar, as Trust's: the back arrow at the line's
                 // start and the screen's title, which takes focus when Peers
-                // opens. The add page's back arrow is its Close.
+                // opens. The add page's and Show's back arrow is their close.
                 HorizontalLayout {
                     min-height: 64px;
                     spacing: 8px;
@@ -3754,7 +4333,7 @@ export component AppWindow inherits Window {
                             glyph: Glyph.back;
                             rtl: root.rtl;
                             ink: Palette.on-surface;
-                            label: root.back-label;
+                            label: root.peers-list-shown ? root.back-label : root.add-close-label;
                             focus-key: "close-peers";
                             pressed => {
                                 if (root.peers-add-open) { root.peers-add-closed(); } else if (root.peers-show-open) { root.peers-show-closed(); } else { root.close-peers-page(); }
@@ -3782,7 +4361,7 @@ export component AppWindow inherits Window {
                             glyph: Glyph.back;
                             rtl: root.rtl;
                             ink: Palette.on-surface;
-                            label: root.back-label;
+                            label: root.peers-list-shown ? root.back-label : root.add-close-label;
                             focus-key: "close-peers";
                             pressed => {
                                 if (root.peers-add-open) { root.peers-add-closed(); } else if (root.peers-show-open) { root.peers-show-closed(); } else { root.close-peers-page(); }
@@ -3830,7 +4409,7 @@ export component AppWindow inherits Window {
                     // themes, never themed, at least 240 px a side and not
                     // scaled by the font; one item labelled with how many
                     // lines it holds, the lines themselves listed below.
-                    if root.peers-show-open && root.show-code-shown: HorizontalLayout {
+                    if root.peers-show-open && root.show-code-shown && root.show-code-drawn: HorizontalLayout {
                         alignment: center;
                         Image {
                             source: root.show-code;
@@ -3840,6 +4419,17 @@ export component AppWindow inherits Window {
                             accessible-role: image;
                             accessible-label: root.show-code-label;
                         }
+                    }
+                    // No code holds the lines: why, and what to do instead, in
+                    // the code's place; read after the warning, no stop.
+                    if root.peers-show-open && root.show-code-shown && !root.show-code-drawn: Text {
+                        text: root.show-too-many;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        min-width: 0;
+                        accessible-role: text;
+                        accessible-label: self.text;
                     }
                     // The same lines as text, selectable, in the code font,
                     // broken at any character, never cut.
@@ -4446,7 +5036,7 @@ export component AppWindow inherits Window {
                             text: block.state;
                             font-weight: 500;
                             rtl: root.rtl;
-                            live: true;
+                            live: block.state-live;
                             focus-key: "block-state:" + block.handle;
                             focus-seq: root.focus-seq;
                             focus-wanted: root.focus-target == "block-state:" + block.handle;
@@ -4481,13 +5071,28 @@ export component AppWindow inherits Window {
                     dismissed(id) => { root.peers-snack-closed(id); }
                     focused(k) => { root.focus-id = k; }
                     action-focus-changed(f) => { root.peers-snack-action-focused = f; }
+                    changed pointer-on => { root.peers-snack-pointer-on = self.pointer-on; }
                 }
             }
         }
         // The card pages (design sections 5.2 and 6), in the conversation's
-        // place: the back arrow and the page's title, then the page.
-        if root.cards-page != CardsPage.none: VerticalLayout {
+        // place: the back arrow and the page's title, then the page. On the
+        // desktop, Escape that no control inside used is Back itself (design
+        // section 4: they do the same), so what Back answers first -- a
+        // confirmation over the page -- Escape answers first too
+        // (`escape_on_a_card_page_is_its_back`,
+        // `escape_on_a_contacts_delete_confirmation_cancels_it`).
+        if root.cards-page != CardsPage.none: FocusScope {
             visible: root.pane-shown;
+            focus-on-click: false;
+            focus-on-tab-navigation: false;
+            key-pressed(event) => {
+                if (event.text == Key.Escape && root.handle-back()) {
+                    return accept;
+                }
+                reject
+            }
+            VerticalLayout {
             padding: 12px;
             spacing: 8px;
             HorizontalLayout {
@@ -4560,6 +5165,8 @@ export component AppWindow inherits Window {
                             hue: row.hue;
                             rtl: root.rtl;
                             focus-key: "contact:" + row.handle;
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "contact:" + row.handle;
                             pressed => { root.contact-chosen(row.handle); }
                             focused(k) => { root.focus-id = k; }
                         }
@@ -4595,6 +5202,8 @@ export component AppWindow inherits Window {
                                         text: root.remove-photo-label;
                                         target: 48px;
                                         focus-key: "contact-remove-photo";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "contact-remove-photo";
                                         pressed => { root.contact-remove-photo(); }
                                         focused(k) => { root.focus-id = k; }
                                     }
@@ -4776,36 +5385,91 @@ export component AppWindow inherits Window {
                     // The own card: what a share sends, edited here.
                     if root.cards-page == CardsPage.own-card: VerticalLayout {
                         spacing: 12px;
-                        HorizontalLayout {
-                            spacing: 16px;
-                            PhotoCircle {
-                                size: 96px;
-                                has-photo: root.own-has-photo;
-                                photo: root.own-photo;
-                                letters: root.own-letters;
-                                hue: root.own-hue;
+                        // Field 1 (design 5.2): the circle, and under it its
+                        // buttons, one a line, then what could not be used.
+                        VerticalLayout {
+                            spacing: 8px;
+                            HorizontalLayout {
+                                alignment: start;
+                                Rectangle {
+                                    width: 96px;
+                                    height: 96px;
+                                    accessible-role: image;
+                                    accessible-label: root.own-circle-label;
+                                    PhotoCircle {
+                                        size: 96px;
+                                        has-photo: root.own-edit-has-photo;
+                                        photo: root.own-edit-photo;
+                                        letters: root.own-letters;
+                                        hue: root.own-hue;
+                                    }
+                                    // Preparing: the circle dimmed under the
+                                    // ring, so the two read as one state rather
+                                    // than a spinner over the initials (seen
+                                    // rendered).
+                                    if root.own-photo-preparing: Rectangle {
+                                        width: 96px;
+                                        height: 96px;
+                                        border-radius: 48px;
+                                        background: Palette.surface.with-alpha(0.7);
+                                    }
+                                    if root.own-photo-preparing: ProgressRing {
+                                        size: 64px;
+                                        reduced-motion: root.reduced-motion;
+                                    }
+                                }
                             }
                             VerticalLayout {
-                                alignment: center;
                                 spacing: 8px;
-                                horizontal-stretch: 1;
-                                Text {
+                                // No picker in this build: where a photo is
+                                // chosen instead.
+                                if !root.own-photo-choosable: Text {
                                     text: root.own-photo-note;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                     font-size: Type.body-medium;
                                     color: Palette.on-surface-variant;
                                     accessible-role: text;
                                     accessible-label: self.text;
                                 }
-                                if root.own-has-photo: HorizontalLayout {
+                                if root.own-photo-choosable: HorizontalLayout {
+                                    alignment: start;
+                                    ActionButton {
+                                        text: root.own-edit-has-photo ? root.change-photo-label : root.add-photo-label;
+                                        text-button: true;
+                                        wraps: true;
+                                        target: 48px;
+                                        focus-key: "own-choose-photo";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "own-choose-photo";
+                                        pressed => { root.own-card-choose-photo(); }
+                                        focused(k) => { root.focus-id = k; }
+                                    }
+                                }
+                                if root.own-edit-has-photo: HorizontalLayout {
                                     alignment: start;
                                     ActionButton {
                                         text: root.remove-photo-label;
+                                        text-button: true;
+                                        wraps: true;
                                         target: 48px;
                                         focus-key: "own-remove-photo";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "own-remove-photo";
                                         pressed => { root.own-card-remove-photo(); }
                                         focused(k) => { root.focus-id = k; }
                                     }
+                                }
+                                // Read after the circle; not a stop of its
+                                // own (design 5.2).
+                                if root.own-photo-unusable != "": Text {
+                                    text: root.own-photo-unusable;
+                                    wrap: word-wrap;
+                                    min-height: self.preferred-height;
+                                    font-size: Type.body-medium;
+                                    color: Palette.error;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
                                 }
                             }
                         }
@@ -4844,6 +5508,8 @@ export component AppWindow inherits Window {
                                 filled: true;
                                 target: 48px;
                                 focus-key: "own-save";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "own-save";
                                 pressed => { root.own-card-save(); }
                                 focused(k) => { root.focus-id = k; }
                             }
@@ -4895,7 +5561,9 @@ export component AppWindow inherits Window {
                                     text: row.title;
                                     rtl: root.rtl;
                                     focus-key: "share-again:" + row.handle;
-                                    pressed => { root.own-key-share-again-chosen(row.handle); }
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "share-again:" + row.handle;
+                                    pressed => { root.share-again(row.handle); }
                                     focused(k) => { root.focus-id = k; }
                                 }
                             }
@@ -4940,6 +5608,8 @@ export component AppWindow inherits Window {
                                 path: root.own-key-path;
                                 code-font: root.code-font;
                                 focus-key: "own-key-path";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "own-key-path";
                                 focused(k) => { root.focus-id = k; }
                             }
                             Text {
@@ -5023,6 +5693,19 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+            // A contact's change and its Undo (section 6.3), at the page's end.
+            if root.snack-shown && root.snack-on-cards: Snackbar {
+                text: root.snack-text;
+                undo: root.snack-undo;
+                undo-label: root.undo-label;
+                snack-id: root.snack-id;
+                focus-seq: root.focus-seq;
+                rtl: root.rtl;
+                undo-pressed(id) => { root.undo(id); }
+                dismissed(id) => { root.snack-closed(id); }
+                focused(k) => { root.focus-id = k; }
+            }
+        }
         }
         if !root.trust-page && !root.peers-page && root.cards-page == CardsPage.none: VerticalLayout {
             visible: root.pane-shown;
@@ -5236,6 +5919,40 @@ export component AppWindow inherits Window {
             // only its item closes (swipe spec section 5;
             // tests/look.rs, `a_leaving_message_closes_its_space_without_a_jump`).
             // Clipped so it hides what it covered.
+            // The card proposals that arrived before the first message
+            // (contact-cards design 5.4: each at its place in time); the
+            // others follow the message they came after.
+            for proposal in root.proposals: VerticalLayout {
+                if proposal.after < 0: ProposalEntry {
+                    proposal: proposal;
+                    swipe-key: root.swipe-key;
+                    swipe-offset: root.swipe-offset;
+                    swipe-armed: root.swipe-armed;
+                    swipe-tracking: root.swipe-tracking;
+                    reduced-motion: root.reduced-motion;
+                    rtl: root.rtl;
+                    code-font: root.code-font;
+                    focus-seq: root.focus-seq;
+                    focus-target: root.focus-target;
+                    card-menu: root.card-menu;
+                    window-width: root.width;
+                    swipe-moved(k, x0, y0, x1, y1, w, ww) => { root.swipe-moved(k, x0, y0, x1, y1, w, ww); }
+                    swipe-ended(k) => { root.swipe-ended(k); }
+                    swipe-cancelled(k) => { root.swipe-cancelled(k); }
+                    menu-haptic => { root.menu-haptic(); }
+                    open-menu(row, x, y, w, h, by-key) => { root.open-card-menu(row, x, y, w, h, by-key); }
+                    proposal-accept(h) => { root.proposal-accept(h); }
+                    proposal-decline(h) => { root.proposal-decline(h); }
+                    proposal-open-contact(h, n) => { root.proposal-open-contact(h, n); }
+                    copy-peer(text) => {
+                        root.proposal-copy-text = text;
+                        proposal-copy.select-all();
+                        proposal-copy.copy();
+                        proposal-copy.clear-selection();
+                    }
+                    focused(k) => { root.focus-id = k; }
+                }
+            }
             for row[index] in root.messages: row-box := Rectangle {
 
                 // Clipped only while it closes: a clipped row is skipped when
@@ -5337,14 +6054,15 @@ export component AppWindow inherits Window {
                     // long-press, Enter, the Menu key, Shift+F10, a secondary
                     // click, or the default action a screen reader activates.
                     function open-menu() {
-                        root.open-row-menu(row.handle, row.actions, item.source-label, row.label,
+                        if (!row.has-menu) { return; }
+                        root.open-row-menu(row.handle, row.actions, row.card ? "" : item.source-label, row.label,
                             bubble-column.absolute-position.x, bubble-column.absolute-position.y,
                             bubble-column.width, bubble-column.height);
                     }
                     accessible-action-default => { self.open-menu(); }
                     key-pressed(event) => {
-                        if (event.text == Key.Return || event.text == Key.Menu
-                            || (event.text == Key.F10 && event.modifiers.shift)) {
+                        if (row.has-menu && (event.text == Key.Return || event.text == Key.Menu
+                            || (event.text == Key.F10 && event.modifiers.shift))) {
                             self.open-menu();
                             return accept;
                         }
@@ -5414,9 +6132,13 @@ export component AppWindow inherits Window {
                     // and a secondary click opens it at once (section 4).
                     row-touch := TouchArea {
                         property <bool> drifted;
+                        // This press's long press has fired; as the
+                        // proposal's, never `running = false`.
+                        property <bool> fired;
                         pointer-event(event) => {
                             if (event.kind == PointerEventKind.down) {
                                 self.drifted = false;
+                                self.fired = false;
                                 FocusMode.keyboard = false;
                                 if (event.button == PointerEventButton.right) { item.open-menu(); }
                             }
@@ -5429,10 +6151,12 @@ export component AppWindow inherits Window {
                         }
                         Timer {
                             interval: Touch.long-press;
-                            running: row-touch.pressed && !row-touch.drifted && root.row-menu != row.handle
-                                && !root.swipe-tracking;
+                            // No tick on a row with no menu: an accepted
+                            // own card row (contact-cards 5.5, item 27).
+                            running: row.has-menu && row-touch.pressed && !row-touch.drifted
+                                && !row-touch.fired && root.row-menu != row.handle && !root.swipe-tracking;
                             triggered => {
-                                self.running = false;
+                                row-touch.fired = true;
                                 root.menu-haptic();
                                 item.open-menu();
                             }
@@ -5519,7 +6243,60 @@ export component AppWindow inherits Window {
                                             background: item.ink;
                                         }
                                     }
-                                    if !item.show-source: VerticalLayout {
+                                    // One's own card row: the card as it went, the
+                                    // identity's photo or initials, its name, and
+                                    // under it `CardSentLabel` (contact-cards 5.5).
+                                    if row.card: HorizontalLayout {
+                                        spacing: 12px;
+                                        alignment: start;
+                                        // Ringed in the bubble's ink: the
+                                        // identity's hue can be the bubble's
+                                        // own fill, and the initials then float
+                                        // with no edge (seen rendered at 390 px).
+                                        Rectangle {
+                                            width: 42px;
+                                            height: 42px;
+                                            border-radius: 21px;
+                                            border-width: 1px;
+                                            border-color: item.ink;
+                                            PhotoCircle {
+                                                x: 1px;
+                                                y: 1px;
+                                                has-photo: row.card-has-photo;
+                                                photo: row.card-photo;
+                                                letters: row.card-letters;
+                                                hue: root.own-hue;
+                                                backdrop: Palette.primary-container;
+                                            }
+                                        }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            spacing: 2px;
+                                            horizontal-stretch: 1;
+                                            Text {
+                                                text: row.card-name;
+                                                wrap: word-wrap;
+                                                min-width: 0;
+                                                min-height: self.preferred-height;
+                                                color: item.ink;
+                                                font-size: Type.body-large;
+                                                font-weight: 700;
+                                                horizontal-alignment: item.text-alignment;
+                                                accessible-role: none;
+                                            }
+                                            Text {
+                                                text: root.card-sent-label;
+                                                wrap: word-wrap;
+                                                min-width: 0;
+                                                min-height: self.preferred-height;
+                                                color: item.ink;
+                                                font-size: Type.body-medium;
+                                                horizontal-alignment: item.text-alignment;
+                                                accessible-role: none;
+                                            }
+                                        }
+                                    }
+                                    if !item.show-source && !row.card: VerticalLayout {
                                         spacing: 4px;
                                         // Mirrored right to left (section 7): the
                                         // indent, the quote bar and a list's marker
@@ -5704,35 +6481,50 @@ export component AppWindow inherits Window {
                         shown: item.has-focus;
                     }
                 }
-            }
-            }
-            // The conversation's card proposals, after its messages: each a
-            // row of its own (design section 5.4).
-            for proposal in root.proposals: HorizontalLayout {
-                padding-top: 8px;
-                ProposalCard {
-                    card: proposal;
-                    code-font: root.code-font;
-                    rtl: root.rtl;
-                    focus-seq: root.focus-seq;
-                    focus-target: root.focus-target;
-                    accept => { root.proposal-accept(proposal.handle); }
-                    decline => { root.proposal-decline(proposal.handle); }
-                    copy => {
-                        root.proposal-copy-text = proposal.peer;
-                        proposal-copy.select-all();
-                        proposal-copy.copy();
-                        proposal-copy.clear-selection();
+                // The card proposals that arrived after it, before the next
+                // message: in one layout, so a row without any keeps its
+                // spacing.
+                if row.cards-after > 0: VerticalLayout {
+                    for proposal in root.proposals: VerticalLayout {
+                        if proposal.after == row.handle: ProposalEntry {
+                            proposal: proposal;
+                            swipe-key: root.swipe-key;
+                            swipe-offset: root.swipe-offset;
+                            swipe-armed: root.swipe-armed;
+                            swipe-tracking: root.swipe-tracking;
+                            reduced-motion: root.reduced-motion;
+                            rtl: root.rtl;
+                            code-font: root.code-font;
+                            focus-seq: root.focus-seq;
+                            focus-target: root.focus-target;
+                            card-menu: root.card-menu;
+                            window-width: root.width;
+                            swipe-moved(k, x0, y0, x1, y1, w, ww) => { root.swipe-moved(k, x0, y0, x1, y1, w, ww); }
+                            swipe-ended(k) => { root.swipe-ended(k); }
+                            swipe-cancelled(k) => { root.swipe-cancelled(k); }
+                            menu-haptic => { root.menu-haptic(); }
+                            open-menu(row, x, y, w, h, by-key) => { root.open-card-menu(row, x, y, w, h, by-key); }
+                            proposal-accept(h) => { root.proposal-accept(h); }
+                            proposal-decline(h) => { root.proposal-decline(h); }
+                            proposal-open-contact(h, n) => { root.proposal-open-contact(h, n); }
+                            copy-peer(text) => {
+                                root.proposal-copy-text = text;
+                                proposal-copy.select-all();
+                                proposal-copy.copy();
+                                proposal-copy.clear-selection();
+                            }
+                            focused(k) => { root.focus-id = k; }
+                        }
                     }
-                    focused(k) => { root.focus-id = k; }
                 }
+            }
             }
             }
             }
             }
             // The snackbar (swipe spec section 6): above the composer,
             // never over it; one at a time.
-            if root.snack-shown && !root.snack-on-list: Snackbar {
+            if root.snack-shown && !root.snack-on-list && !root.snack-on-cards: Snackbar {
                 text: root.snack-text;
                 undo: root.snack-undo;
                 undo-label: root.undo-label;
@@ -5861,6 +6653,140 @@ export component AppWindow inherits Window {
             }
         }
     }
+    // Onboarding's Connect (add-a-peer section 5.1): the heading, the
+    // body, then what this visit did with Trust beside it, the two equal
+    // actions stacked, and Not now -- or Continue, the primary, once
+    // something was done. Over the panes as the identity steps are; the
+    // pages it opens are drawn in Peers' place.
+    if root.connect-shown: FocusScope {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        // Escape is Back: Not now.
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.connect-leave();
+                return accept;
+            }
+            reject
+        }
+        Rectangle { background: Palette.surface; }
+        TouchArea { }
+        VerticalLayout {
+            padding-top: root.safe-area-insets.top + 8px;
+            padding-bottom: root.safe-area-insets.bottom + 8px;
+            padding-left: root.safe-area-insets.left + 16px;
+            padding-right: root.safe-area-insets.right + 16px;
+            spacing: 12px;
+            Flickable {
+                vertical-stretch: 1;
+                content-height: connect-column.preferred-height;
+                connect-column := VerticalLayout {
+                    width: parent.width;
+                    // Room for a control's focus ring, which the
+                    // Flickable would clip.
+                    padding: 5px;
+                    spacing: 16px;
+                    alignment: start;
+                    FocusHeading {
+                        text: root.connect-title;
+                        font-size: Type.title-large;
+                        font-weight: 500;
+                        rtl: root.rtl;
+                        wraps: true;
+                        focus-key: "connect-title";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "connect-title";
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    Text {
+                        text: root.connect-body;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    // Focusable, as a step-two block's state line is: a
+                    // late read that changes the words under focus is
+                    // read there, with no status beside it (add-a-peer
+                    // section 5.1). Never a live region: the render says
+                    // the line once by the announcement (tests/connect.rs,
+                    // a_late_read_under_focus_on_the_line_is_read_there).
+                    if root.connect-line != "": FocusNote {
+                        text: root.connect-line;
+                        font-size: Type.body-large;
+                        rtl: root.rtl;
+                        live: false;
+                        focus-key: "connect-line";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "connect-line";
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    if root.connect-line != "" && root.connect-line-trust: HorizontalLayout {
+                        alignment: start;
+                        ActionButton {
+                            text: root.trust-this-label;
+                            target: 48px;
+                            focus-key: "connect-trust";
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "connect-trust";
+                            pressed => { root.connect-trust(); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                    ActionButton {
+                        text: root.add-address-label;
+                        tonal: true;
+                        wraps: true;
+                        target: 48px;
+                        focus-key: "connect-add";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "connect-add";
+                        pressed => { root.connect-add(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    ActionButton {
+                        text: root.show-my-address-label;
+                        tonal: true;
+                        wraps: true;
+                        target: 48px;
+                        focus-key: "connect-show";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "connect-show";
+                        pressed => { root.connect-show(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+            if root.connect-line != "": ActionButton {
+                text: root.continue-label;
+                filled: true;
+                wraps: true;
+                target: 48px;
+                focus-key: "connect-continue";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "connect-continue";
+                pressed => { root.connect-leave(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            if root.connect-line == "": HorizontalLayout {
+                alignment: center;
+                ActionButton {
+                    text: root.not-now-label;
+                    text-button: true;
+                    target: 48px;
+                    focus-key: "connect-not-now";
+                    pressed => { root.connect-leave(); }
+                    focused(k) => { root.focus-id = k; }
+                }
+            }
+        }
+    }
     // Never drawn: measures "Trust this peer" for the trust page's field
     // row, placed so it takes no room in any layout.
     add-measure := Text {
@@ -5929,7 +6855,7 @@ export component AppWindow inherits Window {
                 rtl: root.rtl;
                 pressed => {
                     root.chats-menu-open = false;
-                    root.open-peers-page();
+                    root.open-peers-page("app-options");
                 }
                 closed => { root.close-chats-menu(); }
                 focused(k) => { root.focus-id = k; }
@@ -5941,8 +6867,7 @@ export component AppWindow inherits Window {
                 rtl: root.rtl;
                 pressed => {
                     root.chats-menu-open = false;
-                    root.list-shown = false;
-                    root.open-contacts();
+                    root.open-contacts-page();
                 }
                 closed => { root.close-chats-menu(); }
                 focused(k) => { root.focus-id = k; }
@@ -6069,7 +6994,9 @@ export component AppWindow inherits Window {
                 closed => { root.close-row-menu(); }
                 focused(k) => { root.focus-id = k; }
             }
-            MenuItem {
+            // No Show source on an own card row: a card has no markdown
+            // source (contact-cards 5.5), so its menu passes none.
+            if root.row-menu-source != "": MenuItem {
                 text: root.row-menu-source;
                 detail: root.row-menu-detail;
                 iconed: true;
@@ -6083,6 +7010,87 @@ export component AppWindow inherits Window {
                     root.close-row-menu();
                 }
                 closed => { root.close-row-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+        }
+    }
+    // A proposal's menu: the same answers its row shows, with the case's
+    // labels -- Accept and Decline, or Close alone -- then Copy PeerId; no
+    // Show source, since a card has no markdown source (design section
+    // 5.4.4). Placed and closed as a message's menu is.
+    if root.card-menu >= 0: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => {
+            FocusMode.keyboard = false;
+            root.close-card-menu();
+        }
+    }
+    if root.card-menu >= 0: Rectangle {
+        property <length> below: root.card-menu-y + root.card-menu-h + 4px;
+        width: min(root.width - 16px, max(200px, card-menu-items.preferred-width));
+        height: card-menu-items.preferred-height;
+        x: max(8px, min(root.card-menu-x, root.width - self.width - 8px));
+        y: self.below + self.height <= root.height - root.safe-area-insets.bottom - 8px ? self.below
+            : max(root.safe-area-insets.top + 8px, root.card-menu-y - self.height - 4px);
+        background: Palette.surface-container-high;
+        border-radius: 4px;
+        drop-shadow-blur: 8px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: #00000052;
+        TouchArea {}
+        card-menu-items := VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            if !root.card-menu-row.closes: MenuItem {
+                text: root.card-menu-row.accept;
+                detail: root.card-menu-row.full-name;
+                iconed: true;
+                kind: SwipeKind.accept;
+                focus-key: "card-menu-accept:" + root.card-menu;
+                first: true;
+                rtl: root.rtl;
+                pressed => {
+                    let handle = root.card-menu;
+                    root.close-card-menu();
+                    root.proposal-accept(handle);
+                }
+                closed => { root.close-card-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            // Close, in case S, is Decline's answer under Accept's label.
+            MenuItem {
+                text: root.card-menu-row.closes ? root.card-menu-row.accept : root.card-menu-row.decline;
+                detail: root.card-menu-row.full-name;
+                iconed: true;
+                kind: SwipeKind.decline;
+                focus-key: "card-menu-decline:" + root.card-menu;
+                first: root.card-menu-row.closes;
+                rtl: root.rtl;
+                pressed => {
+                    let handle = root.card-menu;
+                    root.close-card-menu();
+                    root.proposal-decline(handle);
+                }
+                closed => { root.close-card-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            MenuItem {
+                text: root.card-menu-row.copy;
+                detail: root.card-menu-row.peer;
+                iconed: true;
+                focus-key: "card-menu-copy:" + root.card-menu;
+                rtl: root.rtl;
+                pressed => {
+                    root.close-card-menu();
+                    root.proposal-copy-text = root.card-menu-row.peer;
+                    proposal-copy.select-all();
+                    proposal-copy.copy();
+                    proposal-copy.clear-selection();
+                }
+                closed => { root.close-card-menu(); }
                 focused(k) => { root.focus-id = k; }
             }
         }
@@ -6333,6 +7341,102 @@ export component AppWindow inherits Window {
                             root.close-menu();
                             root.identifier-copied();
                         }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+        }
+    }
+
+    // Back with unsaved changes on the own card (contact-cards design 5.2):
+    // a basic dialog over a scrim; focus opens on Continue editing, and
+    // Escape, Back and the scrim are Continue editing. Tab stays on its two
+    // buttons.
+    if root.own-discard-open: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => {
+            FocusMode.keyboard = false;
+            root.keep-editing();
+        }
+        Rectangle { background: #00000052; }
+    }
+    if root.own-discard-open: discard := FocusScope {
+        focus-gained(reason) => {
+            if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+            if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        }
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: min(root.width - 48px, 560px);
+        height: discard-box.preferred-height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.keep-editing();
+                return accept;
+            }
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                FocusMode.keyboard = true;
+                if (discard-keep.has-focus) {
+                    discard-confirm.focus();
+                } else {
+                    discard-keep.focus();
+                }
+                return accept;
+            }
+            reject
+        }
+        property <bool> taken;
+        Timer {
+            interval: 1ms;
+            running: !discard.taken;
+            triggered => {
+                discard.taken = true;
+                discard-keep.focus();
+            }
+        }
+        discard-box := Rectangle {
+            background: Palette.surface-container-high;
+            border-radius: 28px;
+            TouchArea {}
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                Text {
+                    text: root.discard-title;
+                    font-size: Type.title-large;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                // One action a line, the full width, as the proposal's
+                // (contact-cards 5.4): "Close without saving" does not fit
+                // beside Continue editing on a phone, and Slint 1.18
+                // cannot choose a layout from a label's width
+                // (tests/cards.rs,
+                // `the_unsaved_changes_dialog_fits_a_narrow_window_with_large_text`).
+                VerticalLayout {
+                    spacing: 8px;
+                    discard-confirm := ActionButton {
+                        text: root.discard-label;
+                        detail: root.discard-title;
+                        text-button: true;
+                        wraps: true;
+                        target: 48px;
+                        focus-key: "discard-confirm";
+                        pressed => { root.discard-changes(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    discard-keep := ActionButton {
+                        text: root.keep-editing-label;
+                        filled: true;
+                        wraps: true;
+                        target: 48px;
+                        focus-key: "discard-keep";
+                        pressed => { root.keep-editing(); }
                         focused(k) => { root.focus-id = k; }
                     }
                 }

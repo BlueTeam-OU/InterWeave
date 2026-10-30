@@ -19,9 +19,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use interweave_human_ui_model::{
-    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, Intent, KeyProblem,
-    KeyStep, KeyView, Photo, PhotoEdit, ProposalItem, ProposalNote, RowId, UiModel, UiText, fill,
-    isolated, name_problem, placeholder_en, short_peer,
+    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, FocusTarget, Intent,
+    KeyProblem, KeyStep, KeyView, OwnPhotoStep, Photo, PhotoChange, PhotoEdit, ProposalItem,
+    ProposalNote, RowId, UiModel, UiText, fill, isolated, name_problem, placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
@@ -31,7 +31,7 @@ use slint::{
 
 use crate::generated::{
     AppWindow, CardsPage, ContactListRow, ContactRouteRow, ProposalNoteRow, ProposalRow,
-    ShareAgainRow,
+    ShareAgainRow, SwipeKind,
 };
 use crate::{Input, Shared, View, enqueue};
 
@@ -45,12 +45,28 @@ pub(crate) enum CardsInput {
     /// A proposal's Accept or Decline: the model's own intent for the row
     /// as it was drawn, offered again when taken or dropped.
     Answer(Intent),
+    /// The same answer by a touch swipe (design section 5.4.4), which
+    /// leaves focus where it was unless it was inside the row (swipe spec
+    /// section 7).
+    Swiped(Intent),
     /// Contacts or the own card opened from the app's options.
     Open(Opened),
     /// The card page closed: Back, Escape, or the back arrow.
     Close,
+    /// The card page closed on the way to another page: as `Close`,
+    /// without its way back.
+    CloseOnward,
     /// A contact opened from the list, by its id.
     Contact(String),
+    /// A proposal's "Open your contact" link: the row's handle and the
+    /// note's place among its notes.
+    ProposalContact(i32, i32),
+    /// The own card's Add a photo or Change photo: the platform's picker.
+    ChoosePhoto,
+    /// What the picker came to for its request: the image as its file
+    /// holds it, or `None` when nothing was chosen (or it could not be
+    /// read).
+    PhotoPicked(PhotoRequest, Option<Vec<u8>>),
     /// A contact's name saved: the contact, and the field as typed.
     SaveName(String, String),
     /// A contact's photo removed.
@@ -77,6 +93,27 @@ pub(crate) enum CardsInput {
     OpenCardFromShare,
 }
 
+/// One opening of the photo picker, minted by the editor before the
+/// picker opens, unique in the process, and carried back with its answer:
+/// only the answer to the editor's latest request, made while that editor
+/// is still open, is taken, so a slow read cannot replace a newer pick,
+/// nor an old editor's pick reach a new one (j68 P3-2,
+/// `a_late_answer_to_an_earlier_pick_changes_nothing`,
+/// `an_answer_after_the_editor_closed_and_reopened_changes_nothing`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhotoRequest(pub u64);
+
+/// What the editor asks of the platform's photo picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhotoPick {
+    /// Open the picker for this request. An earlier request's read still
+    /// running is no longer wanted.
+    Open(PhotoRequest),
+    /// The editor that asked closed: the outstanding request's read is no
+    /// longer wanted.
+    Abandon,
+}
+
 /// Which card page the app's options opened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Opened {
@@ -93,10 +130,50 @@ pub(crate) struct Drawn {
     answers: HashMap<i32, (Intent, Intent)>,
     /// Each drawn contact row's id, by its handle.
     contacts: HashMap<i32, String>,
+    /// The contact each drawn proposal link opens, by the row's handle and
+    /// the note's place.
+    links: HashMap<(i32, i32), String>,
     /// The contact whose page is drawn.
     contact: Option<String>,
     /// The conversation the share sheet can share for.
     shareable: Option<ConversationKey>,
+    /// The saved own card as the editor's Back judges it: its name and
+    /// surname, and whether the editor's photo differs from it.
+    own_saved: Option<(String, Option<String>, bool)>,
+    /// A photo removed or picked in the editor that `own_saved` does not
+    /// yet show: set when the queue accepts it, and cleared at the first
+    /// render after its take that runs outside `View::take_events`. The
+    /// model applies what a take raised before any such render, while a
+    /// take can render before the model has it, and after the take nothing
+    /// renders until the facade answers
+    /// (`back_after_a_queued_photo_change_asks`,
+    /// `back_after_a_photo_change_taken_and_not_yet_drawn_asks`,
+    /// `back_after_a_second_unusable_pick_closes_at_once`).
+    pub(crate) own_photo_queued: bool,
+    /// Such a change has been taken since the last render outside a take.
+    own_photo_taken: bool,
+    /// The photo picker's request the open editor waits on, if any.
+    photo_request: Option<PhotoRequest>,
+}
+
+/// The last photo request minted in this process: unique across views, so
+/// a read an old window's picker started cannot answer a new window's
+/// request of the same number (#483, the judge's aside).
+static PHOTO_REQUESTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+impl Drawn {
+    /// Whether `input` removes or picks the editor's photo: a change Back
+    /// asks about before the model has it. An answer to any request but
+    /// the one waited on changes nothing.
+    pub(crate) fn changes_own_photo(&self, input: &Input) -> bool {
+        match input {
+            Input::Cards(CardsInput::RemoveOwnPhoto) => true,
+            Input::Cards(CardsInput::PhotoPicked(request, Some(_))) => {
+                self.photo_request == Some(*request)
+            }
+            _ => false,
+        }
+    }
 }
 
 /// The card screens' callbacks: each becomes an input, taken as the others
@@ -109,13 +186,41 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     window.on_open_contacts(on(shared, CardsInput::Open(Opened::Contacts)));
     window.on_open_own_card(on(shared, CardsInput::Open(Opened::OwnCard)));
     window.on_close_cards(on(shared, CardsInput::Close));
+    window.on_close_cards_onward(on(shared, CardsInput::CloseOnward));
     window.on_own_card_remove_photo(on(shared, CardsInput::RemoveOwnPhoto));
+    window.on_own_card_choose_photo(on(shared, CardsInput::ChoosePhoto));
+    // Unsaved, as Save would write it: names trimmed, an empty surname
+    // none, and the photo as the model judges it (design 5.2).
+    let s = Rc::clone(shared);
+    window.on_own_card_unsaved(move |given, surname| {
+        let shared = s.borrow();
+        let Some((saved_given, saved_surname, photo_unsaved)) = shared.cards.own_saved.as_ref()
+        else {
+            return false;
+        };
+        let surname = surname.trim();
+        shared.cards.own_photo_queued
+            || *photo_unsaved
+            || given.trim() != saved_given
+            || saved_surname.as_deref().unwrap_or("") != surname
+    });
+    let s = Rc::clone(shared);
+    window.on_own_photo_picked_done(move || {
+        let picked = s.borrow().photo_pick.lock().ok().and_then(|mut p| p.take());
+        if let Some(picked) = picked {
+            enqueue(&s, Input::Cards(picked));
+        }
+    });
     let s = Rc::clone(shared);
     window.on_proposal_accept(move |handle| {
         let answer = s.borrow().cards.answers.get(&handle).map(|a| a.0.clone());
         if let Some(intent) = answer {
             enqueue(&s, Input::Cards(CardsInput::Answer(intent)));
         }
+    });
+    let s = Rc::clone(shared);
+    window.on_proposal_open_contact(move |handle, note| {
+        enqueue(&s, Input::Cards(CardsInput::ProposalContact(handle, note)));
     });
     let s = Rc::clone(shared);
     window.on_proposal_decline(move |handle| {
@@ -201,7 +306,7 @@ fn key_reason(problem: &KeyProblem) -> &'static str {
 
 /// A name's initials, as the look spec draws an avatar without a photo:
 /// the first character of its first word and of its last, uppercased.
-fn initials(name: &str) -> String {
+pub(crate) fn initials(name: &str) -> String {
     let words: Vec<&str> = name.split_whitespace().collect();
     let first = words.first().and_then(|w| w.chars().next());
     let last = (words.len() > 1)
@@ -234,7 +339,7 @@ fn contact_hue(contact: &ContactView) -> i32 {
     })
 }
 
-fn image(photo: &Photo) -> Image {
+pub(crate) fn image(photo: &Photo) -> Image {
     Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
         &photo.rgba,
         photo.width,
@@ -246,30 +351,75 @@ fn image(photo: &Photo) -> Image {
 /// came.
 fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     let name = isolated(&p.name);
+    let swipe = p.swipe();
+    let swipe_key = proposal_swipe_key(p.row);
     let context = match &p.accept {
         AcceptLine::Creates => text(UiText::CardWillCreate).to_owned(),
-        AcceptLine::Updates(contact) => fill(
-            text(UiText::CardWillUpdate),
-            &[("contact", &isolated(contact))],
-        ),
+        AcceptLine::Updates(contact) => {
+            fill(text(UiText::CardUpdates), &[("name", &isolated(contact))])
+        }
+        // Case S says the card matches only when nothing is kept by a
+        // local choice: otherwise the kept lines stand in its place
+        // (design 5.4.1 as #443 left it).
+        AcceptLine::Matches(_)
+            if p.values.kept_name || p.values.photo != PhotoChange::Unchanged =>
+        {
+            String::new()
+        }
         AcceptLine::Matches(contact) => {
             fill(text(UiText::CardSame), &[("contact", &isolated(contact))])
         }
     };
-    let notes: Vec<ProposalNoteRow> = p
-        .notes
-        .iter()
-        .map(|n| {
+    // What Accept changes and which of the person's edits it keeps, right
+    // after the context line (design section 5.4.1, cases U and E).
+    let contact = match &p.accept {
+        AcceptLine::Updates(c) | AcceptLine::Matches(c) => c.as_str(),
+        AcceptLine::Creates => "",
+    };
+    let values = &p.values;
+    let value_lines = [
+        values
+            .new_name
+            .as_ref()
+            .map(|name| fill(text(UiText::CardUpdatesName), &[("name", &isolated(name))])),
+        values
+            .kept_name
+            .then(|| fill(text(UiText::CardKeepsEdit), &[("name", &isolated(contact))])),
+        match values.photo {
+            PhotoChange::Unchanged => None,
+            PhotoChange::New => Some(text(UiText::CardUpdatesPhoto).to_owned()),
+            PhotoChange::Removed => Some(text(UiText::CardUpdatesPhotoRemoved).to_owned()),
+            PhotoChange::Kept => Some(text(UiText::CardKeepsPhoto).to_owned()),
+            PhotoChange::KeptNone => Some(text(UiText::CardKeepsNoPhoto).to_owned()),
+        },
+    ]
+    .into_iter()
+    .flatten()
+    .map(|line| ProposalNoteRow {
+        text: line.into(),
+        warning: false,
+        link: SharedString::new(),
+    });
+    let notes: Vec<ProposalNoteRow> = value_lines
+        .chain(p.notes.iter().map(|n| {
             let (template, contact, warning) = match n {
-                ProposalNote::SameName(c) => (UiText::CardSameName, c, true),
+                ProposalNote::SameName(c) => (UiText::CardSameName, &c.name, true),
                 ProposalNote::SharesNode(c) => (UiText::CardSharesNode, c, false),
                 ProposalNote::KeyMatches(c) => (UiText::CardKeyMatches, c, false),
+            };
+            // The same-name contact's page, a step away (design 5.4.1).
+            let link = match n {
+                ProposalNote::SameName(c) => {
+                    fill(text(UiText::ShowContact), &[("name", &isolated(&c.name))])
+                }
+                ProposalNote::SharesNode(_) | ProposalNote::KeyMatches(_) => String::new(),
             };
             ProposalNoteRow {
                 text: fill(text(template), &[("contact", &isolated(contact))]).into(),
                 warning,
+                link: link.into(),
             }
-        })
+        }))
         .collect();
     let key_change = match &p.key {
         KeyView::Changed { recorded } => fill(
@@ -280,9 +430,15 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     };
     ProposalRow {
         handle,
+        after: -1,
+        day: SharedString::new(),
         heading: fill(text(UiText::CardProposal), &[("name", &name)]).into(),
         full_name: name.into(),
-        photo_line: if p.has_photo {
+        // Only when Accept would write the card's photo: a local choice
+        // keeps it unused, and its kept line says so (design 5.4).
+        photo_line: if p.has_photo
+            && !matches!(p.values.photo, PhotoChange::Kept | PhotoChange::KeptNone)
+        {
             text(UiText::CardIncludesPhoto).into()
         } else {
             SharedString::new()
@@ -304,12 +460,31 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
         closes: matches!(p.accept, AcceptLine::Matches(_)),
         accept: text(p.accept_text()).into(),
         decline: text(UiText::CardDecline).into(),
+        swipe_key: swipe_key.into(),
+        end_kind: if swipe.accept {
+            SwipeKind::Accept
+        } else {
+            SwipeKind::None
+        },
+        end_label: text(p.accept_text()).into(),
+        start_kind: if swipe.decline {
+            SwipeKind::Decline
+        } else {
+            SwipeKind::None
+        },
+        start_label: text(UiText::CardDecline).into(),
         copy: text(UiText::CopyPeerId).into(),
         answered: false,
         answer: SharedString::new(),
         photo_note: SharedString::new(),
         hint: SharedString::new(),
     }
+}
+
+/// A proposal row's swipe key: by its card's row, which a re-render
+/// keeps, where its handle is its place in the list.
+fn proposal_swipe_key(row: RowId) -> String {
+    format!("p:{}", row.get())
 }
 
 /// The confirmation row an Accept left in its proposal's place (design
@@ -322,12 +497,14 @@ fn answer_row(handle: i32, a: &CardAnswer, name: &str, hinted: bool) -> Proposal
     };
     ProposalRow {
         handle,
+        after: -1,
+        day: SharedString::new(),
         answered: true,
         answer: fill(text(template), &[("name", &isolated(name))]).into(),
-        photo_note: if a.photo_dropped {
-            text(UiText::CardPhotoNotUsed).into()
-        } else {
-            SharedString::new()
+        photo_note: match (a.photo_dropped, a.photo_removed) {
+            (true, true) => text(UiText::CardPhotoNotUsedRemoved).into(),
+            (true, false) => text(UiText::CardPhotoNotUsed).into(),
+            (false, _) => SharedString::new(),
         },
         hint: if hinted {
             text(UiText::CardUndoHint).into()
@@ -349,6 +526,12 @@ enum Entry {
     Answer(CardAnswer, String, bool),
 }
 
+/// The message each drawn card row follows, by its handle, for the reading
+/// order an Accept's snackbar's span is judged in.
+fn shared_after(shared: &RefCell<crate::Shared>, places: &[(i32, String)]) {
+    shared.borrow_mut().order.card_after = places.iter().map(|(after, _)| *after).collect();
+}
+
 impl Entry {
     fn place(&self) -> (u64, RowId) {
         match self {
@@ -366,7 +549,15 @@ pub(crate) struct CardScreens {
     pub(crate) page: Option<CardsPage>,
     contact: Option<String>,
     proposals_shown: Vec<Entry>,
+    /// Where each drawn card row sits among the messages: the message it
+    /// follows and its day separator, as last drawn.
+    proposal_places: Vec<(i32, String)>,
     proposals: Option<Rc<VecModel<ProposalRow>>>,
+    /// Each drawn row's card and whether it is a confirmation row, in the
+    /// order drawn: the rows are updated in place by it, so a touch on a
+    /// row judged again keeps its grab (design section 5.4.4: a left drag
+    /// goes on when the warning appears).
+    proposal_keys: Vec<(RowId, bool)>,
     /// Each drawn row's handle and whether it is a confirmation row, by
     /// the card's row: where [`FocusTarget::Proposal`] moves focus.
     ///
@@ -394,20 +585,77 @@ pub(crate) struct CardScreens {
     /// A share-again row chosen: its conversation's sheet opens once it is
     /// on screen.
     share_on_open: Option<ConversationKey>,
+    /// The proposal link that opened the contact page: its conversation,
+    /// its card and the note's place (contact-cards design section 9's
+    /// focus table: Back returns to the control that opened it).
+    return_to_link: Option<(ConversationKey, RowId, i32)>,
+    /// That link, focused once its conversation draws it again.
+    focus_link: Option<(RowId, i32)>,
+    /// The platform's photo picker, when the root gives one (Android's
+    /// Photo Picker); the desktop build has its file dialog.
+    pub(crate) photo_picker: Option<Rc<dyn Fn(PhotoPick)>>,
+    /// The editor's photo step as last drawn: what a change of it says.
+    own_step_drawn: Option<OwnPhotoStep>,
+    /// The photo the editor's circle was last given, once it was given
+    /// one: redrawn whenever what it should show changes, a saved card's
+    /// photo included, not only when the step does (#449 F1).
+    own_photo_drawn: Option<DrawnPhoto>,
+    /// A render made by `View::take_events` itself, before the model has
+    /// applied what the take raised.
+    pub(crate) rendering_in_take: bool,
+    /// A contact deleted from its page: the list's first row takes focus
+    /// once the list is drawn without it (design section 9's focus table).
+    deleted: Option<String>,
+}
+
+impl CardScreens {
+    /// The ways back a card page was opened with -- to a proposal's link,
+    /// to a share sheet -- forgotten whenever a card page opens: from the
+    /// app options, from the share sheet, from a proposal's link. A page
+    /// left some other way (another conversation chosen) keeps them only
+    /// until then, and a later Back is that page's own (#440 F1).
+    fn forget_returns(&mut self) {
+        self.return_to_link = None;
+        self.focus_link = None;
+        self.return_to_share = None;
+    }
 }
 
 impl View {
     /// Take one card input: an intent for the model, or a page change.
     pub(crate) fn take_cards(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
         let window = self.window.clone_strong();
+        let by_button = matches!(input, CardsInput::Answer(_));
         match input {
-            CardsInput::Answer(intent) => {
+            CardsInput::Answer(intent) | CardsInput::Swiped(intent) => {
                 let offered = match &intent {
                     Intent::AcceptCard(row) | Intent::DeclineCard(row) => {
-                        let offered = model.card_actions(*row).contains(&intent);
+                        // A swipe is judged again here, on the row as the
+                        // model holds it now: a card judged again into the
+                        // same-name warning since the finger lifted accepts
+                        // nothing (design section 5.4.4, #433 round 3 F1;
+                        // `a_swiped_accept_is_refused_once_the_row_is_warned`).
+                        let swipe_allows = by_button
+                            || self
+                                .shown
+                                .as_ref()
+                                .and_then(|key| {
+                                    model.proposals(key).into_iter().find(|p| p.row == *row)
+                                })
+                                .is_some_and(|p| {
+                                    let swipe = p.swipe();
+                                    if matches!(intent, Intent::AcceptCard(_)) {
+                                        swipe.accept
+                                    } else {
+                                        swipe.decline
+                                    }
+                                });
+                        let offered = swipe_allows && model.card_actions(*row).contains(&intent);
                         // The row's own button: its answer moves focus
                         // whatever the focus id last said (swipe spec 7).
-                        if offered {
+                        // A swipe claims nothing: focus moves only if it
+                        // was inside the row.
+                        if offered && by_button {
                             self.cards.pressed = Some(*row);
                         }
                         offered
@@ -436,10 +684,23 @@ impl View {
                 }
             }
             CardsInput::OpenCardFromShare => {
+                let raised = self.take_cards(model, CardsInput::Open(Opened::OwnCard));
+                // After the open, which forgets every earlier way back.
                 self.cards.return_to_share = self.shown.clone();
-                return self.take_cards(model, CardsInput::Open(Opened::OwnCard));
+                return raised;
+            }
+            // Your card while its editor is open leaves nothing: the
+            // editor stays with its changes, nothing is asked, and focus
+            // goes where the page's opening puts it (design 5.2,
+            // `your_card_while_its_editor_is_open_leaves_nothing`).
+            CardsInput::Open(Opened::OwnCard)
+                if self.page == crate::Page::Cards
+                    && self.cards.page == Some(CardsPage::OwnCard) =>
+            {
+                self.focus_key_after_draw("close-cards".to_owned());
             }
             CardsInput::Open(opened) => {
+                self.forget_page();
                 let page = match opened {
                     Opened::Contacts => CardsPage::Contacts,
                     Opened::OwnCard => CardsPage::OwnCard,
@@ -452,28 +713,53 @@ impl View {
                 self.cards.own_errors = (String::new(), String::new());
                 window.set_cards_page(page);
                 self.focus_key_after_draw("close-cards".to_owned());
+                // The editor opens on the card as saved.
+                if page == CardsPage::OwnCard && model.own_photo().is_some() {
+                    return vec![Intent::ForgetOwnPhoto];
+                }
             }
-            CardsInput::Close => {
+            input @ (CardsInput::Close | CardsInput::CloseOnward) => {
+                if matches!(input, CardsInput::CloseOnward) {
+                    self.cards.forget_returns();
+                }
                 let own = self.cards.page == Some(CardsPage::OwnCard);
                 self.close_cards(&window);
-                // Back from the card page to the share sheet that opened it.
-                if let Some(key) = self.cards.return_to_share.take()
-                    && self.shown.as_ref() == Some(&key)
-                {
-                    window.set_share_open(true);
-                }
+                self.return_from_cards(&window);
                 if own {
-                    return vec![Intent::CloseKeyStep];
+                    // A photo chosen or removed and not saved goes with
+                    // the editor.
+                    let forget = model.own_photo().map(|_| Intent::ForgetOwnPhoto);
+                    return std::iter::once(Intent::CloseKeyStep)
+                        .chain(forget)
+                        .collect();
                 }
             }
             CardsInput::Contact(id) => {
                 if model.contact(&id).is_some() {
-                    self.cards.page = Some(CardsPage::Contact);
-                    self.cards.contact = Some(id);
-                    self.cards.contact_drawn = None;
-                    self.cards.contact_error.clear();
-                    window.set_cards_page(CardsPage::Contact);
-                    self.focus_key_after_draw("close-cards".to_owned());
+                    self.open_contact(&window, id);
+                }
+            }
+            CardsInput::ProposalContact(handle, note) => {
+                let id = self
+                    .shared
+                    .borrow()
+                    .cards
+                    .links
+                    .get(&(handle, note))
+                    .cloned();
+                let row = self
+                    .cards
+                    .drawn_rows
+                    .iter()
+                    .find(|(_, drawn)| **drawn == (handle, false))
+                    .map(|(row, _)| *row);
+                if let (Some(id), Some(row), Some(key)) = (id, row, self.shown.clone())
+                    && model.contact(&id).is_some()
+                {
+                    self.cards.forget_returns();
+                    self.cards.return_to_link = Some((key, row, note));
+                    self.page = crate::Page::Cards;
+                    self.open_contact(&window, id);
                 }
             }
             CardsInput::SaveName(id, typed) => {
@@ -505,7 +791,10 @@ impl View {
                     self.cards.page = Some(CardsPage::Contacts);
                     self.cards.contact = None;
                     window.set_cards_page(CardsPage::Contacts);
+                    // Until the list is drawn without it, the page's back
+                    // arrow; then its first row.
                     self.focus_key_after_draw("close-cards".to_owned());
+                    self.cards.deleted = Some(id);
                     return vec![intent];
                 }
             }
@@ -532,22 +821,25 @@ impl View {
                 if model.identity().is_none() {
                     return Vec::new();
                 }
+                // Closed back to where it was opened from, as Back closes
+                // it (design 5.2).
+                window.invoke_cards_left();
                 self.close_cards(&window);
-                return vec![Intent::SetOwnCard {
-                    name: given,
-                    surname: (!surname.is_empty()).then_some(surname),
-                    photo: PhotoEdit::Keep,
-                }];
+                self.return_from_cards(&window);
+                // Its key step closes with the page, as on Back; the photo
+                // chosen goes with the save itself.
+                return vec![
+                    Intent::SetOwnCard {
+                        name: given,
+                        surname: (!surname.is_empty()).then_some(surname),
+                        photo: model.own_photo_edit(),
+                    },
+                    Intent::CloseKeyStep,
+                ];
             }
-            CardsInput::RemoveOwnPhoto => {
-                if let Some(own) = model.identity().filter(|i| i.has_photo) {
-                    return vec![Intent::SetOwnCard {
-                        name: own.given.clone(),
-                        surname: own.surname.clone(),
-                        photo: PhotoEdit::Remove,
-                    }];
-                }
-            }
+            photo @ (CardsInput::RemoveOwnPhoto
+            | CardsInput::ChoosePhoto
+            | CardsInput::PhotoPicked(..)) => return self.take_own_photo(model, photo),
             CardsInput::Share(key) => {
                 // Shared only for the conversation still shown, by the
                 // model's own offer: never a channel, never on its own.
@@ -559,12 +851,189 @@ impl View {
         Vec::new()
     }
 
+    /// The own card editor's photo (contact-cards design 5.2).
+    fn take_own_photo(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
+        let input = {
+            let mut shared = self.shared.borrow_mut();
+            let drawn = &mut shared.cards;
+            if drawn.changes_own_photo(&Input::Cards(input.clone())) {
+                drawn.own_photo_taken = true;
+            }
+            match input {
+                // Not the answer the editor waits on: an earlier request's,
+                // or one made before the editor closed.
+                CardsInput::PhotoPicked(request, _) if drawn.photo_request != Some(request) => {
+                    return Vec::new();
+                }
+                CardsInput::PhotoPicked(..) => {
+                    drawn.photo_request = None;
+                    input
+                }
+                input => input,
+            }
+        };
+        if self.cards.page != Some(CardsPage::OwnCard) {
+            return Vec::new();
+        }
+        match input {
+            // An unsaved change, which Save writes: Add a photo takes Change
+            // photo's place, and focus.
+            CardsInput::RemoveOwnPhoto if edit_photo(model).is_some() => {
+                self.focus_key_after_draw("own-choose-photo".to_owned());
+                vec![Intent::RemoveOwnPhoto]
+            }
+            CardsInput::ChoosePhoto => {
+                let request = PhotoRequest(
+                    PHOTO_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1,
+                );
+                self.shared.borrow_mut().cards.photo_request = Some(request);
+                self.pick_photo(request);
+                Vec::new()
+            }
+            // Focus is on the button that opened the picker, chosen or
+            // not; a cancel changes nothing.
+            CardsInput::PhotoPicked(_, picked) => {
+                self.focus_key("own-choose-photo".to_owned());
+                picked.map(Intent::ChooseOwnPhoto).into_iter().collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The platform's photo picker: the root's, else the desktop's file
+    /// dialog on a thread of its own, whose answer comes back as
+    /// [`CardsInput::PhotoPicked`]. With neither, nothing opens; the page
+    /// then offers no control that asks.
+    fn pick_photo(&self, request: PhotoRequest) {
+        if let Some(pick) = self.cards.photo_picker.as_ref() {
+            pick(PhotoPick::Open(request));
+        } else {
+            self.pick_photo_file(request);
+        }
+    }
+
+    /// A card page opening in place of the one shown: the ways back are
+    /// forgotten, and what an editor before it asked the picker is
+    /// dropped.
+    fn forget_page(&mut self) {
+        self.abandon_photo_pick();
+        self.cards.forget_returns();
+    }
+
+    /// The editor closing: the request it waits on, if any, is no longer
+    /// wanted. The desktop's file dialog cannot be called back; its answer
+    /// is dropped when it comes.
+    fn abandon_photo_pick(&self) {
+        let waited = self.shared.borrow_mut().cards.photo_request.take();
+        if waited.is_some()
+            && let Some(pick) = self.cards.photo_picker.as_ref()
+        {
+            pick(PhotoPick::Abandon);
+        }
+    }
+
+    /// The desktop's file dialog, on a thread of its own.
+    #[cfg(not(feature = "desktop"))]
+    #[allow(clippy::unused_self, reason = "the desktop build's has a self to use")]
+    const fn pick_photo_file(&self, _: PhotoRequest) {}
+
+    /// The desktop's file dialog, on a thread of its own.
+    #[cfg(feature = "desktop")]
+    fn pick_photo_file(&self, request: PhotoRequest) {
+        {
+            let slot = std::sync::Arc::clone(&self.shared.borrow().photo_pick);
+            let window = slint::ComponentHandle::as_weak(&self.window);
+            let filter = text(UiText::CodeImageFilter).to_owned();
+            let answer = move |picked: Option<Vec<u8>>| {
+                if let Ok(mut held) = slot.lock() {
+                    *held = Some(CardsInput::PhotoPicked(request, picked));
+                }
+                let _ = window.upgrade_in_event_loop(|w| w.invoke_own_photo_picked_done());
+            };
+            let spawned = std::thread::Builder::new()
+                .name("photo-dialog".to_owned())
+                .spawn(move || answer(crate::scan_images::photo_file(&filter)));
+            if spawned.is_err() {
+                enqueue(
+                    &self.shared,
+                    Input::Cards(CardsInput::PhotoPicked(request, None)),
+                );
+            }
+        }
+    }
+
+    /// Whether this build can choose a photo: the root's picker, or the
+    /// desktop's file dialog.
+    fn photo_choosable(&self) -> bool {
+        self.cards.photo_picker.is_some() || cfg!(feature = "desktop")
+    }
+
+    /// Show contact `id`'s page, focus on its back arrow.
+    fn open_contact(&mut self, window: &AppWindow, id: String) {
+        self.cards.page = Some(CardsPage::Contact);
+        self.cards.contact = Some(id);
+        self.cards.contact_drawn = None;
+        self.cards.contact_error.clear();
+        window.set_cards_page(CardsPage::Contact);
+        self.focus_key_after_draw("close-cards".to_owned());
+    }
+
+    /// Where the card pages return to once closed: a contact a proposal's
+    /// link opened goes back to that link, in its conversation, and a card
+    /// page the share sheet opened to that sheet (design sections 5.3, 9).
+    fn return_from_cards(&mut self, window: &AppWindow) {
+        if let Some((key, row, note)) = self.cards.return_to_link.take()
+            && self.shown.as_ref() == Some(&key)
+        {
+            window.set_list_shown(false);
+            self.cards.focus_link = Some((row, note));
+        }
+        if let Some(key) = self.cards.return_to_share.take()
+            && self.shown.as_ref() == Some(&key)
+        {
+            window.set_share_open(true);
+        }
+    }
+
     fn close_cards(&mut self, window: &AppWindow) {
+        self.abandon_photo_pick();
         self.page = crate::Page::Conversation;
         self.cards.page = None;
         self.cards.contact = None;
         window.set_cards_page(CardsPage::None);
         window.set_contact_confirming_delete(false);
+        window.set_own_discard_open(false);
+    }
+
+    /// The focus key a contact's focus target names on the card page
+    /// drawn, if it is drawn: the Contacts list's first row, else the
+    /// page's back arrow, its empty text and its title being no focus
+    /// stop; a contact's row; a contact page's back arrow; its Remove
+    /// photo.
+    pub(crate) fn contact_focus(&self, focus: &FocusTarget) -> Option<String> {
+        let shared = self.shared.borrow();
+        let drawn = &shared.cards;
+        let page = self.cards.page;
+        match focus {
+            FocusTarget::Contacts => (page == Some(CardsPage::Contacts)).then(|| {
+                drawn
+                    .contacts
+                    .keys()
+                    .min()
+                    .map_or_else(|| "close-cards".to_owned(), |h| format!("contact:{h}"))
+            }),
+            FocusTarget::Contact(id) => (page == Some(CardsPage::Contacts))
+                .then(|| drawn.contacts.iter().find(|(_, c)| *c == id))
+                .flatten()
+                .map(|(h, _)| format!("contact:{h}")),
+            FocusTarget::ContactPage(id) => (page == Some(CardsPage::Contact)
+                && self.cards.contact.as_ref() == Some(id))
+            .then(|| "close-cards".to_owned()),
+            FocusTarget::ContactRemovePhoto(id) => (page == Some(CardsPage::Contact)
+                && self.cards.contact.as_ref() == Some(id))
+            .then(|| "contact-remove-photo".to_owned()),
+            _ => None,
+        }
     }
 
     /// Draw the card screens from `model`.
@@ -577,6 +1046,14 @@ impl View {
             self.cards.contact = None;
             window.set_cards_page(CardsPage::None);
             window.set_contact_confirming_delete(false);
+            window.set_own_discard_open(false);
+        }
+        // A pick is waited on only while its editor is shown: whichever way
+        // the editor went -- Back, another card page, another page taking
+        // the pane -- the platform is told its read is no longer wanted
+        // (#483 F3).
+        if self.cards.page != Some(CardsPage::OwnCard) {
+            self.abandon_photo_pick();
         }
         self.render_proposals(model, &window);
         // A contact's page whose contact is gone shows the list.
@@ -594,7 +1071,8 @@ impl View {
         self.render_contacts(model, &window);
         self.render_contact(model, &window);
         self.render_own(model, &window);
-        let said = self.render_key(model, &window);
+        let photo_said = self.render_own_photo(model, &window);
+        let said = self.render_key(model, &window).or(photo_said);
         self.render_share(model, &window);
         if let Some(key) = self.cards.share_on_open.take() {
             if self.shown.as_ref() == Some(&key) && self.page == crate::Page::Conversation {
@@ -762,7 +1240,9 @@ impl View {
         )
     }
 
-    fn render_proposals(&mut self, model: &UiModel, window: &AppWindow) {
+    /// The shown conversation's card rows -- its proposals and the
+    /// answers to them -- in the order drawn: by when each card arrived.
+    fn card_entries(&self, model: &UiModel) -> Vec<Entry> {
         // The card whose Accept's snackbar is open, with its Undo.
         let undo_open_for = model
             .snackbar()
@@ -785,23 +1265,71 @@ impl View {
             _ => Vec::new(),
         };
         shown.sort_by_key(Entry::place);
+        shown
+    }
+
+    /// When each of the shown conversation's card rows arrived, in order.
+    pub(crate) fn card_times(&self, model: &UiModel) -> Vec<u64> {
+        self.card_entries(model)
+            .iter()
+            .map(|e| e.place().0)
+            .collect()
+    }
+
+    /// Where each card row sits among the messages as drawn (design 5.4:
+    /// at its place in time): after the last message that arrived no
+    /// later than it, else before them all (-1), with a day separator
+    /// when its day differs from the row drawn just before it. The same
+    /// rule `render_messages` counts cards by.
+    fn card_places(&self, shown: &[Entry]) -> Vec<(i32, String)> {
+        let mut out = Vec::with_capacity(shown.len());
+        let mut previous: Option<(i32, u64)> = None;
+        for entry in shown {
+            let at = entry.place().0;
+            let message = self.message_times.iter().rev().find(|(_, m)| *m <= at);
+            let after = message.map_or(-1, |(handle, _)| *handle);
+            let before = match previous {
+                Some((slot, time)) if slot == after => Some(time),
+                _ => message.map(|(_, m)| *m),
+            };
+            let day = self.clock.local(at).day;
+            let separator = match before {
+                Some(time) if self.clock.local(time).day == day => String::new(),
+                _ => crate::clock::day_text(day),
+            };
+            previous = Some((after, at));
+            out.push((after, separator));
+        }
+        out
+    }
+
+    fn render_proposals(&mut self, model: &UiModel, window: &AppWindow) {
+        let shown = self.card_entries(model);
+        let places = self.card_places(&shown);
         let rows = Rc::clone(
             self.cards
                 .proposals
                 .get_or_insert_with(|| Rc::new(VecModel::default())),
         );
-        if shown != self.cards.proposals_shown {
+        if shown != self.cards.proposals_shown || places != self.cards.proposal_places {
             let mut answers = HashMap::new();
+            let mut swipes = HashMap::new();
             let mut handles = HashMap::new();
+            let mut links = HashMap::new();
             let drawn: Vec<ProposalRow> = shown
                 .iter()
                 .enumerate()
                 .map(|(i, entry)| {
                     let handle = i32::try_from(i).unwrap_or(i32::MAX);
+                    let (after, day) = places.get(i).cloned().unwrap_or((-1, String::new()));
                     let p = match entry {
                         Entry::Answer(a, name, hinted) => {
                             handles.insert(a.row, (handle, true));
-                            return answer_row(handle, a, name, *hinted);
+                            return ProposalRow {
+                                after,
+                                day: day.into(),
+                                ..answer_row(handle, a, name, *hinted)
+                            };
                         }
                         Entry::Proposal(p) => p,
                     };
@@ -811,35 +1339,109 @@ impl View {
                     match model.card_actions(p.row).as_slice() {
                         [accept, decline] => {
                             answers.insert(handle, (accept.clone(), decline.clone()));
+                            // Its swipes raise the same intents, each way
+                            // its case offers (design section 5.4.4).
+                            let swipe = p.swipe();
+                            if swipe.accept || swipe.decline {
+                                swipes.insert(
+                                    proposal_swipe_key(p.row),
+                                    crate::swipe::Swipeable::Proposal {
+                                        accept: swipe.accept.then(|| accept.clone()),
+                                        decline: swipe.decline.then(|| decline.clone()),
+                                    },
+                                );
+                            }
                         }
                         [only] => {
                             answers.insert(handle, (only.clone(), only.clone()));
                         }
                         _ => {}
                     }
-                    proposal_row(handle, p, &self.received(p.received_at))
+                    let row = ProposalRow {
+                        after,
+                        day: day.into(),
+                        ..proposal_row(handle, p, &self.received(p.received_at))
+                    };
+                    // The notes after the value lines are the model's, in
+                    // its order: a same-name one links its contact.
+                    let first = slint::Model::row_count(&row.notes) - p.notes.len();
+                    for (k, note) in p.notes.iter().enumerate() {
+                        if let ProposalNote::SameName(c) = note {
+                            let at = i32::try_from(first + k).unwrap_or(i32::MAX);
+                            links.insert((handle, at), c.contact_id.clone());
+                        }
+                    }
+                    row
                 })
                 .collect();
-            rows.set_vec(drawn);
-            self.shared.borrow_mut().cards.answers = answers;
+            // A proposal's open menu shows the answers its row had: a row
+            // changed, moved or gone closes it (message-swipe section 7),
+            // so no entry acts on another card at its place (#433 F2).
+            let menu = window.get_card_menu();
+            if menu >= 0 {
+                let was = usize::try_from(menu)
+                    .ok()
+                    .and_then(|i| self.cards.proposals_shown.get(i));
+                let now = usize::try_from(menu).ok().and_then(|i| shown.get(i));
+                if was != now {
+                    window.set_card_menu(-1);
+                    // Still drawn elsewhere or changed: focus on its first
+                    // control. Gone: the removal's rule decides.
+                    let row = was.map(Entry::place).map(|(_, row)| row);
+                    let found = row
+                        .and_then(|row| shown.iter().enumerate().find(|(_, e)| e.place().1 == row));
+                    if let Some((at, entry)) = found {
+                        self.focus_key_after_draw(match entry {
+                            Entry::Proposal(_) => format!("proposal-copy:{at}"),
+                            Entry::Answer(..) => format!("answer:{at}"),
+                        });
+                    }
+                }
+            }
+            let keys: Vec<(RowId, bool)> = shown
+                .iter()
+                .map(|e| (e.place().1, matches!(e, Entry::Answer(..))))
+                .collect();
+            crate::update_by_key(&*rows, &mut self.cards.proposal_keys, &keys, &drawn);
+            let mut shared = self.shared.borrow_mut();
+            shared.cards.answers = answers;
+            shared.cards.links = links;
+            shared.swipes.retain(|k, _| !k.starts_with("p:"));
+            shared.swipes.extend(swipes);
+            drop(shared);
             self.cards.drawn_rows = handles;
             self.cards.proposals_shown = shown;
+            shared_after(&self.shared, &places);
+            self.cards.proposal_places = places;
         }
         window.set_proposals(ModelRc::from(rows));
+        // Back from the contact a link opened: the link, drawn again; its
+        // row's first control if the link went meanwhile.
+        if self.page == crate::Page::Conversation
+            && let Some((row, note)) = self.cards.focus_link.take()
+            && let Some((handle, false)) = self.cards.drawn_rows.get(&row).copied()
+        {
+            let linked = self
+                .shared
+                .borrow()
+                .cards
+                .links
+                .contains_key(&(handle, note));
+            self.focus_key_after_draw(if linked {
+                format!("proposal-contact:{handle}:{note}")
+            } else {
+                format!("proposal-copy:{handle}")
+            });
+        }
     }
 
     fn render_contacts(&mut self, model: &UiModel, window: &AppWindow) {
         window.set_contacts_title(text(UiText::ContactsTitle).into());
         window.set_own_card_title(text(UiText::OwnCardTitle).into());
         window.set_contacts_empty(text(UiText::ContactsEmpty).into());
-        let mut contacts: Vec<ContactView> = model.contacts().to_vec();
-        contacts.sort_by(|a, b| {
-            a.name
-                .to_lowercase()
-                .cmp(&b.name.to_lowercase())
-                .then_with(|| a.name.cmp(&b.name))
-                .then_with(|| a.contact_id.cmp(&b.contact_id))
-        });
+        // The model holds the contacts in the client's one order
+        // (human-client-ui.md section 3); the list is drawn in it.
+        let contacts: Vec<ContactView> = model.contacts().to_vec();
         let rows = Rc::clone(
             self.cards
                 .contact_rows
@@ -866,6 +1468,18 @@ impl View {
             rows.set_vec(drawn);
             self.shared.borrow_mut().cards.contacts = ids;
             self.cards.contacts_shown = contacts;
+        }
+        // A deleted contact gone from the list: focus on its first row,
+        // else its back arrow (the empty text is no focus stop). A delete
+        // the store refused leaves it listed, and focus where it is.
+        if self.cards.page != Some(CardsPage::Contacts) {
+            self.cards.deleted = None;
+        } else if let Some(id) = self.cards.deleted.take() {
+            if self.cards.contacts_shown.iter().any(|c| c.contact_id == id) {
+                self.cards.deleted = Some(id);
+            } else if let Some(key) = self.contact_focus(&FocusTarget::Contacts) {
+                self.focus_key_after_draw(key);
+            }
         }
         window.set_contact_rows(ModelRc::from(rows));
     }
@@ -968,6 +1582,73 @@ impl View {
         self.cards.contact_drawn = Some(contact);
     }
 
+    /// The editor's photo (design 5.2): the circle, its label, the
+    /// progress while a chosen photo is prepared, and what a change of step
+    /// announces -- `PhotoAdded` when one is ready, `PhotoUnusable` when
+    /// it cannot be used, each once.
+    fn render_own_photo(&mut self, model: &UiModel, window: &AppWindow) -> Option<String> {
+        window.set_discard_title(text(UiText::CardDiscardChanges).into());
+        window.set_keep_editing_label(text(UiText::KeepEditing).into());
+        window.set_discard_label(text(UiText::DiscardChanges).into());
+        let mut shared = self.shared.borrow_mut();
+        shared.cards.own_saved = model.identity().map(|i| {
+            (
+                i.given.clone(),
+                i.surname.clone(),
+                model.own_photo_unsaved(),
+            )
+        });
+        if !self.cards.rendering_in_take && std::mem::take(&mut shared.cards.own_photo_taken) {
+            let queued = shared
+                .inputs
+                .iter()
+                .any(|i| shared.cards.changes_own_photo(i));
+            shared.cards.own_photo_queued = queued;
+        }
+        drop(shared);
+        window.set_add_photo_label(text(UiText::AddPhoto).into());
+        window.set_change_photo_label(text(UiText::ChangePhoto).into());
+        window.set_own_photo_choosable(self.photo_choosable());
+        let step = model.own_photo().cloned();
+        let shown = edit_photo(model);
+        window.set_own_edit_has_photo(shown.is_some());
+        window.set_own_photo_preparing(matches!(step, Some(OwnPhotoStep::Preparing)));
+        window.set_own_circle_label(
+            text(match (&step, shown) {
+                (Some(OwnPhotoStep::Preparing), _) => UiText::CardPhotoPreparing,
+                (_, Some(_)) => UiText::CardPhotoLabel,
+                (_, None) => UiText::CardPhotoNone,
+            })
+            .into(),
+        );
+        window.set_own_photo_unusable(
+            if matches!(step, Some(OwnPhotoStep::Unusable)) {
+                text(UiText::PhotoUnusable)
+            } else {
+                ""
+            }
+            .into(),
+        );
+        if self.cards.own_photo_drawn.as_ref().map(|d| d.0.as_ref()) != Some(shown) {
+            window.set_own_edit_photo(shown.map(image).unwrap_or_default());
+            self.cards.own_photo_drawn = Some(DrawnPhoto(shown.cloned()));
+        }
+        if self.cards.own_step_drawn == step {
+            return None;
+        }
+        let was = std::mem::replace(&mut self.cards.own_step_drawn, step.clone());
+        let from_preparing = matches!(was, Some(OwnPhotoStep::Preparing));
+        match step {
+            Some(OwnPhotoStep::Prepared(_)) if from_preparing => {
+                Some(text(UiText::PhotoAdded).to_owned())
+            }
+            Some(OwnPhotoStep::Unusable) if from_preparing => {
+                Some(text(UiText::PhotoUnusable).to_owned())
+            }
+            _ => None,
+        }
+    }
+
     fn render_own(&mut self, model: &UiModel, window: &AppWindow) {
         window.set_surname_label(text(UiText::CardSurname).into());
         window.set_own_photo_note(text(UiText::CardPhotoElsewhere).into());
@@ -988,13 +1669,10 @@ impl View {
         window.set_own_given(own.given.as_str().into());
         window.set_own_surname(own.surname.clone().unwrap_or_default().into());
         window.set_own_letters(initials(&own.name).into());
-        window.set_own_hue(own.peer.as_ref().map_or(0, |p| {
-            hue(Avatar::of(&ConversationKey::Direct {
-                peer: p.clone(),
-                endpoint: Some(own.endpoint.clone()),
-            })
-            .hue)
-        }));
+        // The identity's own hue, its EndpointId's, known before its
+        // PeerId is: it never changes when the PeerId arrives (design 5.1,
+        // `the_own_initials_keep_the_identitys_hue`).
+        window.set_own_hue(hue(AvatarHue::of_identity(&own.endpoint)));
         window.set_own_has_photo(own.photo.is_some());
         window.set_own_photo(own.photo.as_ref().map(image).unwrap_or_default());
         window.set_own_peer(
@@ -1089,3 +1767,30 @@ fn route_title(
         ],
     )
 }
+
+/// The photo the own card's editor shows: the chosen one once prepared,
+/// none once removed; while a choice is prepared or after it proved
+/// unusable, what it showed before that choice (design 5.2: the buttons
+/// stay as they were; #449 F2); else the card's as saved.
+fn edit_photo(model: &UiModel) -> Option<&Photo> {
+    let saved = model.identity().and_then(|i| i.photo.as_ref());
+    match model.own_photo() {
+        Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) => {
+            shown_by(model.own_photo_before(), saved)
+        }
+        step => shown_by(step, saved),
+    }
+}
+
+/// What a step shows: its prepared photo, none once removed, else the
+/// card's as saved.
+fn shown_by<'a>(step: Option<&'a OwnPhotoStep>, saved: Option<&'a Photo>) -> Option<&'a Photo> {
+    match step {
+        Some(OwnPhotoStep::Prepared(photo)) => Some(photo),
+        Some(OwnPhotoStep::Removed) => None,
+        Some(OwnPhotoStep::Preparing | OwnPhotoStep::Unusable) | None => saved,
+    }
+}
+
+/// The photo the editor's circle was given: a photo, or none.
+struct DrawnPhoto(Option<Photo>);

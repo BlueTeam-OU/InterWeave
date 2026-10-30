@@ -784,3 +784,798 @@ async fn a_departed_ips_listener_admits_no_private_candidate() {
     );
     subject.runtime.shutdown().await.expect("shutdown");
 }
+
+/// ADR-0052 rule 3's boundary WIDENING is counted where a caller outside
+/// the Swarm task can read it (`SwarmRuntime::listener_widenings`), as
+/// a wildcard listener makes it at startup: its loopback address reported
+/// first and its LAN address after. A private candidate offered between
+/// the two is refused and the count stands; the LAN listener binding
+/// moves the count, and the same candidate offered again is admitted --
+/// the move a caller remembering its offer (composition's discovery
+/// memo) must see, or it keeps the refusal for its relearn interval
+/// (j133: the android-e2e cache-alone row, 1 run in 24 under load).
+/// Each reading follows a `learn` reply, which the task sends only
+/// after it handled the listener event before it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_private_listener_bound_after_a_refusal_widens_the_boundary_and_admits_it() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (subject_id, far_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
+    let far_peer = far_id.transport_identity().expect("peer id");
+    let subject = node(&[&far_peer], &subject_id);
+    let widenings = subject.runtime.listener_widenings();
+    let candidate = || ["/ip4/10.1.2.3/tcp/4001".to_owned()];
+    let _loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("the loopback listener");
+    let admitted = subject
+        .runtime
+        .learn(far_peer.clone(), candidate())
+        .await
+        .expect("reaches the task");
+    assert_eq!(admitted, 0, "loopback alone is no private listener");
+    let before = widenings.count();
+
+    let _private = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the subject's private listener");
+    let admitted = subject
+        .runtime
+        .learn(far_peer.clone(), candidate())
+        .await
+        .expect("reaches the task");
+    assert_eq!(admitted, 1, "the control: beside a private listener");
+    assert!(
+        widenings.count() > before,
+        "the boundary widened and the count did not move ({before})"
+    );
+
+    let settled = widenings.count();
+    let _second_loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("a second loopback listener");
+    let _ = subject
+        .runtime
+        .learn(far_peer.clone(), candidate())
+        .await
+        .expect("reaches the task");
+    assert_eq!(
+        widenings.count(),
+        settled,
+        "a loopback listener widens nothing"
+    );
+    subject.runtime.shutdown().await.expect("shutdown");
+}
+
+/// The Identify sibling of the discovery memo's refusal: a connected
+/// peer's advertised LAN address, refused while the subject listened on
+/// loopback alone, enters the subject's book when its own private
+/// listener binds -- at the widening, not at the peer's next Identify,
+/// which the crate sends every five minutes. Read from the subject's
+/// address-book counts: the refusal is counted first (the control that
+/// the Identify arrived and rule 3 judged it), and the admission after
+/// the listen.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peers_lan_address_refused_by_rule_3_is_learned_when_a_private_listener_binds() {
+    use interweave_transport_libp2p::store_refusals::store;
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (subject_id, far_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
+    let (subject_peer, far_peer) = (
+        subject_id.transport_identity().expect("peer id"),
+        far_id.transport_identity().expect("peer id"),
+    );
+    let mut subject = node(&[&far_peer], &subject_id);
+    let mut far = node(&[&subject_peer], &far_id);
+    let _far_lan = far
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the far end's LAN listener");
+    let subject_loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("the subject's loopback listener");
+    let book = |runtime: &SwarmRuntime| {
+        runtime
+            .store_refusals()
+            .get(store::ADDRESS_BOOK)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let refused = |runtime: &SwarmRuntime| {
+        book(runtime)
+            .refused
+            .get("private_without_private_listener")
+            .copied()
+            .unwrap_or(0)
+    };
+    assert!(
+        matches!(
+            far.runtime
+                .dial(subject_peer.clone(), subject_loopback)
+                .await,
+            Ok(Ok(()))
+        ),
+        "the far end dials the subject over loopback"
+    );
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while refused(&subject.runtime) == 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the far end's Identify was never judged: {:?}",
+            book(&subject.runtime)
+        );
+        drive(
+            &mut subject.runtime,
+            &mut [&mut far.runtime],
+            "identify",
+            Duration::from_millis(100),
+            None::<fn(&[SwarmEvent]) -> bool>,
+        )
+        .await;
+    }
+    let admitted = book(&subject.runtime).admitted;
+
+    let _subject_lan = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the subject's LAN listener");
+    // A command after the listen: the task handled the listener event,
+    // and the re-judgement it runs, before answering it.
+    let _ = subject.runtime.status(None).await.expect("answered");
+    assert_eq!(
+        book(&subject.runtime).admitted,
+        admitted + 1,
+        "the far end's LAN address entered the book at the widening: {:?}",
+        book(&subject.runtime)
+    );
+    subject.runtime.shutdown().await.expect("shutdown");
+    far.runtime.shutdown().await.expect("shutdown");
+}
+
+/// The same refusal, and then the far end LEAVES before the subject's
+/// private listener binds: what its Identify had refused is forgotten
+/// with its last connection (`HeldBack::closed`, review F2 of #468), so
+/// the widening judges nothing again and the book admits nothing. The
+/// test above, where the far end stays, is the positive control: the
+/// same widening admits its LAN address.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peer_that_left_is_not_judged_again_when_a_private_listener_binds() {
+    use interweave_transport_libp2p::store_refusals::store;
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (subject_id, far_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
+    let (subject_peer, far_peer) = (
+        subject_id.transport_identity().expect("peer id"),
+        far_id.transport_identity().expect("peer id"),
+    );
+    let mut subject = node(&[&far_peer], &subject_id);
+    let mut far = node(&[&subject_peer], &far_id);
+    let _far_lan = far
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the far end's LAN listener");
+    let subject_loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("the subject's loopback listener");
+    let book = |runtime: &SwarmRuntime| {
+        runtime
+            .store_refusals()
+            .get(store::ADDRESS_BOOK)
+            .cloned()
+            .unwrap_or_default()
+    };
+    assert!(
+        matches!(
+            far.runtime
+                .dial(subject_peer.clone(), subject_loopback)
+                .await,
+            Ok(Ok(()))
+        ),
+        "the far end dials the subject over loopback"
+    );
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while !book(&subject.runtime)
+        .refused
+        .contains_key("private_without_private_listener")
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the far end's Identify was never judged: {:?}",
+            book(&subject.runtime)
+        );
+        drive(
+            &mut subject.runtime,
+            &mut [&mut far.runtime],
+            "identify",
+            Duration::from_millis(100),
+            None::<fn(&[SwarmEvent]) -> bool>,
+        )
+        .await;
+    }
+    let admitted = book(&subject.runtime).admitted;
+
+    far.runtime.shutdown().await.expect("shutdown");
+    tokio::time::timeout(PATIENCE, async {
+        loop {
+            match subject.runtime.next_event().await {
+                Some(SwarmEvent::Disconnected { peer, .. }) if peer == far_peer => return,
+                Some(_) => {}
+                None => panic!("the subject stopped"),
+            }
+        }
+    })
+    .await
+    .expect("the far end's disconnect");
+    let _subject_lan = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the subject's LAN listener");
+    let _ = subject.runtime.status(None).await.expect("answered");
+    assert_eq!(
+        book(&subject.runtime).admitted,
+        admitted,
+        "a peer gone was judged again at the widening: {:?}",
+        book(&subject.runtime)
+    );
+    subject.runtime.shutdown().await.expect("shutdown");
+}
+
+/// What `subject` advertises as its listen addresses to a fresh observer
+/// holding `keys` -- a peer the subject trusts, or it closes the
+/// connection before Identify runs -- that dials it at `address`: the
+/// Identify exchange's `listen_addrs`. A new swarm each time, so each
+/// reading is one exchange made now.
+async fn advertised(
+    keys: &libp2p::identity::Keypair,
+    subject: &TransportIdentity,
+    address: Multiaddr,
+) -> Vec<Multiaddr> {
+    use futures::StreamExt as _;
+    let mut observer = libp2p::SwarmBuilder::with_existing_identity(keys.clone())
+        .with_tokio()
+        .with_tcp(
+            libp2p::tcp::Config::default(),
+            libp2p::noise::Config::new,
+            libp2p::yamux::Config::default,
+        )
+        .expect("the subject's transport stack")
+        .with_behaviour(|k| {
+            libp2p::identify::Behaviour::new(libp2p::identify::Config::new(
+                "/interweave-test-observer/1".to_owned(),
+                k.public(),
+            ))
+        })
+        .expect("behaviour")
+        .build();
+    let peer: libp2p::PeerId = subject.as_str().parse().expect("a libp2p identity");
+    observer
+        .dial(
+            libp2p::swarm::dial_opts::DialOpts::peer_id(peer)
+                .addresses(vec![address])
+                .build(),
+        )
+        .expect("dial accepted");
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        match tokio::time::timeout_at(deadline, observer.select_next_some())
+            .await
+            .expect("an Identify exchange within the patience")
+        {
+            libp2p::swarm::SwarmEvent::Behaviour(libp2p::identify::Event::Received {
+                info,
+                ..
+            }) => return info.listen_addrs,
+            libp2p::swarm::SwarmEvent::OutgoingConnectionError { error, .. } => {
+                panic!("the observer could not reach the subject: {error}")
+            }
+            _ => {}
+        }
+    }
+}
+
+/// ADR-0052 rule 10 (A 2026-10-26) between real runtimes, over this
+/// host's private address standing for a phone's carrier-assigned one: a
+/// listener bound on it is advertised by Identify, shown, and counted as
+/// an own private listener while the platform's view leaves it
+/// unclassified -- THE CONTROL -- and is none of the three once the view
+/// classifies it as on no local network, while it stays bound and still
+/// answers the observer's dial; a view that drops the classification
+/// gives all three back, and so does one naming it again after a view
+/// dropped it while it stayed bound -- which withholds it as well. The
+/// loopback listener is advertised throughout, the in-exchange control.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_private_address_on_no_local_network_is_not_advertised_shown_or_counted() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (subject_id, far_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
+    let far_peer = far_id.transport_identity().expect("peer id");
+    let observer = libp2p::identity::Keypair::generate_ed25519();
+    let observer_peer = TransportIdentity::parse(observer.public().to_peer_id().to_base58())
+        .expect("a canonical identity");
+    let mut subject = node(&[&far_peer, &observer_peer], &subject_id);
+    let carrier = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the carrier-address listener");
+    let loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("the loopback listener");
+    let other: std::net::IpAddr = std::net::Ipv4Addr::new(10, 255, 0, 5).into();
+    let shown = |own: &interweave_local_client_api::OwnAddresses| {
+        own.addresses
+            .iter()
+            .any(|row| row.address.starts_with(&format!("/ip4/{ip}/tcp/")))
+    };
+    let mut candidate = 0u8;
+    let mut learns = async |subject: &mut Node| {
+        candidate += 1;
+        subject
+            .runtime
+            .learn(
+                far_peer.clone(),
+                [format!("/ip4/10.1.2.{candidate}/tcp/4001")],
+            )
+            .await
+            .expect("reaches the task")
+    };
+
+    // Each view moves the known set by `other`, so its reading is a
+    // change the test waits for -- a classification alone reports none.
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), other]));
+    until_changed(&mut subject.runtime, |_| true).await;
+    let told = advertised(&observer, &subject.peer, carrier.clone()).await;
+    assert!(told.contains(&carrier), "the control: advertised, {told:?}");
+    assert!(told.contains(&loopback));
+    assert!(
+        shown(&subject.runtime.own_addresses().await.expect("own")),
+        "the control: shown"
+    );
+    assert_eq!(
+        learns(&mut subject).await,
+        1,
+        "the control: an own private listener"
+    );
+
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into()]).with_off_local_network(vec![ip.into()]));
+    until_changed(&mut subject.runtime, |removed| removed.contains(&other)).await;
+    let told = advertised(&observer, &subject.peer, carrier.clone()).await;
+    assert!(
+        !told.contains(&carrier),
+        "classified: not advertised, {told:?}"
+    );
+    assert!(told.contains(&loopback), "the same exchange's control");
+    assert!(
+        !shown(&subject.runtime.own_addresses().await.expect("own")),
+        "classified: not shown"
+    );
+    assert_eq!(
+        learns(&mut subject).await,
+        0,
+        "classified: no own private listener"
+    );
+
+    // The view drops the classified IP while its listener stays bound,
+    // as when the platform reports a carrier network lost before the
+    // listener poll does: still not advertised. The observer reaches the
+    // subject over loopback, since the departure closes what ran from
+    // the carrier's IP.
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![other]));
+    until_changed(&mut subject.runtime, |removed| removed.contains(&ip.into())).await;
+    let told = advertised(&observer, &subject.peer, loopback.clone()).await;
+    assert!(
+        !told.contains(&carrier),
+        "departed while bound: not advertised, {told:?}"
+    );
+    assert!(told.contains(&loopback), "the same exchange's control");
+    assert!(
+        !shown(&subject.runtime.own_addresses().await.expect("own")),
+        "departed: not shown"
+    );
+    assert_eq!(
+        learns(&mut subject).await,
+        0,
+        "departed: no own private listener"
+    );
+
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), other]));
+    until_changed(&mut subject.runtime, |_| true).await;
+    let told = advertised(&observer, &subject.peer, carrier.clone()).await;
+    assert!(
+        told.contains(&carrier),
+        "released: advertised again, {told:?}"
+    );
+    assert!(
+        shown(&subject.runtime.own_addresses().await.expect("own")),
+        "released: shown"
+    );
+    assert_eq!(learns(&mut subject).await, 1, "released: counted again");
+    subject.runtime.shutdown().await.expect("shutdown");
+}
+
+/// ADR-0052 rule 10 in the other order: the view classifies an IP no
+/// listener binds yet -- a carrier network coming up before the listener
+/// poll reports its address -- and a listener bound on it afterwards is
+/// not advertised by Identify. A view releasing the classification gives
+/// it back, THE CONTROL that the late listener is one Identify would
+/// advertise; loopback is the in-exchange control.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listener_bound_after_its_ip_is_classified_is_not_advertised() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let subject_id = ProfileIdentity::generate();
+    let observer = libp2p::identity::Keypair::generate_ed25519();
+    let observer_peer = TransportIdentity::parse(observer.public().to_peer_id().to_base58())
+        .expect("a canonical identity");
+    let mut subject = node(&[&observer_peer], &subject_id);
+    let first = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the first listener, which fills the known set");
+    let loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("the loopback listener");
+    let other: std::net::IpAddr = std::net::Ipv4Addr::new(10, 255, 0, 7).into();
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), other]));
+    until_changed(&mut subject.runtime, |_| true).await;
+    let first_shown = |own: &interweave_local_client_api::OwnAddresses| {
+        own.addresses
+            .iter()
+            .any(|row| row.address.starts_with(&first.to_string()))
+    };
+    assert!(
+        first_shown(&subject.runtime.own_addresses().await.expect("own")),
+        "the control: the first listener is shown while bound"
+    );
+    assert!(
+        subject
+            .runtime
+            .stop_listening(first.clone())
+            .await
+            .expect("reaches the task"),
+        "the IP is left with no listener, and the view still holds it"
+    );
+    // The stop is answered before the listener's close reaches the
+    // runtime's listener set, and a view read in between would find the
+    // IP still bound -- the order this test is not about. What is shown
+    // comes from that set, so wait until it no longer shows the listener.
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the first listener's close within the patience"
+        );
+        if !first_shown(&subject.runtime.own_addresses().await.expect("own")) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // Each view moves the known set by `other`, so its reading is a
+    // change the test waits for.
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into()]).with_off_local_network(vec![ip.into()]));
+    until_changed(&mut subject.runtime, |removed| removed.contains(&other)).await;
+    let late = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("a listener bound after the classification");
+    let told = advertised(&observer, &subject.peer, loopback.clone()).await;
+    assert!(
+        !told.contains(&late),
+        "classified before it was bound: not advertised, {told:?}"
+    );
+    assert!(told.contains(&loopback), "the same exchange's control");
+
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), other]));
+    until_changed(&mut subject.runtime, |_| true).await;
+    let told = advertised(&observer, &subject.peer, loopback.clone()).await;
+    assert!(
+        told.contains(&late),
+        "the control: released, the late listener is advertised, {told:?}"
+    );
+    subject.runtime.shutdown().await.expect("shutdown");
+}
+
+/// ADR-0052 rule 10's second case (A 2026-10-27) between real runtimes,
+/// over this host's private address standing for a phone's carrier
+/// address on a network the platform never reports to the app: with NO
+/// VIEW -- THE CONTROL, the desktop -- a listener on it is advertised by
+/// Identify, shown, and counted as an own private listener; once a view
+/// is present that never names it, that listener and a second one bound
+/// on the same IP after the view are none of the three, though both stay
+/// bound and the first still answers the observer's dial; a view naming
+/// the IP gives all three back. The loopback listener is advertised
+/// throughout, the in-exchange control.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_private_address_no_view_holds_is_not_advertised_shown_or_counted() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (subject_id, far_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
+    let far_peer = far_id.transport_identity().expect("peer id");
+    let observer = libp2p::identity::Keypair::generate_ed25519();
+    let observer_peer = TransportIdentity::parse(observer.public().to_peer_id().to_base58())
+        .expect("a canonical identity");
+    let mut subject = node(&[&far_peer, &observer_peer], &subject_id);
+    let carrier = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the carrier-address listener");
+    let loopback = subject
+        .runtime
+        .listen("/ip4/127.0.0.1/tcp/0".parse().expect("valid"))
+        .await
+        .expect("the loopback listener");
+    let (other, third): (std::net::IpAddr, std::net::IpAddr) = (
+        std::net::Ipv4Addr::new(10, 255, 0, 8).into(),
+        std::net::Ipv4Addr::new(10, 255, 0, 9).into(),
+    );
+    // Whole components only: `/tcp/3456` must not match `/tcp/34567`.
+    let shown = |own: &interweave_local_client_api::OwnAddresses, address: &Multiaddr| {
+        let address = address.to_string();
+        own.addresses
+            .iter()
+            .any(|row| row.address == address || row.address.starts_with(&format!("{address}/")))
+    };
+    let mut candidate = 0u8;
+    let mut learns = async |subject: &mut Node| {
+        candidate += 1;
+        subject
+            .runtime
+            .learn(
+                far_peer.clone(),
+                [format!("/ip4/10.1.3.{candidate}/tcp/4001")],
+            )
+            .await
+            .expect("reaches the task")
+    };
+
+    // THE CONTROL: no view has arrived.
+    let told = advertised(&observer, &subject.peer, carrier.clone()).await;
+    assert!(told.contains(&carrier), "no view: advertised, {told:?}");
+    assert!(told.contains(&loopback));
+    assert!(
+        shown(
+            &subject.runtime.own_addresses().await.expect("own"),
+            &carrier
+        ),
+        "no view: shown"
+    );
+    assert_eq!(
+        learns(&mut subject).await,
+        1,
+        "no view: an own private listener"
+    );
+
+    // A view that never names the IP; it moves the known set by `other`,
+    // so its reading is a change the test waits for.
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![other]));
+    until_changed(&mut subject.runtime, |_| true).await;
+    let late = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("a listener bound on the IP after the view");
+    let told = advertised(&observer, &subject.peer, carrier.clone()).await;
+    assert!(
+        !told.contains(&carrier),
+        "outside the view: not advertised, though it answered this dial, {told:?}"
+    );
+    assert!(
+        !told.contains(&late),
+        "bound after the view: not advertised, {told:?}"
+    );
+    assert!(told.contains(&loopback), "the same exchange's control");
+    let own = subject.runtime.own_addresses().await.expect("own");
+    assert!(!shown(&own, &carrier), "outside the view: not shown");
+    assert!(!shown(&own, &late), "bound after the view: not shown");
+    assert_eq!(
+        learns(&mut subject).await,
+        0,
+        "outside the view: no own private listener"
+    );
+
+    // A view naming the IP; `third` makes its reading a change, since the
+    // IP is already known from the listeners.
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), other, third]));
+    until_changed(&mut subject.runtime, |_| true).await;
+    let told = advertised(&observer, &subject.peer, carrier.clone()).await;
+    assert!(
+        told.contains(&carrier) && told.contains(&late),
+        "named by the view: advertised, {told:?}"
+    );
+    let own = subject.runtime.own_addresses().await.expect("own");
+    assert!(shown(&own, &carrier) && shown(&own, &late), "named: shown");
+    assert_eq!(learns(&mut subject).await, 1, "named: counted again");
+    subject.runtime.shutdown().await.expect("shutdown");
+}
+
+/// ADR-0052 rule 10 for the shared address space (A 2026-10-27 (iii)) between
+/// real runtimes, where this host holds a `100.64.0.0/10` address and a
+/// private one and NO VIEW is present -- the desktop with a cellular
+/// modem: a listener on the shared address is not advertised by
+/// Identify, though it stays bound and answers the observer's dial; the
+/// private listener beside it is advertised, THE CONTROL that no view
+/// withholds nothing private, and loopback is the in-exchange control.
+/// Run in a network namespace whose loopback carries both addresses
+/// ([`on_addresses`]), since a host rarely has a shared-space one.
+/// Not shown either, which the address floor already refused before the
+/// rule (`own_addresses`): Identify is the one surface the rule changes.
+#[test]
+fn a_shared_address_space_listener_is_not_advertised_with_no_view() {
+    let (shared, private) = (
+        std::net::Ipv4Addr::new(100, 64, 0, 1),
+        std::net::Ipv4Addr::new(10, 9, 0, 1),
+    );
+    if !on_addresses(
+        "a_shared_address_space_listener_is_not_advertised_with_no_view",
+        &[shared, private],
+    ) {
+        return;
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("a runtime")
+        .block_on(async {
+            let subject_id = ProfileIdentity::generate();
+            let observer = libp2p::identity::Keypair::generate_ed25519();
+            let observer_peer =
+                TransportIdentity::parse(observer.public().to_peer_id().to_base58())
+                    .expect("a canonical identity");
+            let subject = node(&[&observer_peer], &subject_id);
+            let listen = async |ip: std::net::Ipv4Addr| {
+                subject
+                    .runtime
+                    .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+                    .await
+                    .expect("a listener")
+            };
+            let cgnat = listen(shared).await;
+            let lan = listen(private).await;
+            let loopback = listen(std::net::Ipv4Addr::LOCALHOST).await;
+
+            let told = advertised(&observer, &subject.peer, cgnat.clone()).await;
+            assert!(
+                !told.contains(&cgnat),
+                "shared address space: not advertised, though it answered this dial, {told:?}"
+            );
+            assert!(
+                told.contains(&lan),
+                "the control: private, no view, {told:?}"
+            );
+            assert!(told.contains(&loopback), "the same exchange's control");
+            let own = subject.runtime.own_addresses().await.expect("own");
+            assert!(
+                !own.addresses
+                    .iter()
+                    .any(|row| row.address.starts_with(&format!("{cgnat}/"))
+                        || row.address == cgnat.to_string()),
+                "not shown"
+            );
+            subject.runtime.shutdown().await.expect("shutdown");
+        });
+}
+/// Set in the inner copy [`on_addresses`] runs.
+const ON_ADDRESSES_ENV: &str = "IW_ON_ADDRESSES";
+
+/// How long the inner copy may run before it is killed.
+const ON_ADDRESSES_DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Run the calling test where this host holds exactly `ips` beside
+/// loopback: a fresh network namespace inside an unprivileged user
+/// namespace, `ips` added to its loopback interface, for a test whose
+/// address class the host has no interface in -- the shared address
+/// space (RFC 6598) on a host with none, say. Here rather than in
+/// `tests/support` while that crate has another change in flight; it
+/// moves there when a second suite needs it. `true` in the inner copy,
+/// which runs the body; `false` in the outer one, which has asserted that
+/// the inner one passed. Lighter than `e2e::netns::in_second_network`:
+/// an in-process runtime judges no profile directory's ancestors, so it
+/// needs no root of its own, and one namespace with no route out is the
+/// whole network.
+///
+/// # Panics
+/// In the outer copy, when the namespace cannot be made (no unprivileged
+/// user namespace, no util-linux `unshare`/`setpriv`, no iproute2) or
+/// the inner copy did not pass -- never a skip: a test that cannot ask
+/// its question has not answered it.
+#[must_use]
+fn on_addresses(test: &str, ips: &[std::net::Ipv4Addr]) -> bool {
+    if std::env::var_os(ON_ADDRESSES_ENV).is_some() {
+        return true;
+    }
+    let exe = std::env::current_exe().expect("the test binary's path");
+    let adds = ips.iter().fold(String::new(), |mut adds, ip| {
+        use std::fmt::Write as _;
+        let _ = write!(adds, "ip addr add {ip}/32 dev lo && ");
+        adds
+    });
+    let script = format!(
+        "set -e; ip link set lo up && {adds}export {ON_ADDRESSES_ENV}=1; \
+         exec \"$IW_TEST_EXE\" --exact \"$IW_TEST_NAME\" --include-ignored --nocapture --test-threads 1"
+    );
+    // The inner copy dies with this test however it ends: the kernel
+    // kills `unshare` when the spawning thread -- this one, which waits
+    // below -- goes, and the pid namespace's `--kill-child` takes the
+    // copy with it; the deadline kills `unshare` on a hang.
+    let child = std::process::Command::new("setpriv")
+        .args([
+            "--pdeathsig",
+            "KILL",
+            "unshare",
+            "-rn",
+            "--pid",
+            "--fork",
+            "--kill-child",
+            "sh",
+            "-c",
+            &script,
+        ])
+        .env("IW_TEST_EXE", &exe)
+        .env("IW_TEST_NAME", test)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| {
+            panic!(
+                "cannot run `setpriv --pdeathsig KILL unshare -rn` ({e}): this test needs \
+                 util-linux's setpriv and unshare, an unprivileged user namespace and iproute2; \
+                 it fails rather than skips where they are unavailable"
+            )
+        });
+    let pid = child.id();
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(child.wait_with_output());
+    });
+    let Ok(output) = finished.recv_timeout(ON_ADDRESSES_DEADLINE) else {
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", &pid.to_string()])
+            .status();
+        panic!("the test on {ips:?} ran past {ON_ADDRESSES_DEADLINE:?}: killed");
+    };
+    let output = output.expect("the inner copy's output");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "the test on {ips:?} did not pass ({}). If the namespace could not be made, this host \
+         cannot ask the question.\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}",
+        output.status
+    );
+    false
+}

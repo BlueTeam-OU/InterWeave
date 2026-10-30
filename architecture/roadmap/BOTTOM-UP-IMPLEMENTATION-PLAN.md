@@ -150,7 +150,7 @@ Spikes are **just-in-time implementation gates**, not a large front-loaded phase
 | SPIKE-001 | Stage 16 Claude bridge | **CLOSED 2026-10-03, PASS for implementation against Claude Code 2.1.285** — the handshake era, the development-flag delivery condition, the `plugin.json` `channels` manifest, the tag rendering and escaping, deferred tools, SIGINT shutdown; four architecture sentences amended on the verdict (SPIKES.md's record); eight things not established, carried into §19 |
 | SPIKE-005 | admin hardening when enabled | stronger same-user local admin boundary |
 | SPIKE-007 | optional encrypted key-at-rest feature | selected audited envelope/KDF/AEAD behavior |
-| SPIKE-011 | the §29 store work, and any §22 release that ships a human store | the page-cipher store build for Linux and Android, its open/commit/read cost against the plaintext baseline the spike itself defines (none exists today) under ADR-0060 decision 4's criterion, RETENTION.md's deletion property on the encrypted file, the licence and vendored-advisory consequences; its Result pins the mechanism within ADR-0060 decision 4 or records the fallback |
+| SPIKE-011 | the §29 store work, and any §22 release that ships a human store | **CLOSED 2026-10-21, PASS for the first candidate** (SPIKES.md's Result; the index rows schema v8) — was: the page-cipher store build for Linux and Android, its open/commit/read cost against the plaintext baseline the spike itself defines (none exists today) under ADR-0060 decision 4's criterion, RETENTION.md's deletion property on the encrypted file, the licence and vendored-advisory consequences; its Result pins the mechanism within ADR-0060 decision 4 or records the fallback |
 | SPIKE-012 | withdrawn 2026-10-21 | opened by ADR-0061's first draft to measure two embedded runtimes in one Android service; withdrawn the same day when a user identity became an EndpointId of the node (one runtime, one lease per identity); the number is kept, `SPIKES.md` says why |
 | SPIKE-008 | Stage 17 Android lifecycle/packaging | foreground service, secure recovery UI, backup/D2D behavior, store policy |
 | SPIKE-009 | Stage 17 Android key custody | Android Keystore wrapping/invalidation and exact-PeerId preservation |
@@ -4630,7 +4630,8 @@ command (B9 reaches `DirectoryCache::forget` only through a trust
 revocation); endpoint narrowing (`EndpointTrustPolicy`) through
 administration; a new conversation by PeerId, with the
 contacts UX and the owner's privacy review (11 — ADR-0059's work since
-2026-10-21, carried under §29); client autostart of
+2026-10-21, carried under §29 and met at its close, 2026-10-25, the
+review answered at its (d)); client autostart of
 the daemon, the owner's with packaging (9); the persistence of
 `admin.trust.*` and `admin.endpoints.*` changes beyond the runtime
 overlay (ADR-0028, the owner's); the Windows binding behind the
@@ -4885,7 +4886,9 @@ whose runtime stopped while its connection stays open answers a join
 with a refusal the bridge records, untraced. Everything SPIKE-001 left not established stays carried by name in the paragraph below ("Carried by name, from SPIKE-001"): marketplace distribution and `--channels`
 (Stage 19, §22), `userConfig` substitution, organisation-policy gating,
 permission relay, size limits and behaviour under load, the 2026-07-28
-revision, non-interactive delivery and the untried `-p` timings; and
+revision and non-interactive delivery — the last two measured on
+2026-10-24 (S23, S24, #420) and recorded there — and the `-p` timings
+S24 did not try, measured 2026-10-24 but one (S25, #427); and
 from ADR-0023, `endpoints.query` and `peer_endpoints` until its revisit.
 
 Carried here from Stage 13 (§16) and Stage 7: `claude-channel`'s IPC
@@ -4912,12 +4915,9 @@ under a private mount, not written to a host's own `/etc`, and
 Anthropic's remotely served allowlist not asked for (§22 says why); `userConfig`
 substitution — measured outside a session on 2026-10-22 (SPIKE-001
 S20: the plugin's declared defaults and `plugin install --config`
-values reach the bridge's argv and survive an update), inside a
-channel session still not established; organisation-policy gating — the `allowedChannelPlugins` half measured by S22 (2026-10-23, above), the `channelsEnabled` refusal, server-managed and MDM policy still not; permission relay (not declared, by design);
-size limits on `content` and `meta` and behaviour under load — measured 2026-10-22 across two daemons by rust-services-dev (#375 and #376; the rule is CHANNEL-EVENT.md §Content's host-line bound and measure, and for the pull receive's pause CHANNEL-EVENT.md §Delivery and TOOL-SURFACE.md's `receive` row): a 48 KiB payload arrives whole, 49,549 bytes on the host line as UTF-8 and 65,938 as base64url; the worst case, a payload of control characters only, goes as base64url within the 320 KiB host-line bound, 65,938 bytes pushed and 65,929 pulled plain, 262,610 and 262,605 once `;ce=br` is decoded (before #376: 295,309 and 344,452, 1,180,109 and 1,376,712); 64 direct sends all notified in 16.6 s after 126–133 retried `Overloaded` refusals; 200 broadcasts notified 37–38, within the bucket's bound of 40–41, 162–163 dropped silently, their order held in one run and not in the other; the pull receive at queue 16 over a 10 s pause 51 accepted and 51 delivered, at queue 16 under the smallest keepalive over a 30 s pause 55 and 55 with the lease lost, at queue 16 under the shipped keepalive over a 120 s pause 220 accepted, 96 delivered and 124 lost, and at queue 256 over a 60 s pause 151 and 151. What those tests do not reach stays carried: a real MCP host's own line limit and pacing (SPIKE-001's), a second host, the broadcast drop count at the daemon, and a 256-byte card name across real daemons (unit-tested by #379, `channel-core`'s `meta.rs` `the_widest_legal_card_name_fits_and_one_byte_more_does_not`); a server
-negotiating the 2026-07-28 revision (the bridge stays legacy until a
-measured build registers a channel on it); any non-interactive delivery;
-any `-p` timing other than the three tried (fact 4). From ADR-0023: `endpoints.query` and a `peer_endpoints` tool stay out
+values reach the bridge's argv and survive an update) and inside a
+channel session on 2026-10-24 (SPIKE-001 S25, fact 49, #427: a session that registered the channel starts the bridge with the declared defaults, or with the `--config` values, in its argv); organisation-policy gating — the `allowedChannelPlugins` half measured by S22 (2026-10-23, above), the `channelsEnabled` refusal, server-managed and MDM policy still not; permission relay (not declared, by design);
+size limits on `content` and `meta` and behaviour under load — measured 2026-10-22 across two daemons by rust-services-dev (#375 and #376; the rule is CHANNEL-EVENT.md §Content's host-line bound and measure, and for the pull receive's pause CHANNEL-EVENT.md §Delivery and TOOL-SURFACE.md's `receive` row): a 48 KiB payload arrives whole, 49,549 bytes on the host line as UTF-8 and 65,938 as base64url; the worst case, a payload of control characters only, goes as base64url within the 320 KiB host-line bound, 65,938 bytes pushed and 65,929 pulled plain, 262,610 and 262,605 once `;ce=br` is decoded (before #376: 295,309 and 344,452, 1,180,109 and 1,376,712); 64 direct sends all notified in 16.6 s after 126–133 retried `Overloaded` refusals; 200 broadcasts notified 37–38, within the bucket's bound of 40–41, 162–163 dropped silently, their order held in one run and not in the other; the pull receive at queue 16 over a 10 s pause 51 accepted and 51 delivered, at queue 16 under the smallest keepalive over a 30 s pause 55 and 55 with the lease lost, at queue 16 under the shipped keepalive over a 120 s pause 220 accepted, 96 delivered and 124 lost, and at queue 256 over a 60 s pause 151 and 151. What those tests do not reach stays carried: a real MCP host's own line limit and pacing (SPIKE-001's), a second host, the broadcast drop count at the daemon, and a 256-byte card name across real daemons (unit-tested by #379, `channel-core`'s `meta.rs` `the_widest_legal_card_name_fits_and_one_byte_more_does_not`); a server negotiating the 2026-07-28 revision — measured 2026-10-24 (S23, rust-services-dev, Claude Code 2.1.286, four interactive runs of a stub differing only in its `server/discover` answer; facts 34–38, #420): a server offering the revision is negotiated, every request then carrying its envelope, and the client skips channel notifications on it ("negotiated a modern protocol revision with no unsolicited notification path"), the event never reaching the conversation; the legacy answer registers and delivers, and so does the modern server under the legacy negotiation override; on the revision a `tools/list` result without `resultType` is rejected while a `server/discover` result without it is accepted (run d); read from the binary, not measured, the gate refuses a modern-era connection before the provider, policy and allowlist checks and the permission relay excludes it the same way; so no measured build registers a channel on the revision and the bridge stays legacy by measurement, answering as the control did; non-interactive delivery — measured 2026-10-24 (S24, rust-services-dev, Claude Code 2.1.286, eight print sessions with stdin held open on S22's setup; facts 39–44, #420): with the organisation's allow entry a `-p` session registers the channel through `--channels` or the stream-json `channel_enable` control request, a peer's message sent after the first turn starts a turn of its own about 2 s later with no further input, and the peer holds the reply's acknowledgement about 4 s after the send; the development flag does nothing in `-p` (its `channel_enable` is refused as not on the allowlist — consistent with fact 4's three timings delivering nothing, which ran on another build with a bare server and were not reproduced, so a cause and not a measurement); the `channel_enable` control request alone, with the allow entry and no flag, registers and answers (run g, the acknowledgement 4.1 s after the send), and a session without `--allowedTools` still replied (run h, 5.0 s), only run h recorded its permission mode (`auto`, what set it not established) and a to g did not record theirs, a session that skips logs no line, and an event during a turn, after stdin closes, or with `--channels` and no allow entry was not tried — measured 2026-10-24 (S25, rust-services-dev, Claude Code 2.1.286, nine runs; facts 45–50, #427): an event reaching the bridge during a running `-p` turn does not enter it, waits for it, and starts a turn of its own that replies (45); in the one run that closed stdin during a turn, the session finished that turn, took the event as a turn of its own, replied and exited 0 with no signal — run b's outcome, not a rule (46); `--channels` with no allow entry gives no channel and no refusal line in the debug log, stderr or stdout (the four patterns searched), the far peer's send accepted by the daemon's transport at the bridge's endpoint and the session's own bridge log not captured (47); `--permission-mode manual` (reported by `init` as `default`) denies the bridge's `reply` unless `--allowedTools` names it (48); `userConfig` reaches the argv in a registered session (49); the refusal's remedy `claude plugin configure <plugin>` lists and writes nothing, `--values-stdin` writes, so the refusal text changed on #427 (50); not run: an event after stdin has closed and the last turn has ended, and permission modes other than `manual` and `auto`; so the bridge serves a non-interactive agent on the organisation path alone, and INSTALL.md's headless bullet says so. From ADR-0023: `endpoints.query` and a `peer_endpoints` tool stay out
 until that ADR's revisit. The `channel` meta key carries a
 ChannelId's canonical string as `common/channel-id` (the schema, `active`
 since Stage 13) defines it, and is not redefined here.
@@ -5240,7 +5240,26 @@ directions over a direct and a relayed path, plain and `;ce=br`, every
 captured payload validated against `envelope.schema.json`
 (`tests/human_chat.rs`, `tests/paths.rs`; the Pixel 9a at API 37 on
 2026-10-20, the A40 at API 30 on 2026-10-22, six runs of six each after
-the relayed-path fix that the first Pixel run failed one in five on); of
+the relayed-path fix that the first Pixel run failed one in five on),
+and — a device run recorded after the close, added to this clause on
+2026-10-26 — a direct path over the phone's radio rather than adb's
+tunnel (`tests/wifi.rs`; `runs/2026-10-22-pixel-9a-api37-wifi.md`, the
+Pixel 9a at API 37, p2p-network-dev-02 at architect-cto's request, three
+passing runs on 2026-10-22 after one that found no daemon binary): with
+no `adb reverse`, the desktop daemon dialled the phone's Wi-Fi address
+given it by `admin.peers.add_address` (the dial inferred from the
+control, the add and the host's TCP table, not observed itself), the
+control before the add not connected, and the `paths` case's message
+crossed that one TCP connection each way with the route reading
+`direct` on both sides; the run file's "What this run does not prove"
+lists the phone dialling the desktop (the host is behind NAT), a
+relayed path, DCUtR or AutoNAT over the radio, a scanned code or the
+client's screens, HumanChatV2 over Wi-Fi (rust-ui-dev's `human_chat`
+on this mode is run separately), a change of network, the phone in the
+background or dozing, more than one LAN, a LAN that isolates its
+clients, IPv6, and the phone's runtime outside its instrumentation —
+the same addition pointing at `tests/pairing.rs`'s phone-to-phone rows
+of 2026-10-24, which are §29's (e) and recorded there; of
 `tests/interoperability`'s three items the independent codecs and the
 upgrade matrices are proved there, and the desktop ↔ Android platform
 matrix comparing the decoded envelope fields is RE-CARRIED to Stage 18
@@ -5351,7 +5370,32 @@ clipboard refusal on a device are carried to the release gate with the
 user-presence case; StrongBox reporting and API 34+ behaviour on another
 device, Samsung Keyboard's input flags, the IME window outside
 `FLAG_SECURE`, system_server's saved-state and crash artifacts, and the
-D6b re-run stay carried, unmeasured.
+D6b re-run stay carried, unmeasured. Found after the close, from the
+owner's review of the client (2026-10-27, judged by the review class
+at f2295901): a command the Android hub had accepted while the facade
+loop was closing was dropped with no update — fixed on #483
+(752c4b12 carries it out or hands it back as
+`Failure::ServiceStopped`, b156191f the failure), host-tested, not run
+on a phone, so the service-restart interleaving on a device stays
+carried to the release gate with the cases above.
+The owner's second review of the client (2026-10-27, judged by the
+review class at 1b37e0ef) found, in the same place, that a facade
+whose command outlasts the stop's 2 s grace is left running with no
+generation on what it publishes, so it can list for, mark listed and
+publish into the view of the next service start — and that the stop
+retires nothing at the hub, so a generation check alone would still
+let it through between the stop and the start. Ruled the same day,
+human-client-android.md "A facade past its stop": the stop retires
+the generation before it returns, every facade-to-hub operation
+carries one and is refused unless current, a retired facade finishes
+its accepted commands against the store without publishing and its
+late end makes the newer facade list again, a discard refuses while a
+facade thread is alive — built on #495 (1e5961eb retires the facade
+at the hub, 6483d06f counts the relist owed after its review found
+that unlisting the view dropped the newer facade's own answer, 5c735753
+the store's busy timeout), host-tested with the real embedded runtime
+and not run on a phone, so the restart interleaving above carries this
+too.
 
 ## 21. Stage 18 — full adversarial/security gate
 
@@ -5476,9 +5520,11 @@ needed.
 **(5) Windows is carried to Stage 19 as a named limit** (the owner's
 word, 2026-10-11, the same message): no Windows runner exists, so this
 stage builds neither the named pipe nor its spoofing tests. The
-consequence, decided with it: the standard-v1 release matrix is Linux,
-macOS and Android; §22's `packaging/windows` is conditional on a Windows
-runner and the binding; BSL-1.0 stays admitted nowhere. The alternative
+consequence, decided with it: the standard-v1 release matrix was Linux,
+macOS and Android, and is Linux and Android since the owner's word of
+2026-10-28 (§22: macOS and Windows packaging postponed indefinitely, an
+option after the whole plan is complete); §22's `packaging/windows` is
+conditional on a Windows runner and the binding; BSL-1.0 stays admitted nowhere. The alternative
 — a runner now, and this stage taking the binding plus S9's Windows rows
 — was put to the owner and not taken. §22 carries the item.
 
@@ -5644,6 +5690,181 @@ holds no `stage-18` entry; the closing record then moves the status to
 `stage-19-…` once §20 has closed, or records Stage 18 closed beside an
 open Stage 17 if it closes first.
 
+### Record
+
+The owner's word closes it, as every stage. The `Met.` block, when it
+is written, names the rows, decided (2)'s figures and what was carried;
+until then this record names what each step landed on `main`, by pull
+request, and what the gate still waits on, read against the matrix at a
+named commit, so the close is a census of this list and not a reading of
+the matrix alone.
+
+**Landed (read at `main` e31760d0, 2026-10-25).** p2p-network-dev-01's
+S0–S4 (#267, fdd1f333, 2026-10-11: both suites as members, the matrix
+with its grammar, the pre-Noise floods over raw sockets, the R6 line of
+decided (6), the mesh identity rows, the `no_route` probing rows) and
+S5–S8's first pass (#268, 6fd3b0ae, 2026-10-11: address poisoning from
+each learning source, the hostile Kademlia routers, the relay class
+rows, `tests/security/tests/autonat_ssrf.rs` over the whole address
+matrix, and S21-06's limit cell with decided (2)'s figures, N=6
+trusted routers of which M=3 hostile, 12 explorations, 0 eclipsed, 12
+at the cap, with the reason the count is fixed by the topology and not
+measured against an attacker); S6 (#273, 7870492d, 2026-10-13: the
+bootstrap storm in synthetic time, the full-bucket eviction, the
+inbound stream flood kept at libp2p-kad's 32); S7 and S8 (#452,
+e31760d0, 2026-10-25, below). rust-ui-dev-02's S10 store half (#315,
+074ba19d, 2026-10-19: a corrupt store, a failed migration, a full
+medium; TM-44/45/46). p2p-network-dev-02's S9 and S11 (#337, fc5eeb81,
+2026-10-21: the
+sockets under a hostile umask, the foreign uid by the modes and then by
+the peer credential, the tampered phrase and the wrong PeerId through
+`transportctl`, the phrase scanned out of every captured stream; the CI
+step that runs the foreign-uid test as `nobody`, #338), and S10's
+profile-state half with C-05's second network, decided (7)'s R7, two
+daemons each behind its own NAT in one user namespace (#352, 0a3ef6b7,
+2026-10-22), which is S13's bridge proof. Rows written by other lanes:
+C-02 and TM-48 (architect-cto, #335), TM-30 and TM-32's bridge half
+(rust-services-dev-02, #336), and Stage 21's TM-52 to TM-56 (rust-ui-dev,
+§29). Of the matrix's rows six name no test yet: S12's five device rows
+(TM-25, TM-26, TM-42, TM-43, TM-47) and C-04, each below; every other
+row's tests exist, and `check_security_matrix.py` runs in the `tree
+checks` job, a required context, so clause (a)'s guard is in place.
+
+**S7 and S8 (p2p-network-dev-01, #452, merged e31760d0 on 2026-10-25;
+the owner's standing word above the minimum).** The misbehaving double
+the owner's outside suite asked for (2026-10-25, judged against this
+section the same day: covered for a direct peer, a broadcast publisher
+and a daemon in front of a client, not whole for a relay in front of a
+real daemon) is now a test or a limit for every item, in
+`tests/security/tests/relay_double.rs`: a relay that never answers
+RESERVE holds the ask, and with it a place in the reservation target,
+for libp2p-relay 0.22.0's 60 s stream timeout, then the spare is
+reserved; one that answers RESERVE or CONNECT with an undecodable frame
+fails the ask or the dial at once, and an honest circuit then connects;
+one that stops under a live circuit, sockets open and nothing forwarded,
+bounds each send at `DIRECT_TIMEOUT` with `PeerUnreachable` and is found
+by both ends within about a minute, the target losing its reservation;
+one that refuses the keepalive loses each reservation with the detail
+saying so. The hop gate's late drop `RELAY.md` §8 said no test shut is
+pinned at the crate surface (`relay_hop_gate.rs`, a request on a stream
+negotiated open, dropped when the gate shut before it arrived). S8's
+counterpart, `crates/transport/libp2p/tests/autonat_misbehaving_server.rs`:
+a server that never answers a dial request, or answers it with an
+undecodable frame, casts no vote, and a retest against an honest server
+decides the candidate; driven against the vendored client in a raw
+Swarm, since on loopback `AUTONAT.md` §6 refuses every candidate and a
+substrate sends no dial request. Two of the step's findings were
+rulings, not tests (architect-cto, 2026-10-25, together one amendment
+of `transport/libp2p/CONNECTIVITY.md` §14, A 2026-10-25, its two rules
+under one ruling id, supplied onto the branch): the dialling end of a circuit holds no reservation on the relay
+and was never pinged there, so the keepalive now runs on every relayed
+connection, end to end toward the data-plane peer, at both ends, a
+missed liveness closing it (the ping's bytes computed at the defaults as
+about 0.02 % of the per-circuit budget, §14); and a control peer's
+refusal of the ping protocol is a missed liveness, closed and reported
+by cause, so a relay that cannot be found dead is not a usable relay —
+required, not preferred. Both are `relay_keepalive.rs`'s cases, and the
+two limits S21-07 first carried closed with them. The step also fixed
+a defect it found in its own lane: the reconnect scheduler re-dialled an
+infrastructure-only relay under its own origin after a failed
+reservation dial; it now leaves such a relay to the relay ladder and
+still retries a relay that is also a data-plane peer. Every test relay,
+the shared e2e harness's included (`tests/support/src/e2e/relay.rs`),
+answers ping since this change, which the android-e2e `human_chat` case
+needed. Limits the rows carry: the 60 s hold is the crate's timeout,
+which the step did not shorten; a stopped relay is found within about
+a minute, each send through it meanwhile ending `PeerUnreachable`; a
+relay that refuses ping is not used, so a foreign relay that declines
+it cannot serve this profile; the misbehaving AutoNAT server is driven
+against the vendored client in a raw Swarm. Limits the tests show and
+the rows do not state: every address is loopback on one host, so no
+NAT is crossed (`relay_double.rs`'s harness), and a stopped relay is a
+parked thread, not a crashed host. The keepalive rule has no ADR of
+its own: the owner's word of 2026-09-26 and the two rulings live in
+§14, three rules in all, and no record promotes them yet; architect-cto
+promotes them into one ADR, with its digest entry and README row, at
+the latest with this stage's closing record, or earlier if §14 gains a
+fourth (the open list below carries it).
+
+**Open before the close (the same read).** Each named to its owner;
+none is the status value's, which stays on this stage.
+
+- **S12, the device rows** (S21-12, TM-25, TM-26, TM-42, TM-43, TM-47,
+  TM-48 with rust-ui-dev, and TM-54 in rust-ui-dev's lane once #451
+  lands): the Keystore invalidation, the secure window,
+  the backup exclusion, the half-restored install, user presence offline
+  until authentication. §20 closed on 2026-10-22 with its
+  instrumentation landed (`tests/android-e2e`, the `on_a_device_*`
+  cases), so what the rows wait on is a phone in a window and
+  p2p-network-dev-02's cases; the owner gives the phone. A row the phone
+  does not reach by the close is a `limit` cell, re-carried in the
+  closing record, as decided (0) said, and its `owed` item takes the
+  carried shape below (the section it is carried to named), so the
+  guard counts it carried and not empty: clause (a)'s "no row is
+  empty" reads, at the close, as no row without a test or a named
+  carry.
+- **TM-45's owed cases** (step S10 (02, with rust-ui-dev)): the
+  notification content and the clients' own logs as a shadow archive
+  (`apps/human-desktop`, `apps/human-android`), the one `owed` item
+  outside S12 and C-04; the clients are rust-ui-dev's, so the cases are
+  theirs to land or to record as a limit, the row's step naming them.
+- **S21-06's and TM-04's step cells** still name S6 (01) while
+  S21-06's limit cell holds decided (2)'s figures and clause (c) is met
+  by them. Nothing is owed on either (p2p-network-dev-01, 2026-10-25,
+  REPLY 01a17547-1407 to QUESTION 01a17545-9d3b, read at e31760d0: the
+  limit cell's open points are stated limits, not owed work); both
+  cells move to `—` on that lane's next pull request. One item touches
+  the row's tests without being owed work: a one-off failure of
+  `hostile_routers_seat_no_stranger_and_their_poison_costs_its_address`
+  under a full workspace run, held by p2p-network-dev-01 as test
+  reliability (their j130), carried here as that and not as the row's
+  step.
+- **C-04, the Windows carry.** The row's tests cell holds only an owed
+  marker, and until #455 landed `check_security_matrix.py --strict`
+  would have failed the close on it once S12's rows were filled. Its
+  work is not this stage's:
+  decided (5) carried the binding and its spoofing tests to Stage 19 on
+  the owner's word of 2026-10-11, and P4 records that word as given, so
+  the row's "owed: the owner's word" was stale and now records the carry
+  as clause (d) asks, its step cell naming §22's carry and architect-cto
+  as its holder (§22 holds the carries by name; since the owner's word
+  of 2026-10-28 the Windows packaging it waits on is postponed
+  indefinitely, an option after the whole plan is complete, so the
+  carry has no date). The guard now reads a
+  carried row as not empty: an `owed` item in the shape `owed: … in
+  Stage NN (plan section MM)`, every item of the cell, is counted
+  carried under `--strict` and labelled so in the plain report, with
+  the grammar sentence and the self-test's cases — devex-tooling's
+  #455 (8e5881e2, merged 2026-10-25 23:39Z on architect-cto's word; asked
+  2026-10-25, REQUEST 01a17546-8198, REPLY 01a17547-31f8, their j239).
+  C-04's cell is in that shape, so the close runs the guard with
+  `--strict` and this record names C-04 as the one row carried whole.
+- **TM-52, TM-54, TM-55 and TM-56's step cells** named §29 step 2
+  (rust-ui-dev) after Stage 21 closed on 2026-10-25 (TM-53's already
+  read `—`). Read against `main` by rust-ui-dev-01
+  the same day (REPLY 01a17548-26af to QUESTION 01a17545-a033; the
+  assignment architect-cto's, REPLY 01a17549-2349): TM-52 and
+  TM-55 move to `—`, TM-52's cell adding the rendered half's own test
+  (`crates/human/ui-slint/tests/cards.rs`, the key change read before
+  Accept with both fingerprints); TM-54 moves
+  to `S12 (rust-ui-dev)`, since the identity key's Keystore cipher,
+  alias retirement and invalidation have no device run yet and are
+  S12's item in rust-ui-dev's lane, run with the store key's device
+  rows in the owner's phone window; TM-56 moves to a §29 carry
+  (rust-ui-dev): the same-name three-key rule and a rendered title told
+  apart by the short PeerId, Stage 21's carried work and not a Stage 18
+  step. The four cells moved in one commit, a3c92915 on #451 (REPLY
+  01a1754a-7708), which lands them when that pull request merges.
+- **Clause (f)**: the ledger `tools/checks/domain_fn_exempt.txt` holds
+  no `stage-18` entry (read 2026-10-25); the close re-reads it. Apart
+  from the clause, `error_contract_matrix.rs` holds no `Proof::Stage(18)`
+  deferral either, as decided (0) required while the stage ran beside
+  Stage 17.
+- **The closing record itself**: on the owner's word, the `Met.` block
+  in §28's shape, the status to Stage 19's value since §20 has closed,
+  the three prose status sites with it, and, unless done earlier, the
+  keepalive rules' promotion from §14 into one ADR (architect-cto).
+
 ## 22. Stage 19 — packaging, migration, and release
 
 **Activated 2026-10-20** on the owner's word ("activate Stage 19", relayed by
@@ -5679,14 +5900,14 @@ architect-cto's, on p2p-network-dev's question with the costs. The Stage 16
 carry (marketplace distribution and `--channels` with a published plugin) was
 unassigned, by name, until rust-services-dev took it on 2026-10-20 (the remit
 of #320; measured on their branch, the §22 line following their verdict). packaging/macos and
-packaging/windows (with the Stage 18 Windows carry below) wait on a lane and a
-host and open on their own record line here: the macOS runtime-directory rule
-is architect-cto's; the macOS runner, the Windows binding and its BSL-1.0
-decision have no building lane until a lane and a host exist, and until then
-architect-cto holds them as carries, by name — the two Activate roots
-`packaging/macos` and `packaging/windows` included — so that no row of this
-stage is nobody's; macOS stays in the v1 matrix and the closing record says what
-became of it. Nothing in
+packaging/windows (with the Stage 18 Windows carry below) are postponed
+indefinitely, the owner's word of 2026-10-28: an option to take up after the
+whole plan is complete, never a row of this stage's close. macOS leaves the
+v1 matrix, which is Linux and Android; the two Activate roots stay landing
+zones; the macOS runtime-directory rule, the macOS runner, the Windows
+binding and its BSL-1.0 decision are held by architect-cto as carries by
+name with no date, so that no row is nobody's, and nothing of this stage
+waits on them. Nothing in
 this stage invents trust, network or application semantics (the rule below).
 The stage closes on the owner's word, as every stage, once every Validate row
 has a green test on `main` or a `limit` naming its reason, every item carried
@@ -5754,9 +5975,11 @@ Carried here from Stage 15 (§18): client autostart of the daemon (§18 (9),
 the owner's with packaging — the service/autostart lifecycle row,
 p2p-network-dev's in the split above, is where it is met or re-carried); the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
-Every release ships under one Semantic Versioning 2.0.0 version (ADR-0065, the owner's direction of 2026-10-23): `0.y.z` until the owner cuts `1.0.0`, the workspace version the single source every artifact is produced from or checked against, pre-release tags published as pre-releases; this record names the version each release ships under and which contracts moved, and the first tag waits for that single source to land (devex-tooling's, with the release scripts', the plugin manifest's and the Android values' changes in their lanes). Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; whether the release run builds Skia from source or pins the bindings' prebuilt archive by checksum is decided here before the first release. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release — rust-services-dev's since 2026-10-20 (remit #320), the bridge, its package and SPIKE-001's carried measurements with it. Measured 2026-10-22 by rust-services-dev (SPIKES.md, SPIKE-001's carried measurement S19, Claude Code 2.1.286): the bridge's package, installed from the local marketplace `packaging/claude-plugin/build.sh` assembles, registers as a channel with the development flag only, and `--channels` refuses it as not on the approved channels allowlist. So marketplace distribution is met for the development-flag path. `--channels` with a published plugin stays carried. Read from the binary, not measured (SPIKE-001 fact 23): it needs Anthropic's remotely served allowlist to name the plugin for its marketplace, or an organisation's `allowedChannelPlugins` with `channelsEnabled: true`. Publishing was architect-cto's question, answered 2026-10-22 (the owner's priority of that day, the bridge a Claude Code user can rely on): the fleet's deployment takes the organisation path — the organisation owns its Claude Code settings on the host, so the allow entry is the deployment's to write — and no publication to Anthropic's remotely served allowlist is asked for now, since the plugin is one organisation's and carries no public listing; the question returns when a second organisation needs the channel, or if the organisation path cannot be made to work on the binary measured. The measurement is SPIKE-001's S22 (rust-services-dev, 2026-10-23): the organisation path works — the host's managed settings file naming the plugin in `allowedChannelPlugins` registers the channel with no development flag — with two residues named there: on the measured login `channelsEnabled` is not read (read from the binary, S22 fact 32: it is consulted for a claude.ai Team or Enterprise subscription and for every login that is not claude.ai, which refuse any policy lacking `channelsEnabled: true`; neither was measured, so the install step keeps both keys), and the file was presented at its real path under a private mount, a host's own `/etc` being root's to write at deployment.
+Every release ships under one Semantic Versioning 2.0.0 version (ADR-0065, the owner's direction of 2026-10-23): `0.y.z` until the owner cuts `1.0.0`, the workspace version the single source every artifact is produced from or checked against, pre-release tags published as pre-releases; this record names the version each release ships under and which contracts moved, and the first tag, `v0.1.0`, was the owner's act alone, cut 2026-10-25 on 71961578 (#437's merge) after the last of the lanes' version changes had landed on 2026-10-24 (the workspace version #394, the daemon's and `transportctl`'s `--version` #386, the plugin manifest #398, `interweave-human`'s #404, the release scripts #402, the Android values in `build.gradle.kts`). Its tagged run (40179792207) failed at its first attempt at `release apk signing`, the `release` environment holding no signing key yet (`release tag`, `release apk build (arm64-v8a)` and `release archive (x86_64-unknown-linux-gnu)` had passed; `publish the release` was skipped): the key is the owner's to make once, in their own account, and the environment theirs to fill, as `packaging/android/README.md`'s "Making the key and the environment, once" says (devex-tooling, #439, merged 2026-10-25). The owner filled it and re-ran the failed jobs the same day, and the run's second attempt passed all five jobs at 11:48Z, publishing the release page (`v0.1.0`, "InterWeave 0.1.0", not a pre-release, on 71961578) with the signed APK `interweave-0.1.0-arm64-v8a.apk` (SHA-256 `f08e101fc7892719c5ab3c685700d337c209fe098aa8595223133fcbb18b541e`; the signing certificate's `a7f38b5e32aec4b8db0627950740ea98389a59dfb3c73844546f12a038d026e1`, the same for every release), the Linux archive `interweave-0.1.0-x86_64-unknown-linux-gnu.tar.gz` (`77fcc622473016a5232bf10783c67581b8404cdeb910a9cd29855412c67e5115`), `THIRD-PARTY-NOTICES-android.md` (`6ba37572895226c22fa004907f9aa7d887afb508897566b42afefc7b74fc073f`) and a `.sha256` asset beside each, the Android and Linux install, update and rollback sections, the "Made with Slint" badge and sentence, and the Android notices inline (Skia and skcms) — read from the page, the run and its hash assets by architect-cto on 2026-10-25. So the Android release run of ADR-0057 and the Stage 15 carry above (the Slint attribution on the public download page) are met by that page; no plugin package is attached as an asset of its own: the plugin's marketplace is inside the Linux archive (`claude-plugin/`, built by `packaging/claude-plugin/build.sh` at the release version and added with `claude plugin marketplace add`, as `tools/ci/release_linux_archive.sh` says), and §19's marketplace carry stays rust-services-dev's. The owner's two steps after a first release (`packaging/android/README.md` step 6) were done at 11:54Z the same day: the `release` environment holds `INTERWEAVE_RELEASE_CERT_SHA256` beside the four signing secrets and no variable, so `INTERWEAVE_RELEASE_FIRST` is gone (read by name from the repository API; a secret's value cannot be read back, so whether it equals the page's certificate SHA-256 shows at the next signing, which refuses a mismatch). Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; the release run pins the Skia bindings' prebuilt archive by a committed SHA-256, and a silent fall-back to a source build is a failed run; the android check job is to read the same pin once its workflow calls the script, devex-tooling's wiring still owed at this writing (ADR-0057 decision 4, A 2026-10-20; `tools/ci/skia_prebuilt.sh`, `tools/ci/skia-binaries.pin`). Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release — rust-services-dev's since 2026-10-20 (remit #320), the bridge, its package and SPIKE-001's carried measurements with it. Measured 2026-10-22 by rust-services-dev (SPIKES.md, SPIKE-001's carried measurement S19, Claude Code 2.1.286): the bridge's package, installed from the local marketplace `packaging/claude-plugin/build.sh` assembles, registers as a channel with the development flag only, and `--channels` refuses it as not on the approved channels allowlist. So marketplace distribution is met for the development-flag path. `--channels` with a published plugin stays carried. Read from the binary, not measured (SPIKE-001 fact 23): it needs Anthropic's remotely served allowlist to name the plugin for its marketplace, or an organisation's `allowedChannelPlugins` with `channelsEnabled: true`. Publishing was architect-cto's question, answered 2026-10-22 (the owner's priority of that day, the bridge a Claude Code user can rely on): the fleet's deployment takes the organisation path — the organisation owns its Claude Code settings on the host, so the allow entry is the deployment's to write — and no publication to Anthropic's remotely served allowlist is asked for now, since the plugin is one organisation's and carries no public listing; the question returns when a second organisation needs the channel, or if the organisation path cannot be made to work on the binary measured. The measurement is SPIKE-001's S22 (rust-services-dev, 2026-10-23): the organisation path works — the host's managed settings file naming the plugin in `allowedChannelPlugins` registers the channel with no development flag — with two residues named there: on the measured login `channelsEnabled` is not read (read from the binary, S22 fact 32: it is consulted for a claude.ai Team or Enterprise subscription and for every login that is not claude.ai, which refuse any policy lacking `channelsEnabled: true`; neither was measured, so the install step keeps both keys), and the file was presented at its real path under a private mount, a host's own `/etc` being root's to write at deployment.
 
-Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both. macOS is IN that matrix and owes this stage two things before it ships, neither decided yet: a macOS runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a macOS runner, the v1 build claim being Linux until both exist. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows rows are conditional on the carry above.
+The Linux archive's minimum platform (ADR-0065 decision 2, A 2026-10-25, the second of that day; architect-cto's ruling of 2026-10-25 in REPLY 01a1736d-9ab5 to p2p-network-dev's question 01a17366-34c8, from the owner's external review of `v0.1.0`): **the floor is glibc 2.35 on x86_64** — Ubuntu 22.04 and later, Debian 12 and later, Fedora 36 and later — and `v0.1.1`, a PATCH, is the first release that states it. Measured by p2p-network-dev on 2026-10-25, the SHA-256 of the archive checked first: `v0.1.0`'s archive, built on `ubuntu-latest` (a glibc 2.43 image by then), carries a `human-desktop` needing `GLIBC_2.43` (`acosf`, `atan2f`), an `interweave-human` needing 2.38 and a daemon, `transportctl` and `claude-channel` needing 2.34, so its GUI is refused before `main` on a 2.42 host while the three programs an agent's host runs without the GUI, the daemon, `transportctl` and the bridge (ADR-0055), start on any host at 2.34 or later; the same tree built by `tools/ci/release_linux_archive.sh` inside a glibc 2.35 image with the toolchain `rust-toolchain.toml` pins needs at most 2.35 in every program (`human-desktop` 2.35, the other four 2.34), each of the five starting in a fresh image of that glibc under `LD_BIND_NOW=1`, and p2p-network-dev's floor check, run over that build at 2.34, refuses `human-desktop`, the control that the check bites (the script's own self-test refuses a 2.35 fixture at 2.34 and a 2.43 one at 2.35). So `v0.1.1` is the owner's to tag: the archive job builds inside the floor image and p2p-network-dev's `tools/ci/check_glibc_floor.py` gates the published archive at 2.35, both on `main` with devex-tooling's #446 (fe6a85f0); the release page states the floor as the sentence above, rust-ui-dev's template with language-culture-en's English (#445); `packaging/linux/DEPLOYING.md`'s requirements line is owed the same sentence by p2p-network-dev (ADR-0065's implementation implications); `v0.1.0`'s archive is not replaced, its page gaining one line, the owner's as publishing is, that the GUI there needs glibc 2.43 and `v0.1.1` states the floor. A 2.34 image (RHEL 9 and its rebuilds) is a measurement of its own after the job builds in the floor image, never on `v0.1.1`'s path: a floor is what was built and checked, and if 2.34 builds, the next PATCH lowers it. The fleet's conformance rows that run from the release archive (ADR-0055, p2p-network-dev's REQUEST of 2026-10-25) run from `v0.1.1`'s.
+
+Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). The standard-v1 release matrix is Linux and Android (the owner's word of 2026-10-28, the opening record above): `packaging/windows` is conditional on a Windows runner and the binding, and macOS, which this stage once owed a runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a runner, is postponed with it, indefinitely, an option after the whole plan is complete; both stay carries held by architect-cto by name with no date, and the v1 build claim is Linux and Android. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows and macOS rows are postponed with the carry above.
 
 ## 23. Parallel workstreams
 
@@ -6216,7 +6439,7 @@ decision 6.
    card in settings — one per configured endpoint, the `human` endpoint's
    in this stage (ADR-0059 decision 2 as amended, ADR-0061) — signed by
    its key; `contact_routes.identity_key`; the key-change proposal and
-   the fingerprint on the identity and contact pages; "Share a
+   the fingerprint on the identity and contact pages (ADR-0067, A 2026-10-28: `endpoint-keys/` from the Stage 22 release, and no key change from it, a different key being another identity); "Share a
    card" on one conversation sending the conversation's identity's card,
    no chooser, never automatic; the received card held as inbound content under
    RETENTION.md, shown as a proposal with the PeerId beside it and the
@@ -6300,7 +6523,7 @@ conversations is the conversation's identity's each time and nothing
 sent names another identity (the two-identity case is §30's gate); a
 card's signature verifies at the receiver and a card replayed from
 another PeerId is malformed; a card with a changed identity key on a
-known route is shown as a key change and accepted only by the person;
+known route is shown as a key change and accepted only by the person; (until the Stage 22 release; from it, ADR-0067 decision 5: another identity)
 the identity key never enters the store, a log, IPC or a backup; a confirmed discard during a stalled rewrite
 removing the plaintext and keeping the key and the complete copy,
 which the next open promotes, the screen listing the plaintext alone;
@@ -6356,12 +6579,435 @@ decodes to this node's addresses and PeerId and nothing else, none of a
 refused class; a removed address is dialled no more without a restart,
 and an authored one cannot be removed; `transportctl` lists what the
 app added; two phones on one LAN, each fresh, connect after each has
-scanned the other and trusted the shown PeerId, and not before.
+scanned the other and trusted the shown PeerId, and not before —
+"connect" being a connection the data plane admits on which a
+message crosses (A 2026-10-24): a TCP and Noise handshake that the
+untrusted side ends at establishment is the refusal itself by design,
+since a peer is classed only once Noise has authenticated it
+(`architecture/transport/libp2p/SECURITY.md`); what the run file
+`tests/android-e2e/runs/2026-10-24-pixel-9a-a40-wifi-fresh-pair.md`
+(#417) measured is that with one side trusting nothing crossed in
+either direction, the dialler's row reading `denied` in five runs and
+`connected` in one, the close itself unquoted there.
 
 ### Record
 
-The closing record lands here when the owner closes the stage, with
-the figures and the carried limits, as §28's does.
+The owner's word closes it, as every stage. The `Met.` block names the
+cases, SPIKE-011's figures, the privacy review's answer and what was
+carried.
+
+**Met (2026-10-25; the closing record).** Stage 21 closed on the owner's
+word of 2026-10-25 — given on the arming of the pull request that lands
+this record, which is its approval on record, as §28's was; the
+direction was the owner's "complete stage 21" of 2026-10-24 — having
+run beside Stages 17, 18 and 19 from 2026-10-21, on the steps above in
+order, each in its lane's pull requests, the stage's five decisions
+(ADR-0059, ADR-0060, ADR-0061, ADR-0062, ADR-0063) all Accepted before
+the close, ADR-0064 (the end-to-end layer above them) Proposed and not
+this stage's: step 1, the card on the wire (rust-ui-dev:
+the parser and its three-way answer, the fixture vectors frozen on #343
+ahead of it, the identity key and signature of ADR-0063 on #344); step
+2, the proposal and the acceptance (the manifest and dependency check,
+the identity key pair and its sealed file, the proposal and contact
+screens #407, the Android key under the Keystore #414, the unusable key
+and Make a new key #423, Undo and the swipes #433, the same-name key
+#437, the permission allow-list #436); step 3, the encrypted store
+(#377, after SPIKE-011 #342); step 4, the command-line client first
+(#368, #369, #387, #429: every action of steps 2 and 3 as a command,
+ADR-0059 decision 9 met on the owner's word of 2026-10-22) and the
+screens on both clients (#384 the add page and the no-reach notice,
+#407, #409 Show my address and the desktop's scan of an image, #418
+Scan a code with the phone's camera, #428 the superseded address);
+step 5, a peer by address and one's own (p2p-network-dev: the overlay,
+the provider, the admin methods and `transportctl`'s verbs; rust-ui-dev:
+the add, Show and Scan screens, the camera module `CodeCamera.kt`;
+ux-designer: the two flows in `design/2026-10-22-add-a-peer.md`, #405).
+The exit gate: (a) steps 1–5 are on `main` with CI green at the merge
+of the last gate item (#436, 08ad14be); (b) each case by a named test
+at the lowest layer that proves it — the store's in
+`crates/human/store/tests/` (`contacts.rs`, `at_rest.rs`,
+`released_content_encrypted.rs`), the wire's in
+`crates/human/chat-protocol/tests/`, the application's in
+`crates/human/app-core/tests/` (`cards.rs`, `card_photo.rs`), the
+facade's in `crates/human/transport-client/tests/facade.rs`, the
+models' and the views' in `crates/human/ui-model/tests/` and
+`crates/human/ui-slint/tests/`, the Android platform's in
+`crates/human/android-platform/tests/service.rs`, the command line's
+beside its source under `apps/human-cli/src/`, and the two clients' end
+to end in `tests/desktop-e2e/tests/human_cli.rs` and `human_app/`:
+the valid card by
+`a_valid_card_accepted_creates_the_contact_and_names_the_conversation`;
+the unknown kind or over-bound card by
+`a_card_of_an_unknown_kind_or_over_a_bound_is_rejected_with_no_network_effect`
+(the facade's, watching both endpoints and the room, with a control
+that the watch sees traffic); broadcast by
+`a_card_received_over_broadcast_is_ignored_and_shows_nothing`; the
+second card from one route by
+`a_second_card_from_the_same_route_updates_it_and_overwrites_no_local_edit`
+and `a_later_card_names_the_values_it_changes_and_the_edit_it_keeps`;
+two same-name cards by
+`two_same_name_cards_from_two_peer_ids_are_two_proposals` (and the
+Cyrillic lookalike as the same name by the store's key,
+`a_lookalike_name_on_another_peer_id_is_named_as_the_same_name`); the
+declined card by `a_declined_card_leaves_nothing_in_the_store` and the
+command line's `decline_writes_nothing`; the photo's metadata by
+`a_photo_chosen_with_a_gps_block_and_a_camera_serial_leaves_the_sender_with_neither`;
+the local edit and its provenance by
+`an_accepted_photo_is_kept_as_bytes_and_a_photo_the_person_set_is_never_replaced`
+and the page's
+`the_contact_page_says_where_each_value_came_from_and_a_local_edit_stands`;
+the second route of a known PeerId by
+`a_card_on_another_route_of_a_known_peer_id_makes_its_own_contact_and_names_the_one_sharing_its_node`;
+the card shared to two conversations by
+`the_card_shared_to_two_conversations_is_the_conversations_identitys_each_time`
+over two daemons with a tap on the sender's IPC; the signature by
+`a_built_card_verifies_on_its_route_and_on_no_other`, the frozen
+vectors' `every_frozen_card_gets_its_verdict_and_its_one_reason` and
+the replay by `a_malformed_card_is_counted_as_a_card_and_never_stored`;
+the key change by
+`a_changed_key_is_a_key_change_and_accepting_it_replaces_the_key_on_that_route_alone`
+and `a_key_change_is_accepted_only_by_the_flag_named_for_it`; the
+identity key out of the store by `the_identity_key_never_enters_the_store`
+(raw, base64 and hex, with a control) and out of the logs, IPC and
+output by
+`a_photo_set_from_a_file_reaches_the_contact_and_the_key_stays_in_its_file`,
+out of a backup by the manifest check alone (`allowBackup="false"` and
+every domain excluded, so no file of the app is backed up — no case
+reads a backup); the stalled rewrite's discard by
+`a_discard_during_a_stalled_rewrite_removes_the_plaintext_and_keeps_the_key_and_the_copy`
+with the screen's `the_partial_confirmation_names_the_unfinished_file_only`;
+the unopenable copy's by
+`a_discard_with_the_copy_unopenable_removes_plaintext_copy_and_key_in_one_step`
+(all four spoilings) with
+`the_full_confirmation_lists_every_loss_and_cancel_has_focus`; the
+command-line discard by
+`a_discard_is_refused_without_the_scope_it_lists_and_removes_nothing`
+and `a_store_without_its_key_is_discarded_only_on_its_confirmed_scope`;
+every action of steps 2 and 3 from a shell with no display by the
+`human_cli.rs` cases run under a cleared environment
+(`a_card_shared_accepted_edited_and_deleted_across_two_daemons`,
+`a_key_change_is_made_and_accepted_only_on_its_flags_across_two_daemons`,
+the photo case and the discard case above) over the verbs ADR-0059
+decision 9 names, complete with #429; the photo not decoded before
+Accept by
+`a_photo_reaches_the_screens_decoded_only_once_it_is_accepted_with_its_time`
+and the decoder's bounds in `card_photo.rs`; the Android build's
+declarations and the permission allow-list by
+`check_android_contacts_and_backup.py`, its self-test breaking it once
+per declaration and once per allow-list failure (`allow-list-extra`,
+`camera-required`; #436); no plaintext at rest by
+`a_new_store_is_encrypted_from_its_first_page_under_a_new_key` after a
+clean close (a contact, its peer and the messages filled, the store
+dropped, the files searched for each and for the SQLite header) and by
+`no_plaintext_after_an_unclean_close_of_the_encrypted_store` after an
+unclean one (the content in the write-ahead log, a control asserting
+it), with the deletion property's
+`released_content_is_absent_from_every_decrypted_page_after_a_clean_close`;
+the missing key by
+`a_store_whose_key_is_lost_is_discarded_and_recreated_on_the_persons_word`
+on the shipped window (identity, key, profile and trust compared before
+and after); the invalidated key by
+`an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store`
+against a fake Keystore; the rewrite killed at each step by
+`the_rewrite_killed_after_each_step_loses_no_row_at_the_next_open`
+(eight crash points) and the damaged header by
+`a_plaintext_store_with_a_damaged_header_reaches_recovery_mode_not_discard`;
+(c) SPIKE-011's Result (SPIKES.md, 2026-10-21): PASS for the first
+candidate, SQLCipher 4.14.0 as `rusqlite`'s
+`bundled-sqlcipher-vendored-openssl` builds it, within ADR-0060
+decision 4's criterion of twice the plaintext baseline on both targets,
+judged on medians — on the desktop every operation within x1.21 of the
+plaintext at 500 and 2000 kept, at schema v7 and v8, no single round
+above x1.93, a cold open of 5–8 ms; on the Pixel 9a every operation
+within x1.58 at 500 and 2000 kept at v7 and v8, two rounds of 36 above
+x2 at v7 and none above x1.85 at v8, a cold open of 42–54 ms against
+the one-second bound (that it read from the medium rests on
+`posix_fadvise(DONTNEED)`, not measured on f2fs), the deletion property
+holding on the device's encrypted file; and the walk was quadratic whatever the engine, 23.8 s
+on the desktop and 10.8 s on the device at the 20 000-row stress row
+under SQLCipher, 146 ms and 127 ms once schema v8 indexed
+`(received_at, row_id)` on both inbound tables — the stage's one store
+schema change the spike itself caused; (d) the owner's privacy review
+of Stage 15's carry 11, answered here — the answer architect-cto's
+reading, the owner's by the word that lands this record, as every
+ruling of this stage: over the card, what it still discloses is what
+ADR-0059's Security implications state and nothing more — a person's
+name and face, sent to one peer on the person's own action and never
+to the trust set (decision 2), bound to the node's PeerId, so that any
+two holders of the node's cards who compare link every identity of the
+node (a person who needs identities that cannot be linked needs
+separate profiles, ADR-0061 decision 5), the impersonation of a known
+name made visible by the PeerId beside every proposal and the same-name
+note rather than prevented, the photo decoded only after Accept, and no
+address book read, by the manifest check; over the store's content-free
+columns, each named for what it holds: `read_pairs`, where a message
+came from, the id its sender gave it and when the pair was written, at
+most 4096 rows and no text; `conversation_index`, whom a conversation is with (a peer and its endpoint, or a channel), which identity it speaks as (`local_endpoint_id`, Stage 22's column, STATE.md A 2026-10-25; every row is the `human` identity's until then), its title — the contact's display name, which the contact
+row holds already, or one the person set, a name they chose; the one
+column of the set that holds a name, and one no code writes today, so
+a writer of it falls under the rule below — when it was last active
+and when its card was last shared;
+`contact_routes.last_seen`, when a route last reached — a column no code writes today, NULL until a writer is decided (`schema.rs`), under the rule below like the title; and the
+contacts' `name_source`, `name_at`, `photo_source` and `photo_at`,
+whether a name or a photo came from a card or from the person, and
+when. None of them leaves the device: none is on the wire, none is in a
+backup (`allowBackup="false"`, every domain excluded), and all are
+ciphertext at rest under the platform-sealed key since step 3; what
+each discloses, to whoever holds the open store, is when and with whom
+the person talked, which the conversation list shows in any case. The
+review accepts every one as it stands, the title included on both of
+its readings, with one rule: no column of
+this set, and no derivative of one, reaches the wire, a backup, a log
+or an export without a record that names it; (e) the added address by
+`an_added_address_is_dialled_and_survives_a_restart_with_no_provider_authored`
+(`crates/transport/composition/tests/bootstrap_overlay.rs`) and on the
+phones below; the camera permission's timing by the dated device-run
+record `apps/human-android/device-runs/2026-10-25-samsung-a40-camera.md`
+(#436: on the A40 at API 30, CAMERA asked at the first press of Scan a
+code and at no other moment of a launch, the add page and a restart;
+Don't allow leaving the add page with its field, its line and typing)
+and a refusal leaving typing by
+`a_refused_camera_returns_to_the_field_with_its_line` and
+`a_camera_refused_for_good_offers_open_settings`; no camera use outside
+Scan by the same check's `camera-api-*` cases (`CodeCamera.kt` the one
+module, `MainActivity.kt` allowed the ask alone; #436); the no-reach
+notice by `the_no_reach_notice_shows_on_two_empty_lists_and_nothing_else`;
+the grammar by `each_refusal_is_named_and_writes_nothing`, which is also
+the 65th entry's, and the start failure by
+`a_composed_count_past_64_stops_the_start_naming_the_overlay`; the
+special-use classes by
+`transportctl_adds_lists_and_removes_and_the_method_refuses_every_special_use_class`
+(fourteen classes against a live daemon, a private address of each
+family admitted) and the floor's unit test
+`the_add_floor_refuses_every_special_use_class_and_admits_private_and_public`;
+the disabled provider by
+`a_disabled_provider_refuses_the_add_and_lists_the_overlay_as_not_dialled`;
+the DNS name by `a_scan_is_taken_whole_or_refused_whole_before_it_is_sent`;
+the hostile code by
+`a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_set_unchanged`
+(through the facade to a real daemon, the admin socket watched; #436)
+with `the_host_adds_a_scan_all_or_none_through_its_binding` for the
+whole-or-none rule; the shown code by
+`show_draws_a_code_that_reads_back_as_its_lines` and
+`the_shown_code_reads_back_as_this_nodes_own_addresses_and_peer_id_alone`
+from the shipped window's pixels (#436); the removal by
+`a_removed_address_is_dialled_no_more_without_a_restart` and
+`an_authored_address_cannot_be_removed_and_an_added_one_leaves_at_once`;
+the listing by the same `transportctl` case and the command line's
+`a_peer_added_by_address_is_listed_refused_by_class_and_removed`; and
+the two phone rows: an address added on the Pixel 9a for the A40
+dialled and surviving a restart, 4 of 4 at 96c2a52b
+(`tests/android-e2e/runs/2026-10-24-pixel-9a-a40-wifi-added-address.md`,
+#417: runs 5–8; runs 2 and 4 before it failed on the cases' design,
+1 and 3 were not run), its cache-on variants' 12 runs passed with the
+three "neither" runs no control (`…-cache-on.md`, #421) and then 12 of
+12 again at 8f978966 with the control live, B listening through A's
+15 s window and A unconnected at every poll
+(`…-cache-on-control.md`, #448), and the reboot, with the peer cache off, in its second run, 193.86 s, the first stopped at the harness's 1200 s wait for the phone's new address (`…-cache-on.md`, `…-reboot.md`, #421); two
+fresh phones on one LAN connecting after each trusted the other's
+PeerId and not before, 3 of 3 at cc64aa55 (`…-fresh-pair.md`, #417:
+5 of 6 across the file, run 2 failing on the case's design), "connect"
+read
+as an admitted connection carrying a message (A 2026-10-24). The
+status value does not move: Stage 18 stays the lowest open stage.
+
+**Measured, and carried as limits.** Carried by name, each to its
+owner:
+- The two phone rows added the address through the binding's add, the
+  call the Scan screen makes, not by scanning a shown code: the Scan
+  screen landed after them (#409 the image, #418 the camera). Row 2
+  through the real Scan is p2p-network-dev-02's (j69), on the owner's
+  word to clear both phones; its run file is that carry's evidence
+  when it runs, never a condition of this close.
+- The cache-on control measured nothing else dialling B after the
+  restart for the shipped profile with Kademlia off; with Kademlia on,
+  the cache's write timing for a kill sooner after a connection, and
+  who dialled beyond inference stay unproved (`…-cache-on-control.md`
+  names each): p2p-network-dev-02's (j69), with row 2 through Scan.
+- What the phone rows share, as their files list it: every case ran by
+  the app's instrumentation in a fresh process, no window shown and
+  the network service not started (`…-fresh-pair.md`; `E2eCase.kt`
+  starts no Activity and no service); every file names a relayed
+  path, the app in the background, IPv6 and a LAN that isolates its
+  clients as not run; row 1's file adds DCUtR and AutoNAT and dozing;
+  it and its cache-on variants add a change of network and the app's
+  graceful stop (their restart is the platform's force-stop) and, with
+  the reboot row,
+  assert the connection only, never a message (`…-added-address.md`,
+  `…-cache-on.md`, `…-cache-on-control.md`, `…-reboot.md`); the reboot
+  row ran with the cache off, so a reboot with the cache on is not
+  proved (`…-reboot.md`), and the fresh-pair row's B-side close wait is
+  the case's code, exercised by no run and checked by no test
+  (`…-fresh-pair.md`). p2p-network-dev-02's, carried here until a
+  Stage 18 matrix row names one.
+- The camera row's record does not show a second press of Scan a code
+  after a refusal (where a lasting refusal names Settings), a grant and
+  a real scan (#418's device check), a phone without a camera, TalkBack's
+  reading, or the Pixel's API 37 (the record names each): rust-ui-dev's,
+  the next camera device record.
+- The same-name rule: design 5.4.1 (#438) decides one name by three
+  keys (case, shape, compatibility shape; any match), the store's
+  `name_key` computes the case key alone and the ui-model's titles
+  compare exactly; `human-client-ui.md` §13 bullets 4 and 9 state the
+  three-key rule (A 2026-10-25), the store and the titles are
+  rust-ui-dev-02's gap (j60 and after).
+- `contact_routes.local_endpoint_id`, the composite key and the
+  backfill are Stage 22's (STATE.md, A 2026-10-25; plan §30 Activate,
+  rust-ui-dev's with the store); every row is the one `human`
+  identity's.
+- Acceptance 10's superseded cases need a hold-the-call hook
+  (rust-ui-dev-01's j157); #428 covers the read-back.
+- The allow-list reads the source manifests; a permission a library's
+  manifest merges in is visible only in the merged manifest (#436):
+  rust-ui-dev's, the check's authors, with devex-tooling for its
+  wiring.
+- The hostile-code case does not drive a window's scan: Open an image…
+  is the portal's dialog, so the code reaches the facade through the
+  binding the scan controls call (#436): rust-ui-dev's, if a window's
+  scan is ever driven.
+- No boot start of the app by product rule, so "survives a reboot" is
+  the app started again after the reboot — by the test's
+  instrumentation; a start from the launcher was not run
+  (`…-reboot.md`). Not owed: the product rule.
+- The two-identity card case is §30's gate, rust-ui-dev's; A's claude
+  identity is unkeyed (#437's desktop-e2e limit).
+- The no-reach notice: a ui-model test only; not on a device —
+  rust-ui-dev-01's, with the next device record.
+- One's own card row (design 5.5): a shared card is pending outbound
+  under RETENTION.md and reaches Accepted, Not sent or Cancel like any
+  sent message, but at the close the client showed it no row —
+  `listing::list_all` decoded a pending row only as a message, the
+  model held no item for a card row, so Retry and Cancel were never
+  offered on a Not sent card and item 13's withdrawal removed a row
+  nobody saw (rust-ui-dev-02, 2026-10-27, QUESTION 01a17ade; the
+  ui-slint README named it on their branch). Not named by this gate,
+  which proves the card's sending and acceptance and not the sender's
+  view of it; carried to rust-ui-dev-02 as j54's next batch, with
+  `CardSentLabel`, the status line and kind C swipes as 5.5 specifies.
+  Built on their `feat/j54-own-card-row` branch (2026-10-27, #471): the queued card as its row, a pending card read back
+  after a restart from its stored payload by a reader that skips the
+  signature step for the sender's own rows alone (HUMAN-CHAT.md
+  §Contact card, A 2026-10-27, since the node's PeerId is unknown
+  before a session), Retry and Cancel with no Show source, no menu
+  once Accepted, the list's preview and the command-line client's
+  additive `card` member; `CardSentLabel` and `CardSentPhoto` carry
+  language-culture-en's final words (2264bba7, the same branch),
+  not placeholders. Still not built: the
+  "may have left" record (the next bullet) and the share date of a
+  card Accepted after a restart.
+- The silent first key's third record (ADR-0063 decision 1, A
+  2026-10-27): a conversation's record that a card of the identity may
+  have left this device, kept through a cancel after an attempt that
+  may have reached the remote (`Cancelled { may_have_reached: true }`).
+  The share record and the pending rows are read at #467; this record
+  is a store change and is not: a card cancelled after such an attempt,
+  then the key file lost, still gets a silent key, and its conversation
+  is not in Make a new key's share-again list, which `new_key_start`
+  builds from the shares recorded, the own-card rows pending and the
+  shares owed (#467's named limit, rust-ui-dev-02's QUESTION 01a17afd).
+  Design 5.3 and section 7 name the record as the design, as a design
+  note does; this bullet, not the note, is where its not being built
+  is said. rust-ui-dev-02's, the batch after 5.5's or with it.
+- Found after the close, from the owner's review of the client
+  (2026-10-27, judged by the review class at f2295901), two of step
+  2's card photo: the picked photo's read had no deadline or cancel,
+  and a late pick replaced a newer one — fixed on #483 (378bedde
+  opens and reads the photo for its request under a cancellation
+  signal within one 30 s deadline and a bound of three read workers,
+  41f99f82 and 9044e244 its wait; ba2d0153 and 447ecf7d take a pick
+  only as the answer to the editor's latest request, unique in the
+  process), host-tested; not run on a phone, where a real provider
+  and TalkBack are unexercised.
+- The start listing, from the same review (P2-1): `list_all` decodes
+  every pending, unread, kept and card row and every contact into one
+  Update, and card standing is O(K × C), so a trusted peer's unread
+  backlog can exhaust memory at start. Ruled 2026-10-27 (rust-ui-dev-
+  02's QUESTION 01a17bcc): a bounded window handed to the model, the
+  rest in the store and fetched as the model has room, with a
+  content-free "more remain" count — consistent with RETENTION.md,
+  whose read state begins at presentation, under four constraints: the
+  badge and the arrival notice count every decodable unread row, in
+  or beyond the window; retries read the store, never the window; an
+  unshown proposal survives process exit; Keep, Dismiss, Cancel and
+  Undo keep their rules in the window. The design is
+  `design/2026-10-27-start-window.md` (#472). Built in two batches
+  by rust-ui-dev-02 after #483: first the store's schema v10 (#489:
+  a name key beside each contact, a content-free kind on the inbound
+  rows, the covering indexes for the start's counts, each versioned
+  and recomputed at open; STATE.md's rows and HUMAN-CHAT.md's text
+  are architect-cto's on it), which changes nothing a person sees;
+  then the window itself, and with it the check for the rule that the
+  distinct endpoints the store holds per PeerId — conversations
+  indexed and routes under contacts — are at most the contract's 64
+  per profile, a 65th discarded and counted as a malformed envelope
+  (HUMAN-CHAT.md, STATE.md; ruled 2026-10-27 to ux-designer-01 and
+  rust-ui-dev-02). The check was built by the second batch's first
+  PR (#492: a4fe14f0 indexes every direct conversation with its first
+  row and counts a peer's endpoints, ab853729 refuses the 65th source
+  endpoint inbound and on send), in the transport client's commit and
+  send paths. Of the window itself, main holds the store's reads — a
+  conversation read between two bounds within an unread room
+  (a3141a83, #492), the cursor rebuilt from a row's time, keep and id
+  (eec75cd5, #498) — and, in the model, Chats drawn from the store's
+  summaries in a windowed mode beside the listed one (3d26f9be,
+  #498), which no view selects yet; the test #483 holds for its
+  constraint (b), a pending row that does not decode resent after a
+  restart (b046573a). The model's window — the protocol layer that
+  makes the windowed mode what the person sees — follows in that
+  batch's next PR, and until it lands the window as seen is the
+  record's and not yet the build's, and this bullet is where that is
+  said.
+- Found after the close, from the owner's second review of the client
+  (2026-10-27, judged by the review class at 1b37e0ef), three of this
+  stage's, each P3 and none reaching a screen in a way the review
+  class found wrong today. The store's channel badge
+  (`unread_counts`, #489) counted distinct application ids per
+  channel, merging two publishers' reuse of one id that the page and
+  the model show as two items: architect-cto's STATE.md sentence said
+  so and was corrected (A 2026-10-27 (ii), rows of a decodable kind,
+  one per row); the query and its test changed with it on #492
+  (62d11cb5), before any screen read the count. `interweave-human send … -` reads stdin whole with
+  no ceiling before the session opens, and `listen --input` reads
+  lines with no line ceiling into an unbounded channel and an
+  unbounded waiting queue, so a pipeline can grow the process without
+  reaching the chat's bounded encoding — a local exhaustion, not a
+  network one: bounded as the same crate bounds `peers add -` and
+  `--photo` (read the ceiling plus one byte, refuse), the line ceiling
+  derived from the largest legal encoded line as the bridge's host
+  input derives its own, an over-long line drained and answered
+  `input-refused`, the channel bounded with the reader blocking on it —
+  built on #495 (5032e717, 4a5fd290: 256 KiB for `send -`, a
+  1,245,184-byte line ceiling, six times the 196,608-byte decompressed
+  bound plus 64 KiB, a channel of four; d4a2249a caps a line's `ref` at 256
+  bytes), the README stating the bounds. And no site orders
+  contacts under the locale's collation the contact-cards design §6.2
+  requires — the Contacts list sorts by Unicode lowercase then code
+  point with a contact-id tie the design does not have, the Peers
+  rows' names the same way by the add-a-peer design's interim, and
+  the store, the model and the command line by byte order, four
+  orders that disagree on case: ruled 2026-10-27, human-client-ui.md
+  §3 "How contacts are ordered" (one collation function of the model,
+  ICU4X's collator, the root order until the localisation contract
+  gives a locale, §6.2's route tie, pages of that order) — built on
+  #494 (c04b4bf1: one `contact_order` in ui-model over ICU4X's
+  collator with a root-only data provider, the four sites moved onto
+  it, the store ordering nothing a person sees; APK +280,080 bytes,
+  Linux archive +711,753 gzip, measured in #494's description), the rule landed with ux-designer-01's
+  add-a-peer revision on #493.
+- The fresh-pair row's one-sided step in the other direction (B
+  trusting first) was not run; which side dialled in its step 3, and
+  from which source, is not told apart (the peer cache was on):
+  p2p-network-dev-02's (j69).
+- SPIKE-011's items not established and carried to step 3 (SPIKES.md):
+  the Keystore sealing of the store key on a real Keystore, and the
+  rewrite and the key file on a device, have no device record — the
+  invalidated-key case runs against a fake Keystore, and the phone rows
+  open the encrypted store under the real Keystore on both phones (#377
+  is in each build they ran) without asserting it — rust-ui-dev's, a
+  device row; the
+  system-libcrypto build is not pinned, the workspace selecting
+  `bundled-sqlcipher-vendored-openssl` — rust-ui-dev's, when a build
+  needs it.
 
 ## 30. Stage 22 — several user identities in one client
 
@@ -6374,14 +7020,30 @@ opens on the owner's word, after §29 or beside it, and the status value
 stays the lowest open stage. It is numbered after §29 so that no citation
 of §23–§29 moves.
 
+**Where the clients stand (2026-10-28, the owner's observation).** On
+`main` the Android app and the desktop hold one user identity, the
+profile's first human endpoint (`human` as provisioned), and one own card: "Your card" is that
+identity's. Nothing in either client can make a second EndpointId,
+since the administrative methods that add a configured endpoint, remove
+an added one and set its advertising are in no contract yet
+(`LOCAL-IPC.md` has `admin.endpoints.list`, `revoke`, `set_enabled` and
+`set_default`, and the plan's step 1 says no second identity exists on
+either platform until they land). Several identities in one app, each
+with one own card different from the others, is this stage's work and
+no earlier item's: the methods under Activate first, then steps 1–3.
+The owner's word of 2026-10-28 keeps it in the roadmap and opens it
+not yet; the stage still opens on that word alone.
+
 ### Objective
 
-A person holds several user identities on one node, each a configured
-EndpointId with its own display name and photo; the client presents
+A person holds several user identities on one node, each an endpoint
+whose EndpointId is derived from its own key pair (ADR-0067, A
+2026-10-28) with its own display name and photo; the client presents
 them, every conversation speaks as exactly one and says which, a contact
 is one remote identity, and what identities of one node share is said
 on the identity settings and the contact page. Nothing of this touches
-the wire: the PeerId stays the node's one identity, and the counterparty
+the wire but the EndpointId's grammar, which ADR-0067 derives from the
+key in the batch that comes first under Activate: the PeerId stays the node's one identity, and the counterparty
 learns which identity spoke from the `source_endpoint` the direct
 protocol already carries.
 
@@ -6394,11 +7056,11 @@ on every direct message exist and are tested.
 
 ### Activate
 
-No new crate. The work lands in `crates/human/app-core`,
+First, and in p2p-network-dev's lane as its own PR, ADR-0067 (A 2026-10-28): the `EndpointId` type and grammar derived from the endpoint's key as the PeerId is from the node's, every fixture family that carries an EndpointId regenerated, the profile's endpoint entry by key reference with its local alias and the loader's derivation and refusals, `transportctl endpoint init` and `endpoints list`, the trust methods' endpoint dimension (an IPC minor under ADR-0017, the text architect-cto's), the endpoint overlay's per-endpoint `inbound`/`outbound` sets (an identity's set lives there and is never inherited, the first identity's seeded once at the client's first run), the schema majors ADR-0067 decision 7 names (endpoint-id and endpoint-config `2.0.0`, every schema that `$ref`s the id), `/interweave/direct/3.0.0` and IPC major `3`, and the `PeerTrustPolicy` that derives the admission set as the union of the operator's list and the overlay's per-endpoint sets, each endpoint's effective set at the route as ADR-0067 decision 6 orders them — nothing below is built against a label, and the release that carries it is the next MINOR, the fleet re-rendered with keys at the update (the owner's word of 2026-10-28). Then, no new crate. The work lands in `crates/human/app-core`,
 `crates/human/ui-model`, `crates/human/ui-slint`, `crates/human/store`
 (the §Logical tables review: `conversation_index.local_endpoint_id`,
 `contacts.local_endpoint_id` and `contact_routes.local_endpoint_id` with
-existing rows backfilled with `human`, `own_cards` keyed by EndpointId,
+existing rows backfilled with the first identity's EndpointId, the derived one since ADR-0067, `own_cards` keyed by EndpointId,
 one contact per local identity and route), the two
 graphical clients and the command-line client under `apps/`,
 `profile-config` (the Android profile's authored endpoints as a list,
@@ -6443,7 +7105,7 @@ sentence gaining the administrative path in the same change.
    that share it; the client operating as one identity at a time, named from the second
    identity on on every acting
    surface, the explicit switch (ADR-0061 decision 9); Share sending the conversation's identity's card with no
-   chooser; `human-client-ui.md` §3 and §4 as amended.
+   chooser; `human-client-ui.md` §3 and §4 as amended. Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)).
 3. **Android** (rust-ui-dev): one in-process session and lease per
    identity in the one embedded runtime (ADR-0041 A 2026-10-21), the
    identity switch in the app, identities created through the embedded

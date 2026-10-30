@@ -72,6 +72,7 @@ mod endpoints;
 mod handle;
 mod held_sends;
 pub mod kademlia_driver;
+mod last_seen;
 pub mod mdns_driver;
 mod messages;
 mod network_change;
@@ -173,7 +174,22 @@ fn on_network_change(
     open: &HashMap<libp2p::swarm::ConnectionId, OpenConnection>,
     outbox: &mut VecDeque<SwarmEvent>,
     event_capacity: usize,
+    held_back: &mut dialing::HeldBack,
+    stores: &crate::store_refusals::StoreRefusals,
+    operator: &crate::operator_set::OperatorSet,
 ) {
+    // RULE 3'S BOUNDARY MAY WIDEN WITH NO CHANGE TO REPORT -- a rule 10
+    // lift moves nothing in the known set -- so this runs before the
+    // change is read: when the widenings count moved, what connected
+    // peers' Identify had refused for want of a private listener is
+    // judged again (`dialing::HeldBack`), against the listeners now.
+    let own_listeners: Vec<String> = network.own_listeners(active.values().flatten());
+    let mut boundary = dialing::AdvertisedBoundary {
+        own_listeners: &own_listeners,
+        stores,
+        operator,
+    };
+    held_back.relearn(network.widenings(), manager, &mut boundary, now);
     // THE FIRST FILL is no change, but a runtime started offline failed
     // its first dials before it: the lift runs (ADR-0011 A 2026-10-09).
     let filled = network.take_filled();
@@ -226,7 +242,7 @@ fn on_network_change(
     }
     dcutr_driver::offer_listeners(
         swarm.dcutr_mut(),
-        active.values().flatten().filter(|a| network.holds(a)),
+        active.values().flatten().filter(|a| network.offers(a)),
     );
     if may_buffer_delivery(outbox.len(), event_capacity) {
         outbox.push_back(SwarmEvent::NetworkChanged {
@@ -234,6 +250,34 @@ fn on_network_change(
             added: change.added,
         });
     }
+}
+
+/// ADR-0052 rule 10 at the two doors whose crates keep their own copy of
+/// this node's addresses, after EVERY observation of the view or the
+/// listeners -- each can move what is on no local network, the second
+/// case (A 2026-10-27) by a listener binding a private IP the view does
+/// not hold, and the shared address space by a listener binding there:
+/// Identify's listen set, told what is not offered and the view
+/// it judges a new listen address against itself; and DCUtR's two doors,
+/// told the off-local IPs (the crate is built again when it holds an
+/// address on one) and then offered every listener this node offers,
+/// which the wrapper takes once each -- so a rebuilt crate has them
+/// before the next circuit rather than at the retry tick's re-offer.
+/// Before `on_network_change`, so nothing is offered past a stale
+/// classification.
+fn withhold_not_offered(
+    swarm: &mut GatedSwarm,
+    network: &network_change::NetworkSet,
+    active: &dialing::ActiveListeners,
+) {
+    let _ = swarm
+        .identify_mut()
+        .withhold(&network.not_offered(), network.view());
+    dcutr_driver::withhold_off_local(swarm.dcutr_mut(), network.off_local());
+    dcutr_driver::offer_listeners(
+        swarm.dcutr_mut(),
+        active.values().flatten().filter(|a| network.offers(a)),
+    );
 }
 
 /// An addition's lift, or the first fill's: every held-off peer and
@@ -1074,6 +1118,10 @@ pub struct SwarmRuntime {
     commands: mpsc::Sender<SwarmCommand>,
     /// Where the platform's view is handed in ([`NetworkMonitor`]).
     network_view: watch::Sender<NetworkView>,
+    /// The detector's count of rule 3's boundary widening, read by a
+    /// caller that remembers what it offered the book
+    /// ([`Self::listener_widenings`]).
+    listener_widenings: crate::held_listeners::ListenerWidenings,
     events: mpsc::Receiver<SwarmEvent>,
     task: Option<tokio::task::JoinHandle<()>>,
     local_peer: TransportIdentity,
@@ -1441,7 +1489,9 @@ impl SwarmRuntime {
         };
         let relay_hop_counters = relay_server_driver::hop_counter_handle(&relay_server_toggle);
         // THE KEEPALIVE toward relay control peers (section 14 item 5),
-        // with either relay role: switched per relay by the relay driver
+        // and on every relayed connection end to end whatever the
+        // switches say (A 2026-10-25), with either relay role: switched
+        // per relay by the relay driver
         // as this profile's reservations move (`relay_driver::sync`), and
         // per holder by the server-event arm below as this relay's
         // reservations move (`relay_reserved`, `set_reserved`).
@@ -1477,6 +1527,7 @@ impl SwarmRuntime {
         // rule 3, A 2026-10-09): written by the detector, read by the funnel.
         let held_listeners = crate::held_listeners::HeldListeners::new();
         let funnel_held = held_listeners.clone();
+        let listener_widenings = held_listeners.widenings();
         let make_behaviour =
             move |key: &libp2p::identity::Keypair, relay_client: relay_driver::ClientField| {
                 SubstrateBehaviour::new(
@@ -1658,6 +1709,12 @@ impl SwarmRuntime {
         // Sends waiting for the dial they started (relay seq 13444),
         // bounded with the exchanges in flight by `admit_outbound`.
         let mut held_sends = held_sends::HeldSends::default();
+        // Identify's addresses refused for want of a private listener,
+        // judged again when rule 3's boundary widens.
+        let mut held_back = dialing::HeldBack::default();
+        // When each peer's last retained connection closed, for the
+        // peer-gate photograph's `last_seen_ms`.
+        let mut last_seen = last_seen::LastSeen::default();
         // The IP set this host is known to hold, for section 14's
         // network change (step 10): the listeners' and the platform's.
         let mut network = network_change::NetworkSet::publishing_to(held_listeners);
@@ -2018,7 +2075,8 @@ impl SwarmRuntime {
                                 held_resolver = Some(event);
                             }
                         }
-                        let change = network.observe_view(&view.addresses);
+                        let change = network.observe_view(&view.addresses, &view.off_local_network);
+                        withhold_not_offered(&mut swarm, &network, &active);
                         on_network_change(
                             change,
                             &mut network,
@@ -2031,6 +2089,9 @@ impl SwarmRuntime {
                             &open,
                             &mut outbox,
                             config.event_capacity,
+                            &mut held_back,
+                            &task_stores,
+                            &task_operator,
                         );
                     }
                     // THE mDNS REFRESH TICK: what the crate's store still
@@ -2099,7 +2160,10 @@ impl SwarmRuntime {
                             // failure, beside the adapter's own retry.
                             // The adapter re-dials what it dialled;
                             // this walks past it. ONLY the adapter's
-                            // own targets: every other peer's retry --
+                            // own targets, and below the relay
+                            // driver's infrastructure-only relays,
+                            // which its ladder re-asks: every other
+                            // peer's retry --
                             // a revoked one, or one demoted to
                             // infrastructure that nobody re-dials --
                             // still goes to the gate and is refused
@@ -2146,6 +2210,28 @@ impl SwarmRuntime {
                                         ),
                                     });
                                 }
+                                continue;
+                            }
+                            // NOR A RELAY'S, for the AutoNAT targets'
+                            // reason above: a failed reservation dial
+                            // schedules a retry like any other, this
+                            // scheduler's origin is refused for an
+                            // infrastructure-only peer
+                            // (`NotAuthorizedForDataPlane`, reported to
+                            // nobody who asked), and the relay driver
+                            // re-asks on its own ladder. Only while the
+                            // relay is infrastructure-only: one that is
+                            // also a data-plane peer is this scheduler's
+                            // to reconnect, and a revoked one was
+                            // reported just above.
+                            // `relay_client::a_failed_reservation_dial_is_retried_by_the_relay_ladder_and_not_by_the_reconnect_scheduler`
+                            // pins it.
+                            if matches!(
+                                manager.classify(&peer),
+                                interweave_transport_runtime::ConnectionClass::ConnectivityInfrastructureOnly
+                            ) && relay_state.as_ref().is_some_and(|s| s.is_relay(&peer))
+                            {
+                                manager.clear_retry_claim(&peer);
                                 continue;
                             }
                             let candidates = manager.dial_candidates(&peer, now);
@@ -2350,10 +2436,11 @@ impl SwarmRuntime {
                         dcutr_driver::tick(swarm.dcutr_mut(), now);
                         // Only what the host still holds: a listener on
                         // an IP the platform's view said departed stays
-                        // bound until the poll catches up.
+                        // bound until the poll catches up. Nor one on no
+                        // local network (ADR-0052 rule 10).
                         dcutr_driver::offer_listeners(
                             swarm.dcutr_mut(),
-                            active.values().flatten().filter(|a| network.holds(a)),
+                            active.values().flatten().filter(|a| network.offers(a)),
                         );
 
                         // THE STABILITY GATE AND THE RETIREMENT (step 9).
@@ -2495,8 +2582,10 @@ impl SwarmRuntime {
                                     .into_iter()
                                     .map(|peer| {
                                         let held = manager.peer_gate_state(&peer, now);
+                                        let connected = open.values().any(|c| c.peer == peer);
                                         PeerGate {
-                                            connected: open.values().any(|c| c.peer == peer),
+                                            connected,
+                                            last_seen_ms: last_seen.at(&peer, connected, wall),
                                             backoff_until_ms: held.backoff_until_ms.map(on_wall),
                                             quarantined_until_ms: held.quarantined_until_ms.map(on_wall),
                                             route_held_until_ms: held.route_held_until_ms.map(on_wall),
@@ -2523,7 +2612,7 @@ impl SwarmRuntime {
                                         .iter()
                                         .map(String::as_str),
                                     circuits.iter().map(String::as_str),
-                                    active.values().flatten().filter(|a| network.holds(a)),
+                                    active.values().flatten().filter(|a| network.offers(a)),
                                 );
                                 let _ = reply.send(own);
                             }
@@ -3056,6 +3145,8 @@ impl SwarmRuntime {
                             &mut refuse,
                             &infrastructure_origin,
                             &mut advertised,
+                            &mut held_back,
+                            &mut last_seen,
                             settled_at,
                         );
                         // An inbound connection the ceiling cannot
@@ -3206,23 +3297,6 @@ impl SwarmRuntime {
                         // it.
                         let translated = match announce {
                             Announce::Yes => {
-                                // A LISTENER THAT JUST BOUND is a DCUtR
-                                // candidate from this moment, not from
-                                // the next tick: a circuit can arrive
-                                // between the two, and its CONNECT would
-                                // carry only what a peer had observed.
-                                // Offered below, AFTER the detector has
-                                // observed the bind, and only if the host
-                                // holds its IP: a second port on an IP the
-                                // platform's view said departed is bound,
-                                // and is no candidate (ADR-0052 A
-                                // 2026-10-09).
-                                let just_bound = match &event {
-                                    libp2p::swarm::SwarmEvent::NewListenAddr { address, .. } => {
-                                        Some(address.clone())
-                                    }
-                                    _ => None,
-                                };
                                 match &event {
                                     // And forgotten as they go, so the
                                     // offered set holds what is bound.
@@ -3256,8 +3330,22 @@ impl SwarmRuntime {
                                 // the listeners' bound set made, seen
                                 // here, once, as the listener event that
                                 // made it lands (`on_network_change`).
+                                //
+                                // A LISTENER THAT JUST BOUND is a DCUtR
+                                // candidate from this moment, not from
+                                // the next tick: a circuit can arrive
+                                // between the two, and its CONNECT would
+                                // carry only what a peer had observed.
+                                // `withhold_not_offered` offers it, AFTER
+                                // the detector has observed the bind, and
+                                // only if this node offers it: a second
+                                // port on an IP the platform's view said
+                                // departed is bound and is no candidate
+                                // (ADR-0052 A 2026-10-09), nor one on no
+                                // local network (rule 10).
                                 if listener_event {
                                     let change = network.observe_listeners(active.values().flatten());
+                                    withhold_not_offered(&mut swarm, &network, &active);
                                     on_network_change(
                                         change,
                                         &mut network,
@@ -3270,12 +3358,9 @@ impl SwarmRuntime {
                                         &open,
                                         &mut outbox,
                                         config.event_capacity,
-                                    );
-                                }
-                                if let Some(address) = just_bound.filter(|a| network.holds(a)) {
-                                    dcutr_driver::offer_listeners(
-                                        swarm.dcutr_mut(),
-                                        std::iter::once(&address),
+                                        &mut held_back,
+                                        &task_stores,
+                                        &task_operator,
                                     );
                                 }
                                 translated
@@ -3421,6 +3506,7 @@ impl SwarmRuntime {
         Ok(Self {
             commands: command_tx,
             network_view: network_view_tx,
+            listener_widenings,
             events: event_rx,
             unread_capacity,
             task: Some(task),

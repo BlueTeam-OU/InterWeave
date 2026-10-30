@@ -83,6 +83,9 @@ pub enum Method {
     /// Bootstrap addresses added all or none (2.9, ADR-0062 decision 4).
     #[serde(rename = "admin.peers.add_addresses")]
     AdminPeersAddAddresses,
+    /// Read this session's broadcast losses (2.11).
+    #[serde(rename = "session.losses")]
+    SessionLosses,
 }
 
 /// One row of the catalogue.
@@ -102,7 +105,7 @@ impl Method {
     /// Every method, in catalogue order. `tests/schema_agreement.rs`
     /// holds this list to the enum's own variants, so a variant missing
     /// here fails a test rather than escaping one.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::ChannelJoin,
         Self::ChannelLeave,
         Self::BroadcastPublish,
@@ -122,6 +125,7 @@ impl Method {
         Self::AdminPeersListAddresses,
         Self::AdminPeersOwnAddresses,
         Self::AdminPeersAddAddresses,
+        Self::SessionLosses,
     ];
 
     /// THE table: an exhaustive match, so a new method does not compile
@@ -131,9 +135,11 @@ impl Method {
         use AuthorityDomain::{Admin, Data};
         use RequestedCapability as C;
         let (domain, capability) = match self {
-            Self::ChannelJoin | Self::ChannelLeave | Self::BroadcastPublish | Self::DirectSend => {
-                (Data, C::Commands)
-            }
+            Self::ChannelJoin
+            | Self::ChannelLeave
+            | Self::BroadcastPublish
+            | Self::DirectSend
+            | Self::SessionLosses => (Data, C::Commands),
             Self::EndpointsQuery => (Data, C::EndpointsQuery),
             Self::AdminStatus | Self::AdminPeersList => (Admin, C::AdminStatus),
             Self::AdminEndpointsList
@@ -156,6 +162,7 @@ impl Method {
             | Self::AdminPeersListAddresses => 7,
             Self::AdminPeersOwnAddresses => 8,
             Self::AdminPeersAddAddresses => 9,
+            Self::SessionLosses => 11,
             _ => 0,
         };
         MethodEntry {
@@ -188,6 +195,7 @@ impl Method {
             Self::AdminPeersListAddresses => "admin.peers.list_addresses",
             Self::AdminPeersOwnAddresses => "admin.peers.own_addresses",
             Self::AdminPeersAddAddresses => "admin.peers.add_addresses",
+            Self::SessionLosses => "session.losses",
         }
     }
 

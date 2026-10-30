@@ -157,6 +157,20 @@ fn apply_change(scope: &mut HolePunchScope, change: &super::network_change::Netw
     }
 }
 
+/// What is on no local network (ADR-0052 rule 10): `off_local` withheld
+/// at both doors to the crate, which is built again when it holds an
+/// address on one; the runtime offers its listeners after it
+/// (`withhold_not_offered`), which re-offers them to a rebuilt crate. A
+/// no-op when DCUtR is off.
+pub(super) fn withhold_off_local(
+    field: &mut DcutrField,
+    off_local: &std::collections::BTreeSet<std::net::IpAddr>,
+) {
+    if let Some(gated) = field.as_mut() {
+        let _ = gated.inner_mut().inner_mut().withhold_off_local(off_local);
+    }
+}
+
 /// Advance the wrapper's clock; a no-op when DCUtR is off.
 pub fn tick(field: &mut DcutrField, now_ms: u64) {
     if let Some(gated) = field.as_mut() {

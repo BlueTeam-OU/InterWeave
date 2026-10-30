@@ -1060,15 +1060,54 @@ enum Family {
 /// address cannot make this node count as holding a private listener
 /// (#111 review P2-1).
 fn private_literal(address: &str) -> Option<(Family, bool)> {
-    match literal_host(address)? {
-        IpAddr::V4(ip) => Some((Family::V4, ip.is_private())),
-        IpAddr::V6(ip) => {
-            if let Some(v4) = ip.to_ipv4_mapped() {
-                return Some((Family::V4, v4.is_private()));
-            }
-            Some((Family::V6, ip.segments()[0] & 0xfe00 == 0xfc00))
-        }
+    let ip = literal_host(address)?;
+    let family = match ip {
+        IpAddr::V6(v6) if v6.to_ipv4_mapped().is_none() => Family::V6,
+        _ => Family::V4,
+    };
+    Some((family, is_private_range(ip)))
+}
+
+/// Whether `ip` sits in a PRIVATE RANGE as ADR-0052 rule 3 means one:
+/// RFC 1918 for v4, ULA `fc00::/7` for v6, a v4-mapped v6 address judged
+/// as v4. The one definition: rule 3's own-listener test reads it here,
+/// and so does rule 10 (A 2026-10-26), which withdraws a private-range
+/// address the platform classifies as on no local network -- the two
+/// must agree on what "private" is, or a carrier address one counts is
+/// one the other forgets. Pinned by
+/// `the_private_range_is_rfc_1918_and_ula_and_a_mapped_v4_is_v4`.
+#[must_use]
+pub fn is_private_range(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => ip.is_private(),
+        IpAddr::V6(ip) => ip
+            .to_ipv4_mapped()
+            .map_or(ip.segments()[0] & 0xfe00 == 0xfc00, |v4| v4.is_private()),
     }
+}
+
+/// Whether `ip` sits in the SHARED ADDRESS SPACE, `100.64.0.0/10`
+/// (RFC 6598), a v4-mapped v6 address judged as v4, whoever numbered
+/// it: a carrier's cellular or IMS interface and a mesh overlay alike.
+/// Rule 2's floor refuses it as special-use in every address a peer
+/// supplies ([`is_public_v4`] reads this one definition), so no peer
+/// learns such an address of this node through the peer door -- one
+/// that reaches it does so from an entry its own operator wrote (rule
+/// 9) -- and that is why ADR-0052 rule 10 (A 2026-10-27 (iii)) puts this
+/// host's address in it on no local network with or without a platform
+/// view. Pinned by
+/// `the_shared_address_space_is_100_64_slash_10_and_a_mapped_v4_is_v4`.
+#[must_use]
+pub fn is_shared_address_space(ip: IpAddr) -> bool {
+    let v4 = match ip {
+        IpAddr::V4(ip) => ip,
+        IpAddr::V6(ip) => match ip.to_ipv4_mapped() {
+            Some(v4) => v4,
+            None => return false,
+        },
+    };
+    let [a, b, _, _] = v4.octets();
+    a == 100 && (64..=127).contains(&b)
 }
 
 /// Whether a hole-punch candidate the far end named may be dialled
@@ -1241,7 +1280,7 @@ pub fn is_advertised_address<'a>(
 
 fn is_public_v4(ip: Ipv4Addr) -> bool {
     let [a, b, c, _] = ip.octets();
-    let shared = a == 100 && (64..=127).contains(&b);
+    let shared = is_shared_address_space(IpAddr::V4(ip));
     let benchmarking = a == 198 && (b == 18 || b == 19);
     let reserved = a >= 240;
     // `is_unspecified` is the single address 0.0.0.0; the whole 0.0.0.0/8
@@ -2957,6 +2996,65 @@ mod tests {
             ),
             Err(CandidateRefusal::NotLiteral)
         );
+    }
+
+    /// The one private range rules 3 and 10 share: RFC 1918 and ULA, an
+    /// IPv4-mapped form read as its IPv4; CGNAT, link-local, loopback and
+    /// documentation space are outside it.
+    #[test]
+    fn the_private_range_is_rfc_1918_and_ula_and_a_mapped_v4_is_v4() {
+        for private in [
+            "10.0.0.1",
+            "172.16.0.1",
+            "192.168.1.1",
+            "fc00::1",
+            "fd12::1",
+            "::ffff:10.1.2.3",
+        ] {
+            assert!(is_private_range(private.parse().expect("ip")), "{private}");
+        }
+        for other in [
+            "100.64.0.1",
+            "8.8.8.8",
+            "169.254.1.1",
+            "127.0.0.1",
+            "fe80::1",
+            "2001:db8::1",
+            "::ffff:8.8.8.8",
+            "fbff::1",
+        ] {
+            assert!(!is_private_range(other.parse().expect("ip")), "{other}");
+        }
+    }
+
+    #[test]
+    fn the_shared_address_space_is_100_64_slash_10_and_a_mapped_v4_is_v4() {
+        for shared in [
+            "100.64.0.0",
+            "100.64.0.1",
+            "100.100.1.2",
+            "100.127.255.255",
+            "::ffff:100.64.3.9",
+        ] {
+            assert!(
+                is_shared_address_space(shared.parse().expect("ip")),
+                "{shared}"
+            );
+        }
+        for other in [
+            "100.63.255.255",
+            "100.128.0.0",
+            "10.64.0.1",
+            "192.168.1.1",
+            "8.8.8.8",
+            "64:ff9b::6440:1",
+            "::ffff:100.128.0.1",
+        ] {
+            assert!(
+                !is_shared_address_space(other.parse().expect("ip")),
+                "{other}"
+            );
+        }
     }
 
     /// The NAT case rule 3 exists for: a LAN peer advertising its own

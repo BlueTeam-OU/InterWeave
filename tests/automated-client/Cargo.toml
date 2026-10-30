@@ -5,11 +5,15 @@
 # daemons on loopback, static bootstrap and mutual trust as a deployment
 # renders them, and a generic automated TEST client -- any endpoint, any
 # client kind, any channel the case configures; test-only, never a
-# production dependency.
+# production dependency. Decision 5b's case (`tests/two_hosts.rs`) puts
+# two daemons in two network namespaces joined by one private link
+# (`interweave-test-support`'s overlay), Linux only.
 # The binaries are the workspace's own build: run the workspace's tests, or
 # build `interweave-transport-daemon` and `interweave-transportctl` first
 # (every profile's key is minted by `transportctl identity init`) -- a
 # missing binary fails the suite by name rather than skipping it.
+# INTERWEAVE_PACKAGE_BIN naming a released archive's bin/ runs every case
+# against that package's programs instead (the release run's check).
 [package]
 name = "interweave-automated-client-tests"
 version.workspace = true
@@ -30,6 +34,7 @@ interweave-transport-api = { path = "../../crates/api/transport-api" }
 tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 interweave-test-support = { path = "../support", features = ["e2e"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

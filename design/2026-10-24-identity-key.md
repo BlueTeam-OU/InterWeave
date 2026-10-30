@@ -82,7 +82,7 @@ mapped here, and nothing else refuses at open:
 | not protected | the read's `NotPrivate` for the file (readable or writable by another user, a link, another user's file), or for an `identity-keys/` directory this user owns with a loose mode | both (in practice the desktop) | `KeyExposed` | Make a new key (which first makes such a directory owner-only, §5.2) |
 | key folder not safe | the read's `NotPrivate` for an `identity-keys/` that is a link or not a directory at all; and any read refusal while `identity-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder; no new key |
 | temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but the two in the "damaged" row and an other-owner directory | both | `KeyNotNow` | Try again, then Make a new key |
-| missing | no file, for an identity that has shared its card (§7) | both | `KeyMissing` | Make a new key |
+| missing | no file, for an identity whose card a conversation holds or may hold (§7) | both | `KeyMissing` | Make a new key |
 
 The client must tell these read refusals apart: today `open` turns
 every read error into one string (`IdentityKeyFileError::Persist`),
@@ -217,11 +217,12 @@ would destroy the old wrapping key anyway, one alias per identity); the
 new key is created. **Every point the step can stop at resolves to a
 state the person already knows**: stopped before the removal, the
 identity is in this state as before; after the removal and before the
-new key is stored, the next open finds no file: for an identity that
-has shared its card, the share record is still there and it is the
-"missing" state, never a silent new key (§7), where the person confirms
-again; for one that never shared, §7's silent first key applies at the
-next open, since no contact holds the old key; after, it has its new
+new key is stored, the next open finds no file: for an identity whose
+card a conversation holds or may hold (§7), the share record or the
+pending row is still there and it is the "missing" state, never a
+silent new key, where the person confirms again; for any other, §7's
+silent first key applies at the next open, since no contact holds or
+can receive the old key; after, it has its new
 key.
 The client never shows "made" without a key it can open, and never
 shows a key it holds but cannot open. It never reports success before
@@ -240,14 +241,69 @@ arrive; its conversation is in the share-again list either way, so
 the next share shows the counterparty the new key. The confirmation
 says so first (`KeyNewPending`), shown when any such row exists.
 
+A card the person cancelled before the step cannot be restored with the
+old key either. **The step first closes a Cancel snackbar of any of
+this identity's card rows, if one is open, and its Undo with it**,
+before it withdraws anything; the Cancel stands, as when the snackbar
+times out (message-swipe §5). It is needed on one route and harmless
+on the other:
+
+- From the Chats ⋮ menu's Your card, the page leaves the conversation
+  (on a wide layout it takes the conversation pane's place, cards §4),
+  and leaving the conversation has already closed the snackbar
+  (message-swipe §5's closing list).
+- From the share sheet's Open your card (§4.3), the sheet and the
+  conversation under it stay open, since Back returns to the sheet;
+  nothing on message-swipe §5's list closes the snackbar there, and
+  without this rule its Undo would restore a card signed with the
+  key the step deletes.
+
+The closing makes no announcement: the snackbar is under the sheet
+and the page, and the person returns to a conversation with no
+snackbar. A Cancel of one of this identity's card rows whose success
+arrives after the step has started is only announced, with message-swipe §8's words
+and no snackbar or Undo, by either route: on the sheet route the
+person is still in the conversation, where message-swipe §6 would
+otherwise show it with its Undo. That announcement waits for the
+step's own (`KeyMaking`, then `KeyMade` or the failure line, §8) and
+never interrupts it. The step's own withdrawals have no Undo either.
+
+A row whose Cancel is still awaiting its answer when the step starts
+is judged by the test above like any other: the step withdraws it if
+the client still holds it, and leaves it if the transport took it (or
+under the fallback, which treats every Sending row as taken). A
+withdrawal that finds the row already cancelled, the Cancel having
+succeeded first, counts as done.
+
+- **The step withdrew it.** The withdrawal is the row's outcome, and
+  the Cancel's later answer adds nothing to the row: a success is
+  announced as above; a refusal (message-swipe §8's Cancel refused by
+  the store) is not announced and does not return the row, since the
+  row is already gone and "could not cancel" would be false.
+- **The step left it, or was not taken** (§7, where the store cannot
+  be written). The Cancel's answer applies as message-swipe §8 says:
+  a refusal returns the row in the state the facade reports, with the
+  storage notice and the refusal announcement. A row the step left is
+  one the transport took, and like any such row it may still arrive,
+  however the step ended (above); whether the key it carries is still
+  the identity's, and where its conversation is listed to share again,
+  is §5.3's, by how the step ended. Where the step was not taken, no
+  key changed and the old key still stands. Two things
+  differ from message-swipe §8: the announcement waits for the step's
+  own, as above, and focus stays where it is (on the card page, or on
+  the sheet after Back), as message-swipe §8 has it for a person who
+  has left the conversation.
+
 ### 5.3 The result
 
 **Made.** The block is replaced by the fingerprint row with the new
 fingerprint, and under it `KeyMade`: "This identity has a new key.
 Your contacts have the new key only after you share your card with them again."
 Then, when any conversation of this identity holds or may hold the old
-key — `card_shared_at` set, or an own-card row not yet Accepted by
-remote transport when the step ran (withdrawn or on its way):
+key — `card_shared_at` set, an own-card row not yet Accepted by
+remote transport when the step ran (withdrawn or on its way), or a card
+of it that may have left this device, cancelled after an attempt
+whose outcome is unknown (ADR-0063 decision 1, A 2026-10-27):
 `KeyShareAgainTitle`
 ("Share your card again in these conversations") and one row per such conversation, by
 the conversation's title, most recently shared first, each opening that
@@ -263,7 +319,7 @@ actions in `error` and **Make a new key** again:
 - the old file was already removed: the kind is "missing", and the
   line is `KeyNewFailedGone` — the saved key is gone and a new one was
   not made — so the person is not told less than happened. This holds
-  for this session for an identity that never shared too, since the
+  for this session for an identity §7 gives a silent key too, since the
   person asked for a key and must learn it was not made; at its next
   start §7's silent first key applies;
 - the old file is still there (the step stopped before removing it):
@@ -287,9 +343,13 @@ actions; with another kind: that kind's block.
   invalidate identity keys too; after the store's recovery, each such
   identity is in this state, with its own line.
 - **A missing key file** (Q-missing, architect-cto's): a key is made
-  silently only for an identity that has never shared its card —
-  `card_shared_at` absent on every conversation that speaks as it (the
-  share record alone, architect-cto's Q-route).
+  silently only for an identity whose card no conversation holds or
+  may hold — `card_shared_at` absent on every conversation that speaks
+  as it, no own-card row of it pending outbound (Sending, or Not
+  sent with Retry), and no conversation recording that a card of it
+  may have left this device (ADR-0063 decision 1): the share record,
+  the pending rows and that record, the predicate §5.3's share-again
+  list reads (architect-cto's Q-route, A 2026-10-27).
   Any other identity without its file is in this state as "missing",
   so its contacts are never shown a key change the person was not told
   of first. The same holds when the whole `identity-keys/` directory is
@@ -342,6 +402,8 @@ be used". §4.3's sheet: title, "as {identity}", the reason line (with
 | Open your card from the sheet | as cards §5.2 | keyboard |
 | Back from §4.1 to the sheet, key made | the sheet's Share | keyboard |
 | Back from §4.1 to the sheet, no key | Open your card | keyboard |
+| a card row's Cancel answered after the step started, the row withdrawn by the step (§5.2): success or refusal | stays where it is; a success is announced once after the step's own announcement, a refusal not at all | keyboard; desktop screen reader (acceptance 13) |
+| the same, the row left by the step or the step not taken: a refusal | stays where it is (the card page, or the sheet after Back); the row returns in the conversation, and the storage notice and the refusal announcement follow the step's own | keyboard; desktop screen reader (acceptance 13) |
 | the page goes to the background during `KeyMaking` | on return, as "made" or "failed" by what the step left; the announcement is made on return, once | keyboard; screen reader |
 
 On Android every screen-reader check is a blocked precondition while
@@ -393,8 +455,9 @@ On both clients unless said; Android's screen-reader checks blocked as
 8. Killed during `KeyMaking`, at each point the step can be cut:
    before the removal, the next start shows this state as before;
    after the removal and before the new key is stored, the "missing"
-   state for an identity that had shared its card, with no key made
-   by itself, and a new key with no state for one that never shared;
+   state for an identity whose card a conversation holds or may hold
+   (§7), with no key made by itself, and a new key with no state for
+   any other;
    after, the new key's fingerprint. Never a fingerprint that
    a share then contradicts, and never this state while a key opens.
 9. Making the key fails after the removal (a test seam that fails the
@@ -408,9 +471,11 @@ On both clients unless said; Android's screen-reader checks blocked as
     platform cipher error once): `KeyNotNow` and Try again; Try again
     opens it and shows the fingerprint.
 11. An identity that has shared its card, its key file removed,
-    starts in the "missing" state and makes no key by itself; with the
+    starts in the "missing" state and makes no key by itself; so does
+    one that has never shared but has an own-card row Sending, or Not
+    sent with Retry; with the
     whole `identity-keys/` directory removed, every such identity does the same;
-    an identity that never shared gets a key with no state shown.
+    an identity with neither gets a key with no state shown.
 12. Focus follows §8's table, row by row, by keyboard; on the desktop,
     the screen reader reads §8's order and each announcement once.
 13. The identity has a card row Not sent in conversation C, and one
@@ -418,7 +483,37 @@ On both clients unless said; Android's screen-reader checks blocked as
     it), when the key becomes unusable: the confirmation shows
     `KeyNewPending`; after Make a new key, both rows are withdrawn with
     no Undo, neither is sent afterwards (a restart included), and C
-    and D are in the share-again list.
+    and D are in the share-again list. A third card row, Not sent in
+    E, cancelled just before the card page is opened, once by each
+    route: through the Chats ⋮ menu's Your card, and through E's share
+    sheet and Open your card with the Cancel snackbar still open under
+    it (on Android the platform's longest timeout set, message-swipe
+    §6; on the desktop, whose snackbar lasts 6 s, a test seam holding
+    it open), the snackbar observed present in the accessibility tree
+    under the sheet just before the confirmation (on Android that
+    observation is blocked while TalkBack does not reach the app,
+    §8; until then the run is timed from the Cancel to the
+    confirmation and passes only inside the timeout set), and a
+    third time by that route with the Cancel's success held by a test
+    seam and released while `KeyMaking` shows (the key's write held by a
+    seam): its success is announced once, after `KeyMade` and not
+    over it, with no snackbar; the same with the key's write failed
+    (item 9's seam): announced once, after the failure line. On each
+    of these runs, after Make a new key, returning to E (the first) or
+    Back to the sheet and closing it (the others) shows no snackbar,
+    and E's card is not sent, a restart included.
+    Three runs of a Cancel refused by the seam after Make a new key, by
+    the sheet route: E's row Not sent (held, so withdrawn): it does
+    not return and no refusal is announced; E's row Sending, handed to
+    the transport and held there in flight, as message-swipe acceptance
+    8 holds an attempt (a test build or a slowed link): it returns in the state the facade reports,
+    the storage notice and the refusal announcement follow `KeyMade`,
+    focus stays on the card page, and E is in the share-again list.
+    A third, with the store made unwritable by a seam before the
+    confirmation and E's row Not sent: the step is not taken and
+    `KeyNewFailed` shows (§7), E's row returns Not sent, the storage
+    notice and the refusal announcement follow the failure line, focus
+    stays on the card page, and no share-again list is shown.
     Where the client cannot tell a Sending row it holds from one the
     transport took (§5.2's fallback), D is instead left to arrive, and
     D is still in the share-again list; the build states which of the
@@ -529,7 +624,10 @@ architect-cto (REPLY 01a16d93) the same day:
   offer to tighten the file; the reason is one sentence (§3).
 - **Q-route**: the share record alone, `card_shared_at` on any
   conversation that speaks as the identity; the accepted-card clause is
-  gone from the ADR amendment (§7).
+  gone from the ADR amendment (§7). Revised 2026-10-27 (REPLY
+  01a17abe) once cards §5.3 set `card_shared_at` at Accepted: a
+  pending own-card row counts beside the record, since a card on its
+  way may still arrive.
 
 Asked after review round 2, the note built on the reading given:
 

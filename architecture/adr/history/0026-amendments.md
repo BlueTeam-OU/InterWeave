@@ -67,3 +67,66 @@ and `profile-config`'s `MAX_ENDPOINTS` is 64. The record now says max
 same, and ADR-0061's cap cites the bound that exists. The advertised
 endpoints' 16 / 32 is a real key (`directory.max_advertised`) and
 stands.
+
+### Amendment 2026-10-24 — A session reads its own broadcast losses
+
+This record bounded what a slow consumer costs the node — the oldest
+copy dropped, the over-rate broadcast refused before fan-out — and
+counted both only in the operator's view (`admin.status`), so a data
+client could not say whether it had missed anything. The Claude Channel
+bridge's status needed exactly that sentence (`CHANNEL-EVENT.md`
+§Delivery), and a
+human client that shows a broadcast log is owed it as much. The record
+now says a session reads what it lost: `session.losses` on the data
+socket under `commands`, IPC 2.11, and `DataSessionPort::losses` at every
+binding — two counts, the copies its own queue dropped or could not
+take, and the copies the ingress gate refused on a channel it held
+at the time.
+
+Four shapes were rejected, and the reasons are what a later reader
+needs. A pushed notice was rejected because a loss is a count and not an
+event: a push would compete for the queue whose overflow it reports, and
+in the reserved lane it would displace the states that lane exists for.
+An exact figure was rejected because it cannot be measured: the GossipSub
+backend drops before the runtime sees a message (validation, the mesh,
+its own queue), so an exact count would claim what nothing observed and a
+reader would act on a zero; so neither count claims to be the whole
+loss — zero is never read as none lost — and every text that carries
+them says which guarantee each gives (the paragraph below). A per-peer or per-channel
+breakdown was rejected because the data socket is a non-admin surface:
+naming the publisher whose broadcasts were refused is an oracle on who
+publishes and when, and a per-channel table grows with the channels a
+client joins; two counters per session are bounded by construction. And
+a reset on leave was rejected because a leave and a rejoin are the
+ordinary life of a channel for a bridge that reconnects, and a count that
+fell would read as recovery.
+
+The two counts promise different things, and the first draft of this
+note said "permanent" of both; the branch's review (2026-10-24) showed
+it false for one. An overflowed broadcast was admitted: the runtime
+records its dedup entry after the fan-out whatever was dropped, so
+within ADR-0019's window (10,000 entries, 5 min, oldest evicted) a
+republish of the same id is a duplicate, and the overflow count is a
+lower bound on broadcasts lost rather than delayed. A refused broadcast
+was never admitted: the ingress gate returns before any dedup entry
+exists, so a republish of the same id reaches the runtime as fresh and
+is delivered, and while the publisher stays over its rate every
+republish is refused and counted again. The refusal count therefore
+counts refused copies, a signal that broadcasts on the session's
+channels were refused, never a count of distinct broadcasts lost. Two
+ways to make it one were rejected: recording the refused id in the
+dedup map, which spends at the gate the per-message work the bucket
+exists to bound and lets a flooder evict other publishers' entries; and
+a separate bounded set of refused ids, which would drop the republish
+that repairs the loss in order to keep the number honest. The smallest
+true statement was chosen, and every text that carries the counts says
+which guarantee each gives.
+
+One limit is accepted and named beside the method rather than removed: a
+session that declines route notices over IPC asks for the minor below
+2.4 — negotiation is the only lever the client has (#245 N5) — so it
+cannot read a 2.11 method and is answered `ProtocolUnsupported` without
+asking. No production client declines route notices (the bridge and the
+human clients take them), so the limit costs nothing today; a client
+that one day needs both makes declining a `hello` feature of its own,
+decided then, never a second cap on the minor.

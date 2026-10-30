@@ -74,5 +74,6 @@ pub fn unread_inbound() -> NewInbound {
         ),
         payload: INBOUND_BODY.to_vec(),
         received_at: 1_700_000_001_000,
+        kind: interweave_human_store::InboundKind::Text,
     }
 }

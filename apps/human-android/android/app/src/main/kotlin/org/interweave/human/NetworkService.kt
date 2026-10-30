@@ -17,6 +17,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Binder
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
@@ -140,11 +141,22 @@ class NetworkService : Service() {
     private fun watchNetworks() {
         networkThread.start()
         val handler = Handler(networkThread.looper)
-        // A usable network is one the platform says reaches the Internet,
-        // a VPN included: the runtime's sockets leave from its addresses
-        // too, and the default request would leave it out.
+        // Every network the platform reports to this app, with INTERNET or
+        // without: an address of this host outside the view counts as on
+        // no local network (ADR-0052 rule 10, A 2026-10-27), so a LAN the
+        // request dropped would be hidden. What the INTERNET removal
+        // admits, measured on the Pixel 9a (2026-10-27): not a Wi-Fi with
+        // no uplink -- one carries INTERNET, unvalidated, and was heard
+        // before -- but a network the platform marks LOCAL_NETWORK, which
+        // has no INTERNET: this phone's own hotspot, reported to an app
+        // only from target SDK 37 (ENABLE_MATCH_NON_THREAD_LOCAL_NETWORKS);
+        // below it that address is rule 10's recorded limit. A VPN
+        // included: the default request leaves it out. Restricted and
+        // untrusted networks stay out, as the platform keeps them from an
+        // app; and the platform adds FOREGROUND to an app's listen, so a
+        // background network is not reported to it.
         val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
         handler.post { Native.networkWatching() }
@@ -166,10 +178,28 @@ class NetworkService : Service() {
         }
     }
 
-    /** Each network's addresses as it reports them, and its loss. */
+    /**
+     * Each network's addresses and transports as it reports them, and its
+     * loss. What the transports mean is android-platform's to decide.
+     */
     private class Networks : ConnectivityManager.NetworkCallback() {
-        // The platform calls this right after onAvailable, and on every
-        // change of the network's addresses: the whole set each time.
+        // The platform calls this after onAvailable, before the first
+        // onLinkPropertiesChanged, and again whenever the capabilities
+        // change.
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            Native.networkTransports(
+                network.networkHandle,
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+                // Named from API 35; no older phone has one.
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM &&
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_SATELLITE),
+            )
+        }
+
+        // The platform calls this right after the first
+        // onCapabilitiesChanged, and on every change of the network's
+        // addresses: the whole set each time.
         override fun onLinkPropertiesChanged(network: Network, link: LinkProperties) {
             Native.networkLink(
                 network.networkHandle,

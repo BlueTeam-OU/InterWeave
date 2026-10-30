@@ -91,6 +91,10 @@ const WINDOW: Duration = Duration::from_secs(3);
 struct RelayBehaviour {
     identify: identify::Behaviour,
     relay: relay::Behaviour,
+    /// Answers the keepalive's pings, as this project's relays do: a
+    /// relay that refuses ping is closed (`transport/libp2p/
+    /// CONNECTIVITY.md` section 14, A 2026-10-25).
+    ping: libp2p::ping::Behaviour,
 }
 
 /// A bare relay server: the crate's own, defaults, no policy -- the
@@ -110,6 +114,7 @@ fn relay_server(keys: identity::Keypair) -> libp2p::Swarm<RelayBehaviour> {
                 k.public(),
             )),
             relay: relay::Behaviour::new(k.public().to_peer_id(), relay::Config::default()),
+            ping: libp2p::ping::Behaviour::new(libp2p::ping::Config::new()),
         })
         .expect("behaviour")
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))
@@ -1094,10 +1099,10 @@ async fn a_circuit_whose_relay_was_not_reached_is_held_until_the_relay_connects(
     let relay_addr = bound(&mut relay).await;
     relay.add_external_address(relay_addr.clone());
     let mut seen = Seen::default();
-    let closed = {
-        let socket = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
-        socket.local_addr().expect("bound").port()
-    };
+    // Not a port-0 bind released: another test's listener could land on
+    // that port, and the dial would then reach a peer instead of a
+    // refusal (`interweave_test_support::net::free_port`).
+    let closed = interweave_test_support::net::free_port(std::net::Ipv4Addr::LOCALHOST);
     let unreached: Multiaddr = format!("/ip4/127.0.0.1/tcp/{closed}")
         .parse()
         .expect("addr");

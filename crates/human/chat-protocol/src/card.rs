@@ -255,6 +255,46 @@ pub fn is_card(text: &str) -> bool {
     any_top_level_kind_is_card(text)
 }
 
+/// The fields of this node's OWN card as its pending row holds them, read
+/// with [`read_own_card_unverified`]: never a [`Card`], so it cannot be
+/// passed where a verified card is wanted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnCardFields {
+    /// 32 lowercase hex characters.
+    pub app_message_id: String,
+    /// The name after NFC, within its bounds.
+    pub name: String,
+    /// The surname after NFC, within its bounds, if it has one.
+    pub surname: Option<String>,
+    /// The photo, if it has one.
+    pub photo: Option<CardPhoto>,
+    /// The identity key it carries.
+    pub identity_key: [u8; 32],
+}
+
+/// Read back this node's OWN card from the text its pending outbound row
+/// holds, for display, WITHOUT verifying its signature: `None` for a text
+/// that is not a card, or one this grammar refuses.
+///
+/// For the sender's own stored rows only. A received text never enters
+/// it -- a rule of its callers: its one caller is app-core's listing of
+/// this node's pending outbound rows, which `tests/frozen_cards.rs`'s
+/// `only_the_pending_listing_calls_the_own_reader` holds. The
+/// receiver's path is [`classify`] alone, which verifies the card
+/// over the route it arrived on (ADR-0063 decision 3). Reading one's own
+/// write back verifies nothing the encrypted store does not, and cannot be
+/// done before this node's `PeerId` is known (HUMAN-CHAT.md section Contact
+/// card, A 2026-10-27). The grammar is [`classify`]'s up to the signature check,
+/// one function for both (`tests/frozen_cards.rs`:
+/// `the_own_reader_refuses_what_classify_refuses_before_the_signature`).
+#[must_use]
+pub fn read_own_card_unverified(text: &str) -> Option<OwnCardFields> {
+    if !any_top_level_kind_is_card(text) {
+        return None;
+    }
+    parse_fields(text).ok().map(|(fields, _)| fields.own)
+}
+
 /// What a person writes on their own card, before it is signed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CardDraft<'a> {
@@ -461,7 +501,57 @@ fn any_top_level_kind_is_card(text: &str) -> bool {
         && serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok()
 }
 
+/// A card's fields as its grammar reads them, before any signature check:
+/// what [`parse_card`] verifies and [`read_own_card_unverified`] returns.
+struct ParsedFields {
+    own: OwnCardFields,
+    sent_at_ms: Option<u64>,
+    from_endpoint: Option<EndpointId>,
+}
+
 fn parse_card(text: &str, route: CardRoute<'_>) -> Result<Card, CardFault> {
+    let (fields, signature) = parse_fields(text)?;
+    let ParsedFields {
+        own:
+            OwnCardFields {
+                app_message_id,
+                name,
+                surname,
+                photo,
+                identity_key,
+            },
+        sent_at_ms,
+        from_endpoint,
+    } = fields;
+    let peer = bs58::decode(route.source_peer.as_str())
+        .into_vec()
+        .map_err(|_| CardFault::SignatureFails)?;
+    let message = canonical_card_bytes(
+        &name,
+        surname.as_deref(),
+        photo.as_ref().map(|p| (p.media_type, p.bytes.as_slice())),
+        &peer,
+        route.source_endpoint.as_str(),
+    )
+    .ok_or(CardFault::SignatureFails)?;
+    if !verifies_strictly(&identity_key, &signature, &message) {
+        return Err(CardFault::SignatureFails);
+    }
+
+    Ok(Card {
+        app_message_id,
+        name,
+        surname,
+        photo,
+        identity_key,
+        sent_at_ms,
+        from_endpoint,
+    })
+}
+
+/// The card grammar, every fault but the signature's: the fields and the
+/// signature's bytes, decoded and of their length.
+fn parse_fields(text: &str) -> Result<(ParsedFields, [u8; 64]), CardFault> {
     let StrictValue(raw) = serde_json::from_str::<StrictValue>(text).map_err(|e| {
         // The lenient pass read this text as a JSON object by the grammar,
         // so a strict failure is either a repeated member or JSON this
@@ -531,31 +621,20 @@ fn parse_card(text: &str, route: CardRoute<'_>) -> Result<Card, CardFault> {
         .ok_or(CardFault::SignatureEncoding)?
         .try_into()
         .map_err(|_| CardFault::SignatureLength)?;
-
-    let peer = bs58::decode(route.source_peer.as_str())
-        .into_vec()
-        .map_err(|_| CardFault::SignatureFails)?;
-    let message = canonical_card_bytes(
-        &name,
-        surname.as_deref(),
-        photo.as_ref().map(|p| (p.media_type, p.bytes.as_slice())),
-        &peer,
-        route.source_endpoint.as_str(),
-    )
-    .ok_or(CardFault::SignatureFails)?;
-    if !verifies_strictly(&identity_key, &signature, &message) {
-        return Err(CardFault::SignatureFails);
-    }
-
-    Ok(Card {
-        app_message_id,
-        name,
-        surname,
-        photo,
-        identity_key,
-        sent_at_ms,
-        from_endpoint,
-    })
+    Ok((
+        ParsedFields {
+            own: OwnCardFields {
+                app_message_id,
+                name,
+                surname,
+                photo,
+                identity_key,
+            },
+            sent_at_ms,
+            from_endpoint,
+        },
+        signature,
+    ))
 }
 
 /// Strict as `ed25519-dalek`'s `verify_strict` defines it (HUMAN-CHAT.md):
