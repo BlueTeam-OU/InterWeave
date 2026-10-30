@@ -13,8 +13,8 @@ use std::time::Instant;
 use interweave_human_app_core::{Command, Failure as Why, Problem, Update};
 use interweave_human_client_api::{ClientEvent, OutboundStatus, SessionState, TrustProblem};
 use interweave_human_ui_model::{
-    ConversationKey, Direction, EntryProblem, Intent, ItemKey, ItemStatus, ProposalItem, RowId,
-    TrustInput, TrustOutcome, ViewEvent,
+    ConversationKey, Direction, EntryProblem, Intent, ItemKey, ItemStatus, MessageItem,
+    ProposalItem, RowId, TrustInput, TrustOutcome, ViewEvent,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -822,8 +822,17 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
     let (event, fields) = match update {
         // The local endpoint that received it: the one this session's lease
         // holds, beside the author and the peer's endpoint (G6).
+        // Built from the update, not from the rows the model holds: a
+        // conversation not open holds none of them
+        // (`listen_prints_a_message_and_a_card_for_a_conversation_not_open`).
         Update::Received(received) => {
-            return message_line(s, received.row, json, leased(s).map(EndpointId::as_str));
+            let key = crate::walk::conversation_of(&received.origin);
+            return Some(item_line(
+                &key,
+                &model.message_of(received),
+                json,
+                leased(s).map(EndpointId::as_str),
+            ));
         }
         Update::ReceivedCard(card) => {
             // Said as the proposals list says it, read by no one: the card
@@ -832,10 +841,7 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
                 peer: card.peer.clone(),
                 endpoint: Some(card.endpoint.clone()),
             };
-            let item = model
-                .proposals(&key)
-                .into_iter()
-                .find(|p| p.row == card.row)?;
+            let item = model.proposal_item(card);
             return Some(crate::cards::proposal_line(&item, &key, "unread", json));
         }
         Update::Client(ClientEvent::Outbound(update)) => (
@@ -921,7 +927,7 @@ fn listen_about<B: DataSessionBinding, A: AdminBinding>(
     Some(match update {
         Update::Received(received) => (
             "message",
-            conversation_of_item(s, &format!("u{}", received.row.get())),
+            Some(crate::walk::conversation_of(&received.origin)),
         ),
         Update::ReceivedCard(card) => (
             "proposal",
@@ -962,18 +968,28 @@ fn message_line<B: DataSessionBinding, A: AdminBinding>(
             .find(|m| m.key == item)
             .map(|m| (c.key, m))
     })?;
+    Some(item_line(&key, &message, json, local_endpoint))
+}
+
+/// The `message` event of `message`, in conversation `key`.
+fn item_line(
+    key: &ConversationKey,
+    message: &MessageItem,
+    json: bool,
+    local_endpoint: Option<&str>,
+) -> String {
     if !json {
-        return Some(format!(
+        return format!(
             "message {}\n{}",
-            conversation_text(&key),
-            output::message(&message, false)
-        ));
+            conversation_text(key),
+            output::message(message, false)
+        );
     }
-    let mut value = output::message_value(&message);
+    let mut value = output::message_value(message);
     value["event"] = json!("message");
-    value["conversation"] = json!(conversation_text(&key));
+    value["conversation"] = json!(conversation_text(key));
     value["local_endpoint"] = json!(local_endpoint);
-    Some(output::json_line(&value))
+    output::json_line(&value)
 }
 
 /// How `listen` runs: its output form, whether it consumes what it

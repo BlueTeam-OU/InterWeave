@@ -329,7 +329,7 @@ impl Walk {
 }
 
 /// The conversation a received row belongs to.
-fn conversation_of(origin: &Origin) -> ConversationKey {
+pub(crate) fn conversation_of(origin: &Origin) -> ConversationKey {
     match origin {
         Origin::Direct { peer, endpoint } => ConversationKey::Direct {
             peer: peer.clone(),

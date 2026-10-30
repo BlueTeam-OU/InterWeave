@@ -92,6 +92,14 @@ impl Side {
         Session::new(facade, || Some(true)).expect("session")
     }
 
+    /// A run on the windowed start: the model holds the rows of an open
+    /// conversation only.
+    fn started(&self) -> Session<FakeNode, FakeNode> {
+        let mut facade = self.facade();
+        facade.set_identity_key(self.key());
+        Session::started(facade, || Some(true)).expect("session")
+    }
+
     /// A run that opens its key as `main` does, from the key source: a
     /// key file it refuses leaves the run with no key, the problem shown.
     fn session_from_file(&self) -> Session<FakeNode, FakeNode> {
@@ -499,6 +507,103 @@ async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
     assert_eq!(card["status"], "unread");
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     assert_eq!(lines(&out)[0]["status"], "unread", "still unread: {out}");
+}
+
+/// On the windowed start no conversation is open, so the model holds
+/// none of a received row: `listen` says a message and a card from the
+/// update that brought them, and its filter by conversation reads the
+/// conversation there too -- a message of a conversation the filter does
+/// not name is not printed, the control that the filter is live.
+/// Mutations: each line looked up among the rows the model holds, as
+/// before the windowed start (not printed); the filter's conversation so
+/// looked up (printed under a filter naming another).
+#[tokio::test]
+async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
+    async fn listen(s: &mut Session<FakeNode, FakeNode>, about: ConversationKey) -> Vec<Value> {
+        let mut out = Vec::new();
+        verbs::listen(
+            s,
+            verbs::ListenMode {
+                filter: crate::cli::ListenFilter {
+                    events: None,
+                    conversation: Some(about),
+                },
+                json: true,
+                consume: false,
+                input: None,
+            },
+            &mut out,
+            tokio::time::sleep(Duration::from_millis(500)),
+        )
+        .await
+        .expect("listened");
+        lines(&String::from_utf8(out).expect("utf-8"))
+    }
+    fn send(to: ConversationKey, text: &str) -> Verb {
+        Verb::Send {
+            conversation: to,
+            text: Some(text.to_owned()),
+            pending: true,
+        }
+    }
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (alice, bob) = (Side::new(a), Side::new(b));
+    let mut b_run = bob.started();
+    run(&mut b_run, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    let mut a_run = alice.session();
+    run(&mut a_run, send(bob.route(), "filtered out"), false)
+        .await
+        .1
+        .expect("sent");
+    let elsewhere = to(&ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer id"));
+    let events = listen(&mut b_run, elsewhere).await;
+    assert!(
+        !events.iter().any(|e| e["event"] == "message"),
+        "a filter naming another conversation: {events:?}"
+    );
+
+    run(&mut a_run, set("Ada", None), false)
+        .await
+        .1
+        .expect("set");
+    run(&mut a_run, Verb::CardShare(bob.route()), false)
+        .await
+        .1
+        .expect("shared");
+    run(
+        &mut a_run,
+        send(bob.route(), "to a closed conversation"),
+        false,
+    )
+    .await
+    .1
+    .expect("sent");
+    let events = listen(&mut b_run, alice.route()).await;
+    let message = events
+        .iter()
+        .find(|e| e["event"] == "message")
+        .unwrap_or_else(|| panic!("a message event: {events:?}"));
+    assert_eq!(message["text"], "to a closed conversation");
+    assert_eq!(message["status"], "unread");
+    assert_eq!(
+        message["conversation"],
+        crate::cli::conversation_text(&alice.route()).as_str()
+    );
+    let card = events
+        .iter()
+        .find(|e| e["event"] == "proposal")
+        .unwrap_or_else(|| panic!("a proposal event: {events:?}"));
+    assert_eq!(card["name"], "Ada");
+    assert_eq!(card["status"], "unread");
+    assert!(
+        b_run.model().messages(&alice.route()).is_empty(),
+        "the control: the model holds no row of the conversation"
+    );
 }
 
 #[tokio::test]
