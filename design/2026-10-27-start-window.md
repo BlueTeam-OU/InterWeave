@@ -354,7 +354,11 @@ A card proposal the app holds is a held row like any other (§11),
 wherever it stands in time: a gap is bounded by the nearest held rows
 of either kind, so a held proposal inside a run of released rows
 splits it into two gaps, each with its own sides and its own
-`EarlierUnread` line, and nothing is shown out of its order. At the
+`EarlierUnread` line, and nothing is shown out of its order. A
+proposal has no focus stop of its own (contact-cards §5.4.4), so where
+it bounds a gap, "the row" in this section and in §7's targets means
+its first control in reading order, and focus moved by the person onto
+any of its controls counts as reaching that side. At the
 top edge, the marks of §5 and §6 (failure, limit, progress,
 `EarlierUnread`) stand above everything held, proposals included
 (QUESTION 01a18b25, U2).
