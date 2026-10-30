@@ -96,12 +96,15 @@ impl Marks {
 }
 
 /// Where focus stands in the conversation's reading order: a mark at the
-/// top, a mark above a message, a message, a mark below everything.
+/// top, a mark above a message, a message, a mark above a card row, a card
+/// row (by its handle), a mark below everything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FocusAt {
     Top,
     Above(ItemKey),
     Item(ItemKey),
+    AboveCard(i32),
+    Card(i32),
     End,
 }
 
@@ -172,6 +175,21 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
             wake();
         }
     });
+}
+
+/// The card row a focus id names, by its handle: any control of a
+/// proposal or of the confirmation row an Accept left.
+fn card_focus(id: &str) -> Option<i32> {
+    [
+        "answer:",
+        "proposal-copy:",
+        "proposal-contact:",
+        "proposal-decline:",
+        "proposal-accept:",
+    ]
+    .iter()
+    .find_map(|prefix| id.strip_prefix(prefix))
+    .and_then(|rest| rest.split(':').next()?.parse().ok())
 }
 
 /// An edge as the view hands it to the window and back.
@@ -629,13 +647,14 @@ impl View {
         // way the two stand: section 5.1 counts focus as it counts a
         // scroll, and the toolkit bringing a focused row into view says
         // no direction of its own
-        // (`focus_moving_down_onto_a_gaps_line_fetches_its_upper_side_first`).
-        // A mark stands where its row does: focus moving down onto a
-        // gap's line or failure row is a move down
+        // A mark stands where its row does, a card row where it is drawn
+        // among the messages: focus moving down onto a gap's line, its
+        // failure row or a card is a move down
         // (`focus_moving_down_onto_a_gaps_line_fetches_its_upper_side_first`).
         let focus_at = focused
             .map(FocusAt::Item)
-            .or_else(|| self.mark_focus(&focus_id));
+            .or_else(|| self.mark_focus(&focus_id))
+            .or_else(|| card_focus(&focus_id).map(FocusAt::Card));
         let before = self.marks.focused;
         if focus_at.is_some() {
             self.marks.focused = focus_at;
@@ -770,12 +789,16 @@ impl View {
                 .key_of(row.handle)
                 .copied()
                 .map(FocusAt::Above),
+            2 => Some(FocusAt::AboveCard(row.handle)),
             3 => Some(FocusAt::End),
             _ => None,
         }
     }
 
-    /// `at`'s place in the reading order, for comparing two.
+    /// `at`'s place in the reading order, for comparing two: for the
+    /// message at index i, a mark above it 4i, the message 4i+1, a mark
+    /// above a card it is followed by 4i+2, the card 4i+3; a card before
+    /// every message as if after index -1, the top's marks before it.
     fn focus_order(&self, at: FocusAt) -> Option<i64> {
         let index = |k: ItemKey| {
             self.message_keys
@@ -783,10 +806,27 @@ impl View {
                 .position(|m| *m == k)
                 .and_then(|i| i64::try_from(i).ok())
         };
+        // The message a card follows, by the card's handle; -1 for none.
+        let follows = |card: i32| -> Option<i64> {
+            let after = self
+                .shared
+                .borrow()
+                .order
+                .card_after
+                .get(usize::try_from(card).ok()?)
+                .copied()?;
+            if after < 0 {
+                return Some(-1);
+            }
+            let key = self.item_handles.key_of(after).copied()?;
+            index(key)
+        };
         match at {
-            FocusAt::Top => Some(-1),
-            FocusAt::Above(k) => Some(index(k)? * 2),
-            FocusAt::Item(k) => Some(index(k)? * 2 + 1),
+            FocusAt::Top => Some(-4),
+            FocusAt::Above(k) => Some(index(k)? * 4),
+            FocusAt::Item(k) => Some(index(k)? * 4 + 1),
+            FocusAt::AboveCard(c) => Some(follows(c)? * 4 + 2),
+            FocusAt::Card(c) => Some(follows(c)? * 4 + 3),
             FocusAt::End => Some(i64::MAX),
         }
     }
@@ -953,6 +993,49 @@ mod tests {
             [Edge::GapUpper(1), Edge::GapLower(1)],
             "onto the line"
         );
+
+        // The same onto a gap's line standing above a card row that follows
+        // the row above: the card is drawn after that row, so it is a move
+        // down too.
+        let card = RowId::from_stored(50);
+        let above_handle = view.item_handles.of(&above);
+        view.cards.drawn_rows.insert(card, (0, false));
+        view.shared.borrow_mut().order.card_after = vec![above_handle];
+        let at = MarkPlace::Above(Anchor::Card(card));
+        view.marks.edges = vec![(Edge::GapUpper(1), at), (Edge::GapLower(1), at)];
+        view.marks.reached.clear();
+        view.marks.focused = Some(super::FocusAt::Item(above));
+        view.marks.rows.set_vec(vec![crate::generated::MarkRow {
+            place: 2,
+            handle: 0,
+            focus_key: "earlier-unread:l1".into(),
+            ..Default::default()
+        }]);
+        view.shared
+            .borrow_mut()
+            .window_view
+            .in_view
+            .insert(above_handle);
+        let reached: Vec<Edge> = view
+            .reach_events(&key)
+            .into_iter()
+            .filter_map(|e| match e {
+                WindowEvent::Input(WindowInput::Reached { edge, .. }) => Some(edge),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            reached,
+            [Edge::GapUpper(1), Edge::GapLower(1)],
+            "onto a line above a card"
+        );
+        // The reading order the comparison rests on.
+        let order = |at| view.focus_order(at).expect("placed");
+        assert!(order(super::FocusAt::Top) < order(super::FocusAt::Above(above)));
+        assert!(order(super::FocusAt::Above(above)) < order(super::FocusAt::Item(above)));
+        assert!(order(super::FocusAt::Item(above)) < order(super::FocusAt::AboveCard(0)));
+        assert!(order(super::FocusAt::AboveCard(0)) < order(super::FocusAt::Card(0)));
+        assert!(order(super::FocusAt::Card(0)) < order(super::FocusAt::Above(below)));
     }
 
     #[test]
