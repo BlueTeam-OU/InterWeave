@@ -113,6 +113,7 @@ const fn problem(p: BlockProblem) -> &'static str {
         BlockProblem::NotMade => "not-made",
         BlockProblem::Unknown => "unknown",
         BlockProblem::Superseded => "superseded",
+        BlockProblem::SupersededUnread => "superseded-unread",
     }
 }
 

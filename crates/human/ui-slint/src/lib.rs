@@ -1164,11 +1164,18 @@ impl View {
             Page::Conversation => "conversations",
             Page::Trust => "trust",
             Page::Cards => "cards",
-            Page::Peers if window.get_viewfinder_open() => "peers-scan",
-            Page::Peers if window.get_peers_show_open() => "peers-show",
-            Page::Peers if window.get_peers_add_open() && window.get_add_step_one() => "peers-add",
-            Page::Peers if window.get_peers_add_open() => "peers-add-trust",
+            // Connect's Add and Show are Peers' pages drawn in its place,
+            // so they read as Peers' do and the driver needs no second name.
+            Page::Peers | Page::Connect if window.get_viewfinder_open() => "peers-scan",
+            Page::Peers | Page::Connect if window.get_peers_show_open() => "peers-show",
+            Page::Peers | Page::Connect
+                if window.get_peers_add_open() && window.get_add_step_one() =>
+            {
+                "peers-add"
+            }
+            Page::Peers | Page::Connect if window.get_peers_add_open() => "peers-add-trust",
             Page::Peers => "peers",
+            Page::Connect => "connect",
         };
         let handles = &mut self.peer_lists.block_handles;
         let now = trace::shown(page, model.peers(), model.trust_settings(), |p| {
