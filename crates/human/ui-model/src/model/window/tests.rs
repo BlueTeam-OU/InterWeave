@@ -1488,3 +1488,29 @@ fn a_small_session_bound_reaches_the_limit_row() {
             .any(|m| m.kind == MarkKind::AtLimit(Edge::Top))
     );
 }
+
+/// A card of another conversation -- listed while this one is open, or
+/// brought back by an Undo that finished after the person moved here --
+/// is none of this window's rows: a row the store holds here, newer than
+/// every one the window held, still opens it again at the newest.
+/// Mutations: `seen` or `holds_card` moving the open window's newest seen
+/// for a card of any conversation.
+#[test]
+fn another_conversations_card_moves_no_newest_seen() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+
+    let mut listed = card(RowId::from_stored(1_005), Q);
+    listed.received_at = 1_005;
+    model.card_received(listed);
+    let mut undone = card(RowId::from_stored(1_006), Q);
+    undone.received_at = 1_006;
+    model.card_restored(undone);
+
+    model.summaries_listed(newest_at(3, 1_003), None);
+    let again = one_ask(&mut model);
+    assert_eq!((again.older_than, again.newer_than), (None, None));
+    assert!(again.seq > ask.seq, "a new opening");
+}

@@ -921,6 +921,7 @@ impl UiModel {
         // ceiling, which a flood while the window has no focus reaches.
         if self.windowed.is_some() && self.by_row.contains_key(&(Table::Unread, received.row)) {
             self.windows.holds(
+                &conversation,
                 Table::Unread,
                 received.row,
                 window::PageMark {
@@ -1130,6 +1131,7 @@ impl UiModel {
             // A kept row keeps its stored copy at the time the message
             // reached this app: its place in the window.
             self.windows.holds(
+                &item.conversation,
                 Table::Kept,
                 kept_row,
                 window::PageMark {
