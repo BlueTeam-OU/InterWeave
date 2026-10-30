@@ -435,7 +435,8 @@ conversation".
 
 Here a held target is one the app holds and shows: a row hidden by a
 Dismiss whose snackbar is still open is held for its Undo (§5.1) but
-cannot be reached, so it counts as not held.
+cannot be reached, so until its Undo it counts as neither held nor
+stored, whatever the store holds.
 
 - `ReplyPresent` when the target is held, or is not held but is
   stored in this conversation, unread or kept, as a row the app can
