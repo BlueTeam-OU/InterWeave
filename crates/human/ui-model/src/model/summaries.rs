@@ -575,4 +575,31 @@ mod tests {
         assert_eq!(now.unread, 7);
         assert_eq!(now.last.preview.shown(), "after a while");
     }
+
+    /// A path notice for a peer whose conversation the start summarised is
+    /// kept, though no row of it is held: Chats' route indicator shows for
+    /// it. One for a peer no conversation is with is not. Mutation: a path
+    /// kept only for a peer with a held row.
+    #[test]
+    fn a_summarised_conversations_path_is_kept() {
+        use interweave_human_client_api::ClientEvent;
+        use interweave_transport_api::PeerPath;
+        let mut model = UiModel::new();
+        model.started(
+            Vec::new(),
+            vec![summary(P, 3, Table::Unread, 9, 9, "hi")],
+            None,
+        );
+        assert!(model.messages(&direct(P)).is_empty(), "no row held");
+        model.client_event(ClientEvent::PeerPath {
+            peer: peer(P),
+            path: PeerPath::Direct,
+        });
+        model.client_event(ClientEvent::PeerPath {
+            peer: peer(Q),
+            path: PeerPath::Direct,
+        });
+        assert_eq!(model.path(&direct(P)), Some(PeerPath::Direct));
+        assert_eq!(model.path(&direct(Q)), None, "no conversation with Q");
+    }
 }

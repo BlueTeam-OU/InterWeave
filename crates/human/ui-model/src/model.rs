@@ -802,14 +802,19 @@ impl UiModel {
             // A path notice -- a route's begin, a change, or the peer's
             // return -- updates the route indicator and nothing else: no
             // item, no unread count, no conversation (`human-client-ui.md`
-            // §7 and §13). Kept for a peer a direct conversation is with;
-            // the facade hands a path notice over after the messages of
-            // the same take, so the conversation a route's first message
-            // starts is there.
+            // §7 and §13). Kept for a peer a direct conversation is with --
+            // one holding a row here, or in the windowed mode one the start
+            // summarised, whose rows stay in the store
+            // (`a_summarised_conversations_path_is_kept`); the facade hands
+            // a path notice over after the messages of the same take, so the
+            // conversation a route's first message starts is there.
             ClientEvent::PeerPath { peer, path } => {
-                let known = self.items.values().any(|item| {
-                    matches!(&item.conversation, ConversationKey::Direct { peer: p, .. } if *p == peer)
-                });
+                let with = |c: &ConversationKey| matches!(c, ConversationKey::Direct { peer: p, .. } if *p == peer);
+                let known = self.items.values().any(|item| with(&item.conversation))
+                    || self
+                        .windowed
+                        .as_ref()
+                        .is_some_and(|w| w.iter().any(|s| with(&s.conversation)));
                 if known {
                     self.paths.insert(peer, path);
                 }
