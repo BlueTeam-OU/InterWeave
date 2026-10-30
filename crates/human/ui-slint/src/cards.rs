@@ -823,7 +823,9 @@ impl View {
                 }];
             }
             CardsInput::RemoveContactPhoto(id) => {
-                if model.contact(&id).is_some_and(|c| c.photo.is_some()) {
+                // A stored photo, read or not: one that cannot be read is
+                // still offered for removal (start-window section 11).
+                if model.contact_has_photo(&id) {
                     return vec![Intent::SetContactPhoto {
                         contact_id: id,
                         photo: PhotoEdit::Remove,

@@ -4022,8 +4022,9 @@ fn only_the_contact_rows_in_view_read_their_photos() {
 /// A contact's page opens with its photo: choosing a contact whose photo
 /// was not read waits for it, with no loading state, and opens on it; one
 /// that cannot be read opens on the initials with Remove photo, the photo
-/// still stored. Mutations: the page opened at once on the initials; Remove
-/// photo offered by the photo's bytes.
+/// still stored, and its press removes it. Mutations: the page opened at
+/// once on the initials; Remove photo offered, or its press honoured, by
+/// the photo's bytes.
 #[test]
 fn a_contact_page_waits_for_its_photo_and_an_unreadable_one_keeps_remove_photo() {
     let mut view = view();
@@ -4068,6 +4069,15 @@ fn a_contact_page_waits_for_its_photo_and_an_unreadable_one_keeps_remove_photo()
     );
     assert!(!view.window().get_contact_photo_shown(), "initials");
     assert!(shows(&view, text(UiText::RemovePhoto)), "still removable");
+    press(&view, text(UiText::RemovePhoto));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::SetContactPhoto {
+            contact_id: "c1".to_owned(),
+            photo: PhotoEdit::Remove,
+        }],
+        "and removed by its press"
+    );
 }
 
 fn avatar_reports(view: &mut View) -> (usize, usize) {
