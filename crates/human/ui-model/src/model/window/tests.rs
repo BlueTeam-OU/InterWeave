@@ -1536,3 +1536,28 @@ fn a_second_start_opens_the_window_again_on_a_row_never_held() {
     assert_eq!((again.older_than, again.newer_than), (None, None));
     assert!(again.seq > ask.seq, "a new opening");
 }
+
+/// A page's rows are rows the person asked for, never arrivals: only one
+/// the drain hands over while the window is open is, for a view to
+/// announce (design section 10, item 3: the opening announces nothing).
+/// Mutations: a page's rows marked arrived; the drain's not.
+#[test]
+fn only_the_drains_rows_are_arrivals_never_a_pages() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+    let arrived = |model: &UiModel| -> Vec<String> {
+        model
+            .messages(&conversation())
+            .into_iter()
+            .filter(|m| m.arrived)
+            .map(|m| m.source)
+            .collect()
+    };
+    assert_eq!(model.messages(&conversation()).len(), 2);
+    assert!(arrived(&model).is_empty(), "the page's rows");
+
+    handed(&mut model, 1_001);
+    assert_eq!(arrived(&model), ["row 1001"], "the drain's row");
+}
