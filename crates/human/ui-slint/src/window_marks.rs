@@ -643,13 +643,11 @@ impl View {
             self.marks.place = Some(place);
         }
         let by_person = !self.marks.by_app(&focus_id);
-        // Focus the person moved from one message to another moves the
-        // way the two stand: section 5.1 counts focus as it counts a
-        // scroll, and the toolkit bringing a focused row into view says
-        // no direction of its own
-        // A mark stands where its row does, a card row where it is drawn
-        // among the messages: focus moving down onto a gap's line, its
-        // failure row or a card is a move down
+        // Focus the person moved from one place to another moves the way
+        // the two stand: section 5.1 counts focus as it counts a scroll,
+        // and the toolkit bringing a focused row into view says no
+        // direction of its own. A mark stands where its row does, a card
+        // row where it is drawn among the messages and the cards beside it
         // (`focus_moving_down_onto_a_gaps_line_fetches_its_upper_side_first`).
         let focus_at = focused
             .map(FocusAt::Item)
@@ -795,11 +793,12 @@ impl View {
         }
     }
 
-    /// `at`'s place in the reading order, for comparing two: for the
-    /// message at index i, a mark above it 4i, the message 4i+1, a mark
-    /// above a card it is followed by 4i+2, the card 4i+3; a card before
-    /// every message as if after index -1, the top's marks before it.
-    fn focus_order(&self, at: FocusAt) -> Option<i64> {
+    /// `at`'s place in the reading order, for comparing two: the message it
+    /// stands at or after, then a mark above the message, the message, and
+    /// the cards following it in their own order, each with the marks
+    /// above it just before it; a card before every message as if after
+    /// index -1, the top's marks before it.
+    fn focus_order(&self, at: FocusAt) -> Option<(i64, i64, i64)> {
         let index = |k: ItemKey| {
             self.message_keys
                 .iter()
@@ -821,13 +820,14 @@ impl View {
             let key = self.item_handles.key_of(after).copied()?;
             index(key)
         };
+        let card = |c: i32| i64::from(c) * 2;
         match at {
-            FocusAt::Top => Some(-4),
-            FocusAt::Above(k) => Some(index(k)? * 4),
-            FocusAt::Item(k) => Some(index(k)? * 4 + 1),
-            FocusAt::AboveCard(c) => Some(follows(c)? * 4 + 2),
-            FocusAt::Card(c) => Some(follows(c)? * 4 + 3),
-            FocusAt::End => Some(i64::MAX),
+            FocusAt::Top => Some((-2, 0, 0)),
+            FocusAt::Above(k) => Some((index(k)?, 0, 0)),
+            FocusAt::Item(k) => Some((index(k)?, 1, 0)),
+            FocusAt::AboveCard(c) => Some((follows(c)?, 2, card(c))),
+            FocusAt::Card(c) => Some((follows(c)?, 2, card(c) + 1)),
+            FocusAt::End => Some((i64::MAX, 0, 0)),
         }
     }
 
@@ -1029,13 +1029,53 @@ mod tests {
             [Edge::GapUpper(1), Edge::GapLower(1)],
             "onto a line above a card"
         );
+        // Two cards after the same message: focus moving down from the first
+        // card's own control onto a gap's line above the second is a move
+        // down, the cards in their own order.
+        view.cards
+            .drawn_rows
+            .insert(RowId::from_stored(51), (1, false));
+        view.shared.borrow_mut().order.card_after = vec![above_handle, above_handle];
+        let at = MarkPlace::Above(Anchor::Card(RowId::from_stored(51)));
+        view.marks.edges = vec![(Edge::GapUpper(1), at), (Edge::GapLower(1), at)];
+        view.marks.reached.clear();
+        view.window.set_focus_id("proposal-copy:0".into());
+        let _ = view.reach_events(&key);
+        assert_eq!(
+            view.marks.focused,
+            Some(super::FocusAt::Card(0)),
+            "a card's control"
+        );
+        view.marks.reached.clear();
+        view.marks.rows.set_vec(vec![crate::generated::MarkRow {
+            place: 2,
+            handle: 1,
+            focus_key: "earlier-unread:l1".into(),
+            ..Default::default()
+        }]);
+        view.window.set_focus_id("earlier-unread:l1".into());
+        let reached: Vec<Edge> = view
+            .reach_events(&key)
+            .into_iter()
+            .filter_map(|e| match e {
+                WindowEvent::Input(WindowInput::Reached { edge, .. }) => Some(edge),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            reached,
+            [Edge::GapUpper(1), Edge::GapLower(1)],
+            "from one card onto a line above the next"
+        );
         // The reading order the comparison rests on.
         let order = |at| view.focus_order(at).expect("placed");
         assert!(order(super::FocusAt::Top) < order(super::FocusAt::Above(above)));
         assert!(order(super::FocusAt::Above(above)) < order(super::FocusAt::Item(above)));
         assert!(order(super::FocusAt::Item(above)) < order(super::FocusAt::AboveCard(0)));
         assert!(order(super::FocusAt::AboveCard(0)) < order(super::FocusAt::Card(0)));
-        assert!(order(super::FocusAt::Card(0)) < order(super::FocusAt::Above(below)));
+        assert!(order(super::FocusAt::Card(0)) < order(super::FocusAt::AboveCard(1)));
+        assert!(order(super::FocusAt::AboveCard(1)) < order(super::FocusAt::Card(1)));
+        assert!(order(super::FocusAt::Card(1)) < order(super::FocusAt::Above(below)));
     }
 
     #[test]
