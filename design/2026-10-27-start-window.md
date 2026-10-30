@@ -447,10 +447,11 @@ cannot be reached, so it counts as not held.
   snackbar is open; its Undo puts the row back and the line back to
   `ReplyPresent`.
 - `ReplyUnavailable` when the target is neither held nor stored:
-  dismissed once its snackbar has closed (message-swipe §7), dropped by the session bound (§7.1),
+  dismissed once its snackbar has closed (message-swipe §5), dropped by the session bound (§7.1),
   read and not kept in an earlier session, or never received.
 - Nothing fetches the target to decide this beyond asking the store
-  whether it holds it (never the transport, §15), and the line has no
+  whether it holds it (never the transport, `human-client-ui.md` §15),
+  and the line has no
   action, as today. When the answer changes (the target loads, or
   leaves the store), the line's text changes in place. Nothing is
   announced, and focus does not move.
