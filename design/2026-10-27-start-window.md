@@ -270,11 +270,15 @@ in view when it appears, so the person sees it; and each time one
 appears, is replaced by another (a failure in the progress row's
 place, the progress row in Try again's) or goes, what is below it
 moves by the change in height, once each time and without animation,
-and focus stays on its item. One case keeps the person's place
-instead: when the page arrives with no `EarlierUnread` line, the
-page's rows take the place the progress row leaves, so the oldest row
-the person was looking at does not move back. With the line, which no
-row goes above, the line moves back up when the progress row goes. If
+and focus stays on its item. A failure or limit row whose button was
+pressed stays where it is, its button doing nothing more while the
+read is in flight, until the progress row takes its place (after
+250 ms) or the page arrives, so pressing never moves the view twice.
+One case keeps the person's place instead: when the page arrives with
+no `EarlierUnread` line, the page's rows take the place the top edge's
+row leaves, whichever row it was, so the oldest row the person was
+looking at does not move back. With the line, which no message row
+goes above, the line moves back up when the top edge's row goes. If
 the top edge is reached by focus with the view elsewhere, the row
 shows where it stands and the view does not move to it.
 
@@ -660,8 +664,11 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
    there when the page arrives, the page's rows above it. Again with
    the page's read failing: the failure row replaces the progress row
    in view, what is below moves by the difference in height once, and
-   Try again is in view; pressing it brings the progress row back the
-   same way. With a held proposal standing among
+   Try again is in view; pressing it leaves the failure row in place,
+   pressing again doing nothing, until the progress row replaces it
+   after 250 ms, what is below moving by the difference once; with the
+   page let through within 250 ms and no line, the page's rows take the
+   failure row's place and the oldest row does not move. With a held proposal standing among
    released rows, two gaps show around it, each loading on its own,
    and at the top edge every mark stands above a leading proposal.
    With a gap wholly in view and no movement, its lower side fetches
