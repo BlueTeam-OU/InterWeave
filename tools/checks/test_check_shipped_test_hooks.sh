@@ -42,7 +42,11 @@ archive() {
       echo 'target=x86_64-unknown-linux-gnu'
       echo "packages=($*)"
       echo 'programs=(transport-daemon)'
-      echo 'for p in "${packages[@]}"; do build_args+=(-p "$p"); done'; } > "$WS/tools/ci/release_linux_archive.sh"
+      echo 'build() {'
+      echo '    build_args=(build --release --locked --target "$target")'
+      echo '    for p in "${packages[@]}"; do build_args+=(-p "$p"); done'
+      echo '    (cd "$root" && cargo "${build_args[@]}") || die "cargo build failed"'
+      echo '}'; } > "$WS/tools/ci/release_linux_archive.sh"
 }
 
 # gradle [<release profile line>]: the cargo-ndk call, as build.gradle.kts has it.
@@ -50,11 +54,12 @@ gradle() {
     local profile="${1:-            if (variant == \"Release\") listOf(\"--release\") else listOf(\"--features\", \"dev-stand-ins,e2e-cases\")}"
     { echo '        val profile ='
       echo "$profile"
+      echo '        // --locked: the reviewed lockfile.'
       echo '        commandLine('
       echo '            listOf('
       echo '                "cargo", "ndk", "-t", "arm64-v8a", "-P", "30",'
       echo '                "-o", rustJniLibs(variant).get().asFile.path,'
-      echo '                "build", "--locked", "-p", "interweave-human-android",'
+      echo '                "build", "--locked", "-p", "apkpkg",'
       echo '            ) + profile,'
       echo '        )'; } > "$WS/apps/human-android/android/app/build.gradle.kts"
 }
@@ -110,7 +115,7 @@ LINUX=x86_64-unknown-linux-gnu
 APK=aarch64-linux-android
 clean() {
     tree $LINUX "daemon|" "comp|default" "cli|" "serde|derive,std"
-    tree $APK "interweave-human-android|" "platform|" "embedded|" "comp|"
+    tree $APK "apkpkg|" "platform|" "embedded|" "comp|"
     tree control "comp|test-hooks" "serde|std"
 }
 
@@ -118,14 +123,14 @@ echo "test_check_shipped_test_hooks"
 
 archive daemon cli
 gradle
-members daemon cli interweave-human-android "comp:default,test-hooks" "platform:test-hooks" embedded
+members daemon cli apkpkg "comp:default,test-hooks" "platform:test-hooks" embedded
 clean
 rm -f "$SANDBOX/tree-args"
 expect 0 "shipped graphs without test-hooks pass, the declarers named" "2 member(s) declare test-hooks: comp platform"
 args="$(cat "$SANDBOX/tree-args")"
 lin="$(grep -- "--target $LINUX" <<<"$args")"
 apk="$(grep -- "--target $APK" <<<"$args")"
-[[ "$lin" == *"-p daemon -p cli"* && "$apk" == *"-p interweave-human-android"* ]] \
+[[ "$lin" == *"-p daemon -p cli"* && "$apk" == *"-p apkpkg"* ]] \
     && pass "  and each build is one tree of the packages the release names, for its target" \
     || fail "the builds were not asked as the release names them" "$args"
 grep -E -- "--features|--all-features|--no-default-features" <<<"$lin$apk" >/dev/null \
@@ -138,8 +143,8 @@ grep -- "-p comp --features test-hooks" <<<"$args" >/dev/null \
     && pass "  and the control is the first declarer built with test-hooks on" \
     || fail "the control was not run on the first declarer" "$args"
 
-tree $APK "interweave-human-android|" "platform|e2e-cases,test-hooks" "embedded|test-hooks" "comp|test-hooks"
-expect 1 "test-hooks in the APK's graph fails, naming every package" "FAIL: the APK's library ($APK: interweave-human-android) turns test-hooks on in: comp embedded platform"
+tree $APK "apkpkg|" "platform|e2e-cases,test-hooks" "embedded|test-hooks" "comp|test-hooks"
+expect 1 "test-hooks in the APK's graph fails, naming every package" "FAIL: the APK's library ($APK: apkpkg) turns test-hooks on in: comp embedded platform"
 clean
 tree $LINUX "daemon|" "comp|default,test-hooks" "cli|"
 expect 1 "test-hooks on the archive's composition fails" "FAIL: the Linux archive ($LINUX: daemon cli) turns test-hooks on in: comp"
@@ -161,18 +166,18 @@ tree $LINUX "daemon|" "cli|"
 expect 2 "an archive package missing from its graph is exit 2 (positive control)" "the graph for $LINUX names no newprog"
 archive daemon cli
 : > "$SANDBOX/trees/$APK"
-expect 2 "an empty APK graph is exit 2 (positive control)" "names no interweave-human-android"
+expect 2 "an empty APK graph is exit 2 (positive control)" "names no apkpkg"
 clean
 
 tree control "comp|default" "serde|std"
 expect 2 "a control the matcher cannot see is exit 2" "is not matched"
 clean
-members daemon cli interweave-human-android comp platform
+members daemon cli apkpkg comp platform
 expect 2 "no member declaring test-hooks is exit 2" "no workspace member declares test-hooks"
-members daemon cli interweave-human-android "comp:default,test-hooks" "platform:test-hooks" embedded
+members daemon cli apkpkg "comp:default,test-hooks" "platform:test-hooks" embedded
 
 gradle '            if (variant == "Release") listOf("--release", "--features", "x") else listOf()'
-expect 2 "a release profile that gains features is exit 2 until it is read" 'listOf\("--release"\) else'
+expect 2 "a release profile that gains features is exit 2 until it is read" "release profile is"
 gradle
 sed -i 's/arm64-v8a/riscv64/' "$WS/apps/human-android/android/app/build.gradle.kts"
 expect 2 "an ABI the guard cannot map is exit 2" "the ABI 'riscv64'"
@@ -186,6 +191,36 @@ archive daemon cli
 sed -i 's/^packages=(daemon cli)$/packages=("${base[@]}" cli)/' "$WS/tools/ci/release_linux_archive.sh"
 expect 2 "a packages= line outside the read subset is exit 2" "has 0 line(s) of the shape"
 archive daemon cli
+
+A_SH="$WS/tools/ci/release_linux_archive.sh"
+G_KTS="$WS/apps/human-android/android/app/build.gradle.kts"
+sed -i 's|--target "$target")$|--target "$target" --features comp/test-hooks)|' "$A_SH"
+expect 2 "a feature on the archive's cargo build is exit 2 until it is read" 'build_args=\(build --release'
+archive daemon cli
+sed -i '/cargo "\${build_args/i\    build_args+=(--all-features)' "$A_SH"
+expect 2 "another build_args line is exit 2" "names build_args on 4 lines"
+archive daemon cli
+echo 'cargo build --release --features comp/test-hooks -p daemon' >> "$A_SH"
+expect 2 "a feature flag anywhere in the archive script is exit 2" "passes a feature flag"
+archive daemon cli
+sed -i 's|"-p", "apkpkg",$|"-p", "apkpkg", "--features", "platform/test-hooks",|' "$G_KTS"
+expect 2 "a feature on the cargo-ndk build line is exit 2" "cargo-ndk call, line"
+gradle
+sed -i 's|^\( *\)) + profile,$|\1"--features", "platform/test-hooks",\n\1) + profile,|' "$G_KTS"
+expect 2 "a line added to the cargo-ndk call is exit 2" "cargo-ndk call, line"
+gradle
+sed -i 's|"-t", "arm64-v8a",|"-t", "arm64-v8a", "-t", "x86_64",|' "$G_KTS"
+expect 2 "a second ABI on the cargo-ndk call is exit 2" "cargo-ndk call, line"
+gradle
+sed -i 's|) + profile,$|) + profile + listOf("-F", "x"),|' "$G_KTS"
+expect 2 "anything appended to the profile is exit 2" "cargo-ndk call, line"
+gradle
+echo '    tasks.register("x") { args("--all-features") }' >> "$G_KTS"
+expect 2 "a feature flag elsewhere in the Gradle file is exit 2" "passes a feature flag on 2 lines"
+gradle
+gradle '            if (variant == "Release") listOf("--release") else listOf("--features", "a") + listOf("-F", "b")'
+expect 2 "a debug profile beyond one listOf is exit 2" "release profile is"
+gradle
 
 touch "$SANDBOX/tree-fails"
 expect 2 "cargo tree failing is exit 2, with cargo's error" "matched no packages"

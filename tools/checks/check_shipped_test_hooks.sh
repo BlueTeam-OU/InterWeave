@@ -20,12 +20,16 @@
 # than copied here, so a package added there is held without editing this:
 #
 #   the Linux archive  `target=` and `packages=(...)` in
-#                      tools/ci/release_linux_archive.sh, built there as
-#                      one `cargo build --release -p ... -p ...`;
+#                      tools/ci/release_linux_archive.sh, and the three
+#                      `build_args` lines that build them as one
+#                      `cargo build --release --locked --target "$target"
+#                      -p ... -p ...`, with no feature flag in the file;
 #   the APK's library  the cargo-ndk call in
-#                      apps/human-android/android/app/build.gradle.kts:
-#                      its `-t` ABI and `-p` package, and its release
-#                      profile `listOf("--release")`, i.e. no features.
+#                      apps/human-android/android/app/build.gradle.kts,
+#                      whole: its `-t` ABI and `-p` package and nothing
+#                      else, `+ profile` and nothing else, and the release
+#                      profile `listOf("--release")` — the debug branch's
+#                      the only feature flag in the file.
 #
 # Each is one `cargo tree -e normal --target <t> -p ... -f '{p}|{f}'`:
 # the packages of one build resolve their features together, as the
@@ -39,9 +43,11 @@
 # (dev-stand-ins, e2e-cases) is not a shipped build and is not read.
 #
 # The reader is a strict subset, not a parser: each line it reads must
-# appear exactly once in the shape it knows, or this is exit 2 asking for
-# the reading to be updated with the release. In particular a release
-# profile that gains a `--features` is refused here until it is read.
+# appear exactly once in the shape it knows, the build commands whole, or
+# this is exit 2 asking for the reading to be updated with the release.
+# So a release command line that gains a feature flag (`--features`,
+# `-F`, `--all-features`, `--no-default-features`) anywhere is refused
+# here until it is read, as are a second ABI or package on the call.
 #
 # POSITIVE CONTROLS, each exit 2 when it fails: every package of a build
 # names a line of its graph (a graph that came back empty or for other
@@ -95,17 +101,52 @@ the_line() {
     printf '%s\n' "$hits"
 }
 
-# The Linux archive.
+# none <file> <ERE> <what>: no line of <file> matches <ERE>, or exit 2.
+none() {
+    local hits
+    hits="$(grep -nE -- "$2" "$1" 2>/dev/null)"
+    if [[ -n "$hits" ]]; then
+        echo "$me: $1 $3 outside the lines this check reads — update its reading with the release:" >&2
+        printf '%s\n' "$hits" >&2
+        exit 2
+    fi
+}
+FEATURE_FLAGS='--features|--all-features|--no-default-features|(^|[^-])-F( |"|$)'
+
+# The Linux archive: its target, its packages, and the one cargo build
+# of them, whose every line is the shape read here.
 line="$(the_line "$ARCHIVE" "^target=$WORD\$")" || exit 2
 linux_target="${line#target=}"
 line="$(the_line "$ARCHIVE" "^packages=\\(($WORD)( $WORD)*\\)\$")" || exit 2
 line="${line#packages=(}"
 read -r -a linux_packages <<<"${line%)}"
+the_line "$ARCHIVE" '^ *build_args=\(build --release --locked --target "\$target"\)$' >/dev/null || exit 2
+the_line "$ARCHIVE" '^ *for p in "\$\{packages\[@\]\}"; do build_args\+=\(-p "\$p"\); done$' >/dev/null || exit 2
+the_line "$ARCHIVE" '^ *\(cd "\$root" && cargo "\$\{build_args\[@\]\}"\) \|\| die "cargo build failed"$' >/dev/null || exit 2
+n="$(grep -c -- 'build_args' "$ARCHIVE")"
+(( n == 3 )) || { echo "$me: $ARCHIVE names build_args on $n lines, not the 3 this check reads — update its reading with the release" >&2; exit 2; }
+none "$ARCHIVE" "$FEATURE_FLAGS" "passes a feature flag"
 
-# The APK's library: the ABI cargo-ndk is given, mapped to its target.
-line="$(the_line "$GRADLE" "\"cargo\", \"ndk\", \"-t\", \"$WORD\",")" || exit 2
-[[ "$line" =~ \"-t\",\ \"($WORD)\" ]]
-abi="${BASH_REMATCH[1]}"
+# The APK's library: the cargo-ndk call, whole, and the release profile
+# it is given.
+line="$(the_line "$GRADLE" '^ *commandLine\($')" || exit 2
+start="$(grep -nE '^ *commandLine\($' "$GRADLE" | cut -d: -f1)"
+mapfile -t call < <(sed -n "$((start + 1)),$((start + 6))p" "$GRADLE" | sed 's/^ *//')
+shapes=(
+    '^listOf\($'
+    "^\"cargo\", \"ndk\", \"-t\", \"($WORD)\", \"-P\", \"[0-9]+\",\$"
+    '^"-o", rustJniLibs\(variant\)\.get\(\)\.asFile\.path,$'
+    "^\"build\", \"--locked\", \"-p\", \"($WORD)\",\$"
+    '^\) \+ profile,$'
+    '^\)$'
+)
+for i in "${!shapes[@]}"; do
+    if ! [[ "${call[i]-}" =~ ${shapes[i]} ]]; then
+        echo "$me: $GRADLE's cargo-ndk call, line $((start + 1 + i)), is '${call[i]-}', not the shape /${shapes[i]}/ — update this check's reading with the release" >&2
+        exit 2
+    fi
+    case "$i" in 1) abi="${BASH_REMATCH[1]}" ;; 3) apk_package="${BASH_REMATCH[1]}" ;; esac
+done
 case "$abi" in
 arm64-v8a) apk_target=aarch64-linux-android ;;
 armeabi-v7a) apk_target=armv7-linux-androideabi ;;
@@ -113,10 +154,16 @@ x86_64) apk_target=x86_64-linux-android ;;
 x86) apk_target=i686-linux-android ;;
 *) echo "$me: $GRADLE gives cargo-ndk the ABI '$abi', which this check cannot map to a target" >&2; exit 2 ;;
 esac
-line="$(the_line "$GRADLE" "\"build\", \"--locked\", \"-p\", \"$WORD\",")" || exit 2
-[[ "$line" =~ \"-p\",\ \"($WORD)\" ]]
-apk_package="${BASH_REMATCH[1]}"
-the_line "$GRADLE" '^ *if \(variant == "Release"\) listOf\("--release"\) else ' >/dev/null || exit 2
+line="$(the_line "$GRADLE" '^ *val profile =$')" || exit 2
+start="$(grep -nE '^ *val profile =$' "$GRADLE" | cut -d: -f1)"
+profile="$(sed -n "$((start + 1))p" "$GRADLE")"
+if ! [[ "$profile" =~ ^\ *if\ \(variant\ ==\ \"Release\"\)\ listOf\(\"--release\"\)\ else\ listOf\((\"[^\"]*\"(,\ )?)*\)$ ]]; then
+    echo "$me: $GRADLE's release profile is '$profile', not listOf(\"--release\") with a debug listOf — update this check's reading with the release" >&2
+    exit 2
+fi
+# The debug branch of that line is the only feature flag the file may give.
+n="$(grep -cE -- "$FEATURE_FLAGS" "$GRADLE")"
+(( n == 1 )) || { echo "$me: $GRADLE passes a feature flag on $n lines, not only the debug profile's — update this check's reading with the release" >&2; grep -nE -- "$FEATURE_FLAGS" "$GRADLE" >&2; exit 2; }
 
 # matches <tree>: "<package>" for each line whose resolved features
 # include exactly $FEATURE. `{p}` ends in "(path)", so the features are
