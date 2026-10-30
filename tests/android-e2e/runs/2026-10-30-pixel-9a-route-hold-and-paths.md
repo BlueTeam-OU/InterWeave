@@ -3,7 +3,7 @@
 Two device suites of `tests/android-e2e`, run by p2p-network-dev-02:
 
 - `tests/route_hold.rs`, the ADR-0011 route hold on the phone (A
-  2026-10-21). architect-cto assigned it in 01a15f41.
+  2026-10-21). architect-cto assigned it in GZCoord message 01a15f41.
 - `tests/paths.rs`, which carries `close_exchange` on a device.
 
 Each run's host output is summarised below. The phone app's `PeerId`
@@ -24,6 +24,10 @@ lines.
 
 ## Results
 
+Started is when the run's script began, before cargo and the adb
+server came up. The duration is the test binary's own, as cargo
+printed it.
+
 | Suite | Run | Started (UTC) | Result |
 |---|---|---|---|
 | route_hold | 1 | before 05:16Z, without the logcat capture | pass |
@@ -40,11 +44,15 @@ The host stand-ins of both suites also passed at `aec72790`, just before.
 Each passing run showed the following, all asserted by the test:
 
 - **The control first.** With the relay up, the phone's route to D, the
-  desktop, came up, and the case found it connected and not held.
+  desktop, came up, and the case found it connected. The control's
+  assertion also passes on a route that was first held and then
+  lifted by the relay's connection, so it does not show that the route
+  was never held.
 - **The hold.** The relay was dropped and the app's process restarted
   with only the circuit to D. The case then read the admin port's peer
   row for D for six reconnect ticks (one second each). Every read
-  carried the same `route_held_until`, and D never connected.
+  carried a hold ending no later than a second past the first read's
+  (`SAME_FAILURE_MS`), and D never connected.
 - **The log.** The phone's log has a failed hop to D before the refusal.
   The reconnect round's refusal names the class and the same end,
   within a second. No dial to D is logged after it.
@@ -71,7 +79,7 @@ Each run passed both device cases, `on_a_device_the_phone_crosses_the_relayed_pa
 - the phone is R in one case and C in the other;
 - a direct message crosses each path both ways;
 - each exchange ends with `close_exchange`: D sends its closing message
-  once the phone's answer was accepted, and the phone's half waits for
+  once the phone accepted D's answer, and the phone's half waits for
   it before its case ends. The 2026-10-20 Pixel run
   (`2026-10-20-pixel-9a-api37.md`) failed on that order, and only a
   device shows it.
