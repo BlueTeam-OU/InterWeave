@@ -24,12 +24,12 @@ use interweave_human_store::{
 };
 use interweave_human_transport_client::{CancelledSend, TransportClient};
 use interweave_human_ui_model::{
-    ContactView, ConversationKey, PhotoBasis, PhotoEdit, Proposal, ProposalContext, Table,
+    ConversationKey, PhotoBasis, PhotoEdit, Proposal, ProposalContext, Table,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
-use crate::protocol::{Command, Failure, Listing, Start, Update, WindowCommand};
+use crate::protocol::{Command, Failure, Start, Update, WindowCommand};
 use crate::{cards, listing};
 use interweave_human_ui_model::CardOutcome;
 
@@ -122,9 +122,6 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     own_saves: VecDeque<OwnSave>,
     /// How many stored rows have been read and decoded ([`Self::rows_read`]).
     rows_read: u64,
-    /// The model was started from summaries ([`Self::start`]): a relist
-    /// reads them again, never every unread row.
-    windowed: bool,
     /// TEST BUILDS ONLY: the faults a test lays on the windowed reads.
     #[cfg(feature = "test-hooks")]
     faults: Option<std::sync::Arc<crate::test_hooks::StoreFaults>>,
@@ -312,7 +309,6 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             own_photo: OwnPhoto::Held(Held::Card),
             own_saves: VecDeque::new(),
             rows_read: 0,
-            windowed: false,
             #[cfg(feature = "test-hooks")]
             faults: None,
         }
@@ -430,29 +426,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             .map(|update| Update::Client(ClientEvent::Outbound(update.clone())))
     }
 
-    /// The store's rows, decoded: the first update a root applies.
-    ///
-    /// # Errors
-    /// The store's, when it cannot be read.
-    pub fn listing(&mut self) -> Result<Listing, StoreError> {
-        // The first read of a session: kinds another build made are
-        // classified again before anything counts them.
-        listing::reclassify_if_stale(self.client.store_mut(), &mut self.rows_read)?;
-        let mut listing = listing::list_all(self.client.store_mut())?;
-        let rows = listing.pending.len()
-            + listing.unread.len()
-            + listing.kept.len()
-            + listing.unread_cards.len()
-            + listing.undecodable_unread
-            + listing.undecodable_other;
-        self.rows_read += u64::try_from(rows).unwrap_or(u64::MAX);
-        self.read_card_rows()?;
-        listing.identity = self.own_view()?;
-        Ok(listing)
-    }
-
-    /// The store at a windowed start, in place of [`Self::listing`]: the
-    /// pending rows, each conversation's count and newest row, and the
+    /// The store at start: the pending rows, each conversation's count and newest row, and the
     /// contacts without their photos -- no conversation's rows, so what it
     /// reads grows with the conversations and the pending rows, never with
     /// a backlog (design/2026-10-27-start-window.md section 3).
@@ -475,7 +449,6 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let rows = pending.len() + undecodable_pending;
         self.rows_read += u64::try_from(rows).unwrap_or(u64::MAX) + summarised.read;
         self.read_card_rows()?;
-        self.windowed = true;
         Ok(Start {
             pending,
             summaries: summarised.summaries,
@@ -755,7 +728,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             updates.push(Update::ThisDevice(peer.clone()));
         }
         updates.push(Update::Client(event));
-        if relist && self.windowed {
+        if relist {
             // The rows wait in the store, which the counts and the newest
             // rows say; the open conversation's window reads them.
             let store = self.client.store_mut();
@@ -768,21 +741,6 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                         undecodable: usize::try_from(counts.hidden_unread).unwrap_or(usize::MAX),
                         kept: usize::try_from(counts.kept).unwrap_or(usize::MAX),
                     });
-                }
-                Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
-            }
-        } else if relist {
-            // What the facade committed but could not hand over is in the
-            // store: list it, so the person sees it now.
-            match listing::list_unread(self.client.store_mut()) {
-                Ok((rows, cards, undecodable)) => {
-                    updates.push(Update::UnreadListed { rows, undecodable });
-                    for card in cards {
-                        updates.push(match cards::proposal(self.client.store_mut(), card) {
-                            Ok(proposal) => Update::ReceivedCard(Box::new(proposal)),
-                            Err(e) => Update::UnreadNotListed(store_failure(&e)),
-                        });
-                    }
                 }
                 Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
             }
@@ -1079,10 +1037,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         }
         // The Accept is written: a contacts list that cannot be read now is
         // a problem of its own, never a refusal of what was done (#414 F8).
-        say(
-            updates,
-            contacts_update(self.client.store_mut(), self.windowed),
-        );
+        say(updates, contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
         Ok(())
     }
@@ -1276,7 +1231,6 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         };
         match undo_answer(
             self.client.store_mut(),
-            self.windowed,
             answer,
             undo.accept.as_ref(),
             updates,
@@ -1569,10 +1523,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             change: interweave_human_ui_model::ContactChange::Deleted,
             hold,
         });
-        say(
-            updates,
-            contacts_update(self.client.store_mut(), self.windowed),
-        );
+        say(updates, contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
         Ok(())
     }
@@ -1610,10 +1561,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Ok(false) => return Err(Failure::Refused),
             Err(e) => return Err(store_failure(&e)),
         }
-        say(
-            updates,
-            contacts_update(self.client.store_mut(), self.windowed),
-        );
+        say(updates, contacts_update(self.client.store_mut()));
         updates.push(Update::ContactRestored {
             contact_id: contact_id.to_owned(),
             change,
@@ -1635,7 +1583,6 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         updates: &mut Vec<Update>,
     ) -> Result<(), Failure> {
         use interweave_human_store::RouteDeleted;
-        let windowed = self.windowed;
         let store = self.client.store_mut();
         match store
             .delete_route(contact_id, peer, endpoint)
@@ -1645,7 +1592,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             RouteDeleted::LastRoute => return Err(Failure::Refused),
             RouteDeleted::NoSuchRoute => return Err(Failure::NoSuchRow),
         }
-        updates.push(contacts_now(store, windowed).map_err(|e| store_failure(&e))?);
+        updates.push(contacts_now(store).map_err(|e| store_failure(&e))?);
         self.proposals_again(updates);
         Ok(())
     }
@@ -1664,7 +1611,6 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         })
         .map_err(|_| Failure::OutOfBounds)?;
         let at = (self.wall)();
-        let windowed = self.windowed;
         let store = self.client.store_mut();
         if !store
             .set_contact_name(contact_id, name, at)
@@ -1672,7 +1618,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         {
             return Err(Failure::NoSuchRow);
         }
-        updates.push(contacts_now(store, windowed).map_err(|e| store_failure(&e))?);
+        updates.push(contacts_now(store).map_err(|e| store_failure(&e))?);
         self.proposals_again(updates);
         Ok(())
     }
@@ -1697,7 +1643,6 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             ),
         };
         let at = (self.wall)();
-        let windowed = self.windowed;
         let store = self.client.store_mut();
         if !store
             .set_contact_photo(contact_id, photo.as_deref(), at)
@@ -1705,7 +1650,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         {
             return Err(Failure::NoSuchRow);
         }
-        updates.push(contacts_now(store, windowed).map_err(|e| store_failure(&e))?);
+        updates.push(contacts_now(store).map_err(|e| store_failure(&e))?);
         self.proposals_again(updates);
         Ok(())
     }
@@ -1752,10 +1697,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 }
             }
         }
-        say(
-            updates,
-            contacts_update(self.client.store_mut(), self.windowed),
-        );
+        say(updates, contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
         Ok(())
     }
@@ -2000,9 +1942,8 @@ pub(crate) trait CardStore {
         endpoint: &EndpointId,
         card: &Card,
     ) -> Result<ProposalContext, StoreError>;
-    /// The contacts, for the model.
-    fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError>;
-    /// The contacts without their photos' bytes, for the windowed mode.
+    /// The contacts without their photos' bytes: a view reads a photo when
+    /// it shows it.
     fn directory(&mut self)
     -> Result<Vec<interweave_human_ui_model::DirectoryContact>, StoreError>;
 }
@@ -2021,10 +1962,6 @@ impl CardStore for HumanStore {
         card: &Card,
     ) -> Result<ProposalContext, StoreError> {
         cards::context(self, peer, endpoint, card)
-    }
-
-    fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError> {
-        cards::contact_views(self)
     }
 
     fn directory(
@@ -2056,7 +1993,6 @@ struct UndoneAnswer {
 ///   that cannot be read is [`Update::CardsNotRead`] too, never a refusal.
 fn undo_answer<S: CardStore>(
     store: &mut S,
-    windowed: bool,
     answer: UndoneAnswer,
     accept: Option<&S::Undo>,
     updates: &mut Vec<Update>,
@@ -2084,7 +2020,7 @@ fn undo_answer<S: CardStore>(
         }
     };
     if accept.is_some() {
-        say(updates, contacts_update(store, windowed));
+        say(updates, contacts_update(store));
     }
     Ok(restored)
 }
@@ -2116,19 +2052,15 @@ fn say(updates: &mut Vec<Update>, update: Update) {
 /// The contacts after a write to them that is done: listed, or, when they
 /// cannot be read, [`Update::CardsNotRead`] -- never a refusal of the
 /// write (#414 F8).
-fn contacts_update(store: &mut impl CardStore, windowed: bool) -> Update {
-    contacts_now(store, windowed).unwrap_or_else(|e| Update::CardsNotRead(store_failure(&e)))
+fn contacts_update(store: &mut impl CardStore) -> Update {
+    contacts_now(store).unwrap_or_else(|e| Update::CardsNotRead(store_failure(&e)))
 }
 
-/// The contacts after a change to them, as the model's mode reads them: a
-/// model started windowed is given no photo's bytes, which it reads one at
-/// a time as a view shows them, under its photo cap (design section 11).
-fn contacts_now(store: &mut impl CardStore, windowed: bool) -> Result<Update, StoreError> {
-    Ok(if windowed {
-        Update::ContactDirectory(Ok(store.directory()?))
-    } else {
-        Update::ContactsListed(store.contacts()?)
-    })
+/// The contacts after a change to them, without a photo's bytes, which the
+/// model reads one at a time as a view shows them, under its photo cap
+/// (design section 11).
+fn contacts_now(store: &mut impl CardStore) -> Result<Update, StoreError> {
+    Ok(Update::ContactDirectory(Ok(store.directory()?)))
 }
 
 #[cfg(test)]
@@ -2198,7 +2130,7 @@ mod tests {
         )
         .expect("facade");
         let mut side = FacadeSide::new(client, || 1);
-        side.listing().expect("listed");
+        side.start().expect("started");
         let kinds: Vec<_> = side
             .client
             .store_mut()
@@ -2216,50 +2148,13 @@ mod tests {
         );
     }
 
-    /// The facade reports unread content it holds but did not hand over:
-    /// the facade side lists the unread rows again, decoded, with the
-    /// undecodable ones counted.
+    /// The facade side reads the summaries again when the facade reports
+    /// unread content it did not hand over -- the count and newest row the
+    /// store holds, the rows it cannot show counted -- and lists no row of
+    /// any conversation; any other event reads nothing. Mutation: no
+    /// relist on the report.
     #[test]
-    fn unread_in_store_lists_the_unread_rows_again() {
-        let mut side = held_back_side();
-        let mut updates = Vec::new();
-        side.on_event(
-            ClientEvent::UnreadInStore { not_handed_over: 2 },
-            &mut updates,
-        );
-        match updates.as_slice() {
-            [
-                Update::Client(ClientEvent::UnreadInStore { .. }),
-                Update::UnreadListed { rows, undecodable },
-            ] => {
-                assert_eq!(rows.len(), 1);
-                assert_eq!(rows[0].envelope.text, "held back");
-                assert_eq!(*undecodable, 1);
-            }
-            other => panic!("expected the event and a relist: {other:?}"),
-        }
-
-        // Any other event lists nothing.
-        let mut updates = Vec::new();
-        side.on_event(
-            ClientEvent::Connectivity(Connectivity::Unknown),
-            &mut updates,
-        );
-        assert_eq!(
-            updates,
-            [Update::Client(ClientEvent::Connectivity(
-                Connectivity::Unknown
-            ))]
-        );
-    }
-
-    /// Started from summaries, the facade side reads them again when the
-    /// facade reports unread content it did not hand over -- the count and
-    /// newest row the store holds, the rows it cannot show counted -- and
-    /// lists no row of any conversation. Mutation: the windowed side
-    /// listing every unread row as before.
-    #[test]
-    fn unread_in_store_reads_the_summaries_again_when_windowed() {
+    fn unread_in_store_reads_the_summaries_again() {
         let mut side = held_back_side();
         side.start().expect("started");
         let mut updates = Vec::new();
@@ -2291,6 +2186,19 @@ mod tests {
             }
             other => panic!("expected the event and the summaries: {other:?}"),
         }
+
+        // Any other event reads nothing.
+        let mut updates = Vec::new();
+        side.on_event(
+            ClientEvent::Connectivity(Connectivity::Unknown),
+            &mut updates,
+        );
+        assert_eq!(
+            updates,
+            [Update::Client(ClientEvent::Connectivity(
+                Connectivity::Unknown
+            ))]
+        );
     }
 
     /// The start and each relist count the kept rows of a kind shown,
@@ -2555,11 +2463,6 @@ mod tests {
             })
         }
 
-        fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError> {
-            self.fails(Step::Contacts)?;
-            Ok(Vec::new())
-        }
-
         fn directory(
             &mut self,
         ) -> Result<Vec<interweave_human_ui_model::DirectoryContact>, StoreError> {
@@ -2593,7 +2496,7 @@ mod tests {
             .map(|u| match u {
                 Update::ProposalRestored(_) => "restored",
                 Update::ProposalNotRestored(_) => "not restored",
-                Update::ContactsListed(_) => "contacts",
+                Update::ContactDirectory(_) => "contacts",
                 Update::CardsNotRead(_) => "not read",
                 _ => "other",
             })
@@ -2607,8 +2510,7 @@ mod tests {
     fn an_undo_is_refused_only_while_the_store_wrote_nothing() {
         let run = |store: &mut Failing, accept: bool| {
             let mut updates = Vec::new();
-            let end =
-                super::undo_answer(store, false, answer(), accept.then_some(&()), &mut updates);
+            let end = super::undo_answer(store, answer(), accept.then_some(&()), &mut updates);
             (end, kinds(&updates))
         };
         // An Accept's write-back refused: nothing written, refused.
