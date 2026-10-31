@@ -95,7 +95,8 @@ mod tests {
     /// the design joins "by the shape key" escapes the case key; the
     /// compatibility shape key joins those NFKC leaves alone too. Each
     /// key has a pair it alone joins, so a key dropped from
-    /// [`NameKeys::same_as`], or compared with another kind, fails here.
+    /// [`NameKeys::same_as`] fails here; one compared with another kind
+    /// fails `a_key_equal_to_another_kind_alone_joins_nothing`.
     /// Mutations: each disjunct of `same_as` removed in turn;
     /// `compat_shape` made without NFKC.
     #[test]
@@ -123,6 +124,39 @@ mod tests {
                 );
             }
             assert!(same_name(a, b), "{a:?}/{b:?}");
+        }
+    }
+
+    /// Each key is compared only with its own kind: keys equal across
+    /// kinds alone join nothing, in every arrangement of the three, and the
+    /// same keys in their own places join. The design's pairs cannot hold
+    /// this, since some of them have one name's shape key equal to the
+    /// other's case key ("Alſie"/"Alfie"). Mutations: `self.shape` compared
+    /// with `other.case`; `self.compat_shape` with `other.shape`.
+    #[test]
+    fn a_key_equal_to_another_kind_alone_joins_nothing() {
+        let keys = |case: &str, shape: &str, compat_shape: &str| NameKeys {
+            case: case.to_owned(),
+            shape: shape.to_owned(),
+            compat_shape: compat_shape.to_owned(),
+        };
+        let a = keys("x", "y", "z");
+        for b in [
+            keys("y", "z", "x"),
+            keys("z", "x", "y"),
+            keys("y", "x", "q"),
+            keys("z", "q", "x"),
+            keys("q", "z", "y"),
+        ] {
+            assert!(!a.same_as(&b), "{a:?} against {b:?}");
+            assert!(!b.same_as(&a), "{b:?} against {a:?}");
+        }
+        for b in [
+            keys("x", "q", "q"),
+            keys("q", "y", "q"),
+            keys("q", "q", "z"),
+        ] {
+            assert!(a.same_as(&b), "the control: {b:?}");
         }
     }
 
