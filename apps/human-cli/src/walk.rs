@@ -359,10 +359,12 @@ impl Walk {
 
     /// Take what the session's last step reported, a step the caller took
     /// itself while the walk is open included: a row it brought for the
-    /// conversation is handed over after the walk's last row. Every step
-    /// taken while a walk is open is taken here before the next, since a
-    /// step drops what the one before it reported
+    /// conversation is handed over after the walk's last row. A step drops
+    /// what the one before it reported, so `read` passes each of its own
+    /// steps here before the next
     /// (`read_prints_a_row_arriving_during_its_own_step_last_and_unread`).
+    /// `listen` takes its own steps' updates itself instead: it prints an
+    /// arrival from its update, and its drain skips a row printed already.
     pub(crate) fn take_arrivals<B: DataSessionBinding, A: AdminBinding>(
         &mut self,
         s: &mut Session<B, A>,
