@@ -41,7 +41,9 @@
 # (no constant, no schema, no version) is a failure, never a skip.
 # Limit: these are the prose's current shapes; a sentence reworded out
 # of a rule's grammar is no longer checked by it (rules 1 and 2 fail on
-# a vanished sentence, rules 3 and 4 match nothing and pass).
+# a vanished sentence, rules 3 and 4 match nothing and pass). Rule 5's
+# lookahead also refuses a minor that ends a sentence: "2.13." is read
+# as a dotted number and passes.
 #
 # Exit codes: 0 every rule holds; 1 a problem, each on its own line;
 # 2 usage.
@@ -94,23 +96,28 @@ def check(root: str) -> list[str]:
         return [f"{VERSION_RS}: `pub const IPC_MAX_MINOR: u64 = N;` found {len(found)} times, want 1"]
     top = int(found[0])
 
-    versions: dict[str, str | None] = {}
+    # name -> (version, None) or (None, why the version cannot be read).
+    # The caller reports the why at its own rule and line, so an unreadable
+    # schema fails the rule that needed it rather than passing it.
+    versions: dict[str, tuple[str | None, str | None]] = {}
 
-    def schema_version(name: str) -> str | None:
+    def schema_version(name: str) -> tuple[str | None, str | None]:
         if name not in versions:
             rel = f"{SCHEMAS}/{name}.schema.json"
-            path = os.path.join(root, rel)
-            version = None
-            if os.path.isfile(path):
-                try:
-                    with open(path, encoding="utf-8") as handle:
-                        version = (json.load(handle).get("x-contract") or {}).get("version")
-                except (OSError, ValueError):
-                    version = None
-                if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
-                    problems.append(f"{rel}: no x-contract.version of the form N.N.N")
-                    version = None
-            versions[name] = version
+            try:
+                with open(os.path.join(root, rel), encoding="utf-8") as handle:
+                    doc = json.load(handle)
+            except OSError as err:
+                versions[name] = (None, f"{rel} cannot be read: {err.strerror}")
+            except ValueError:
+                versions[name] = (None, f"{rel} is not JSON")
+            else:
+                contract = doc.get("x-contract") if isinstance(doc, dict) else None
+                version = contract.get("version") if isinstance(contract, dict) else None
+                if isinstance(version, str) and re.fullmatch(r"\d+\.\d+\.\d+", version):
+                    versions[name] = (version, None)
+                else:
+                    versions[name] = (None, f"{rel} has no x-contract.version of the form N.N.N")
         return versions[name]
 
     def line(offset: int) -> int:
@@ -160,9 +167,9 @@ def check(root: str) -> list[str]:
     # Rule 3.
     for m in PAREN.finditer(text):
         name, claimed, minor = m.group(1), m.group(2), int(m.group(3))
-        actual = schema_version(name)
+        actual, why = schema_version(name)
         if actual is None:
-            at(m.start(), 3, f"`{name}` names no readable {SCHEMAS}/{name}.schema.json")
+            at(m.start(), 3, f"`{name}`: {why}")
         elif claimed != actual:
             at(m.start(2), 3, f"`{name}` ({claimed} since ...) but {name}.schema.json is {actual}")
         if minor > top:
@@ -174,8 +181,10 @@ def check(root: str) -> list[str]:
         if not os.path.isfile(os.path.join(root, SCHEMAS, f"{name}.schema.json")):
             at(m.start(), 4, f"`ipc/{name}` names no schema file {SCHEMAS}/{name}.schema.json")
             continue
-        actual = schema_version(name)
-        if actual is not None and semver(claimed) > semver(actual):
+        actual, why = schema_version(name)
+        if actual is None:
+            at(m.start(), 4, f"`ipc/{name}`: {why}")
+        elif semver(claimed) > semver(actual):
             at(m.start(2), 4, f"`ipc/{name}` {claimed} is above {name}.schema.json's {actual}")
 
     # Rule 5.

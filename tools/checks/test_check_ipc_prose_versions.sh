@@ -134,6 +134,12 @@ edit "$F" "\`peer-list\` ($PEER_LIST since" "\`peer-list\` ($PEER_LIST since 1.0
 code="$(run_code "$R")"
 if [ "$code" = 0 ]; then ok "an older version later in the parenthetical passes"; else bad "history clause: $(run "$R")"; fi
 
+R="$(copy r3-minor)"; F="$R/$CONTRACT"
+# The parenthetical's own minor bound. Rule 5 reports the same 2.N too;
+# the case asserts rule 3's line, which only rule 3's branch prints.
+edit "$F" "which 2.$MAX brings" "which 2.$((MAX + 1)) brings" || exit 1
+expect_fail "$R" 3 "$(line_of "$F" "which 2.$((MAX + 1)) brings")" "the parenthetical naming a minor above the code"
+
 echo "rule 4: no schema version above its file"
 R="$(copy r4-above)"; F="$R/$CONTRACT"
 edit "$F" "\`ipc/hello\` 1.2.0" "\`ipc/hello\` 1.10.0" || exit 1
@@ -141,6 +147,14 @@ expect_fail "$R" 4 "$(line_of "$F" "\`ipc/hello\` 1.10.0")" "ipc/hello named abo
 R="$(copy r4-name)"; F="$R/$CONTRACT"
 edit "$F" "\`ipc/hello\` 1.2.0" "\`ipc/no-such\` 1.0.0" || exit 1
 expect_fail "$R" 4 "$(line_of "$F" "\`ipc/no-such\` 1.0.0")" "a name with no schema file"
+
+R="$(copy r4-noversion)"; F="$R/$CONTRACT"
+# A schema whose version cannot be read fails the rule that needed it.
+edit "$R/$SCHEMAS/hello.schema.json" '"version": "1.2.0"' '"revision": "1.2.0"' || exit 1
+expect_fail "$R" 4 "$(line_of "$F" "\`ipc/hello\` 1.2.0")" "a schema with no x-contract.version"
+R="$(copy r4-notjson)"; F="$R/$CONTRACT"
+printf '{ not json\n' > "$R/$SCHEMAS/hello.schema.json"
+expect_fail "$R" 4 "$(line_of "$F" "\`ipc/hello\` 1.2.0")" "a schema that is not JSON"
 
 echo "rule 5: no minor above the code"
 R="$(copy r5)"; F="$R/$CONTRACT"
