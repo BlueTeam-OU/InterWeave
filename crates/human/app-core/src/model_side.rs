@@ -121,6 +121,7 @@ pub struct ModelSide<S: Surface, O: Opener> {
     problems_dropped: u64,
     hidden_unread: usize,
     hidden_other: usize,
+    kept: usize,
     /// The trust and address lists are to be read: a session became
     /// ready with either unread, which is the start for a runtime that is
     /// up, and the first moment both can be answered for one that was not.
@@ -140,6 +141,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             problems_dropped: 0,
             hidden_unread: 0,
             hidden_other: 0,
+            kept: 0,
             reads_owed: false,
         }
     }
@@ -188,6 +190,36 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     #[must_use]
     pub const fn hidden_rows(&self) -> usize {
         self.hidden_unread + self.hidden_other
+    }
+
+    /// How many kept rows of a kind this build shows the store held at
+    /// the windowed start or the last relist, whichever came last: a Keep
+    /// or an Unkeep since is not in it; 0 before a windowed start.
+    #[must_use]
+    pub const fn kept_rows(&self) -> usize {
+        self.kept
+    }
+
+    /// The store at a windowed start, applied.
+    fn started(&mut self, start: crate::protocol::Start) {
+        let crate::protocol::Start {
+            pending,
+            summaries,
+            counted_through,
+            undecodable_unread,
+            undecodable_other,
+            kept,
+            contacts,
+            identity,
+        } = start;
+        self.model.started(pending, summaries, counted_through);
+        self.hidden_unread = undecodable_unread;
+        self.hidden_other = undecodable_other;
+        self.kept = kept;
+        self.model.contacts_directory(contacts.map_err(|_| ()));
+        if let Some(identity) = identity {
+            self.model.identity_shown(identity);
+        }
     }
 
     fn problem(&mut self, problem: Problem) {
@@ -240,24 +272,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     self.model.identity_shown(identity);
                 }
             }
-            Update::Started(start) => {
-                let crate::protocol::Start {
-                    pending,
-                    summaries,
-                    counted_through,
-                    undecodable_unread,
-                    undecodable_other,
-                    contacts,
-                    identity,
-                } = *start;
-                self.model.started(pending, summaries, counted_through);
-                self.hidden_unread = undecodable_unread;
-                self.hidden_other = undecodable_other;
-                self.model.contacts_directory(contacts.map_err(|_| ()));
-                if let Some(identity) = identity {
-                    self.model.identity_shown(identity);
-                }
-            }
+            Update::Started(start) => self.started(*start),
             Update::Page(rows) => self.model.page_arrived(*rows),
             Update::ContactDirectory(answer) => {
                 self.model.contacts_directory(answer.map_err(|_| ()));
@@ -277,9 +292,11 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 summaries,
                 counted_through,
                 undecodable,
+                kept,
             } => {
                 self.model.summaries_listed(summaries, counted_through);
                 self.hidden_unread = undecodable;
+                self.kept = kept;
             }
             Update::UnreadNotListed(why) => self.problem(Problem::UnreadNotListed(why)),
             Update::Received(received) => self.model.received(received),
@@ -927,6 +944,31 @@ mod tests {
             undecodable: 4,
         });
         assert_eq!(side.hidden_rows(), 5, "replaced, not added");
+    }
+
+    /// The kept count is the start's, then each relist's, replaced.
+    /// Mutation: the relist's count not applied.
+    #[test]
+    fn the_kept_count_is_the_starts_then_each_relists() {
+        let mut side = ModelSide::new(Nothing, Nothing);
+        side.apply(Update::Started(Box::new(crate::protocol::Start {
+            pending: Vec::new(),
+            summaries: Vec::new(),
+            counted_through: None,
+            undecodable_unread: 0,
+            undecodable_other: 0,
+            kept: 3,
+            contacts: Ok(Vec::new()),
+            identity: None,
+        })));
+        assert_eq!(side.kept_rows(), 3);
+        side.apply(Update::SummariesListed {
+            summaries: Vec::new(),
+            counted_through: None,
+            undecodable: 0,
+            kept: 2,
+        });
+        assert_eq!(side.kept_rows(), 2, "replaced, not added");
     }
 
     #[test]

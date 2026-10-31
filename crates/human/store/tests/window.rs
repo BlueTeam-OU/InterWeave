@@ -9,7 +9,7 @@
 mod common;
 
 use interweave_human_store::{
-    AppMessageId, ConversationUnread, HiddenInbound, HumanStore, InboundKind, InboundOrigin,
+    AppMessageId, ConversationUnread, HumanStore, InboundCounts, InboundKind, InboundOrigin,
     NewInbound, Order, PageLimits, PageRange, RowId, StoreConversation, StoreOptions,
     StoredInbound, WindowCursor, WindowLimits,
 };
@@ -253,8 +253,13 @@ fn the_unread_counts_are_the_badges() {
     expected.sort_by(|a, b| a.conversation.cmp(&b.conversation));
     assert_eq!(counts, expected);
     assert_eq!(
-        store.hidden_inbound().expect("hidden"),
-        HiddenInbound { unread: 1, kept: 0 }
+        store.inbound_counts().expect("counts"),
+        InboundCounts {
+            hidden_unread: 1,
+            hidden_kept: 0,
+            kept: 1
+        },
+        "the text row kept is counted shown"
     );
 }
 

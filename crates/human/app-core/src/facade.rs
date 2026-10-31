@@ -343,6 +343,17 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         true
     }
 
+    /// Whether the hooks refuse a read or a decline of `row`; never, in a
+    /// build without them.
+    #[allow(clippy::unused_self)]
+    fn refuses(&self, #[allow(unused_variables)] row: RowId) -> bool {
+        #[cfg(feature = "test-hooks")]
+        if let Some(faults) = &self.faults {
+            return faults.refuses(row);
+        }
+        false
+    }
+
     /// The identity's own key, which signs the card Share sends. Its
     /// endpoint must be the one the facade leases.
     pub fn set_identity_key(&mut self, key: IdentityKey) {
@@ -454,7 +465,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let store = self.client.store_mut();
         let (pending, undecodable_pending) = listing::list_pending(store)?;
         let summarised = listing::summaries(store)?;
-        let hidden = store.hidden_inbound()?;
+        let counts = store.inbound_counts()?;
         let contacts = cards::contact_directory(store).map_err(|e| store_failure(&e));
         let contacts = if self.admits(Hooked::Contacts) {
             contacts
@@ -469,10 +480,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             pending,
             summaries: summarised.summaries,
             counted_through: summarised.counted_through,
-            undecodable_unread: usize::try_from(hidden.unread).unwrap_or(usize::MAX),
-            undecodable_other: usize::try_from(hidden.kept)
+            undecodable_unread: usize::try_from(counts.hidden_unread).unwrap_or(usize::MAX),
+            undecodable_other: usize::try_from(counts.hidden_kept)
                 .unwrap_or(usize::MAX)
                 .saturating_add(undecodable_pending),
+            kept: usize::try_from(counts.kept).unwrap_or(usize::MAX),
             contacts,
             identity: self.own_view()?,
         })
@@ -747,13 +759,14 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             // The rows wait in the store, which the counts and the newest
             // rows say; the open conversation's window reads them.
             let store = self.client.store_mut();
-            match listing::summaries(store).and_then(|s| Ok((s, store.hidden_inbound()?))) {
-                Ok((summarised, hidden)) => {
+            match listing::summaries(store).and_then(|s| Ok((s, store.inbound_counts()?))) {
+                Ok((summarised, counts)) => {
                     self.rows_read += summarised.read;
                     updates.push(Update::SummariesListed {
                         summaries: summarised.summaries,
                         counted_through: summarised.counted_through,
-                        undecodable: usize::try_from(hidden.unread).unwrap_or(usize::MAX),
+                        undecodable: usize::try_from(counts.hidden_unread).unwrap_or(usize::MAX),
+                        kept: usize::try_from(counts.kept).unwrap_or(usize::MAX),
                     });
                 }
                 Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
@@ -785,6 +798,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Command::Send { key, draft } => {
                 updates.push(self.send(key, draft, now).await);
                 Ok(())
+            }
+            Command::MarkRead(row) | Command::DeclineCard(row) if self.refuses(*row) => {
+                Err(Failure::StorageUnavailable)
             }
             Command::MarkRead(row) => {
                 let at = (self.wall)();
@@ -2258,6 +2274,7 @@ mod tests {
                     summaries,
                     counted_through,
                     undecodable,
+                    ..
                 },
             ] => {
                 assert_eq!(summaries.len(), 1);
@@ -2274,6 +2291,42 @@ mod tests {
             }
             other => panic!("expected the event and the summaries: {other:?}"),
         }
+    }
+
+    /// The start and each relist count the kept rows of a kind shown,
+    /// from the store: a row kept since the start is in the relist's.
+    /// Mutations: the start's count left at none; the relist's.
+    #[test]
+    fn the_start_and_a_relist_count_the_kept_rows_shown() {
+        let mut side = held_back_side();
+        let keep = |side: &mut FacadeSide<FakeNode, FakeNode>, text: &str| {
+            let store = side.client.store_mut();
+            let row = store
+                .unread_inbound()
+                .expect("unread")
+                .into_iter()
+                .find(|r| String::from_utf8_lossy(&r.payload).contains(text))
+                .expect("the row")
+                .row_id;
+            let read = store.mark_read(row, 2).expect("read");
+            store.keep(&read, 3).expect("kept");
+        };
+        keep(&mut side, "held back");
+        let start = side.start().expect("started");
+        assert_eq!(start.kept, 1);
+        assert_eq!(start.undecodable_other, 0, "the hidden row is unread");
+        keep(&mut side, "garbled");
+        let mut updates = Vec::new();
+        side.on_event(
+            ClientEvent::UnreadInStore { not_handed_over: 1 },
+            &mut updates,
+        );
+        assert!(
+            updates
+                .iter()
+                .any(|u| matches!(u, Update::SummariesListed { kept: 1, .. })),
+            "a hidden row kept is not counted shown: {updates:?}"
+        );
     }
 
     /// A facade side whose store holds an unread message and an unread row

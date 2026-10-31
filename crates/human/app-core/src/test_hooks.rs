@@ -4,12 +4,16 @@
 //! facade's windowed reads -- a page or the contacts failing or held, a
 //! photo slowed or unreadable -- so the desktop's headless tests drive
 //! design/2026-10-27-start-window.md section 10's failure paths through
-//! the real facade thread and a real store. Nothing that ships builds this
-//! module (architect-cto's A1 for j68).
+//! the real facade thread and a real store; and on a row's read or
+//! decline, so the command line's tests drive a store that refuses one
+//! after its page was read. Nothing that ships builds this module
+//! (architect-cto's A1 for j68).
 
 use std::collections::HashSet;
 use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::Duration;
+
+use interweave_human_store::RowId;
 
 /// What a hooked read does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -34,6 +38,7 @@ struct Faults {
     contacts: Fault,
     photo_delay: Duration,
     unreadable_photos: HashSet<String>,
+    refused_rows: HashSet<RowId>,
 }
 
 /// The faults one facade's reads consult, shared with the test that sets
@@ -72,6 +77,23 @@ impl StoreFaults {
         self.set(|f| {
             f.unreadable_photos.insert(contact_id.to_owned());
         });
+    }
+
+    /// The store refuses to read or decline unread `row` from now, as a
+    /// store that cannot be written refuses: its unread copy stays.
+    pub fn refuse_row(&self, row: RowId) {
+        self.set(|f| {
+            f.refused_rows.insert(row);
+        });
+    }
+
+    /// Whether a read or a decline of `row` is refused.
+    pub(crate) fn refuses(&self, row: RowId) -> bool {
+        self.faults
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .refused_rows
+            .contains(&row)
     }
 
     fn set(&self, change: impl FnOnce(&mut Faults)) {

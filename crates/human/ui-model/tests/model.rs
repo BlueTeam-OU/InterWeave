@@ -138,6 +138,38 @@ fn read_is_raised_only_while_the_conversation_is_viewed_with_focus() {
     );
 }
 
+/// A reader shown some items reads their rows, a re-sent copy's
+/// included, and no other item's. Mutations: every held unread row read;
+/// an item's first row only.
+#[test]
+fn items_viewed_reads_the_rows_of_the_items_named_and_no_other() {
+    let p = peer();
+    let mut model = UiModel::new();
+    model.unread_listed(vec![
+        listed(7, &p, envelope(1, "before"), 1),
+        listed(8, &p, envelope(2, "shown"), 2),
+        listed(9, &p, envelope(3, "after"), 3),
+        listed(10, &p, envelope(2, "shown"), 4),
+    ]);
+    let items = model.messages(&key(&p));
+    assert_eq!(items.len(), 3, "the re-sent copy is the same item");
+    let shown = items
+        .iter()
+        .find(|m| m.source == "shown")
+        .expect("the item shown")
+        .key;
+    let mut read = model.items_viewed(&[shown]);
+    read.sort_by_key(|i| format!("{i:?}"));
+    assert_eq!(
+        read,
+        [
+            Intent::MarkRead(RowId::from_stored(10)),
+            Intent::MarkRead(RowId::from_stored(8)),
+        ]
+    );
+    assert!(model.items_viewed(&[]).is_empty());
+}
+
 #[test]
 fn keep_is_offered_only_after_read_and_unkeep_only_when_kept() {
     let p = peer();

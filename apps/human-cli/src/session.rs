@@ -117,21 +117,23 @@ pub(crate) struct Session<B: DataSessionBinding, A: AdminBinding> {
 }
 
 impl<B: DataSessionBinding, A: AdminBinding> Session<B, A> {
-    /// A root over `facade`, the store's rows listed into the model first,
-    /// as the desktop lists them. `daemon` says whether a daemon serves
-    /// the profile, `None` when it cannot tell.
+    /// A root over `facade`, started as the desktop starts: from the
+    /// store's summaries, a conversation's rows read only when it is
+    /// opened -- a verb that prints one walks it ([`crate::walk`]).
+    /// `daemon` says whether a daemon serves the profile, `None` when it
+    /// cannot tell.
     ///
     /// # Errors
-    /// [`Failure::Store`] when the store's rows cannot be listed.
+    /// [`Failure::Store`] when the store cannot be read.
     pub(crate) fn new(
         mut facade: FacadeSide<B, A>,
         daemon: impl FnMut() -> Option<bool> + 'static,
     ) -> Result<Self, Failure> {
-        let listing = facade.listing().map_err(|e| {
-            Failure::Store(format!("the message store's rows could not be listed: {e}"))
-        })?;
+        let start = facade
+            .start()
+            .map_err(|e| Failure::Store(format!("the message store could not be read: {e}")))?;
         let mut model = ModelSide::new(Script::default(), NoOpener);
-        model.apply(Update::Listed(listing));
+        model.apply(Update::Started(Box::new(start)));
         for update in facade.outbound_now() {
             model.apply(update);
         }

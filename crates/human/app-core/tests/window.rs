@@ -656,6 +656,40 @@ fn texts(from: &TransportIdentity, count: u32) -> HumanStore {
     store
 }
 
+/// A row the hooks refuse is refused its read, as a store that cannot be
+/// written refuses, and its unread copy stays; another row reads. A
+/// decline of a refused row is refused alike. Mutation: the hook not
+/// consulted -- the row read.
+#[tokio::test]
+async fn a_refused_rows_read_fails_and_its_unread_copy_stays() {
+    use interweave_human_app_core::test_hooks::StoreFaults;
+    use interweave_human_store::RowId;
+    let from = peer();
+    let faults = std::sync::Arc::new(StoreFaults::default());
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut side = facade(&a, texts(&from, 2)).with_store_faults(faults.clone());
+    let (first, second) = (RowId::from_stored(1), RowId::from_stored(2));
+    faults.refuse_row(first);
+    for command in [Command::MarkRead(first), Command::DeclineCard(first)] {
+        let refused = side.execute(command.clone(), 0).await;
+        assert!(
+            refused.contains(&Update::Failed {
+                command,
+                why: Failure::StorageUnavailable,
+            }),
+            "{refused:?}"
+        );
+    }
+    let read = side.execute(Command::MarkRead(second), 0).await;
+    assert!(read.contains(&Update::Read(second)), "{read:?}");
+    let left = side.start().expect("started");
+    assert_eq!(
+        left.summaries.iter().map(|s| s.unread).sum::<u64>(),
+        1,
+        "the refused row stays unread"
+    );
+}
+
 fn top_failed(root: &Root, key: &ConversationKey) -> bool {
     root.model()
         .window_marks(key)

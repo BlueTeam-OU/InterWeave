@@ -319,6 +319,28 @@ struct Gap {
 /// `a_read_not_shown_line_stays_when_the_row_below_it_is_hidden`).
 type Pos = (u64, u8, Table, i64);
 
+/// A place in a conversation's drawn order, as [`UiModel::drawn_order`]
+/// and [`UiModel::window_gaps`] give it: compared, never looked into, so
+/// a reader that walks the conversation follows the model's order rather
+/// than one of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DrawnAt(Pos);
+
+/// A gap of the open conversation: its two edges, and the drawn places
+/// of the held rows it lies between. Nothing the gap let go is drawn
+/// between them until a page brings it back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GapSpan {
+    /// Its upper side's edge, read oldest first from `above`.
+    pub upper: Edge,
+    /// Its lower side's edge, read newest first from `below`.
+    pub lower: Edge,
+    /// The held row just above it.
+    pub above: DrawnAt,
+    /// The held row just below it.
+    pub below: DrawnAt,
+}
+
 /// The open conversation's window.
 #[derive(Debug)]
 struct Window {
@@ -1281,6 +1303,55 @@ impl UiModel {
         );
         drawn.sort_unstable_by_key(|(at, _)| *at);
         drawn
+    }
+
+    /// What `conversation` draws, in the order a view draws it, each with
+    /// its place: a reader that walks the conversation -- the CLI prints
+    /// it oldest first through pages and gaps -- orders by these.
+    #[must_use]
+    pub fn drawn_order(&self, conversation: &ConversationKey) -> Vec<(DrawnAt, Anchor)> {
+        self.drawn(conversation)
+            .into_iter()
+            .map(|(at, anchor)| (DrawnAt(at), anchor))
+            .collect()
+    }
+
+    /// The open conversation's gaps, if it is `conversation`, oldest
+    /// first (`a_gaps_span_is_where_its_edges_stand`).
+    #[must_use]
+    pub fn window_gaps(&self, conversation: &ConversationKey) -> Vec<GapSpan> {
+        let Some(window) = self
+            .windows
+            .open
+            .as_ref()
+            .filter(|w| &w.conversation == conversation)
+        else {
+            return Vec::new();
+        };
+        let mut gaps: Vec<GapSpan> = window
+            .gaps
+            .iter()
+            .map(|(id, gap)| GapSpan {
+                upper: Edge::GapUpper(*id),
+                lower: Edge::GapLower(*id),
+                above: DrawnAt(self.mark_pos(window, gap.above)),
+                below: DrawnAt(self.mark_pos(window, gap.below)),
+            })
+            .collect();
+        gaps.sort_by_key(|g| g.above);
+        gaps
+    }
+
+    /// The open conversation and its opening: a new opening -- another
+    /// conversation, or this one opened again at its newest row -- has a
+    /// new number, so a reader walking it knows its window started over
+    /// (`a_relist_that_reopens_gives_a_new_opening`).
+    #[must_use]
+    pub fn window_opening(&self) -> Option<(ConversationKey, u64)> {
+        self.windows
+            .open
+            .as_ref()
+            .map(|w| (w.conversation.clone(), w.seq))
     }
 
     /// The drawn position of a held row's place.

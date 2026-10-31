@@ -12,7 +12,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use interweave_human_app_core::FacadeSide;
-use interweave_human_store::{HumanStore, StoreOptions};
+use interweave_human_app_core::test_hooks::StoreFaults;
+use interweave_human_store::{HumanStore, RowId, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::ConversationKey;
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
@@ -54,6 +55,33 @@ fn store(dir: &Path) -> HumanStore {
 }
 
 fn session(node: &FakeNode, store: HumanStore) -> Session<FakeNode, FakeNode> {
+    session_over(node, store, None)
+}
+
+/// A session over the store in `dir` that refuses to read every row it
+/// holds unread now: a read asked after the row's page was read fails, as
+/// a store that cannot be written fails it.
+fn refusing(node: &FakeNode, dir: &Path) -> Session<FakeNode, FakeNode> {
+    let faults = std::sync::Arc::new(StoreFaults::default());
+    let rows: Vec<i64> = rusqlite::Connection::open(dir.join("human.sqlite3"))
+        .expect("open")
+        .prepare("SELECT row_id FROM unread_inbound")
+        .expect("a query")
+        .query_map([], |r| r.get(0))
+        .expect("rows")
+        .collect::<Result<_, _>>()
+        .expect("ids");
+    for row in rows {
+        faults.refuse_row(RowId::from_stored(row));
+    }
+    session_over(node, store(dir), Some(faults))
+}
+
+fn session_over(
+    node: &FakeNode,
+    store: HumanStore,
+    faults: Option<std::sync::Arc<StoreFaults>>,
+) -> Session<FakeNode, FakeNode> {
     let client = TransportClient::new(
         node.clone(),
         node.clone(),
@@ -68,7 +96,11 @@ fn session(node: &FakeNode, store: HumanStore) -> Session<FakeNode, FakeNode> {
         0,
     )
     .expect("facade");
-    Session::new(FacadeSide::new(client, || WALL), || Some(true)).expect("session")
+    let mut facade = FacadeSide::new(client, || WALL);
+    if let Some(faults) = faults {
+        facade = facade.with_store_faults(faults);
+    }
+    Session::new(facade, || Some(true)).expect("session")
 }
 
 fn to(peer: &TransportIdentity) -> ConversationKey {
@@ -751,16 +783,13 @@ async fn a_keep_that_fails_after_the_read_still_prints_what_was_read() {
         .iter()
         .map(|m| m["id"].as_str().expect("id").to_owned())
         .collect();
-    // The second row cannot be read back now: marking it read fails after
-    // the first was read, which this run alone then holds.
+    // The store refuses to read the second row: marking it read fails
+    // after the first was read, which this run alone then holds.
     let row: i64 = ids[1][1..].parse().expect("a row");
-    let conn = rusqlite::Connection::open(dir_b.path().join("human.sqlite3")).expect("open");
-    conn.execute(
-        "UPDATE unread_inbound SET source_peer = 'not-a-peer' WHERE row_id = ?1",
-        [row],
-    )
-    .expect("corrupt");
-    drop(conn);
+    let faults = std::sync::Arc::new(StoreFaults::default());
+    faults.refuse_row(RowId::from_stored(row));
+    bob.close().await;
+    let mut bob = session_over(&b, store(dir_b.path()), Some(faults));
     let (out, read) = run(
         &mut bob,
         Verb::Read {
@@ -1019,13 +1048,10 @@ async fn a_line_not_written_leaves_its_message_unread() {
 /// untaken; only the first of a step's said.
 #[tokio::test]
 async fn every_read_the_store_refuses_is_said_by_its_row() {
-    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["gone", "and gone"])).await;
-    // Gone from the store after the session listed them: each read finds
-    // no row.
-    let conn = rusqlite::Connection::open(dir_b.path().join("human.sqlite3")).expect("open");
-    conn.execute("DELETE FROM unread_inbound", [])
-        .expect("deleted");
-    drop(conn);
+    let (b, dir_b, bob, _dir_a) = Box::pin(unread_at_open(&["refused", "refused too"])).await;
+    bob.close().await;
+    // Each read refused by the store after its row's page was read.
+    let mut bob = refusing(&b, dir_b.path());
     let mut out = Vec::new();
     verbs::listen(
         &mut bob,
@@ -1414,11 +1440,9 @@ async fn an_input_lines_answers_print_whatever_the_filter() {
 /// Mutation: every failure filtered like an event.
 #[tokio::test]
 async fn a_refused_read_of_a_printed_message_is_said_whatever_the_filter() {
-    let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["gone"])).await;
-    let conn = rusqlite::Connection::open(dir_b.path().join("human.sqlite3")).expect("open");
-    conn.execute("DELETE FROM unread_inbound", [])
-        .expect("deleted");
-    drop(conn);
+    let (b, dir_b, bob, _dir_a) = Box::pin(unread_at_open(&["refused"])).await;
+    bob.close().await;
+    let mut bob = refusing(&b, dir_b.path());
     let mut out = Vec::new();
     verbs::listen(
         &mut bob,
