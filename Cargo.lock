@@ -3688,7 +3688,10 @@ dependencies = [
 name = "interweave-human-core"
 version = "0.2.0"
 dependencies = [
+ "caseless",
  "serde",
+ "unicode-normalization",
+ "unicode-security",
 ]
 
 [[package]]
