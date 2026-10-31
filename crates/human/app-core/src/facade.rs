@@ -2293,8 +2293,6 @@ mod tests {
         }
     }
 
-    /// A facade side whose store holds an unread message and an unread row
-    /// it cannot show, as a facade that could not hand them over leaves it.
     /// The start and each relist count the kept rows of a kind shown,
     /// from the store: a row kept since the start is in the relist's.
     /// Mutations: the start's count left at none; the relist's.
@@ -2331,6 +2329,8 @@ mod tests {
         );
     }
 
+    /// A facade side whose store holds an unread message and an unread row
+    /// it cannot show, as a facade that could not hand them over leaves it.
     fn held_back_side() -> FacadeSide<FakeNode, FakeNode> {
         let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
         let config = || FakeConfig {
