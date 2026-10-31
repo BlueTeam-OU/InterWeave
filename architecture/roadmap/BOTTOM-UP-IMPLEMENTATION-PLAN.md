@@ -5216,8 +5216,9 @@ network callbacks, backup / device-transfer exclusion and the
 user-presence restart diagnostic by dated device-run records
 (`device-runs/2026-10-20-gate-b.md` on the A40 at API 30 and the Pixel
 9a at API 37; `device-runs/2026-10-21-pixel-9a.md` for the network
-rebind, whose drop half rests on the owner's status read since the loss
-callback writes no line) — step 3's API 34+ run is the Pixel record
+rebind, whose drop half rested on the owner's status read, since the
+loss callback writes no line, until `device-runs/2026-10-31-pixel-9a.md`
+put the drop in the app's own log) — step 3's API 34+ run is the Pixel record
 (targetSdk 36, `remoteMessaging` as type `0x200`, restarted after
 process death), step 10 the release metadata and `check_dependencies.sh`
 over both targets (#314); carried by name to the owner's release gate:
@@ -5340,7 +5341,9 @@ at this gate.
 
 **What this stage did not prove, carried by name:** the Keystore
 user-presence and network-callback instrumented cases; the Recents
-thumbnail's content; notification arrival at API 33+; device transfer
+thumbnail's content; notification arrival at API 33+ (measured since,
+2026-10-31, `device-runs/2026-10-31-pixel-9a.md`, 3 runs of 3 under
+the person's grant, with that record's bounds); device transfer
 under `dataExtractionRules` at API 31+ with a GMS transport (the
 targetSdk 36 doubt); the four unbuilt instrumented cases of (b); the
 Android half of render parity; the desktop ↔ Android platform matrix
@@ -5363,7 +5366,9 @@ byte search across a reboot, a power loss mid-truncate, L2 with the
 screen off or unplugged, R2 on other launchers and API levels, freed
 pages after `VACUUM` or reuse, the one-time rewrite's cost on a large
 store (the `secure_delete` rewrite of SPIKE-008's record, measured
-here on a large store) and media remanence, API 33+'s `POST_NOTIFICATIONS` grant (above); B2 and the Play items are closed by
+here on a large store) and media remanence; API 33+'s `POST_NOTIFICATIONS` grant (above) was
+measured on 2026-10-31, the arrival case under the person's grant
+(`device-runs/2026-10-31-pixel-9a.md`), and leaves the carried list; B2 and the Play items are closed by
 ADR-0057 (no store, no backup on Google). Of SPIKE-009's items carried
 to steps 7–8: the restart diagnostic is split — the person-visible
 Unlock prompt on a cold launch and after process death under the
