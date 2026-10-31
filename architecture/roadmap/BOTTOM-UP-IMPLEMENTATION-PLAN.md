@@ -6939,10 +6939,10 @@ owner:
   only as the answer to the editor's latest request, unique in the
   process), host-tested; not run on a phone, where a real provider
   and TalkBack are unexercised.
-- The start listing, from the same review (P2-1): `list_all` decodes
+- The start listing, from the same review (P2-1): `list_all` decoded
   every pending, unread, kept and card row and every contact into one
-  Update, and card standing is O(K × C), so a trusted peer's unread
-  backlog can exhaust memory at start. Ruled 2026-10-27 (rust-ui-dev-
+  Update, and card standing was O(K × C), so a trusted peer's unread
+  backlog could exhaust memory at start. Ruled 2026-10-27 (rust-ui-dev-
   02's QUESTION 01a17bcc): a bounded window handed to the model, the
   rest in the store and fetched as the model has room, with a
   content-free "more remain" count — consistent with RETENTION.md,
@@ -6974,10 +6974,28 @@ owner:
   #498), which no view selects yet; the test #483 holds for its
   constraint (b), a pending row that does not decode resent after a
   restart (b046573a). The model's window — the protocol layer that
-  makes the windowed mode what the person sees — follows in that
-  batch's next PR, and until it lands the window as seen is the
-  record's and not yet the build's, and this bullet is where that is
-  said.
+  makes the windowed mode what the person sees — landed in that
+  batch's four last PRs (rust-ui-dev-02, 2026-10-30 to 2026-10-31):
+  #515, the desktop's window with its failure paths under test and the
+  fixes they found; #517, Android on the windowed start, the desktop's
+  AT-SPI window cases, and the run on the Pixel 9a and the Samsung A40
+  (`apps/human-android/device-runs/2026-10-30-windowed-start.md`);
+  #519, the command line started windowed, `messages` and `read`
+  walking a conversation oldest first in two passes through the
+  model's own commands, the first pass printing nothing and marking
+  nothing read and a row committed mid-walk printed after the walk's
+  last row (architect-cto's conditions, REPLY 01a18d00; `status` and
+  `conversations` count the store's unread rows, cards included, the
+  undisplayable rows apart); and #520, `list_all`, `Listing` and
+  `Update::Listed` removed, so no client lists the store at start.
+  Closed 2026-10-31: the window as seen is the build's. Left open by
+  name: the walk's cost on a backlog of tens of thousands of rows, not
+  measured on the window's read (SPIKE-011's entry, A 2026-10-31, says
+  what was); the Android chat case not rerun on a phone after the
+  removal, and the A40's rows about ten seconds after a tap not
+  re-measured since #521's draw fix; and a reply whose target lies
+  beyond the held rows read as `unavailable` on the command line, the
+  store lookup by message id architect-cto's to decide (j462).
 - Found after the close, from the owner's second review of the client
   (2026-10-27, judged by the review class at 1b37e0ef), three of this
   stage's, each P3 and none reaching a screen in a way the review

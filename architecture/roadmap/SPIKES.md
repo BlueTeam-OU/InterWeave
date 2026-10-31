@@ -628,7 +628,7 @@ no store benchmark and no store-health time budget exist in the tree.
 **Experiment:** build the first candidate — the page-cipher
 amalgamation `rusqlite` already offers — for Linux and Android, with
 and without a vendored TLS library for its primitives; define the
-baseline — open, commit-unread and read-conversation timings — the last being the client's start-up walk over the store (`listing.rs` `list_all`), the read the client makes (A 2026-10-21) — on the
+baseline — open, commit-unread and read-conversation timings — the last being what was then the client's start-up walk over the store (`listing.rs` `list_all`, the read the client made, A 2026-10-21; removed by #520 on 2026-10-31 once every client started windowed, A 2026-10-31 below) — on the
 plaintext store, on the desktop host and on the Stage 17 reference
 device — and measure the same on the encrypted one, against the
 criterion (within twice the baseline per operation, a cold open under
@@ -669,13 +669,42 @@ below). What the evidence establishes:
 - **The baseline, defined here**, on the shipping store opened by its own
   code: `open-cold` (a fresh process, the files' pages evicted first),
   `commit-unread` (one 512-byte unread commit, `synchronous=FULL`) and
-  `read-walk` (`list_all`'s walk over every pending, unread and kept row),
+  `read-walk` (the walk `list_all` made over every pending, unread and kept
+  row at a client's start; the harness still runs it by revision, its pin
+  predating the removal),
   at 500 kept (the realistic store) and 2000 (a large one; the owner,
   2026-10-21), with a labelled stress row at 20 000.
 - **The criterion is judged on medians**: each figure below is the median
   of three rounds' medians (30 repetitions a round), the cipher's against
   the plaintext's on the same side; the per-round extremes are given
   beside them.
+- **The baseline's read, restated on the window (A 2026-10-31).** No
+  client walks the store at start any more: the start window
+  (`design/2026-10-27-start-window.md`, plan §29's P2-1 entry) reads the
+  conversation summaries and the counts over schema v10's kind indexes
+  (`shown_conversations`, `unread_counts`, `inbound_counts`) and a
+  conversation one page at a time under the model's held-row ceiling
+  (`conversation_page`, `conversation_window`; `HELD_ROW_CAP` 1024), the
+  desktop since #515, Android since #517 and the command line since #519;
+  #520 removed `list_all`, so the walk the `read-walk` row names exists
+  only in this harness, at its pin. The row keeps its use as the measured
+  cost of one pass over every row of a store, and that is what the
+  clients' new reads are bounded by: a page is a slice of the same
+  indexed walk, and a command-line verb that prints a whole conversation
+  (`messages`, `read`) walks it in two passes through the model's own
+  commands — up to the top printing nothing and marking nothing read, then
+  down through the gaps the ceiling left — so each row is read from the
+  store twice and the verb costs about two of the row's figure, a price
+  taken for one read path (architect-cto's REPLY 01a18d00). The walk's
+  cost on a backlog of tens of thousands of rows was not measured on the
+  window's read (#519 names it unverified); what was, in release on the
+  desktop with 512-byte rows, medians of 30, from a scratch harness and
+  not this spike's: a full walk over the unread rows 5.8 ms at 2000 and
+  57 ms at 20 000, against this baseline's 5.3 ms at 2000, and the read
+  of the unread cards alone by their kind 0.08 ms and 0.11 ms (#521,
+  c7c8d0fc, which took `proposals_again` off the walk). The spike
+  record's sentence that the store had no per-conversation read describes
+  the store at the pin, not today's.
 - **Desktop** (Core Ultra 7 155H, ext4): at 500 and 2000 kept every
   operation within x1.21 of the plaintext, at v7 and at v8, across the
   desktop and index runs; no single round above x1.93; a cold open of
