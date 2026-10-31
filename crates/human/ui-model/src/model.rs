@@ -2094,9 +2094,6 @@ impl UiModel {
     }
 }
 
-/// The conversation a received row belongs to, as [`UiModel::received`]'s
-/// item takes it: a direct route by its peer and endpoint, a channel by its
-/// id whoever published.
 /// An inbound row's conversation, author, route label and copy key.
 fn inbound_origin(
     origin: &Origin,
@@ -2154,6 +2151,9 @@ fn inbound_item(
     }
 }
 
+/// The conversation a received row belongs to, as [`UiModel::received`]'s
+/// item takes it: a direct route by its peer and endpoint, a channel by its
+/// id whoever published.
 fn conversation_of_origin(origin: &Origin) -> ConversationKey {
     match origin {
         Origin::Direct { peer, endpoint } => ConversationKey::Direct {
