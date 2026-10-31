@@ -13,9 +13,9 @@ use interweave_human_client_api::{
 };
 use interweave_human_store::RowId;
 use interweave_human_ui_model::{
-    CardOutcome, ContactChange, ContactView, ConversationKey, DirectoryContact, IdentityView,
-    ItemKey, ListedInbound, ListedOutbound, PageAsk, PageRows, Photo, PhotoAsk, PhotoEdit,
-    Proposal, ProposalContext, StoredSummary, Table, TrustChange,
+    CardOutcome, ContactChange, ConversationKey, DirectoryContact, IdentityView, ItemKey,
+    ListedOutbound, PageAsk, PageRows, Photo, PhotoAsk, PhotoEdit, Proposal, ProposalContext,
+    StoredSummary, Table, TrustChange,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -183,28 +183,6 @@ pub enum WindowCommand {
     ReadPhoto(PhotoAsk),
 }
 
-/// The store's rows at start, decoded for the model.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Listing {
-    /// Pending outbound rows.
-    pub pending: Vec<ListedOutbound>,
-    /// Unread inbound rows.
-    pub unread: Vec<ListedInbound>,
-    /// Kept inbound rows.
-    pub kept: Vec<ListedInbound>,
-    /// Unread rows the store holds that could not be decoded for display:
-    /// still held, never shown, counted so the root can say so.
-    pub undecodable_unread: usize,
-    /// Pending and kept rows likewise.
-    pub undecodable_other: usize,
-    /// Unread rows that hold a card: proposals, with what Accept would do.
-    pub unread_cards: Vec<Proposal>,
-    /// The contacts.
-    pub contacts: Vec<ContactView>,
-    /// The identity in front, when the root holds its key.
-    pub identity: Option<IdentityView>,
-}
-
 /// The store at a windowed start (design/2026-10-27-start-window.md
 /// section 3): the pending rows, each conversation's summary, the contacts
 /// without their photos -- and no conversation's rows, which its opening
@@ -237,11 +215,9 @@ pub struct Start {
 /// What the facade side did, for the model side to apply.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Update {
-    /// The store's rows at start. Applied before anything else, since the
-    /// model treats the pending listing as authoritative.
-    Listed(Listing),
-    /// The store at a windowed start, in place of [`Update::Listed`]:
-    /// applied before anything else for the same reason.
+    /// The store at start: its summaries, not its rows, which the open
+    /// conversation pages in. Applied before anything else, since the model
+    /// treats the pending rows it carries as authoritative.
     Started(Box<Start>),
     /// A page of the open conversation, as its [`WindowCommand::FetchPage`]
     /// asked: a failed read is that command's [`Update::Failed`].
@@ -259,15 +235,8 @@ pub enum Update {
         /// The photo, decoded.
         photo: Option<Photo>,
     },
-    /// The store's unread rows again, after the facade reported unread
-    /// content it holds but did not hand over (`ClientEvent::UnreadInStore`).
-    UnreadListed {
-        /// The rows that could be decoded.
-        rows: Vec<ListedInbound>,
-        /// Rows held but not decodable for display: never shown, counted.
-        undecodable: usize,
-    },
-    /// The windowed mode's [`Update::UnreadListed`]: each conversation's
+    /// The store again, after the facade reported unread content it holds
+    /// but did not hand over (`ClientEvent::UnreadInStore`): each conversation's
     /// summary read again, with the unread table's mark read beside it,
     /// and no row of any conversation.
     SummariesListed {
@@ -281,8 +250,9 @@ pub enum Update {
         /// Kept rows of a kind this build shows, counted again.
         kept: usize,
     },
-    /// The unread rows could not be listed again: content the store holds
-    /// stays unshown until the next listing.
+    /// The summaries could not be read again, or a card committed unread
+    /// could not be judged: content the store holds stays unshown until a
+    /// later read of the summaries or the conversation's next page.
     UnreadNotListed(Failure),
     /// A message committed unread and handed over.
     Received(Received),
@@ -315,8 +285,6 @@ pub enum Update {
     /// (`card_shared_at`): the facade writes it again at each turn until
     /// it holds, and says this once.
     ShareNotRecorded(Failure),
-    /// The contacts, after a change to them.
-    ContactsListed(Vec<ContactView>),
     /// A contact was deleted, or its photo removed, and the facade side
     /// holds what its Undo writes back.
     ContactChanged {

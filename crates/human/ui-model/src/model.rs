@@ -944,8 +944,9 @@ impl UiModel {
         }
     }
 
-    /// The store's unread rows, at start or after `UnreadInStore`: merged
-    /// by row id with what is already shown (agreed A5, rule 2).
+    /// Unread rows the store holds, as an open conversation's page brings
+    /// them: merged by row id with what is already shown (agreed A5,
+    /// rule 2).
     pub fn unread_listed(&mut self, rows: Vec<ListedInbound>) {
         for row in rows {
             self.inbound(
@@ -959,7 +960,8 @@ impl UiModel {
         }
     }
 
-    /// The store's kept rows, at start.
+    /// Kept rows the store holds, as an open conversation's page brings
+    /// them.
     pub fn kept_listed(&mut self, rows: Vec<ListedInbound>) {
         for row in rows {
             self.inbound(
@@ -1026,7 +1028,8 @@ impl UiModel {
         })
     }
 
-    /// The store's pending rows, at start (agreed item 2a). Authoritative:
+    /// The store's pending rows, as the start carries them (agreed item
+    /// 2a). Authoritative:
     /// a held update for a row it does not list is discarded, a terminal
     /// one included (agreed U3a).
     pub fn pending_listed(&mut self, rows: Vec<ListedOutbound>) {

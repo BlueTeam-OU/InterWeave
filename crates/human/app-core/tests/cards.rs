@@ -23,8 +23,8 @@ use interweave_human_store::{
 };
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
-    AcceptLine, ContactRef, ConversationKey, Intent, KeyView, PhotoEdit, ProposalItem,
-    ProposalNote, Table, UiModel, UiText, ViewEvent,
+    AcceptLine, ContactRef, ConversationKey, Intent, KeyView, Photo, PhotoEdit, PhotoState,
+    ProposalItem, ProposalNote, Table, UiModel, UiText, ViewEvent, WindowInput,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_config::TrustBoundary;
@@ -146,9 +146,28 @@ impl Root {
             model: ModelSide::new(Scripted::default(), NoOpener),
             updates: Vec::new(),
         };
-        let listing = root.facade.listing().expect("listing");
-        root.model.apply(Update::Listed(listing));
+        let start = root.facade.start().expect("started");
+        root.model.apply(Update::Started(Box::new(start)));
         root
+    }
+
+    /// The contact's photo as its avatar shows it. The windowed start's
+    /// contacts hold no photo's bytes: the avatar coming into view asks the
+    /// facade for the photo, which the model then holds.
+    async fn photo(&mut self, contact_id: &str, now: u64) -> Option<Photo> {
+        self.model.photo_shown(contact_id);
+        self.pump(now).await;
+        match self.model().contact_photo(contact_id) {
+            PhotoState::Shown(photo) => Some(photo.clone()),
+            _ => None,
+        }
+    }
+
+    /// Opens a conversation, as the windowed start holds the rows of the
+    /// one open conversation only; opening it closes the one before.
+    async fn open(&mut self, key: &ConversationKey, now: u64) {
+        self.model.window(WindowInput::Opened(key.clone()));
+        self.pump(now).await;
     }
 
     async fn pump(&mut self, now: u64) {
@@ -247,6 +266,7 @@ async fn a_valid_card_accepted_creates_the_contact_and_names_the_conversation() 
     let mut bob = Root::new(facade(&b, &pb, Some(key_of(&pb))));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     assert!(alice.failed().is_empty(), "{:?}", alice.failed());
 
@@ -301,6 +321,7 @@ async fn a_declined_card_leaves_nothing_in_the_store() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let row = bob.model().proposals(&direct(a.peer()))[0].row;
     bob.will(Intent::DeclineCard(row));
@@ -327,11 +348,13 @@ async fn an_unread_card_is_a_proposal_again_after_a_restart() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     assert_eq!(bob.model().proposals(&direct(a.peer())).len(), 1);
     Box::pin(bob.facade.close()).await;
     drop(bob);
-    let bob = Root::new(facade(&b, &pb, None));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    bob.open(&direct(a.peer()), 0).await;
     let again = bob.model().proposals(&direct(a.peer()));
     assert_eq!(again.len(), 1, "listed again from the store");
     assert_eq!(again[0].name, "Ada Lovelace");
@@ -345,6 +368,7 @@ async fn a_shown_card_left_undecided_is_gone_after_a_restart() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let from_alice = direct(a.peer());
     let shown = bob.model().proposals_viewed(&from_alice, true);
@@ -377,7 +401,8 @@ async fn a_shown_card_left_undecided_is_gone_after_a_restart() {
         "no durable copy once shown"
     );
     drop(store);
-    let bob = Root::new(facade(&b, &pb, None));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    bob.open(&from_alice, 0).await;
     assert!(
         bob.model().proposals(&from_alice).is_empty(),
         "not offered again"
@@ -392,6 +417,7 @@ async fn a_shown_card_is_still_accepted_from_the_sessions_copy() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let from_alice = direct(a.peer());
     let shown = bob.model().proposals_viewed(&from_alice, true);
@@ -417,6 +443,7 @@ async fn two_cards_on_one_route_before_any_accept_never_take_the_second_key_unse
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     let first_key = key_of(&pa).fingerprint().to_string();
     alice.will(Intent::ShareCard(direct(b.peer())));
     alice.pump(1).await;
@@ -505,6 +532,7 @@ async fn a_keep_of_a_shown_cards_copy_is_refused_and_the_card_stays_decidable() 
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     // A message too, for an item a Keep can name.
     alice.will(Intent::Send {
         key: direct(b.peer()),
@@ -610,6 +638,7 @@ async fn accept_keeps_a_photo_only_when_it_decodes_within_256_by_256() {
         let mut bob = Root::new(facade(&b, &pb, None));
         alice.pump(0).await;
         bob.pump(0).await;
+        bob.open(&direct(a.peer()), 0).await;
         alice.will(Intent::ShareCard(direct(b.peer())));
         alice.pump(1).await;
         alice.pump(2).await;
@@ -659,6 +688,7 @@ async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     let mut bob = Root::new(facade(&b1, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b1).await;
     Box::pin(bob.facade.close()).await;
     drop(bob);
@@ -686,7 +716,11 @@ async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     bob.pump(4).await;
 
     let (from_alice, from_carol) = (direct(a.peer()), direct(c.peer()));
+    // Opening one conversation closes the other, so each is read as it is
+    // opened, from the store.
+    bob.open(&from_alice, 4).await;
     let first = bob.model().proposals(&from_alice);
+    bob.open(&from_carol, 4).await;
     let second = bob.model().proposals(&from_carol);
     assert_eq!((first.len(), second.len()), (1, 1), "{:?}", bob.updates);
     let (first, second) = (first[0].clone(), second[0].clone());
@@ -705,8 +739,12 @@ async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     }
     assert!(bob.model().contacts().is_empty(), "nothing before Accept");
 
+    // The card is decided in its own conversation; Carol's is read once it
+    // is open again.
+    bob.open(&from_alice, 5).await;
     bob.will(Intent::AcceptCard(first.row));
     bob.pump(5).await;
+    bob.open(&from_carol, 5).await;
     let second = bob.model().proposals(&from_carol)[0].clone();
     assert_eq!(second.accept, AcceptLine::Creates, "never an update");
     assert_eq!(
@@ -753,6 +791,8 @@ async fn the_card_shared_to_two_conversations_is_the_identitys_each_time() {
     for root in [&mut to_bob, &mut to_carol, &mut bob, &mut carol] {
         root.pump(0).await;
     }
+    bob.open(&direct(a1.peer()), 0).await;
+    carol.open(&direct(a2.peer()), 0).await;
     shared(&mut to_bob, &mut bob, &b).await;
     shared(&mut to_carol, &mut carol, &c).await;
     for (who, root, from) in [("bob", &bob, &a1), ("carol", &carol, &a2)] {
@@ -774,6 +814,7 @@ async fn a_changed_key_on_a_known_route_is_a_key_change_and_a_local_edit_stands(
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let row = bob.model().proposals(&direct(a.peer()))[0].row;
     bob.will(Intent::AcceptCard(row));
@@ -831,6 +872,7 @@ async fn the_identity_key_never_enters_the_store() {
     let mut bob = Root::new(facade(&b, &pb, Some(key_of(&pb))));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let row = bob.model().proposals(&direct(a.peer()))[0].row;
     bob.will(Intent::AcceptCard(row));
@@ -942,6 +984,7 @@ async fn a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind() {
     let mut bob = Root::new(bob);
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     alice.will(Intent::Send {
         key: direct(b.peer()),
         draft: "an item to name".to_owned(),
@@ -982,7 +1025,7 @@ async fn a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind() {
 
 /// Schema v10: a card received end to end is stored with the kind the
 /// client's own classification of the stored row gives it, so the badge
-/// counts what the listing shows. Mutation: the transport client
+/// counts what the start shows. Mutation: the transport client
 /// committing a card as text.
 #[tokio::test]
 async fn a_received_cards_stored_kind_is_the_listings_own() {
@@ -992,6 +1035,7 @@ async fn a_received_cards_stored_kind_is_the_listings_own() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     assert_eq!(
         bob.model().proposals(&direct(a.peer())).len(),
@@ -1019,6 +1063,7 @@ async fn a_deleted_contact_is_gone_and_the_next_card_from_its_route_is_a_new_con
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let row = bob.model().proposals(&direct(a.peer()))[0].row;
     bob.will(Intent::AcceptCard(row));
@@ -1065,6 +1110,7 @@ async fn a_photo_reaches_the_screens_decoded_only_once_it_is_accepted_with_its_t
     let mut bob = Root::new(facade(&b, &pb, Some(key_of(&pb))));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     alice.will(Intent::SetOwnCard {
         name: "Ada".to_owned(),
         surname: None,
@@ -1101,7 +1147,10 @@ async fn a_photo_reaches_the_screens_decoded_only_once_it_is_accepted_with_its_t
     bob.will(Intent::AcceptCard(proposal.row));
     bob.pump(5).await;
     let contact = bob.model().contacts()[0].clone();
-    let photo = contact.photo.expect("the accepted photo, decoded");
+    let photo = bob
+        .photo(&contact.contact_id, 6)
+        .await
+        .expect("the accepted photo, decoded");
     assert!(photo.width <= 256 && photo.height <= 256);
     assert_eq!(contact.photo_from_card, Some(true));
     assert_eq!(contact.photo_at, Some(WALL), "when it came");
@@ -1149,6 +1198,7 @@ async fn a_card_that_changes_nothing_offers_close_alone_and_one_that_changes_a_c
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let first = bob.model().proposals(&direct(a.peer()))[0].clone();
     assert_eq!(first.accept, AcceptLine::Creates);
@@ -1245,6 +1295,7 @@ async fn a_matching_card_offers_accept_again_once_its_contact_is_deleted() {
         let mut bob = Root::new(facade(&b, &pb, None));
         alice.pump(0).await;
         bob.pump(0).await;
+        bob.open(&direct(a.peer()), 0).await;
         shared(&mut alice, &mut bob, &b).await;
         let from_alice = direct(a.peer());
         let first = bob.model().proposals(&from_alice)[0].row;
@@ -1306,6 +1357,7 @@ async fn a_matching_card_offers_accept_once_another_card_on_its_route_is_accepte
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let from_alice = direct(a.peer());
     let first = bob.model().proposals(&from_alice)[0].row;
@@ -1373,6 +1425,7 @@ async fn undo_of_an_accept_deletes_the_contact_and_the_proposal_returns_to_accep
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let from_alice = direct(a.peer());
     let row = bob.model().proposals(&from_alice)[0].row;
@@ -1413,6 +1466,7 @@ async fn undo_of_a_decline_returns_the_proposal_and_a_closed_snackbar_lets_the_c
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let from_alice = direct(a.peer());
     let row = bob.model().proposals(&from_alice)[0].row;
@@ -1476,6 +1530,7 @@ async fn a_damaged_key_is_named_the_card_still_saves_and_a_new_key_lists_where_t
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     let OwnKey::Ready { fingerprint: old } = own_key(&alice) else {
         panic!("a first key: {:?}", own_key(&alice))
     };
@@ -1816,6 +1871,7 @@ async fn a_card_is_shared_when_it_is_accepted_and_not_before() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     alice.will(Intent::SetOwnCard {
         name: "Ada".to_owned(),
         surname: None,
@@ -2051,6 +2107,7 @@ async fn a_card_accepted_after_a_new_key_records_no_share() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     let to_bob = direct(b.peer());
     a.inject_send(interweave_transport_api::TransportError::Overloaded);
     alice.will(Intent::ShareCard(to_bob.clone()));
@@ -2081,7 +2138,7 @@ async fn a_card_accepted_after_a_new_key_records_no_share() {
 /// after the share does not rewrite the row -- with Retry and Cancel while
 /// it is Not sent; after a restart the store lists the same row, read back
 /// as it went. Mutations: the queued card not applied to the model; the
-/// listing not reading an own card back.
+/// start not reading an own card back.
 #[tokio::test]
 async fn a_shared_card_is_its_own_card_row_as_it_went() {
     use interweave_human_ui_model::{Intent, SentCard};
@@ -2142,7 +2199,7 @@ async fn a_shared_card_is_its_own_card_row_as_it_went() {
 
 /// A pending row whose card the grammar refuses -- a name past its
 /// bound -- is not read back as an own card row: it stays undecodable,
-/// counted and never shown (#471 R2 F5). Mutation: the listing reading a
+/// counted and never shown (#471 R2 F5). Mutation: the start reading a
 /// card by a laxer parse than the grammar.
 #[tokio::test]
 async fn a_pending_card_the_grammar_refuses_stays_undecodable() {
@@ -2183,9 +2240,9 @@ async fn a_pending_card_the_grammar_refuses_stays_undecodable() {
             .expect("committed");
     }
     let mut side = facade(&a, &pa, None);
-    let listing = side.listing().expect("listed");
-    assert!(listing.pending.is_empty(), "{:?}", listing.pending);
-    assert_eq!(listing.undecodable_other, 1);
+    let start = side.start().expect("started");
+    assert!(start.pending.is_empty(), "{:?}", start.pending);
+    assert_eq!(start.undecodable_other, 1);
 }
 
 /// A cancelled card brought back by its Undo is pending again, and its
@@ -2365,6 +2422,7 @@ async fn a_route_is_deleted_and_its_contact_keeps_the_other() {
     let mut bob = Root::new(FacadeSide::new(client, || WALL));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let first = bob.model().proposals(&direct(a.peer()))[0].row;
     bob.will(Intent::AcceptCard(first));
@@ -2389,7 +2447,9 @@ async fn a_route_is_deleted_and_its_contact_keeps_the_other() {
     };
     let updates = bob.facade.execute(delete(&other), 6).await;
     let listed = updates.iter().find_map(|u| match u {
-        Update::ContactsListed(contacts) => Some(contacts.clone()),
+        Update::ContactDirectory(Ok(contacts)) => {
+            Some(contacts.iter().map(|c| c.view.clone()).collect::<Vec<_>>())
+        }
         _ => None,
     });
     let listed = listed.expect("the contacts read back");
@@ -2433,6 +2493,7 @@ async fn a_later_card_names_the_values_it_changes_and_the_edit_it_keeps() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let from_alice = direct(a.peer());
     let first = bob.model().proposals(&from_alice)[0].row;
@@ -2547,6 +2608,7 @@ async fn a_deleted_contact_comes_back_by_its_undo_until_its_route_is_taken() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     shared(&mut alice, &mut bob, &b).await;
     let first = bob.model().proposals(&direct(a.peer()))[0].row;
     bob.will(Intent::AcceptCard(first));
@@ -2637,6 +2699,7 @@ async fn a_removed_contact_photo_comes_back_by_its_undo() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     let shown = shared_again(
         &mut alice,
         &mut bob,
@@ -2648,14 +2711,15 @@ async fn a_removed_contact_photo_comes_back_by_its_undo() {
     bob.will(Intent::AcceptCard(shown.row));
     bob.pump(5).await;
     let before = bob.model().contacts()[0].clone();
-    assert!(before.photo.is_some(), "the setup: a card's photo");
+    let before_photo = bob.photo(&before.contact_id, 5).await;
+    assert!(before_photo.is_some(), "the setup: a card's photo");
 
     bob.will(Intent::SetContactPhoto {
         contact_id: before.contact_id.clone(),
         photo: PhotoEdit::Remove,
     });
     bob.pump(6).await;
-    assert!(bob.model().contacts()[0].photo.is_none(), "removed");
+    assert!(bob.photo(&before.contact_id, 6).await.is_none(), "removed");
     assert_eq!(
         bob.model().snackbar().map(|s| s.confirms),
         Some(Confirmation::PhotoRemoved)
@@ -2665,8 +2729,13 @@ async fn a_removed_contact_photo_comes_back_by_its_undo() {
     assert!(bob.failed().is_empty(), "{:?}", bob.failed());
     assert_eq!(
         bob.model().contacts(),
-        [before],
-        "photo, source and time back"
+        std::slice::from_ref(&before),
+        "source and time back"
+    );
+    assert_eq!(
+        bob.photo(&before.contact_id, 7).await,
+        before_photo,
+        "photo back"
     );
 }
 
@@ -2682,6 +2751,7 @@ async fn a_delete_after_a_photo_removal_on_one_contact_keeps_its_undo() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     let shown = shared_again(
         &mut alice,
         &mut bob,
@@ -2728,6 +2798,7 @@ async fn a_later_cards_photo_is_named_as_new_or_as_the_persons_kept() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     let first = shared_again(
         &mut alice,
         &mut bob,
@@ -2808,6 +2879,7 @@ async fn a_later_card_with_no_photo_removes_a_cards_photo_until_undone() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     let from_alice = direct(a.peer());
     let first = shared_again(
         &mut alice,
@@ -2841,7 +2913,8 @@ async fn a_later_card_with_no_photo_removes_a_cards_photo_until_undone() {
     bob.will(Intent::AcceptCard(without.row));
     bob.pump(15).await;
     assert!(bob.failed().is_empty(), "{:?}", bob.failed());
-    assert!(bob.model().contacts()[0].photo.is_none(), "removed");
+    let id = bob.model().contacts()[0].contact_id.clone();
+    assert!(bob.photo(&id, 15).await.is_none(), "removed");
     let answer = answer_of(&bob, &from_alice, without.row);
     assert!(answer.photo_removed && !answer.photo_dropped, "{answer:?}");
     let snack = bob.model().snackbar().expect("Contact updated");
@@ -2849,7 +2922,10 @@ async fn a_later_card_with_no_photo_removes_a_cards_photo_until_undone() {
     bob.pump(16).await;
     assert!(bob.failed().is_empty(), "{:?}", bob.failed());
     let contact = bob.model().contacts()[0].clone();
-    assert!(contact.photo.is_some(), "Undo gives the photo back");
+    assert!(
+        bob.photo(&contact.contact_id, 16).await.is_some(),
+        "Undo gives the photo back"
+    );
     assert_eq!(contact.photo_from_card, Some(true));
 
     bob.will(Intent::DeclineCard(without.row));
@@ -2898,6 +2974,7 @@ async fn a_later_cards_unusable_photo_is_named_and_its_answer_says_what_went() {
         let mut bob = Root::new(facade(&b, &pb, None));
         alice.pump(0).await;
         bob.pump(0).await;
+        bob.open(&direct(a.peer()), 0).await;
         let from_alice = direct(a.peer());
         let photo = if prior {
             PhotoEdit::Chosen(png(64, 64))
@@ -2907,7 +2984,8 @@ async fn a_later_cards_unusable_photo_is_named_and_its_answer_says_what_went() {
         let first = shared_again(&mut alice, &mut bob, (&a, &b), ("Ada", None, photo), 1).await;
         bob.will(Intent::AcceptCard(first.row));
         bob.pump(5).await;
-        assert_eq!(bob.model().contacts()[0].photo.is_some(), prior);
+        let id = bob.model().contacts()[0].contact_id.clone();
+        assert_eq!(bob.photo(&id, 5).await.is_some(), prior);
 
         drop(alice);
         own_photo(&pa, 257, 8);
@@ -2929,7 +3007,7 @@ async fn a_later_cards_unusable_photo_is_named_and_its_answer_says_what_went() {
         bob.will(Intent::AcceptCard(later.row));
         bob.pump(14).await;
         assert!(bob.failed().is_empty(), "{:?}", bob.failed());
-        assert!(bob.model().contacts()[0].photo.is_none(), "prior {prior}");
+        assert!(bob.photo(&id, 14).await.is_none(), "prior {prior}");
         let answer = answer_of(&bob, &from_alice, later.row);
         assert!(answer.photo_dropped, "prior {prior}");
         assert_eq!(answer.photo_removed, prior, "{answer:?}");
@@ -2951,6 +3029,7 @@ async fn a_later_card_keeps_the_persons_name_and_names_the_photo_it_removes() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     let from_alice = direct(a.peer());
     let first = shared_again(
         &mut alice,
@@ -2991,13 +3070,17 @@ async fn a_later_card_keeps_the_persons_name_and_names_the_photo_it_removes() {
     assert!(bob.failed().is_empty(), "{:?}", bob.failed());
     let contact = bob.model().contacts()[0].clone();
     assert_eq!(contact.name, "Countess");
-    assert!(contact.photo.is_none(), "the photo is gone");
+    assert!(
+        bob.photo(&contact.contact_id, 15).await.is_none(),
+        "the photo is gone"
+    );
     let snack = bob.model().snackbar().expect("Contact updated");
     bob.view(ViewEvent::Undo(snack.id));
     bob.pump(16).await;
     bob.will(Intent::DeclineCard(without.row));
     bob.pump(17).await;
-    assert!(bob.model().contacts()[0].photo.is_some(), "as it was");
+    let id = bob.model().contacts()[0].contact_id.clone();
+    assert!(bob.photo(&id, 17).await.is_some(), "as it was");
 
     drop(alice);
     own_card_raw(&pa, "Ada King", 257, 8);
@@ -3231,6 +3314,7 @@ async fn after_remove_photo_a_later_cards_photo_is_not_used() {
     let mut bob = Root::new(facade(&b, &pb, None));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
     let from_alice = direct(a.peer());
     let first = shared_again(
         &mut alice,

@@ -196,7 +196,7 @@ impl<S: Surface, O: Opener> App<S, O> {
                     eprintln!("human-desktop: {} failed: {why:?}", command_name(&command));
                 }
                 Problem::UnreadNotListed(why) => {
-                    eprintln!("human-desktop: unread messages could not be listed: {why:?}");
+                    eprintln!("human-desktop: unread messages could not be read again: {why:?}");
                 }
                 Problem::CardsNotRead(why) => {
                     eprintln!("human-desktop: cards or contacts could not be read: {why:?}");

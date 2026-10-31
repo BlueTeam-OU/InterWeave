@@ -7,10 +7,14 @@
 //! `read` checks every `--keep` id against the whole conversation in the
 //! walk's first pass, before anything is marked read; then each chunk is
 //! marked read, its `--keep` rows kept, and it is written and flushed
-//! before the next chunk is marked read, so a failure leaves no row read
-//! and unwritten. A page that cannot be read stops the walk with the
-//! store's failure: the rows written are read, the later ones stay unread,
-//! and a second `read` goes on from them.
+//! before the next chunk is marked read, so a failure of the store leaves
+//! no row read and unwritten. A page that cannot be read stops the walk
+//! with the store's failure: the rows written are read, the later ones
+//! stay unread, and a second `read` goes on from them. stdout failing
+//! after a chunk was read -- a reader gone, a full disk -- leaves that
+//! chunk read and unwritten, at most [`crate::walk::CHUNK`] rows: a row
+//! is read before it is printed, so its status prints as read
+//! (#519 review, round 1 risk 2).
 
 use std::collections::HashMap;
 use std::io::Write;

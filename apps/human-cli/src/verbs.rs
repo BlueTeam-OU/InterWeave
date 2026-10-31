@@ -196,7 +196,7 @@ pub(crate) fn problems<B: DataSessionBinding, A: AdminBinding>(
 fn problem_failure(problem: Problem) -> Failure {
     let (what, why) = match problem {
         Problem::Command { command, why } => (command_name(&command), why),
-        Problem::UnreadNotListed(why) => ("listing the unread messages", why),
+        Problem::UnreadNotListed(why) => ("reading the unread messages again", why),
         Problem::CardsNotRead(why) => ("reading the cards and contacts", why),
         Problem::ShareNotRecorded(why) => ("recording a card's share", why),
     };

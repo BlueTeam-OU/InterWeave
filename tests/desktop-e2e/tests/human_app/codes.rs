@@ -206,7 +206,9 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
     let mut facade = FacadeSide::new(client, wall_ms);
     let person = Scripted::default();
     let mut model = ModelSide::new(person.clone(), Nothing);
-    model.apply(Update::Listed(facade.listing().expect("a listing")));
+    model.apply(Update::Started(Box::new(
+        facade.start().expect("an empty store's start"),
+    )));
     let mut commands = Vec::new();
     for _ in 0..4 {
         pump(&mut model, &mut facade, &mut commands, start).await;

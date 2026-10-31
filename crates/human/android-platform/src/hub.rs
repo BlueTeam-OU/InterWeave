@@ -571,7 +571,7 @@ impl ViewLink {
 mod tests {
     use std::sync::atomic::AtomicUsize;
 
-    use interweave_human_app_core::Listing;
+    use interweave_human_app_core::Start;
     use interweave_human_client_api::Diagnostics;
 
     use super::*;
@@ -587,8 +587,18 @@ mod tests {
         )
     }
 
+    /// The first update a facade hands a view: its windowed start.
     fn listed() -> ToView {
-        ToView::Update(Box::new(Update::Listed(Listing::default())))
+        ToView::Update(Box::new(Update::Started(Box::new(Start {
+            pending: Vec::new(),
+            summaries: Vec::new(),
+            counted_through: None,
+            undecodable_unread: 0,
+            undecodable_other: 0,
+            kept: 0,
+            contacts: Ok(Vec::new()),
+            identity: None,
+        }))))
     }
 
     #[test]
@@ -619,7 +629,7 @@ mod tests {
         let taken = link.take();
         assert!(matches!(taken[0], ToView::Running(true)), "{taken:?}");
         assert!(
-            matches!(&taken[1], ToView::Update(u) if matches!(**u, Update::Listed(_))),
+            matches!(&taken[1], ToView::Update(u) if matches!(**u, Update::Started(_))),
             "{taken:?}"
         );
         assert!(
@@ -914,7 +924,7 @@ mod tests {
     fn the_listing(taken: &[ToView]) -> bool {
         taken
             .iter()
-            .any(|t| matches!(t, ToView::Update(u) if matches!(**u, Update::Listed(_))))
+            .any(|t| matches!(t, ToView::Update(u) if matches!(**u, Update::Started(_))))
     }
 
     /// `human-client-android.md`, a facade past its stop, rules 1 and 2:

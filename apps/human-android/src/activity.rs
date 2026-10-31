@@ -456,7 +456,7 @@ impl Root {
             match problem {
                 Problem::Command { why, .. } => log(&format!("a command failed: {why:?}")),
                 Problem::UnreadNotListed(why) => {
-                    log(&format!("unread messages could not be listed: {why:?}"));
+                    log(&format!("unread messages could not be read again: {why:?}"));
                 }
                 Problem::CardsNotRead(why) => {
                     log(&format!("cards or contacts could not be read: {why:?}"));

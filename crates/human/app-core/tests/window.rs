@@ -123,10 +123,9 @@ const PER_CONVERSATION: u32 = 300;
 /// A start reads one row per conversation, its newest, and none of a
 /// backlog: three conversations of 300 unread rows are started from three
 /// rows, every badge the store's count, and the model holds no row of
-/// them. The first start pays the kinds' classification once, every row;
-/// a whole listing of the same store reads every row, the control that
-/// shows the count is live. Mutation: the start summarising by listing
-/// every row.
+/// them. The first start pays the kinds' classification once, every row:
+/// the control that shows the count is live. Mutation: the start
+/// summarising by reading every row.
 #[test]
 fn a_start_reads_a_row_per_conversation_never_the_backlog() {
     let dir = common::private_tempdir();
@@ -205,13 +204,6 @@ fn a_start_reads_a_row_per_conversation_never_the_backlog() {
         model.model().rows_not_shown(),
         1,
         "the count reaches the model"
-    );
-
-    let before = side.rows_read();
-    side.listing().expect("listed");
-    assert!(
-        side.rows_read() - before >= total,
-        "a whole listing reads every row"
     );
 }
 
@@ -416,9 +408,10 @@ async fn paging_past_the_read_proposal_bound_evicts_none_and_loses_no_copy() {
 /// Accept hands back say the contact has one without its bytes -- no
 /// contact's photo reaches the model but through its ask, under its cap
 /// (#501 review F3) -- the ask brings it decoded, and an ask made under an
-/// older time brings none, the photo it named being gone. Mutations: the
-/// photo given whatever its time; a contact write answered with every
-/// contact's photo decoded.
+/// older time brings none, the photo it named being gone. Mutation: the
+/// photo given whatever its time. (A contact write answered with every
+/// contact's photo decoded no longer has a shape: the contacts it hands
+/// back are the directory, which holds no photo's bytes.)
 #[tokio::test]
 async fn a_photo_is_read_when_asked_and_only_as_it_stood() {
     let from = peer();
@@ -447,14 +440,6 @@ async fn a_photo_is_read_when_asked_and_only_as_it_stood() {
         shown: Box::new(proposal.context.clone()),
     })
     .await;
-    assert!(
-        !root
-            .updates
-            .iter()
-            .any(|u| matches!(u, Update::ContactsListed(_))),
-        "no contact list with photos: {:?}",
-        root.updates
-    );
     let contact = root
         .updates
         .iter()

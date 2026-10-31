@@ -1036,7 +1036,7 @@ impl UiModel {
         self.cards.shared.get(key).copied()
     }
 
-    /// The contacts, as the facade listed them after a change, held in
+    /// The contacts, as the directory the facade read holds them, held in
     /// the client's one order ([`crate::contact_order`]) whatever order
     /// the store read them in.
     pub fn contacts_listed(&mut self, mut contacts: Vec<ContactView>) {
