@@ -1100,6 +1100,12 @@ jobs:
       - name: Every test the security matrix names exists
         run: python3 tools/checks/check_security_matrix.py
 
+      # LOCAL-IPC.md's prose names the current IPC minor and schema
+      # versions in sentences schema_agreement.rs never reads; #503 left
+      # three of them a version behind with every test green.
+      - name: LOCAL-IPC.md's prose versions agree with IPC_MAX_MINOR and the ipc schemas
+        run: python3 tools/checks/check_ipc_prose_versions.py
+
       - name: Every guard is reachable from a workflow
         run: bash tools/checks/check_guards_are_wired.sh
 
