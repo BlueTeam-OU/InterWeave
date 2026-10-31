@@ -20,7 +20,7 @@
 use std::collections::BTreeMap;
 
 use interweave_human_chat_protocol::Card;
-use interweave_human_core::RowId;
+use interweave_human_core::{NameKeys, RowId};
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
 use super::swipe::{Confirmation, FocusTarget};
@@ -580,6 +580,10 @@ pub(super) struct Cards {
     /// The order they were read in, oldest first: the cap's eviction order.
     read_order: std::collections::VecDeque<RowId>,
     contacts: Vec<ContactView>,
+    /// Each contact's name keys, at its index in `contacts`: made once
+    /// per list, so a title asks the same-name rule without remaking
+    /// every contact's keys.
+    name_keys: Vec<NameKeys>,
     identity: Option<IdentityView>,
     /// When each conversation last shared its identity's card, this
     /// session: what the conversation's details show.
@@ -733,11 +737,17 @@ impl Cards {
         })
     }
 
-    /// Whether another contact than `contact_id` has `name`.
+    /// Whether another contact than `contact_id` has `name` by the
+    /// store's same-name rule (contact-cards design 5.4.1, STATE.md schema
+    /// v12): a lookalike spelling too, so a peer cannot pass as a contact
+    /// in a title the warning would have caught (`human-client-ui.md` §13
+    /// bullet 9). One pair at a time, as the rule is not transitive.
     pub(super) fn name_is_shared(&self, contact_id: &str, name: &str) -> bool {
+        let keys = NameKeys::of(name);
         self.contacts
             .iter()
-            .any(|c| c.contact_id != contact_id && c.name == name)
+            .zip(&self.name_keys)
+            .any(|(c, other)| c.contact_id != contact_id && keys.same_as(other))
     }
 }
 
@@ -1041,6 +1051,7 @@ impl UiModel {
     /// the store read them in.
     pub fn contacts_listed(&mut self, mut contacts: Vec<ContactView>) {
         contacts.sort_by(crate::contact_order);
+        self.cards.name_keys = contacts.iter().map(|c| NameKeys::of(&c.name)).collect();
         self.cards.contacts = contacts;
     }
 
@@ -1870,6 +1881,40 @@ mod tests {
                 ]
             )
         );
+    }
+
+    /// Twin titles (`human-client-ui.md` §13 bullet 9, design 6.1) ask the
+    /// store's same-name rule, not exact equality: two contacts whose names
+    /// are the same by any one key each carry their own short `PeerId`, a
+    /// pair per key that joins it, and a pair no key joins carries none.
+    /// Each title is checked for its own `PeerId`, never only told apart
+    /// from the other: a lookalike pair is already unequal without one.
+    /// Mutation: `name_is_shared` comparing names exactly.
+    #[test]
+    fn a_lookalike_name_titles_both_contacts_with_their_short_peer_ids() {
+        for (a, b) in [
+            ("\u{392}ob", "Bob"),
+            ("Al\u{17f}ie", "Alfie"),
+            ("J\u{ff10}hn", "John"),
+            ("Ian", "ian"),
+        ] {
+            let mut model = UiModel::new();
+            model.contacts_listed(vec![contact("c1", a, P), contact("c2", b, Q)]);
+            for (name, p) in [(a, P), (b, Q)] {
+                assert_eq!(
+                    model.title(&direct(p, "human")),
+                    crate::labels::fill(
+                        placeholder_en::text(UiText::ContactTitle),
+                        &[("name", name), ("peer", &crate::labels::short_peer(p))]
+                    ),
+                    "{name:?} beside {a:?}/{b:?}"
+                );
+            }
+        }
+        let mut model = UiModel::new();
+        model.contacts_listed(vec![contact("c1", "Mia", P), contact("c2", "Max", Q)]);
+        assert_eq!(model.title(&direct(P, "human")), "Mia", "the control");
+        assert_eq!(model.title(&direct(Q, "human")), "Max", "the control");
     }
 
     #[test]

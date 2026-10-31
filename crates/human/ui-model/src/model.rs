@@ -1300,7 +1300,8 @@ impl UiModel {
 
     /// The title, its contact's name once the route belongs to one (plan
     /// §29 step 2, `human-client-ui.md` §4), with the short `PeerId` beside
-    /// it when another contact has that name; else as before. `isolate`
+    /// it when another contact's name is the same by the same-name rule
+    /// (contact-cards design 5.4.1), a lookalike included; else as before. `isolate`
     /// wraps the name for a view that draws it in other text.
     fn contact_title(
         &self,
