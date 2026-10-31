@@ -29,7 +29,7 @@ mod store_recovery;
 mod trust;
 mod waiting;
 
-pub use connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectLine};
+pub use connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectLine, ConnectPhase};
 pub use identity_flow::{
     Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, Words,
 };

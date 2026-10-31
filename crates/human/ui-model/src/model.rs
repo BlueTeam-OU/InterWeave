@@ -19,7 +19,9 @@ use interweave_transport_api::{
     ChannelId, EndpointId, PeerPath, TransportError, TransportIdentity,
 };
 
-use crate::connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectState};
+use crate::connect::{
+    Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectPhase, ConnectState,
+};
 use crate::labels::{
     ErrorClass, LabelKey, UiText, fill, outbound_label, placeholder_en, send_error_class,
     session_problem_class, short_peer,
@@ -1588,26 +1590,40 @@ impl UiModel {
                 let list = self.peers.list_answered()?;
                 let trust = self.trust.read_answered()?;
                 if !(list && trust) {
-                    self.connect = ConnectState::Decided;
+                    self.connect = ConnectState::Decided { deferred: true };
                     return Some(ConnectGate::Deferred);
                 }
                 if self.no_reach() {
                     self.connect = ConnectState::Open(Connect::opened());
                     Some(ConnectGate::Open)
                 } else {
-                    self.connect = ConnectState::Decided;
+                    self.connect = ConnectState::Decided { deferred: false };
                     Some(ConnectGate::Settled)
                 }
             }
             ConnectState::Left => {
-                self.connect = ConnectState::Decided;
+                self.connect = ConnectState::Decided { deferred: false };
                 Some(ConnectGate::Settled)
             }
             ConnectState::Open(ref mut connect) => {
                 connect.trust_read(&self.trust);
                 None
             }
-            ConnectState::NotOwed | ConnectState::Decided => None,
+            ConnectState::NotOwed | ConnectState::Decided { .. } => None,
+        }
+    }
+
+    /// Where this start stands on Connect: owed until both reads answer,
+    /// then open, settled or deferred. A person who left it is settled,
+    /// the platform told so at the next turn.
+    #[must_use]
+    pub const fn connect_phase(&self) -> ConnectPhase {
+        match &self.connect {
+            ConnectState::NotOwed => ConnectPhase::NotOwed,
+            ConnectState::Owed => ConnectPhase::Owed,
+            ConnectState::Open(_) => ConnectPhase::Open,
+            ConnectState::Left | ConnectState::Decided { deferred: false } => ConnectPhase::Settled,
+            ConnectState::Decided { deferred: true } => ConnectPhase::Deferred,
         }
     }
 
