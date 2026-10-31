@@ -1691,9 +1691,13 @@ mod tests {
             .collect();
         assert!(statements.len() >= 4, "control: the writers are found");
         for statement in statements {
+            // Whole column names: `compat_shape_key` holds `shape_key`.
+            let words: Vec<&str> = statement
+                .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .collect();
             for key in ["name_key", "shape_key", "compat_shape_key"] {
                 assert!(
-                    statement.contains(key),
+                    words.contains(&key),
                     "writes a display name without its {key}: {statement}"
                 );
             }
