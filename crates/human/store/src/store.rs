@@ -109,6 +109,17 @@ const WALK_UNREAD: &str = "SELECT row_id, app_message_id, source_peer, source_en
   WHERE (received_at, row_id) > (?1, ?2)
   ORDER BY received_at, row_id
   LIMIT ?3";
+/// The unread rows stored as cards, from the kind index: a store holds a
+/// few cards among many messages, and its rows are read by the index
+/// rather than by a walk of every message. Named rather than left to the
+/// planner, as the window module's counts are.
+const WALK_UNREAD_CARDS: &str =
+    "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
+        media_type, payload, received_at, NULL, NULL, kind
+   FROM unread_inbound INDEXED BY unread_inbound_by_kind
+  WHERE kind = 'card' AND (received_at, row_id) > (?1, ?2)
+  ORDER BY received_at, row_id
+  LIMIT ?3";
 const WALK_KEPT: &str = "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
         media_type, payload, received_at, read_at, kept_at, kind
    FROM kept_inbound
@@ -1357,6 +1368,20 @@ impl HumanStore {
         self.read_inbound_table("unread_inbound", after, limits)
     }
 
+    /// One page of the unread rows stored as cards ([`InboundKind::Card`]),
+    /// oldest first, resuming after `after`: what judging the card
+    /// proposals again reads, rather than every unread message.
+    ///
+    /// # Errors
+    /// As [`Self::unread_inbound_page`].
+    pub fn unread_cards_page(
+        &self,
+        after: Option<Cursor>,
+        limits: PageLimits,
+    ) -> Result<Page<StoredInbound>, StoreError> {
+        self.read_inbound_page(WALK_UNREAD_CARDS, after, limits)
+    }
+
     /// Every inbound message the receiver kept, oldest first.
     ///
     /// # Errors
@@ -1478,8 +1503,17 @@ impl HumanStore {
         // `table` is one of two literals chosen by this module, never
         // caller input; SQLite does not bind identifiers.
         let kept = table == "kept_inbound";
-        let sql = if kept { WALK_KEPT } else { WALK_UNREAD };
+        self.read_inbound_page(if kept { WALK_KEPT } else { WALK_UNREAD }, after, limits)
+    }
 
+    /// One page of `sql`, one of this module's walks, each taking the
+    /// cursor's two bounds and a row limit.
+    fn read_inbound_page(
+        &self,
+        sql: &str,
+        after: Option<Cursor>,
+        limits: PageLimits,
+    ) -> Result<Page<StoredInbound>, StoreError> {
         let (sort_key, row_id) = cursor_bounds(after)?;
         let fetch = i64::try_from(limits.max_records().saturating_add(1)).unwrap_or(i64::MAX);
         let mut stmt = self.conn.prepare(sql)?;

@@ -3360,6 +3360,9 @@ struct DrawnBody {
     /// The drawn text alone, for the item's label: what a screen reader
     /// reads is the text, not the source's markup.
     plain: String,
+    /// One's own card's photo as it went, made once with the body: made
+    /// again, it would not equal the row's (`cards::image`).
+    card_photo: slint::Image,
 }
 
 /// An avatar's pair as the views number it: 0 teal, 1 amber, 2 navy.
@@ -3432,6 +3435,11 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         link_rows: ModelRc::new(VecModel::from(link_rows)),
         links: body.links,
         plain,
+        card_photo: item
+            .card
+            .as_ref()
+            .and_then(|c| c.photo.as_ref())
+            .map_or_else(cards::no_photo, cards::image),
     }
 }
 
@@ -3548,12 +3556,7 @@ fn message_row(
             .unwrap_or_default()
             .into(),
         card_has_photo: item.card.as_ref().is_some_and(|c| c.photo.is_some()),
-        card_photo: item
-            .card
-            .as_ref()
-            .and_then(|c| c.photo.as_ref())
-            .map(cards::image)
-            .unwrap_or_default(),
+        card_photo: drawn.card_photo.clone(),
         has_menu: item.card.is_none() || has_actions,
     }
 }

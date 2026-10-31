@@ -6116,6 +6116,12 @@ export component AppWindow inherits Window {
                 content-height: messages-column.preferred-height;
                 // The list's top in view: the top edge reached by scrolling.
                 property <bool> at-top: root.windowed && self.content-y >= -1px;
+                // Its top shown, at most its padding scrolled away: where
+                // focus moving onto the first row leaves it, scrolling only
+                // as far as that row. A row arriving above then shows
+                // rather than being kept out of view by the anchor
+                // (`at_the_session_bound_the_limit_row_asks_and_asks_again_after_a_reopen`).
+                property <bool> top-shown: self.content-y >= -messages-column.padding - 1px;
                 changed at-top => { root.list-at-top(self.at-top); }
                 property <length> last-y: self.content-y;
                 // A row tracking a swipe holds its touch: the list does
@@ -6260,21 +6266,49 @@ export component AppWindow inherits Window {
                 // rather than squeezing its rows into the window.
                 min-height: row.leaving ? 0px : row-content.min-height;
                 property <bool> collapsing: false;
+                // Its place is read once it is placed, after the rows made
+                // with it are made: what a row evaluates as it is made
+                // -- its init and the first value of each change handler --
+                // is evaluated while the list is still making the rows after
+                // it, and a read of its place there laid the whole list out
+                // again, measuring every row's text, for each row made: a page
+                // of 64 arriving above 256 held rows took 2 s to draw in a
+                // release window, 70 ms placed this way (j77;
+                // `a_page_drawn_above_costs_its_own_rows_not_the_held_ones`).
+                // The timer fires on the next pass of the event loop, after
+                // the draw that made it, and every row made by that draw is
+                // then placed by one layout.
+                property <bool> placed: false;
+                Timer {
+                    interval: 0ms;
+                    running: !row-box.placed;
+                    triggered => { row-box.placed = true; }
+                }
                 // Any part of it in the list's view (start-window section
                 // 5.1: kept while in view,
                 // `the_focused_the_in_view_and_the_newest_are_never_let_go`; an edge reached by
-                // scrolling). Said on each change, and at its creation when
-                // in view, since a change handler does not see a first value.
-                property <bool> in-view: root.windowed && !row.leaving
+                // scrolling). Said on each change; false until it is placed,
+                // so its change handler sees the first value. The place is
+                // read in a right-hand side of its own: Slint reads a
+                // property used twice once, at the top of the binding,
+                // unless the reads sit past a condition, and in a chain of
+                // `&&` only the last operand does.
+                property <bool> in-view: self.placed && (root.windowed && !row.leaving
                     && self.y + messages-column.y + messages-flick.content-y + self.height > 0px
-                    && self.y + messages-column.y + messages-flick.content-y < messages-flick.height;
+                    && self.y + messages-column.y + messages-flick.content-y < messages-flick.height);
                 changed in-view => { root.row-in-view(row.handle, self.in-view); }
                 // Where its message stands in the list -- its bubble, not
                 // the row: a day separator handed to rows added above it
                 // moves the bubble within the row -- and where it stood,
-                // for the anchor row to keep its place.
-                property <length> item-top: self.y + row-content.y + item.y;
+                // for the anchor row to keep its place. Nothing until it is
+                // placed; `had-place` says whether the last value was a place,
+                // since the change from nothing to the first is no move to
+                // follow (a row made focused can be the next render's anchor
+                // before its timer fires;
+                // `a_row_named_by_focus_before_it_is_placed_moves_nothing_when_placed`).
+                property <length> item-top: self.placed ? self.y + row-content.y + item.y : 0px;
                 property <length> placed-y;
+                property <bool> had-place: false;
                 // Where on screen it stood as rows were added above it, kept
                 // until the next render: their layout takes more than one
                 // change, the list clamps a passing offset past its top, and
@@ -6282,25 +6316,23 @@ export component AppWindow inherits Window {
                 // (`a_page_arriving_above_leaves_the_row_in_view_where_it_was`).
                 property <length> follow-target;
                 property <int> follow-seq: -1;
-                init => {
-                    if (self.in-view) { root.row-in-view(row.handle, true); }
-                    self.placed-y = self.item-top;
-                }
                 changed item-top => {
-                    if (root.windowed && row.handle == root.anchor-handle && !messages-flick.anchored) {
+                    if (self.had-place && root.windowed && row.handle == root.anchor-handle && !messages-flick.anchored) {
                         if (root.follow-seq == root.render-seq && self.follow-seq != root.render-seq) {
                             self.follow-target = self.placed-y + messages-flick.content-y;
                             self.follow-seq = root.render-seq;
                         }
                         if (self.follow-seq == root.render-seq) {
                             messages-flick.content-y = self.follow-target - self.item-top;
-                        } else if (!messages-flick.at-top) {
-                            // Something above changed while the list is away
-                            // from its very top: the view does not move.
+                        } else if (!messages-flick.top-shown) {
+                            // Something above changed while more than the
+                            // list's padding is scrolled away, its top not
+                            // shown: the view does not move.
                             messages-flick.content-y -= self.item-top - self.placed-y;
                         }
                     }
                     self.placed-y = self.item-top;
+                    self.had-place = self.placed;
                 }
                 // Held at its content's height, read from the content rather
                 // than kept by a change handler, which runs a turn late: a

@@ -4377,3 +4377,41 @@ fn a_fresh_model_is_told_the_open_conversation_and_avatars_again() {
     view.forget_window_reports();
     assert_eq!(avatar_reports(&mut view), (3, 0), "every avatar in view");
 }
+
+/// A render that changes nothing leaves every contact row equal to what
+/// it was, with a photo or without: the list sets only a row that
+/// differs, and a set row is laid out again (j77). Mutation: the empty
+/// image `Image::default()` for a contact with no photo.
+#[test]
+fn a_render_that_changes_nothing_leaves_every_contact_row_equal() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.started(Vec::new(), Vec::new(), None);
+    model.contacts_directory(Ok(vec![
+        interweave_human_ui_model::DirectoryContact {
+            view: ContactView {
+                photo_at: Some(5),
+                ..contact("c0", "Contact 0", P)
+            },
+            has_photo: true,
+        },
+        interweave_human_ui_model::DirectoryContact {
+            view: contact("c1", "Contact 1", P),
+            has_photo: false,
+        },
+    ]));
+    open_contacts(&mut view, &mut model);
+    model.photo_arrived("c0", Some(5), Some(photo()));
+    view.render(&model);
+    let before: Vec<_> = view.window().get_contact_rows().iter().collect();
+    assert_eq!(
+        before.iter().map(|r| r.has_photo).collect::<Vec<_>>(),
+        [true, false],
+        "control: one row with its photo, one without"
+    );
+    view.render(&model);
+    let after: Vec<_> = view.window().get_contact_rows().iter().collect();
+    for (index, (was, is)) in before.iter().zip(&after).enumerate() {
+        assert!(was == is, "row {index} made again differs");
+    }
+}

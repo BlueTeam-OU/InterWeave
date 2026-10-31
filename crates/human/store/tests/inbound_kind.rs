@@ -272,3 +272,42 @@ fn a_kind_this_build_does_not_know_is_hidden_and_reset_by_reclassification() {
         .expect("the kind");
     assert_eq!(stored, "other", "written back as this build's");
 }
+
+/// The unread cards are read by their kind alone, oldest first and a page
+/// at a time: no message, no row of a kind this build cannot show, and no
+/// kept card. Mutations: the kind filter dropped; the page's cursor not
+/// carried to the next.
+#[test]
+fn the_unread_cards_are_read_by_their_kind_a_page_at_a_time() {
+    let (_dir, _path, mut store) = store();
+    for (n, kind) in [
+        (1, InboundKind::Text),
+        (2, InboundKind::Card),
+        (3, InboundKind::Other),
+        (4, InboundKind::Card),
+        (5, InboundKind::Text),
+        (6, InboundKind::Card),
+    ] {
+        store
+            .commit_unread_inbound(&inbound(n, kind))
+            .expect("a row");
+    }
+    let kept = store
+        .commit_unread_inbound(&inbound(7, InboundKind::Card))
+        .expect("a card to keep");
+    let read = store.mark_read(kept, 10).expect("read");
+    store.keep(&read, 11).expect("kept");
+
+    let two = PageLimits::new(2, 1024).expect("limits");
+    let first = store.unread_cards_page(None, two).expect("a page");
+    let second = store
+        .unread_cards_page(first.next, two)
+        .expect("the next page");
+    let at = |rows: &[interweave_human_store::StoredInbound]| -> Vec<u64> {
+        rows.iter().map(|r| r.received_at).collect()
+    };
+    assert_eq!(at(&first.items), [2, 4], "the first two cards");
+    assert!(first.next.is_some(), "more to read");
+    assert_eq!(at(&second.items), [6], "the last card, the kept one not");
+    assert!(second.next.is_none(), "nothing after it");
+}

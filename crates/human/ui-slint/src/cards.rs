@@ -362,6 +362,24 @@ fn contact_hue(contact: &ContactView) -> i32 {
     })
 }
 
+/// The image a row holds where it shows no photo, in place of Slint's
+/// empty image. That one equals nothing, not even its own clone (1.18.1's
+/// `ImageInner::eq` ends `_ => false`), so a row holding it differed from
+/// itself made again: every render set every such row, and Slint lays a
+/// set row out again -- each page of messages re-laid every row already
+/// held (j77). Clones of this one share its pixel, so they compare equal;
+/// it is not drawn, since the row's `has-photo` is false.
+pub(crate) fn no_photo() -> Image {
+    thread_local! {
+        static NO_PHOTO: Image = Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::new(1, 1));
+    }
+    NO_PHOTO.with(Clone::clone)
+}
+
+/// A photo as a row draws it. Each call copies the pixels into a buffer
+/// of its own, and images compare by buffer, so a row's photo is made once
+/// and its clone kept (`photo_images`, a message's `DrawnBody`): one made
+/// again would differ, and its row be set and laid out again.
 pub(crate) fn image(photo: &Photo) -> Image {
     Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
         &photo.rgba,
@@ -1577,7 +1595,7 @@ impl View {
                     letters: initials(&c.name).into(),
                     hue: contact_hue(c),
                     has_photo: photo.is_some(),
-                    photo: photo.unwrap_or_default(),
+                    photo: photo.unwrap_or_else(no_photo),
                 }
             })
             .collect();

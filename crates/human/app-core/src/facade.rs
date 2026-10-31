@@ -526,8 +526,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     }
 
     /// How many stored rows this side has read and decoded so far --
-    /// classified, listed, summarised or paged: what a start's cost is
-    /// measured in, since a memory figure says nothing a test can hold.
+    /// classified, listed (the pending rows), summarised, paged, or read
+    /// to judge the proposals again: what a start's cost, and a contact
+    /// change's, is measured in, since a memory figure says nothing a
+    /// test can hold.
     #[must_use]
     pub const fn rows_read(&self) -> u64 {
         self.rows_read
@@ -1498,7 +1500,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     }
 
     /// Delete a contact (ADR-0059 decision 3): the store deletes it, its
-    /// routes and their keys, and the contacts are listed again.
+    /// routes and their keys; the contacts' directory is read again and
+    /// every card proposal held is judged again.
     fn delete_contact(
         &mut self,
         contact_id: &str,
@@ -1711,11 +1714,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// another card on its route changed it. Those not yet shown
     /// are in the store; those shown and undecided are this session's
     /// copies. The model replaces each it still holds, by its row
-    /// ([`Update::ProposalJudged`]).
+    /// ([`Update::ProposalJudged`]). The store's are its unread cards,
+    /// read by their kind: a contact change reads no message.
     fn proposals_again(&mut self, updates: &mut Vec<Update>) {
-        if let Some((_, unshown, _)) =
-            read_or_said(listing::list_unread(self.client.store_mut()), updates)
-        {
+        if let Some(unshown) = read_or_said(
+            listing::list_unread_cards(self.client.store_mut(), &mut self.rows_read),
+            updates,
+        ) {
             for card in unshown {
                 say(
                     updates,

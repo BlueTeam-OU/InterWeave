@@ -727,6 +727,47 @@ fn a_message_arriving_at_the_end_up_in_the_history_moves_nothing() {
     );
 }
 
+/// A row made by one render and named by focus is the next render's
+/// anchor before it is placed (its place is read once a timer places it,
+/// the same turn's renders running before that): its first place is
+/// where it is put, not a move, so nothing in view moves. Mutation: the
+/// anchor following a row's first place (`had-place` dropped).
+#[test]
+fn a_row_named_by_focus_before_it_is_placed_moves_nothing_when_placed() {
+    let mut view = view();
+    let (from, mut model) = tall(&mut view);
+    scroll(&view, 1_600.0);
+    apply(&mut view, &mut model);
+    let row = first_in_view(&view);
+    let before = y_of(&view, &row);
+    model.received(received(101, &from, "message 101"));
+    view.render(&model);
+    let messages = view.window().get_messages();
+    let made = messages
+        .row_data(messages.row_count() - 1)
+        .expect("message 101")
+        .handle;
+    // What a caller holds: a focus id naming a row, left as it was.
+    view.window().set_focus_id(format!("item:{made}").into());
+    view.render(&model);
+    assert_eq!(
+        view.window().get_anchor_handle(),
+        made,
+        "control: the row not yet placed is the anchor"
+    );
+    settle();
+    // Not in view at all once the list has jumped: the query finds only
+    // the rows in view.
+    let after = all(&view)
+        .into_iter()
+        .find(|e| e.accessible_label().is_some_and(|l| l.contains(&row)))
+        .map(|e| e.absolute_position().y);
+    assert!(
+        after.is_some_and(|after| (after - before).abs() <= 1.0),
+        "nothing moves: {row} at {before}, then at {after:?}"
+    );
+}
+
 /// Focus on the line when its count reaches zero goes to the row that was
 /// just below it, as app-placed focus (section 7's table). Mutation: focus
 /// left on the line no longer drawn.
