@@ -22,6 +22,7 @@
 
 use rusqlite::{OptionalExtension as _, params};
 
+use interweave_human_core::NameKeys;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
 use super::{HumanStore, sql_timestamp, stored_ms};
@@ -416,27 +417,24 @@ pub fn direct_conversation_id(peer: &TransportIdentity, endpoint: &EndpointId) -
     format!("direct/{}/{}", peer.as_str(), endpoint.as_str())
 }
 
-/// The key two names are the same by (contact-cards design 5.4.1): NFKC,
-/// full case folding, each run of whitespace one space and the ends
-/// trimmed, then Unicode TS #39's confusable skeleton. A peer naming
-/// itself "Аnna" with a Cyrillic А, "Anna Rossi" with a no-break space or
-/// "Ａnna" in fullwidth letters meets the same warning as "Anna". The
-/// design keeps the key for comparison: a key is not a name to show or
-/// store. White space is Rust's `White_Space`,
-/// a superset of the design's Zs and tab; a card's name holds no other
-/// (HUMAN-CHAT.md refuses controls in it).
+/// The case key of `name`, the one of contact-cards design 5.4.1's three
+/// keys that `contacts.name_key` holds (STATE.md, schema v10): NFKC, each
+/// run of whitespace one space and the ends trimmed, full case folding,
+/// then Unicode TS #39's confusable skeleton. A peer naming itself "Аnna"
+/// with a Cyrillic А, "Anna Rossi" with a no-break space or "Ａnna" in
+/// fullwidth letters meets the same warning as "Anna". The other two keys
+/// are schema v12's columns beside it ([`NameKeys`]); whether two names
+/// are the same asks all three. A key is for comparison, never a name to
+/// show or store.
 #[must_use]
 pub fn name_key(name: &str) -> String {
-    use unicode_normalization::UnicodeNormalization as _;
-    let nfkc: String = name.nfkc().collect();
-    let folded = caseless::default_case_fold_str(&nfkc);
-    let spaced = folded.split_whitespace().collect::<Vec<_>>().join(" ");
-    unicode_security::skeleton(&spaced).collect()
+    interweave_human_core::names::case_key(name)
 }
 
 /// A card's standing, read by name (schema v10): the contacts on the
-/// card's `PeerId` by the route index, those whose name key is the card's
-/// by the name-key index, and those holding its key on another `PeerId`
+/// card's `PeerId` by the route index, those whose name is the card's by
+/// any one of the three name-key indexes (schema v12: each key against
+/// its own kind, design 5.4.1), and those holding its key on another `PeerId`
 /// by the identity-key index, each but the contact Accept updates.
 /// `the_standing_reads_use_their_indexes` reads their plans. Each in the
 /// store's id order, which no person sees: SQLite cannot collate a name,
@@ -447,7 +445,8 @@ const SHARES_NODE: &str = "SELECT DISTINCT c.contact_id, c.display_name
               WHERE r.peer_id = ?1 AND c.contact_id IS NOT ?2
               ORDER BY c.contact_id";
 const SAME_NAME: &str = "SELECT c.contact_id, c.display_name FROM contacts c
-              WHERE c.name_key = ?1 AND c.contact_id IS NOT ?2
+              WHERE (c.name_key = ?1 OR c.shape_key = ?4 OR c.compat_shape_key = ?5)
+                AND c.contact_id IS NOT ?2
                 AND NOT EXISTS (SELECT 1 FROM contact_routes r
                                  WHERE r.contact_id = c.contact_id AND r.peer_id = ?3)
               ORDER BY c.contact_id";
@@ -456,14 +455,16 @@ const KEY_MATCHES: &str = "SELECT DISTINCT c.contact_id, c.display_name
               WHERE r.identity_key = ?1 AND r.peer_id <> ?2 AND c.contact_id IS NOT ?3
               ORDER BY c.contact_id";
 
-/// The version of [`name_key`]'s output, kept in `settings` as
-/// `name_key_version` (STATE.md, schema v10). A build whose key differs
-/// for any name -- a new Unicode version in `unicode-normalization`,
-/// `caseless` or `unicode-security`, or a change here -- bumps it, and the
-/// first open recomputes every contact's key before any standing reads
-/// one. `the_name_key_is_pinned` fails when the output moves and this did
-/// not.
-pub(crate) const NAME_KEY_VERSION: &str = "1";
+/// The version of the three name keys' output ([`NameKeys`]), kept in
+/// `settings` as `name_key_version` (STATE.md, schemas v10 and v12). A
+/// build whose keys differ for any name -- a new Unicode version in
+/// `unicode-normalization`, `caseless` or `unicode-security`, or a change
+/// to any one key -- bumps it, and the first open recomputes all three
+/// keys of every contact before any standing reads one. Version 2 is
+/// schema v12's: the first version with the shape keys, whose columns
+/// start empty. `the_name_keys_are_pinned` fails when an output moves and
+/// this did not.
+pub(crate) const NAME_KEY_VERSION: &str = "2";
 
 /// The `settings` key [`NAME_KEY_VERSION`] is kept under.
 const NAME_KEY_SETTING: &str = "name_key_version";
@@ -472,9 +473,10 @@ const NAME_KEY_SETTING: &str = "name_key_version";
 /// at a time, never every contact.
 const NAME_KEY_BATCH: i64 = 256;
 
-/// At open: every contact's `name_key` recomputed when the store's keys
-/// were made by another version of [`name_key`] -- or by none, as after
-/// the v10 migration, which leaves them empty -- in one transaction with
+/// At open: every contact's three name keys recomputed when the store's
+/// keys were made by another version of [`NameKeys`] -- or by none, as
+/// after the v10 and v12 migrations, which leave them empty -- in one
+/// transaction with
 /// the version row, so a crash leaves the old version and the next open
 /// starts over.
 ///
@@ -508,9 +510,11 @@ pub(crate) fn refresh_name_keys(conn: &mut rusqlite::Connection) -> Result<(), S
         };
         after.clone_from(last);
         for (contact_id, display_name) in &batch {
+            let keys = NameKeys::of(display_name);
             tx.execute(
-                "UPDATE contacts SET name_key = ?2 WHERE contact_id = ?1",
-                params![contact_id, name_key(display_name)],
+                "UPDATE contacts SET name_key = ?2, shape_key = ?3, compat_shape_key = ?4
+                  WHERE contact_id = ?1",
+                params![contact_id, keys.case, keys.shape, keys.compat_shape],
             )?;
         }
     }
@@ -751,15 +755,22 @@ impl HumanStore {
             Some(recorded) => KeyStanding::Changed { recorded },
         };
         // Three indexed reads of names, never every contact decoded per
-        // card (schema v10): by the route index, the name-key index and
-        // the identity-key index, each excluding the contact Accept
+        // card (schema v10): by the route index, the three name-key
+        // indexes (v12) and the identity-key index, each excluding the contact Accept
         // updates. `a_cards_standing_reads_no_contact_but_the_one_it_updates`
         // counts the statements.
         let excluded = updates.as_ref().map(|u| u.contact_id.as_str());
         let shares_node = self.contact_names(SHARES_NODE, params![card.peer.as_str(), excluded])?;
+        let keys = NameKeys::of(&card.display_name());
         let same_name = self.contact_names(
             SAME_NAME,
-            params![name_key(&card.display_name()), excluded, card.peer.as_str()],
+            params![
+                keys.case,
+                excluded,
+                card.peer.as_str(),
+                keys.shape,
+                keys.compat_shape
+            ],
         )?;
         let key_matches = self.contact_names(
             KEY_MATCHES,
@@ -807,6 +818,7 @@ impl HumanStore {
     ) -> Result<Accepted, StoreError> {
         let at = sql_timestamp("at", at_ms)?;
         let display = card.display_name();
+        let keys = NameKeys::of(&display);
         let result = (|| -> Result<Accepted, StoreError> {
             let tx = self.conn.transaction()?;
             let held: Option<(String, Option<Vec<u8>>)> = tx
@@ -855,9 +867,17 @@ impl HumanStore {
                     ValueSource::from_sql(name_source.as_deref()) == ValueSource::Person;
                 if !name_kept {
                     tx.execute(
-                        "UPDATE contacts SET display_name = ?2, name_key = ?4, name_at = ?3, updated_at = ?3
+                        "UPDATE contacts SET display_name = ?2, name_key = ?4, shape_key = ?5,
+                                compat_shape_key = ?6, name_at = ?3, updated_at = ?3
                           WHERE contact_id = ?1",
-                        params![contact_id, display, at, name_key(&display)],
+                        params![
+                            contact_id,
+                            display,
+                            at,
+                            keys.case,
+                            keys.shape,
+                            keys.compat_shape
+                        ],
                     )?;
                 }
                 // A photo the person set stays. Unlike a name, a contact
@@ -899,9 +919,10 @@ impl HumanStore {
             } else {
                 let contact_id = new_contact_id();
                 tx.execute(
-                    "INSERT INTO contacts (contact_id, display_name, name_key, name_source, name_at,
-                                           photo, photo_source, photo_at, created_at, updated_at)
-                     VALUES (?1, ?2, ?8, ?3, ?4, ?5, ?6, ?7, ?4, ?4)",
+                    "INSERT INTO contacts (contact_id, display_name, name_key, shape_key,
+                                           compat_shape_key, name_source, name_at, photo,
+                                           photo_source, photo_at, created_at, updated_at)
+                     VALUES (?1, ?2, ?8, ?9, ?10, ?3, ?4, ?5, ?6, ?7, ?4, ?4)",
                     params![
                         contact_id,
                         display,
@@ -910,7 +931,9 @@ impl HumanStore {
                         card.photo,
                         card.photo.map(|_| ValueSource::Card.as_sql()),
                         card.photo.map(|_| at),
-                        name_key(&display)
+                        keys.case,
+                        keys.shape,
+                        keys.compat_shape
                     ],
                 )?;
                 tx.execute(
@@ -962,10 +985,12 @@ impl HumanStore {
         else {
             return self.delete_contact(undo.contact_id());
         };
+        let keys = NameKeys::of(&before.display_name);
         let result = (|| -> Result<bool, StoreError> {
             let tx = self.conn.transaction()?;
             let restored = tx.execute(
-                "UPDATE contacts SET display_name = ?2, name_key = ?9, name_source = ?3, name_at = ?4,
+                "UPDATE contacts SET display_name = ?2, name_key = ?9, shape_key = ?10,
+                        compat_shape_key = ?11, name_source = ?3, name_at = ?4,
                         photo = ?5, photo_source = ?6, photo_at = ?7, updated_at = ?8
                   WHERE contact_id = ?1",
                 params![
@@ -977,7 +1002,9 @@ impl HumanStore {
                     before.photo_source,
                     before.photo_at,
                     before.updated_at,
-                    name_key(&before.display_name)
+                    keys.case,
+                    keys.shape,
+                    keys.compat_shape
                 ],
             )?;
             tx.execute(
@@ -1009,12 +1036,22 @@ impl HumanStore {
         at_ms: u64,
     ) -> Result<bool, StoreError> {
         let at = sql_timestamp("at", at_ms)?;
+        let keys = NameKeys::of(name);
         let changed = self
             .conn
             .execute(
-                "UPDATE contacts SET display_name = ?2, name_key = ?5, name_source = ?3, name_at = ?4, updated_at = ?4
+                "UPDATE contacts SET display_name = ?2, name_key = ?5, shape_key = ?6,
+                        compat_shape_key = ?7, name_source = ?3, name_at = ?4, updated_at = ?4
                   WHERE contact_id = ?1",
-                params![contact_id, name, ValueSource::Person.as_sql(), at, name_key(name)],
+                params![
+                    contact_id,
+                    name,
+                    ValueSource::Person.as_sql(),
+                    at,
+                    keys.case,
+                    keys.shape,
+                    keys.compat_shape
+                ],
             )
             .map_err(StoreError::from)
             .map_err(|e| self.note_store_failure(e))?;
@@ -1456,7 +1493,8 @@ impl HumanStore {
 #[cfg(test)]
 mod tests {
     use super::{
-        AcceptedCard, HumanStore, KEY_MATCHES, NAME_KEY_VERSION, SAME_NAME, SHARES_NODE, name_key,
+        AcceptedCard, HumanStore, KEY_MATCHES, NAME_KEY_VERSION, NameKeys, SAME_NAME, SHARES_NODE,
+        name_key,
     };
     use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -1506,14 +1544,16 @@ mod tests {
         }
     }
 
-    /// [`name_key`]'s output, pinned: stored keys are compared with keys
-    /// computed now, so an output that moves -- a Unicode update in a
+    /// The three name keys' output, pinned: stored keys are compared with
+    /// keys computed now, so an output that moves -- a Unicode update in a
     /// dependency -- must move [`NAME_KEY_VERSION`] with it, and the open
     /// recomputes every key. When this fails, bump the version and the
-    /// pins together. Mutation: the case folding dropped.
+    /// pins together. The case key's pins are version 1's, unchanged.
+    /// Mutations: the case folding dropped from either key; the shape
+    /// key's second skeleton dropped.
     #[test]
-    fn the_name_key_is_pinned() {
-        assert_eq!(NAME_KEY_VERSION, "1", "the pins below are version 1's");
+    fn the_name_keys_are_pinned() {
+        assert_eq!(NAME_KEY_VERSION, "2", "the pins below are version 2's");
         for (name, key) in [
             ("Ada", "ada"),
             ("  Ada   Lovelace ", "ada lovelace"),
@@ -1532,6 +1572,24 @@ mod tests {
             ("\u{661}\u{662}\u{663}", "l\u{662}\u{663}"),
         ] {
             assert_eq!(name_key(name), key, "{name:?}");
+            assert_eq!(NameKeys::of(name).case, key, "{name:?}: the column's key");
+        }
+        for (name, shape, compat) in [
+            ("ADA", "ada", "ada"),
+            ("\u{130}stanbul", "l\u{307}stanbul", "l\u{307}stanbul"),
+            ("\u{1fbc}", "a\u{328}", "a\u{328}"),
+            ("0O", "oo", "oo"),
+            ("Ian", "lan", "lan"),
+            ("\u{392}ob", "bob", "bob"),
+            ("Al\u{17f}ie", "alfie", "alsie"),
+            ("J\u{ff10}hn", "j\u{ff10}hn", "john"),
+        ] {
+            let keys = NameKeys::of(name);
+            assert_eq!(keys.shape, shape, "{name:?}: the shape key");
+            assert_eq!(
+                keys.compat_shape, compat,
+                "{name:?}: the compatibility shape key"
+            );
         }
     }
 
@@ -1573,17 +1631,21 @@ mod tests {
         assert_eq!(store.contact_loads.get(), 0, "no contact loaded at all");
     }
 
-    /// Each standing read is planned on its index, never a scan of the
-    /// contacts. Mutation: the name-key index dropped from migration 10.
+    /// Each standing read is planned on its indexes, never a scan of the
+    /// contacts: the same-name read on all three name-key indexes, one
+    /// equality each (schema v12). Mutations: the name-key index dropped
+    /// from migration 10; the shape-key index from migration 12.
     #[test]
     fn the_standing_reads_use_their_indexes() {
         let store = HumanStore::open_in_memory(crate::StoreOptions::default()).expect("store");
         for (sql, index, params) in [
-            (SHARES_NODE, "contact_routes_by_route", 2),
-            (SAME_NAME, "contacts_by_name_key", 3),
-            (KEY_MATCHES, "contact_routes_by_key", 3),
+            (SHARES_NODE, "contact_routes_by_route ", 2),
+            (SAME_NAME, "contacts_by_name_key ", 5),
+            (SAME_NAME, "contacts_by_shape_key ", 5),
+            (SAME_NAME, "contacts_by_compat_shape_key ", 5),
+            (KEY_MATCHES, "contact_routes_by_key ", 3),
         ] {
-            let values = ["x", "y", "z"];
+            let values = ["x", "y", "z", "u", "v"];
             let plan: Vec<String> = store
                 .conn
                 .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
@@ -1608,13 +1670,13 @@ mod tests {
     }
 
     /// Every statement of this file that writes a contact's display name
-    /// writes its `name_key` too (schema v10): a key left behind by a
-    /// rename makes the same-name standing compare against a name the
-    /// contact no longer has. Read from the source, so a writer added
-    /// later is held as well; `every_writer_of_a_name_keeps_its_name_key`
-    /// holds the values. Mutation: one writer without `name_key`.
+    /// writes its three name keys too (schemas v10 and v12): a key left
+    /// behind by a rename makes the same-name standing compare against a
+    /// name the contact no longer has. Read from the source, so a writer
+    /// added later is held as well; `every_writer_of_a_name_keeps_its_name_keys`
+    /// holds the values. Mutation: one writer without `shape_key`.
     #[test]
-    fn every_statement_writing_a_display_name_writes_its_name_key() {
+    fn every_statement_writing_a_display_name_writes_its_name_keys() {
         let source = include_str!("contacts.rs");
         // Built here, so this test's own text does not match itself.
         let writes = [
@@ -1629,10 +1691,12 @@ mod tests {
             .collect();
         assert!(statements.len() >= 4, "control: the writers are found");
         for statement in statements {
-            assert!(
-                statement.contains("name_key"),
-                "writes a display name without its key: {statement}"
-            );
+            for key in ["name_key", "shape_key", "compat_shape_key"] {
+                assert!(
+                    statement.contains(key),
+                    "writes a display name without its {key}: {statement}"
+                );
+            }
         }
     }
 }
