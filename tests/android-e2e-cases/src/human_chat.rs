@@ -362,12 +362,10 @@ impl Opener for NoLinks {
 /// What the case has seen of the facade, beyond the model.
 #[derive(Default)]
 struct Seen {
-    /// The store's listing or windowed start arrived: the hub sends a
-    /// view no update before it, so nothing typed earlier could be
-    /// followed.
-    listed: bool,
-    /// The first was a windowed start, whose conversation must be opened.
-    windowed: bool,
+    /// The windowed start arrived: the hub sends a view no update before
+    /// it, so nothing typed earlier could be followed, and its
+    /// conversation is opened before anything is sent.
+    started: bool,
     /// Each send the facade committed, as committed.
     sent: Vec<HumanChatV2>,
 }
@@ -381,11 +379,7 @@ fn step(
 ) -> Result<(), String> {
     for update in client.updates(Duration::from_millis(100))? {
         match &update {
-            Update::Listed(_) => seen.listed = true,
-            Update::Started(_) => {
-                seen.listed = true;
-                seen.windowed = true;
-            }
+            Update::Started(_) => seen.started = true,
             Update::Sent { envelope, .. } => seen.sent.push(envelope.clone()),
             _ => {}
         }
@@ -437,19 +431,17 @@ pub(crate) fn human_chat(
         &mut side,
         &mut seen,
         until,
-        "the store's listing for the view",
-        |_, seen| seen.listed,
+        "the store's windowed start for the view",
+        |_, seen| seen.started,
     )?;
-    if seen.windowed {
-        side.surface_mut().opens = Some(key.clone());
-        // Open before the first draft: a turn takes the person's events
-        // before the window's, so a draft queued now would be sent first.
-        // The opening is taken in the turn that applies it.
-        while side.surface_mut().opens.is_some() {
-            step(client, &mut side, &mut seen)?;
-            if Instant::now() >= until {
-                return Err("the conversation was never opened".to_owned());
-            }
+    side.surface_mut().opens = Some(key.clone());
+    // Open before the first draft: a turn takes the person's events before
+    // the window's, so a draft queued now would be sent first. The opening
+    // is taken in the turn that applies it.
+    while side.surface_mut().opens.is_some() {
+        step(client, &mut side, &mut seen)?;
+        if Instant::now() >= until {
+            return Err("the conversation was never opened".to_owned());
         }
     }
 
