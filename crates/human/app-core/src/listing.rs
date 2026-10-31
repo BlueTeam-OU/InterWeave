@@ -397,10 +397,11 @@ mod tests {
 
     /// A store whose kinds no client has classified -- every row `other`,
     /// as v10 leaves them -- has them classified at the first read, and
-    /// the version recorded, so the next start leaves them alone.
-    /// Mutation: the stale store taken for a current one.
+    /// the version recorded, so the next start leaves them alone: it reads
+    /// no row. Mutations: the stale store taken for a current one; the
+    /// version not consulted, every start classifying again.
     #[test]
-    fn a_store_classified_by_no_client_is_classified_at_the_first_listing() {
+    fn a_store_classified_by_no_client_is_classified_once() {
         let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
         let text = br#"{"v":2,"kind":"text","app_message_id":"00000000000000000000000000000001","text":"hi"}"#;
         store
@@ -409,7 +410,9 @@ mod tests {
         store
             .commit_unread_inbound(&row(2, b"no envelope"))
             .expect("a row this build cannot show");
-        reclassify_if_stale(&mut store, &mut 0).expect("classified");
+        let mut read = 0;
+        reclassify_if_stale(&mut store, &mut read).expect("classified");
+        assert_eq!(read, 2, "each row read once");
         let kinds: Vec<_> = store
             .unread_inbound()
             .expect("read")
@@ -421,5 +424,8 @@ mod tests {
             store.inbound_kind_version().expect("version").as_deref(),
             Some(INBOUND_KIND_VERSION)
         );
+        let mut again = 0;
+        reclassify_if_stale(&mut store, &mut again).expect("the next start");
+        assert_eq!(again, 0, "the next start reads no row");
     }
 }
