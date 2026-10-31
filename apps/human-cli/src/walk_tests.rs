@@ -722,8 +722,10 @@ async fn listen_consume_drains_a_conversation_past_the_held_row_ceiling() {
 /// -- the step that marks a chunk read -- is the walk's arrival like one
 /// reaching it in the walk's step: printed after the last row, unread,
 /// and left unread in the store. The peer sends once the first chunk is
-/// written, so the next chunk's read step brings it. Mutation: `read`'s
-/// own step not handed to the walk -- the message read where it draws.
+/// written, so the next chunk's read step brings it; a `--keep` of a row
+/// of that chunk makes a keep step follow, which drops what the read step
+/// reported unless the walk took it first. Mutation: the read step not
+/// handed to the walk -- the message read where it draws.
 #[tokio::test(flavor = "multi_thread")]
 async fn read_prints_a_row_arriving_during_its_own_step_last_and_unread() {
     let (a, b) = FakeNetwork::pair(node(), node());
@@ -759,9 +761,12 @@ async fn read_prints_a_row_arriving_during_its_own_step_last_and_unread() {
             });
         });
     }));
-    read(&mut alice, &to(b.peer()), &[], &mut out)
+    // The 100th row drawn, in the second chunk: rows draw by when they
+    // arrived, every tenth tied with the one before it.
+    read(&mut alice, &to(b.peer()), &["u100"], &mut out)
         .await
         .expect("read");
+    assert_eq!(count(dir_a.path(), "kept_inbound"), 1, "u100 kept");
     expected.push("late".to_owned());
     assert_eq!(out.texts(), expected, "last, once");
     let last: serde_json::Value = serde_json::from_str(
