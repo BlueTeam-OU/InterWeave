@@ -548,7 +548,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 Inbound::Message(received) => Update::Received(received),
                 Inbound::Card(card) => match cards::proposal(self.client.store_mut(), card) {
                     Ok(proposal) => Update::ReceivedCard(Box::new(proposal)),
-                    // Committed unread: the next listing shows it.
+                    // Committed unread: the conversation's next page or
+                    // the next read of the summaries shows it.
                     Err(e) => Update::UnreadNotListed(store_failure(&e)),
                 },
             });
@@ -2049,8 +2050,8 @@ fn say(updates: &mut Vec<Update>, update: Update) {
     }
 }
 
-/// The contacts after a write to them that is done: listed, or, when they
-/// cannot be read, [`Update::CardsNotRead`] -- never a refusal of the
+/// The contacts after a write to them that is done: the directory, or,
+/// when they cannot be read, [`Update::CardsNotRead`] -- never a refusal of the
 /// write (#414 F8).
 fn contacts_update(store: &mut impl CardStore) -> Update {
     contacts_now(store).unwrap_or_else(|e| Update::CardsNotRead(store_failure(&e)))

@@ -396,8 +396,8 @@ mod tests {
     }
 
     /// A store whose kinds no client has classified -- every row `other`,
-    /// as v10 leaves them -- has them classified at the first listing,
-    /// and the version recorded, so the next listing leaves them alone.
+    /// as v10 leaves them -- has them classified at the first read, and
+    /// the version recorded, so the next start leaves them alone.
     /// Mutation: the stale store taken for a current one.
     #[test]
     fn a_store_classified_by_no_client_is_classified_at_the_first_listing() {

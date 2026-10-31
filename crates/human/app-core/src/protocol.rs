@@ -250,8 +250,9 @@ pub enum Update {
         /// Kept rows of a kind this build shows, counted again.
         kept: usize,
     },
-    /// The unread rows could not be listed again: content the store holds
-    /// stays unshown until the next listing.
+    /// The summaries could not be read again, or a card committed unread
+    /// could not be judged: content the store holds stays unshown until a
+    /// later read of the summaries or the conversation's next page.
     UnreadNotListed(Failure),
     /// A message committed unread and handed over.
     Received(Received),

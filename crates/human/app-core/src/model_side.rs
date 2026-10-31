@@ -95,7 +95,8 @@ pub enum Problem {
         /// Why.
         why: Failure,
     },
-    /// The store's unread rows could not be listed again.
+    /// The store's unread content could not be read again: the summaries,
+    /// or a card it committed.
     UnreadNotListed(Failure),
     /// The cards could not be read: back after an answer or its Undo, or
     /// the own cards on their way ([`Update::CardsNotRead`]).
