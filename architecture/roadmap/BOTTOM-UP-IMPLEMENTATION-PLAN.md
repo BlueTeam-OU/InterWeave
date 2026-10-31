@@ -6850,7 +6850,10 @@ owner:
   `name_key` computes the case key alone and the ui-model's titles
   compare exactly; `human-client-ui.md` §13 bullets 4 and 9 state the
   three-key rule (A 2026-10-25), the store and the titles are
-  rust-ui-dev-02's gap (j60 and after).
+  rust-ui-dev-02's gap (j60 and after). Closed by #522 (2026-10-31,
+  j60): the keys are `crates/human/core` `names.rs`, schema v12 holds
+  all three beside the name, the standing and the titles ask the one
+  rule (STATE.md's v12 paragraph; TM-56 names the tests).
 - `contact_routes.local_endpoint_id`, the composite key and the
   backfill are Stage 22's (STATE.md, A 2026-10-25; plan §30 Activate,
   rust-ui-dev's with the store); every row is the one `human`
