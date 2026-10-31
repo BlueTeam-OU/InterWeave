@@ -393,6 +393,8 @@ struct Watched<'a> {
     flushes: Vec<(usize, i64)>,
     /// Set to fail every page read at the first flush with a line in it.
     fail_after_first: Option<Arc<StoreFaults>>,
+    /// Run at the first flush with a line in it.
+    on_first_line: Option<Box<dyn FnOnce() + 'a>>,
 }
 
 impl<'a> Watched<'a> {
@@ -402,6 +404,7 @@ impl<'a> Watched<'a> {
             bytes: Vec::new(),
             flushes: Vec::new(),
             fail_after_first: None,
+            on_first_line: None,
         }
     }
 
@@ -431,6 +434,11 @@ impl std::io::Write for Watched<'_> {
             && let Some(faults) = self.fail_after_first.take()
         {
             faults.set_pages(Fault::Fail);
+        }
+        if lines > 0
+            && let Some(then) = self.on_first_line.take()
+        {
+            then();
         }
         Ok(())
     }
@@ -708,4 +716,62 @@ async fn listen_consume_drains_a_conversation_past_the_held_row_ceiling() {
         .collect();
     assert_eq!(texts, expected, "{out}");
     assert_eq!(count(dir.path(), "unread_inbound"), 0);
+}
+
+/// #519 review F1: a message that reaches `read` in one of its own steps
+/// -- the step that marks a chunk read -- is the walk's arrival like one
+/// reaching it in the walk's step: printed after the last row, unread,
+/// and left unread in the store. The peer sends once the first chunk is
+/// written, so the next chunk's read step brings it. Mutation: `read`'s
+/// own step not handed to the walk -- the message read where it draws.
+#[tokio::test(flavor = "multi_thread")]
+async fn read_prints_a_row_arriving_during_its_own_step_last_and_unread() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut expected = seed(dir_a.path(), b.peer(), &rows(200, 0));
+    let mut alice = session(&a, dir_a.path(), None);
+    let mut bob = session(&b, dir_b.path(), None);
+    let until = Instant::now() + Duration::from_secs(5);
+    alice.open(until).await;
+    bob.open(until).await;
+    let to_alice = to(a.peer());
+    let mut out = Watched::new(dir_a.path());
+    out.on_first_line = Some(Box::new(|| {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let mut sent = String::new();
+                crate::verbs::run(
+                    &mut bob,
+                    &crate::cli::Verb::Send {
+                        conversation: to_alice,
+                        text: Some("late".to_owned()),
+                        pending: false,
+                    },
+                    &crate::verbs::Run {
+                        profile: "test",
+                        json: true,
+                        until: Instant::now() + Duration::from_secs(5),
+                    },
+                    &mut sent,
+                )
+                .await
+                .expect("sent");
+            });
+        });
+    }));
+    read(&mut alice, &to(b.peer()), &[], &mut out)
+        .await
+        .expect("read");
+    expected.push("late".to_owned());
+    assert_eq!(out.texts(), expected, "last, once");
+    let last: serde_json::Value = serde_json::from_str(
+        String::from_utf8(out.bytes.clone())
+            .expect("utf-8")
+            .lines()
+            .last()
+            .expect("a line"),
+    )
+    .expect("a JSON line");
+    assert_eq!(last["status"], "unread", "{last}");
+    assert_eq!(count(dir_a.path(), "unread_inbound"), 1, "left unread");
 }

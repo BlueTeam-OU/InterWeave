@@ -113,6 +113,9 @@ pub(crate) async fn read<B: DataSessionBinding, A: AdminBinding>(
                             .collect()
                     });
                     s.step().await;
+                    // What this step brought is the walk's: a row that
+                    // arrived in it is handed over last.
+                    walk.take_arrivals(s);
                 }
                 let keeping: Vec<(usize, ItemKey)> = items
                     .iter()
@@ -123,6 +126,7 @@ pub(crate) async fn read<B: DataSessionBinding, A: AdminBinding>(
                 // chunk is written first, or the person never sees it
                 // (`a_keep_that_fails_after_the_read_still_prints_what_was_read`).
                 let kept = keep_after_read(s, &keeping).await;
+                walk.take_arrivals(s);
                 if !write(out, &shown(s, key, &anchors), r.json)? {
                     return Ok(());
                 }

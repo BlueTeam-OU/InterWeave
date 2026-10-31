@@ -323,21 +323,7 @@ impl Walk {
         s: &mut Session<B, A>,
     ) -> Result<(), Failure> {
         s.step().await;
-        for update in s.take_updates() {
-            // By its origin, held or not: one that draws far from focus is
-            // let go by the ceiling in the step that brings it.
-            if let Update::Received(received) = &update
-                && conversation_of(&received.origin) == self.key
-            {
-                let item = s.model().message_of(received);
-                if self.arrived.insert(item.key) {
-                    self.late.push(item);
-                }
-            }
-            if let Some(passed) = self.passed.as_mut() {
-                passed.push(update);
-            }
-        }
+        self.take_arrivals(s);
         if s.model().window_marks(&self.key).iter().any(|m| {
             matches!(
                 m.kind,
@@ -369,6 +355,33 @@ impl Walk {
         }
         self.last = Some(now);
         Ok(())
+    }
+
+    /// Take what the session's last step reported, a step the caller took
+    /// itself while the walk is open included: a row it brought for the
+    /// conversation is handed over after the walk's last row. Every step
+    /// taken while a walk is open is taken here before the next, since a
+    /// step drops what the one before it reported
+    /// (`read_prints_a_row_arriving_during_its_own_step_last_and_unread`).
+    pub(crate) fn take_arrivals<B: DataSessionBinding, A: AdminBinding>(
+        &mut self,
+        s: &mut Session<B, A>,
+    ) {
+        for update in s.take_updates() {
+            // By its origin, held or not: one that draws far from focus is
+            // let go by the ceiling in the step that brings it.
+            if let Update::Received(received) = &update
+                && conversation_of(&received.origin) == self.key
+            {
+                let item = s.model().message_of(received);
+                if self.arrived.insert(item.key) {
+                    self.late.push(item);
+                }
+            }
+            if let Some(passed) = self.passed.as_mut() {
+                passed.push(update);
+            }
+        }
     }
 
     /// Whether the window opened again since the walk last looked: the
