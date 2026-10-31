@@ -6298,7 +6298,8 @@ export component AppWindow inherits Window {
                 // placed; `had-place` says whether the last value was a place,
                 // since the change from nothing to the first is no move to
                 // follow (a row made focused can be the next render's anchor
-                // before its timer fires).
+                // before its timer fires;
+                // `a_row_named_by_focus_before_it_is_placed_moves_nothing_when_placed`).
                 property <length> item-top: self.placed ? self.y + row-content.y + item.y : 0px;
                 property <length> placed-y;
                 property <bool> had-place: false;
