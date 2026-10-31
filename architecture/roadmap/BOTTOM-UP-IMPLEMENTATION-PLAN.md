@@ -5223,9 +5223,18 @@ process death), step 10 the release metadata and `check_dependencies.sh`
 over both targets (#314); carried by name to the owner's release gate:
 the Keystore user-presence instrumented case (a person's biometric),
 the network-callback instrumented case (the Wi-Fi drop takes wireless
-adb with it), the Recents thumbnail's content (no API reads a task
+adb with it; the drop itself was measured on 2026-10-31 from a script
+detached on the phone, `device-runs/2026-10-31-pixel-9a.md`: the
+runtime told of no network and then of the LTE address within two
+seconds, one process throughout, the loss callback still writing no
+line of its own — the case stays carried, the owner's reading does
+not), the Recents thumbnail's content (no API reads a task
 snapshot), notification arrival at API 33+ (needs a fresh profile with
-the POST_NOTIFICATIONS grant), device transfer under
+the POST_NOTIFICATIONS grant; measured on 2026-10-31 on the Pixel 9a
+at API 37 under the person's grant, `app_lifecycle`'s arrival case 3
+runs of 3, `device-runs/2026-10-31-pixel-9a.md` — that item leaves
+this list, its record carrying a radio network, the notice as seen and
+the process-death case), device transfer under
 `dataExtractionRules` at API 31+ with a GMS transport (no such phone:
 the Pixel's transport is Seedvault, the A40 is API 30 where
 `allowBackup` governs — the targetSdk 36 doubt is unmeasured), and the
