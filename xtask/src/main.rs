@@ -249,6 +249,11 @@ fn tree_checks() -> Vec<Task> {
             &["tools/checks/check_security_matrix.py"],
         ),
         Task::new(
+            "LOCAL-IPC.md's prose versions agree with the code and the schemas",
+            "python3",
+            &["tools/checks/check_ipc_prose_versions.py"],
+        ),
+        Task::new(
             "every guard is reachable from a workflow",
             "bash",
             &["tools/checks/check_guards_are_wired.sh"],
