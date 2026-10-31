@@ -162,10 +162,6 @@ impl Root {
         (root, opened)
     }
 
-    /// One pass of the loop: the facade's turn, the model side's turn,
-    /// and every command it asked for -- then the facade's turn again,
-    /// as both roots run one after the commands they carried out: a send,
-    /// a retry or a restore is attempted there, not by its command.
     /// Opens a conversation, as the windowed start holds the rows of the
     /// one open conversation only; opening it closes the one before.
     async fn open(&mut self, key: &ConversationKey, now: u64) {
@@ -173,6 +169,10 @@ impl Root {
         self.pump(now).await;
     }
 
+    /// One pass of the loop: the facade's turn, the model side's turn,
+    /// and every command it asked for -- then the facade's turn again,
+    /// as both roots run one after the commands they carried out: a send,
+    /// a retry or a restore is attempted there, not by its command.
     async fn pump(&mut self, now: u64) {
         self.facade_turn(now).await;
         let commands = self.model.turn();
