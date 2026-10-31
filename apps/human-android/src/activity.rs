@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboarding};
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
-use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent};
+use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::{
     ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, TouchSettings, View, defer, init_android,
     invoke_on_window,
@@ -22,8 +22,12 @@ use interweave_human_ui_slint::{
 use crate::jni::{PROFILE, log};
 
 /// The view, shared by every model side the Activity makes: one per
-/// attach, since a service that starts again lists its store from new.
-struct AndroidSurface(Rc<RefCell<View>>);
+/// attach and one per change of the service's running state
+/// (android-platform's `ViewSide`), since a service that starts again
+/// starts its store from new.
+/// The flag: a fresh model reads it, and has not yet been told what the
+/// view reported to the last one.
+struct AndroidSurface(Rc<RefCell<View>>, bool);
 
 impl Surface for AndroidSurface {
     fn render(&mut self, model: &UiModel) {
@@ -32,6 +36,27 @@ impl Surface for AndroidSurface {
 
     fn take_events(&mut self, model: &UiModel) -> Vec<ViewEvent> {
         self.0.borrow_mut().take_events(model)
+    }
+
+    // The open conversation's window, the avatars in view and the
+    // Contacts list's Try again, as on the desktop: without them a
+    // windowed start opens no conversation and reads no page.
+    fn take_window(&mut self) -> Vec<WindowEvent> {
+        let mut view = self.0.borrow_mut();
+        if std::mem::take(&mut self.1) {
+            view.forget_window_reports();
+        }
+        view.take_window_events()
+    }
+
+    // The view outlives each model the Activity makes over it: the open
+    // conversation and the avatars in view are reported to the new one,
+    // or it pages nothing and drops the conversation's arrivals. Marked
+    // here and forgotten at the next take, which holds the view already:
+    // a model is made wherever a message is applied, and the view is not
+    // borrowed for it.
+    fn model_made(&mut self) {
+        self.1 = true;
     }
 }
 
@@ -379,7 +404,8 @@ impl Root {
             // marker again, so a Connect a start left undecided is owed to
             // the next (add-a-peer §5.1).
             side: ViewSide::new(move || {
-                let mut side = ModelSide::new(AndroidSurface(Rc::clone(&surface)), AndroidOpener);
+                let mut side =
+                    ModelSide::new(AndroidSurface(Rc::clone(&surface), false), AndroidOpener);
                 if crate::onboard::platform()
                     .is_some_and(|(dir, _)| onboarding::connect_owed(&dir, PROFILE))
                 {
@@ -430,7 +456,7 @@ impl Root {
             match problem {
                 Problem::Command { why, .. } => log(&format!("a command failed: {why:?}")),
                 Problem::UnreadNotListed(why) => {
-                    log(&format!("unread messages could not be listed: {why:?}"));
+                    log(&format!("unread messages could not be read again: {why:?}"));
                 }
                 Problem::CardsNotRead(why) => {
                     log(&format!("cards or contacts could not be read: {why:?}"));

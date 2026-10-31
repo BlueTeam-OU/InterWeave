@@ -34,7 +34,18 @@ interweave-transport-api = { path = "../../api/transport-api" }
 rand = { workspace = true }
 image = { workspace = true }
 
+[features]
+# TEST BUILDS ONLY: `test_hooks` -- faults laid on the facade's windowed
+# reads (a page or the contacts failing or held, a photo slowed or
+# unreadable) through `FacadeSide::with_store_faults`, and the model's
+# lower bounds through `ModelSide::set_bounds_for_test` (ui-model's own
+# `test-hooks`). Enabled by test crates as a dev-dependency feature;
+# nothing that ships turns it on (architect-cto's A1 for j68).
+test-hooks = ["interweave-human-ui-model/test-hooks"]
+
 [dev-dependencies]
+# TEST-ONLY: this crate with its own `test-hooks` on, for its own tests.
+interweave-human-app-core = { path = ".", features = ["test-hooks"] }
 # The identity-key record's secret, read back to grep the store for it.
 base64 = { workspace = true }
 interweave-profile-config = { path = "../../config/profile-config" }

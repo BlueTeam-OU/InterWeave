@@ -11,6 +11,11 @@
 //! has not listed. With no view attached, updates are not kept: the store
 //! holds every row a view will list when it attaches, and what a person
 //! must hear while no view is open is a notice, not an update.
+//!
+//! "Listing" here names that first update, whatever it carries: since
+//! the windowed start it is `Update::Started` -- the summaries, not the
+//! rows, which the open conversation pages in -- and the hub neither
+//! reads nor shapes it.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
@@ -45,7 +50,7 @@ pub enum ToView {
     /// a change of [`ToView::Running`], as access does.
     AuthenticationNeeded(bool),
     /// An update for the model side, the first after an attach or a start
-    /// being `Update::Listed`.
+    /// being `Update::Started`.
     Update(Box<Update>),
     /// The store could not be listed for this view: what it holds stays
     /// unshown until the view attaches again. A class, never content.
@@ -566,7 +571,7 @@ impl ViewLink {
 mod tests {
     use std::sync::atomic::AtomicUsize;
 
-    use interweave_human_app_core::Listing;
+    use interweave_human_app_core::Start;
     use interweave_human_client_api::Diagnostics;
 
     use super::*;
@@ -582,8 +587,18 @@ mod tests {
         )
     }
 
+    /// The first update a facade hands a view: its windowed start.
     fn listed() -> ToView {
-        ToView::Update(Box::new(Update::Listed(Listing::default())))
+        ToView::Update(Box::new(Update::Started(Box::new(Start {
+            pending: Vec::new(),
+            summaries: Vec::new(),
+            counted_through: None,
+            undecodable_unread: 0,
+            undecodable_other: 0,
+            kept: 0,
+            contacts: Ok(Vec::new()),
+            identity: None,
+        }))))
     }
 
     #[test]
@@ -614,7 +629,7 @@ mod tests {
         let taken = link.take();
         assert!(matches!(taken[0], ToView::Running(true)), "{taken:?}");
         assert!(
-            matches!(&taken[1], ToView::Update(u) if matches!(**u, Update::Listed(_))),
+            matches!(&taken[1], ToView::Update(u) if matches!(**u, Update::Started(_))),
             "{taken:?}"
         );
         assert!(
@@ -909,7 +924,7 @@ mod tests {
     fn the_listing(taken: &[ToView]) -> bool {
         taken
             .iter()
-            .any(|t| matches!(t, ToView::Update(u) if matches!(**u, Update::Listed(_))))
+            .any(|t| matches!(t, ToView::Update(u) if matches!(**u, Update::Started(_))))
     }
 
     /// `human-client-android.md`, a facade past its stop, rules 1 and 2:

@@ -5,7 +5,7 @@ topic: "review-class-v2-relaunch-before-dispatch-2026-10-24"
 description: "agent-fabric ADR-065 (#358, 94487c3b, every account upgraded 2026-10-24): the review class reads through the fabric-review MCP tools and posts v2 reviews; a session launched before the upgrade dispatches a reviewer with no tools — start a…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

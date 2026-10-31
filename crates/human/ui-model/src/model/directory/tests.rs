@@ -187,3 +187,22 @@ fn a_failed_read_leaves_no_contact_known() {
     model.contacts_directory(Err(()));
     assert!(model.contact("a").is_none());
 }
+
+/// A photo that cannot be read is told from one not read yet: a contact
+/// page waits for the second and opens on initials for the first, Remove
+/// photo still offered since the store holds it (design section 11).
+/// Mutations: an unreadable photo shown as not read yet; Remove photo
+/// offered by the photo's bytes, which the windowed mode never holds.
+#[test]
+fn an_unreadable_photo_is_told_from_one_not_read_yet() {
+    let mut model = UiModel::new();
+    model.contacts_directory(Ok(vec![contact("a", Some(5)), contact("b", None)]));
+    assert_eq!(model.contact_photo("a"), PhotoState::Initials);
+    assert!(model.contact_has_photo("a"), "stored, not read yet");
+    assert!(!model.contact_has_photo("b"));
+    model.photo_shown("a");
+    let _ = model.take_photo_asks();
+    model.photo_arrived("a", Some(5), None);
+    assert_eq!(model.contact_photo("a"), PhotoState::Unreadable);
+    assert!(model.contact_has_photo("a"), "still removable");
+}

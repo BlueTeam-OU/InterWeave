@@ -5,7 +5,7 @@ topic: "external-review-2026-10-04-already-landed"
 description: "The owner's external stage review of InterWeave main 58463fb9 (2026-10-04) was fully landed by 2026-10-05; if it is pasted again, verify #192/#187 on origin/main and report, do not re-triage"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

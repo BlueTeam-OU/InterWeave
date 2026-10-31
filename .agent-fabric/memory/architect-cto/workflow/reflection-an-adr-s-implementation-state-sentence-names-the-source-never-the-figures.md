@@ -5,7 +5,7 @@ topic: "reflection-an-adr-s-implementation-state-sentence-names-the-source-never
 description: "An ADR's implementation-state sentence names where a value comes from and who owns it, never the current figure, floor or head sha, which go stale with every commit on the lane's PR"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

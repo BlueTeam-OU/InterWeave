@@ -53,9 +53,13 @@ pub struct PhotoAsk {
 pub enum PhotoState<'a> {
     /// The contact has no photo: its initials.
     None,
-    /// It has one not read yet, or one that cannot be read: its initials,
-    /// at the photo's size, until the photo arrives.
+    /// It has one not read yet: its initials, at the photo's size, until
+    /// the photo arrives. A contact page waits for it rather than opening
+    /// on these (design section 11).
     Initials,
+    /// It has one that cannot be read: its initials stay, and the photo
+    /// can still be removed.
+    Unreadable,
     /// Its photo.
     Shown(&'a Photo),
 }
@@ -200,8 +204,9 @@ impl UiModel {
         let Some(contact) = self.contact(contact_id) else {
             return PhotoState::None;
         };
-        // The listed mode's: a photo an Accept or a whole listing decoded.
-        // The windowed mode's contacts hold none (#501 review F3).
+        // A contact handed to the model with its photo decoded -- the
+        // model's own tests do so; the facade hands the directory, which
+        // holds none (#501 review F3), and the photo is asked for.
         if let Some(photo) = &contact.photo {
             return PhotoState::Shown(photo);
         }
@@ -209,11 +214,41 @@ impl UiModel {
         if !self.directory.has_photo.contains(&key) {
             return PhotoState::None;
         }
+        if self.directory.unreadable.contains(&key) {
+            return PhotoState::Unreadable;
+        }
         self.directory
             .photos
             .iter()
             .find(|(k, _)| *k == key)
             .map_or(PhotoState::Initials, |(_, p)| PhotoState::Shown(p))
+    }
+
+    /// Whether `contact_id` has a photo in the store, read or not: what
+    /// Remove photo is offered by, the windowed mode's contacts holding no
+    /// photo's bytes.
+    #[must_use]
+    pub fn contact_has_photo(&self, contact_id: &str) -> bool {
+        self.contact(contact_id).is_some_and(|c| {
+            c.photo.is_some()
+                || self
+                    .directory
+                    .has_photo
+                    .contains(&(contact_id.to_owned(), c.photo_at))
+        })
+    }
+
+    /// How many stored rows the app holds and cannot show: the facade's
+    /// count from the last listing or start.
+    pub const fn set_rows_not_shown(&mut self, count: usize) {
+        self.rows_not_shown = count;
+    }
+
+    /// How many stored rows the app holds and cannot show; Chats ends with
+    /// a line saying so when there are any (design section 6.1).
+    #[must_use]
+    pub const fn rows_not_shown(&self) -> usize {
+        self.rows_not_shown
     }
 
     fn photo_key(&self, contact_id: &str) -> Option<(String, Option<u64>)> {

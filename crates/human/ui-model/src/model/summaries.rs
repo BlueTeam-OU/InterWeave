@@ -205,7 +205,11 @@ impl UiModel {
     /// and newest row, with the unread table's high-water mark read beside
     /// them (`HumanStore::unread_high_water`): a row handed over later whose
     /// id is at or below it is in the counts already. The model is in the
-    /// windowed mode from here on.
+    /// windowed mode from here on. A start on a model already started --
+    /// Android's view listed again from a newer facade, which may follow
+    /// rows the older one wrote after its stop -- re-bases as
+    /// [`UiModel::summaries_listed`] does, the open window opening again
+    /// on a row it never held (`a_second_start_opens_the_window_again_on_a_row_never_held`).
     pub fn started(
         &mut self,
         pending: Vec<ListedOutbound>,
@@ -213,7 +217,11 @@ impl UiModel {
         counted_through: Option<RowId>,
     ) {
         self.pending_listed(pending);
-        self.windowed = Some(Summaries::of(summaries, counted_through));
+        if self.windowed.is_some() {
+            self.summaries_listed(summaries, counted_through);
+        } else {
+            self.windowed = Some(Summaries::of(summaries, counted_through));
+        }
     }
 
     /// The summaries asked again -- the store said rows are waiting there:
@@ -574,5 +582,32 @@ mod tests {
         let now = listed(&model, P);
         assert_eq!(now.unread, 7);
         assert_eq!(now.last.preview.shown(), "after a while");
+    }
+
+    /// A path notice for a peer whose conversation the start summarised is
+    /// kept, though no row of it is held: Chats' route indicator shows for
+    /// it. One for a peer no conversation is with is not. Mutation: a path
+    /// kept only for a peer with a held row.
+    #[test]
+    fn a_summarised_conversations_path_is_kept() {
+        use interweave_human_client_api::ClientEvent;
+        use interweave_transport_api::PeerPath;
+        let mut model = UiModel::new();
+        model.started(
+            Vec::new(),
+            vec![summary(P, 3, Table::Unread, 9, 9, "hi")],
+            None,
+        );
+        assert!(model.messages(&direct(P)).is_empty(), "no row held");
+        model.client_event(ClientEvent::PeerPath {
+            peer: peer(P),
+            path: PeerPath::Direct,
+        });
+        model.client_event(ClientEvent::PeerPath {
+            peer: peer(Q),
+            path: PeerPath::Direct,
+        });
+        assert_eq!(model.path(&direct(P)), Some(PeerPath::Direct));
+        assert_eq!(model.path(&direct(Q)), None, "no conversation with Q");
     }
 }

@@ -159,6 +159,11 @@ fn tree_checks() -> Vec<Task> {
             &["tools/checks/check_bridge_default_features.sh"],
         ),
         Task::new(
+            "no shipped build turns a test-hooks feature on",
+            "bash",
+            &["tools/checks/check_shipped_test_hooks.sh"],
+        ),
+        Task::new(
             "the root funnel's test file is present and CI runs cargo test (or cargo nextest run) --all-targets",
             "bash",
             &["tools/checks/check_root_funnel_precondition.sh"],
@@ -242,6 +247,11 @@ fn tree_checks() -> Vec<Task> {
             "every test the security matrix names exists",
             "python3",
             &["tools/checks/check_security_matrix.py"],
+        ),
+        Task::new(
+            "LOCAL-IPC.md's prose versions agree with the code and the schemas",
+            "python3",
+            &["tools/checks/check_ipc_prose_versions.py"],
         ),
         Task::new(
             "every guard is reachable from a workflow",

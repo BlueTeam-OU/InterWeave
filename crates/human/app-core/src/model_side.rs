@@ -9,7 +9,7 @@ use std::collections::{HashSet, VecDeque};
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_human_ui_model::{
-    ConnectGate, ConversationKey, Intent, UiModel, ViewEvent, WindowInput,
+    ConnectGate, ConversationKey, Intent, UiModel, ViewEvent, WindowEvent, WindowInput,
 };
 
 use crate::facade::CANCELLED_CAP;
@@ -24,6 +24,18 @@ pub trait Surface {
     /// A call returns at most up to the first draft edit, which the root
     /// applies before calling again.
     fn take_events(&mut self, model: &UiModel) -> Vec<ViewEvent>;
+    /// What the person did to the windowed mode since the last call: the
+    /// open conversation's window, the avatars in view, the Contacts
+    /// list's Try again. None by default: a surface that draws no window
+    /// reports nothing.
+    fn take_window(&mut self) -> Vec<WindowEvent> {
+        Vec::new()
+    }
+    /// A fresh model now reads this surface: what it reported to an
+    /// earlier one is reported again (Android makes a model per running
+    /// state and per attach, under one view; #517 review F1). Nothing by
+    /// default: a surface that reports nothing forgets nothing.
+    fn model_made(&mut self) {}
 }
 
 /// Opens a link a person activated, outside the client: a browser, a mail
@@ -83,7 +95,8 @@ pub enum Problem {
         /// Why.
         why: Failure,
     },
-    /// The store's unread rows could not be listed again.
+    /// The store's unread content could not be read again: the summaries,
+    /// or a card it committed.
     UnreadNotListed(Failure),
     /// The cards could not be read: back after an answer or its Undo, or
     /// the own cards on their way ([`Update::CardsNotRead`]).
@@ -109,6 +122,7 @@ pub struct ModelSide<S: Surface, O: Opener> {
     problems_dropped: u64,
     hidden_unread: usize,
     hidden_other: usize,
+    kept: usize,
     /// The trust and address lists are to be read: a session became
     /// ready with either unread, which is the start for a runtime that is
     /// up, and the first moment both can be answered for one that was not.
@@ -117,7 +131,8 @@ pub struct ModelSide<S: Surface, O: Opener> {
 
 impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// A model side over `surface`, opening activated links with `opener`.
-    pub fn new(surface: S, opener: O) -> Self {
+    pub fn new(mut surface: S, opener: O) -> Self {
+        surface.model_made();
         Self {
             model: UiModel::new(),
             surface,
@@ -127,6 +142,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             problems_dropped: 0,
             hidden_unread: 0,
             hidden_other: 0,
+            kept: 0,
             reads_owed: false,
         }
     }
@@ -177,6 +193,36 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         self.hidden_unread + self.hidden_other
     }
 
+    /// How many kept rows of a kind this build shows the store held at
+    /// the windowed start or the last relist, whichever came last: a Keep
+    /// or an Unkeep since is not in it; 0 before a windowed start.
+    #[must_use]
+    pub const fn kept_rows(&self) -> usize {
+        self.kept
+    }
+
+    /// The store at a windowed start, applied.
+    fn started(&mut self, start: crate::protocol::Start) {
+        let crate::protocol::Start {
+            pending,
+            summaries,
+            counted_through,
+            undecodable_unread,
+            undecodable_other,
+            kept,
+            contacts,
+            identity,
+        } = start;
+        self.model.started(pending, summaries, counted_through);
+        self.hidden_unread = undecodable_unread;
+        self.hidden_other = undecodable_other;
+        self.kept = kept;
+        self.model.contacts_directory(contacts.map_err(|_| ()));
+        if let Some(identity) = identity {
+            self.model.identity_shown(identity);
+        }
+    }
+
     fn problem(&mut self, problem: Problem) {
         self.problems.push_back(problem);
         while self.problems.len() > PROBLEM_CAP {
@@ -204,40 +250,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
 
     /// Apply what the facade side did.
     pub fn apply(&mut self, update: Update) {
+        self.apply_update(update);
+        // Chats ends with the count of rows the app cannot show (design
+        // section 6.1), in either mode.
+        self.model.set_rows_not_shown(self.hidden_rows());
+    }
+
+    fn apply_update(&mut self, update: Update) {
         match update {
-            Update::Listed(listing) => {
-                // Pending first: it is authoritative over held updates.
-                self.model.pending_listed(listing.pending);
-                self.model.unread_listed(listing.unread);
-                self.model.kept_listed(listing.kept);
-                self.hidden_unread = listing.undecodable_unread;
-                self.hidden_other = listing.undecodable_other;
-                for proposal in listing.unread_cards {
-                    self.model.card_received(proposal);
-                }
-                self.model.contacts_listed(listing.contacts);
-                if let Some(identity) = listing.identity {
-                    self.model.identity_shown(identity);
-                }
-            }
-            Update::Started(start) => {
-                let crate::protocol::Start {
-                    pending,
-                    summaries,
-                    counted_through,
-                    undecodable_unread,
-                    undecodable_other,
-                    contacts,
-                    identity,
-                } = *start;
-                self.model.started(pending, summaries, counted_through);
-                self.hidden_unread = undecodable_unread;
-                self.hidden_other = undecodable_other;
-                self.model.contacts_directory(contacts.map_err(|_| ()));
-                if let Some(identity) = identity {
-                    self.model.identity_shown(identity);
-                }
-            }
+            Update::Started(start) => self.started(*start),
             Update::Page(rows) => self.model.page_arrived(*rows),
             Update::ContactDirectory(answer) => {
                 self.model.contacts_directory(answer.map_err(|_| ()));
@@ -247,25 +268,22 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 photo_at,
                 photo,
             } => self.model.photo_arrived(&contact_id, photo_at, photo),
-            Update::UnreadListed { rows, undecodable } => {
-                self.model.unread_listed(rows);
-                // A relist reads the unread rows only: their count is
-                // replaced, the start's count of the others stands.
-                self.hidden_unread = undecodable;
-            }
             Update::SummariesListed {
                 summaries,
                 counted_through,
                 undecodable,
+                kept,
             } => {
                 self.model.summaries_listed(summaries, counted_through);
+                // A relist counts the unread rows it cannot show: their
+                // count is replaced, the start's count of the others stands.
                 self.hidden_unread = undecodable;
+                self.kept = kept;
             }
             Update::UnreadNotListed(why) => self.problem(Problem::UnreadNotListed(why)),
             Update::Received(received) => self.model.received(received),
-            // Committed by the drain, or listed again: new to the windowed
-            // counts unless they hold it already, and the listed mode's
-            // proposal either way.
+            // Committed by the drain: new to the counts unless they hold
+            // it already.
             Update::ReceivedCard(proposal) => self.model.card_arrived(*proposal),
             Update::ProposalJudged(proposal) => self.model.card_judged(*proposal),
             Update::CardResolved { row, outcome } => self.model.card_resolved(row, outcome),
@@ -273,7 +291,6 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::ProposalNotRestored(row) => self.model.card_not_restored(row),
             Update::CardsNotRead(why) => self.problem(Problem::CardsNotRead(why)),
             Update::ShareNotRecorded(why) => self.problem(Problem::ShareNotRecorded(why)),
-            Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
             Update::ContactChanged {
                 contact_id,
                 change,
@@ -478,6 +495,16 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         loop {
             let events = self.surface.take_events(&self.model);
             if events.is_empty() {
+                // The view's window reports. One that changes what is drawn
+                // -- a reach at the session bound shows the limit row, and
+                // asks nothing -- is drawn again; the person's place, which
+                // a scroll reports on every move, is not
+                // (`a_report_that_changes_what_is_drawn_draws_and_a_place_never_does`).
+                for event in self.surface.take_window() {
+                    if self.model.window_event(event) {
+                        unrendered = true;
+                    }
+                }
                 // What a closed or replaced snackbar's Undo no longer needs.
                 let released = self.model.take_released();
                 commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
@@ -609,6 +636,19 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         for ask in self.model.take_photo_asks() {
             commands.push(Command::Window(WindowCommand::ReadPhoto(ask)));
         }
+    }
+
+    /// TEST BUILDS ONLY: hold the model to bounds below the published caps
+    /// (ui-model's `set_bounds_for_test`).
+    #[cfg(feature = "test-hooks")]
+    pub fn set_bounds_for_test(
+        &mut self,
+        session_items: usize,
+        held_rows: usize,
+        read_proposals: usize,
+    ) {
+        self.model
+            .set_bounds_for_test(session_items, held_rows, read_proposals);
     }
 
     /// The person moved in the open conversation's window, or opened or
@@ -843,25 +883,87 @@ mod tests {
         fn authenticate(&mut self) {}
     }
 
+    /// Each model side made tells its surface, once, that a fresh model
+    /// reads it (#517 review F1). Mutation: `new` not telling it.
+    #[test]
+    fn a_model_side_made_tells_its_surface_once() {
+        struct Counting(std::rc::Rc<std::cell::Cell<u32>>);
+        impl Surface for Counting {
+            fn render(&mut self, _model: &UiModel) {}
+            fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+                Vec::new()
+            }
+            fn model_made(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let made = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut side = ModelSide::new(Counting(std::rc::Rc::clone(&made)), Nothing);
+        let _ = side.turn();
+        assert_eq!(made.get(), 1);
+        let _second = ModelSide::new(Counting(std::rc::Rc::clone(&made)), Nothing);
+        assert_eq!(made.get(), 2, "one per model");
+    }
+
+    fn started(undecodable_unread: usize, undecodable_other: usize) -> Update {
+        Update::Started(Box::new(crate::protocol::Start {
+            pending: Vec::new(),
+            summaries: Vec::new(),
+            counted_through: None,
+            undecodable_unread,
+            undecodable_other,
+            kept: 0,
+            contacts: Ok(Vec::new()),
+            identity: None,
+        }))
+    }
+
+    fn relisted(undecodable: usize) -> Update {
+        Update::SummariesListed {
+            summaries: Vec::new(),
+            counted_through: None,
+            undecodable,
+            kept: 0,
+        }
+    }
+
+    /// A relist counts the unread rows it cannot show again; the start's
+    /// count of the pending and kept ones stands. Mutations: the relist's
+    /// count added; the others' count replaced too.
     #[test]
     fn a_relist_replaces_the_unread_count_and_keeps_the_others() {
         let mut side = ModelSide::new(Nothing, Nothing);
-        side.apply(Update::Listed(crate::protocol::Listing {
-            undecodable_unread: 2,
-            undecodable_other: 1,
-            ..crate::protocol::Listing::default()
-        }));
+        side.apply(started(2, 1));
         assert_eq!(side.hidden_rows(), 3);
-        side.apply(Update::UnreadListed {
-            rows: Vec::new(),
-            undecodable: 0,
-        });
+        side.apply(relisted(0));
         assert_eq!(side.hidden_rows(), 1, "the pending and kept count stands");
-        side.apply(Update::UnreadListed {
-            rows: Vec::new(),
-            undecodable: 4,
-        });
+        side.apply(relisted(4));
         assert_eq!(side.hidden_rows(), 5, "replaced, not added");
+    }
+
+    /// The kept count is the start's, then each relist's, replaced.
+    /// Mutation: the relist's count not applied.
+    #[test]
+    fn the_kept_count_is_the_starts_then_each_relists() {
+        let mut side = ModelSide::new(Nothing, Nothing);
+        side.apply(Update::Started(Box::new(crate::protocol::Start {
+            pending: Vec::new(),
+            summaries: Vec::new(),
+            counted_through: None,
+            undecodable_unread: 0,
+            undecodable_other: 0,
+            kept: 3,
+            contacts: Ok(Vec::new()),
+            identity: None,
+        })));
+        assert_eq!(side.kept_rows(), 3);
+        side.apply(Update::SummariesListed {
+            summaries: Vec::new(),
+            counted_through: None,
+            undecodable: 0,
+            kept: 2,
+        });
+        assert_eq!(side.kept_rows(), 2, "replaced, not added");
     }
 
     #[test]
@@ -928,16 +1030,21 @@ mod tests {
                 photo_removed: false,
             },
         });
-        side.apply(Update::ContactsListed(vec![ContactView {
-            contact_id: "c1".to_owned(),
-            name: "Ada".to_owned(),
-            name_from_card: true,
-            name_at: None,
-            photo_from_card: None,
-            photo_at: None,
-            photo: None,
-            routes: Vec::new(),
-        }]));
+        side.apply(Update::ContactDirectory(Ok(vec![
+            interweave_human_ui_model::DirectoryContact {
+                view: ContactView {
+                    contact_id: "c1".to_owned(),
+                    name: "Ada".to_owned(),
+                    name_from_card: true,
+                    name_at: None,
+                    photo_from_card: None,
+                    photo_at: None,
+                    photo: None,
+                    routes: Vec::new(),
+                },
+                has_photo: false,
+            },
+        ])));
         assert_eq!(side.model().card_answers(&key).len(), 1);
         side.apply(Update::CardsNotRead(Failure::Corrupt));
         side.apply(Update::ProposalNotRestored(row));

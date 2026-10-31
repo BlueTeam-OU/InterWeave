@@ -40,10 +40,32 @@ pub(crate) fn private_tempdir_in(dir: impl AsRef<Path>) -> tempfile::TempDir {
     temp
 }
 
+/// What v12 added (the same-name rule's shape keys: STATE.md's v12
+/// paragraph), undone on a file this build made: the indexes before the
+/// columns they cover, and the keys' version row back to version 1's. A
+/// macro, so [`UNDO_V10`] begins with the same text.
+macro_rules! undo_v12 {
+    () => {
+        "DROP INDEX contacts_by_shape_key;
+     DROP INDEX contacts_by_compat_shape_key;
+     ALTER TABLE contacts DROP COLUMN shape_key;
+     ALTER TABLE contacts DROP COLUMN compat_shape_key;
+     UPDATE settings SET value = '1' WHERE key = 'name_key_version';
+     "
+    };
+}
+
+/// [`undo_v12!`] as a string.
+pub(crate) const UNDO_V12: &str = undo_v12!();
+
 /// What v10 added (the start window: STATE.md's v10 paragraph), undone on
-/// a file this build made. A test that fakes an earlier schema runs it
-/// first: the indexes go before the columns they cover.
-pub(crate) const UNDO_V10: &str = "DROP INDEX contacts_by_name_key;
+/// a file this build made, after v12's, whose index and columns sit on
+/// v10's table: a test that fakes an earlier schema runs it first, the
+/// indexes before the columns they cover. v11 rebuilt an index v10 drops
+/// here, so it has no undo of its own.
+pub(crate) const UNDO_V10: &str = concat!(
+    undo_v12!(),
+    "DROP INDEX contacts_by_name_key;
      DROP INDEX contact_routes_by_route;
      DROP INDEX contact_routes_by_key;
      DROP INDEX unread_inbound_by_conversation;
@@ -56,4 +78,5 @@ pub(crate) const UNDO_V10: &str = "DROP INDEX contacts_by_name_key;
      ALTER TABLE unread_inbound DROP COLUMN kind;
      ALTER TABLE kept_inbound DROP COLUMN kind;
      DELETE FROM settings WHERE key = 'name_key_version';
-     ";
+     "
+);

@@ -192,6 +192,28 @@ impl Announcements {
         }
         self.heard.clone()
     }
+
+    /// Everything announced within `quiet` from now, after what was heard
+    /// before: an absence is watched for that long, never inferred.
+    pub(crate) async fn within(&mut self, quiet: std::time::Duration) -> Vec<String> {
+        use futures_util::StreamExt as _;
+        let before = self.heard.len();
+        let deadline = tokio::time::Instant::now() + quiet;
+        while let Ok(Some(Ok(message))) =
+            tokio::time::timeout_at(deadline, self.stream.next()).await
+        {
+            let header = message.header();
+            if header.sender().map(zbus::names::UniqueName::as_str) != Some(self.from.as_str()) {
+                continue;
+            }
+            if let Ok((_, _, _, said, _)) = message.body().deserialize::<Event>()
+                && let Ok(said) = String::try_from(said)
+            {
+                self.heard.push(said);
+            }
+        }
+        self.heard[before..].to_vec()
+    }
 }
 
 /// One client's window on the bus.

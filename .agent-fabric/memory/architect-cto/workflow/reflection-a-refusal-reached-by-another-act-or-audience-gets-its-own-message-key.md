@@ -5,7 +5,7 @@ topic: "reflection-a-refusal-reached-by-another-act-or-audience-gets-its-own-mes
 description: "A message key carries one audience's remedy; a refusal reached by a different act or served to a different audience gets its own key, because shared copy tells someone the wrong fix"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

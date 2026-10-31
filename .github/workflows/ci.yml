@@ -906,6 +906,13 @@ jobs:
       - name: The Claude bridge builds without a CommonMark parser by default
         run: bash tools/checks/check_bridge_default_features.sh
 
+      # No shipped build turns a TEST-ONLY `test-hooks` feature on: the
+      # Linux archive's packages (read from release_linux_archive.sh) and
+      # the APK's library (read from the cargo-ndk call), each one cargo
+      # tree of its release command line with the resolved features.
+      - name: No shipped build turns a test-hooks feature on
+        run: bash tools/checks/check_shipped_test_hooks.sh
+
       # Plan §15 / ADR-0052 rule 5: Stage 12 may compose kademlia, the
       # relay client or the authorised-identify opt-ins only while the root
       # funnel's measurement is committed as a test and runs. The relay
@@ -1092,6 +1099,12 @@ jobs:
       # here; Stage 18's close runs the check with --strict.
       - name: Every test the security matrix names exists
         run: python3 tools/checks/check_security_matrix.py
+
+      # LOCAL-IPC.md's prose names the current IPC minor and schema
+      # versions in sentences schema_agreement.rs never reads; #503 left
+      # three of them a version behind with every test green.
+      - name: LOCAL-IPC.md's prose versions agree with IPC_MAX_MINOR and the ipc schemas
+        run: python3 tools/checks/check_ipc_prose_versions.py
 
       - name: Every guard is reachable from a workflow
         run: bash tools/checks/check_guards_are_wired.sh

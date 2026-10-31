@@ -5,7 +5,7 @@ topic: "reflection-why-a-root-test-suite-partitions-open-prs-by-file"
 description: "The rule that two open PRs never change one crate exists so hunks never meet; in a root test suite each tests/*.rs is its own binary, so the suite partitions by file while the harness and its Cargo.toml are untouched, and library and…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

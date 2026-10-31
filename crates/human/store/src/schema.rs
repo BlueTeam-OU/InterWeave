@@ -28,7 +28,7 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction};
 use crate::StoreError;
 
 /// The schema version this build writes and expects.
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 
 /// The three tables ADR-0044 lets hold content.
 const RETENTION_TABLES: &[&str] = &["pending_outbound", "unread_inbound", "kept_inbound"];
@@ -151,12 +151,36 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     if current < 11 {
         migration_11(&tx)?;
     }
+    if current < 12 {
+        migration_12(&tx)?;
+    }
     // The version bump rides the SAME transaction as the DDL above, which
     // is what makes a crashed migration a no-op rather than a schema the
     // store misreads on the next open.
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     Ok(())
+}
+
+/// v12 — the same-name rule's other two keys (STATE.md's v12 paragraph;
+/// contact-cards design 5.4.1, architect-cto's DECISION 01a19125-a00a):
+/// `contacts.shape_key` and `compat_shape_key` beside `name_key`, which
+/// stays the case key, each indexed, so a card's same-name standing is
+/// three indexed equalities and never a scan. Both start empty and carry
+/// no version row of their own: `name_key_version` moves to 2 with this
+/// build, so the first open derives all three keys of every contact
+/// (`refresh_name_keys`) before any standing reads one. Derived from the
+/// display name alone; no content table gains content.
+fn migration_12(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "
+        ALTER TABLE contacts ADD COLUMN shape_key TEXT NOT NULL DEFAULT '';
+        ALTER TABLE contacts ADD COLUMN compat_shape_key TEXT NOT NULL DEFAULT '';
+        CREATE INDEX contacts_by_shape_key ON contacts (shape_key);
+        CREATE INDEX contacts_by_compat_shape_key ON contacts (compat_shape_key);
+        ",
+    )
+    .map_err(migration_error)
 }
 
 /// v11 — the Chats list's conversations from indexes alone (STATE.md's
@@ -1343,11 +1367,17 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("photo_at", "INTEGER", false),
             col("photo", "BLOB", false),
             col("name_key", "TEXT", true),
+            col("shape_key", "TEXT", true),
+            col("compat_shape_key", "TEXT", true),
         ],
         unique_keys: &[&["contact_id"]],
         generated: &[],
         autoincrement: false,
-        indexes: &[("contacts_by_name_key", &["name_key"])],
+        indexes: &[
+            ("contacts_by_name_key", &["name_key"]),
+            ("contacts_by_shape_key", &["shape_key"]),
+            ("contacts_by_compat_shape_key", &["compat_shape_key"]),
+        ],
         foreign_keys: &[],
     },
     TableShape {

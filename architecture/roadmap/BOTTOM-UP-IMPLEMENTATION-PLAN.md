@@ -5216,16 +5216,26 @@ network callbacks, backup / device-transfer exclusion and the
 user-presence restart diagnostic by dated device-run records
 (`device-runs/2026-10-20-gate-b.md` on the A40 at API 30 and the Pixel
 9a at API 37; `device-runs/2026-10-21-pixel-9a.md` for the network
-rebind, whose drop half rests on the owner's status read since the loss
-callback writes no line) — step 3's API 34+ run is the Pixel record
+rebind, whose drop half rested on the owner's status read, since the
+loss callback writes no line, until `device-runs/2026-10-31-pixel-9a.md`
+put the drop in the app's own log) — step 3's API 34+ run is the Pixel record
 (targetSdk 36, `remoteMessaging` as type `0x200`, restarted after
 process death), step 10 the release metadata and `check_dependencies.sh`
 over both targets (#314); carried by name to the owner's release gate:
 the Keystore user-presence instrumented case (a person's biometric),
 the network-callback instrumented case (the Wi-Fi drop takes wireless
-adb with it), the Recents thumbnail's content (no API reads a task
+adb with it; the drop itself was measured on 2026-10-31 from a script
+detached on the phone, `device-runs/2026-10-31-pixel-9a.md`: the
+runtime told of no network and then of the LTE address within two
+seconds, one process throughout, the loss callback still writing no
+line of its own — the case stays carried, the owner's reading does
+not), the Recents thumbnail's content (no API reads a task
 snapshot), notification arrival at API 33+ (needs a fresh profile with
-the POST_NOTIFICATIONS grant), device transfer under
+the POST_NOTIFICATIONS grant; measured on 2026-10-31 on the Pixel 9a
+at API 37 under the person's grant, `app_lifecycle`'s arrival case 3
+runs of 3, `device-runs/2026-10-31-pixel-9a.md` — that item leaves
+this list, its record carrying a radio network, the notice as seen and
+the process-death case), device transfer under
 `dataExtractionRules` at API 31+ with a GMS transport (no such phone:
 the Pixel's transport is Seedvault, the A40 is API 30 where
 `allowBackup` governs — the targetSdk 36 doubt is unmeasured), and the
@@ -5331,7 +5341,9 @@ at this gate.
 
 **What this stage did not prove, carried by name:** the Keystore
 user-presence and network-callback instrumented cases; the Recents
-thumbnail's content; notification arrival at API 33+; device transfer
+thumbnail's content; notification arrival at API 33+ (measured since,
+2026-10-31, `device-runs/2026-10-31-pixel-9a.md`, 3 runs of 3 under
+the person's grant, with that record's bounds); device transfer
 under `dataExtractionRules` at API 31+ with a GMS transport (the
 targetSdk 36 doubt); the four unbuilt instrumented cases of (b); the
 Android half of render parity; the desktop ↔ Android platform matrix
@@ -5354,7 +5366,9 @@ byte search across a reboot, a power loss mid-truncate, L2 with the
 screen off or unplugged, R2 on other launchers and API levels, freed
 pages after `VACUUM` or reuse, the one-time rewrite's cost on a large
 store (the `secure_delete` rewrite of SPIKE-008's record, measured
-here on a large store) and media remanence, API 33+'s `POST_NOTIFICATIONS` grant (above); B2 and the Play items are closed by
+here on a large store) and media remanence; API 33+'s `POST_NOTIFICATIONS` grant (above) was
+measured on 2026-10-31, the arrival case under the person's grant
+(`device-runs/2026-10-31-pixel-9a.md`), and leaves the carried list; B2 and the Play items are closed by
 ADR-0057 (no store, no backup on Google). Of SPIKE-009's items carried
 to steps 7–8: the restart diagnostic is split — the person-visible
 Unlock prompt on a cold launch and after process death under the
@@ -6850,7 +6864,10 @@ owner:
   `name_key` computes the case key alone and the ui-model's titles
   compare exactly; `human-client-ui.md` §13 bullets 4 and 9 state the
   three-key rule (A 2026-10-25), the store and the titles are
-  rust-ui-dev-02's gap (j60 and after).
+  rust-ui-dev-02's gap (j60 and after). Closed by #522 (2026-10-31,
+  j60): the keys are `crates/human/core` `names.rs`, schema v12 holds
+  all three beside the name, the standing and the titles ask the one
+  rule (STATE.md's v12 paragraph; TM-56 names the tests).
 - `contact_routes.local_endpoint_id`, the composite key and the
   backfill are Stage 22's (STATE.md, A 2026-10-25; plan §30 Activate,
   rust-ui-dev's with the store); every row is the one `human`
@@ -6908,6 +6925,24 @@ owner:
   Design 5.3 and section 7 name the record as the design, as a design
   note does; this bullet, not the note, is where its not being built
   is said. rust-ui-dev-02's, the batch after 5.5's or with it.
+  Ruled 2026-10-31 (rust-ui-dev-02's QUESTION 01a19121, DECISION
+  01a19125-9eb5): not built before Stage 22. ADR-0067 (A 2026-10-28)
+  withdrew the silent first key — a missing key is always the
+  key-missing state — and the key change, so this record's first reader
+  is decided gone and its second, Make a new key's share-again list,
+  becomes the replacement identity's list over the old EndpointId's
+  conversations; a schema step and a migration for a predicate the
+  Stage 22 release deletes are not taken, and ADR-0067 builds nothing
+  before Stage 22 opens on the owner's word. The same ruling covers the
+  share date of a card Accepted after a restart in its one unbuilt case
+  (#467 R5: an old-key own-card row still Sending when Make a new key
+  ran, then a restart, then Accepted, which the facade records as the
+  new key's share): under §30 step 2 that row's conversation is the old
+  identity's by its `local_endpoint_id`, and no per-row key epoch is
+  needed. Until that release the gap stays open with no installed base
+  (the owner's word in ADR-0067); on this build its failure is a
+  key-change proposal shown at the counterparty, not a silent one. Both
+  are step 2's items in §30.
 - Found after the close, from the owner's review of the client
   (2026-10-27, judged by the review class at f2295901), two of step
   2's card photo: the picked photo's read had no deadline or cancel,
@@ -6918,10 +6953,10 @@ owner:
   only as the answer to the editor's latest request, unique in the
   process), host-tested; not run on a phone, where a real provider
   and TalkBack are unexercised.
-- The start listing, from the same review (P2-1): `list_all` decodes
+- The start listing, from the same review (P2-1): `list_all` decoded
   every pending, unread, kept and card row and every contact into one
-  Update, and card standing is O(K × C), so a trusted peer's unread
-  backlog can exhaust memory at start. Ruled 2026-10-27 (rust-ui-dev-
+  Update, and card standing was O(K × C), so a trusted peer's unread
+  backlog could exhaust memory at start. Ruled 2026-10-27 (rust-ui-dev-
   02's QUESTION 01a17bcc): a bounded window handed to the model, the
   rest in the store and fetched as the model has room, with a
   content-free "more remain" count — consistent with RETENTION.md,
@@ -6950,13 +6985,32 @@ owner:
   (a3141a83, #492), the cursor rebuilt from a row's time, keep and id
   (eec75cd5, #498) — and, in the model, Chats drawn from the store's
   summaries in a windowed mode beside the listed one (3d26f9be,
-  #498), which no view selects yet; the test #483 holds for its
+  #498), which no view selected until #515; the test #483 holds for its
   constraint (b), a pending row that does not decode resent after a
   restart (b046573a). The model's window — the protocol layer that
-  makes the windowed mode what the person sees — follows in that
-  batch's next PR, and until it lands the window as seen is the
-  record's and not yet the build's, and this bullet is where that is
-  said.
+  makes the windowed mode what the person sees — landed in that
+  batch's four last PRs (rust-ui-dev-02, 2026-10-30 to 2026-10-31):
+  #515, the desktop's window with its failure paths under test and the
+  fixes they found; #517, Android on the windowed start, the desktop's
+  AT-SPI window cases, and the run on the Pixel 9a and the Samsung A40
+  (`apps/human-android/device-runs/2026-10-30-windowed-start.md`);
+  #519, the command line started windowed, `messages` and `read`
+  walking a conversation oldest first in two passes through the
+  model's own commands, the first pass printing nothing and marking
+  nothing read and a row committed mid-walk printed after the walk's
+  last row (architect-cto's conditions, REPLY 01a18d00; `status` and
+  `conversations` count the store's unread rows, cards included, the
+  undisplayable rows apart); and #520, `list_all`, `Listing` and
+  `Update::Listed` removed, so no client lists the store at start.
+  Closed 2026-10-31: the window as seen is the build's. Left open by
+  name: the walk's cost on a backlog of tens of thousands of rows, not
+  measured on the window's read (SPIKE-011's entry, A 2026-10-31, says
+  what was); the Android chat case not rerun on a phone after the
+  removal, and the A40's pane still on "Select a conversation" 3 s
+  after a tap and its rows shown by the next screenshot some 10 s later
+  (the device record, one try), not re-measured since #521's draw fix; and a reply whose target lies
+  beyond the held rows read as `unavailable` on the command line, the
+  store lookup by message id architect-cto's to decide (j462).
 - Found after the close, from the owner's second review of the client
   (2026-10-27, judged by the review class at 1b37e0ef), three of this
   stage's, each P3 and none reaching a screen in a way the review
@@ -7105,7 +7159,7 @@ sentence gaining the administrative path in the same change.
    that share it; the client operating as one identity at a time, named from the second
    identity on on every acting
    surface, the explicit switch (ADR-0061 decision 9); Share sending the conversation's identity's card with no
-   chooser; `human-client-ui.md` §3 and §4 as amended. Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)).
+   chooser; `human-client-ui.md` §3 and §4 as amended. Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)). Carried from §29 (ruled 2026-10-31, DECISION 01a19125-9eb5): the conversation's record that a card of the identity may have left this device (ADR-0063 decision 1, A 2026-10-27, `Cancelled { may_have_reached: true }`), read by a replacement identity's share-again list over the old EndpointId's conversations, and the old-key own-card row across a restart (#467 R5), the old identity's by its conversation's `local_endpoint_id`; neither needs a key epoch per row.
 3. **Android** (rust-ui-dev): one in-process session and lease per
    identity in the one embedded runtime (ADR-0041 A 2026-10-21), the
    identity switch in the app, identities created through the embedded

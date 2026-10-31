@@ -13,8 +13,8 @@ use std::time::Instant;
 use interweave_human_app_core::{Command, Failure as Why, Problem, Update};
 use interweave_human_client_api::{ClientEvent, OutboundStatus, SessionState, TrustProblem};
 use interweave_human_ui_model::{
-    ConversationKey, Direction, EntryProblem, Intent, ItemKey, ItemStatus, ProposalItem, RowId,
-    TrustInput, TrustOutcome, ViewEvent,
+    ConversationKey, EntryProblem, Intent, ItemKey, ItemStatus, MessageItem, RowId, TrustInput,
+    TrustOutcome, ViewEvent,
 };
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -56,12 +56,14 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
             }
             Ok(())
         }
-        Verb::Messages(key) => {
-            look(s, r).await;
-            print_messages(s, key, r.json, out);
-            Ok(())
+        // Written as walked when run from `main` ([`stream`]); collected
+        // here for a caller that holds the output whole.
+        Verb::Messages(_) | Verb::Read { .. } => {
+            let mut bytes = Vec::new();
+            let result = stream(s, verb, r, &mut bytes).await;
+            out.push_str(&String::from_utf8_lossy(&bytes));
+            result
         }
-        Verb::Read { conversation, keep } => read(s, r, conversation, keep, out).await,
         Verb::Send {
             conversation,
             text: Some(text),
@@ -129,6 +131,29 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
     }
 }
 
+/// Run `verb`, a verb that walks a conversation, writing to `out` a chunk
+/// at a time as it walks (architect-cto's 01a18ecf Q6): what is written
+/// stays written whatever fails after it.
+///
+/// # Errors
+/// The verb's [`Failure`].
+pub(crate) async fn stream<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    verb: &Verb,
+    r: &Run<'_>,
+    out: &mut dyn std::io::Write,
+) -> Result<(), Failure> {
+    match verb {
+        Verb::Messages(key) => crate::reading::messages(s, r, key, out).await,
+        Verb::Read { conversation, keep } => {
+            crate::reading::read(s, r, conversation, keep, out).await
+        }
+        _ => Err(Failure::Refused(
+            "this verb does not walk a conversation".to_owned(),
+        )),
+    }
+}
+
 /// Open the session for a verb that reads: what the store holds is shown
 /// whether or not it opens, and what the daemon held for this client is
 /// handed over first when it does. Why it did not open goes to stderr, for
@@ -156,17 +181,6 @@ pub(crate) async fn ready<B: DataSessionBinding, A: AdminBinding>(
     s.open(r.until).await.failure(r.profile).map_or(Ok(()), Err)
 }
 
-fn print_messages<B: DataSessionBinding, A: AdminBinding>(
-    s: &Session<B, A>,
-    key: &ConversationKey,
-    json: bool,
-    out: &mut String,
-) {
-    for m in s.model().messages(key) {
-        out.push_str(&output::message(&m, json));
-    }
-}
-
 /// A command the model side reports as not carried out, as a failure.
 pub(crate) fn problems<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
@@ -182,7 +196,7 @@ pub(crate) fn problems<B: DataSessionBinding, A: AdminBinding>(
 fn problem_failure(problem: Problem) -> Failure {
     let (what, why) = match problem {
         Problem::Command { command, why } => (command_name(&command), why),
-        Problem::UnreadNotListed(why) => ("listing the unread messages", why),
+        Problem::UnreadNotListed(why) => ("reading the unread messages again", why),
         Problem::CardsNotRead(why) => ("reading the cards and contacts", why),
         Problem::ShareNotRecorded(why) => ("recording a card's share", why),
     };
@@ -236,7 +250,7 @@ const fn command_name(command: &Command) -> &'static str {
         Command::AskNewKey => "asking what a new key cancels",
         Command::MakeNewKey => "making a new key",
         Command::RetryKey => "opening the key again",
-        // The windowed mode's reads, which this client does not ask yet.
+        // A page, the contacts or a photo, read as a walk or the start asks.
         Command::Window(_) => "reading the store",
         Command::ShareCard(_) => "sharing the card",
         Command::SetOwnCard { .. } => "editing the own card",
@@ -271,17 +285,25 @@ async fn status<B: DataSessionBinding, A: AdminBinding>(
         _ => None,
     };
     let connectivity = output::connectivity(model.connectivity());
-    let (mut unread, mut pending, mut kept) = (0, 0, 0);
+    // Unread from the summaries and kept from the store's count, held rows
+    // or not; pending from the rows, every pending one being held
+    // (architect-cto's 01a18ecf Q1,
+    // `status_counts_what_the_store_holds_past_the_held_row_ceiling`).
+    let (mut unread, mut pending) = (0, 0);
     for c in model.conversations() {
-        for m in model.messages(&c.key) {
-            match output::status(&m.status) {
-                "unread" => unread += 1,
-                "sending" | "not-confirmed" | "needs-attention" => pending += 1,
-                _ => {}
-            }
-            kept += usize::from(m.kept);
-        }
+        unread += c.unread;
+        pending += model
+            .messages(&c.key)
+            .iter()
+            .filter(|m| {
+                matches!(
+                    output::status(&m.status),
+                    "sending" | "not-confirmed" | "needs-attention"
+                )
+            })
+            .count();
     }
+    let kept = s.side().kept_rows();
     let hidden = s.side().hidden_rows();
     if r.json {
         out.push_str(&output::json_line(&json!({
@@ -314,63 +336,16 @@ async fn status<B: DataSessionBinding, A: AdminBinding>(
     Ok(())
 }
 
-async fn read<B: DataSessionBinding, A: AdminBinding>(
+/// Keep `to_keep`, read in this run, each beside its place among the
+/// `--keep` ids: a message kept already is what was asked.
+pub(crate) async fn keep_after_read<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
-    r: &Run<'_>,
-    key: &ConversationKey,
-    keep: &[String],
-    out: &mut String,
-) -> Result<(), Failure> {
-    look(s, r).await;
-    // Every --keep names a message received in this conversation, checked
-    // before anything is marked read: a mistyped id must not cost the read
-    // (`a_keep_naming_an_outbound_message_refuses_before_anything_is_read`).
-    let shown = s.model().messages(key);
-    let mut to_keep: Vec<ItemKey> = Vec::new();
-    for (n, id) in keep.iter().enumerate() {
-        let item = s
-            .model()
-            .item_named(id)
-            .filter(|k| {
-                shown
-                    .iter()
-                    .any(|m| m.key == *k && m.direction == Direction::Inbound)
-            })
-            .ok_or_else(|| {
-                Failure::Refused(format!(
-                    "--keep number {}: no message received in this conversation has that id",
-                    n + 1
-                ))
-            })?;
-        to_keep.push(item);
-    }
-    let viewed = key.clone();
-    s.will(move |m| {
-        m.conversation_viewed(&viewed, true)
-            .into_iter()
-            .map(ViewEvent::Intent)
-            .collect()
-    });
-    s.step().await;
-    // From here a message may be read and not kept, which this run alone
-    // holds (RETENTION.md): whatever fails after, what was read is printed
-    // first, or the person never sees it
-    // (`a_keep_that_fails_after_the_read_still_prints_what_was_read`).
-    let kept = keep_after_read(s, &to_keep).await;
-    print_messages(s, key, r.json, out);
-    kept
-}
-
-/// Keep `to_keep`, read in this run: a message kept already is what was
-/// asked.
-async fn keep_after_read<B: DataSessionBinding, A: AdminBinding>(
-    s: &mut Session<B, A>,
-    to_keep: &[ItemKey],
+    to_keep: &[(usize, ItemKey)],
 ) -> Result<(), Failure> {
     problems(s)?;
     let mut intents = Vec::new();
-    for (n, item) in to_keep.iter().enumerate() {
-        let actions = s.model().actions(*item);
+    for &(n, item) in to_keep {
+        let actions = s.model().actions(item);
         if let Some(keep) = actions.iter().find(|i| matches!(i, Intent::Keep { .. })) {
             intents.push(keep.clone());
         } else if !actions.iter().any(|i| matches!(i, Intent::Unkeep(_))) {
@@ -578,10 +553,12 @@ async fn row_action<B: DataSessionBinding, A: AdminBinding>(
     if matches!(verb, RowVerb::Retry) {
         ready(s, r).await?;
     }
-    let item = s
-        .model()
-        .item_named(id)
-        .ok_or_else(|| Failure::Refused("no message held has that id".to_owned()))?;
+    let held = s.model().item_named(id);
+    let held = match held {
+        None if matches!(verb, RowVerb::Unkeep) => walked_to(s, id).await?,
+        held => held,
+    };
+    let item = held.ok_or_else(|| Failure::Refused("no message held has that id".to_owned()))?;
     let offered = s.model().actions(item).into_iter().find(|i| {
         matches!(
             (verb, i),
@@ -637,6 +614,37 @@ async fn row_action<B: DataSessionBinding, A: AdminBinding>(
         let _ = writeln!(out, "{item} {done}");
     }
     Ok(())
+}
+
+/// The item named `id`, a kept row the model does not hold: each
+/// conversation walked, the first pass alone, until a page brings it,
+/// and left open so it stays held (architect-cto's 01a18ecf Q2). The
+/// first pass reads nothing
+/// (`an_unkeep_of_a_row_older_than_the_held_row_ceiling_reads_nothing`).
+///
+/// # Errors
+/// [`Failure::Store`] when a page of a conversation cannot be read.
+async fn walked_to<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    id: &str,
+) -> Result<Option<ItemKey>, Failure> {
+    let keys: Vec<ConversationKey> = s
+        .model()
+        .conversations()
+        .into_iter()
+        .map(|c| c.key)
+        .collect();
+    for key in keys {
+        let mut walk = crate::walk::Walk::open(s, &key);
+        while !walk.past_the_top() {
+            walk.advance(s).await?;
+            if let Some(item) = s.model().item_named(id) {
+                return Ok(Some(item));
+            }
+        }
+        walk.close(s);
+    }
+    Ok(None)
 }
 
 /// The conversation `item` is shown in.
@@ -822,8 +830,17 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
     let (event, fields) = match update {
         // The local endpoint that received it: the one this session's lease
         // holds, beside the author and the peer's endpoint (G6).
+        // Built from the update, not from the rows the model holds: a
+        // conversation not open holds none of them
+        // (`listen_prints_a_message_and_a_card_for_a_conversation_not_open`).
         Update::Received(received) => {
-            return message_line(s, received.row, json, leased(s).map(EndpointId::as_str));
+            let key = crate::walk::conversation_of(&received.origin);
+            return Some(item_line(
+                &key,
+                &model.message_of(received),
+                json,
+                leased(s).map(EndpointId::as_str),
+            ));
         }
         Update::ReceivedCard(card) => {
             // Said as the proposals list says it, read by no one: the card
@@ -832,10 +849,7 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
                 peer: card.peer.clone(),
                 endpoint: Some(card.endpoint.clone()),
             };
-            let item = model
-                .proposals(&key)
-                .into_iter()
-                .find(|p| p.row == card.row)?;
+            let item = model.proposal_item(card);
             return Some(crate::cards::proposal_line(&item, &key, "unread", json));
         }
         Update::Client(ClientEvent::Outbound(update)) => (
@@ -921,7 +935,7 @@ fn listen_about<B: DataSessionBinding, A: AdminBinding>(
     Some(match update {
         Update::Received(received) => (
             "message",
-            conversation_of_item(s, &format!("u{}", received.row.get())),
+            Some(crate::walk::conversation_of(&received.origin)),
         ),
         Update::ReceivedCard(card) => (
             "proposal",
@@ -962,18 +976,28 @@ fn message_line<B: DataSessionBinding, A: AdminBinding>(
             .find(|m| m.key == item)
             .map(|m| (c.key, m))
     })?;
+    Some(item_line(&key, &message, json, local_endpoint))
+}
+
+/// The `message` event of `message`, in conversation `key`.
+fn item_line(
+    key: &ConversationKey,
+    message: &MessageItem,
+    json: bool,
+    local_endpoint: Option<&str>,
+) -> String {
     if !json {
-        return Some(format!(
+        return format!(
             "message {}\n{}",
-            conversation_text(&key),
-            output::message(&message, false)
-        ));
+            conversation_text(key),
+            output::message(message, false)
+        );
     }
-    let mut value = output::message_value(&message);
+    let mut value = output::message_value(message);
     value["event"] = json!("message");
-    value["conversation"] = json!(conversation_text(&key));
+    value["conversation"] = json!(conversation_text(key));
     value["local_endpoint"] = json!(local_endpoint);
-    Some(output::json_line(&value))
+    output::json_line(&value)
 }
 
 /// How `listen` runs: its output form, whether it consumes what it
@@ -1184,34 +1208,140 @@ struct Consumed {
     decided: std::collections::HashSet<RowId>,
 }
 
-/// The rows `--consume` has yet to take from the model: each unread
-/// message not yet printed, by row, and each proposal not yet declined.
-/// The store keeps no record of which endpoint received a row, so a row
-/// found here is printed with `local_endpoint` `null`
-/// (`listen_consume_drains_what_the_store_held_unread_at_open`).
-fn undrained<B: DataSessionBinding, A: AdminBinding>(
+/// A drain's chunk of `key`: each unread message the filter prints, its
+/// line queued with the rows it reads once written, unless printed or
+/// queued already; each proposal it prints, declined.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "listen's state, borrowed apart for one chunk"
+)]
+fn drained<B: DataSessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
-    consumed: &Consumed,
-) -> (Vec<RowId>, Vec<(ConversationKey, ProposalItem)>) {
+    key: &ConversationKey,
+    anchors: &[interweave_human_ui_model::Anchor],
+    filter: &crate::cli::ListenFilter,
+    json: bool,
+    queued: &std::collections::HashSet<RowId>,
+    consumed: &mut Consumed,
+    lines: &mut Vec<(String, Vec<RowId>)>,
+    decline: &mut Vec<RowId>,
+) {
+    use interweave_human_ui_model::Anchor;
     let model = s.model();
-    let mut messages = Vec::new();
-    for c in model.conversations() {
-        for intent in model.conversation_viewed(&c.key, true) {
-            if let Intent::MarkRead(row) = intent
-                && !consumed.printed.contains(&row)
-                && !messages.contains(&row)
-            {
-                messages.push(row);
+    for anchor in anchors {
+        match *anchor {
+            Anchor::Item(item) => {
+                if !filter.passes("message", Some(key)) {
+                    continue;
+                }
+                let rows: Vec<RowId> = model
+                    .items_viewed(&[item])
+                    .into_iter()
+                    .filter_map(|i| match i {
+                        Intent::MarkRead(row) => Some(row),
+                        _ => None,
+                    })
+                    .filter(|row| !consumed.printed.contains(row) && !queued.contains(row))
+                    .collect();
+                if let Some(line) = rows
+                    .first()
+                    .and_then(|row| message_line(s, *row, json, None))
+                {
+                    lines.push((line, rows));
+                }
+            }
+            Anchor::Card(row) => {
+                if !filter.passes("proposal", Some(key))
+                    || consumed.declining.contains_key(&row)
+                    || consumed.decided.contains(&row)
+                    || !model.card_actions(row).contains(&Intent::DeclineCard(row))
+                {
+                    continue;
+                }
+                if let Some(p) = model.proposals(key).into_iter().find(|p| p.row == row) {
+                    let said = crate::cards::proposal_line(&p, key, "declined", json);
+                    consumed.declining.insert(row, said);
+                    decline.push(row);
+                }
             }
         }
     }
-    let proposals = crate::cards::every_proposal(s)
-        .into_iter()
-        .filter(|(_, p)| {
-            !consumed.declining.contains_key(&p.row) && !consumed.decided.contains(&p.row)
-        })
-        .collect();
-    (messages, proposals)
+}
+
+/// `listen --consume`'s drain of what the store holds unread: each
+/// conversation with an unread row the filter may print, walked oldest
+/// first, one at a time, its walk's steps standing for listen's own
+/// (`listen_consume_drains_a_conversation_past_the_held_row_ceiling`).
+struct Drain {
+    queue: std::collections::VecDeque<ConversationKey>,
+    walk: Option<crate::walk::Walk>,
+    /// The store was relisted during the drain: every conversation is
+    /// drained again once this pass ends.
+    again: bool,
+}
+
+impl Drain {
+    /// A drain of every conversation the summaries count an unread row
+    /// in, or that holds a proposal, that `filter` prints a message or a
+    /// proposal of.
+    fn of<B: DataSessionBinding, A: AdminBinding>(
+        s: &Session<B, A>,
+        filter: &crate::cli::ListenFilter,
+    ) -> Self {
+        let model = s.model();
+        let mut keys: Vec<ConversationKey> = model
+            .conversations()
+            .into_iter()
+            .filter(|c| c.unread > 0)
+            .map(|c| c.key)
+            // A conversation holding a proposal and no message yet.
+            .chain(model.proposal_conversations())
+            .filter(|k| filter.passes("message", Some(k)) || filter.passes("proposal", Some(k)))
+            .collect();
+        keys.sort();
+        keys.dedup();
+        let queue = keys.into();
+        Self {
+            queue,
+            walk: None,
+            again: false,
+        }
+    }
+
+    /// Drain `key` too, unless it is queued or walked already.
+    fn add(&mut self, key: ConversationKey) {
+        if !self.queue.contains(&key) && self.walk.as_ref().is_none_or(|w| w.conversation() != &key)
+        {
+            self.queue.push_back(key);
+        }
+    }
+}
+
+/// Open the drain's next walk, if it has none: the next conversation
+/// queued, or every conversation again after a relist; the drain ends
+/// with its queue.
+fn next_walk<B: DataSessionBinding, A: AdminBinding>(
+    drain: &mut Option<Drain>,
+    s: &mut Session<B, A>,
+    filter: &crate::cli::ListenFilter,
+) {
+    loop {
+        let Some(d) = drain.as_mut() else {
+            return;
+        };
+        if d.walk.is_some() {
+            return;
+        }
+        if let Some(key) = d.queue.pop_front() {
+            d.walk = Some(crate::walk::Walk::open_passing(s, &key));
+            return;
+        }
+        if !d.again {
+            *drain = None;
+            return;
+        }
+        *d = Drain::of(s, filter);
+    }
 }
 
 /// Hold the session open and print one line (one JSON object with
@@ -1249,9 +1379,31 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
     let mut consumed = Consumed::default();
     // What the store held unread when the session opened is the first
     // drain; a relist the facade asks for (`UnreadInStore`) is the next.
-    let mut drain = consume;
+    let mut redrain = consume;
+    let mut drain: Option<Drain> = None;
     loop {
+        if redrain {
+            redrain = false;
+            match drain.as_mut() {
+                Some(d) => d.again = true,
+                None => drain = Some(Drain::of(s, &filter)),
+            }
+        }
+        next_walk(&mut drain, s, &filter);
+        // Every turn steps, whatever the drain does: a walk's advance
+        // takes no step when it hands over rows held already, and the
+        // reads and declines asked last turn run in this step
+        // (`a_printed_message_is_read_before_listen_ends`). What a walk's
+        // own steps took is printed after it.
         s.step().await;
+        let mut updates = s.take_updates();
+        let walked = if let Some(walk) = drain.as_mut().and_then(|d| d.walk.as_mut()) {
+            let progress = walk.advance(s).await;
+            updates.extend(walk.take_passed());
+            Some((walk.conversation().clone(), progress))
+        } else {
+            None
+        };
         // A command the model side could not carry out -- a read or a
         // decline `--consume` asked -- is said, never dropped: its row
         // stays unread in the store.
@@ -1298,8 +1450,9 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         // Set once the reader is gone or stdout fails: what was written
         // before is still marked read, then listen ends.
         let mut ended: Option<Result<(), Failure>> = None;
-        let mut lines: Vec<(String, Option<RowId>)> = Vec::new();
-        for update in s.take_updates() {
+        // Each line with the unread rows it reads once written.
+        let mut lines: Vec<(String, Vec<RowId>)> = Vec::new();
+        for update in updates {
             // The filter judges only the events `listen_about` names, so an
             // `--input` line's first answer and a decline this run asked for
             // print as before. One named event is exempt: an outbound event
@@ -1314,10 +1467,8 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
                 || listen_about(s, &update)
                     .is_none_or(|(event, about)| filter.passes(event, about.as_ref()));
             let line = match &update {
-                Update::Client(ClientEvent::UnreadInStore { .. }) | Update::UnreadListed { .. }
-                    if consume =>
-                {
-                    drain = true;
+                Update::Client(ClientEvent::UnreadInStore { .. }) if consume => {
+                    redrain = true;
                     event_line(s, &update, json)
                 }
                 Update::Received(received) if consume => {
@@ -1327,9 +1478,20 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
                         event_line(s, &update, json)
                     }
                 }
-                // Declined as it arrives, and said once the decline is done.
-                Update::ReceivedCard(_) if consume => {
-                    drain = true;
+                // Declined as it arrives, by a drain of its conversation,
+                // and said once the decline is done.
+                Update::ReceivedCard(card) if consume => {
+                    let key = ConversationKey::Direct {
+                        peer: card.peer.clone(),
+                        endpoint: Some(card.endpoint.clone()),
+                    };
+                    drain
+                        .get_or_insert_with(|| Drain {
+                            queue: std::collections::VecDeque::new(),
+                            walk: None,
+                            again: false,
+                        })
+                        .add(key);
                     None
                 }
                 Update::CardResolved { row, .. } if consumed.declining.contains_key(row) => {
@@ -1387,46 +1549,62 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
             // Not printed, not consumed: a message the filter leaves out
             // stays unread (G7).
             if let Some(line) = line.filter(|_| shown) {
-                let row = match &update {
-                    Update::Received(received) if consume => Some(received.row),
-                    _ => None,
+                let rows = match &update {
+                    Update::Received(received) if consume => vec![received.row],
+                    _ => Vec::new(),
                 };
-                lines.push((line, row));
+                lines.push((line, rows));
             }
         }
-        if consume && drain && ended.is_none() {
-            drain = false;
-            let (messages, proposals) = undrained(s, &consumed);
-            // A row this step already holds a line for -- one received in
-            // the same turn as a card or a relist -- is that line's: never
-            // printed twice
-            // (`a_message_received_with_a_card_is_printed_once`).
-            let queued: std::collections::HashSet<RowId> =
-                lines.iter().filter_map(|(_, row)| *row).collect();
-            for row in messages.into_iter().filter(|row| {
-                !queued.contains(row)
-                    && filter.passes(
-                        "message",
-                        conversation_of_item(s, &format!("u{}", row.get())).as_ref(),
-                    )
-            }) {
-                if let Some(line) = message_line(s, row, json, None) {
-                    lines.push((line, Some(row)));
+        if let Some((key, progress)) = walked {
+            match progress {
+                Ok(crate::walk::Progress::Chunk(anchors)) => {
+                    let queued: std::collections::HashSet<RowId> = lines
+                        .iter()
+                        .flat_map(|(_, rows)| rows.iter().copied())
+                        .collect();
+                    drained(
+                        s,
+                        &key,
+                        &anchors,
+                        &filter,
+                        json,
+                        &queued,
+                        &mut consumed,
+                        &mut lines,
+                        &mut decline,
+                    );
                 }
-            }
-            for (key, p) in proposals {
-                if filter.passes("proposal", Some(&key))
-                    && s.model()
-                        .card_actions(p.row)
-                        .contains(&Intent::DeclineCard(p.row))
-                {
-                    let said = crate::cards::proposal_line(&p, &key, "declined", json);
-                    consumed.declining.insert(p.row, said);
-                    decline.push(p.row);
+                Ok(crate::walk::Progress::Working) => {}
+                // A row that arrived during the walk was printed as it
+                // arrived, as a `message` event.
+                Ok(crate::walk::Progress::Late(_) | crate::walk::Progress::Done) => {
+                    if let Some(d) = drain.as_mut() {
+                        d.walk = None;
+                    }
+                }
+                // Said, and the drain goes on with the next conversation:
+                // this one's rows stay unread for a later drain.
+                Err(failure) => {
+                    if let Some(walk) = drain.as_mut().and_then(|d| d.walk.take()) {
+                        walk.close(s);
+                    }
+                    if filter.passes("failed", None) {
+                        let line = if json {
+                            output::json_line(&json!({
+                                "event": "failed",
+                                "id": null,
+                                "reason": failure.message(),
+                            }))
+                        } else {
+                            format!("failed {}\n", output::one_line(failure.message()))
+                        };
+                        lines.push((line, Vec::new()));
+                    }
                 }
             }
         }
-        for (line, row) in lines {
+        for (line, rows) in lines {
             match put(out, &line) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -1440,7 +1618,7 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
             }
             // Read once its line is written and flushed, never before:
             // the line is its presentation to the program reading (G3).
-            if let Some(row) = row {
+            for row in rows {
                 consumed.printed.insert(row);
                 read.push(row);
             }

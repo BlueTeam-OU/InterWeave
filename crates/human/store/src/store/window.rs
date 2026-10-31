@@ -135,14 +135,19 @@ pub struct ConversationUnread {
     pub unread: u64,
 }
 
-/// Rows of a kind this build cannot show, counted apart: never an item,
-/// never in a badge, and the hidden-rows line's count with the pending
-/// rows that do not decode.
+/// The inbound counts no conversation's summary carries, read in one
+/// query from the kind indexes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct HiddenInbound {
-    /// Unread.
-    pub unread: u64,
-    /// Kept.
+pub struct InboundCounts {
+    /// Unread rows of a kind this build cannot show, counted apart: never
+    /// an item, never in a badge; the hidden-rows line's count, with
+    /// `hidden_kept` and the pending rows that do not decode.
+    pub hidden_unread: u64,
+    /// Kept rows of a kind this build cannot show.
+    pub hidden_kept: u64,
+    /// Kept rows of a kind this build shows: the command line's `status`
+    /// says it, read with the summaries rather than from a listing
+    /// (architect-cto's 01a18ecf Q1).
     pub kept: u64,
 }
 
@@ -196,9 +201,10 @@ const CHANNEL_COUNTS: &str = "SELECT channel_id, COUNT(*)
    FROM unread_inbound INDEXED BY unread_inbound_by_kind
   WHERE channel_id IS NOT NULL AND kind IN ('text', 'card')
   GROUP BY channel_id";
-const HIDDEN: &str =
+const INBOUND_COUNTS: &str =
     "SELECT (SELECT COUNT(*) FROM unread_inbound INDEXED BY unread_inbound_by_kind WHERE kind NOT IN ('text', 'card')),
-            (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind WHERE kind NOT IN ('text', 'card'))";
+            (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind WHERE kind NOT IN ('text', 'card')),
+            (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind WHERE kind IN ('text', 'card'))";
 
 /// The conversations with a shown row: a direct one by its peer and
 /// endpoint, a channel by its id, from each inbound table's kind index.
@@ -384,7 +390,7 @@ impl HumanStore {
     /// and kept together, newest first, older than `before` (the newest at
     /// `None`): within `limits`, and the cursor of the next page when there
     /// are older rows. A row this build cannot show is never in a page
-    /// ([`Self::hidden_inbound`] counts it).
+    /// ([`Self::inbound_counts`] counts it).
     ///
     /// # Errors
     /// A storage error, or a row this build cannot read back.
@@ -615,16 +621,20 @@ impl HumanStore {
         Ok(out.into_iter().collect())
     }
 
-    /// The inbound rows of a kind this build cannot show, unread and kept.
+    /// The inbound rows of a kind this build cannot show, unread and kept,
+    /// and the kept rows of a kind it shows
+    /// (`the_kept_count_is_of_the_kinds_shown`).
     ///
     /// # Errors
     /// A storage error.
-    pub fn hidden_inbound(&self) -> Result<HiddenInbound, StoreError> {
-        let (unread, kept): (i64, i64) = self
-            .conn
-            .query_row(HIDDEN, [], |r| Ok((r.get(0)?, r.get(1)?)))?;
-        Ok(HiddenInbound {
-            unread: u64::try_from(unread).unwrap_or(0),
+    pub fn inbound_counts(&self) -> Result<InboundCounts, StoreError> {
+        let (hidden_unread, hidden_kept, kept): (i64, i64, i64) =
+            self.conn.query_row(INBOUND_COUNTS, [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?;
+        Ok(InboundCounts {
+            hidden_unread: u64::try_from(hidden_unread).unwrap_or(0),
+            hidden_kept: u64::try_from(hidden_kept).unwrap_or(0),
             kept: u64::try_from(kept).unwrap_or(0),
         })
     }
@@ -674,7 +684,7 @@ impl HumanStore {
 #[cfg(test)]
 mod tests {
     use super::{
-        CHANNEL, CHANNEL_COUNTS, DIRECT, DIRECT_COUNTS, ENDPOINT_COUNT, HIDDEN,
+        CHANNEL, CHANNEL_COUNTS, DIRECT, DIRECT_COUNTS, ENDPOINT_COUNT, INBOUND_COUNTS,
         SHOWN_CONVERSATIONS, page_sql,
     };
     use crate::{HumanStore, StoreOptions};
@@ -716,7 +726,7 @@ mod tests {
     /// touches an inbound table otherwise (#489 review F1, #492 review F5);
     /// so does the Chats list's set of conversations, since v11 (#492
     /// review F2). Mutations: the unread kind index dropped from migration
-    /// 10; a subquery of `HIDDEN` reading a kept column its index lacks;
+    /// 10; a subquery of `INBOUND_COUNTS` reading a kept column its index lacks;
     /// migration 11 not run, the kept kind index narrow.
     #[test]
     fn the_counts_read_a_covering_index_alone() {
@@ -731,7 +741,7 @@ mod tests {
                 &["COVERING INDEX unread_inbound_by_kind"][..],
             ),
             (
-                HIDDEN,
+                INBOUND_COUNTS,
                 &[
                     "COVERING INDEX unread_inbound_by_kind",
                     "COVERING INDEX kept_inbound_by_kind",

@@ -8,7 +8,10 @@ use interweave_human_client_api::Origin;
 use interweave_human_core::RowId;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
-use super::{Edge, MarkKind, PageAsk, PageEnd, PageOrder, PageRows, WindowInput};
+use super::{
+    Anchor, Edge, MarkKind, MarkPlace, PageAsk, PageEnd, PageOrder, PageRows, WindowEvent,
+    WindowInput,
+};
 use crate::model::SESSION_ITEM_CAP;
 use crate::model::summaries::{NewestRow, StoredSummary};
 use crate::model::{ConversationKey, ListedInbound, Table, UiModel};
@@ -459,7 +462,9 @@ fn read_here(
     let ask = model.take_page_asks().pop().unwrap_or_else(|| PageAsk {
         conversation: conversation(),
         edge: Edge::Top,
-        older_than: None,
+        // A top page's ask carries the top it was read from; one that does
+        // not is stale.
+        older_than: model.windows.open.as_ref().and_then(|w| w.top),
         newer_than: None,
         order: PageOrder::NewestFirst,
         unread_room: None,
@@ -514,11 +519,11 @@ fn each_run_of_dropped_rows_has_one_line_with_its_count() {
         .window_marks(&conversation())
         .into_iter()
         .filter_map(|m| match m.kind {
-            MarkKind::ReadNotShown { count } => Some((m.above, count)),
+            MarkKind::ReadNotShown { count } => Some((m.place, count)),
             _ => None,
         })
         .collect();
-    assert_eq!(runs, [(Some(keys[2]), 2)]);
+    assert_eq!(runs, [(MarkPlace::Above(Anchor::Item(keys[2])), 2)]);
 }
 
 /// Closed, a conversation holds none of its stored rows in the windowed
@@ -869,4 +874,818 @@ fn a_sent_message_newest_leaves_the_newest_stored_row_held() {
         [4],
         "into a gap, read back from either side"
     );
+}
+
+/// The rows on a gap's two sides stand next to each other on screen, so
+/// both are reached together: one page is asked, the other side's after
+/// it arrives, and no row is read twice (section 5.1: no page of a gap
+/// while another of the same gap is in flight). Mutation: the guard in
+/// `Windows::ask` removed -- two asks over the same rows.
+#[test]
+fn reaching_both_sides_of_a_gap_asks_one_page() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Kept, PageEnd::Exhausted);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Kept);
+    for edge in [Edge::GapUpper(id), Edge::GapLower(id)] {
+        model.window_input(WindowInput::Reached {
+            conversation: conversation(),
+            edge,
+        });
+    }
+    let upper = one_ask(&mut model);
+    assert_eq!(upper.edge, Edge::GapUpper(id));
+    model.page_arrived(rows_of(&upper, &[n - 4, n - 3], Table::Kept, PageEnd::More));
+    let lower = one_ask(&mut model);
+    assert_eq!(lower.edge, Edge::GapLower(id), "the other side after it");
+    assert_eq!(
+        lower.newer_than.map(|m| m.row),
+        Some(RowId::from_stored(n - 3)),
+        "past the rows the first page read"
+    );
+    model.page_arrived(rows_of(
+        &lower,
+        &[n - 1, n - 2],
+        Table::Kept,
+        PageEnd::Exhausted,
+    ));
+    assert!(model.take_page_asks().is_empty());
+    for back in n - 4..n {
+        assert!(holds(&model, back, Table::Kept), "row {back} back");
+    }
+}
+
+/// The same with unread rows at the session bound, where Show more
+/// messages asks: the second side's Show more waits for the first page,
+/// and the gap's line counts each row out once. Mutation: the guard
+/// removed -- two asks, and the line short by the rows read twice.
+#[test]
+fn show_more_on_both_sides_of_a_gap_counts_each_row_once() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    assert_eq!(gap_lines(&model), [4]);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Unread);
+    for edge in [Edge::GapUpper(id), Edge::GapLower(id)] {
+        model.window_input(WindowInput::Reached {
+            conversation: conversation(),
+            edge,
+        });
+    }
+    assert!(model.take_page_asks().is_empty(), "both at the limit");
+    for edge in [Edge::GapUpper(id), Edge::GapLower(id)] {
+        model.window_input(WindowInput::ShowAnyway {
+            conversation: conversation(),
+            edge,
+        });
+    }
+    let upper = one_ask(&mut model);
+    model.page_arrived(page(&upper, &[n - 4, n - 3], PageEnd::More));
+    assert_eq!(gap_lines(&model), [2], "each row counted out once");
+    let lower = one_ask(&mut model);
+    model.page_arrived(page(&lower, &[n - 1, n - 2], PageEnd::Exhausted));
+    assert!(gap_lines(&model).is_empty(), "the gap is gone");
+}
+
+fn gap_id(model: &UiModel) -> u64 {
+    model
+        .windows
+        .open
+        .as_ref()
+        .and_then(|w| w.gaps.keys().next().copied())
+        .expect("a gap")
+}
+
+/// A top page on its way while arrivals push the ceiling to let go of the
+/// oldest rows, moving the top down past them: the page, read from the old
+/// top, adds nothing -- its rows would sit above rows let go into no gap,
+/// which nothing would read back -- and the top is asked again from where
+/// it stands (section 5.1: rows released, never lost). Mutation: the
+/// staleness check removed -- the page's rows are held and nothing asks
+/// past the rows let go.
+#[test]
+fn a_top_page_in_flight_when_the_ceiling_moves_the_top_adds_nothing() {
+    use super::HELD_ROW_CAP;
+    let cap = i64::try_from(HELD_ROW_CAP).expect("small");
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, 100 + cap - 1, Table::Kept);
+    let opening = one_ask(&mut model);
+    model.page_arrived(rows_of(
+        &opening,
+        &(100..100 + cap).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::More,
+    ));
+    reached(&mut model);
+    let top = one_ask(&mut model);
+    assert_eq!(top.older_than.map(|m| m.row), Some(RowId::from_stored(100)));
+    for n in 100 + cap..100 + cap + 4 {
+        handed(&mut model, n);
+    }
+    for gone in 100..104 {
+        assert!(!holds(&model, gone, Table::Kept), "row {gone} let go");
+    }
+    model.page_arrived(rows_of(
+        &top,
+        &(90..100).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::More,
+    ));
+    for n in 90..100 {
+        assert!(!holds(&model, n, Table::Kept), "row {n} not added");
+    }
+    let again = one_ask(&mut model);
+    assert_eq!(again.edge, Edge::Top);
+    assert_eq!(
+        again.older_than.map(|m| m.row),
+        Some(RowId::from_stored(104)),
+        "asked again from the top as it stands, above the rows let go"
+    );
+}
+
+/// An item can hold a stored row newer than every other held row while
+/// it stands far up the conversation: a later copy of an older message is
+/// attached to the older message's item. Such an item cannot be let go --
+/// its rows would have no side to be read back from -- and the ceiling
+/// passes it over for the next farthest, so the held rows stay at the
+/// ceiling (section 5.1). Mutation: stopping at the first item that cannot
+/// go -- the held rows stay past the ceiling.
+#[test]
+fn the_ceiling_holds_past_an_item_holding_the_newest_stored_row() {
+    use super::HELD_ROW_CAP;
+    let cap = i64::try_from(HELD_ROW_CAP).expect("small");
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, cap + 1, Table::Kept);
+    let ask = one_ask(&mut model);
+    let mut rows = rows_of(
+        &ask,
+        &(1..=cap + 1).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::Exhausted,
+    );
+    let mut copy = row(1);
+    copy.row = RowId::from_stored(cap + 10);
+    copy.received_at = u64::try_from(cap + 10).expect("small");
+    rows.kept.push(copy);
+    model.page_arrived(rows);
+    assert!(holds(&model, 1, Table::Kept), "the copy's item cannot go");
+    assert!(holds(&model, cap + 10, Table::Kept));
+    let held = (1..=cap + 1)
+        .chain([cap + 10])
+        .filter(|n| holds(&model, *n, Table::Kept))
+        .count();
+    assert_eq!(held, HELD_ROW_CAP, "the next farthest went instead");
+    assert!(!holds(&model, 2, Table::Kept));
+}
+
+fn kept(n: i64) -> crate::model::ItemKey {
+    crate::model::ItemKey(Table::Kept, RowId::from_stored(n))
+}
+
+/// The top edge's marks stand above everything the conversation draws --
+/// with nothing drawn yet too, where "above the oldest item" named no
+/// item and read as the end (ux-designer's U2). Mutation: the top's
+/// marks placed at the oldest item -- `End` here.
+#[test]
+fn top_marks_stand_at_the_top_with_nothing_drawn() {
+    let mut model = started(5);
+    model.window_input(WindowInput::Opened(conversation()));
+    let marks = model.window_marks(&conversation());
+    assert!(!marks.is_empty());
+    assert!(marks.iter().all(|m| m.place == MarkPlace::Top), "{marks:?}");
+}
+
+/// A gap's line keeps its place when the row below it is read: a read
+/// row is no held stored row, but it is still drawn, and the line stands
+/// above it as before. Mutation: a place found only through the held
+/// rows -- the line falls to the end.
+#[test]
+fn a_gap_keeps_its_place_when_the_row_below_it_is_read() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    let line = |model: &UiModel| {
+        model
+            .window_marks(&conversation())
+            .into_iter()
+            .find(|m| {
+                matches!(
+                    m.kind,
+                    MarkKind::EarlierUnread {
+                        edge: Edge::GapLower(_),
+                        ..
+                    }
+                )
+            })
+            .map(|m| m.place)
+    };
+    let newest = MarkPlace::Above(Anchor::Item(crate::model::ItemKey(
+        Table::Unread,
+        RowId::from_stored(n),
+    )));
+    assert_eq!(line(&model), Some(newest));
+    model.read(RowId::from_stored(n));
+    assert_eq!(line(&model), Some(newest), "still above the row read");
+}
+
+/// A `ReadNotShown` line stands where its rows stood: hiding the row
+/// below it moves it above the next row drawn, never off the screen.
+/// Mutation: hidden rows counted as drawn -- the line stays on the
+/// hidden row, which no view draws.
+#[test]
+fn a_read_not_shown_line_stays_when_the_row_below_it_is_hidden() {
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    let keys = read_here(&mut model, 1..=4);
+    let cap = i64::try_from(SESSION_ITEM_CAP).expect("small");
+    read_here(&mut model, 10..=10 + cap - 3);
+    model.hide(keys[2]);
+    let runs: Vec<_> = model
+        .window_marks(&conversation())
+        .into_iter()
+        .filter(|m| matches!(m.kind, MarkKind::ReadNotShown { .. }))
+        .map(|m| (m.place, m.kind))
+        .collect();
+    assert_eq!(
+        runs,
+        [(
+            MarkPlace::Above(Anchor::Item(keys[3])),
+            MarkKind::ReadNotShown { count: 2 }
+        )]
+    );
+}
+
+/// A held card proposal is a held row like a message: rows released on
+/// its two sides are two gaps, each with its own sides, the proposal
+/// standing between them where it arrived (ux-designer's U2). Mutation:
+/// proposals left out of the held rows that bound a gap -- one gap, and
+/// the proposal shown next to rows it is not next to in time.
+#[test]
+fn a_held_proposal_between_released_rows_splits_them_into_two_gaps() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, 10, Table::Kept);
+    let ask = one_ask(&mut model);
+    let mut rows = rows_of(
+        &ask,
+        &(1..=n).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::Exhausted,
+    );
+    // Times spaced apart, so the proposal stands strictly between two rows.
+    for r in &mut rows.kept {
+        r.received_at *= 2;
+    }
+    let card_row = RowId::from_stored(50_000);
+    let mut proposal = card(card_row, P);
+    proposal.received_at = u64::try_from(2 * (n - 3) + 1).expect("small");
+    rows.proposals.push(proposal);
+    model.page_arrived(rows);
+    let edges = model.window_edges(&conversation());
+    let at = |edge: fn(u64) -> Edge| -> Vec<MarkPlace> {
+        let gaps: Vec<u64> = model
+            .windows
+            .open
+            .as_ref()
+            .map(|w| w.gaps.keys().copied().collect())
+            .unwrap_or_default();
+        gaps.iter()
+            .filter_map(|id| edges.iter().find(|(e, _)| *e == edge(*id)).map(|(_, p)| *p))
+            .collect()
+    };
+    let mut upper = at(Edge::GapUpper);
+    upper.sort_by_key(|p| format!("{p:?}"));
+    assert_eq!(
+        upper,
+        [
+            MarkPlace::Above(Anchor::Card(card_row)),
+            MarkPlace::Above(Anchor::Item(kept(n))),
+        ],
+        "one gap above the proposal, one below it"
+    );
+}
+
+/// A report that changes what a view draws says so, so the root draws
+/// again with nothing asked of the facade -- reaching the top at the
+/// session bound shows the limit row and asks nothing -- and the person's
+/// place, which a scroll reports on every move, says nothing changed.
+/// Mutations: always false (the limit row never drawn); always true (a
+/// scroll redrawing on every report).
+#[test]
+fn a_window_event_says_whether_anything_drawn_changed() {
+    let cap = i64::try_from(SESSION_ITEM_CAP).expect("small");
+    let mut model = opened_near_the_bound(
+        SESSION_ITEM_CAP as u64 + 10,
+        &(1..=cap).collect::<Vec<_>>(),
+        0,
+    );
+    assert!(!model.window_event(WindowEvent::Input(WindowInput::Place {
+        conversation: conversation(),
+        focused: None,
+        in_view: Vec::new(),
+    })));
+    assert!(!model.window_event(WindowEvent::PhotoShown("a".to_owned())));
+    assert!(model.window_event(WindowEvent::Input(WindowInput::Reached {
+        conversation: conversation(),
+        edge: Edge::Top,
+    })));
+    assert!(
+        model.take_page_asks().is_empty(),
+        "the limit row asks nothing"
+    );
+    assert!(
+        model
+            .window_marks(&conversation())
+            .iter()
+            .any(|m| m.kind == MarkKind::AtLimit(Edge::Top))
+    );
+}
+
+/// A gap's marks come in section 8's reading order: the upper side's row,
+/// the lower side's row, then the gap's line, all where the gap stands.
+/// Mutation: the line before the lower side's row.
+#[test]
+fn a_gaps_marks_follow_section_8s_reading_order() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Unread);
+    for edge in [Edge::GapUpper(id), Edge::GapLower(id)] {
+        model.window_input(WindowInput::Reached {
+            conversation: conversation(),
+            edge,
+        });
+    }
+    let kinds: Vec<MarkKind> = model
+        .window_marks(&conversation())
+        .into_iter()
+        .filter(|m| m.place != MarkPlace::Top)
+        .map(|m| m.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            MarkKind::AtLimit(Edge::GapUpper(id)),
+            MarkKind::EarlierUnread {
+                edge: Edge::GapLower(id),
+                count: 4
+            },
+        ]
+    );
+}
+
+/// At the session bound a gap shows one limit row, on the side that would
+/// have fetched -- the one reached first -- never one on each side; once
+/// its Show more messages brings that side's page, the other side, still
+/// where the person is, is asked in turn (design section 5.1, section 10
+/// item 14 (c)). Mutation: the other side marked at the limit too.
+#[test]
+fn a_gap_at_the_bound_shows_one_limit_row() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Unread);
+    reach_both(&mut model, id);
+    let limits: Vec<Edge> = model
+        .window_marks(&conversation())
+        .into_iter()
+        .filter_map(|m| match m.kind {
+            MarkKind::AtLimit(edge) => Some(edge),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        limits,
+        [Edge::GapUpper(id)],
+        "one, on the side reached first"
+    );
+    model.window_input(WindowInput::ShowAnyway {
+        conversation: conversation(),
+        edge: Edge::GapUpper(id),
+    });
+    let upper = one_ask(&mut model);
+    model.page_arrived(page(&upper, &[n - 4, n - 3], PageEnd::More));
+    let lower = one_ask(&mut model);
+    assert_eq!(lower.edge, Edge::GapLower(id), "the other side in turn");
+}
+
+fn reach_both(model: &mut UiModel, id: u64) {
+    for edge in [Edge::GapUpper(id), Edge::GapLower(id)] {
+        model.window_input(WindowInput::Reached {
+            conversation: conversation(),
+            edge,
+        });
+    }
+}
+
+/// A gap wholly in view fills page by page without the person moving: a
+/// side still in view when the other side's page arrives counts as
+/// reached again (section 5.1, U3), until the gap is gone. Mutation: a
+/// side the person stays at, its page in, never asked again -- the gap
+/// stalls after one page each side.
+#[test]
+fn a_gap_in_view_fills_page_by_page() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Kept, PageEnd::Exhausted);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Kept);
+    reach_both(&mut model, id);
+    for (edge, row, end) in [
+        (Edge::GapUpper(id), n - 4, PageEnd::More),
+        (Edge::GapLower(id), n - 1, PageEnd::More),
+        (Edge::GapUpper(id), n - 3, PageEnd::More),
+        (Edge::GapLower(id), n - 2, PageEnd::Exhausted),
+    ] {
+        let ask = one_ask(&mut model);
+        assert_eq!(ask.edge, edge);
+        model.page_arrived(rows_of(&ask, &[row], Table::Kept, end));
+    }
+    assert!(model.take_page_asks().is_empty(), "the gap is full");
+    for back in n - 4..n {
+        assert!(holds(&model, back, Table::Kept), "row {back} back");
+    }
+}
+
+/// A side asked while the other side's page is on its way is never
+/// dropped: when that page fails, the waiting side is asked; a Try again
+/// pressed while the other side's page is on its way is asked once that
+/// page arrives. Mutations: the failure handing nothing over; the
+/// deferred Try again forgotten.
+#[test]
+fn a_deferred_side_is_asked_when_the_other_page_settles() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Kept, PageEnd::Exhausted);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Kept);
+    reach_both(&mut model, id);
+    let upper = one_ask(&mut model);
+    assert_eq!(upper.edge, Edge::GapUpper(id));
+    model.page_failed(&upper);
+    let lower = one_ask(&mut model);
+    assert_eq!(lower.edge, Edge::GapLower(id), "asked as the other failed");
+    model.window_input(WindowInput::TryAgain {
+        conversation: conversation(),
+        edge: Edge::GapUpper(id),
+    });
+    assert!(
+        model.take_page_asks().is_empty(),
+        "one page of the gap at a time"
+    );
+    model.page_arrived(rows_of(&lower, &[n - 1], Table::Kept, PageEnd::More));
+    let again = one_ask(&mut model);
+    assert_eq!(again.edge, Edge::GapUpper(id), "the Try again, not dropped");
+}
+
+fn card_marks(model: &UiModel) -> usize {
+    model
+        .windows
+        .open
+        .as_ref()
+        .map_or(0, |w| w.card_marks.len())
+}
+
+/// A card proposal's mark goes with it, at once, whichever way the
+/// proposal goes -- its copy gone, declined, read past the read-proposal
+/// bound -- and comes back with it on an Undo. Mutations: any of
+/// `card_gone`, `card_resolved`, `read` and `card_restored` not following
+/// the proposals held.
+#[test]
+fn card_marks_are_the_held_proposals_alone() {
+    use super::super::cards::CardOutcome;
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, super::HELD_ROW_CAP, 1);
+    model.window_input(WindowInput::Opened(conversation()));
+    let _ = one_ask(&mut model);
+    let row = |n: i64| RowId::from_stored(2_000 + n);
+
+    model.card_received(card(row(1), P));
+    assert_eq!(card_marks(&model), 1, "held");
+    model.card_gone(row(1));
+    assert_eq!(card_marks(&model), 0, "its copy gone");
+
+    model.card_received(card(row(2), P));
+    model.card_resolved(row(2), CardOutcome::Declined);
+    assert_eq!(card_marks(&model), 0, "declined");
+
+    model.card_received(card(row(3), P));
+    model.card_received(card(row(4), P));
+    model.read(row(3));
+    model.read(row(4));
+    assert_eq!(
+        card_marks(&model),
+        1,
+        "the older read past the bound of one"
+    );
+
+    model.card_restored(card(row(3), P));
+    let marks: Vec<RowId> = model
+        .windows
+        .open
+        .as_ref()
+        .map(|w| w.card_marks.keys().copied().collect())
+        .unwrap_or_default();
+    assert_eq!(marks, [row(3)], "back with its Undo, the bound holding");
+}
+
+/// A declined card older than every held row is no held row for the
+/// held-row ceiling: letting go of the oldest message moves the top down
+/// to the oldest row left, with no gap above it (#515 review F1: a mark
+/// left behind made a gap there, bounded by a card no longer drawn).
+/// Mutation: `card_resolved` not following the proposals held.
+#[test]
+fn a_declined_oldest_card_bounds_no_gap() {
+    use super::super::cards::CardOutcome;
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, 8, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(
+        &ask,
+        &(2..=9).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::More,
+    ));
+    let mut oldest = card(RowId::from_stored(100), P);
+    oldest.received_at = 0;
+    model.card_received(oldest);
+    model.card_resolved(RowId::from_stored(100), CardOutcome::Declined);
+    place(&mut model, 9, Table::Kept);
+    reached(&mut model);
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(&ask, &[1], Table::Kept, PageEnd::More));
+    assert!(!holds(&model, 1, Table::Kept), "the farthest let go");
+    let gaps = model.windows.open.as_ref().map_or(0, |w| w.gaps.len());
+    assert_eq!(gaps, 0, "the top moved down, no gap made");
+}
+
+/// Built as it ships, the model holds to the published caps; only a test
+/// build sets them lower. Mutation: a default other than the caps.
+#[test]
+fn the_default_bounds_are_the_published_caps() {
+    let model = UiModel::new();
+    assert_eq!(
+        model.bounds,
+        crate::model::Bounds {
+            session_items: SESSION_ITEM_CAP,
+            held_rows: super::HELD_ROW_CAP,
+            read_proposals: crate::model::cards::READ_PROPOSAL_CAP,
+        }
+    );
+}
+
+/// A test build's held-row ceiling is the one the ceiling lets go at:
+/// twelve stored rows past a ceiling of eight leave eight held, the
+/// focused and the newest among them. Mutation: the ceiling read from
+/// the published cap -- all twelve held.
+#[test]
+fn a_small_held_ceiling_lets_go_at_its_figure() {
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, 8, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    place(&mut model, 12, Table::Kept);
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(
+        &ask,
+        &(1..=12).collect::<Vec<_>>(),
+        Table::Kept,
+        PageEnd::More,
+    ));
+    let held = (1..=12).filter(|n| holds(&model, *n, Table::Kept)).count();
+    assert_eq!(held, 8);
+    assert!(holds(&model, 12, Table::Kept), "the focused, newest row");
+}
+
+/// A test build's session bound is the one a page's room is taken from:
+/// with a bound of eight and eight unread rows held, reaching the top
+/// with more unread beyond shows the limit row and asks nothing.
+/// Mutation: the room taken from the published cap -- a page asked.
+#[test]
+fn a_small_session_bound_reaches_the_limit_row() {
+    let mut model = started(20);
+    model.set_bounds_for_test(8, super::HELD_ROW_CAP, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &(13..=20).collect::<Vec<_>>(), PageEnd::More));
+    reached(&mut model);
+    assert!(
+        model.take_page_asks().is_empty(),
+        "the limit row asks nothing"
+    );
+    assert!(
+        model
+            .window_marks(&conversation())
+            .iter()
+            .any(|m| m.kind == MarkKind::AtLimit(Edge::Top))
+    );
+}
+
+/// A card of another conversation -- listed while this one is open, or
+/// brought back by an Undo that finished after the person moved here --
+/// is none of this window's rows: a row the store holds here, newer than
+/// every one the window held, still opens it again at the newest.
+/// Mutations: `seen` or `holds_card` moving the open window's newest seen
+/// for a card of any conversation.
+#[test]
+fn another_conversations_card_moves_no_newest_seen() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+
+    let mut listed = card(RowId::from_stored(1_005), Q);
+    listed.received_at = 1_005;
+    model.card_received(listed);
+    let mut undone = card(RowId::from_stored(1_006), Q);
+    undone.received_at = 1_006;
+    model.card_restored(undone);
+
+    model.summaries_listed(newest_at(3, 1_003), None);
+    let again = one_ask(&mut model);
+    assert_eq!((again.older_than, again.newer_than), (None, None));
+    assert!(again.seq > ask.seq, "a new opening");
+}
+
+/// A second start on a live model -- Android's view listed again from a
+/// newer facade -- re-bases its counts as a relist does: the open window
+/// opens again at the newest row when the store's newest is one it never
+/// held, and stays as it is when it held it. Mutation: the second start
+/// replacing the counts and leaving the window alone.
+#[test]
+fn a_second_start_opens_the_window_again_on_a_row_never_held() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+
+    model.started(Vec::new(), newest_at(2, 1_000), None);
+    assert!(model.take_page_asks().is_empty(), "the newest is held");
+    assert_eq!(model.len(), 2, "the window as it was");
+
+    model.started(Vec::new(), newest_at(3, 1_001), None);
+    let again = one_ask(&mut model);
+    assert_eq!((again.older_than, again.newer_than), (None, None));
+    assert!(again.seq > ask.seq, "a new opening");
+}
+
+/// A page's rows are rows the person asked for, never arrivals: only one
+/// the drain hands over while the window is open is, for a view to
+/// announce (design section 10, item 3: the opening announces nothing).
+/// Mutations: a page's rows marked arrived; the drain's not.
+#[test]
+fn only_the_drains_rows_are_arrivals_never_a_pages() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+    let arrived = |model: &UiModel| -> Vec<String> {
+        model
+            .messages(&conversation())
+            .into_iter()
+            .filter(|m| m.arrived)
+            .map(|m| m.source)
+            .collect()
+    };
+    assert_eq!(model.messages(&conversation()).len(), 2);
+    assert!(arrived(&model).is_empty(), "the page's rows");
+
+    handed(&mut model, 1_001);
+    assert_eq!(arrived(&model), ["row 1001"], "the drain's row");
+}
+
+/// A row the drain hands over shows as the same item whether a view
+/// builds it from the row (`message_of`) or reads it held: every field,
+/// its reply resolved against the rows held at the time. A conversation
+/// not open holds nothing, and the item is built all the same.
+/// Mutation: any field built apart from `messages`' (the route label,
+/// the author, the local time, the reply).
+#[test]
+fn a_received_messages_item_is_the_one_its_held_row_shows() {
+    use crate::model::Reply;
+    let mut model = started(2);
+    let listed = row(1_001);
+    let mut received = interweave_human_client_api::Received {
+        row: listed.row,
+        origin: listed.origin,
+        envelope: listed.envelope,
+        received_at: listed.received_at,
+    };
+    received.envelope.reply_to = Some(format!("{:032x}", 1_000));
+
+    let closed = model.message_of(&received);
+    assert!(model.messages(&conversation()).is_empty(), "nothing held");
+    assert_eq!(closed.source, "row 1001");
+    assert!(
+        matches!(closed.reply, Some(Reply::Unavailable(_))),
+        "its target not held"
+    );
+
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+    let built = model.message_of(&received);
+    assert!(
+        matches!(built.reply, Some(Reply::Present(_))),
+        "its target held"
+    );
+    model.received(received);
+    let held = model
+        .messages(&conversation())
+        .into_iter()
+        .find(|m| m.key == built.key)
+        .expect("held");
+    assert_eq!(built, held);
+}
+
+/// A card the drain hands over shows as the same proposal whether a view
+/// builds it from the card (`proposal_item`) or reads it held. Mutation:
+/// any field built apart from `proposals`' (the notes cleared while the
+/// contacts are unread among them).
+#[test]
+fn a_received_cards_item_is_the_one_its_held_proposal_shows() {
+    let mut model = started(0);
+    model.contacts_directory(Err(()));
+    let proposal = card(RowId::from_stored(2_000), P);
+    let closed = model.proposal_item(&proposal);
+    assert!(model.proposals(&conversation()).is_empty(), "nothing held");
+    assert!(closed.contacts_unread, "the contacts could not be read");
+
+    model.window_input(WindowInput::Opened(conversation()));
+    let _ = one_ask(&mut model);
+    model.card_received(proposal.clone());
+    assert_eq!(
+        model.proposals(&conversation()),
+        [model.proposal_item(&proposal)]
+    );
+}
+
+/// Each gap lies between two held rows drawn next to each other: its
+/// `above` before its `below`, nothing drawn strictly between them, and
+/// its upper side's marks standing above the row at `below`. Mutation:
+/// `above` and `below` swapped.
+#[test]
+fn a_gaps_span_is_where_its_edges_stand() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let model = opened_with(n, 10, Table::Unread, PageEnd::More);
+    let gaps = model.window_gaps(&conversation());
+    assert!(!gaps.is_empty(), "a gap past the ceiling");
+    let drawn = model.drawn_order(&conversation());
+    let edges = model.window_edges(&conversation());
+    for gap in gaps {
+        assert!(gap.above < gap.below, "{gap:?}");
+        assert!(
+            drawn.iter().any(|(at, _)| *at == gap.above),
+            "above is a held row"
+        );
+        let below = drawn
+            .iter()
+            .find(|(at, _)| *at == gap.below)
+            .map(|(_, anchor)| *anchor)
+            .expect("below is a held row");
+        assert!(
+            !drawn
+                .iter()
+                .any(|(at, _)| gap.above < *at && *at < gap.below),
+            "nothing drawn inside"
+        );
+        let upper = edges
+            .iter()
+            .find(|(edge, _)| *edge == gap.upper)
+            .map(|(_, place)| *place);
+        assert_eq!(upper, Some(MarkPlace::Above(below)));
+    }
+}
+
+/// The window's opening is numbered: a relist that leaves the window as
+/// it was keeps the number, and one that opens it again at the newest row
+/// gives a new one. Mutation: the number kept across a new opening.
+#[test]
+fn a_relist_that_reopens_gives_a_new_opening() {
+    let mut model = started(2);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::Exhausted));
+    let first = model.window_opening().expect("open");
+    assert_eq!(first.0, conversation());
+
+    model.summaries_listed(newest_at(2, 1_000), None);
+    assert_eq!(
+        model.window_opening(),
+        Some(first.clone()),
+        "the newest held"
+    );
+    model.summaries_listed(newest_at(3, 1_001), None);
+    let again = model.window_opening().expect("open");
+    assert_eq!(again.0, conversation());
+    assert!(again.1 > first.1, "a new opening");
 }

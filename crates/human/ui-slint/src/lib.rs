@@ -52,6 +52,7 @@ mod store_screen;
 mod swipe;
 #[cfg(feature = "ui-trace")]
 mod trace;
+mod window_marks;
 
 pub use cards::{PhotoPick, PhotoRequest};
 pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
@@ -459,6 +460,13 @@ struct Shared {
     /// The own card's file dialog's answer, put here by its thread and
     /// taken on the window's, as the input it becomes.
     photo_pick: std::sync::Arc<std::sync::Mutex<Option<cards::CardsInput>>>,
+    /// The window marks' buttons pressed, by edge, taken by
+    /// [`View::take_window_events`].
+    window_presses: Vec<String>,
+    /// What the window says between takes of its reports: the message rows
+    /// in view, whether the list shows its top and which way it last
+    /// moved, and Contacts' Try again pressed.
+    window_view: window_marks::WindowReports,
 }
 
 /// An Accept's snackbar's clock (contact-cards design section 5.4.2):
@@ -669,6 +677,16 @@ impl Shared {
     }
 }
 
+/// The callbacks of the screens with their own modules, and the trust
+/// settings'.
+fn wire_screens(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    wire_trust(window, shared);
+    window_marks::wire(window, shared);
+    peers::wire(window, shared);
+    connect::wire(window, shared);
+    cards::wire(window, shared);
+}
+
 /// The trust settings' callbacks: each becomes an input, taken by
 /// [`View::take_events`] as the others are.
 fn wire_trust(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
@@ -733,6 +751,11 @@ impl<K: Ord + Clone> Handles<K> {
             by_key: BTreeMap::new(),
             next: 0,
         }
+    }
+
+    /// The handle `key` has, if it was given one.
+    fn handle_of(&self, key: &K) -> Option<i32> {
+        self.by_key.get(key).copied()
     }
 
     fn of(&mut self, key: &K) -> i32 {
@@ -862,6 +885,8 @@ pub struct View {
     /// The monotonic time a leaving row closes by: `Instant::now`, or a
     /// test's, which steps it rather than sleeping through it under load.
     monotonic: Rc<dyn Fn() -> Instant>,
+    /// The open conversation's window marks.
+    marks: window_marks::Marks,
     /// Each conversation's preview, kept with the last message it is of:
     /// a body never changes.
     previews: HashMap<ConversationKey, (ItemKey, String)>,
@@ -1040,10 +1065,7 @@ impl View {
         window.on_close_trust(move || enqueue(&s, Input::TrustPage(false)));
         let s = Rc::clone(&shared);
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
-        wire_trust(&window, &shared);
-        peers::wire(&window, &shared);
-        connect::wire(&window, &shared);
-        cards::wire(&window, &shared);
+        wire_screens(&window, &shared);
 
         let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
         window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
@@ -1098,6 +1120,7 @@ impl View {
             bodies: HashMap::new(),
             clock: clock::Clock::default(),
             monotonic: Rc::new(Instant::now),
+            marks: window_marks::Marks::default(),
             previews: HashMap::new(),
             shown_items: HashMap::new(),
             message_times: Vec::new(),
@@ -1148,7 +1171,7 @@ impl View {
         let sink: Rc<dyn Fn(&str)> = Rc::new(sink);
         let to = Rc::clone(&sink);
         self.window
-            .on_focus_moved(move |id| to(&trace::focus_line(&id)));
+            .on_focus_traced(move |id| to(&trace::focus_line(&id)));
         self.trace = Some(trace::Tracer::new(sink));
     }
 
@@ -1992,8 +2015,9 @@ impl View {
         let connect = self.render_connect(model);
         let peers = self.render_peers(model);
         let cards = self.render_cards(model);
+        let window = self.render_window();
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
-        let said = [conversation, trust, connect, peers, cards, outcome]
+        let said = [conversation, trust, connect, peers, cards, window, outcome]
             .into_iter()
             .flatten()
             .reduce(|first, rest| {
@@ -2079,6 +2103,26 @@ impl View {
             })
             .collect();
         self.previews.retain(|key, _| keys.contains(key));
+        // The stored rows this version cannot show, after the last
+        // conversation, in either mode (start-window section 6.1).
+        let hidden = model.rows_not_shown();
+        let rows_not_shown = if hidden == 0 {
+            SharedString::new()
+        } else {
+            let count = hidden.to_string();
+            fill(
+                placeholder_en::text(interweave_human_ui_model::by_count(
+                    u64::try_from(hidden).unwrap_or(u64::MAX),
+                    UiText::RowsNotShownOne,
+                    UiText::RowsNotShown,
+                )),
+                &[("count", &count)],
+            )
+            .into()
+        };
+        if self.window.get_rows_not_shown() != rows_not_shown {
+            self.window.set_rows_not_shown(rows_not_shown);
+        }
         // "01:18" becomes "Yesterday" at midnight with nothing else changed.
         // One timer, held here and moved only when midnight does: every
         // render reaching this, a timer each would pile up all day and wake
@@ -2187,7 +2231,10 @@ impl View {
         {
             return text.clone();
         }
-        let first = body::first_line(&last.body, &image_text);
+        // The model's cut (design/2026-10-27-start-window.md section 3):
+        // the same whether the row is held or read from the store for the
+        // start, so a preview does not change when its row loads.
+        let first = last.preview.shown().into_owned();
         // One's own card row has no text: its line is the preview, and
         // already says whose (contact-cards 5.5). The design's
         // CardPreviewSent reads the same words, and no two interface texts
@@ -2438,6 +2485,7 @@ impl View {
             }
         }
         self.place_cards(model, &keys, &mut rows, &items, &leaving, channel);
+        self.mark_rows(model, &keys, &mut rows);
         if !self.leaving_messages.is_empty() {
             self.wake_after(LEAVING);
         }
@@ -2458,7 +2506,7 @@ impl View {
             shared.swipes.retain(|k, _| !k.starts_with("m:"));
             shared.swipes.extend(swipes);
         }
-        update_by_key(&*self.messages, &mut self.message_keys, &keys, &rows);
+        self.set_messages_keeping_place(&keys, &rows);
         let drawn = &self.message_keys;
         self.pressed.retain(|key| drawn.contains(key));
     }
@@ -2969,7 +3017,15 @@ impl View {
                 .drawn_rows
                 .get(row)
                 .filter(|(_, answered)| !answered)
-                .map(|(handle, _)| format!("proposal-accept:{handle}")),
+                .map(|(handle, _)| {
+                    // Decline alone while the contacts are unread: focus
+                    // goes to it (start-window section 11).
+                    if self.cards.decline_only.contains(row) {
+                        format!("proposal-decline:{handle}")
+                    } else {
+                        format!("proposal-accept:{handle}")
+                    }
+                }),
             FocusTarget::Contacts
             | FocusTarget::Contact(_)
             | FocusTarget::ContactPage(_)
@@ -3064,6 +3120,7 @@ impl View {
     /// Focus the control whose focus key is `target`, once the render that
     /// draws it is done.
     fn focus_key(&self, target: String) {
+        self.marks.app_placed(&target);
         if self.focus_wanted.borrow_mut().replace(target).is_some() {
             // Already scheduled: it applies this target instead.
             return;
@@ -3089,6 +3146,7 @@ impl View {
     /// late bump there took focus back from a row the person had moved
     /// to (swipe.rs, measured).
     fn focus_key_after_draw(&self, target: String) {
+        self.marks.app_placed(&target);
         if self.focus_wanted.borrow_mut().replace(target).is_some() {
             // Already scheduled: it applies this target instead.
             return;
@@ -3359,6 +3417,9 @@ struct DrawnBody {
     /// The drawn text alone, for the item's label: what a screen reader
     /// reads is the text, not the source's markup.
     plain: String,
+    /// One's own card's photo as it went, made once with the body: made
+    /// again, it would not equal the row's (`cards::image`).
+    card_photo: slint::Image,
 }
 
 /// An avatar's pair as the views number it: 0 teal, 1 amber, 2 navy.
@@ -3431,6 +3492,11 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         link_rows: ModelRc::new(VecModel::from(link_rows)),
         links: body.links,
         plain,
+        card_photo: item
+            .card
+            .as_ref()
+            .and_then(|c| c.photo.as_ref())
+            .map_or_else(cards::no_photo, cards::image),
     }
 }
 
@@ -3507,6 +3573,7 @@ fn message_row(
         outbound: item.direction == Direction::Outbound,
         hand_over: false,
         cards_after: 0,
+        marks_above: 0,
         show_author: placed.show_author,
         status_glyph: mark.glyph,
         status_dot: mark.dot,
@@ -3546,12 +3613,7 @@ fn message_row(
             .unwrap_or_default()
             .into(),
         card_has_photo: item.card.as_ref().is_some_and(|c| c.photo.is_some()),
-        card_photo: item
-            .card
-            .as_ref()
-            .and_then(|c| c.photo.as_ref())
-            .map(cards::image)
-            .unwrap_or_default(),
+        card_photo: drawn.card_photo.clone(),
         has_menu: item.card.is_none() || has_actions,
     }
 }
@@ -3566,6 +3628,9 @@ struct SeenItem {
     reason: Option<&'static str>,
     /// An inbound item's short author.
     author: Option<String>,
+    /// Handed over by the drain, not read back by a page
+    /// (`MessageItem::arrived`).
+    arrived: bool,
 }
 
 /// What a render showed, for the next one's announcement.
@@ -3599,6 +3664,7 @@ impl Seen {
                         reason: reason_text(&item, host),
                         author: item.author.as_ref().map(|p| short_peer(p.as_str())),
                         status: item.status,
+                        arrived: item.arrived,
                     };
                     (item.key, seen)
                 })
@@ -3621,9 +3687,9 @@ impl Seen {
 /// What changed from `before` to `now`, as one sentence or two, or `None`
 /// when nothing a person needs told did. Never a message's text: a
 /// screen reader reaches that by moving to the message. Nothing is said
-/// on the first render or for a conversation just opened -- the person
-/// asked for that list, and reading it all out would be the flood this
-/// replaces.
+/// on the first render or for a conversation just opened, nor for the
+/// rows a page reads into it after -- the person asked for that list, and
+/// reading it all out would be the flood this replaces.
 fn announcement(before: &Seen, now: &Seen) -> Option<String> {
     if !before.primed {
         return None;
@@ -3635,9 +3701,13 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
             .iter()
             // Unread, as every message is when it arrives: a read one
             // that comes back -- a Hide undone -- is not an arrival, and
-            // its Undo says "Action undone" already.
+            // its Undo says "Action undone" already. Handed over by the
+            // drain: the rows a page reads back -- the opening's, earlier
+            // ones, a gap's -- are rows the person asked for, never told
+            // (`an_opening_page_is_not_announced_an_arrival_is`).
             .filter(|(key, item)| {
                 item.direction == Direction::Inbound
+                    && item.arrived
                     && item.status == ItemStatus::Inbound(Retention::Unread)
                     && !before.items.contains_key(key)
             })

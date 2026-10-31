@@ -44,6 +44,11 @@ interweave-ipc-client = { path = "../../crates/local/ipc-client" }
 tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "macros", "signal"] }
 
 [dev-dependencies]
+# TEST-ONLY: the store faults and lowered bounds the walk's tests drive
+# (src/walk_tests.rs). A dev-dependency's features reach the test builds
+# alone; tools/checks/check_shipped_test_hooks.sh fails a shipped graph
+# that resolves `test-hooks` anywhere.
+interweave-human-app-core = { path = "../../crates/human/app-core", features = ["test-hooks"] }
 interweave-local-client-fake = { path = "../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
 # Corrupts a stored row, in one test, to drive a store failure.

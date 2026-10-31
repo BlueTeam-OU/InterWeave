@@ -5,7 +5,7 @@ topic: "reflection-cite-an-amendment-only-once-its-pr-is-on-main"
 description: "A lane cites an amendment of mine (\"ADR-NNN §x (A date)\") only once that amendment's PR is merged, or its own PR arms after mine; the blind review reads origin/main, so a citation that resolves only on an open branch returns as a P2 every…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

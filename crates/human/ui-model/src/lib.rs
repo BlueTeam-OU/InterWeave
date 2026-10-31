@@ -50,8 +50,8 @@ pub use model::cards::{
 pub use model::directory::{ContactsState, DirectoryContact, PHOTO_CAP, PhotoAsk, PhotoState};
 pub use model::summaries::{NewestRow, StoredSummary};
 pub use model::window::{
-    Edge, HELD_ROW_CAP, MarkKind, PageAsk, PageEnd, PageMark, PageOrder, PageRows, WindowInput,
-    WindowMark,
+    Anchor, DrawnAt, Edge, GapSpan, HELD_ROW_CAP, MarkKind, MarkPlace, PageAsk, PageEnd, PageMark,
+    PageOrder, PageRows, WindowEvent, WindowInput, WindowMark,
 };
 pub use model::{
     Announce, Composer, Confirmation, ContactChange, ConversationKey, ConversationSummary,

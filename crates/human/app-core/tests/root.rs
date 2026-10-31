@@ -23,7 +23,7 @@ use interweave_human_store::{HumanStore, InboundOrigin, NewInbound, RowId, Store
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
     Announce, Confirmation, ConversationKey, Intent, LabelKey, RowAction, Table, TrustChange,
-    TrustInput, TrustOutcome, UiModel, ViewEvent,
+    TrustInput, TrustOutcome, UiModel, ViewEvent, WindowInput,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
@@ -157,9 +157,16 @@ impl Root {
             commands: Vec::new(),
             updates: Vec::new(),
         };
-        let listing = root.facade.listing().expect("listing");
-        root.model.apply(Update::Listed(listing));
+        let start = root.facade.start().expect("started");
+        root.model.apply(Update::Started(Box::new(start)));
         (root, opened)
+    }
+
+    /// Opens a conversation, as the windowed start holds the rows of the
+    /// one open conversation only; opening it closes the one before.
+    async fn open(&mut self, key: &ConversationKey, now: u64) {
+        self.model.window(WindowInput::Opened(key.clone()));
+        self.pump(now).await;
     }
 
     /// One pass of the loop: the facade's turn, the model side's turn,
@@ -223,6 +230,15 @@ fn direct(to: &TransportIdentity) -> ConversationKey {
     }
 }
 
+/// The conversation a message from `from` arrives in: it names the
+/// endpoint the message came from, which a sent-to key does not.
+fn received_from(from: &TransportIdentity) -> ConversationKey {
+    ConversationKey::Direct {
+        peer: from.clone(),
+        endpoint: Some(endpoint("human")),
+    }
+}
+
 fn send(key: &ConversationKey, text: &str) -> ViewEvent {
     ViewEvent::Intent(Intent::Send {
         key: key.clone(),
@@ -237,6 +253,7 @@ async fn a_send_goes_out_and_reads_as_accepted_never_as_read() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    bob.open(&received_from(a.peer()), 0).await;
 
     let to_bob = direct(b.peer());
     alice.will(vec![send(&to_bob, "hello bob")]);
@@ -345,6 +362,7 @@ async fn read_then_keep_then_unkeep_then_keep_again_reaches_the_store() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    alice.open(&received_from(b.peer()), 0).await;
     bob.will(vec![send(&direct(a.peer()), "keep me")]);
     bob.pump(1).await;
     alice.pump(2).await;
@@ -424,6 +442,7 @@ async fn a_keep_with_no_copy_held_fails_and_changes_nothing() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    alice.open(&received_from(b.peer()), 0).await;
     bob.will(vec![send(&direct(a.peer()), "unread")]);
     bob.pump(1).await;
     alice.pump(2).await;
@@ -546,7 +565,7 @@ async fn a_draft_edit_reaches_the_model_before_a_send_in_the_same_take() {
 }
 
 #[tokio::test]
-async fn the_store_is_listed_at_start() {
+async fn the_store_is_read_at_start() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
     let (a, b) = FakeNetwork::pair(node(), node());
@@ -568,10 +587,11 @@ async fn the_store_is_listed_at_start() {
     drop(alice);
 
     let (a2, _b2) = FakeNetwork::pair(node(), node());
-    let (restarted, _) = Root::new(facade(
+    let (mut restarted, _) = Root::new(facade(
         &a2,
         HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
     ));
+    restarted.open(&received_from(b.peer()), 0).await;
     let mut texts: Vec<String> = restarted
         .model()
         .conversations()
@@ -598,6 +618,7 @@ async fn a_store_failure_changes_nothing_in_the_model_and_says_why() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    alice.open(&received_from(b.peer()), 0).await;
     bob.will(vec![send(&direct(a.peer()), "one")]);
     bob.pump(1).await;
     alice.pump(2).await;
@@ -662,8 +683,9 @@ async fn a_store_failure_changes_nothing_in_the_model_and_says_why() {
 async fn an_undecodable_stored_row_is_not_shown_and_is_counted() {
     let (a, _b) = FakeNetwork::pair(node(), node());
     let mut store = memory();
+    let from = peer();
     let origin = InboundOrigin {
-        peer: peer(),
+        peer: from.clone(),
         endpoint: Some(endpoint("human")),
         channel: None,
     };
@@ -693,10 +715,11 @@ async fn an_undecodable_stored_row_is_not_shown_and_is_counted() {
             .expect("committed");
     }
     let mut side = facade(&a, store);
-    let listing = side.listing().expect("listing");
-    assert_eq!(listing.undecodable_unread, 1);
-    assert_eq!(listing.unread.len(), 1);
-    let (root, _) = Root::new(side);
+    let start = side.start().expect("started");
+    assert_eq!(start.undecodable_unread, 1);
+    assert_eq!(start.summaries.iter().map(|s| s.unread).sum::<u64>(), 1);
+    let (mut root, _) = Root::new(side);
+    root.open(&received_from(&from), 0).await;
     assert_eq!(root.model.hidden_rows(), 1);
     let texts: Vec<String> = root
         .model()
@@ -821,6 +844,7 @@ async fn a_hide_is_rendered_in_the_turn_that_took_it() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    alice.open(&received_from(b.peer()), 0).await;
     bob.will(vec![send(&direct(a.peer()), "hide me")]);
     bob.pump(1).await;
     alice.pump(2).await;
@@ -905,6 +929,7 @@ async fn an_undone_cancel_goes_out_as_the_same_message_once() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    alice.open(&received_from(b.peer()), 0).await;
     // Not taken, so the row stays pending to be cancelled.
     b.inject_send(TransportError::Overloaded);
     let to_alice = direct(a.peer());
@@ -970,6 +995,7 @@ async fn a_hidden_message_lets_go_of_its_copy_when_the_snackbar_closes() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    alice.open(&received_from(b.peer()), 0).await;
     bob.will(vec![send(&direct(a.peer()), "hide me")]);
     bob.pump(1).await;
     alice.pump(2).await;
@@ -1026,6 +1052,7 @@ async fn an_undone_unkeep_is_kept_in_the_store() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    alice.open(&received_from(b.peer()), 0).await;
     bob.will(vec![send(&direct(a.peer()), "keep me")]);
     bob.pump(1).await;
     alice.pump(2).await;
@@ -1225,6 +1252,7 @@ async fn a_keep_on_its_way_keeps_its_message_through_a_hide() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    alice.open(&received_from(b.peer()), 0).await;
     bob.will(vec![send(&direct(a.peer()), "keep me")]);
     bob.pump(1).await;
     bob.will(vec![send(&direct(a.peer()), "and me")]);
@@ -1373,6 +1401,7 @@ async fn a_keep_taken_after_its_dismiss_is_not_issued() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    alice.open(&received_from(b.peer()), 0).await;
     bob.will(vec![send(&direct(a.peer()), "first")]);
     bob.pump(1).await;
     bob.will(vec![send(&direct(a.peer()), "second")]);
@@ -1429,6 +1458,7 @@ async fn hides_after_a_keep_in_one_take_leave_the_keep_and_report_nothing() {
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
     bob.pump(0).await;
+    alice.open(&received_from(b.peer()), 0).await;
     bob.will(vec![send(&direct(a.peer()), "keep me")]);
     bob.pump(1).await;
     alice.pump(2).await;

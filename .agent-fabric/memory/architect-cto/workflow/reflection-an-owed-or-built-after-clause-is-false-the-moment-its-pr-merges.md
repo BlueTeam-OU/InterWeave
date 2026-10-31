@@ -5,7 +5,7 @@ topic: "reflection-an-owed-or-built-after-clause-is-false-the-moment-its-pr-merg
 description: When ADR or contract text says a gap is owed, at this writing or built after, and an open PR closes it, the text is false the moment that PR merges and returns as a review finding; strike every such clause in one commit after the closing…
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

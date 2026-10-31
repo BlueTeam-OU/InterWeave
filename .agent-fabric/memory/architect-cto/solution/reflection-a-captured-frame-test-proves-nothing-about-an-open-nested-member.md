@@ -5,7 +5,7 @@ topic: "reflection-a-captured-frame-test-proves-nothing-about-an-open-nested-mem
 description: "In InterWeave a captured-frame test proves nothing about a nested member the envelope schema leaves open (frame.schema.json's response result is {} and event data is a bare object), so an exit gate saying every flipped schema has an…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

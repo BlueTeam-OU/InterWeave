@@ -5,7 +5,7 @@ topic: "reflection-a-stage-close-also-dates-the-role-remits"
 description: "A stage close in InterWeave also makes lines in the role remits under .agent-fabric/roles/ false, which the stage-status guard does not read, so every close sends fabric-coordinator a note naming the remit lines that will be wrong"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

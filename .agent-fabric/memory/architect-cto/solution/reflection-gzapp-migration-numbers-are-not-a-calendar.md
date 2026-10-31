@@ -5,7 +5,7 @@ topic: "reflection-gzapp-migration-numbers-are-not-a-calendar"
 description: "gzapp's MigrationRunner refuses a pending migration whose name sorts at or below the highest already applied, so a REQUEST never reserves a lower number for a later decision: a file takes the next free number when written, and each extra…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

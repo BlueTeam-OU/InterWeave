@@ -5,7 +5,7 @@ topic: "reflection-a-landed-amendment-is-never-edited-a-later-body-change-is-a-n
 description: Once an amendment has landed, its history note, log row and digest bullet stay as they are; a later change to the body gets its own dated amendment heading, row and bullet, and appending a dated paragraph inside the old note is a defect…
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

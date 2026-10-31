@@ -7,7 +7,7 @@
 
 use interweave_human_app_core::{ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_transport_client::{ClientEvent, SessionState};
-use interweave_human_ui_model::{UiModel, ViewEvent};
+use interweave_human_ui_model::{UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::View;
 
 use crate::facade_thread::{FacadeThread, FromFacade};
@@ -22,6 +22,10 @@ impl Surface for SlintSurface {
 
     fn take_events(&mut self, model: &UiModel) -> Vec<ViewEvent> {
         self.0.take_events(model)
+    }
+
+    fn take_window(&mut self) -> Vec<WindowEvent> {
+        self.0.take_window_events()
     }
 }
 
@@ -192,7 +196,7 @@ impl<S: Surface, O: Opener> App<S, O> {
                     eprintln!("human-desktop: {} failed: {why:?}", command_name(&command));
                 }
                 Problem::UnreadNotListed(why) => {
-                    eprintln!("human-desktop: unread messages could not be listed: {why:?}");
+                    eprintln!("human-desktop: unread messages could not be read again: {why:?}");
                 }
                 Problem::CardsNotRead(why) => {
                     eprintln!("human-desktop: cards or contacts could not be read: {why:?}");

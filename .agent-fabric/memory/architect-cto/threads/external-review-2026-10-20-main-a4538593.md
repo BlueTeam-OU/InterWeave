@@ -5,7 +5,7 @@ topic: "external-review-2026-10-20-main-a4538593"
 description: "The owner's second external stage review (InterWeave main a4538593, 2026-10-20): what was already landed, what is on #313, the two real findings routed (DNS unavailable rule, bridge line ceiling), the README fix mine"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

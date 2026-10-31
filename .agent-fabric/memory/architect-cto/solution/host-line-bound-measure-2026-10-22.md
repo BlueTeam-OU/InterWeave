@@ -5,7 +5,7 @@ topic: "host-line-bound-measure-2026-10-22"
 description: "Channel bridge host-line bound (320 KiB) — the measure decided 2026-10-22: larger of push line and pulled form, terminator/quotes out, per event; base64url of the recovered bytes by size; where the text and code live"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "reflection-unquoted-heredoc-eats-code-spans-in-gzcoord-bodies"
 description: "A GZCoord body written through an unquoted heredoc has its backtick spans run by the shell: code spans vanish or become error text and the message still sends; write with <<'EOF' or into the compose file and read it back before sending"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

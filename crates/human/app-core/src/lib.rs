@@ -24,6 +24,8 @@ mod listing;
 mod model_side;
 mod profile;
 mod protocol;
+#[cfg(feature = "test-hooks")]
+pub mod test_hooks;
 
 pub use facade::{CANCELLED_CAP, FacadeSide, READ_COPY_CAP};
 /// Why the identity's key cannot be used, as a root logs it.
@@ -31,4 +33,4 @@ pub use interweave_human_ui_model::KeyProblem;
 pub use listing::kind_of as stored_kind;
 pub use model_side::{ModelSide, Opener, PROBLEM_CAP, Problem, Surface};
 pub use profile::{CLIENT_KIND, KeySource, identity_key, identity_key_under, leasable_endpoints};
-pub use protocol::{Command, Failure, Listing, Start, Update, WindowCommand};
+pub use protocol::{Command, Failure, Start, Update, WindowCommand};

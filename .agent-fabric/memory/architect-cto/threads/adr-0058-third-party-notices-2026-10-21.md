@@ -2,20 +2,21 @@
 role: "architect-cto"
 class: threads
 topic: "adr-0058-third-party-notices-2026-10-21"
-description: "ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; who implements what; what the acceptance round taught"
+description: "ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; all of it landed by 2026-10-22; the legal read of the standard-text fallback is the one open point"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 0f37a649a5d0acfe
   - 353ce608a9870e43
 ---
 
-## ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; who implements what; what the acceptance round taught
+## ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; all of it landed by 2026-10-22; the legal read of the standard-text fallback is the one open point
 
 p2p-network-dev-01's OBSERVATION 01a15c55 (2026-10-21): #324's review
 (Codex F1, judged P1) found THIRD-PARTY-NOTICES.md listed ~42 compiled
@@ -35,9 +36,17 @@ triple) on for/p2p-network-dev-01/j94-third-party-notices-adr from #324's
 head 293ffd06. REPLY to p2p-01, DECISION to rust-ui-dev-02 (page holder via
 language-culture-en's for/ branch), REQUEST to the owner for acceptance.
 
-**Open:** p2p-01's fold of the acceptance flip 2d5f11c2 (for/…/j94-adr-0058-accepted from #324 head 7d95615f, REPLY 01a15cc3); p2p-01's
-derivation PR with the list and the libp2p-core + one case-iii test; the
-Android run feeding the placeholder. Related: [[android-no-store-no-play-services]].
+**Closed 2026-10-25 (j212 done):** everything the record owed is on origin/main: the
+acceptance flip via #324 (merged 2026-10-21, 08b4d9e6); the derivation tool, list
+and licence texts via #374 (merged 2026-10-22); the header-digest pinning (every
+`headers` entry in tools/ci/notice_derived.json is a SHA-256) and the (iii)
+amendment fe798521 via #381 (merged 2026-10-22); release.yml uploads
+THIRD-PARTY-NOTICES-android.md and its .sha256 beside the APK and the page
+template takes {crate_notices}. No release has run yet (no tag): the tag is the
+owner's. Still unread by anyone with legal standing: the standard-text fallback
+(2.iii), which fabric-coordinator suggested a legal read of; raise it with the
+owner before the first public release, not as a job. Related:
+[[android-no-store-no-play-services]].
 
 - Round-2 F2 on #324: a third cell in the two-column ADR index is dropped by the renderer, so a status word there is invisible and validate_adr_index does not catch it; the status goes in the decision cell. Fixed 55d02006 (also status line, digest "Proposed", and the accepted 0057 amendment naming the cited rule as proposed).
 - Carried P3s to supply onto p2p-01's j99 derivation branch (REPLY 01a15c61 answered: carry): README.md:3 "unless marked Proposed or later superseded"; ADR-0057 log row 2026-10-21 Effect cell "(pending ADR-0058's acceptance)"; plus the Accepted flip of ADR-0058 once the owner speaks.
@@ -59,4 +68,4 @@ proposals, contacts verbs.
 
 *References: android-no-store-no-play-services*
 
-*Observed 2026-10-21 (architect-cto)*
+*Observed 2026-10-25 (architect-cto)*

@@ -1947,3 +1947,46 @@ fn outbound(row: i64, status: OutboundStatus) -> ClientEvent {
         last_code: None,
     })
 }
+
+/// A render that changes nothing leaves every message row equal to what
+/// it was: the view sets only a row that differs, and Slint lays a set
+/// row out again, so a row unequal to itself made again cost each page of
+/// messages a relayout of every row already held (j77: 7 ms a row in a
+/// release window). A text row, one's own card without a photo and one
+/// with. Mutations: the empty image `Image::default()` for no photo; a
+/// card's photo made again at each render.
+#[test]
+fn a_render_that_changes_nothing_leaves_every_message_row_equal() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    pending(&mut model, 1, &alice, "a message");
+    own_card(&mut model, 2, &alice, "Ada Lovelace");
+    model.card_queued(
+        RowId::from_stored(3),
+        direct(&alice),
+        format!("{:032x}", 9_003),
+        interweave_human_ui_model::SentCard {
+            name: "Ada Lovelace".to_owned(),
+            photo: Some(interweave_human_ui_model::Photo {
+                width: 1,
+                height: 1,
+                rgba: vec![0, 0, 0, 255],
+            }),
+        },
+        3,
+    );
+    open(&mut view, &mut model, &direct(&alice));
+    let rows = view.window().get_messages();
+    let before: Vec<_> = rows.iter().collect();
+    assert_eq!(before.len(), 3, "control: three rows drawn");
+    assert!(
+        !before[1].card_has_photo && before[2].card_has_photo,
+        "control: one card without a photo, one with"
+    );
+    view.render(&model);
+    let after: Vec<_> = view.window().get_messages().iter().collect();
+    for (index, (was, is)) in before.iter().zip(&after).enumerate() {
+        assert!(was == is, "row {index} made again differs");
+    }
+}

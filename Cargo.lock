@@ -3608,6 +3608,7 @@ version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "image",
+ "interweave-human-app-core",
  "interweave-human-chat-protocol",
  "interweave-human-client-api",
  "interweave-human-store",
@@ -3687,7 +3688,10 @@ dependencies = [
 name = "interweave-human-core"
 version = "0.2.0"
 dependencies = [
+ "caseless",
  "serde",
+ "unicode-normalization",
+ "unicode-security",
 ]
 
 [[package]]
@@ -3695,6 +3699,7 @@ name = "interweave-human-desktop"
 version = "0.2.0"
 dependencies = [
  "i-slint-backend-testing",
+ "image",
  "interweave-human-app-core",
  "interweave-human-store",
  "interweave-human-transport-client",
@@ -3706,6 +3711,7 @@ dependencies = [
  "interweave-profile-config",
  "interweave-profile-identity",
  "interweave-transport-api",
+ "slint",
  "tempfile",
  "tokio",
 ]
@@ -3734,7 +3740,6 @@ dependencies = [
  "aes",
  "aes-gcm",
  "base64 0.23.1",
- "caseless",
  "ed25519-dalek",
  "interweave-human-core",
  "interweave-human-store",
@@ -3744,8 +3749,6 @@ dependencies = [
  "rusqlite",
  "sha2 0.10.9",
  "tempfile",
- "unicode-normalization",
- "unicode-security",
  "zeroize",
 ]
 
@@ -3782,6 +3785,7 @@ dependencies = [
  "interweave-human-core",
  "interweave-human-store",
  "interweave-human-transport-client",
+ "interweave-human-ui-model",
  "interweave-local-client-fake",
  "interweave-profile-identity",
  "interweave-transport-api",

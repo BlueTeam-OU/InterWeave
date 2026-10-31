@@ -45,6 +45,28 @@ pub use swipe::{
 /// the store, so nothing else is evicted.
 pub const SESSION_ITEM_CAP: usize = 1_024;
 
+/// The bounds the model holds itself to: the published caps, which a test
+/// build alone may set lower (`set_bounds_for_test`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Bounds {
+    /// [`SESSION_ITEM_CAP`].
+    pub(super) session_items: usize,
+    /// [`window::HELD_ROW_CAP`].
+    pub(super) held_rows: usize,
+    /// [`cards::READ_PROPOSAL_CAP`].
+    pub(super) read_proposals: usize,
+}
+
+impl Default for Bounds {
+    fn default() -> Self {
+        Self {
+            session_items: SESSION_ITEM_CAP,
+            held_rows: window::HELD_ROW_CAP,
+            read_proposals: cards::READ_PROPOSAL_CAP,
+        }
+    }
+}
+
 /// How many outbound updates the model holds for rows not listed yet,
 /// latest per row, the oldest dropped past it (agreed U3b).
 pub const HELD_UPDATE_CAP: usize = 1_024;
@@ -242,6 +264,12 @@ pub struct MessageItem {
     /// The identity's own card this row sent, drawn in place of a text
     /// (contact-cards section 5.5); `None` for a message.
     pub card: Option<cards::SentCard>,
+    /// An inbound message the drain handed over as it reached the store,
+    /// in this session: an arrival a view may announce. `false` for one a
+    /// page, a listing or a start read back -- the person asked for those
+    /// rows (design/2026-10-27-start-window.md section 10, item 3:
+    /// "nothing is announced") -- and for this client's own.
+    pub arrived: bool,
 }
 
 /// One conversation in the list.
@@ -621,6 +649,9 @@ struct Item {
     hidden: bool,
     /// The own card an outbound row carries, as sent.
     card: Option<cards::SentCard>,
+    /// Handed over by the drain as it reached the store, rather than read
+    /// back by a page, a listing or a start: what a view may announce.
+    arrived: bool,
 }
 
 impl Item {
@@ -719,6 +750,12 @@ pub struct UiModel {
     windows: window::Windows,
     /// The contacts as the windowed mode reads them, and their photos.
     directory: directory::Directory,
+    /// Stored rows the last listing or start could not decode for
+    /// display: held in the store, and Chats' closing line says how many
+    /// (design section 6.1).
+    rows_not_shown: usize,
+    /// The bounds held to (`the_default_bounds_are_the_published_caps`).
+    bounds: Bounds,
 }
 
 impl Default for UiModel {
@@ -763,7 +800,37 @@ impl UiModel {
             windowed: None,
             windows: window::Windows::default(),
             directory: directory::Directory::default(),
+            rows_not_shown: 0,
+            bounds: Bounds::default(),
         }
+    }
+
+    /// TEST BUILDS ONLY (the `test-hooks` feature): hold the model to a
+    /// session bound, a held-row ceiling and a read-proposal bound below
+    /// the published caps, so a test reaches each with a few rows.
+    #[cfg(feature = "test-hooks")]
+    pub fn set_bounds_for_test(
+        &mut self,
+        session_items: usize,
+        held_rows: usize,
+        read_proposals: usize,
+    ) {
+        self.bounds = Bounds {
+            session_items,
+            held_rows,
+            read_proposals,
+        };
+        self.cards.set_read_cap(read_proposals);
+    }
+
+    /// TEST BUILDS ONLY (the `test-hooks` feature): open Connect now,
+    /// whatever this start decided, so a test shows it after a
+    /// conversation was opened -- where the app itself opens it only on a
+    /// first start with nobody to reach (design/2026-10-27-start-window.md
+    /// section 10 item 12).
+    #[cfg(feature = "test-hooks")]
+    pub fn open_connect_for_test(&mut self) {
+        self.connect = ConnectState::Open(Connect::opened());
     }
 
     // --- inputs ------------------------------------------------------------
@@ -798,14 +865,19 @@ impl UiModel {
             // A path notice -- a route's begin, a change, or the peer's
             // return -- updates the route indicator and nothing else: no
             // item, no unread count, no conversation (`human-client-ui.md`
-            // §7 and §13). Kept for a peer a direct conversation is with;
-            // the facade hands a path notice over after the messages of
-            // the same take, so the conversation a route's first message
-            // starts is there.
+            // §7 and §13). Kept for a peer a direct conversation is with --
+            // one holding a row here, or in the windowed mode one the start
+            // summarised, whose rows stay in the store
+            // (`a_summarised_conversations_path_is_kept`); the facade hands
+            // a path notice over after the messages of the same take, so the
+            // conversation a route's first message starts is there.
             ClientEvent::PeerPath { peer, path } => {
-                let known = self.items.values().any(|item| {
-                    matches!(&item.conversation, ConversationKey::Direct { peer: p, .. } if *p == peer)
-                });
+                let with = |c: &ConversationKey| matches!(c, ConversationKey::Direct { peer: p, .. } if *p == peer);
+                let known = self.items.values().any(|item| with(&item.conversation))
+                    || self
+                        .windowed
+                        .as_ref()
+                        .is_some_and(|w| w.iter().any(|s| with(&s.conversation)));
                 if known {
                     self.paths.insert(peer, path);
                 }
@@ -853,11 +925,13 @@ impl UiModel {
             &received.origin,
             received.envelope,
             received.received_at,
+            true,
         );
         // Held in the open conversation: its place, and the held-row
         // ceiling, which a flood while the window has no focus reaches.
         if self.windowed.is_some() && self.by_row.contains_key(&(Table::Unread, received.row)) {
             self.windows.holds(
+                &conversation,
                 Table::Unread,
                 received.row,
                 window::PageMark {
@@ -870,8 +944,9 @@ impl UiModel {
         }
     }
 
-    /// The store's unread rows, at start or after `UnreadInStore`: merged
-    /// by row id with what is already shown (agreed A5, rule 2).
+    /// Unread rows the store holds, as an open conversation's page brings
+    /// them: merged by row id with what is already shown (agreed A5,
+    /// rule 2).
     pub fn unread_listed(&mut self, rows: Vec<ListedInbound>) {
         for row in rows {
             self.inbound(
@@ -880,11 +955,13 @@ impl UiModel {
                 &row.origin,
                 row.envelope,
                 row.received_at,
+                false,
             );
         }
     }
 
-    /// The store's kept rows, at start.
+    /// Kept rows the store holds, as an open conversation's page brings
+    /// them.
     pub fn kept_listed(&mut self, rows: Vec<ListedInbound>) {
         for row in rows {
             self.inbound(
@@ -893,6 +970,7 @@ impl UiModel {
                 &row.origin,
                 row.envelope,
                 row.received_at,
+                false,
             );
         }
     }
@@ -950,7 +1028,8 @@ impl UiModel {
         })
     }
 
-    /// The store's pending rows, at start (agreed item 2a). Authoritative:
+    /// The store's pending rows, as the start carries them (agreed item
+    /// 2a). Authoritative:
     /// a held update for a row it does not list is discarded, a terminal
     /// one included (agreed U3a).
     pub fn pending_listed(&mut self, rows: Vec<ListedOutbound>) {
@@ -1045,6 +1124,7 @@ impl UiModel {
         self.windows.forget(Table::Unread, row);
         self.release(Table::Unread, row);
         self.cards.read(row);
+        self.card_marks_follow();
     }
 
     /// The content a Keep of `key` would keep is no longer held this
@@ -1066,6 +1146,7 @@ impl UiModel {
             // A kept row keeps its stored copy at the time the message
             // reached this app: its place in the window.
             self.windows.holds(
+                &item.conversation,
                 Table::Kept,
                 kept_row,
                 window::PageMark {
@@ -1094,9 +1175,10 @@ impl UiModel {
 
     /// The view shows conversation `key`: if the window has focus, its
     /// unread rows are read now. Read is a retention act -- it deletes the
-    /// durable copy -- so it is raised from here alone, never on receipt,
-    /// from a notification, or while unfocused (agreed 2c); `actions`
-    /// does not offer it (review F1).
+    /// durable copy -- so it is raised from here, or from
+    /// [`Self::items_viewed`] for a reader shown some of them, never on
+    /// receipt, from a notification, or while unfocused (agreed 2c);
+    /// `actions` does not offer it (review F1).
     #[must_use]
     pub fn conversation_viewed(&self, key: &ConversationKey, focused: bool) -> Vec<Intent> {
         if !focused {
@@ -1105,6 +1187,25 @@ impl UiModel {
         self.items
             .values()
             .filter(|i| &i.conversation == key)
+            .flat_map(|i| {
+                i.rows
+                    .iter()
+                    .filter(|(t, _)| *t == Table::Unread)
+                    .map(|(_, r)| Intent::MarkRead(*r))
+            })
+            .collect()
+    }
+
+    /// A reader was shown `keys`, and only them: their unread rows are
+    /// read now, each of an item's rows -- a re-sent copy's too -- as
+    /// [`Self::conversation_viewed`] reads a whole conversation. The CLI's
+    /// `read` walks a conversation a chunk at a time and reads each chunk
+    /// as it prints it, never a row it has not printed
+    /// (`items_viewed_reads_the_rows_of_the_items_named_and_no_other`).
+    #[must_use]
+    pub fn items_viewed(&self, keys: &[ItemKey]) -> Vec<Intent> {
+        keys.iter()
+            .filter_map(|k| self.items.get(k))
             .flat_map(|i| {
                 i.rows
                     .iter()
@@ -1199,7 +1300,8 @@ impl UiModel {
 
     /// The title, its contact's name once the route belongs to one (plan
     /// §29 step 2, `human-client-ui.md` §4), with the short `PeerId` beside
-    /// it when another contact has that name; else as before. `isolate`
+    /// it when another contact's name is the same by the same-name rule
+    /// (contact-cards design 5.4.1), a lookalike included; else as before. `isolate`
     /// wraps the name for a view that draws it in other text.
     fn contact_title(
         &self,
@@ -1279,24 +1381,30 @@ impl UiModel {
             .items
             .iter()
             .filter(|(_, i)| &i.conversation == key && !i.hidden)
-            .map(|(k, i)| MessageItem {
-                key: *k,
-                direction: i.direction,
-                status: i.status(),
-                label: i.label(),
-                kept: i.has(Table::Kept),
-                body: i.body.clone(),
-                source: i.envelope.text.clone(),
-                author: i.author.clone(),
-                route_label: i.route_label.clone(),
-                reply: self.reply(&i.conversation, i.envelope.reply_to.as_deref()),
-                sent_at_ms: i.envelope.sent_at_ms,
-                local_at: i.local_at,
-                card: i.card.clone(),
-            })
+            .map(|(k, i)| self.message_item(*k, i))
             .collect();
         list.sort_by(|a, b| a.local_at.cmp(&b.local_at).then_with(|| a.key.cmp(&b.key)));
         list
+    }
+
+    /// The item `item` shows as, under `key`.
+    fn message_item(&self, key: ItemKey, item: &Item) -> MessageItem {
+        MessageItem {
+            key,
+            direction: item.direction,
+            status: item.status(),
+            label: item.label(),
+            kept: item.has(Table::Kept),
+            body: item.body.clone(),
+            source: item.envelope.text.clone(),
+            author: item.author.clone(),
+            route_label: item.route_label.clone(),
+            reply: self.reply(&item.conversation, item.envelope.reply_to.as_deref()),
+            sent_at_ms: item.envelope.sent_at_ms,
+            local_at: item.local_at,
+            card: item.card.clone(),
+            arrived: item.arrived,
+        }
     }
 
     /// The intents legal on `key` now (agreed item 3e). Never `MarkRead`:
@@ -1687,29 +1795,14 @@ impl UiModel {
         origin: &Origin,
         envelope: HumanChatV2,
         at: u64,
+        arrived: bool,
     ) {
         // Merged by row: the same row listed again is the same item, and a
         // row already released is not listed back by a stale snapshot.
         if self.by_row.contains_key(&(table, row)) || self.released.contains(&(table, row)) {
             return;
         }
-        let (conversation, author, route_label, origin_key) = match origin {
-            Origin::Direct { peer, endpoint } => (
-                ConversationKey::Direct {
-                    peer: peer.clone(),
-                    endpoint: Some(endpoint.clone()),
-                },
-                peer.clone(),
-                Some(RouteLabel::from(endpoint)),
-                format!("direct:{}:{}", peer.as_str(), endpoint.as_str()),
-            ),
-            Origin::Channel { channel, publisher } => (
-                ConversationKey::Channel(channel.clone()),
-                publisher.clone(),
-                None,
-                format!("channel:{}:{}", channel.as_str(), publisher.as_str()),
-            ),
-        };
+        let (conversation, author, route_label, origin_key) = inbound_origin(origin);
         // A second copy of one message is one item -- but a store row is
         // never hidden: the copy's row is ATTACHED to the item, so it is
         // counted, read when viewed, and unkept, like the first (agreed
@@ -1742,24 +1835,38 @@ impl UiModel {
         let conversation_key = conversation.clone();
         self.items.insert(
             key,
-            Item {
+            inbound_item(
                 conversation,
-                direction: Direction::Inbound,
-                rows: vec![(table, row)],
-                body: render(&envelope.text),
-                envelope,
-                author: Some(author),
+                author,
                 route_label,
-                outbound: None,
-                last_code: None,
-                local_at: at,
-                released_from: None,
-                last_pending: None,
-                hidden: false,
-                card: None,
-            },
+                envelope,
+                (table, row),
+                at,
+                arrived,
+            ),
         );
         self.arrived_in(&conversation_key);
+    }
+
+    /// The item a message the drain handed over is, whether or not its
+    /// conversation holds it: what [`Self::messages`] shows for the row
+    /// once held, built from the row itself. A view that prints arrivals
+    /// for conversations not open reads it here, since a closed
+    /// conversation holds none of its rows in the windowed mode
+    /// (`a_received_messages_item_is_the_one_its_held_row_shows`).
+    #[must_use]
+    pub fn message_of(&self, received: &interweave_human_client_api::Received) -> MessageItem {
+        let (conversation, author, route_label, _) = inbound_origin(&received.origin);
+        let item = inbound_item(
+            conversation,
+            author,
+            route_label,
+            received.envelope.clone(),
+            (Table::Unread, received.row),
+            received.received_at,
+            true,
+        );
+        self.message_item(ItemKey(Table::Unread, received.row), &item)
     }
 
     fn outbound(
@@ -1812,6 +1919,7 @@ impl UiModel {
                 last_pending: Some(row),
                 hidden: false,
                 card,
+                arrived: false,
             },
         );
         self.arrived_in(&conversation_key);
@@ -1920,7 +2028,7 @@ impl UiModel {
         // The item the person moved focus to is never dropped while focused:
         // the next in the order goes instead (design section 7.1).
         let focused = self.windows.focused();
-        while self.ephemeral.len() > SESSION_ITEM_CAP {
+        while self.ephemeral.len() > self.bounds.session_items {
             let Some(at) = self
                 .ephemeral
                 .iter()
@@ -1938,8 +2046,12 @@ impl UiModel {
                 .get(&key)
                 .is_some_and(|i| Some(&i.conversation) == self.windows.open_conversation())
             {
-                let below = self.item_below(key);
-                self.windows.dropped(key, below);
+                if let Some(at) = self.drop_pos(key) {
+                    self.windows.dropped(at);
+                }
+                self.drop_items(&[key]);
+                self.join_runs();
+                continue;
             }
             self.drop_items(&[key]);
         }
@@ -1983,6 +2095,63 @@ impl UiModel {
                 }
             }
         }
+    }
+}
+
+/// An inbound row's conversation, author, route label and copy key.
+fn inbound_origin(
+    origin: &Origin,
+) -> (
+    ConversationKey,
+    TransportIdentity,
+    Option<RouteLabel>,
+    String,
+) {
+    match origin {
+        Origin::Direct { peer, endpoint } => (
+            ConversationKey::Direct {
+                peer: peer.clone(),
+                endpoint: Some(endpoint.clone()),
+            },
+            peer.clone(),
+            Some(RouteLabel::from(endpoint)),
+            format!("direct:{}:{}", peer.as_str(), endpoint.as_str()),
+        ),
+        Origin::Channel { channel, publisher } => (
+            ConversationKey::Channel(channel.clone()),
+            publisher.clone(),
+            None,
+            format!("channel:{}:{}", channel.as_str(), publisher.as_str()),
+        ),
+    }
+}
+
+/// A received row's item, at `row`.
+fn inbound_item(
+    conversation: ConversationKey,
+    author: TransportIdentity,
+    route_label: Option<RouteLabel>,
+    envelope: HumanChatV2,
+    row: (Table, RowId),
+    at: u64,
+    arrived: bool,
+) -> Item {
+    Item {
+        conversation,
+        direction: Direction::Inbound,
+        rows: vec![row],
+        body: render(&envelope.text),
+        envelope,
+        author: Some(author),
+        route_label,
+        outbound: None,
+        last_code: None,
+        local_at: at,
+        released_from: None,
+        last_pending: None,
+        hidden: false,
+        card: None,
+        arrived,
     }
 }
 

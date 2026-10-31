@@ -172,24 +172,6 @@ pub(crate) fn sent_card(
     }
 }
 
-/// Every contact, as the model shows it.
-pub(crate) fn contact_views(store: &HumanStore) -> Result<Vec<ContactView>, StoreError> {
-    Ok(store
-        .contacts()?
-        .into_iter()
-        .map(|c| ContactView {
-            contact_id: c.contact_id,
-            name: c.display_name,
-            name_from_card: c.name_source == ValueSource::Card,
-            name_at: c.name_at,
-            photo_from_card: c.photo_source.map(|s| s == ValueSource::Card),
-            photo_at: c.photo_at,
-            photo: c.photo.as_deref().and_then(shown),
-            routes: route_views(c.routes),
-        })
-        .collect())
-}
-
 fn route_views(routes: Vec<ContactRoute>) -> Vec<RouteView> {
     routes
         .into_iter()
@@ -201,8 +183,8 @@ fn route_views(routes: Vec<ContactRoute>) -> Vec<RouteView> {
         .collect()
 }
 
-/// Every contact as the windowed mode reads them: names and routes, and
-/// whether each has a photo, never a photo's bytes -- a photo is read when
+/// Every contact as the model reads them: names and routes, and whether
+/// each has a photo, never a photo's bytes -- a photo is read when
 /// a view shows it (design/2026-10-27-start-window.md section 11).
 pub(crate) fn contact_directory(store: &HumanStore) -> Result<Vec<DirectoryContact>, StoreError> {
     /// Contacts per page: a page holds no photo, so a count bounds it.

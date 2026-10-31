@@ -5,7 +5,7 @@ topic: "reflection-name-a-pushed-sha-only-after-reading-it-back"
 description: "A push onto another lane's branch can be refused as non-fast-forward because the branch moved meanwhile; name a SHA in a message only after reading it from the push output or git ls-remote"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

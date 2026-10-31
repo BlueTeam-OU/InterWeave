@@ -261,9 +261,10 @@ fn walk<T>(
     }
 }
 
-/// What the client reads to show its conversations at start
+/// What the client read to show its conversations at start, at the pin
 /// (`listing.rs`'s `list_all`): every pending, unread and kept row, page by
-/// page. The store has no per-conversation read; this is the read.
+/// page. The store at the pin had no per-conversation read, so this was the
+/// read; both have changed since (README, `read-walk`).
 fn read_walk(store: &HumanStore) -> Result<usize, StoreError> {
     Ok(walk(|after| store.pending_outbound_page(after, limits()))?
         + walk(|after| store.unread_inbound_page(after, limits()))?

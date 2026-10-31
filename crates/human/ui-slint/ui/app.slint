@@ -99,6 +99,10 @@ export struct ProposalRow {
     received: string,
     // The card changes nothing (case S): Close alone, in Accept's place.
     closes: bool,
+    // Accept is offered: not while the contacts are unread, when Decline
+    // alone stands in its own place, Accept's place left empty
+    // (start-window section 11, U6).
+    accept-offered: bool,
     // The row's swipes (design section 5.4.4): Accept toward the line's
     // end, Decline toward its start, `none` where the case withholds one;
     // each labelled as its button is; the swipe's key names the card.
@@ -197,8 +201,38 @@ export struct LinkRow {
     label: string,
 }
 
+// What the open conversation's window draws at an edge
+// (design/2026-10-27-start-window.md sections 5 to 8).
+export enum MarkKindRow {
+    // The progress row: the indicator alone, not focusable.
+    loading,
+    // The failure row: its text, and Try again.
+    failed,
+    // EarlierUnread or ReadNotShown: a MarkLine.
+    line,
+    // The limit row: its text, and Show more messages.
+    at-limit,
+}
+
+export struct MarkRow {
+    // 0 above everything drawn, 1 above the message `handle`, 2 above the
+    // card row `handle`, 3 below everything.
+    place: int,
+    handle: int,
+    kind: MarkKindRow,
+    text: string,
+    // The failure or limit row's button.
+    action: string,
+    // The edge it stands at, as the view reports it back.
+    edge: string,
+    focus-key: string,
+}
+
 export struct MessageRow {
     handle: int,
+    // How many window marks stand directly above it, before its day
+    // separator: 0 skips the loop over them.
+    marks-above: int,
     // Short author, then status, then body (U5a).
     label: string,
     author: string,
@@ -692,6 +726,53 @@ component FocusHeading inherits FocusScope {
     }
 }
 
+// A line the windowed mode draws among rows (design/2026-10-27-start-
+// window.md section 8): EarlierUnread, ReadNotShown, RowsNotShown. Styled
+// as the day separator, centred in body small; text a person moves focus
+// to and a screen reader reads as one item, with no announcement of its
+// own. It wraps at any text size.
+component MarkLine inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
+    in property <string> text;
+    in property <string> focus-key;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    callback focused(string);
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    // The layout is what sizes the line; a wrapped
+    // text under it measures a line short unless it says its own height.
+    VerticalLayout {
+        padding-top: 4px;
+        padding-bottom: 4px;
+        Text {
+            text: root.text;
+            font-size: Type.body-small;
+            color: Palette.on-surface-variant;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+            accessible-role: none;
+        }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        shown: root.has-focus;
+    }
+}
+
 // An indeterminate progress mark: an arc that turns while an answer is
 // awaited, and stands still -- still shown -- under reduced motion
 // (design 2026-10-22-add-a-peer section 5.3).
@@ -710,6 +791,66 @@ component WaitMark inherits Rectangle {
         commands: "M 8 1.5 A 6.5 6.5 0 1 1 1.5 8";
         transform-origin: { x: 8px, y: 8px };
         transform-rotation: root.still ? 0deg : mod(animation-tick() / 1ms, 1000) / 1000 * 360deg;
+    }
+}
+
+// One of the window's marks (start-window section 8's look): the progress
+// row, the indicator alone, 24 px with 8 px above and below; a line; or
+// the failure or limit row, its text centred in body medium -- `error` for
+// a failure -- over a text button of at least 48 by 48 px.
+component WindowMarkEntry inherits VerticalLayout {
+    in property <MarkRow> mark;
+    in property <bool> reduced-motion;
+    in property <int> focus-seq;
+    in property <string> focus-target;
+    callback pressed(string);
+    callback focused(string);
+    if root.mark.kind == MarkKindRow.loading: Rectangle {
+        height: 40px;
+        accessible-role: progress-indicator;
+        accessible-label: root.mark.text;
+        WaitMark {
+            width: 24px;
+            height: 24px;
+            still: root.reduced-motion;
+        }
+    }
+    if root.mark.kind == MarkKindRow.line: MarkLine {
+        text: root.mark.text;
+        focus-key: root.mark.focus-key;
+        focus-seq: root.focus-seq;
+        focus-wanted: root.focus-target == root.mark.focus-key;
+        focused(k) => { root.focused(k); }
+    }
+    if root.mark.kind == MarkKindRow.failed || root.mark.kind == MarkKindRow.at-limit: VerticalLayout {
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 4px;
+        Text {
+            text: root.mark.text;
+            font-size: Type.body-medium;
+            color: root.mark.kind == MarkKindRow.failed ? Palette.error : Palette.on-surface-variant;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        HorizontalLayout {
+            alignment: center;
+            ActionButton {
+                text: root.mark.action;
+                text-button: true;
+                target: 48px;
+                focus-key: "mark-action:" + root.mark.edge;
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == self.focus-key;
+                // A press while its read is on its way reports nothing: the
+                // view drops it (start-window section 5, "A pressed row").
+                pressed => { root.pressed(root.mark.edge); }
+                focused(k) => { root.focused(k); }
+            }
+        }
     }
 }
 
@@ -2468,7 +2609,7 @@ component ProposalCard inherits Rectangle {
                 pressed => { root.decline(); }
                 focused(k) => { root.focused(k); }
             }
-            ActionButton {
+            if root.card.accept-offered: ActionButton {
                 text: root.card.accept;
                 detail: root.card.full-name;
                 filled: true;
@@ -2714,7 +2855,50 @@ export component AppWindow inherits Window {
     in property <string> conversations-heading;
     in property <string> messages-heading;
     in property <[ConversationRow]> conversations;
+    // Chats' closing line (start-window section 6.1): the stored rows this
+    // version cannot show; empty for none.
+    in property <string> rows-not-shown;
     in property <[MessageRow]> messages;
+    // The open conversation's window marks, in reading order.
+    in property <[MarkRow]> window-marks;
+    // A failure row's Try again or a limit row's Show more messages, by
+    // the edge it stands at.
+    callback window-mark-pressed(string);
+    // The model reads the conversation a window at a time: the list says
+    // which rows are in view, whether it shows its top, and which way it
+    // last moved (start-window sections 5 and 5.1). Nothing is said in the
+    // listed mode, where every row is held.
+    in property <bool> windowed;
+    callback row-in-view(int, bool);
+    callback list-at-top(bool);
+    // true: toward older rows.
+    callback list-moved(bool);
+    // The message row that holds the person's place: the focused one,
+    // else the first in view; -1 for none. When rows are added above it,
+    // or anything above it changes while the list is away from its very
+    // top, the list moves with it, so it stays where it was on screen
+    // (start-window section 5: "neither the scroll position nor focus
+    // moves"; at the very top, what is below a top-edge row moves by its
+    // change of height).
+    in property <int> anchor-handle: -1;
+    // Counts the view's renders; `follow-seq` is the render that added
+    // rows above the anchor, which the anchor follows -- their layout takes
+    // the toolkit's next frames -- until the next render.
+    in property <int> render-seq;
+    in property <int> follow-seq: -1;
+    // Focus moved, by the person or the app: an edge can be reached by
+    // focus (start-window section 5).
+    callback focus-moved();
+    // Each change of focus-id, for a debug build's trace (src/trace.rs);
+    // bound by Rust only under the `ui-trace` feature. A callback of its
+    // own, since Rust binds one handler per callback and focus-moved's is
+    // the window marks' (src/window_marks.rs); a property takes one
+    // changed handler, so both ride this one.
+    callback focus-traced(string);
+    changed focus-id => {
+        if (root.windowed) { root.focus-moved(); }
+        root.focus-traced(self.focus-id);
+    }
     in property <string> header-title;
     // The full PeerId of a direct conversation, or the channel id (U5a).
     in property <string> header-id;
@@ -2777,10 +2961,6 @@ export component AppWindow inherits Window {
     // In-out so Rust can clear a stale "undo": nothing reports the Undo
     // losing focus when its snackbar goes.
     in-out property <string> focus-id;
-    // Each change of it, for a debug build's trace (src/trace.rs); bound
-    // by Rust only under the `ui-trace` feature.
-    callback focus-moved(string);
-    changed focus-id => { root.focus-moved(self.focus-id); }
 
     // The one row a swipe moves ("m:" and an item's handle, "c:" and a
     // conversation's), how far, whether it is armed, and whether it
@@ -3158,7 +3338,7 @@ export component AppWindow inherits Window {
     // A window narrower than this shows one pane at a time -- the list,
     // or a conversation or the trust settings with a way back -- rather
     // than cutting the second pane off (a phone, plan section 20).
-    property <bool> narrow: root.width < 600px;
+    out property <bool> narrow: root.width < 600px;
     // The width a message row has to draw in: the conversation pane's,
     // inside its padding and the list's ring room. From the window's width
     // rather than the row's, which the layout computes from what is in it:
@@ -3230,6 +3410,15 @@ export component AppWindow inherits Window {
     in property <string> contacts-title;
     in property <string> own-card-title;
     in property <string> contacts-empty;
+    // The contacts could not be read (start-window section 11): the
+    // failure row alone, in place of the rows and of `contacts-empty`;
+    // while Try again reads them, the progress row once 250 ms passed.
+    in property <bool> contacts-unread;
+    in property <bool> contacts-reading;
+    in property <bool> contacts-loading-shown;
+    in property <string> contacts-load-failed;
+    in property <string> contacts-loading;
+    callback contacts-try-again();
     in property <[ContactListRow]> contact-rows;
     callback open-contacts();
     callback open-own-card();
@@ -3240,7 +3429,13 @@ export component AppWindow inherits Window {
     callback contact-chosen(int);
     // A contact's page.
     in property <string> contact-title;
+    // The contact holds a photo, read or not: Remove photo is offered.
     in property <bool> contact-has-photo;
+    // Its photo is drawn: read, and readable.
+    in property <bool> contact-photo-shown;
+    // A Contacts row came into view or left it: its photo is read when it
+    // shows (start-window section 11).
+    callback contact-in-view(int, bool);
     in property <image> contact-photo;
     in property <string> contact-letters;
     in property <int> contact-hue;
@@ -3390,12 +3585,14 @@ export component AppWindow inherits Window {
     // Back on a card page: the own card's editor with unsaved changes
     // asks first (contact-cards design 5.2), else the page closes.
     function close-cards-page() {
-        // Back to the editor's control that had focus -- each takes a
-        // focus request, its share-again rows included -- else, focus
+        // Back to the page's control that had focus -- its title, the
+        // editor's controls, its share-again rows, each taking a focus
+        // request -- else, focus
         // beside the editor on a wide window, to its first field
         // (`continue_editing_gives_focus_back_to_each_control`,
         // `continue_editing_gives_focus_back_to_a_share_again_row`).
         if (root.ask-before-leaving(0, -1, root.focus-id == "close-cards"
+                || root.focus-id == "cards-title"
                 || root.focus-id.starts-with("own-")
                 || root.focus-id.starts-with("share-again:") ? root.focus-id : "own-given")) {
             return;
@@ -3986,6 +4183,14 @@ export component AppWindow inherits Window {
                     radius: 12px;
                     shown: conversation.has-focus;
                 }
+            }
+            // Read after the last conversation (start-window section 8).
+            if root.rows-not-shown != "": MarkLine {
+                text: root.rows-not-shown;
+                focus-key: "rows-not-shown";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "rows-not-shown";
+                focused(k) => { root.focus-id = k; }
             }
             }
             }
@@ -5112,17 +5317,24 @@ export component AppWindow inherits Window {
                         focused(k) => { root.focus-id = k; }
                     }
                 }
-                Text {
+                // The page's title, a heading focus can rest on: where
+                // Contacts and Your card put focus when opened from the menu
+                // (contact-cards section 9, item 1).
+                VerticalLayout {
                     horizontal-stretch: 1;
-                    text: root.cards-page == CardsPage.contacts ? root.contacts-title
-                        : root.cards-page == CardsPage.contact ? root.contact-title
-                        : root.own-card-title;
-                    font-size: Type.title-large;
-                    overflow: elide;
-                    vertical-alignment: center;
-                    horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                    accessible-role: text;
-                    accessible-label: self.text;
+                    alignment: center;
+                    FocusHeading {
+                        text: root.cards-page == CardsPage.contacts ? root.contacts-title
+                            : root.cards-page == CardsPage.contact ? root.contact-title
+                            : root.own-card-title;
+                        font-size: Type.title-large;
+                        font-weight: 400;
+                        rtl: root.rtl;
+                        focus-key: "cards-title";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "cards-title";
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
                 if root.rtl: VerticalLayout {
                     alignment: center;
@@ -5139,7 +5351,7 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            Flickable {
+            cards-flick := Flickable {
                 vertical-stretch: 1;
                 content-height: cards-column.preferred-height;
                 cards-column := VerticalLayout {
@@ -5148,16 +5360,68 @@ export component AppWindow inherits Window {
                     spacing: 12px;
                     alignment: start;
                     // Contacts.
-                    if root.cards-page == CardsPage.contacts && root.contact-rows.length == 0: Text {
-                        text: root.contacts-empty;
-                        wrap: word-wrap;
-                        color: Palette.on-surface-variant;
-                        accessible-role: text;
-                        accessible-label: self.text;
+                    if root.cards-page == CardsPage.contacts && root.contacts-unread && !root.contacts-reading: VerticalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: root.contacts-load-failed;
+                            font-size: Type.body-medium;
+                            color: Palette.error;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
+                            min-height: self.preferred-height;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                        HorizontalLayout {
+                            alignment: center;
+                            ActionButton {
+                                text: root.try-again-label;
+                                text-button: true;
+                                target: 48px;
+                                focus-key: "contacts-try-again";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "contacts-try-again";
+                                pressed => { root.contacts-try-again(); }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                        }
                     }
-                    if root.cards-page == CardsPage.contacts: VerticalLayout {
+                    if root.cards-page == CardsPage.contacts && root.contacts-reading && root.contacts-loading-shown: Rectangle {
+                        height: 40px;
+                        accessible-role: progress-indicator;
+                        accessible-label: root.contacts-loading;
+                        WaitMark {
+                            width: 24px;
+                            height: 24px;
+                            still: root.reduced-motion;
+                        }
+                    }
+                    // A focus stop: where focus goes when the list it would
+                    // go to has no row (contact-cards section 9).
+                    if root.cards-page == CardsPage.contacts && !root.contacts-unread && root.contact-rows.length == 0: FocusHeading {
+                        text: root.contacts-empty;
+                        font-size: Type.body-medium;
+                        font-weight: 400;
+                        wraps: true;
+                        rtl: root.rtl;
+                        focus-key: "contacts-empty";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "contacts-empty";
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    if root.cards-page == CardsPage.contacts: contacts-list := VerticalLayout {
                         spacing: 4px;
                         for row in root.contact-rows: OpenRow {
+                            // Any part of it in view: its photo is read then
+                            // (start-window section 11). Said on each change, and
+                            // at its creation when in view.
+                            property <bool> in-view: root.windowed
+                                && self.y + contacts-list.y + cards-column.y + cards-flick.content-y + self.height > 0px
+                                && self.y + contacts-list.y + cards-column.y + cards-flick.content-y < cards-flick.height;
+                            changed in-view => { root.contact-in-view(row.handle, self.in-view); }
+                            init => {
+                                if (self.in-view) { root.contact-in-view(row.handle, true); }
+                            }
                             text: row.name;
                             has-photo: row.has-photo;
                             photo: row.photo;
@@ -5179,7 +5443,7 @@ export component AppWindow inherits Window {
                             spacing: 16px;
                             PhotoCircle {
                                 size: 96px;
-                                has-photo: root.contact-has-photo;
+                                has-photo: root.contact-photo-shown;
                                 photo: root.contact-photo;
                                 letters: root.contact-letters;
                                 hue: root.contact-hue;
@@ -5853,10 +6117,20 @@ export component AppWindow inherits Window {
             // built-in Flickable, not std-widgets' ScrollView, whose icons
             // need an image feature the graph does not carry: it scrolls
             // by wheel and touch, with no visible scrollbar.
-            Flickable {
+            messages-flick := Flickable {
                 width: parent.width;
                 height: parent.height;
                 content-height: messages-column.preferred-height;
+                // The list's top in view: the top edge reached by scrolling.
+                property <bool> at-top: root.windowed && self.content-y >= -1px;
+                // Its top shown, at most its padding scrolled away: where
+                // focus moving onto the first row leaves it, scrolling only
+                // as far as that row. A row arriving above then shows
+                // rather than being kept out of view by the anchor
+                // (`at_the_session_bound_the_limit_row_asks_and_asks_again_after_a_reopen`).
+                property <bool> top-shown: self.content-y >= -messages-column.padding - 1px;
+                changed at-top => { root.list-at-top(self.at-top); }
+                property <length> last-y: self.content-y;
                 // A row tracking a swipe holds its touch: the list does
                 // not scroll for it (swipe spec section 4).
                 interactive: !root.swipe-tracking;
@@ -5869,6 +6143,16 @@ export component AppWindow inherits Window {
                 // again, so the list settles at its newest message.
                 function to-newest() {
                     self.content-y = min(0px, self.height - self.content-height);
+                }
+                // The direction of the person's own scroll, said as it
+                // happens: `flicked` comes of the person's wheel, drag or
+                // fling alone, before the change handlers run, so `last-y`
+                // still holds where the list stood; the view's own moves and
+                // the toolkit's clamps say none (#512 review F4).
+                flicked => {
+                    if (root.windowed && self.content-y != self.last-y) {
+                        root.list-moved(self.content-y > self.last-y);
+                    }
                 }
                 // Pinned to its end while it shows its end: a conversation
                 // opens at its end and stays there as its space or its
@@ -5883,6 +6167,7 @@ export component AppWindow inherits Window {
                 property <bool> pinned: true;
                 changed content-y => {
                     self.pinned = self.content-y <= self.height - self.content-height + 1px;
+                    self.last-y = self.content-y;
                 }
                 property <string> shown: root.header-id;
                 changed shown => {
@@ -5919,10 +6204,32 @@ export component AppWindow inherits Window {
             // only its item closes (swipe spec section 5;
             // tests/look.rs, `a_leaving_message_closes_its_space_without_a_jump`).
             // Clipped so it hides what it covered.
+            // The top edge's marks, above everything drawn, leading
+            // proposals included (start-window section 8's reading order).
+            for m in root.window-marks: VerticalLayout {
+                if m.place == 0: WindowMarkEntry {
+                    mark: m;
+                    reduced-motion: root.reduced-motion;
+                    focus-seq: root.focus-seq;
+                    focus-target: root.focus-target;
+                    pressed(e) => { root.window-mark-pressed(e); }
+                    focused(k) => { root.focus-id = k; }
+                }
+            }
             // The card proposals that arrived before the first message
             // (contact-cards design 5.4: each at its place in time); the
             // others follow the message they came after.
             for proposal in root.proposals: VerticalLayout {
+                for m in root.window-marks: VerticalLayout {
+                    if m.place == 2 && m.handle == proposal.handle && proposal.after < 0: WindowMarkEntry {
+                        mark: m;
+                        reduced-motion: root.reduced-motion;
+                        focus-seq: root.focus-seq;
+                        focus-target: root.focus-target;
+                        pressed(e) => { root.window-mark-pressed(e); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
                 if proposal.after < 0: ProposalEntry {
                     proposal: proposal;
                     swipe-key: root.swipe-key;
@@ -5966,6 +6273,74 @@ export component AppWindow inherits Window {
                 // rather than squeezing its rows into the window.
                 min-height: row.leaving ? 0px : row-content.min-height;
                 property <bool> collapsing: false;
+                // Its place is read once it is placed, after the rows made
+                // with it are made: what a row evaluates as it is made
+                // -- its init and the first value of each change handler --
+                // is evaluated while the list is still making the rows after
+                // it, and a read of its place there laid the whole list out
+                // again, measuring every row's text, for each row made: a page
+                // of 64 arriving above 256 held rows took 2 s to draw in a
+                // release window, 70 ms placed this way (j77;
+                // `a_page_drawn_above_costs_its_own_rows_not_the_held_ones`).
+                // The timer fires on the next pass of the event loop, after
+                // the draw that made it, and every row made by that draw is
+                // then placed by one layout.
+                property <bool> placed: false;
+                Timer {
+                    interval: 0ms;
+                    running: !row-box.placed;
+                    triggered => { row-box.placed = true; }
+                }
+                // Any part of it in the list's view (start-window section
+                // 5.1: kept while in view,
+                // `the_focused_the_in_view_and_the_newest_are_never_let_go`; an edge reached by
+                // scrolling). Said on each change; false until it is placed,
+                // so its change handler sees the first value. The place is
+                // read in a right-hand side of its own: Slint reads a
+                // property used twice once, at the top of the binding,
+                // unless the reads sit past a condition, and in a chain of
+                // `&&` only the last operand does.
+                property <bool> in-view: self.placed && (root.windowed && !row.leaving
+                    && self.y + messages-column.y + messages-flick.content-y + self.height > 0px
+                    && self.y + messages-column.y + messages-flick.content-y < messages-flick.height);
+                changed in-view => { root.row-in-view(row.handle, self.in-view); }
+                // Where its message stands in the list -- its bubble, not
+                // the row: a day separator handed to rows added above it
+                // moves the bubble within the row -- and where it stood,
+                // for the anchor row to keep its place. Nothing until it is
+                // placed; `had-place` says whether the last value was a place,
+                // since the change from nothing to the first is no move to
+                // follow (a row made focused can be the next render's anchor
+                // before its timer fires;
+                // `a_row_named_by_focus_before_it_is_placed_moves_nothing_when_placed`).
+                property <length> item-top: self.placed ? self.y + row-content.y + item.y : 0px;
+                property <length> placed-y;
+                property <bool> had-place: false;
+                // Where on screen it stood as rows were added above it, kept
+                // until the next render: their layout takes more than one
+                // change, the list clamps a passing offset past its top, and
+                // an absolute target survives both
+                // (`a_page_arriving_above_leaves_the_row_in_view_where_it_was`).
+                property <length> follow-target;
+                property <int> follow-seq: -1;
+                changed item-top => {
+                    if (self.had-place && root.windowed && row.handle == root.anchor-handle && !messages-flick.anchored) {
+                        if (root.follow-seq == root.render-seq && self.follow-seq != root.render-seq) {
+                            self.follow-target = self.placed-y + messages-flick.content-y;
+                            self.follow-seq = root.render-seq;
+                        }
+                        if (self.follow-seq == root.render-seq) {
+                            messages-flick.content-y = self.follow-target - self.item-top;
+                        } else if (!messages-flick.top-shown) {
+                            // Something above changed while more than the
+                            // list's padding is scrolled away, its top not
+                            // shown: the view does not move.
+                            messages-flick.content-y -= self.item-top - self.placed-y;
+                        }
+                    }
+                    self.placed-y = self.item-top;
+                    self.had-place = self.placed;
+                }
                 // Held at its content's height, read from the content rather
                 // than kept by a change handler, which runs a turn late: a
                 // row leaving before it ran closed in one frame.
@@ -5995,6 +6370,21 @@ export component AppWindow inherits Window {
             row-content := VerticalLayout {
                 padding-top: row.gap;
                 spacing: 4px;
+                // The window's marks that stand above it, before its day
+                // separator: a line or an edge's row reads before the run
+                // it heads.
+                if row.marks-above > 0: VerticalLayout {
+                    for m in root.window-marks: VerticalLayout {
+                        if m.place == 1 && m.handle == row.handle: WindowMarkEntry {
+                            mark: m;
+                            reduced-motion: root.reduced-motion;
+                            focus-seq: root.focus-seq;
+                            focus-target: root.focus-target;
+                            pressed(e) => { root.window-mark-pressed(e); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                }
                 // A day change: "Today", "Yesterday", a weekday or the date,
                 // centred -- outside the message's item, so a screen reader
                 // reaches it as an item of its own before the run it heads
@@ -6486,6 +6876,16 @@ export component AppWindow inherits Window {
                 // spacing.
                 if row.cards-after > 0: VerticalLayout {
                     for proposal in root.proposals: VerticalLayout {
+                        for m in root.window-marks: VerticalLayout {
+                            if m.place == 2 && m.handle == proposal.handle && proposal.after == row.handle: WindowMarkEntry {
+                                mark: m;
+                                reduced-motion: root.reduced-motion;
+                                focus-seq: root.focus-seq;
+                                focus-target: root.focus-target;
+                                pressed(e) => { root.window-mark-pressed(e); }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                        }
                         if proposal.after == row.handle: ProposalEntry {
                             proposal: proposal;
                             swipe-key: root.swipe-key;
@@ -6518,6 +6918,17 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+            }
+            // The marks below everything drawn.
+            for m in root.window-marks: VerticalLayout {
+                if m.place == 3: WindowMarkEntry {
+                    mark: m;
+                    reduced-motion: root.reduced-motion;
+                    focus-seq: root.focus-seq;
+                    focus-target: root.focus-target;
+                    pressed(e) => { root.window-mark-pressed(e); }
+                    focused(k) => { root.focus-id = k; }
+                }
             }
             }
             }
@@ -7044,7 +7455,7 @@ export component AppWindow inherits Window {
         card-menu-items := VerticalLayout {
             padding-top: 8px;
             padding-bottom: 8px;
-            if !root.card-menu-row.closes: MenuItem {
+            if !root.card-menu-row.closes && root.card-menu-row.accept-offered: MenuItem {
                 text: root.card-menu-row.accept;
                 detail: root.card-menu-row.full-name;
                 iconed: true;
@@ -7067,7 +7478,7 @@ export component AppWindow inherits Window {
                 iconed: true;
                 kind: SwipeKind.decline;
                 focus-key: "card-menu-decline:" + root.card-menu;
-                first: root.card-menu-row.closes;
+                first: root.card-menu-row.closes || !root.card-menu-row.accept-offered;
                 rtl: root.rtl;
                 pressed => {
                     let handle = root.card-menu;

@@ -5,7 +5,7 @@ topic: "adr-0062-scan-bound-new-lines-2026-10-22"
 description: "ADR-0062 decision 4 A 2026-10-22 (iii): a scan counts only the lines the overlay would gain against 64; held or repeated lines are unchanged; supplied with item 13's add_addresses sentence on the j56 for/ branch"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

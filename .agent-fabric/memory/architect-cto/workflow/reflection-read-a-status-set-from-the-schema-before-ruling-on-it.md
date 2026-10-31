@@ -5,7 +5,7 @@ topic: "reflection-read-a-status-set-from-the-schema-before-ruling-on-it"
 description: "Before ruling a closed switch or allow-list over a status column, read the set from the schema, its CHECK if one exists, else every migration that writes the column, never from ADR prose, and ask for the CHECK in the same ruling"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

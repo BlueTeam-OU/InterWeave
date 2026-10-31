@@ -45,6 +45,15 @@ tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "macr
 # The real view, headless: the app names no Slint crate in its own graph
 # (dev-dependencies are not followed by the human-layering check).
 i-slint-backend-testing = { workspace = true }
+# The window's events and properties the fault tests drive and read.
+slint = { workspace = true }
+# A photo to store, prepared as the client prepares one.
+image = { workspace = true }
+# TEST-ONLY: the store faults of section 10's failure paths
+# (tests/window_faults.rs). A dev-dependency's features reach the test
+# builds alone; tools/checks/check_shipped_test_hooks.sh fails a shipped
+# graph that resolves `test-hooks` anywhere.
+interweave-human-app-core = { path = "../../crates/human/app-core", features = ["test-hooks"] }
 interweave-local-client-fake = { path = "../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
 tempfile = { workspace = true }
