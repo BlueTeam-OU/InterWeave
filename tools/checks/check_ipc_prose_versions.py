@@ -35,15 +35,14 @@
 #      exists, at a version <= V(name) in semver order. History names
 #      older versions; none may name a newer one. Status ("approved") is
 #      not part of the rule.
-#   5. no minor above the code: no /(?<![\d.])2\.(\d{1,2})(?![\d.])/
-#      exceeds MAX.
+#   5. no minor above the code: no /(?<![\d.])2\.(\d{1,2})(?!\d|\.\d)/
+#      exceeds MAX. A full stop after the minor ends a sentence and is
+#      read ("2.13." is 2.13); a digit after it makes a dotted version.
 # A failure names the rule and the line. An input that cannot be read
 # (no constant, no schema, no version) is a failure, never a skip.
 # Limit: these are the prose's current shapes; a sentence reworded out
 # of a rule's grammar is no longer checked by it (rules 1 and 2 fail on
-# a vanished sentence, rules 3 and 4 match nothing and pass). Rule 5's
-# lookahead also refuses a minor that ends a sentence: "2.13." is read
-# as a dotted number and passes.
+# a vanished sentence, rules 3 and 4 match nothing and pass).
 #
 # Exit codes: 0 every rule holds; 1 a problem, each on its own line;
 # 2 usage.
@@ -67,7 +66,7 @@ CHAIN_END = "never a literal"
 BROUGHT = re.compile(r"brought 2\.(\d+)")
 PAREN = re.compile(r"`([a-z-]+)` \((\d+\.\d+\.\d+) since [^()]*?which 2\.(\d+) brings")
 NAMED = re.compile(r"`ipc/([a-z-]+)` (\d+\.\d+\.\d+)")
-MINOR = re.compile(r"(?<![\d.])2\.(\d{1,2})(?![\d.])")
+MINOR = re.compile(r"(?<![\d.])2\.(\d{1,2})(?!\d|\.\d)")
 # The chain's floor: minor 3 is the first the sentence lists a reason for.
 FLOOR = 3
 

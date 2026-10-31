@@ -160,6 +160,10 @@ echo "rule 5: no minor above the code"
 R="$(copy r5)"; F="$R/$CONTRACT"
 edit "$F" "## Version negotiation and phases" "## Version negotiation and phases (2.$((MAX + 1)))" || exit 1
 expect_fail "$R" 5 "$(line_of "$F" "## Version negotiation and phases")" "a minor above IPC_MAX_MINOR"
+R="$(copy r5-sentence)"; F="$R/$CONTRACT"
+# A minor that ends a sentence is still a minor.
+edit "$F" "## Version negotiation and phases" "## Version negotiation and phases, since 2.$((MAX + 1))." || exit 1
+expect_fail "$R" 5 "$(line_of "$F" "## Version negotiation and phases")" "a minor above IPC_MAX_MINOR ending a sentence"
 R="$(copy r5-dotted)"; F="$R/$CONTRACT"
 # The lookarounds: 2.99.1 and 12.99 are not minors.
 edit "$F" "## Version negotiation and phases" "## Version negotiation and phases 2.99.1 12.99" || exit 1
