@@ -356,7 +356,7 @@ async fn an_unread_card_is_a_proposal_again_after_a_restart() {
     let mut bob = Root::new(facade(&b, &pb, None));
     bob.open(&direct(a.peer()), 0).await;
     let again = bob.model().proposals(&direct(a.peer()));
-    assert_eq!(again.len(), 1, "listed again from the store");
+    assert_eq!(again.len(), 1, "read again from the store");
     assert_eq!(again[0].name, "Ada Lovelace");
 }
 

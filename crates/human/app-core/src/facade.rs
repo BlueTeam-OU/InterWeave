@@ -1498,7 +1498,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     }
 
     /// Delete a contact (ADR-0059 decision 3): the store deletes it, its
-    /// routes and their keys, and the contacts are listed again.
+    /// routes and their keys; the contacts' directory is read again and
+    /// every card proposal held is judged again.
     fn delete_contact(
         &mut self,
         contact_id: &str,
