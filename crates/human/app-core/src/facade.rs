@@ -526,9 +526,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     }
 
     /// How many stored rows this side has read and decoded so far --
-    /// classified, summarised, paged, or read to judge the proposals
-    /// again: what a start's cost, and a contact change's, is measured
-    /// in, since a memory figure says nothing a test can hold.
+    /// classified, listed (the pending rows), summarised, paged, or read
+    /// to judge the proposals again: what a start's cost, and a contact
+    /// change's, is measured in, since a memory figure says nothing a
+    /// test can hold.
     #[must_use]
     pub const fn rows_read(&self) -> u64 {
         self.rows_read
