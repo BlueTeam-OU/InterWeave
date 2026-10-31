@@ -53,6 +53,12 @@ const QUIET: Duration = Duration::from_millis(700);
 /// How often the log is read while waiting.
 const POLL: Duration = Duration::from_millis(250);
 
+/// How long the trace must write nothing after the launch's first
+/// Conversations line before that page counts as where the app settled:
+/// Connect replaces it once the peer list and the trust read answer, a
+/// render or more later, on a phone that owes onboarding's Connect.
+const LAUNCH_QUIET: Duration = Duration::from_secs(2);
+
 /// One step's answer: `{case, result, detail}`.
 pub type Step = Map<String, Value>;
 
@@ -82,7 +88,10 @@ impl Screens {
     /// Start the app from nothing: force-stop it (focus survives an
     /// `am start` of a running activity, so a step never starts from
     /// where the last left focus), clear the log, launch, and wait for
-    /// the conversation list.
+    /// the conversation list to be the page the app settles on. A phone
+    /// that owes onboarding's Connect (no peer, no trust entry) settles
+    /// there instead, and the step fails saying so: every later step
+    /// starts from Chats, and leaving Connect writes the profile.
     pub fn launch(&mut self, patience: Duration) -> Step {
         let name = "launch";
         let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
@@ -99,7 +108,19 @@ impl Screens {
                 "-n",
                 &format!("{PACKAGE}/.MainActivity"),
             ])
-            .and_then(|_| self.wait_all(0, &["page=conversations"], patience));
+            .and_then(|_| self.wait_all(0, &["page=conversations"], patience))
+            .and_then(|()| self.quiet(LAUNCH_QUIET, patience))
+            .and_then(|()| match last_page(&self.seen) {
+                Some("conversations") => Ok(()),
+                Some("connect") => Err(format!(
+                    "the app settled on Connect, which a phone with no peer and no trust entry owes; the driver starts from Chats and does not leave Connect, which writes the profile; {}",
+                    self.where_now()
+                )),
+                _ => Err(format!(
+                    "the app left the conversation list on its own; {}",
+                    self.where_now()
+                )),
+            });
         self.answer(name, launched)
     }
 
@@ -408,6 +429,33 @@ impl Screens {
         }
     }
 
+    /// Wait until the trace has written nothing for `window`, for at
+    /// most `patience`.
+    fn quiet(&mut self, window: Duration, patience: Duration) -> Result<(), String> {
+        let deadline = Instant::now() + patience;
+        let mut count = self.seen.len();
+        let mut quiet_since = Instant::now();
+        loop {
+            self.poll()?;
+            while self.next_focus().is_some() {}
+            let now = Instant::now();
+            if self.seen.len() != count {
+                count = self.seen.len();
+                quiet_since = now;
+            }
+            if now.duration_since(quiet_since) >= window {
+                return Ok(());
+            }
+            if now >= deadline {
+                return Err(format!(
+                    "the trace never went quiet for {window:?} within {patience:?}; {}",
+                    self.where_now()
+                ));
+            }
+            std::thread::sleep(POLL);
+        }
+    }
+
     /// The trace lines logged since the launch, read again whole: the
     /// app's lines go to the `interweave` tag (apps/human-android's
     /// jni.rs), and the log was cleared at the launch.
@@ -428,12 +476,7 @@ impl Screens {
     /// Where the trace says the app is: its last page, the focus, and
     /// the last lines, for a step's detail.
     fn where_now(&self) -> String {
-        let page = self
-            .seen
-            .iter()
-            .rev()
-            .find_map(|l| l.strip_prefix(TRACE).and_then(|l| l.strip_prefix("page=")))
-            .unwrap_or("(none)");
+        let page = last_page(&self.seen).unwrap_or("(none)");
         let tail = &self.seen[self.seen.len().saturating_sub(8)..];
         format!(
             "page {page}, focus {:?}; last trace lines {tail:?}",
@@ -464,6 +507,13 @@ impl Screens {
             Ok(out) => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
         }
     }
+}
+
+/// The page the trace last named, if any.
+fn last_page(seen: &[String]) -> Option<&str> {
+    seen.iter()
+        .rev()
+        .find_map(|l| l.strip_prefix(TRACE).and_then(|l| l.strip_prefix("page=")))
 }
 
 /// The trace's lines in a `raw` logcat, in order.
@@ -525,6 +575,21 @@ mod tests {
                 "ui-trace show=shown"
             ]
         );
+    }
+
+    #[test]
+    fn the_page_is_the_last_one_the_trace_named() {
+        let seen = |lines: &[&str]| lines.iter().map(|&l| l.to_owned()).collect::<Vec<_>>();
+        let owed = seen(&[
+            "ui-trace page=conversations",
+            "ui-trace focus=app-options",
+            "ui-trace page=connect",
+            "ui-trace focus=connect-continue",
+        ]);
+        assert_eq!(last_page(&owed), Some("connect"));
+        let settled = seen(&["ui-trace page=conversations", "ui-trace focus=app-options"]);
+        assert_eq!(last_page(&settled), Some("conversations"));
+        assert_eq!(last_page(&seen(&["ui-trace focus=app-options"])), None);
     }
 
     #[test]

@@ -2,10 +2,10 @@
 // Copyright 2026 Andrea Benetton
 //! The screen driving (`src/screen.rs`) on one phone, through the steps
 //! that write nothing: launch, Peers, Show drawn and closed, the add page
-//! opened and left. The two-phone row that adds and trusts through the
-//! screens is `pairing.rs`'s; this is the check that the driver reaches
-//! every control it needs on the build at hand, without touching the
-//! profile.
+//! opened and left: the check that the driver reaches every control it
+//! needs on the build at hand, without touching the profile. No row adds
+//! and trusts through the screens yet (`pairing.rs` adds by the binding's
+//! cases); one that does builds on these steps.
 //!
 //! `#[ignore]`d: run with `--ignored` against the debug APK (the trace is
 //! the `ui-trace` feature's), `ANDROID_SERIAL` naming the phone.
