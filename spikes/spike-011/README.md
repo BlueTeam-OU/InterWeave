@@ -31,11 +31,13 @@ code is measured as it ships; the production seam is plan §29 step 3's.
   sync), so it reads from the medium.
 - `commit-unread` — one `commit_unread_inbound` of a 512-byte payload,
   `synchronous=FULL` as the store sets it.
-- `read-walk` — what the client reads to show its conversations
-  (`crates/human/app-core/src/listing.rs`, `list_all`): every pending,
-  unread and kept row, in its pages of 64 records or 1 MiB. **The store has
-  no per-conversation read**; the spike entry's "read-conversation" is this
-  walk.
+- `read-walk` — what the client read to show its conversations at the
+  pin (`crates/human/app-core/src/listing.rs`, `list_all`): every pending,
+  unread and kept row, in its pages of 64 records or 1 MiB. **The store at
+  the pin had no per-conversation read**, so the spike entry's
+  "read-conversation" was this walk. Both have changed since: the store
+  reads a conversation a page at a time (`conversation_page`, 035b2690)
+  and `list_all` is gone (d2733339); neither is measured here.
 
 The store is seeded with N **kept** messages and an unread backlog of 20:
 a read message not kept is released, so what the person kept is the
