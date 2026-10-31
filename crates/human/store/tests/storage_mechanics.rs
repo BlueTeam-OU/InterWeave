@@ -12,7 +12,7 @@
 
 mod common;
 
-use common::UNDO_V10;
+use common::{UNDO_V10, UNDO_V12};
 
 /// What v9 added (plan §29 step 2), undone on a file this build made: the
 /// older-version tests below fake an earlier schema that way, so each
@@ -3585,39 +3585,60 @@ fn a_v9_database_gains_the_start_window_columns_and_indexes_keeping_its_rows() {
             |r| r.get(0),
         )
         .expect("the version row");
-    assert_eq!(recorded, "1");
+    assert_eq!(recorded, "2", "this build's keys, v12's included");
     let (payload, kind): (Vec<u8>, String) = conn
         .query_row("SELECT payload, kind FROM unread_inbound", [], |r| {
             Ok((r.get(0)?, r.get(1)?))
         })
         .expect("the unread row");
     assert_eq!((payload, kind.as_str()), (vec![1], "other"));
-    assert_eq!(store_indexes(&conn, "contacts"), ["contacts_by_name_key"]);
+    assert_eq!(
+        store_indexes(&conn, "contacts"),
+        [
+            "contacts_by_compat_shape_key",
+            "contacts_by_name_key",
+            "contacts_by_shape_key"
+        ]
+    );
     assert_eq!(
         store_indexes(&conn, "contact_routes"),
         ["contact_routes_by_key", "contact_routes_by_route"]
     );
 }
 
-/// A key made by another version of `name_key` is recomputed at open,
-/// before anything reads it, and a current one is left alone. Mutation:
-/// the version row compared and never written.
+/// Keys made by another version of the name keys are recomputed at
+/// open, all three, before anything reads them, and current ones are left
+/// alone. Mutations: the version row compared and never written; the
+/// refresh leaving `compat_shape_key`.
 #[test]
-fn a_name_key_of_another_version_is_recomputed_at_open() {
+fn name_keys_of_another_version_are_recomputed_at_open() {
     let (_dir, path, conn) = raw_store();
     conn.execute_batch(
-        "INSERT INTO contacts (contact_id, display_name, name_key, created_at, updated_at)
-             VALUES ('c1', 'Ada', 'stale', 1, 2);
+        "INSERT INTO contacts (contact_id, display_name, name_key, shape_key, compat_shape_key,
+                               created_at, updated_at)
+             VALUES ('c1', 'J\u{ff10}hn', 'stale', 'stale', 'stale', 1, 2);
          UPDATE settings SET value = '0' WHERE key = 'name_key_version';",
     )
-    .expect("a key another version made");
+    .expect("keys another version made");
     drop(conn);
     drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
     let conn = rusqlite::Connection::open(&path).expect("reopen");
-    let key: String = conn
-        .query_row("SELECT name_key FROM contacts", [], |r| r.get(0))
-        .expect("the key");
-    assert_eq!(key, "ada", "recomputed");
+    let keys: (String, String, String) = conn
+        .query_row(
+            "SELECT name_key, shape_key, compat_shape_key FROM contacts",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .expect("the keys");
+    assert_eq!(
+        keys,
+        (
+            "jOhn".to_owned(),
+            "j\u{ff10}hn".to_owned(),
+            "john".to_owned()
+        ),
+        "recomputed"
+    );
 
     // The control: at this build's version, a key is not touched again.
     conn.execute("UPDATE contacts SET name_key = 'left alone'", [])
@@ -3651,6 +3672,25 @@ fn the_start_window_columns_and_indexes_are_part_of_the_verified_shape() {
         ("no unread kind index", "DROP INDEX unread_inbound_by_kind;"),
         ("no kept kind index", "DROP INDEX kept_inbound_by_kind;"),
         ("no name-key index", "DROP INDEX contacts_by_name_key;"),
+        (
+            "contacts without shape_key",
+            "DROP INDEX contacts_by_shape_key; ALTER TABLE contacts DROP COLUMN shape_key;",
+        ),
+        (
+            "contacts without compat_shape_key",
+            "DROP INDEX contacts_by_compat_shape_key;
+             ALTER TABLE contacts DROP COLUMN compat_shape_key;",
+        ),
+        ("no shape-key index", "DROP INDEX contacts_by_shape_key;"),
+        (
+            "no compatibility shape-key index",
+            "DROP INDEX contacts_by_compat_shape_key;",
+        ),
+        (
+            "the shape-key index over the case key",
+            "DROP INDEX contacts_by_shape_key;
+             CREATE INDEX contacts_by_shape_key ON contacts (name_key);",
+        ),
         ("no route index", "DROP INDEX contact_routes_by_route;"),
         ("no identity-key index", "DROP INDEX contact_routes_by_key;"),
         (
@@ -3752,11 +3792,11 @@ fn a_v10_store_gains_the_wide_kept_kind_index_and_keeps_its_rows() {
     store.keep(&read, 2).expect("kept");
     drop(store);
     let conn = rusqlite::Connection::open(&path).expect("raw");
-    conn.execute_batch(
-        "DROP INDEX kept_inbound_by_kind;
+    conn.execute_batch(&format!(
+        "{UNDO_V12}DROP INDEX kept_inbound_by_kind;
          CREATE INDEX kept_inbound_by_kind ON kept_inbound (kind);
-         PRAGMA user_version = 10;",
-    )
+         PRAGMA user_version = 10;"
+    ))
     .expect("back to v10");
     drop(conn);
 

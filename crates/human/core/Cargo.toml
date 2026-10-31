@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
 #
-# The ADR-0044 retention state machine.
+# The ADR-0044 retention state machine, the client's local identifiers,
+# and the same-name rule the store and the model both ask.
 #
 # NOTE WHAT IS ABSENT: no dependency on chat-protocol, transport-api, or
 # any store. The retention decision cannot see message content, a sender,
@@ -14,7 +15,7 @@
 name = "interweave-human-core"
 version.workspace = true
 publish = false
-description = "Human client domain state: the ADR-0044 message retention state machine."
+description = "Human client domain state: the ADR-0044 message retention state machine and the same-name rule."
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -25,5 +26,11 @@ workspace = true
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
+# When two names are the same name (`names.rs`, contact-cards design
+# 5.4.1): NFKC, full case folding and Unicode TS #39's confusable
+# skeleton. Pure functions over a string: no contact, sender or store.
+caseless = { workspace = true }
+unicode-normalization = { workspace = true }
+unicode-security = { workspace = true }
 
 [dev-dependencies]

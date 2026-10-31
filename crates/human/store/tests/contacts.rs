@@ -8,6 +8,7 @@
 
 mod common;
 
+use interweave_human_core::NameKeys;
 use interweave_human_store::{
     AcceptedCard, ContactListing, ContactRestored, HumanStore, KeyStanding, OwnCard, PhotoAccepted,
     RouteDeleted, StoreOptions, ValueSource, name_key,
@@ -214,6 +215,48 @@ fn a_lookalike_name_on_another_peer_id_is_named_as_the_same_name() {
         .card_standing(&card(&q, &human, "Ida", 2))
         .expect("standing");
     assert!(other.same_name.is_empty(), "the control: another name");
+}
+
+/// Design s9 item 7's pairs are the store's test vectors (STATE.md,
+/// schema v12): a card named one of a pair, on another `PeerId`, names
+/// the contact named the other as the same name -- each pair through the
+/// key that joins it, the case key ("Ian"/"ian"), the shape key alone
+/// ("Alſie"/"Alfie"), the compatibility shape key alone ("J０hn"/"John"),
+/// and the shape keys ("Βob"/"Bob" and the rest) -- in both directions,
+/// and no key joins the controls. Mutations: each key's equality dropped
+/// from `SAME_NAME`; `SAME_NAME` comparing the shape key with the case
+/// key's column.
+#[test]
+fn the_design_s_pairs_are_the_same_name_by_the_key_that_joins_them() {
+    for (a, b, same) in [
+        ("\u{a4ee}da", "Ada", true),
+        ("\u{13a0}ave", "Dave", true),
+        ("\u{a4df}ax", "Max", true),
+        ("\u{392}ob", "Bob", true),
+        ("Al\u{17f}ie", "Alfie", true),
+        ("Ian", "ian", true),
+        ("J\u{ff10}hn", "John", true),
+        ("Mia", "Max", false),
+        ("Hanna Rossi", "Anna Rossi", false),
+    ] {
+        for (stored, carded) in [(a, b), (b, a)] {
+            let (_dir, mut store) = store();
+            let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
+            store
+                .accept_card(&card(&p, &human, stored, 1), 10)
+                .expect("from P");
+            let standing = store
+                .card_standing(&card(&q, &human, carded, 2))
+                .expect("standing");
+            let named: Vec<&str> = standing
+                .same_name
+                .iter()
+                .map(|c| c.display_name.as_str())
+                .collect();
+            let expected: &[&str] = if same { &[stored] } else { &[] };
+            assert_eq!(named, expected, "{carded:?} against {stored:?}");
+        }
+    }
 }
 
 #[test]
@@ -972,42 +1015,55 @@ fn a_removed_photo_leaves_both_files_before_the_call_returns() {
     drop(store);
 }
 
-/// Schema v10: every writer of a contact's display name -- a new
-/// contact, a card's update, an accept undone, the person's rename, a
-/// deleted contact restored -- leaves `name_key` the key of the name it
-/// wrote, as the file holds it. Mutation: the rename without `name_key`.
+/// Schemas v10 and v12: every writer of a contact's display name -- a
+/// new contact, a card's update, an accept undone, the person's rename, a
+/// deleted contact restored -- leaves the three name keys those of the
+/// name it wrote, as the file holds them. Each name written has keys that
+/// differ from one another ("J０hn", "Alſie", "Ian"), so a writer putting
+/// one key in another's column fails. Mutations: the rename without
+/// `name_key`; the rename writing the case key into `shape_key`.
 #[test]
-fn every_writer_of_a_name_keeps_its_name_key() {
+fn every_writer_of_a_name_keeps_its_name_keys() {
     let (dir, mut store) = store();
     let path = dir.path().join("state").join("human.sqlite3");
     let keys_agree = |what: &str| {
         let conn = rusqlite::Connection::open(&path).expect("a reader beside the store");
-        let rows: Vec<(String, String)> = conn
-            .prepare("SELECT display_name, name_key FROM contacts")
+        let rows: Vec<(String, NameKeys)> = conn
+            .prepare("SELECT display_name, name_key, shape_key, compat_shape_key FROM contacts")
             .expect("prepare")
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    NameKeys {
+                        case: r.get(1)?,
+                        shape: r.get(2)?,
+                        compat_shape: r.get(3)?,
+                    },
+                ))
+            })
             .expect("query")
             .collect::<Result<_, _>>()
             .expect("rows");
         assert!(!rows.is_empty(), "{what}: control, a contact");
-        for (name, key) in rows {
-            assert_eq!(key, name_key(&name), "{what}: {name:?}");
+        for (name, keys) in rows {
+            assert_eq!(keys, NameKeys::of(&name), "{what}: {name:?}");
+            assert_eq!(keys.case, name_key(&name), "{what}: {name:?}");
         }
     };
     let (p, human) = (peer(P), endpoint("human"));
     let first = store
-        .accept_card(&card(&p, &human, "\u{ff21}da", 1), 10)
+        .accept_card(&card(&p, &human, "J\u{ff10}hn", 1), 10)
         .expect("a new contact");
     keys_agree("a new contact");
     let second = store
-        .accept_card(&card(&p, &human, "Ada Lovelace", 1), 20)
+        .accept_card(&card(&p, &human, "Al\u{17f}ie", 1), 20)
         .expect("an update");
     keys_agree("a card's update");
     assert!(store.undo_accept(&second.undo).expect("undone"));
     keys_agree("an accept undone");
     assert!(
         store
-            .set_contact_name(&first.contact_id, "Countess", 30)
+            .set_contact_name(&first.contact_id, "Ian", 30)
             .expect("renamed")
     );
     keys_agree("the person's rename");
@@ -1084,4 +1140,95 @@ fn the_contact_directory_is_paged_without_photos() {
     );
     let other = seen.iter().find(|c| !c.has_photo).expect("another");
     assert_eq!(store.contact_photo(&other.contact_id).expect("read"), None);
+}
+
+/// Schema v12 (STATE.md's v12 paragraph): a store at v11 gains the shape
+/// keys' columns and indexes, and its first open derives every contact's
+/// three keys under version 2 before a standing reads them, so a card
+/// joined to a contact by a shape key alone is named as the same name at
+/// once. Mutations: migration 12 not run (the open refuses on shape);
+/// `NAME_KEY_VERSION` left at 1 (the columns stay empty).
+#[test]
+fn a_v11_store_gains_the_shape_keys_and_derives_them_at_its_first_open() {
+    let (dir, mut store) = store();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
+    store
+        .accept_card(&card(&p, &human, "Al\u{17f}ie", 1), 10)
+        .expect("a contact");
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("raw");
+    conn.execute_batch(&format!("{}PRAGMA user_version = 11;", common::UNDO_V12))
+        .expect("back to v11");
+    drop(conn);
+
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("migrates to v12");
+    let standing = store
+        .card_standing(&card(&q, &human, "Alfie", 2))
+        .expect("standing");
+    assert_eq!(
+        standing.same_name.len(),
+        1,
+        "joined by the shape key, derived at the first open"
+    );
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let (name, case, shape, compat): (String, String, String, String) = conn
+        .query_row(
+            "SELECT display_name, name_key, shape_key, compat_shape_key FROM contacts",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .expect("the contact");
+    let keys = NameKeys::of(&name);
+    assert_eq!(
+        (case, shape, compat),
+        (keys.case, keys.shape, keys.compat_shape)
+    );
+    let (version, recorded): (i64, String) = conn
+        .query_row(
+            "SELECT (SELECT user_version FROM pragma_user_version), value
+               FROM settings WHERE key = 'name_key_version'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("the versions");
+    assert_eq!(
+        (version, recorded.as_str()),
+        (interweave_human_store::SCHEMA_VERSION, "2")
+    );
+}
+
+/// A name's keys sit beside it and never stand in for it: every read of a
+/// contact -- the contact, the directory page and a card's same-name
+/// standing -- returns the name as written, for a name all three of
+/// whose keys differ from it ("J\u{ff10}hn": "jOhn", "j\u{ff10}hn" and
+/// "john"), as the file holds it after a reopen too. Mutation: the
+/// directory reading `compat_shape_key` as its name.
+#[test]
+fn a_contacts_name_reads_back_as_written_not_as_its_keys() {
+    const NAME: &str = "J\u{ff10}hn";
+    let keys = NameKeys::of(NAME);
+    assert!(
+        [&keys.case, &keys.shape, &keys.compat_shape]
+            .iter()
+            .all(|k| k.as_str() != NAME),
+        "control: no key is the name"
+    );
+    let (dir, mut store) = store();
+    let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
+    store
+        .accept_card(&card(&p, &human, NAME, 1), 10)
+        .expect("a contact");
+    drop(store);
+    let path = dir.path().join("state").join("human.sqlite3");
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let contacts = store.contacts().expect("read");
+    assert_eq!(contacts[0].display_name, NAME, "the contact");
+    let page = store.contact_directory_page(None, 10).expect("page");
+    assert_eq!(page.items[0].display_name, NAME, "the directory");
+    let standing = store
+        .card_standing(&card(&q, &human, "John", 2))
+        .expect("standing");
+    assert_eq!(standing.same_name[0].display_name, NAME, "the standing");
 }

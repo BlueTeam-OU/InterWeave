@@ -3688,7 +3688,10 @@ dependencies = [
 name = "interweave-human-core"
 version = "0.2.0"
 dependencies = [
+ "caseless",
  "serde",
+ "unicode-normalization",
+ "unicode-security",
 ]
 
 [[package]]
@@ -3737,7 +3740,6 @@ dependencies = [
  "aes",
  "aes-gcm",
  "base64 0.23.1",
- "caseless",
  "ed25519-dalek",
  "interweave-human-core",
  "interweave-human-store",
@@ -3747,8 +3749,6 @@ dependencies = [
  "rusqlite",
  "sha2 0.10.9",
  "tempfile",
- "unicode-normalization",
- "unicode-security",
  "zeroize",
 ]
 
