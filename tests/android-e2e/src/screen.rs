@@ -84,8 +84,10 @@ impl Screens {
     /// where the last left focus), clear the log, launch, and wait for
     /// the conversation list to be the page the app settles on: once the
     /// trace says the start no longer waits on Connect's reads
-    /// (`connect=` not-owed, settled or open; owed and deferred are
-    /// waited past, since a deferred start's next model decides again).
+    /// (`connect=` not-owed, settled or open). Owed and deferred are
+    /// waited past within `patience`: a deferred start decides again only
+    /// in a fresh model, when the service's running state changes, so a
+    /// read that keeps failing ends the step naming the last phase.
     /// A phone that owes onboarding's Connect (no peer, no trust entry)
     /// settles on Connect, and the step fails saying so: every later
     /// step starts from Chats, and leaving Connect writes the profile.
