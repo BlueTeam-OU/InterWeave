@@ -1198,3 +1198,37 @@ fn a_v11_store_gains_the_shape_keys_and_derives_them_at_its_first_open() {
         (interweave_human_store::SCHEMA_VERSION, "2")
     );
 }
+
+/// A name's keys sit beside it and never stand in for it: every read of a
+/// contact -- the contact, the directory page and a card's same-name
+/// standing -- returns the name as written, for a name all three of
+/// whose keys differ from it ("J\u{ff10}hn": "jOhn", "j\u{ff10}hn" and
+/// "john"), as the file holds it after a reopen too. Mutation: the
+/// directory reading `compat_shape_key` as its name.
+#[test]
+fn a_contacts_name_reads_back_as_written_not_as_its_keys() {
+    const NAME: &str = "J\u{ff10}hn";
+    let keys = NameKeys::of(NAME);
+    assert!(
+        [&keys.case, &keys.shape, &keys.compat_shape]
+            .iter()
+            .all(|k| k.as_str() != NAME),
+        "control: no key is the name"
+    );
+    let (dir, mut store) = store();
+    let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
+    store
+        .accept_card(&card(&p, &human, NAME, 1), 10)
+        .expect("a contact");
+    drop(store);
+    let path = dir.path().join("state").join("human.sqlite3");
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let contacts = store.contacts().expect("read");
+    assert_eq!(contacts[0].display_name, NAME, "the contact");
+    let page = store.contact_directory_page(None, 10).expect("page");
+    assert_eq!(page.items[0].display_name, NAME, "the directory");
+    let standing = store
+        .card_standing(&card(&q, &human, "John", 2))
+        .expect("standing");
+    assert_eq!(standing.same_name[0].display_name, NAME, "the standing");
+}

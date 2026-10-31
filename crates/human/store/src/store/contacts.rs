@@ -425,7 +425,8 @@ pub fn direct_conversation_id(peer: &TransportIdentity, endpoint: &EndpointId) -
 /// fullwidth letters meets the same warning as "Anna". The other two keys
 /// are schema v12's columns beside it ([`NameKeys`]); whether two names
 /// are the same asks all three. A key is for comparison, never a name to
-/// show or store.
+/// show or store: every read of a contact returns its `display_name`
+/// (`a_contacts_name_reads_back_as_written_not_as_its_keys`).
 #[must_use]
 pub fn name_key(name: &str) -> String {
     interweave_human_core::names::case_key(name)

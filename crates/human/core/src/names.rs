@@ -10,7 +10,9 @@
 //! the same.
 //!
 //! A key is for comparison: never shown, and never stored in place of the
-//! name it was made from.
+//! name it was made from. The store holds the keys beside the name and
+//! reads the name back as written (its
+//! `a_contacts_name_reads_back_as_written_not_as_its_keys`).
 
 use unicode_normalization::UnicodeNormalization as _;
 
