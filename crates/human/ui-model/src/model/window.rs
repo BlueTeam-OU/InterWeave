@@ -536,8 +536,9 @@ impl Windows {
 }
 
 impl UiModel {
-    /// What a view reports of the open conversation's window. Nothing in
-    /// the listed mode, where every row is held.
+    /// What a view reports of the open conversation's window. Nothing
+    /// before the start is applied, nor in the model's own tests that hold
+    /// every row (the listed mode), which no client starts.
     pub fn window_input(&mut self, input: WindowInput) {
         if self.windowed.is_none() {
             return;
