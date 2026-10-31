@@ -2076,12 +2076,11 @@ mod tests {
     use interweave_profile_identity::ProfileIdentity;
     use interweave_transport_api::MediaType;
 
-    /// The session's first listing classifies rows no client has
-    /// classified -- every row `other`, as schema v10 leaves them -- before
-    /// anything counts them. Mutation: `listing` without the
-    /// reclassification.
+    /// The session's start classifies rows no client has classified --
+    /// every row `other`, as schema v10 leaves them -- before anything
+    /// counts them. Mutation: `start` without the reclassification.
     #[test]
-    fn the_first_listing_classifies_the_stored_rows() {
+    fn the_start_classifies_the_stored_rows() {
         let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
         let config = || FakeConfig {
             peer: ProfileIdentity::generate()

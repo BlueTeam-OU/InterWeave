@@ -27,7 +27,7 @@ pub trait Surface {
     /// What the person did to the windowed mode since the last call: the
     /// open conversation's window, the avatars in view, the Contacts
     /// list's Try again. None by default: a surface that draws no window
-    /// reports nothing, and the listed mode needs nothing.
+    /// reports nothing.
     fn take_window(&mut self) -> Vec<WindowEvent> {
         Vec::new()
     }
