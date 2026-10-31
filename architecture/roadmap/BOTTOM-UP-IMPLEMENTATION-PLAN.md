@@ -6971,7 +6971,7 @@ owner:
   (a3141a83, #492), the cursor rebuilt from a row's time, keep and id
   (eec75cd5, #498) — and, in the model, Chats drawn from the store's
   summaries in a windowed mode beside the listed one (3d26f9be,
-  #498), which no view selects yet; the test #483 holds for its
+  #498), which no view selected until #515; the test #483 holds for its
   constraint (b), a pending row that does not decode resent after a
   restart (b046573a). The model's window — the protocol layer that
   makes the windowed mode what the person sees — landed in that
@@ -6992,8 +6992,9 @@ owner:
   name: the walk's cost on a backlog of tens of thousands of rows, not
   measured on the window's read (SPIKE-011's entry, A 2026-10-31, says
   what was); the Android chat case not rerun on a phone after the
-  removal, and the A40's rows about ten seconds after a tap not
-  re-measured since #521's draw fix; and a reply whose target lies
+  removal, and the A40's rows drawn only some ten seconds after the
+  pane had sat on "Select a conversation" for three (the device
+  record), not re-measured since #521's draw fix; and a reply whose target lies
   beyond the held rows read as `unavailable` on the command line, the
   store lookup by message id architect-cto's to decide (j462).
 - Found after the close, from the owner's second review of the client
