@@ -86,3 +86,10 @@ e2e-cases = [
     "dep:serde_json",
     "interweave-human-android-platform/e2e-cases",
 ]
+# TEST-ONLY: the views' trace to logcat (ui-slint's src/trace.rs), a line
+# per change of page, focus and the Peers steps' outcomes, in kinds only,
+# for android-e2e's screen driving (tests/android-e2e/src/screen.rs). The
+# Gradle build turns it on for the debug APK beside e2e-cases; the release
+# build never does, and verifyReleaseNative checks its library for the
+# trace's marker.
+ui-trace = ["interweave-human-ui-slint/ui-trace"]

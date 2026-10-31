@@ -99,6 +99,11 @@ android = [
     "slint/backend-android-activity-06",
     "i-slint-common/shared-fontique",
 ]
+# TEST BUILDS ONLY: what the window shows, a line per change in kinds
+# (src/trace.rs), for android-e2e's driver, which steps the app by key
+# events and cannot read the screen. The debug APK turns it on through
+# apps/human-android's `ui-trace`; the release build never does.
+ui-trace = []
 
 [build-dependencies]
 slint-build = { workspace = true }
@@ -122,6 +127,10 @@ interweave-profile-identity = { path = "../../identity/profile-identity" }
 interweave-transport-api = { path = "../../api/transport-api" }
 # The render-parity golden is JSON (tests/render_parity.rs).
 serde_json = { workspace = true }
+# This crate's own tests with the debug build's trace on (tests/trace.rs,
+# src/trace.rs's unit tests), so the workspace's tests and clippy cover
+# it. A dev-dependency: no build of the library for an app turns it on.
+interweave-human-ui-slint = { path = ".", features = ["ui-trace"] }
 
 [package.metadata.cargo-machete]
 # slint-build is a BUILD dependency, called from build.rs to compile

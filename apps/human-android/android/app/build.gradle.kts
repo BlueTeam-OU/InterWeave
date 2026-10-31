@@ -109,10 +109,12 @@ listOf("Debug", "Release").forEach { variant ->
         // FirstRun::Create), until profile-config's provisioning and step 7's
         // onboarding land, and only it does.
         // The debug build also carries the instrumentation's case entry
-        // (e2e-cases, src/e2e.rs); the release build carries neither, which
-        // verifyReleaseNative below checks of the library it packages.
+        // (e2e-cases, src/e2e.rs) and the views' trace to logcat for the
+        // screen-driving tests (ui-trace); the release build carries none
+        // of them, which verifyReleaseNative below checks of the library
+        // it packages.
         val profile =
-            if (variant == "Release") listOf("--release") else listOf("--features", "dev-stand-ins,e2e-cases")
+            if (variant == "Release") listOf("--release") else listOf("--features", "dev-stand-ins,e2e-cases,ui-trace")
         // --locked: the library is built from the reviewed Cargo.lock, as
         // every other cargo build here is (CI's `cargo check --locked` for
         // this target included); a lockfile the build would rewrite is a
@@ -132,16 +134,18 @@ listOf("Debug", "Release").forEach { variant ->
 
 // The release library names no android-e2e entry: the instrumentation's
 // case entry is the debug build's alone (DECISION 01a12770's invariant
-// for the APK; the Cargo graph's own check is devex-tooling's).
+// for the APK; the Cargo graph's own check is devex-tooling's). Nor the
+// views' trace: every line it writes starts with "ui-trace", ui-slint's
+// trace::PREFIX, so a library that could write one carries the marker.
 val verifyReleaseNative = tasks.register("verifyReleaseNative") {
     group = "verification"
-    description = "Fails if the release native library carries the android-e2e case entry."
+    description = "Fails if the release native library carries the android-e2e case entry or the views' trace."
     dependsOn("cargoNdkRelease")
     val library = rustJniLibs("Release").map { it.file("arm64-v8a/libinterweave_human_android.so") }
     inputs.file(library)
     doLast {
         val bytes = library.get().asFile.readBytes().toString(Charsets.ISO_8859_1)
-        for (name in listOf("Java_org_interweave_human_test_E2eCase_run", "interweave_android_e2e_cases")) {
+        for (name in listOf("Java_org_interweave_human_test_E2eCase_run", "interweave_android_e2e_cases", "ui-trace")) {
             check(!bytes.contains(name)) { "the release native library carries $name" }
         }
     }

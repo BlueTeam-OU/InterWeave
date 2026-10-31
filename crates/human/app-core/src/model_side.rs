@@ -538,11 +538,17 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 // `Done` came in the same batch -- so a Connect that
                 // changed is drawn again, as Peers is
                 // (`a_late_trust_answer_is_drawn_on_connect_by_the_turn_that_takes_it`).
+                // A settle or a defer changes nothing Connect draws, but
+                // the phase is drawn too -- the debug trace says it and a
+                // driver waits on it -- so a phase that moved is drawn by
+                // this turn
+                // (`a_connect_settled_or_deferred_is_drawn_by_the_turn_that_decides_it`).
                 let before = self.model.connect().cloned();
+                let phase = self.model.connect_phase();
                 if self.model.connect_turn() == Some(ConnectGate::Settled) {
                     self.opener.connect_settled();
                 }
-                if self.model.connect() != before.as_ref() {
+                if self.model.connect() != before.as_ref() || self.model.connect_phase() != phase {
                     unrendered = true;
                 }
                 if std::mem::take(&mut unrendered) {

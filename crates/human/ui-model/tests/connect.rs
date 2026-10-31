@@ -14,8 +14,8 @@ use interweave_human_client_api::{
     TrustSetFailure,
 };
 use interweave_human_ui_model::{
-    AddResult, ConnectFocus, ConnectGate, ConnectInput, ConnectLine, Intent, PeersFocus,
-    PeersInput, TrustChange, UiModel,
+    AddResult, ConnectFocus, ConnectGate, ConnectInput, ConnectLine, ConnectPhase, Intent,
+    PeersFocus, PeersInput, TrustChange, UiModel,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
@@ -189,6 +189,45 @@ fn leaving_connect_settles_it() {
     assert_eq!(m.connect_turn(), Some(ConnectGate::Settled));
     assert_eq!(m.connect_turn(), None);
     assert!(m.no_reach(), "Chats then shows the no-reach notice");
+}
+
+/// The phase follows each gate: owed until both reads answer, then
+/// open, settled or deferred; a person who left is settled at once; a
+/// start that owes nothing says so from the first.
+#[test]
+fn the_phase_says_where_the_start_stands() {
+    let (me, them) = (peer(), peer());
+    assert_eq!(UiModel::new().connect_phase(), ConnectPhase::NotOwed);
+
+    let mut owed = UiModel::new();
+    owed.connect_owed();
+    start_reads(&mut owed);
+    owed.trust_settings_mut().read(Ok(trust_list(&me, &[])));
+    assert_eq!(owed.connect_turn(), None);
+    assert_eq!(owed.connect_phase(), ConnectPhase::Owed, "the list unread");
+
+    let mut open = connect_open(&me);
+    assert_eq!(open.connect_phase(), ConnectPhase::Open);
+    assert!(open.connect_input(ConnectInput::Leave).is_empty());
+    assert_eq!(open.connect_phase(), ConnectPhase::Settled, "left");
+    assert_eq!(open.connect_turn(), Some(ConnectGate::Settled));
+    assert_eq!(open.connect_phase(), ConnectPhase::Settled);
+
+    let mut settled = UiModel::new();
+    settled.connect_owed();
+    start_reads(&mut settled);
+    settled.trust_settings_mut().read(Ok(trust_list(&me, &[])));
+    settled.addresses_read(Ok(list(&[added(&them)])));
+    assert_eq!(settled.connect_turn(), Some(ConnectGate::Settled));
+    assert_eq!(settled.connect_phase(), ConnectPhase::Settled);
+
+    let mut deferred = UiModel::new();
+    deferred.connect_owed();
+    start_reads(&mut deferred);
+    deferred.trust_settings_mut().read(Ok(trust_list(&me, &[])));
+    deferred.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(deferred.connect_turn(), Some(ConnectGate::Deferred));
+    assert_eq!(deferred.connect_phase(), ConnectPhase::Deferred);
 }
 
 /// An add of an untrusted peer, step two's Not now: the line says the

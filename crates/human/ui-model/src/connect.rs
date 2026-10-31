@@ -29,6 +29,22 @@ pub enum ConnectGate {
     Deferred,
 }
 
+/// Where this start stands on Connect, for a reader that cannot see the
+/// window ([`crate::UiModel::connect_phase`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConnectPhase {
+    /// Not owed this start.
+    NotOwed,
+    /// Owed, and waiting on both reads.
+    Owed,
+    /// Open over Chats.
+    Open,
+    /// No longer owed: either list had an entry, or the person left it.
+    Settled,
+    /// A read failed: Chats this start, still owed at the next.
+    Deferred,
+}
+
 /// Connect's line: what is still to do wins (§5.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ConnectLine {
@@ -248,6 +264,7 @@ pub(crate) enum ConnectState {
     Open(Connect),
     /// Left this start: its settling still to be said.
     Left,
-    /// Decided for this start; nothing more is said.
-    Decided,
+    /// Decided for this start, deferred by a failed read or settled;
+    /// nothing more is said.
+    Decided { deferred: bool },
 }

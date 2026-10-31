@@ -2889,8 +2889,15 @@ export component AppWindow inherits Window {
     // Focus moved, by the person or the app: an edge can be reached by
     // focus (start-window section 5).
     callback focus-moved();
+    // Each change of focus-id, for a debug build's trace (src/trace.rs);
+    // bound by Rust only under the `ui-trace` feature. A callback of its
+    // own, since Rust binds one handler per callback and focus-moved's is
+    // the window marks' (src/window_marks.rs); a property takes one
+    // changed handler, so both ride this one.
+    callback focus-traced(string);
     changed focus-id => {
         if (root.windowed) { root.focus-moved(); }
+        root.focus-traced(self.focus-id);
     }
     in property <string> header-title;
     // The full PeerId of a direct conversation, or the channel id (U5a).
