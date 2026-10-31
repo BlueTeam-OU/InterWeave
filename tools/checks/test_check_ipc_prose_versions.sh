@@ -140,6 +140,11 @@ R="$(copy r3-minor)"; F="$R/$CONTRACT"
 edit "$F" "which 2.$MAX brings" "which 2.$((MAX + 1)) brings" || exit 1
 expect_fail "$R" 3 "$(line_of "$F" "which 2.$((MAX + 1)) brings")" "the parenthetical naming a minor above the code"
 
+R="$(copy r3-noversion)"; F="$R/$CONTRACT"
+# The parenthetical's schema with no readable version fails rule 3 at it.
+edit "$R/$SCHEMAS/peer-list.schema.json" "\"version\": \"$PEER_LIST\"" '"revision": "0"' || exit 1
+expect_fail "$R" 3 "$(line_of "$F" "\`peer-list\` ($PEER_LIST since")" "the parenthetical's schema with no version"
+
 echo "rule 4: no schema version above its file"
 R="$(copy r4-above)"; F="$R/$CONTRACT"
 edit "$F" "\`ipc/hello\` 1.2.0" "\`ipc/hello\` 1.10.0" || exit 1
