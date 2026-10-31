@@ -694,7 +694,13 @@ below). What the evidence establishes:
   row_id)` ones, so the row above bounds a page only loosely and the
   page's own cost has not been measured by this harness. The row keeps
   its meaning: one pass over every row of the store through the three
-  page reads, which still exist and which the harness still calls. A
+  page reads, which still exist and which the harness still calls. It
+  is the rows' read and was never the whole start: at the pin the three
+  walks were all of `list_all` (read at 1a4fa590), but from #359
+  (95674b26, 2026-10-22, the cards across a restart) until #520 removed it,
+  `list_all` also built the card proposals and the contact views, which
+  no figure here timed; the window's contact directory read is outside
+  them likewise. A
   command-line verb that prints a whole conversation (`messages`,
   `read`) walks it in two passes through the model's own commands — up to
   the top printing nothing and marking nothing read, then down through
