@@ -6908,6 +6908,24 @@ owner:
   Design 5.3 and section 7 name the record as the design, as a design
   note does; this bullet, not the note, is where its not being built
   is said. rust-ui-dev-02's, the batch after 5.5's or with it.
+  Ruled 2026-10-31 (rust-ui-dev-02's QUESTION 01a19121, DECISION
+  01a19125-9eb5): not built before Stage 22. ADR-0067 (A 2026-10-28)
+  withdrew the silent first key — a missing key is always the
+  key-missing state — and the key change, so this record's first reader
+  is decided gone and its second, Make a new key's share-again list,
+  becomes the replacement identity's list over the old EndpointId's
+  conversations; a schema step and a migration for a predicate the
+  Stage 22 release deletes are not taken, and ADR-0067 builds nothing
+  before Stage 22 opens on the owner's word. The same ruling covers the
+  share date of a card Accepted after a restart in its one unbuilt case
+  (#467 R5: an old-key own-card row still Sending when Make a new key
+  ran, then a restart, then Accepted, which the facade records as the
+  new key's share): under §30 step 2 that row's conversation is the old
+  identity's by its `local_endpoint_id`, and no per-row key epoch is
+  needed. Until that release the gap stays open with no installed base
+  (the owner's word in ADR-0067); on this build its failure is a
+  key-change proposal shown at the counterparty, not a silent one. Both
+  are step 2's items in §30.
 - Found after the close, from the owner's review of the client
   (2026-10-27, judged by the review class at f2295901), two of step
   2's card photo: the picked photo's read had no deadline or cancel,
@@ -7105,7 +7123,7 @@ sentence gaining the administrative path in the same change.
    that share it; the client operating as one identity at a time, named from the second
    identity on on every acting
    surface, the explicit switch (ADR-0061 decision 9); Share sending the conversation's identity's card with no
-   chooser; `human-client-ui.md` §3 and §4 as amended. Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)).
+   chooser; `human-client-ui.md` §3 and §4 as amended. Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)). Carried from §29 (ruled 2026-10-31, DECISION 01a19125-9eb5): the conversation's record that a card of the identity may have left this device (ADR-0063 decision 1, A 2026-10-27, `Cancelled { may_have_reached: true }`), read by a replacement identity's share-again list over the old EndpointId's conversations, and the old-key own-card row across a restart (#467 R5), the old identity's by its conversation's `local_endpoint_id`; neither needs a key epoch per row.
 3. **Android** (rust-ui-dev): one in-process session and lease per
    identity in the one embedded runtime (ADR-0041 A 2026-10-21), the
    identity switch in the app, identities created through the embedded
