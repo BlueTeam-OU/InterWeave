@@ -6992,9 +6992,9 @@ owner:
   name: the walk's cost on a backlog of tens of thousands of rows, not
   measured on the window's read (SPIKE-011's entry, A 2026-10-31, says
   what was); the Android chat case not rerun on a phone after the
-  removal, and the A40's rows drawn only some ten seconds after the
-  pane had sat on "Select a conversation" for three (the device
-  record), not re-measured since #521's draw fix; and a reply whose target lies
+  removal, and the A40's pane still on "Select a conversation" 3 s
+  after a tap and its rows shown by the next screenshot some 10 s later
+  (the device record, one try), not re-measured since #521's draw fix; and a reply whose target lies
   beyond the held rows read as `unavailable` on the command line, the
   store lookup by message id architect-cto's to decide (j462).
 - Found after the close, from the owner's second review of the client

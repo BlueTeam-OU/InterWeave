@@ -680,8 +680,9 @@ below). What the evidence establishes:
 - **The baseline's read, restated on the window (A 2026-10-31).** The
   start no longer walks the unread and kept rows: the start window
   (`design/2026-10-27-start-window.md`, plan §29's P2-1 entry) reads
-  each conversation's newest row and count and the counts over schema
-  v10's kind indexes (`conversation_page`, `inbound_counts`,
+  each conversation's newest row (`conversation_page`, by the
+  per-conversation indexes), its count and the hidden counts over schema
+  v10's and v11's kind indexes (`unread_counts`, `inbound_counts`,
   `shown_conversations`), the contact directory without photos, and the
   pending rows — those still whole, twice (`list_pending`, then
   `own_cards_pending`), and every inbound row once more whenever the
