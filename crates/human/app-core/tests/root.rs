@@ -85,6 +85,8 @@ struct Scripted {
     /// Connect as the last render was shown it: `None` while it is not
     /// open.
     connect_shown: Option<interweave_human_ui_model::Connect>,
+    /// Where the start stood on Connect at the last render.
+    phase_shown: Option<interweave_human_ui_model::ConnectPhase>,
 }
 
 impl Scripted {
@@ -100,6 +102,7 @@ impl Surface for Scripted {
             .push(model.trust_settings().pending().is_some());
         self.peers_shown = Some(model.peers().clone());
         self.connect_shown = model.connect().cloned();
+        self.phase_shown = Some(model.connect_phase());
     }
 
     fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
@@ -1801,6 +1804,47 @@ fn a_late_trust_answer_is_drawn_on_connect_by_the_turn_that_takes_it() {
         Some(Some(ConnectLine::Trusted)),
         "drawn by the turn that took the answer"
     );
+}
+
+/// A start that settles or defers an owed Connect changes nothing
+/// Connect draws, yet the turn that decides it draws the decision: the
+/// debug trace says the phase from the render, and a driver waits for it
+/// (android-e2e's launch), with no later wake promised.
+#[test]
+fn a_connect_settled_or_deferred_is_drawn_by_the_turn_that_decides_it() {
+    use interweave_human_client_api::{
+        AddressList, AddressOrigin, AddressProblem, PeerAddress, TrustList,
+    };
+    use interweave_human_ui_model::ConnectPhase;
+    let (me, them) = (peer(), peer());
+    for (list, phase) in [
+        (
+            Ok(AddressList {
+                addresses: vec![PeerAddress {
+                    address: format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", them.as_str()),
+                    peer: Some(them.clone()),
+                    origin: AddressOrigin::AddedHere,
+                    dialled: true,
+                }],
+            }),
+            ConnectPhase::Settled,
+        ),
+        (Err(AddressProblem::Unavailable), ConnectPhase::Deferred),
+    ] {
+        let mut side = ModelSide::new(Scripted::default(), Opened::default());
+        side.connect_owed();
+        side.apply(Update::TrustRead(Ok(TrustList {
+            local_peer: Some(me.clone()),
+            allowed: Vec::new(),
+        })));
+        side.apply(Update::AddressesRead(list));
+        let _ = side.turn();
+        assert_eq!(side.surface().phase_shown, Some(phase));
+        assert!(
+            side.surface().connect_shown.is_none(),
+            "Connect never opened"
+        );
+    }
 }
 
 /// The words' `{max}` is the configuration's bound, which the runtime
