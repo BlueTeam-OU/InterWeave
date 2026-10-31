@@ -235,3 +235,59 @@ fn a_trace_carries_no_address_peer_or_name() {
         "focus reported, in {said:#?}"
     );
 }
+
+/// An owed start says `connect=owed` on Chats until both reads answer,
+/// then `connect=open` with Connect's page: the line a driver waits for
+/// before it judges where the app settled. A start that owes nothing
+/// says `connect=not-owed` from its first render.
+#[test]
+fn the_trace_says_where_the_start_stands_on_connect() {
+    i_slint_backend_testing::init_no_event_loop();
+    let trace = |view: &mut View| {
+        let said = Rc::new(RefCell::new(Vec::<String>::new()));
+        let to = Rc::clone(&said);
+        view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+        said
+    };
+    let me = peer();
+
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = trace(&mut view);
+    let mut model = UiModel::new();
+    model.connect_owed();
+    view.render(&model);
+    assert!(said.borrow().contains(&"ui-trace connect=owed".to_owned()));
+    assert!(
+        said.borrow()
+            .contains(&"ui-trace page=conversations".to_owned())
+    );
+    let first = said.borrow().len();
+    assert_eq!(model.read_addresses(), Some(Intent::ReadAddresses));
+    assert_eq!(model.trust_settings_mut().opened(), Some(Intent::ReadTrust));
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me.clone()),
+        allowed: Vec::new(),
+    }));
+    model.addresses_read(Ok(AddressList::default()));
+    assert!(model.connect_turn().is_some());
+    view.render(&model);
+    let after = said.borrow()[first..].to_vec();
+    assert!(
+        after.contains(&"ui-trace connect=open".to_owned()),
+        "{after:?}"
+    );
+    assert!(
+        after.contains(&"ui-trace page=connect".to_owned()),
+        "{after:?}"
+    );
+
+    let mut quiet = View::new(RuntimeHost::Embedded).expect("a window");
+    quiet.window().show().expect("shown");
+    let said = trace(&mut quiet);
+    quiet.render(&UiModel::new());
+    assert!(
+        said.borrow()
+            .contains(&"ui-trace connect=not-owed".to_owned())
+    );
+}

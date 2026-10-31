@@ -1201,9 +1201,13 @@ impl View {
             Page::Connect => "connect",
         };
         let handles = &mut self.peer_lists.block_handles;
-        let now = trace::shown(page, model.peers(), model.trust_settings(), |p| {
-            handles.of(p)
-        });
+        let now = trace::shown(
+            page,
+            model.connect_phase(),
+            model.peers(),
+            model.trust_settings(),
+            |p| handles.of(p),
+        );
         if let Some(tracer) = self.trace.as_mut() {
             tracer.render(now);
         }

@@ -8,7 +8,7 @@
 //!
 //! A line names only kinds: the page, the focused control's focus key
 //! (a fixed name, or one with the integer handles the view gives rows),
-//! Show's state, the add's result and each trust block's state. Never a
+//! where the start stands on onboarding's Connect, Show's state, the add's result and each trust block's state. Never a
 //! person-facing text, an address, a `PeerId` or a name -- a focus id
 //! that is not a key's shape is written as `?`
 //! (`a_trace_carries_no_address_peer_or_name`). Compiled under the
@@ -17,7 +17,7 @@
 use std::rc::Rc;
 
 use interweave_human_ui_model::{
-    AddResult, BlockProblem, BlockState, Peers, ShowState, TrustSettings,
+    AddResult, BlockProblem, BlockState, ConnectPhase, Peers, ShowState, TrustSettings,
 };
 use interweave_transport_api::TransportIdentity;
 
@@ -29,6 +29,10 @@ pub(crate) const PREFIX: &str = "ui-trace";
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Shown {
     pub(crate) page: &'static str,
+    /// Where the start stands on Connect: a driver waits for it to leave
+    /// `owed` before it judges the page the app settled on, since Connect
+    /// opens over Chats only once both reads answer.
+    pub(crate) connect: &'static str,
     pub(crate) show: Option<&'static str>,
     pub(crate) adding: bool,
     pub(crate) add: Option<(&'static str, usize)>,
@@ -44,6 +48,7 @@ pub(crate) type Block = (i32, &'static str, Option<&'static str>);
 /// for a block's peer.
 pub(crate) fn shown(
     page: &'static str,
+    connect: ConnectPhase,
     peers: &Peers,
     trust: &TrustSettings,
     mut handle: impl FnMut(&TransportIdentity) -> i32,
@@ -64,8 +69,16 @@ pub(crate) fn shown(
         .iter()
         .map(|b| (handle(&b.peer), state(b.state), b.problem.map(problem)))
         .collect();
+    let connect = match connect {
+        ConnectPhase::NotOwed => "not-owed",
+        ConnectPhase::Owed => "owed",
+        ConnectPhase::Open => "open",
+        ConnectPhase::Settled => "settled",
+        ConnectPhase::Deferred => "deferred",
+    };
     Shown {
         page,
+        connect,
         show,
         adding: peers.add_waiting(),
         add,
@@ -123,6 +136,9 @@ pub(crate) fn changes(before: &Shown, now: &Shown) -> Vec<String> {
     let mut lines = Vec::new();
     if now.page != before.page {
         lines.push(format!("{PREFIX} page={}", now.page));
+    }
+    if now.connect != before.connect {
+        lines.push(format!("{PREFIX} connect={}", now.connect));
     }
     if now.show != before.show {
         lines.push(format!("{PREFIX} show={}", now.show.unwrap_or("closed")));
@@ -207,6 +223,7 @@ mod tests {
         };
         let now = Shown {
             page: "peers-add-trust",
+            connect: "settled",
             add: Some(("added", 2)),
             blocks: vec![(1, "undecided", None), (2, "trusted", None)],
             ..Shown::default()
@@ -215,6 +232,7 @@ mod tests {
             changes(&before, &now),
             [
                 "ui-trace page=peers-add-trust",
+                "ui-trace connect=settled",
                 "ui-trace add=added lines=2",
                 "ui-trace block:1=undecided",
                 "ui-trace block:2=trusted",
