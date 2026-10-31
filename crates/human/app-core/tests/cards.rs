@@ -1281,6 +1281,63 @@ async fn a_card_that_changes_nothing_offers_close_alone_and_one_that_changes_a_c
     assert_eq!(photo.accept, AcceptLine::Updates("Countess".to_owned()));
 }
 
+/// A contact change judges the held proposals again from the unread cards
+/// alone, read by their kind: not one of the unread messages beside them
+/// (j78; the walk of every unread row is SPIKE-011's read-walk baseline).
+/// The proposal is still judged again, the control. Mutation: the cards
+/// read by a walk of every unread row.
+#[tokio::test]
+async fn a_contact_change_reads_the_unread_cards_and_no_message() {
+    const MESSAGES: u64 = 20;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let first = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::AcceptCard(first));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+    for n in 0..MESSAGES {
+        alice.will(Intent::Send {
+            key: direct(b.peer()),
+            draft: format!("message {n}"),
+        });
+        alice.pump(6).await;
+        bob.pump(7).await;
+    }
+    let same = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", Some("Lovelace"), PhotoEdit::Keep),
+        10,
+    )
+    .await;
+    assert_eq!(same.accept, AcceptLine::Matches("Ada Lovelace".to_owned()));
+    assert_eq!(
+        bob.model().messages(&from_alice).len(),
+        usize::try_from(MESSAGES).expect("small"),
+        "control: the messages are held beside the card"
+    );
+
+    let before = bob.facade.rows_read();
+    bob.will(Intent::DeleteContact { contact_id });
+    bob.pump(20).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    let read = bob.facade.rows_read() - before;
+    assert!(
+        (1..MESSAGES).contains(&read),
+        "the cards read, no message: {read} rows"
+    );
+    let again = bob.model().proposals(&from_alice);
+    assert_eq!(again[0].accept, AcceptLine::Creates, "judged again");
+}
+
 // A held proposal is judged again when the person changes a contact: a
 // card that matched a contact (case S, Close alone) offers Accept once
 // that contact is deleted, since Accept would now make one -- whether the

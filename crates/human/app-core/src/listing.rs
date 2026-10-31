@@ -221,27 +221,19 @@ pub(crate) fn page(store: &HumanStore, ask: PageAsk) -> Result<(PageRows, u64), 
     Ok((rows, read))
 }
 
-/// Every unread row, decoded: the messages, the cards, and how many rows
-/// were neither.
+/// Every unread card, verified on its route, read by the store's kind
+/// index rather than by a walk of the unread messages (j78); each row
+/// read is counted in `read`.
 ///
 /// # Errors
 /// The store's, when a page cannot be read.
-pub(crate) fn list_unread(
+pub(crate) fn list_unread_cards(
     store: &HumanStore,
-) -> Result<(Vec<ListedInbound>, Vec<ReceivedCard>, usize), StoreError> {
-    let mut listed = Vec::new();
-    let mut cards = Vec::new();
-    let mut undecodable = 0;
-    for row in walk(|after| store.unread_inbound_page(after, limits()))? {
-        if let Some(item) = inbound(&row) {
-            listed.push(item);
-        } else if let Some(card) = card(&row) {
-            cards.push(card);
-        } else {
-            undecodable += 1;
-        }
-    }
-    Ok((listed, cards, undecodable))
+    read: &mut u64,
+) -> Result<Vec<ReceivedCard>, StoreError> {
+    let rows = walk(|after| store.unread_cards_page(after, limits()))?;
+    *read += u64::try_from(rows.len()).unwrap_or(u64::MAX);
+    Ok(rows.iter().filter_map(card).collect())
 }
 
 /// A row that holds a card, verified on the route it was stored with:
