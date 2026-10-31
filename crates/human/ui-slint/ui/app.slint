@@ -6116,6 +6116,12 @@ export component AppWindow inherits Window {
                 content-height: messages-column.preferred-height;
                 // The list's top in view: the top edge reached by scrolling.
                 property <bool> at-top: root.windowed && self.content-y >= -1px;
+                // Its top shown, at most its padding scrolled away: where
+                // focus moving onto the first row leaves it, scrolling only
+                // as far as that row. A row arriving above then shows
+                // rather than being kept out of view by the anchor
+                // (`at_the_session_bound_the_limit_row_asks_and_asks_again_after_a_reopen`).
+                property <bool> top-shown: self.content-y >= -messages-column.padding - 1px;
                 changed at-top => { root.list-at-top(self.at-top); }
                 property <length> last-y: self.content-y;
                 // A row tracking a swipe holds its touch: the list does
@@ -6318,7 +6324,7 @@ export component AppWindow inherits Window {
                         }
                         if (self.follow-seq == root.render-seq) {
                             messages-flick.content-y = self.follow-target - self.item-top;
-                        } else if (!messages-flick.at-top) {
+                        } else if (!messages-flick.top-shown) {
                             // Something above changed while the list is away
                             // from its very top: the view does not move.
                             messages-flick.content-y -= self.item-top - self.placed-y;
