@@ -458,8 +458,8 @@ const KEY_MATCHES: &str = "SELECT DISTINCT c.contact_id, c.display_name
 /// The version of the three name keys' output ([`NameKeys`]), kept in
 /// `settings` as `name_key_version` (STATE.md, schemas v10 and v12). A
 /// build whose keys differ for any name -- a new Unicode version in
-/// `unicode-normalization`, `caseless` or `unicode-security`, or a change
-/// to any one key -- bumps it, and the first open recomputes all three
+/// `interweave-human-core`'s `unicode-normalization`, `caseless` or
+/// `unicode-security`, or a change to any one key -- bumps it, and the first open recomputes all three
 /// keys of every contact before any standing reads one. Version 2 is
 /// schema v12's: the first version with the shape keys, whose columns
 /// start empty. `the_name_keys_are_pinned` fails when an output moves and
