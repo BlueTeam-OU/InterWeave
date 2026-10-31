@@ -6325,8 +6325,9 @@ export component AppWindow inherits Window {
                         if (self.follow-seq == root.render-seq) {
                             messages-flick.content-y = self.follow-target - self.item-top;
                         } else if (!messages-flick.top-shown) {
-                            // Something above changed while the list is away
-                            // from its very top: the view does not move.
+                            // Something above changed while more than the
+                            // list's padding is scrolled away, its top not
+                            // shown: the view does not move.
                             messages-flick.content-y -= self.item-top - self.placed-y;
                         }
                     }
