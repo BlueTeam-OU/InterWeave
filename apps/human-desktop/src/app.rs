@@ -256,6 +256,9 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::Window(interweave_human_app_core::WindowCommand::FetchPage(_)) => "fetch page",
         Command::Window(interweave_human_app_core::WindowCommand::ReadContacts) => "read contacts",
         Command::Window(interweave_human_app_core::WindowCommand::ReadPhoto(_)) => "read photo",
+        Command::Window(interweave_human_app_core::WindowCommand::ReadReplyTarget(_)) => {
+            "read reply target"
+        }
         Command::ShareCard(_) => "share card",
         Command::PrepareOwnPhoto { .. } => "prepare own photo",
         Command::RemoveOwnPhoto => "remove own photo",
