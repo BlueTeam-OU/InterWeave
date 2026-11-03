@@ -529,6 +529,10 @@ access.
     In landscape, the end side's chips and keys follow the same way.
 - A typed hardware letter acts as its key, and Backspace as the delete
   key.
+- An arrow moves focus to the nearest control in its direction, a
+  disabled key included (below), as the platform's directional focus
+  does: across a keypad row, between rows, and between the grid's
+  positions. Tab and Shift+Tab follow the order above.
 - What Enter and Space do depends on the last input:
   - **Typing** — the last input was a hardware letter, Backspace, or
     an Enter that acted under this rule. Enter takes the only
@@ -820,6 +824,9 @@ scale would also be a finding of the Android review
       Space each press that key; after a tap on a key, Enter presses
       the focused control.
     - Backspace deletes the last letter.
+    - Escape, like Back, opens the dialog on R2 and C3 with a word
+      entered, and with nothing entered leaves with focus as for Back
+      (below).
     - On R2 and C3 with a word entered, Back opens the dialog. Back
       again, Escape, a tap outside and `IdContinueEntering` each close
       it with every word kept, focus on the control focused before the
