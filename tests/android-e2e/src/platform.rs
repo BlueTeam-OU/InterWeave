@@ -179,6 +179,30 @@ pub fn app_windows(dump: &str) -> Result<Vec<(String, bool)>, String> {
     Ok(out)
 }
 
+/// The system's credential prompt's window title (`SystemUI`'s
+/// `AuthContainerView` sets it on every level this runs on).
+pub const BIOMETRIC_PROMPT: &str = "BiometricPrompt";
+
+/// Whether a `dumpsys window windows` dump lists a window whose title is
+/// exactly `title`.
+#[must_use]
+pub fn has_window(dump: &str, title: &str) -> bool {
+    let tail = format!(" {title}}}:");
+    dump.lines().any(|l| {
+        let t = l.trim();
+        t.starts_with("Window #") && t.ends_with(&tail)
+    })
+}
+
+/// Whether the credential prompt shows now.
+///
+/// # Panics
+/// As [`shell`].
+#[must_use]
+pub fn prompt_shown() -> bool {
+    has_window(&shell(&["dumpsys", "window", "windows"]), BIOMETRIC_PROMPT)
+}
+
 /// What the runtime was told by the app's network callback, from the
 /// app's log line (`apps/human-android/src/jni.rs`, `network`): the
 /// addresses, and how many of them lie on no local network.
@@ -440,5 +464,19 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
         assert_eq!(wifi.on_local(), 2);
         assert_eq!(told("the runtime was told the networks: many"), None);
         assert_eq!(told("something else"), None);
+    }
+
+    #[test]
+    fn the_prompt_window_is_read_by_its_exact_title() {
+        let with = format!(
+            "{WINDOWS}  Window #4 Window{{d4 u0 BiometricPrompt}}:\n    mAttrs={{ty=STATUS_BAR_SUB_PANEL fl=SECURE}}\n"
+        );
+        assert!(has_window(&with, BIOMETRIC_PROMPT));
+        assert!(!has_window(WINDOWS, BIOMETRIC_PROMPT), "control: absent");
+        let other = with.replace("u0 BiometricPrompt}", "u0 BiometricPromptX}");
+        assert!(
+            !has_window(&other, BIOMETRIC_PROMPT),
+            "a title is matched whole"
+        );
     }
 }
