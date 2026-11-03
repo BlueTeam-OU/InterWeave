@@ -57,12 +57,12 @@
     }
   },
   "sandbox": "bwrap: the host's /etc entries read-only, /etc/claude-code a scratch directory read-only",
-  "started_at": "2026-11-03T09:06:16.115Z",
+  "started_at": "2026-11-03T09:21:19.475Z",
   "steps": [
     {
       "channel_enable": {
         "subtype": "success",
-        "request_id": "4d9813bdf26d"
+        "request_id": "923e9ff7df7b"
       },
       "at_s": 5.0,
       "tries": 1
@@ -116,14 +116,14 @@
 ## Claude Code debug log: the run's own server only
 
 ```text
-2026-11-03T09:06:17.861Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
-2026-11-03T09:06:17.911Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 52ms
-2026-11-03T09:06:17.914Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.2.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
-2026-11-03T09:06:21.124Z [DEBUG] MCP server "plugin:interweave:interweave": Channel notifications registered
-2026-11-03T09:06:24.330Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
-2026-11-03T09:06:24.332Z [DEBUG] MCP server "plugin:interweave:interweave": UNKNOWN connection closed after 6s (cleanly)
-2026-11-03T09:06:24.333Z [DEBUG] MCP server "plugin:interweave:interweave": Cleared connection cache for reconnection
-2026-11-03T09:06:24.381Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
+2026-11-03T09:21:20.750Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
+2026-11-03T09:21:20.775Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 27ms
+2026-11-03T09:21:20.776Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.2.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
+2026-11-03T09:21:24.479Z [DEBUG] MCP server "plugin:interweave:interweave": Channel notifications registered
+2026-11-03T09:21:27.680Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
+2026-11-03T09:21:27.682Z [DEBUG] MCP server "plugin:interweave:interweave": UNKNOWN connection closed after 6s (cleanly)
+2026-11-03T09:21:27.683Z [DEBUG] MCP server "plugin:interweave:interweave": Cleared connection cache for reconnection
+2026-11-03T09:21:27.731Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
 ```
 
 ## Model output

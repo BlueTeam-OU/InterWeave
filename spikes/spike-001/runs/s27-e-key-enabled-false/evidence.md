@@ -58,12 +58,12 @@
     }
   },
   "sandbox": "bwrap: the host's /etc entries read-only, /etc/claude-code a scratch directory read-only",
-  "started_at": "2026-11-03T09:06:28.524Z",
+  "started_at": "2026-11-03T09:21:30.419Z",
   "steps": [
     {
       "channel_enable": {
         "subtype": "error",
-        "request_id": "46741256fd98",
+        "request_id": "3f8465be5106",
         "error": "channels not enabled by org policy (set channelsEnabled: true in managed settings)"
       },
       "at_s": 5.0,
@@ -78,7 +78,7 @@
   },
   "channel_lines": [],
   "policy_lines": [
-    "[DEBUG] MDM settings load completed in 0ms",
+    "[DEBUG] MDM settings load completed in 1ms",
     "[DEBUG] policyHelper: no helper configuration present at helper-pass time (remote managed settings eligible, no payload in cache); a payload landing later arms one only through a fetch cycle after preAction",
     "[DEBUG] [mcp-policy-cold-start] waiting on remote managed-settings load",
     "[DEBUG] Remote settings: Fetch attempt failed (http_401)",
@@ -110,13 +110,13 @@
 ## Claude Code debug log: the run's own server only
 
 ```text
-2026-11-03T09:06:29.739Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
-2026-11-03T09:06:29.878Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 142ms
-2026-11-03T09:06:29.879Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.2.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
-2026-11-03T09:06:36.731Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
-2026-11-03T09:06:36.735Z [DEBUG] MCP server "plugin:interweave:interweave": UNKNOWN connection closed after 6s (cleanly)
-2026-11-03T09:06:36.736Z [DEBUG] MCP server "plugin:interweave:interweave": Cleared connection cache for reconnection
-2026-11-03T09:06:36.792Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
+2026-11-03T09:21:31.521Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
+2026-11-03T09:21:31.544Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 25ms
+2026-11-03T09:21:31.545Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.2.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
+2026-11-03T09:21:38.624Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
+2026-11-03T09:21:38.627Z [DEBUG] MCP server "plugin:interweave:interweave": UNKNOWN connection closed after 7s (cleanly)
+2026-11-03T09:21:38.627Z [DEBUG] MCP server "plugin:interweave:interweave": Cleared connection cache for reconnection
+2026-11-03T09:21:38.675Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
 ```
 
 ## Model output

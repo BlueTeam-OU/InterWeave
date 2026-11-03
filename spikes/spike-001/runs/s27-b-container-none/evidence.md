@@ -62,12 +62,12 @@
     "0"
   ],
   "sandbox": "podman container of registry.fedoraproject.org/fedora:43: its own /etc, the policy file written by the container's root; the session as this login's uid (keep-id)",
-  "started_at": "2026-11-03T09:05:48.288Z",
+  "started_at": "2026-11-03T09:20:52.516Z",
   "steps": [
     {
       "channel_enable": {
         "subtype": "error",
-        "request_id": "4c907bdc3c8c",
+        "request_id": "62036ed901db",
         "error": "plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)"
       },
       "at_s": 5.0,
@@ -82,7 +82,7 @@
   },
   "channel_lines": [],
   "policy_lines": [
-    "[DEBUG] MDM settings load completed in 1ms",
+    "[DEBUG] MDM settings load completed in 0ms",
     "[DEBUG] Broken symlink or missing file encountered for settings.json at path: /etc/claude-code/managed-settings.json",
     "[DEBUG] policyHelper: no helper configuration present at helper-pass time (remote managed settings eligible, no payload in cache); a payload landing later arms one only through a fetch cycle after preAction",
     "[DEBUG] [mcp-policy-cold-start] waiting on remote managed-settings load",
@@ -108,11 +108,7 @@
     "DISABLE_AUTOUPDATER",
     "HOME",
     "LANG",
-    "LOGNAME",
     "PATH",
-    "SHELL",
-    "TMPDIR",
-    "USER",
     "XDG_RUNTIME_DIR",
     "CLAUDE_CODE_OAUTH_TOKEN"
   ],
@@ -127,13 +123,13 @@
 ## Claude Code debug log: the run's own server only
 
 ```text
-2026-11-03T09:05:49.698Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
-2026-11-03T09:05:49.800Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 105ms
-2026-11-03T09:05:49.801Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.2.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
-2026-11-03T09:05:56.504Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
-2026-11-03T09:05:56.506Z [DEBUG] MCP server "plugin:interweave:interweave": UNKNOWN connection closed after 6s (cleanly)
-2026-11-03T09:05:56.508Z [DEBUG] MCP server "plugin:interweave:interweave": Cleared connection cache for reconnection
-2026-11-03T09:05:56.555Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
+2026-11-03T09:20:53.658Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
+2026-11-03T09:20:53.681Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 26ms
+2026-11-03T09:20:53.681Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.2.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
+2026-11-03T09:21:00.725Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
+2026-11-03T09:21:00.726Z [DEBUG] MCP server "plugin:interweave:interweave": UNKNOWN connection closed after 7s (cleanly)
+2026-11-03T09:21:00.727Z [DEBUG] MCP server "plugin:interweave:interweave": Cleared connection cache for reconnection
+2026-11-03T09:21:00.775Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
 ```
 
 ## Model output

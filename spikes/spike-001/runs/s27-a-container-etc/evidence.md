@@ -77,12 +77,12 @@
     "0"
   ],
   "sandbox": "podman container of registry.fedoraproject.org/fedora:43: its own /etc, the policy file written by the container's root; the session as this login's uid (keep-id)",
-  "started_at": "2026-11-03T09:05:30.760Z",
+  "started_at": "2026-11-03T09:20:08.839Z",
   "steps": [
     {
       "channel_enable": {
         "subtype": "success",
-        "request_id": "14500bec4ece"
+        "request_id": "ae9f9405255f"
       },
       "at_s": 5.0,
       "tries": 1
@@ -98,7 +98,7 @@
     "[DEBUG] MCP server \"plugin:interweave:interweave\": Channel notifications registered"
   ],
   "policy_lines": [
-    "[DEBUG] MDM settings load completed in 0ms",
+    "[DEBUG] MDM settings load completed in 1ms",
     "[DEBUG] policyHelper: no helper configuration present at helper-pass time (remote managed settings eligible, no payload in cache); a payload landing later arms one only through a fetch cycle after preAction",
     "[DEBUG] [mcp-policy-cold-start] waiting on remote managed-settings load",
     "[DEBUG] Remote settings: No settings found (404)",
@@ -121,11 +121,7 @@
     "DISABLE_AUTOUPDATER",
     "HOME",
     "LANG",
-    "LOGNAME",
     "PATH",
-    "SHELL",
-    "TMPDIR",
-    "USER",
     "XDG_RUNTIME_DIR",
     "CLAUDE_CODE_OAUTH_TOKEN"
   ],
@@ -140,14 +136,14 @@
 ## Claude Code debug log: the run's own server only
 
 ```text
-2026-11-03T09:05:32.297Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
-2026-11-03T09:05:32.366Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 72ms
-2026-11-03T09:05:32.368Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.2.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
-2026-11-03T09:05:35.764Z [DEBUG] MCP server "plugin:interweave:interweave": Channel notifications registered
-2026-11-03T09:05:38.964Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
-2026-11-03T09:05:38.967Z [DEBUG] MCP server "plugin:interweave:interweave": UNKNOWN connection closed after 6s (cleanly)
-2026-11-03T09:05:38.967Z [DEBUG] MCP server "plugin:interweave:interweave": Cleared connection cache for reconnection
-2026-11-03T09:05:39.015Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
+2026-11-03T09:20:10.216Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
+2026-11-03T09:20:10.252Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 38ms
+2026-11-03T09:20:10.259Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.2.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
+2026-11-03T09:20:13.842Z [DEBUG] MCP server "plugin:interweave:interweave": Channel notifications registered
+2026-11-03T09:20:17.048Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
+2026-11-03T09:20:17.051Z [DEBUG] MCP server "plugin:interweave:interweave": UNKNOWN connection closed after 6s (cleanly)
+2026-11-03T09:20:17.053Z [DEBUG] MCP server "plugin:interweave:interweave": Cleared connection cache for reconnection
+2026-11-03T09:20:17.099Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
 ```
 
 ## Model output
