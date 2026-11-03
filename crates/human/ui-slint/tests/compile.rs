@@ -54,8 +54,8 @@ fn every_wrapped_text_has_a_height_of_its_own() {
     let mut missing = Vec::new();
     let mut checked = 0_usize;
     for (at, line) in lines.iter().enumerate() {
-        let code = line.split("//").next().unwrap_or_default();
-        let Some(value) = line
+        let code = code_of(line);
+        let Some(value) = code
             .trim_start()
             .strip_prefix("wrap")
             .and_then(|rest| rest.trim_start().strip_prefix(':'))
@@ -63,13 +63,12 @@ fn every_wrapped_text_has_a_height_of_its_own() {
             // A `wrap:` after something else on its line (a one-line
             // `Text { wrap: word-wrap; }`) is an element this scan cannot
             // read, so it is refused rather than passed unread.
-            if code.contains("wrap:") || code.contains("wrap :") {
+            if binds_wrap(&code) {
                 missing.push(format!("{}: wrap not on a line of its own", at + 1));
             }
             continue;
         };
-        let value = value.split("//").next().unwrap_or_default().trim();
-        let value = value.trim_end_matches(';').trim();
+        let value = value.trim().trim_end_matches(';').trim();
         // An expression such as `root.wraps ? word-wrap : no-wrap` is held
         // as wrapped when it names a wrapping mode; one naming no mode at
         // all cannot be read here, so it is refused rather than passed.
@@ -152,4 +151,77 @@ fn direct_bindings<'a>(lines: &[&'a str], open: usize) -> Vec<&'a str> {
 fn braces(line: &str, brace: char) -> i32 {
     let code = line.split("//").next().unwrap_or_default();
     i32::try_from(code.matches(brace).count()).unwrap_or(i32::MAX)
+}
+
+/// A line's code: string literals emptied (their quotes kept), `/* */`
+/// comments and a `//` comment left out, so neither a string nor a
+/// comment reads as a binding.
+fn code_of(line: &str) -> String {
+    let mut code = String::new();
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                code.push('"');
+                while let Some(c) = chars.next() {
+                    if c == '\\' {
+                        chars.next();
+                    } else if c == '"' {
+                        code.push('"');
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'/') => break,
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut last = ' ';
+                for c in chars.by_ref() {
+                    if last == '*' && c == '/' {
+                        break;
+                    }
+                    last = c;
+                }
+                code.push(' ');
+            }
+            c => code.push(c),
+        }
+    }
+    code
+}
+
+/// Whether code binds the `wrap` property: the word `wrap` standing
+/// alone (not `title-wrap` or `word-wrap`), then a colon after any
+/// whitespace.
+fn binds_wrap(code: &str) -> bool {
+    code.match_indices("wrap").any(|(at, _)| {
+        let before = code[..at].chars().next_back();
+        let alone = before.is_none_or(|c| c.is_whitespace() || c == '{' || c == ';');
+        alone && code[at + 4..].trim_start().starts_with(':')
+    })
+}
+
+/// The wrap scan finds a binding however it is spaced, and nothing else:
+/// the inline shapes the line scan must refuse, and the strings, comments,
+/// other properties and ternaries it must leave alone.
+#[test]
+fn a_wrap_binding_is_found_as_a_word_and_nothing_else_is() {
+    for binding in [
+        "Text { wrap: word-wrap; }",
+        "Text { wrap  : word-wrap; }",
+        "Text { wrap\t: char-wrap; }",
+        "Text { text: \"see http://x\"; wrap: word-wrap; }",
+        "Text { text: \"a;\"; wrap: word-wrap; }",
+    ] {
+        assert!(binds_wrap(&code_of(binding)), "{binding}");
+    }
+    for other in [
+        "text: \"Line wrap: on\";",
+        "in property <TextWrap> title-wrap: word-wrap;",
+        "property <TextWrap> mode: root.narrow ? word-wrap : no-wrap;",
+        "x: 1px; /* wrap: word-wrap */",
+        "x: 1px; // wrap: word-wrap",
+    ] {
+        assert!(!binds_wrap(&code_of(other)), "{other}");
+    }
 }
