@@ -15,7 +15,8 @@ what Enter and Space do (§8) and the full focus order (§8), with
 acceptance 15, at rust-ui-dev-01's QUESTION 01a1a324 (REPLY 01a1a331).
 Revised the same day: in portrait R2's grid sits above a fixed picker
 (§4, §8, acceptance 13), at rust-ui-dev-01's height figures (REPLY
-01a1a333).
+01a1a333). And: what "Show all my words" opens (§4 item 4, §8,
+acceptance 2 and 15), at rust-ui-dev-01's QUESTION 01a1a34d.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -570,13 +571,19 @@ access.
     did nothing, Back and Escape. Closing the discard dialog (§7),
     however it is closed, returns the screen to the mode it was in
     when Back was pressed.
+  - The full list (§4 item 4) has no keypad and is always navigating:
+    Enter and Space press the focused row or arrow, and letters and
+    Backspace do nothing. Choosing a row, by any input, returns R2 in
+    typing mode, the one exception to "a press sets navigating": the
+    person is back to entering letters.
   - A screen opens as typing. Either way the focus ring is drawn on
     the focused control, so the person sees what Enter would press
     once they move.
 - The full list (§4 item 4): when it opens, focus is on the current
   position's row; Tab goes app bar arrow, then rows 1 to 24. When it
   closes with nothing changed, focus returns to `IdReviewWords`; when
-  a row is chosen, to the keypad's first enabled key, in typing mode;
+  a row is chosen, to the keypad's first enabled key (the delete key
+  when the word put back leaves no letter enabled), in typing mode;
   when a font change closes it, to the grid's current position.
 - When R2 or C3 opens, and after a chip fills a position, focus goes
   to the keypad's first enabled key.
@@ -695,7 +702,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdContinueEntering` | Continue entering | §7's dialog: the default action |
 | `IdKeyDelete` | Delete last letter | The keypad's delete key (its accessible label) |
 | `IdKeyClear` | Clear this word | The keypad's clear key (its accessible label) |
-| `IdReviewWords` | Show all my words | The grid's button at large font (§4) |
+| `IdReviewWords` | Show all my words | The grid's button at large font (§4), and the title of the full list it opens (§4 item 4) |
 
 Against the list the proposal gave: `IdC1Points` is six keys, one per
 point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
@@ -864,11 +871,17 @@ scale would also be a finding of the Android review
     - At 200 %, `IdReviewWords` opens the full list with focus on the
       current position's row. Back, Escape and the app bar arrow each
       close it with nothing changed, no discard dialog and focus on
-      `IdReviewWords`. Choosing row 5 closes it with position 5 being
-      edited, focus on the keypad's first enabled key and Enter after
-      "ab" doing nothing. A rotation keeps it open; setting the font
-      to 130 % closes it, with the grid shown and focus on the current
-      position.
+      `IdReviewWords`. Tab from the app bar arrow visits rows 1 to 24
+      in order. With position 20 current, it opens with row 20 in
+      view. On the list, Enter and Space each press the focused row,
+      and a letter or Backspace changes nothing.
+    - Choosing filled row 5 by Enter closes it with position 5 being
+      edited and focus as §8 says; a second Enter at once takes the
+      whole-word chip (typing mode), so position 5 keeps its word and
+      the entry moves on.
+    - A rotation, Home and back, and a font change from 200 % to
+      150 % each keep it open. Setting the font to 130 % closes it,
+      with the grid shown and focus on the current position.
     - After "ab", an arrow from a key beside a disabled key lands on
       the disabled key; Down from the first keypad row lands on the
       key below; in landscape, an arrow toward the end side from the
