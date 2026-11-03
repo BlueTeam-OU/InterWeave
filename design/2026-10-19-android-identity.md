@@ -703,7 +703,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdKeyDelete` | Delete last letter | The keypad's delete key (its accessible label) |
 | `IdKeyClear` | Clear this word | The keypad's clear key (its accessible label) |
 | `IdReviewWords` | Show all my words | The grid's button at large font (§4), and the title of the full list it opens (§4 item 4) |
-| `IdBack` (new) | Back | The accessible label of the app bar's back arrow (§3), first on the full list (§4 item 4). Final as drafted by language-culture (REPLY 01a1a37f) |
+| `AddClose` (exists) | Back | The accessible label of the app bar's back arrow (§3), first on the full list (§4 item 4). It is the add page's back arrow: one act, going back, under one name, so the key is reused as `TryAgain` is; a second key with the same meaning would need an exception in `every_ui_text_appears_once_in_all` the test does not allow for |
 
 Against the list the proposal gave: `IdC1Points` is six keys, one per
 point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
@@ -717,7 +717,7 @@ app's keys, not this flow's, added to `labels.rs` by #313 and not yet
 on main; so are `CopyPeerId` and `PeerIdCopied` (§5). Their rows are
 in the table above. `IdTryAgain` and
 `IdRetry` are both `TryAgain`. `IdKeepEntering` is
-`IdContinueEntering`.
+`IdContinueEntering`. `IdBack` is `AddClose`.
 
 ## 10. Acceptance
 
