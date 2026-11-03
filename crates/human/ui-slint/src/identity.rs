@@ -13,7 +13,7 @@ use interweave_human_ui_model::{
 use interweave_transport_api::TransportIdentity;
 use slint::{ModelRc, SharedString, VecModel};
 
-use crate::generated::{IdKey, IdKeyRow, IdSlot, IdentityPage};
+use crate::generated::{IdKey, IdKeyRow, IdScreen, IdSlot, IdentityPage};
 
 /// QWERTY rows of 10, 9 and 7 (section 4.3).
 const QWERTY: [&str; 3] = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
@@ -162,6 +162,24 @@ fn rows(flow: &IdentityFlow, rows: &[&str]) -> ModelRc<IdKeyRow> {
     ))
 }
 
+fn screen_id(screen: ScreenId) -> IdScreen {
+    match screen {
+        ScreenId::W => IdScreen::W,
+        ScreenId::C1 => IdScreen::C1,
+        ScreenId::C2 => IdScreen::C2,
+        ScreenId::C3 => IdScreen::C3,
+        ScreenId::C4 => IdScreen::C4,
+        ScreenId::R1 => IdScreen::R1,
+        ScreenId::R2 => IdScreen::R2,
+        ScreenId::R3 => IdScreen::R3,
+        ScreenId::R4 => IdScreen::R4,
+        ScreenId::K1 => IdScreen::K1,
+        ScreenId::S1 => IdScreen::S1,
+        ScreenId::S2 => IdScreen::S2,
+        ScreenId::Done => IdScreen::Done,
+    }
+}
+
 /// The page for the flow's current screen.
 #[must_use]
 pub fn page(flow: &IdentityFlow) -> IdentityPage {
@@ -174,6 +192,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         dialog_delete: text(UiText::IdDiscard).into(),
         dialog_keep: text(UiText::IdContinueEntering).into(),
         dialog: flow.discard_asked(),
+        screen: screen_id(screen),
         ..IdentityPage::default()
     };
     let (title, paragraphs, primary): (UiText, Vec<UiText>, Option<UiText>) = match screen {

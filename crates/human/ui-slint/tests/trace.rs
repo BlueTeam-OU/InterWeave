@@ -596,6 +596,11 @@ impl Identity {
 fn r2_reaches_every_position_and_key_by_tab_in_reading_order() {
     use interweave_human_ui_slint::IdentityInput;
     let mut page = Identity::at_r2();
+    // R2 opens on the first key; back round to the primary, the last.
+    for _ in 0..25 {
+        page.backtab();
+    }
+    assert_eq!(page.last(), "ui-trace focus=identity-primary", "control");
     for i in 0..24 {
         page.tab();
         assert_eq!(page.last(), format!("ui-trace focus=identity-slot:{i}"));
@@ -664,10 +669,8 @@ fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
         page.take(),
         [IdentityInput::Key('z'), IdentityInput::Key('e')]
     );
-    // Past the 24 positions, the one chip left.
-    for _ in 0..25 {
-        page.tab();
-    }
+    // R2 opened on the first key; the one chip left is the stop before.
+    page.backtab();
     assert_eq!(page.last(), "ui-trace focus=identity-chip");
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Chip("zebra".to_owned())]);
@@ -871,7 +874,7 @@ fn r2s_full_list_opens_with_the_current_row_in_view() {
     text_size(&mut page, 28.0);
     interweave_human_ui_slint::apply_identity(&mut page.flow, IdentityInput::Slot(20));
     page.settle();
-    page.tab();
+    page.backtab();
     assert_eq!(page.last(), "ui-trace focus=identity-review", "control");
     page.enter();
     assert_eq!(page.last(), "ui-trace focus=identity-slot:20");
@@ -1017,4 +1020,248 @@ fn the_discard_dialog_takes_focus_holds_it_and_gives_it_back() {
         Some("oak"),
         "and keeps the words"
     );
+}
+
+/// TAB until focus is on `line`, a bounded number of times.
+fn tab_to(page: &mut Identity, line: &str) {
+    for _ in 0..64 {
+        if page.last() == line {
+            return;
+        }
+        page.tab();
+    }
+    panic!("TAB never reached {line}");
+}
+
+/// R1, the restore's first screen, with nothing entered.
+fn at_r1() -> Identity {
+    use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
+    use interweave_human_ui_slint::{IdentityInput, apply_identity};
+    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    apply_identity(&mut flow, IdentityInput::Secondary);
+    assert_eq!(flow.screen(), ScreenId::R1, "control: at R1");
+    Identity::new(flow)
+}
+
+/// R2 and C3 open with focus on the keypad's first enabled key, in
+/// typing mode (section 8, acceptance 15): Enter takes nothing with no
+/// suggestion, after letters with no single suggestion it still takes
+/// nothing, Space never presses the key, and Enter after a whole word
+/// takes its chip. Opened by R1's primary, pressed by Enter, it is
+/// typing all the same.
+#[test]
+fn r2_and_c3_open_on_the_first_enabled_key_typing() {
+    use interweave_human_ui_model::ScreenId;
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = at_r1();
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary", "control");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary]);
+    assert_eq!(page.flow.screen(), ScreenId::R2, "control: opened");
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    page.key(" ");
+    page.enter();
+    assert_eq!(page.take(), [], "typing: nothing to take, q not pressed");
+    for letter in ["a", "c"] {
+        page.key(letter);
+    }
+    page.enter();
+    page.key(" ");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Key('a'), IdentityInput::Key('c')],
+        "three words fit ac: Enter and Space take nothing"
+    );
+    page.key("t");
+    page.enter();
+    page.key(" ");
+    assert_eq!(
+        page.take(),
+        [
+            IdentityInput::Key('t'),
+            IdentityInput::Chip("act".to_owned())
+        ],
+        "the whole word's chip, then Space nothing"
+    );
+}
+
+/// C3 opens on the first enabled key, typing, as R2 does (section 8).
+#[test]
+fn c3_opens_on_the_first_enabled_key_typing() {
+    let mut page = Identity::at_c3();
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    page.key(" ");
+    assert_eq!(page.take(), [], "C3 opens typing too");
+}
+
+/// Back from R2 puts focus on R1's "Enter my words", which opened it
+/// (section 7), with nothing entered and by Delete words.
+#[test]
+fn back_from_r2_focuses_what_opened_it() {
+    use interweave_human_ui_model::ScreenId;
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = at_r1();
+    page.tab();
+    page.enter();
+    assert_eq!(page.flow.screen(), ScreenId::R2, "control");
+    page.key(Key::Escape);
+    assert_eq!(page.flow.screen(), ScreenId::R1);
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    page.take();
+    page.enter();
+    page.key("o");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [
+            IdentityInput::Primary,
+            IdentityInput::Key('o'),
+            IdentityInput::Chip("oak".to_owned())
+        ],
+        "control: R2 again, a word entered"
+    );
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: a word entered");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-delete");
+    page.enter();
+    assert_eq!(page.flow.screen(), ScreenId::R1);
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    assert_eq!(
+        page.take().last(),
+        Some(&IdentityInput::Dialog(true)),
+        "control: Delete words"
+    );
+}
+
+/// Back from C3 puts focus on C2's primary, which opened it (section 7),
+/// with nothing entered and by Delete words.
+#[test]
+fn back_from_c3_focuses_what_opened_it() {
+    use interweave_human_ui_model::ScreenId;
+    use slint::platform::Key;
+    let mut page = Identity::at_c3();
+    page.key(Key::Escape);
+    assert_eq!(page.flow.screen(), ScreenId::C2);
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    page.enter();
+    assert_eq!(page.flow.screen(), ScreenId::C3, "control: it opened C3");
+    page.key("g");
+    page.key(Key::Escape);
+    page.tab();
+    page.enter();
+    assert_eq!(page.flow.screen(), ScreenId::C2);
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+}
+
+/// Closing the discard dialog gives back the mode of the moment Back was
+/// pressed (section 8): typing, with focus on q (enabled), Back, a Tab
+/// between the dialog's actions and Back again, and Enter still presses
+/// no key.
+#[test]
+fn closing_the_dialog_restores_the_mode_of_backs_moment() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    page.key("o");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [
+            IdentityInput::Key('o'),
+            IdentityInput::Chip("oak".to_owned())
+        ],
+        "control: typing, a word entered, focus on q"
+    );
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    page.tab();
+    page.tab();
+    page.key(Key::Escape);
+    assert!(!page.flow.discard_asked(), "control: closed");
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Back, IdentityInput::Back],
+        "typing again: Enter presses no key"
+    );
+}
+
+/// Arrows move focus to the nearest stop their way (section 8), a
+/// disabled key included, and Enter after an arrow presses that key:
+/// Down from q is a, Down again z, Right x (no word has it), Right c;
+/// across and down the grid's positions too.
+#[test]
+fn arrows_move_focus_to_the_nearest_stop_their_way() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    page.key(Key::DownArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('a')], "below q");
+    page.key(Key::Backspace);
+    page.key(Key::DownArrow);
+    page.key(Key::RightArrow);
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Delete], "x: disabled, a stop");
+    page.key(Key::RightArrow);
+    page.key(" ");
+    assert_eq!(page.take(), [IdentityInput::Key('c')], "Space presses c");
+    page.key(Key::Backspace);
+    page.take();
+    tab_to(&mut page, "ui-trace focus=identity-slot:0");
+    page.key(Key::RightArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-slot:1");
+    page.key(Key::DownArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-slot:5");
+    page.key(Key::LeftArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-slot:4");
+    page.key(Key::UpArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-slot:0");
+    // A Tab after an arrow goes on from where the arrow left focus.
+    page.key(Key::RightArrow);
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-slot:2");
+}
+
+/// An arrow never lands on a grid position the page's Flickable has
+/// scrolled out of view, though its place lies the arrow's way: Up from
+/// q on a short window reaches a position in view.
+#[test]
+fn an_arrow_skips_a_position_scrolled_out_of_view() {
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    page.view
+        .window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 640.0));
+    page.settle();
+    // A position the Flickable clips is not in the tree.
+    let shown = |page: &Identity| -> Vec<usize> {
+        (0..24)
+            .filter(|i| {
+                ElementHandle::find_by_accessible_label(page.view.window(), &(i + 1).to_string())
+                    .any(|e| {
+                        e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Button)
+                    })
+            })
+            .collect()
+    };
+    let before = shown(&page);
+    assert!(before.len() < 24, "control: some positions scrolled away");
+    assert_eq!(page.last(), "ui-trace focus=identity-key", "control: on q");
+    page.key(Key::UpArrow);
+    let at: usize = page
+        .last()
+        .strip_prefix("ui-trace focus=identity-slot:")
+        .and_then(|i| i.parse().ok())
+        .expect("a position");
+    assert!(before.contains(&at), "slot {at} was in view: {before:?}");
 }

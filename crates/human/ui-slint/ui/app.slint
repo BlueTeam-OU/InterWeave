@@ -380,7 +380,13 @@ export struct IdSlot {
     current: bool,
 }
 
+// Which identity screen a page is (design/2026-10-19-android-identity.md
+// section 3): the view tells a screen opening, or left by Back, from a
+// page rebuilt, and section 8 puts focus by it.
+export enum IdScreen { w, c1, c2, c3, c4, r1, r2, r3, r4, k1, s1, s2, done }
+
 export struct IdentityPage {
+    screen: IdScreen,
     title: string,
     paragraphs: [string],
     // An inline banner (section 6), above the content; empty for none.
@@ -1851,6 +1857,97 @@ component IdentityScreen inherits FocusScope {
         let next = here == -1 ? (by == 1 ? 0 : stops - 1) : mod(here + by + stops, stops);
         root.go(root.segment-of(next), next - root.base(root.segment-of(next)));
     }
+    // An arrow (section 8) moves focus to the nearest stop its way, a
+    // disabled key included, as Android's directional focus (FocusFinder)
+    // measures it: the stop must lie that way, and the least weighted
+    // distance, 13 x major^2 + minor^2, wins. FocusFinder's beam rule is
+    // not built: no measured case on these pages turned on it, so
+    // nothing would test it. Slint has no
+    // loop over the stops, so the page asks them, one change-handler
+    // round each: an arrow bumps `arrow-seq`, and the focused stop
+    // answers with its rectangle (`source`), which bumps `probe-seq`;
+    // every stop offers its own (`offer`); the first offer's change to
+    // `offered` runs after them all and moves focus. A stop says its layer (0 the page, 1 the full
+    // list, 2 the dialog) and, inside a Flickable, which one (1 the
+    // page's, 2 the list's) and whether its centre is in view: one
+    // scrolled out of view is reached only from its own Flickable, so a
+    // row clipped under the picker is never "above" a key.
+    property <int> arrow-seq;
+    property <int> probe-seq;
+    property <int> offered;
+    // 0 left, 1 right, 2 up, 3 down.
+    property <int> arrow-dir;
+    property <float> src-l;
+    property <float> src-t;
+    property <float> src-r;
+    property <float> src-b;
+    property <int> src-flick;
+    property <bool> best-found;
+    property <int> best-seg;
+    property <int> best-idx;
+    property <float> best-weight;
+    function layer() -> int {
+        return root.page.dialog ? 2 : root.page.review ? 1 : 0;
+    }
+    function arrow(dir: int) {
+        FocusMode.keyboard = true;
+        root.typing = false;
+        if (root.at-seg < 0) {
+            root.step(1);
+            return;
+        }
+        root.arrow-dir = dir;
+        root.arrow-seq += 1;
+    }
+    function source(seg: int, idx: int, layer: int, flick: int, at: Point, w: length, h: length) {
+        if (layer != root.layer() || seg != root.at-seg || idx != root.at-idx) { return; }
+        root.src-l = at.x / 1px;
+        root.src-t = at.y / 1px;
+        root.src-r = (at.x + w) / 1px;
+        root.src-b = (at.y + h) / 1px;
+        root.src-flick = flick;
+        root.best-found = false;
+        root.probe-seq += 1;
+    }
+    function lies-that-way(l: float, t: float, r: float, b: float) -> bool {
+        if (root.arrow-dir == 0) { return (root.src-r > r || root.src-l >= r) && root.src-l > l; }
+        if (root.arrow-dir == 1) { return (root.src-l < l || root.src-r <= l) && root.src-r < r; }
+        if (root.arrow-dir == 2) { return (root.src-b > b || root.src-t >= b) && root.src-t > t; }
+        return (root.src-t < t || root.src-b <= t) && root.src-b < b;
+    }
+    function major(l: float, t: float, r: float, b: float) -> float {
+        if (root.arrow-dir == 0) { return max(0, root.src-l - r); }
+        if (root.arrow-dir == 1) { return max(0, l - root.src-r); }
+        if (root.arrow-dir == 2) { return max(0, root.src-t - b); }
+        return max(0, t - root.src-b);
+    }
+    function weighted(l: float, t: float, r: float, b: float) -> float {
+        let minor = root.arrow-dir < 2
+            ? abs((root.src-t + root.src-b) / 2 - (t + b) / 2)
+            : abs((root.src-l + root.src-r) / 2 - (l + r) / 2);
+        let m = root.major(l, t, r, b);
+        return 13 * m * m + minor * minor;
+    }
+    function offer(seg: int, idx: int, layer: int, flick: int, in-view: bool, at: Point, w: length, h: length) {
+        if (layer != root.layer() || (seg == root.at-seg && idx == root.at-idx)) { return; }
+        if (!in-view && flick != root.src-flick) { return; }
+        let l = at.x / 1px;
+        let t = at.y / 1px;
+        let r = (at.x + w) / 1px;
+        let b = (at.y + h) / 1px;
+        if (!root.lies-that-way(l, t, r, b)) { return; }
+        let weight = root.weighted(l, t, r, b);
+        if (!root.best-found || weight < root.best-weight) {
+            root.best-found = true;
+            root.best-seg = seg;
+            root.best-idx = idx;
+            root.best-weight = weight;
+        }
+        root.offered = root.probe-seq;
+    }
+    changed offered => {
+        if (root.best-found) { root.go(root.best-seg, root.best-idx); }
+    }
     // Back on stop `seg`/`idx` once the page is rebuilt, the nearest of
     // its segment if it shrank; where the page has none of it, on the
     // page itself, so the keyboard never falls off the page.
@@ -1862,11 +1959,13 @@ component IdentityScreen inherits FocusScope {
         }
         root.go(seg, min(idx, root.size(seg) - 1));
     }
-    // Section 8's focus rules, applied to each page an input makes: the
-    // dialog takes focus on Continue entering, its default, and gives it
-    // back to what had it; a banner that appears takes it; a chip that
-    // fills a position hands it to the keypad's first enabled key; else
-    // it stays on its stop.
+    // Section 8's focus rules, applied to each page an input makes: a
+    // screen that opens is `opened`'s, and Back from R2 or C3 focuses
+    // the primary that opened it; the dialog takes focus on Continue
+    // entering, its default, and gives it and the mode back to what had
+    // them; a banner that appears takes it; a chip that fills a
+    // position hands it to the keypad's first enabled key; else it stays
+    // on its stop.
     property <bool> dialog-shown;
     property <string> notice-shown;
     property <bool> chip-taken;
@@ -1879,12 +1978,52 @@ component IdentityScreen inherits FocusScope {
     property <bool> font-closed;
     property <int> saved-seg: -1;
     property <int> saved-idx;
+    // The mode when Back opened the dialog, which closing it gives back
+    // (section 8): a Tab between its actions is not the screen's input.
+    property <bool> saved-typing;
+    // The screen the last page was, to tell a screen opening from a page
+    // rebuilt.
+    property <IdScreen> screen-shown;
+    // R2 and C3 open on the keypad's first enabled key, typing (section 8).
+    function opened() {
+        if (root.page.picker) {
+            root.typing = true;
+            root.go(3, -1);
+        }
+    }
     init => {
         root.dialog-shown = root.page.dialog;
         root.notice-shown = root.page.notice;
         root.review-shown = root.page.review;
+        root.screen-shown = root.page.screen;
+        root.opened();
     }
     changed page => {
+        if (root.page.screen != root.screen-shown) {
+            let from = root.screen-shown;
+            root.screen-shown = root.page.screen;
+            root.dialog-shown = root.page.dialog;
+            root.review-shown = root.page.review;
+            let notice-new = root.page.notice != "" && root.page.notice != root.notice-shown;
+            root.notice-shown = root.page.notice;
+            root.chip-taken = false;
+            root.row-chosen = false;
+            root.font-closed = false;
+            if (root.page.picker) {
+                root.opened();
+            } else if ((from == IdScreen.c3 && root.page.screen == IdScreen.c2)
+                || (from == IdScreen.r2 && root.page.screen == IdScreen.r1)) {
+                // Back from C3 or R2, by Delete words or with nothing
+                // entered: focus on the primary that opened the screen
+                // just left (section 7).
+                root.go(6, 0);
+            } else if (notice-new) {
+                root.go(0, 0);
+            } else if (root.at-seg >= 0) {
+                root.again(root.at-seg, root.at-idx);
+            }
+            return;
+        }
         if (root.page.review != root.review-shown) {
             root.review-shown = root.page.review;
             root.notice-shown = root.page.notice;
@@ -1910,6 +2049,7 @@ component IdentityScreen inherits FocusScope {
                 root.dialog-shown = true;
                 root.saved-seg = root.at-seg;
                 root.saved-idx = root.at-idx;
+                root.saved-typing = root.typing;
                 root.go(10, 0);
             }
             return;
@@ -1920,6 +2060,7 @@ component IdentityScreen inherits FocusScope {
         root.chip-taken = false;
         if (root.dialog-shown) {
             root.dialog-shown = false;
+            root.typing = root.saved-typing;
             root.again(root.saved-seg, root.saved-idx);
         } else if (notice-new) {
             root.go(0, 0);
@@ -1938,8 +2079,10 @@ component IdentityScreen inherits FocusScope {
     // last was a hardware letter, Backspace or Enter by the suggestion
     // rule -- Enter takes the only suggestion or the whole-word chip and
     // otherwise does nothing, and Space does nothing: on the key focus
-    // went to after a chip they would add a letter. Navigating -- TAB, a
-    // tap or a press of a control -- they press the focused control.
+    // went to after a chip they would add a letter. Navigating -- TAB, an
+    // arrow, a tap or a press of a control -- they press the focused
+    // control. Space, an Enter that did nothing, and Back leave the mode
+    // as it was; R2 and C3 open typing.
     property <bool> typing;
     // Over 130 % of the platform's 14 px, strictly (section 4.4). The
     // line sits a little above 18.2 px because 1.3 x 14 as a float is
@@ -1963,7 +2106,9 @@ component IdentityScreen inherits FocusScope {
             && (root.page.chips.length == 1 || root.page.chips[0] == root.page.typed);
     }
     capture-key-pressed(event) => {
-        if (!root.typing || root.page.dialog || root.page.review) { return reject; }
+        // Typing is the keypad's: on a screen without one (R1 after Back
+        // from R2, typing still) Enter presses the focused control.
+        if (!root.typing || !root.page.picker || root.page.dialog || root.page.review) { return reject; }
         if (event.text == Key.Return) {
             if (root.enter-takes()) {
                 root.take(root.page.chips[0]);
@@ -1985,6 +2130,12 @@ component IdentityScreen inherits FocusScope {
             FocusMode.keyboard = true;
             root.typing = false;
             root.step(event.text == Key.Tab ? 1 : -1);
+            return accept;
+        }
+        if (event.text == Key.LeftArrow || event.text == Key.RightArrow
+            || event.text == Key.UpArrow || event.text == Key.DownArrow) {
+            root.arrow(event.text == Key.LeftArrow ? 0 : event.text == Key.RightArrow ? 1
+                : event.text == Key.UpArrow ? 2 : 3);
             return accept;
         }
         // The dialog is modal to the keyboard too: no letter reaches the
@@ -2031,7 +2182,7 @@ component IdentityScreen inherits FocusScope {
             accessible-role: text;
             accessible-label: self.text;
         }
-        Flickable {
+        page-flick := Flickable {
             vertical-stretch: 1;
             content-height: content.preferred-height;
             content := VerticalLayout {
@@ -2049,6 +2200,13 @@ component IdentityScreen inherits FocusScope {
                             rtl: root.rtl;
                             focus-key: "identity-banner";
                             focus-seq: root.focus-seq;
+                            property <int> arrow: root.arrow-seq;
+                            changed arrow => { root.source(0, 0, 0, 1, self.absolute-position, self.width, self.height); }
+                            property <int> probe: root.probe-seq;
+                            changed probe => {
+                                root.offer(0, 0, 0, 1, self.absolute-position.y + self.height / 2 >= page-flick.absolute-position.y && self.absolute-position.y + self.height / 2 <= page-flick.absolute-position.y + page-flick.height,
+                                    self.absolute-position, self.width, self.height);
+                            }
                             focus-wanted: root.want-seg == 0;
                             focused(k) => { root.took(k, 0, 0); }
                         }
@@ -2138,6 +2296,13 @@ component IdentityScreen inherits FocusScope {
                     target: 48px;
                     focus-key: "identity-review";
                     focus-seq: root.focus-seq;
+                    property <int> arrow: root.arrow-seq;
+                    changed arrow => { root.source(1, 0, 0, 1, self.absolute-position, self.width, self.height); }
+                    property <int> probe: root.probe-seq;
+                    changed probe => {
+                        root.offer(1, 0, 0, 1, self.absolute-position.y + self.height / 2 >= page-flick.absolute-position.y && self.absolute-position.y + self.height / 2 <= page-flick.absolute-position.y + page-flick.height,
+                            self.absolute-position, self.width, self.height);
+                    }
                     focus-wanted: root.want-seg == 1;
                     pressed => { root.typing = false; root.review(true); }
                     focused(k) => { root.took(k, 1, 0); }
@@ -2151,6 +2316,13 @@ component IdentityScreen inherits FocusScope {
                         min-height: 48px;
                         label: slot.number + (slot.word != "" ? " " + slot.word : "");
                         focus-seq: root.focus-seq;
+                        property <int> arrow: root.arrow-seq;
+                        changed arrow => { root.source(1, i, 0, 1, self.absolute-position, self.width, self.height); }
+                        property <int> probe: root.probe-seq;
+                        changed probe => {
+                            root.offer(1, i, 0, 1, self.absolute-position.y + self.height / 2 >= page-flick.absolute-position.y && self.absolute-position.y + self.height / 2 <= page-flick.absolute-position.y + page-flick.height,
+                                self.absolute-position, self.width, self.height);
+                        }
                         focus-wanted: root.want-seg == 1 && root.want-idx == i;
                         pressed => { root.typing = false; root.slot(i); }
                         focus-taken => { root.took("identity-slot:" + i, 1, i); }
@@ -2216,6 +2388,13 @@ component IdentityScreen inherits FocusScope {
                     radius: 8px;
                     label: word;
                     focus-seq: root.focus-seq;
+                    property <int> arrow: root.arrow-seq;
+                    changed arrow => { root.source(2, i, 0, 0, self.absolute-position, self.width, self.height); }
+                    property <int> probe: root.probe-seq;
+                    changed probe => {
+                        root.offer(2, i, 0, 0, true,
+                            self.absolute-position, self.width, self.height);
+                    }
                     focus-wanted: root.want-seg == 2 && root.want-idx == i;
                     pressed => { root.take(word); }
                     focus-taken => { root.took("identity-chip", 2, i); }
@@ -2260,6 +2439,13 @@ component IdentityScreen inherits FocusScope {
                         label: key.letter;
                         enabled-action: key.enabled;
                         focus-seq: root.focus-seq;
+                        property <int> arrow: root.arrow-seq;
+                        changed arrow => { root.source(3, key.index, 0, 0, self.absolute-position, self.width, self.height); }
+                        property <int> probe: root.probe-seq;
+                        changed probe => {
+                            root.offer(3, key.index, 0, 0, true,
+                                self.absolute-position, self.width, self.height);
+                        }
                         focus-wanted: root.want-seg == 3
                             && (root.want-idx == -1 ? key.first : root.want-idx == key.index);
                         pressed => { root.press-key(key.letter); }
@@ -2289,6 +2475,13 @@ component IdentityScreen inherits FocusScope {
                     target: 48px;
                     focus-key: "identity-delete";
                     focus-seq: root.focus-seq;
+                    property <int> arrow: root.arrow-seq;
+                    changed arrow => { root.source(4, 0, 0, 0, self.absolute-position, self.width, self.height); }
+                    property <int> probe: root.probe-seq;
+                    changed probe => {
+                        root.offer(4, 0, 0, 0, true,
+                            self.absolute-position, self.width, self.height);
+                    }
                     focus-wanted: root.want-seg == 4;
                     pressed => { root.typing = false; root.delete-letter(); }
                     focused(k) => { root.took(k, 4, 0); }
@@ -2298,6 +2491,13 @@ component IdentityScreen inherits FocusScope {
                     target: 48px;
                     focus-key: "identity-clear";
                     focus-seq: root.focus-seq;
+                    property <int> arrow: root.arrow-seq;
+                    changed arrow => { root.source(5, 0, 0, 0, self.absolute-position, self.width, self.height); }
+                    property <int> probe: root.probe-seq;
+                    changed probe => {
+                        root.offer(5, 0, 0, 0, true,
+                            self.absolute-position, self.width, self.height);
+                    }
                     focus-wanted: root.want-seg == 5;
                     pressed => { root.typing = false; root.clear-word(); }
                     focused(k) => { root.took(k, 5, 0); }
@@ -2317,6 +2517,13 @@ component IdentityScreen inherits FocusScope {
             enabled-action: root.page.primary-enabled;
             danger: root.page.primary-danger;
             focus-seq: root.focus-seq;
+            property <int> arrow: root.arrow-seq;
+            changed arrow => { root.source(6, 0, 0, 0, self.absolute-position, self.width, self.height); }
+            property <int> probe: root.probe-seq;
+            changed probe => {
+                root.offer(6, 0, 0, 0, true,
+                    self.absolute-position, self.width, self.height);
+            }
             focus-wanted: root.want-seg == 6;
             pressed => { root.typing = false; root.primary(); }
             focused(k) => { root.took(k, 6, 0); }
@@ -2330,6 +2537,13 @@ component IdentityScreen inherits FocusScope {
                 target: 48px;
                 focus-key: "identity-secondary";
                 focus-seq: root.focus-seq;
+                property <int> arrow: root.arrow-seq;
+                changed arrow => { root.source(7, 0, 0, 0, self.absolute-position, self.width, self.height); }
+                property <int> probe: root.probe-seq;
+                changed probe => {
+                    root.offer(7, 0, 0, 0, true,
+                        self.absolute-position, self.width, self.height);
+                }
                 focus-wanted: root.want-seg == 7;
                 pressed => { root.typing = false; root.secondary(); }
                 focused(k) => { root.took(k, 7, 0); }
@@ -2343,6 +2557,13 @@ component IdentityScreen inherits FocusScope {
                 target: 48px;
                 focus-key: "identity-tertiary";
                 focus-seq: root.focus-seq;
+                property <int> arrow: root.arrow-seq;
+                changed arrow => { root.source(8, 0, 0, 0, self.absolute-position, self.width, self.height); }
+                property <int> probe: root.probe-seq;
+                changed probe => {
+                    root.offer(8, 0, 0, 0, true,
+                        self.absolute-position, self.width, self.height);
+                }
                 focus-wanted: root.want-seg == 8;
                 pressed => { root.typing = false; root.tertiary(); }
                 focused(k) => { root.took(k, 8, 0); }
@@ -2383,6 +2604,13 @@ component IdentityScreen inherits FocusScope {
                         label: root.page.back-label;
                         focus-key: "identity-back";
                         focus-seq: root.focus-seq;
+                        property <int> arrow: root.arrow-seq;
+                        changed arrow => { root.source(0, 0, 1, 0, self.absolute-position, self.width, self.height); }
+                        property <int> probe: root.probe-seq;
+                        changed probe => {
+                            root.offer(0, 0, 1, 0, true,
+                                self.absolute-position, self.width, self.height);
+                        }
                         focus-wanted: root.want-seg == 0;
                         pressed => { root.typing = false; root.back(); }
                         focused(k) => { root.took(k, 0, 0); }
@@ -2409,13 +2637,20 @@ component IdentityScreen inherits FocusScope {
                         label: root.page.back-label;
                         focus-key: "identity-back";
                         focus-seq: root.focus-seq;
+                        property <int> arrow: root.arrow-seq;
+                        changed arrow => { root.source(0, 0, 1, 0, self.absolute-position, self.width, self.height); }
+                        property <int> probe: root.probe-seq;
+                        changed probe => {
+                            root.offer(0, 0, 1, 0, true,
+                                self.absolute-position, self.width, self.height);
+                        }
                         focus-wanted: root.want-seg == 0;
                         pressed => { root.typing = false; root.back(); }
                         focused(k) => { root.took(k, 0, 0); }
                     }
                 }
             }
-            Flickable {
+            list-flick := Flickable {
                 vertical-stretch: 1;
                 content-height: list.preferred-height;
                 list := VerticalLayout {
@@ -2425,6 +2660,13 @@ component IdentityScreen inherits FocusScope {
                         min-height: max(48px, row-word.preferred-height + 16px);
                         label: slot.number + (slot.word != "" ? " " + slot.word : "");
                         focus-seq: root.focus-seq;
+                        property <int> arrow: root.arrow-seq;
+                        changed arrow => { root.source(1, i, 1, 2, self.absolute-position, self.width, self.height); }
+                        property <int> probe: root.probe-seq;
+                        changed probe => {
+                            root.offer(1, i, 1, 2, self.absolute-position.y + self.height / 2 >= list-flick.absolute-position.y && self.absolute-position.y + self.height / 2 <= list-flick.absolute-position.y + list-flick.height,
+                                self.absolute-position, self.width, self.height);
+                        }
                         focus-wanted: root.want-seg == 1 && root.want-idx == i;
                         pressed => {
                             root.typing = false;
@@ -2547,6 +2789,13 @@ component IdentityScreen inherits FocusScope {
                         target: 48px;
                         focus-key: "identity-dialog-delete";
                         focus-seq: root.focus-seq;
+                        property <int> arrow: root.arrow-seq;
+                        changed arrow => { root.source(9, 0, 2, 0, self.absolute-position, self.width, self.height); }
+                        property <int> probe: root.probe-seq;
+                        changed probe => {
+                            root.offer(9, 0, 2, 0, true,
+                                self.absolute-position, self.width, self.height);
+                        }
                         focus-wanted: root.want-seg == 9;
                         pressed => { root.dialog(true); }
                         focused(k) => { root.took(k, 9, 0); }
@@ -2557,6 +2806,13 @@ component IdentityScreen inherits FocusScope {
                         target: 48px;
                         focus-key: "identity-dialog-keep";
                         focus-seq: root.focus-seq;
+                        property <int> arrow: root.arrow-seq;
+                        changed arrow => { root.source(10, 0, 2, 0, self.absolute-position, self.width, self.height); }
+                        property <int> probe: root.probe-seq;
+                        changed probe => {
+                            root.offer(10, 0, 2, 0, true,
+                                self.absolute-position, self.width, self.height);
+                        }
                         focus-wanted: root.want-seg == 10;
                         pressed => { root.dialog(false); }
                         focused(k) => { root.took(k, 10, 0); }
