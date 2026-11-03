@@ -346,7 +346,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ));
         page.current = i32::try_from(entry.current()).unwrap_or(0);
         page.review_label = text(UiText::IdReviewWords).into();
-        page.back_label = text(UiText::IdBack).into();
+        page.back_label = text(UiText::AddClose).into();
         page.review = flow.reviewing();
         page.primary_enabled = entry.complete() && !flow.waiting();
     }
