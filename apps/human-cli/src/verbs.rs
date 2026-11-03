@@ -250,7 +250,8 @@ const fn command_name(command: &Command) -> &'static str {
         Command::AskNewKey => "asking what a new key cancels",
         Command::MakeNewKey => "making a new key",
         Command::RetryKey => "opening the key again",
-        // A page, the contacts or a photo, read as a walk or the start asks.
+        // A page, the contacts, a photo or a reply's target, read as a walk
+        // or the start asks.
         Command::Window(_) => "reading the store",
         Command::ShareCard(_) => "sharing the card",
         Command::SetOwnCard { .. } => "editing the own card",
