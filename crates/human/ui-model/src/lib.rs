@@ -48,6 +48,7 @@ pub use model::cards::{
     READ_PROPOSAL_CAP, RouteView, SentCard, ValueChanges, name_problem,
 };
 pub use model::directory::{ContactsState, DirectoryContact, PHOTO_CAP, PhotoAsk, PhotoState};
+pub use model::replies::ReplyAsk;
 pub use model::summaries::{NewestRow, StoredSummary};
 pub use model::window::{
     Anchor, DrawnAt, Edge, GapSpan, HELD_ROW_CAP, MarkKind, MarkPlace, PageAsk, PageEnd, PageMark,

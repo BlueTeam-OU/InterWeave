@@ -664,3 +664,153 @@ fn the_shown_conversations_include_a_kept_only_one() {
     expected.sort();
     assert_eq!(shown, expected);
 }
+
+/// A reply's target is stored in a conversation when that conversation
+/// holds a row of its id this build shows, unread or kept (design §5.2,
+/// schema v13): the same id in another direct conversation, under
+/// another endpoint, on a channel, or of a kind this build cannot show is
+/// not stored; a channel's row counts whoever published it; and a row
+/// read and not kept is stored no longer. Mutations: a probe that drops
+/// the kind, the channel, or the endpoint from its filter; the kept table
+/// not probed.
+#[test]
+fn a_reply_target_is_stored_only_in_its_own_conversation() {
+    let (_dir, mut store) = store();
+    let channel = ChannelId::parse("room").expect("a channel");
+    let other_endpoint = EndpointId::parse("other").expect("an endpoint");
+    let id = |n: u32| format!("{n:032x}");
+    let direct_p = StoreConversation::Direct {
+        peer: peer(P),
+        endpoint: human(),
+    };
+    let present =
+        |store: &HumanStore, c: &StoreConversation, n| store.reply_target_present(c, &id(n));
+
+    // 1 unread from P, 2 read and kept from P, 3 read and not kept, 4 of a
+    // kind this build cannot show, 5 a card; 6 is Q's, 7 on the channel
+    // from Q.
+    for (n, kind) in [
+        (1, InboundKind::Text),
+        (2, InboundKind::Text),
+        (3, InboundKind::Text),
+        (4, InboundKind::Other),
+        (5, InboundKind::Card),
+    ] {
+        store
+            .commit_unread_inbound(&direct(n, P, u64::from(n), kind))
+            .expect("committed");
+    }
+    store
+        .commit_unread_inbound(&direct(6, Q, 6, InboundKind::Text))
+        .expect("Q's");
+    store
+        .commit_unread_inbound(&on_channel(7, Q, &channel))
+        .expect("on the channel");
+    let row_of = |store: &HumanStore, n: u32| {
+        store
+            .unread_inbound()
+            .expect("read")
+            .into_iter()
+            .find(|r| r.app_message_id.as_str() == id(n))
+            .expect("the row")
+            .row_id
+    };
+    let two = row_of(&store, 2);
+    let read = store.mark_read(two, 10).expect("read");
+    store.keep(&read, 11).expect("kept");
+    let three = row_of(&store, 3);
+    store.mark_read(three, 12).expect("read, not kept");
+
+    assert!(present(&store, &direct_p, 1).expect("asked"), "unread");
+    assert!(present(&store, &direct_p, 2).expect("asked"), "kept");
+    assert!(
+        !present(&store, &direct_p, 3).expect("asked"),
+        "read, not kept"
+    );
+    assert!(!present(&store, &direct_p, 4).expect("asked"), "not shown");
+    assert!(present(&store, &direct_p, 5).expect("asked"), "a card");
+    assert!(!present(&store, &direct_p, 6).expect("asked"), "Q's");
+    assert!(
+        !present(&store, &direct_p, 7).expect("asked"),
+        "the channel's"
+    );
+    assert!(
+        !present(&store, &direct_p, 99).expect("asked"),
+        "never received"
+    );
+
+    let other = StoreConversation::Direct {
+        peer: peer(P),
+        endpoint: other_endpoint,
+    };
+    assert!(
+        !present(&store, &other, 1).expect("asked"),
+        "another endpoint"
+    );
+    let direct_q = StoreConversation::Direct {
+        peer: peer(Q),
+        endpoint: human(),
+    };
+    assert!(present(&store, &direct_q, 6).expect("asked"), "Q's own");
+    assert!(
+        !present(&store, &direct_q, 7).expect("asked"),
+        "Q's channel row"
+    );
+
+    let room = StoreConversation::Channel(channel);
+    assert!(
+        present(&store, &room, 7).expect("asked"),
+        "the channel's row"
+    );
+    assert!(!present(&store, &room, 1).expect("asked"), "a direct row");
+    let elsewhere = StoreConversation::Channel(ChannelId::parse("hall").expect("a channel"));
+    assert!(
+        !present(&store, &elsewhere, 7).expect("asked"),
+        "another channel"
+    );
+}
+
+/// Schema v13 (STATE.md's v13 paragraph): a store at v12 gains the two
+/// `_by_message` indexes at its next open, its rows untouched, and a reply
+/// target committed before the migration is found after it. Mutation:
+/// migration 13 not run (the open refuses on shape).
+#[test]
+fn a_v12_store_gains_the_message_indexes_and_finds_an_earlier_target() {
+    let (dir, mut store) = store();
+    let path = dir.path().join("state").join("human.sqlite3");
+    store
+        .commit_unread_inbound(&direct(1, P, 1, InboundKind::Text))
+        .expect("committed");
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("raw");
+    conn.execute_batch(&format!("{}PRAGMA user_version = 12;", common::UNDO_V13))
+        .expect("back to v12");
+    drop(conn);
+
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("migrates to v13");
+    let conversation = StoreConversation::Direct {
+        peer: peer(P),
+        endpoint: human(),
+    };
+    assert!(
+        store
+            .reply_target_present(&conversation, &format!("{:032x}", 1))
+            .expect("asked"),
+        "the row from before the migration"
+    );
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let (version, indexes): (i64, i64) = conn
+        .query_row(
+            "SELECT (SELECT user_version FROM pragma_user_version),
+                    (SELECT COUNT(*) FROM sqlite_master
+                      WHERE type = 'index' AND name LIKE '%_inbound_by_message')",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("the schema");
+    assert_eq!(
+        (version, indexes),
+        (interweave_human_store::SCHEMA_VERSION, 2)
+    );
+}

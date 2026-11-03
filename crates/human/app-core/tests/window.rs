@@ -22,8 +22,8 @@ use interweave_human_store::{
 };
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
-    ConversationKey, Edge, Intent, MarkKind, PhotoAsk, PhotoState, READ_PROPOSAL_CAP, UiModel,
-    ViewEvent, WindowEvent, WindowInput,
+    ConversationKey, Edge, Intent, MarkKind, PhotoAsk, PhotoState, READ_PROPOSAL_CAP, Reply,
+    UiModel, ViewEvent, WindowEvent, WindowInput,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
@@ -822,5 +822,120 @@ async fn a_slowed_or_unreadable_photo_is_read_as_the_hooks_say() {
             .iter()
             .any(|u| matches!(u, Update::ContactPhoto { photo: None, .. })),
         "unreadable: none"
+    );
+}
+
+/// Message `n` from `from`, a text envelope replying to message `target`.
+fn reply_message(n: u32, target: u32, from: &TransportIdentity, at: u64) -> NewInbound {
+    let id = format!("{n:032x}");
+    let mut row = message(n, from, at);
+    row.payload = format!(
+        r#"{{"v":2,"kind":"text","app_message_id":"{id}","text":"message {n}","reply_to":"{target:032x}"}}"#
+    )
+    .into_bytes();
+    row.kind = InboundKind::Text;
+    row
+}
+
+/// The reply line of the message whose text is `text`.
+fn reply_line(root: &Root, key: &ConversationKey, text: &str) -> Option<Reply> {
+    root.model()
+        .messages(key)
+        .into_iter()
+        .find(|m| m.source == text)
+        .and_then(|m| m.reply)
+}
+
+/// Item 17 (b) through the real facade and store (start-window §5.2): an
+/// opened conversation's newest page holds replies whose targets it does
+/// not hold. The store is asked once for each, after the page, and a
+/// target stored in the conversation beyond the window reads present
+/// (`Reply::Stored`); one never received, and one stored only in another
+/// conversation, read unavailable. Paging up to the target makes it held.
+/// That a probe reads no row is the store's plan test
+/// (`a_reply_target_is_read_from_an_index_alone`), which the facade's row
+/// count cannot see. Mutation: the model side not turning the model's
+/// reply asks into commands.
+#[tokio::test]
+async fn a_reply_target_beyond_the_window_reads_present_from_the_store() {
+    let from = peer();
+    let other = peer();
+    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    for n in 1..=77 {
+        let mut row = message(n, &from, u64::from(n));
+        row.kind = InboundKind::Text;
+        store.commit_unread_inbound(&row).expect("committed");
+    }
+    let mut elsewhere = message(500, &other, 1);
+    elsewhere.kind = InboundKind::Text;
+    store
+        .commit_unread_inbound(&elsewhere)
+        .expect("the other's");
+    for (n, target) in [(78, 1), (79, 999), (80, 500)] {
+        store
+            .commit_unread_inbound(&reply_message(n, target, &from, u64::from(n)))
+            .expect("a reply");
+    }
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut root = Root::start(facade(&a, store));
+    let key = direct(&from);
+    root.model.window(WindowInput::Opened(key.clone()));
+    root.turn().await;
+    assert_eq!(root.model().messages(&key).len(), 64, "one page");
+    assert!(
+        matches!(
+            reply_line(&root, &key, "message 78"),
+            Some(Reply::Unavailable(_))
+        ),
+        "not answered yet"
+    );
+    root.turn().await;
+    let answers: Vec<(String, bool)> = root
+        .updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::ReplyTarget { ask, stored } => Some((ask.target.clone(), *stored)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(answers.len(), 3, "one ask per target: {answers:?}");
+    assert_eq!(
+        reply_line(&root, &key, "message 78"),
+        Some(Reply::Stored(format!("{:032x}", 1))),
+        "stored beyond the window"
+    );
+    assert!(
+        matches!(
+            reply_line(&root, &key, "message 79"),
+            Some(Reply::Unavailable(_))
+        ),
+        "never received"
+    );
+    assert!(
+        matches!(
+            reply_line(&root, &key, "message 80"),
+            Some(Reply::Unavailable(_))
+        ),
+        "stored in another conversation only"
+    );
+    root.turn().await;
+    let asks = root
+        .updates
+        .iter()
+        .filter(|u| matches!(u, Update::ReplyTarget { .. }))
+        .count();
+    assert_eq!(asks, 3, "asked once");
+
+    root.model.window(WindowInput::Reached {
+        conversation: key.clone(),
+        edge: Edge::Top,
+    });
+    root.turn().await;
+    assert!(
+        matches!(
+            reply_line(&root, &key, "message 78"),
+            Some(Reply::Present(_))
+        ),
+        "held once paged in"
     );
 }

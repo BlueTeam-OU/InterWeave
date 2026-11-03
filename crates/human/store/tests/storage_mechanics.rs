@@ -3092,13 +3092,15 @@ fn a_v7_database_gains_the_walk_indexes_keeping_its_rows() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .expect("version");
     assert_eq!(version, SCHEMA_VERSION);
-    // v8's walk index, and since v10 the start window's two beside it.
+    // v8's walk index, since v10 the start window's two beside it, and
+    // since v13 a reply target's.
     assert_eq!(
         store_indexes(&conn, "unread_inbound"),
         [
             "unread_inbound_by_channel",
             "unread_inbound_by_conversation",
             "unread_inbound_by_kind",
+            "unread_inbound_by_message",
             "unread_inbound_by_received"
         ]
     );
@@ -3108,6 +3110,7 @@ fn a_v7_database_gains_the_walk_indexes_keeping_its_rows() {
             "kept_inbound_by_channel",
             "kept_inbound_by_conversation",
             "kept_inbound_by_kind",
+            "kept_inbound_by_message",
             "kept_inbound_by_received"
         ]
     );
@@ -3652,8 +3655,8 @@ fn name_keys_of_another_version_are_recomputed_at_open() {
     assert_eq!(key, "left alone", "one recompute per version, not per open");
 }
 
-/// Each v10 addition is held by the shape check: a file missing one, or
-/// with it changed, does not open.
+/// Each v10 addition, and since v12 and v13 theirs, is held by the shape
+/// check: a file missing one, or with it changed, does not open.
 #[test]
 fn the_start_window_columns_and_indexes_are_part_of_the_verified_shape() {
     for (what, sql) in [
@@ -3663,11 +3666,27 @@ fn the_start_window_columns_and_indexes_are_part_of_the_verified_shape() {
         ),
         (
             "unread rows without kind",
-            "DROP INDEX unread_inbound_by_kind; ALTER TABLE unread_inbound DROP COLUMN kind;",
+            "DROP INDEX unread_inbound_by_kind; DROP INDEX unread_inbound_by_message;
+             ALTER TABLE unread_inbound DROP COLUMN kind;",
         ),
         (
             "kept rows without kind",
-            "DROP INDEX kept_inbound_by_kind; ALTER TABLE kept_inbound DROP COLUMN kind;",
+            "DROP INDEX kept_inbound_by_kind; DROP INDEX kept_inbound_by_message;
+             ALTER TABLE kept_inbound DROP COLUMN kind;",
+        ),
+        (
+            "no unread message index",
+            "DROP INDEX unread_inbound_by_message;",
+        ),
+        (
+            "no kept message index",
+            "DROP INDEX kept_inbound_by_message;",
+        ),
+        (
+            "the message index without kind, so a probe reads the row",
+            "DROP INDEX kept_inbound_by_message;
+             CREATE INDEX kept_inbound_by_message
+                 ON kept_inbound (app_message_id, channel_id, source_peer, source_endpoint);",
         ),
         ("no unread kind index", "DROP INDEX unread_inbound_by_kind;"),
         ("no kept kind index", "DROP INDEX kept_inbound_by_kind;"),
