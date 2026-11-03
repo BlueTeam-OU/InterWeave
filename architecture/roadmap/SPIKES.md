@@ -272,12 +272,14 @@ configure`, and what sets `auto` on this login.
 
 **Carried measurement, S26 (2026-11-03, Claude Code 2.1.286,
 rust-services-dev, plan §19): without `--allowedTools`, `reply` leaves a
-print session in `bypassPermissions` and through a host that answers,
-and in no other mode.** Read off `spikes/spike-001/README.md` §S26
-(facts 51–56, runs `s26-a` to `s26-h`). Every run was S25's c with no
-`--allowedTools`, differing only in its permission flags. `acceptEdits`,
-`dontAsk` and `plan` denied `reply` as `manual` did, each with a text of
-its own, and the peer had nothing (a, c, d). `bypassPermissions`, taken
+print session in `bypassPermissions` (and, per S24, `auto`) and through
+a host that answers, and in no other mode S26 ran.** Read off
+`spikes/spike-001/README.md` §S26 (facts 51–56, runs `s26-a` to
+`s26-h`). Every run was S25's c with no `--allowedTools`, differing only
+in its permission flags. `acceptEdits`, `dontAsk` and `plan` denied
+`reply` as `manual` did, `dontAsk` and `plan` each with a text of its
+own and `acceptEdits` with `manual`'s, and the
+peer had nothing (a, c, d). `bypassPermissions`, taken
 from `--permission-mode` alone, let it through, the peer's `ack` 4.0 s
 after its send; read from the help, that mode grants every tool the
 session has (b). With `--permission-prompt-tool stdio` the session wrote
@@ -309,12 +311,13 @@ claude.ai, `false` and the list alone were refused with "channels not
 enabled by org policy (set channelsEnabled: true in managed settings)",
 and `true` registered (e, g, f); the gate answers before any model call,
 so the key's failure to authenticate never came into play. Server-managed
-policy was fetched at every start and none found (404 on the token, 401
-on the key); read from the binary, the fetch goes to the first-party
-endpoint or a gateway's, which the gate refuses before any policy (60).
-MDM policy is read on Linux only under WSL, through the Windows
-registry tool (61). Not established: a Team or Enterprise subscription,
-a valid Console key, a served policy, and MDM.
+policy was fetched at every start and none found (404 on the token; the
+401 on the key says nothing about a policy); read from the binary, the
+fetch goes to the first-party endpoint or a gateway's, which the gate
+refuses before any policy (60). MDM policy is, read from the binary and
+not measured, read on Linux only under WSL, through the Windows registry
+tool (61). Not established: a Team or Enterprise subscription, a valid
+Console key, a served policy, and MDM.
 
 ---
 
