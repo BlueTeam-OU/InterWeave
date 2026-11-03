@@ -154,6 +154,13 @@ run with the workspace's tests.
   with its daemon and stops with it. Limit: starting with the manager is
   shown by the `default.target.wants` link, not by a login, since CI's
   manager lingers and no login is made.
+- **Client autostart of the daemon (Stage 15, §18 (9), carried to this
+  row).** Not met by a test: no client starts the daemon. What starts it
+  is the person's `enable` of its unit (the row above); the client unit's
+  `BindsTo=` runs the other way, from daemon to client, and the human
+  client shows guidance when no daemon serves its profile. Whether a
+  launch action from the client is owed is the owner's, with packaging,
+  so the carry is re-carried by name.
 - **The SIGHUP carry (Stage 13, §16).**
   `tests/desktop-e2e/tests/daemon.rs::sighup_stops_as_sigterm_does_and_exits_with_the_units_restart_status`:
   SIGTERM's stop sequence in order, both sockets unlinked, the lock
@@ -162,8 +169,9 @@ run with the workspace's tests.
   PeerId and a fresh epoch. The restart through the unit is the row
   above.
 - **The units' CI cover (§28 step 4, the supervision-units carry).** The
-  CI step named above runs every case of `user_units.rs` one at a time
-  under the runner's lingering user manager.
+  CI step named above runs the `#[ignore]`d cases of `user_units.rs`, the
+  two that need a manager, one at a time under the runner's lingering
+  user manager; the others run in the `Tests` step without one.
 - **uninstall semantics.**
   `user_units.rs::uninstall_stops_every_instance_removes_the_package_and_keeps_the_profile`:
   every instance stopped, disabled and no longer loaded, the templates
