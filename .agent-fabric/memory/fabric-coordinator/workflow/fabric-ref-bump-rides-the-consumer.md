@@ -5,7 +5,7 @@ topic: "fabric-ref-bump-rides-the-consumer"
 description: "How an InterWeave .agent-fabric/fabric-ref bump is delivered and checked when another role's PR needs it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

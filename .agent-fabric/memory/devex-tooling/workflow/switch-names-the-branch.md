@@ -5,7 +5,7 @@ topic: "switch-names-the-branch"
 description: "before acknowledging a REQUEST with a branch name, let fabric-jobs switch create the branch; it names it from the job title, not from what you chose"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

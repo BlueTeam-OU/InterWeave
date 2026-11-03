@@ -5,7 +5,7 @@ topic: "labels-english-supplier"
 description: "who finalises English for crates/human/ui-model/src/labels.rs values, and the conventions a new placeholder follows — strengthened: Keep is reserved for the message action"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

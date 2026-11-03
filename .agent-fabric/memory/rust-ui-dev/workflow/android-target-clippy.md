@@ -5,7 +5,7 @@ topic: "android-target-clippy"
 description: "how to build-check and clippy the Android crates locally (PATH, JAVA_HOME, check_android_target.sh); CI does not clippy the Android target"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

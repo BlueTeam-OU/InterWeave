@@ -5,7 +5,7 @@ topic: "stage6-ingress-burst-test-is-load-timed"
 description: "two wall-clock-timed suites flake under a full workspace run on this host — tests/direct-v2 a_peer_cannot_mint_allowance_by_inventing_source_endpoints (burst + 1 vs a refilling bucket, got 34 against 33) and tests/pubsub stage7…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
@@ -14,6 +14,7 @@ origin:
 derived_from:
   - 4baa3e55611dedf4
   - 5e2641d2ecdc020a
+  - 6aa112b2d578d829
   - f387aedbadc5535b
 ---
 
@@ -32,5 +33,7 @@ ALSO 2026-10-02: a backgrounded `cargo xtask ci ...; echo ci=$?` reports the ECH
 **How to apply:** if it fails in a full workspace run, rerun the suite alone before suspecting the change; fix it as its own small PR in `tests/direct-v2` (mine — the workspace), citing this memory.
 
 2026-10-07, #215 at 6b0ee197: a fourth suite flaked under a full `cargo xtask ci` run. `tools/ci/test_with_display.sh`'s self-test failed 3 assertions there (fusermount fallback, rm --one-file-system, umount fallback). Rerun alone, it passed every assertion, and GitHub's `tool self-tests` passed on the same head. #215 touches nothing under tools/.
+
+2026-10-26, #460 at 2cb153d9 (load average ~110): a fifth case, same file. `stage6_ingress_rate_limits.rs:498` `the_global_bucket_bounds_peers_that_are_each_within_their_own` -- "the shared bucket must cut the aggregate well below 512; 385 were accepted", against a ceiling of 384 (`attempted * 3 / 4`). The global bucket refills at 20/s, so a flood that takes more than about 6.4 s crosses the ceiling. Two reruns alone passed (7.7 s and 4.2 s). #460 touched no rate-limit code. The same elapsed-time tolerance would fix it.
 
 *Observed 2026-09-17 (p2p-network-dev)*

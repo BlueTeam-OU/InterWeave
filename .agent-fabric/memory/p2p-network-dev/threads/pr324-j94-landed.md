@@ -5,7 +5,7 @@ topic: "pr324-j94-landed"
 description: "#324 (Stage 19 Track A) merged 08b4d9e6 2026-10-21; what unblocked it, and what was carried"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

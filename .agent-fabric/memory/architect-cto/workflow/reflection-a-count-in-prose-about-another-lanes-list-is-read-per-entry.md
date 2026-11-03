@@ -5,7 +5,7 @@ topic: "reflection-a-count-in-prose-about-another-lanes-list-is-read-per-entry"
 description: "A count or 'the one X today' sentence in a record about another lane's list is read from that list at the PR head, entry by entry, never inferred from the paragraph's own rule (gzapp #1164 F4, 2026-10-26)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

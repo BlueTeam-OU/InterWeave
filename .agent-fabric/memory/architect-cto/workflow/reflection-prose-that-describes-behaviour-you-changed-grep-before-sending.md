@@ -5,7 +5,7 @@ topic: "reflection-prose-that-describes-behaviour-you-changed-grep-before-sendin
 description: "W43: When a ruling changes what a contract text claims, grep the whole tree for the old claim's distinctive words before the supply leaves, not after each review round names one"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

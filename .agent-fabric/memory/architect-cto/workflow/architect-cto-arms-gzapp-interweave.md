@@ -5,7 +5,7 @@ topic: "architect-cto-arms-gzapp-interweave"
 description: "LIVE since 2026-10-19 12:35Z — architect-cto is below_min_authority and boundary_authority in InterWeave and gzapp (authority_own_prs false): how to give the word (AUTHORIZES line or arm with basis \"architect-cto's word\"), only after…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

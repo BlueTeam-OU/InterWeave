@@ -5,7 +5,7 @@ topic: "rust-job-cache-and-nextest-measured"
 description: "InterWeave rust CI job — cargo target cache sizes, nextest gains, and how a warm cache was measured before merge (PR #288, 2026-10-16)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -13,12 +13,13 @@ origin:
     working_copy: interweave
 derived_from:
   - 5dae63d84f29ef28
+  - d0165dbbd8fbb99c
   - ff9031ac180165cb
 ---
 
 ## InterWeave rust CI job — cargo target cache sizes, nextest gains, and how a warm cache was measured before merge (PR #288, 2026-10-16)
 
-InterWeave's `rust` job on main ran 19m22s on 2026-10-16: clippy 141 s, test build 7m05s, and 204 test binaries one after another 432 s. The job cap is 25 minutes.
+InterWeave's `rust` job on main ran 19m22s on 2026-10-16: clippy 141 s, test build 7m05s, and 204 test binaries one after another 432 s. The job cap was 25 minutes then. #461 raised it to 35 (2026-10-26): with the cargo cache an exact hit, the job took 19m35s there, Tests 10m33s as the suite grew, plus 2m38s for the new own-features clippy step on its first run.
 
 PR #288 (j138) added a main-only cargo cache and `cargo nextest run --profile ci`. Measured results:
 - Cold: 14m29s.

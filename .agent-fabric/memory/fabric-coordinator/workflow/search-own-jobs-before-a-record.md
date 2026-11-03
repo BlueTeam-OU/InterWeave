@@ -5,7 +5,7 @@ topic: "search-own-jobs-before-a-record"
 description: "before drafting a record on a subject, search your own job list and memories for an older job on it — it may carry the owner's word"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

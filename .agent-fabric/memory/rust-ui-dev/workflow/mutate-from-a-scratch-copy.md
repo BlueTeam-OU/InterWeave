@@ -5,7 +5,7 @@ topic: "mutate-from-a-scratch-copy"
 description: "Mutation loops: restore from a scratchpad copy, never `git checkout <file>`, which throws away the uncommitted change under test"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

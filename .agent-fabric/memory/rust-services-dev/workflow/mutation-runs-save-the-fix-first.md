@@ -5,7 +5,7 @@ topic: "mutation-runs-save-the-fix-first"
 description: "Before a hand mutation to show a test fails, commit (or copy to a known path) the real change first; `git checkout <file>` to revert also wipes uncommitted work"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

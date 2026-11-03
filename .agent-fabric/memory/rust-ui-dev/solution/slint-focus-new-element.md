@@ -5,13 +5,14 @@ topic: "slint-focus-new-element"
 description: "A Slint control created by the render that requests focus on it misses the first focus-seq change; the snackbar \"undo\" focus key is cleared by the view"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 23e2bbfe5c48a7b7
   - a72bd71efefe5424
 ---
 
@@ -26,6 +27,8 @@ How to see it in a view test: mock 10 ms twice, then render again before asserti
 
 Related: [[slint-changed-handlers-deferred]] [[slint-rendered-window-lessons]]
 
+Headless tests (j134, #418, 2026-10-24): a control inside an `if` that a render just turned on is not created until something walks the tree. A real window draws first, so it exists in the app. In a test, focus_target can be right while focus_id stays on the old control. Walk the tree first (e.g. `find_by_accessible_label` for the new control), then run the two timer turns. See `the_viewfinder_keeps_focus_and_keeps_no_frame` in ui-slint tests/peers.rs.
+
 *References: slint-changed-handlers-deferred, slint-rendered-window-lessons*
 
-*Observed 2026-10-22 (rust-ui-dev)*
+*Observed 2026-10-24 (rust-ui-dev)*

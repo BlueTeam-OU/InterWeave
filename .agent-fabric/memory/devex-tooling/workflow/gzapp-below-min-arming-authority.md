@@ -2,20 +2,21 @@
 role: "devex-tooling"
 class: workflow
 topic: "gzapp-below-min-arming-authority"
-description: "arming a gzapp PR under 8 work commits? the word comes from architect-cto (AUTHORIZES header), not the owner"
+description: "arming a gzapp or InterWeave PR under 8 work commits? the word comes from architect-cto (AUTHORIZES header) or the owner; the dry-run names who"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 35c516e31092a07b
   - cfaa96b9932ed326
 ---
 
-## arming a gzapp PR under 8 work commits? the word comes from architect-cto (AUTHORIZES header), not the owner
+## arming a gzapp or InterWeave PR under 8 work commits? the word comes from architect-cto (AUTHORIZES header) or the owner; the dry-run names who
 
 In gzapp, `commits.below_min_authority` (set in gzapi-org/agent-fabric-settings repos/gzapp.json over agent-fabric policies/arming.json) is architect-cto: a PR under the
 eight-work-commit minimum arms on a DECISION or REPLY from an
@@ -30,6 +31,12 @@ text named architect-cto-01 as the route; architect-cto-01 corrected it.
 **How to apply:** for a below-minimum PR, read the dry-run's refusal and
 send the review-gated head to whoever it names, with the counts.
 
+InterWeave the same (2026-10-24, #415, 2 work commits): the dry-run named
+architect-cto-01 for `AUTHORIZES: BlueTeam-OU/InterWeave#415@<head>`, or
+the owner's word. It only names the authority once the review gate
+passes, so post the review first and dry-run again. CLAUDE.md §9 still
+says "the owner's word" alone, which is out of date.
+
 *Anchors: `agent-fabric:policies/arming.json::below_min_authority`*
 
-*Observed 2026-10-21 (devex-tooling)*
+*Observed 2026-10-24 (devex-tooling)*

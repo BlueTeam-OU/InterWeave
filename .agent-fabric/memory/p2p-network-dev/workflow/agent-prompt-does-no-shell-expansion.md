@@ -5,13 +5,14 @@ topic: "agent-prompt-does-no-shell-expansion"
 description: "An Agent dispatch prompt is literal text; \"$(cat brief)\" reached the reviewer as those characters — paste the rendered brief itself"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 20e422b48649ba97
   - 727533225947da84
 ---
 
@@ -21,4 +22,6 @@ derived_from:
 **Why:** the Agent tool's prompt is never passed through a shell.
 **How to apply:** render with `fabric-review brief <req.json>` (not `brief render`), Read the output, and paste its text into the prompt.
 
-*Observed 2026-10-08 (p2p-network-dev)*
+**Paste it whole, never trimmed (2026-10-28, #504).** A round-3 re-review prompt shortened by hand (short `head_sha` in the dispatch header, sections dropped) was refused by `fabric-pr post-review`: "names no head_sha, so the commit it reviewed is unknown". The review had to run again on the verbatim brief. And a brief's range must END at the PR's current head, a merge of main included; base it on main's tip to keep it to the PR's own files.
+
+*Observed 2026-10-28 (p2p-network-dev)*

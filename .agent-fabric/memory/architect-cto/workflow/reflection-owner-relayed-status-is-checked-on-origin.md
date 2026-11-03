@@ -5,7 +5,7 @@ topic: "reflection-owner-relayed-status-is-checked-on-origin"
 description: "When the owner relays that a lane's work is aligned or done, find the branch on origin and ask the lane what it verified against before confirming; what the owner heard may be a plan"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -26,4 +26,4 @@ owner's relays: the same read, whoever carries the claim.
 
 *References: verified-means-i-read-the-file*
 
-*Observed 2026-10-22 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

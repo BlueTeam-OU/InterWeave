@@ -5,7 +5,7 @@ topic: "claude-plugin-runtime-facts"
 description: "Claude Code 2.1.286 plugin runtime, measured CLI-only: userConfig defaults/--config reach argv; a directory marketplace runs in place; MCP stderr goes to ~/.cache/claude-cli-nodejs"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

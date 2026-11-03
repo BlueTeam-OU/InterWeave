@@ -5,7 +5,7 @@ topic: "answer-in-spec-before-message"
 description: A design answer sent by message before it is written into the spec and reviewed gets corrected later, and the builder builds the wrong version
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

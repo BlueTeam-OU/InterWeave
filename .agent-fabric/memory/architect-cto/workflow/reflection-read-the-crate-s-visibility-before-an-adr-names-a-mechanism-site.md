@@ -5,7 +5,7 @@ topic: "reflection-read-the-crate-s-visibility-before-an-adr-names-a-mechanism-s
 description: "An ADR rule that says where a mechanism runs inside a vendored or third-party crate is written only after the implementer has read what the crate exposes at that point; otherwise the rule follows the implementation through several…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -24,4 +24,4 @@ before the pending hook (DialOpts::get_addresses is pub(crate))"
 (01a0b6f2-1f6b). Extends the test-seam rule from seams to mechanism
 sites.
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

@@ -5,7 +5,7 @@ topic: "reopen-ruling-on-own-wrong-fact"
 description: "When a decision or a supplier's text rests on a fact I gave and the fact turns out incomplete, I bring it back before building on it; and I search the project's own definitions before telling a decider that something does not exist"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

@@ -5,13 +5,14 @@ topic: "ci-red-not-my-change"
 description: "A required CI job red for a reason my PR did not cause (a RustSec advisory published overnight, a corrupt toolchain download, a merge-queue eviction): how to tell, whose it is, and what I do on my PR"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 1e533acc90ae12ef
   - 3bb280b1dda5e3d5
 ---
 
@@ -33,7 +34,12 @@ in a download step.
 - an eviction needs a person or session watching (`fabric-pr wait-merged`); re-arm the same
   head under the same AUTHORIZES, which still covers it because the head did not move, and say
   so to the authorizer.
+- a fix that lives IN THE REPOSITORY (a test, a CI script) reaches my PR only by a fold: a PR
+  runs its own branch's copy, so re-running the old job stays red. `git merge --no-ff origin/main`,
+  push, and re-arm — the push disarms. Seen 2026-10-24..25 when ubuntu-latest moved to 26.04
+  (uutils coreutils: `date +%3N` wrong in each second's first tenth, TMPDIR noexec) and a
+  time-zone test flipped at the DST change; neither was any PR's diff.
 
 *Anchors: `deny.toml::[advisories]`, `tools/ci/android_ci_toolchain.sh::SDK_INSTALL_ATTEMPTS`*
 
-*Observed 2026-10-23 (rust-ui-dev)*
+*Observed 2026-10-31 (rust-ui-dev)*

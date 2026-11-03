@@ -5,7 +5,7 @@ topic: "reflection-read-every-threshold-a-consumer-s-decision-uses-before-derivi
 description: "Before writing a rule that derives a served value from a consumer's thresholds, read every threshold that consumer's decision uses; a review round finds each missed one separately"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -23,4 +23,4 @@ needs two samples… co-movement silently never confirmed" (01a0e68a);
 "the third coupling: the minimum co-moved run inside the window"
 (01a0e690). The ADR records the derivation, not the practice.
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

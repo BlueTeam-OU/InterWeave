@@ -5,7 +5,7 @@ topic: "card-photo-chroma-444-ruling-2026-10-25"
 description: "j371 2026-10-25 — card photo prepared at 4:4:4 accepted (image crate's encoder has no subsampling setting); subsampling is not a rule, only HUMAN-CHAT.md's media type, 256 px and 24,576 bytes bind; design 5.2's figures are 4:2:0…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

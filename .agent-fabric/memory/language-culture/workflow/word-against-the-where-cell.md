@@ -5,7 +5,7 @@ topic: "word-against-the-where-cell"
 description: "before wording a design s9 key, list every case its Where cell and the spec rows it cites name; a text true in the request's cases broke in the next one three times"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 3c95383624da9c92
+  - e1b80e6a824f4aba
 ---
 
 ## before wording a design s9 key, list every case its Where cell and the spec rows it cites name; a text true in the request's cases broke in the next one three times
@@ -27,6 +28,8 @@ On 2026-10-23, PeerRowGone was reworded three times on #396. Each text was true 
 **How to apply:** before wording a key, open the spec rows that its Where cell cites (s5.x, s8), and list every case as a short phrase in my notes. Give the cold read every case, not only the request's. If no plain sentence is true in all of them, say so, and propose one key per spec row instead of a vaguer word. Related: [[one-text-read-in-each-place]], [[name-the-referent]].
 
 A second instance on 2026-10-24 (#408): ImageUnreadable was worded for Open an image… alone ("Choose another PNG or JPEG file…", 863c1961, j152), and minutes later the key was widened to also cover a pasted image (j153). The format names that fitted a file were false for a clipboard image. The answer (36fae860) dropped the formats, and two keys were offered if the designer wants to keep them. A key that one control triggers today may be shared by a sibling control tomorrow: check whether its siblings' paths (here, Paste beside Open) could reach it before wording it to one path.
+
+A third instance, 2026-10-24 (#416): CardUndoHint placed Undo "just above the box where you type" (40b970e4, j162). The look spec's network_denied state draws no composer, so the text pointed at nothing (j163). Fixed with one key, 94724e02: the snackbar is last in the reading order in every state, so the text places it by that order ("after all the messages"). For a screen-reader text, check every state of the screen it describes, not only the usual one. A landmark found by reading order outlasts a visual landmark that some state does not draw.
 
 *References: name-the-referent, one-text-read-in-each-place*
 

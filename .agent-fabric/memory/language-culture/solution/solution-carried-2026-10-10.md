@@ -36,7 +36,7 @@ by the first English read (delivered to rust-ui-dev-01, REQUEST
   Offline must say "offline", Unknown must not.
 - A new value drafted by its caller carries a `PLACEHOLDER (en)` line comment (line end, or the line above when it wraps), defined in labels.rs module doc on #242 (rust-ui-dev-01, 2026-10-09); grep for it to find work; the commit taking final text removes it.
 - Error texts are ONE sentence: #242 review F3 caught a two-sentence Busy text of mine; count sentences after filling the templates.
-Related: [[cold-read-without-meanings]]
+Related: [[workflow-carried-2026-10-10]]
 - Snackbar texts name what just happened and get their own UiText keys, even where a status label has the same words: "Kept", "Hidden", "No longer kept", "Sending canceled" (never "Send canceled": "send" as a noun reads foreign), "Action undone" after any Undo (set 2026-10-16, design/2026-10-16-message-swipe.md §9, a22531bf).
 - design/ specs: the prose is British like the rest of the repository, and the quoted UI strings are en-US. language-culture reviews every design/ spec's English before it merges (remit, 26524c45).
 - labels.rs keys for the swipe snackbar (delivered to rust-ui-dev-01 for #289, 2026-10-16, REPLY 01a144ec-6faa): Hide, HideConversation, ConfirmKept/Hidden/Unkept/ConversationHidden, Undo final as drafted; Restored -> "Action undone"; two new cancel snackbar keys asked for, not reuse of the status labels. Owner ruled 2026-10-16: a MESSAGE action is "Dismiss" / snackbar "Dismissed" (it never comes back); a CONVERSATION keeps "Hide" / "Conversation hidden" (spec 2ff5dc96).

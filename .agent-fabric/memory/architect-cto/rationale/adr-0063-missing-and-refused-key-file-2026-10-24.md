@@ -5,7 +5,7 @@ topic: "adr-0063-missing-and-refused-key-file-2026-10-24"
 description: "ADR-0063 A 2026-10-24 (on my Stage 21 docs branch): a missing identity-key file outside recovery is a loss (silent first key only for an identity that never shared its card), a refused file goes only with the confirmed new key, written…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
