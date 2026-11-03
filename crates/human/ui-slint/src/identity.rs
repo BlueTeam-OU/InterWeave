@@ -43,6 +43,9 @@ pub enum IdentityInput {
     Slot(usize),
     /// The discard dialog: delete the words (`true`) or continue.
     Dialog(bool),
+    /// R2's words as a full list: "Show all my words" opens it (`true`);
+    /// the text falling to 130 % or below closes it (section 4.4).
+    Review(bool),
 }
 
 /// Apply `input` to `flow`; the effects are the root's to carry out.
@@ -90,6 +93,10 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
         }
         IdentityInput::Dialog(delete) => {
             flow.discard(delete);
+            Vec::new()
+        }
+        IdentityInput::Review(open) => {
+            flow.review_words(open);
             Vec::new()
         }
     }
@@ -337,6 +344,10 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
                 })
                 .collect::<Vec<_>>(),
         ));
+        page.current = i32::try_from(entry.current()).unwrap_or(0);
+        page.review_label = text(UiText::IdReviewWords).into();
+        page.back_label = text(UiText::IdBack).into();
+        page.review = flow.reviewing();
         page.primary_enabled = entry.complete() && !flow.waiting();
     }
 

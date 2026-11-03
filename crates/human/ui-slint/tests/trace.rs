@@ -711,6 +711,185 @@ fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
     assert_eq!(page.take(), [IdentityInput::Key('w')]);
 }
 
+/// The platform's text size: 14 px is 100 %, as Android's font scale
+/// sets it.
+fn text_size(page: &mut Identity, px: f32) {
+    i_slint_core::window::WindowInner::from_pub(page.view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(px)));
+    page.settle();
+    page.settle();
+}
+
+/// Over 130 % font R2's grid is one button, "Show all my words", that
+/// opens the words as a full list (section 4.4, section 8): the list
+/// opens on the current position's row, Tab goes back arrow then rows,
+/// no letter reaches the hidden picker, Back closes it onto the button
+/// with nothing asked, a row closes it onto that position with focus on
+/// the first enabled key, and the text falling to 100 % closes it onto
+/// the grid's current position. At exactly 130 % the grid stays.
+#[test]
+fn r2s_grid_is_a_full_list_behind_a_button_over_130_percent() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    text_size(&mut page, 28.0);
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    page.enter();
+    assert_eq!(
+        page.take().last(),
+        Some(&IdentityInput::Chip("act".to_owned()))
+    );
+    assert_eq!(
+        page.flow
+            .entry()
+            .map(interweave_human_ui_model::PhraseEntry::current),
+        Some(1),
+        "control"
+    );
+
+    // Focus is on the first key after the chip: the stop before it is
+    // the button, the grid's one stop, and the banner-less page starts
+    // there.
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-review");
+    page.backtab();
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-review");
+    page.tab();
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-key",
+        "the button is the grid's one stop"
+    );
+    page.backtab();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Review(true)]);
+    assert!(page.flow.reviewing());
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-slot:1",
+        "the current row"
+    );
+    page.backtab();
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-back");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-slot:0");
+    let first = page.said.borrow().len();
+    for _ in 0..24 {
+        page.tab();
+    }
+    assert_eq!(
+        page.said.borrow()[first..].last().map(String::as_str),
+        Some("ui-trace focus=identity-back"),
+        "rows 1 to 24, then round to the arrow: nothing of R2 behind"
+    );
+    page.key("b");
+    page.key(slint::platform::Key::Backspace);
+    assert_eq!(page.take(), [], "no letter edits a word unseen");
+    assert_eq!(
+        ElementHandle::find_by_accessible_label(page.view.window(), "q").count(),
+        0,
+        "R2's keypad is hidden under the list"
+    );
+
+    page.key(slint::platform::Key::Escape);
+    assert_eq!(page.take(), [IdentityInput::Back]);
+    assert!(!page.flow.reviewing() && !page.flow.discard_asked());
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-review",
+        "what opened it"
+    );
+
+    // The arrow is Back too.
+    page.enter();
+    page.backtab();
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-back");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Review(true), IdentityInput::Back]
+    );
+    assert!(!page.flow.reviewing() && !page.flow.discard_asked());
+
+    // A row: the list closes and R2 edits that position.
+    page.enter();
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-slot:0");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Review(true), IdentityInput::Slot(0)]
+    );
+    assert!(!page.flow.reviewing());
+    assert_eq!(
+        page.flow
+            .picker()
+            .map(interweave_human_ui_model::WordPicker::typed),
+        Some("act")
+    );
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    // In typing mode: Enter is the suggestion rule's, taking "act".
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Chip("act".to_owned())]);
+
+    // The text back to 100 % closes the list onto the grid.
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-review");
+    page.enter();
+    page.take();
+    assert!(page.flow.reviewing(), "control: open");
+    text_size(&mut page, 14.0);
+    assert_eq!(page.take(), [IdentityInput::Review(false)]);
+    assert!(!page.flow.reviewing());
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-slot:1",
+        "the grid's current"
+    );
+
+    // Exactly 130 %: still the grid.
+    text_size(&mut page, 18.2);
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-slot:2");
+}
+
+/// The full list opens with the current position in view (section 4.4):
+/// position 21 at 200 % on a 360 x 640 window, far below the first rows.
+#[test]
+fn r2s_full_list_opens_with_the_current_row_in_view() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    page.view
+        .window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 640.0));
+    text_size(&mut page, 28.0);
+    interweave_human_ui_slint::apply_identity(&mut page.flow, IdentityInput::Slot(20));
+    page.settle();
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-review", "control");
+    page.enter();
+    assert_eq!(page.last(), "ui-trace focus=identity-slot:20");
+    // A row the Flickable clips away is not in the tree at all.
+    let inside = |label: &str| {
+        ElementHandle::find_by_accessible_label(page.view.window(), label)
+            .filter(|e| {
+                e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Button)
+            })
+            .any(|e| {
+                let (y, h) = (e.absolute_position().y, e.size().height);
+                y >= 0.0 && y + h <= 640.0
+            })
+    };
+    assert!(inside("21"), "the current row shows");
+    assert!(!inside("1"), "control: the list scrolled to reach it");
+}
+
 /// C3's Back with a word entered asks the same dialog as R2's (section
 /// 7): Continue entering stays on C3 with the letters, Delete words goes
 /// back to C2, and with nothing entered Back goes straight back.
