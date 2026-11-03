@@ -574,8 +574,8 @@ access.
   - The full list (§4 item 4) has no keypad and is always navigating:
     Enter and Space press the focused row or arrow, and letters and
     Backspace do nothing. Choosing a row, by any input, returns R2 in
-    typing mode, the one exception to "a press sets navigating": the
-    person is back to entering letters.
+    typing mode, an exception to "a press sets navigating", as closing
+    the discard dialog is: the person is back to entering letters.
   - A screen opens as typing. Either way the focus ring is drawn on
     the focused control, so the person sees what Enter would press
     once they move.
