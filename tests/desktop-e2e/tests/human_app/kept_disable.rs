@@ -9,7 +9,7 @@
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort};
 use interweave_transport_api::EndpointId;
 
 use crate::common::{Home, PATIENCE, example, free_port, human, stranger};
@@ -38,33 +38,17 @@ fn home() -> Home {
     home
 }
 
-/// An admin port for the endpoints. The daemon admits four admin
-/// connections, each slot freed when its connection's task ends, so under
-/// load a fresh open can be answered `Overloaded` while the last ones
-/// close: that answer means try again, and it is, within `PATIENCE` (the
-/// full suite once failed here on it).
-async fn endpoints_admin(home: &Home) -> impl interweave_local_client_api::AdminPort {
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    loop {
-        match home
-            .binding()
-            .admin([AdminCapability::Endpoints].into())
-            .await
-        {
-            Ok(admin) => return admin,
-            Err(interweave_transport_api::TransportError::Overloaded)
-                if tokio::time::Instant::now() < deadline =>
-            {
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-            Err(e) => panic!("an admin port: {e:?}"),
-        }
-    }
+/// An admin port for the endpoints, held for as long as the case asks the
+/// daemon anything (why: `harness::until_lease`).
+async fn endpoints_admin(home: &Home) -> impl AdminPort {
+    home.binding()
+        .admin([AdminCapability::Endpoints].into())
+        .await
+        .expect("an admin port")
 }
 
 /// Each endpoint's (enabled, persisted, leased) as the daemon reports it.
-async fn rows(home: &Home) -> Vec<(EndpointId, bool, bool, bool)> {
-    let admin = endpoints_admin(home).await;
+async fn rows(admin: &impl AdminPort) -> Vec<(EndpointId, bool, bool, bool)> {
     admin
         .leases()
         .await
@@ -79,15 +63,17 @@ async fn a_disable_kept_across_a_daemon_restart_moves_the_client_to_its_next_end
     let home = home();
     let mut daemon = home.start(&[]);
     daemon.serving(&home).await;
-    endpoints_admin(&home)
-        .await
+    let admin = endpoints_admin(&home).await;
+    admin
         .set_endpoint_enabled(human(), false)
         .await
         .expect("disabled");
+    drop(admin);
     assert!(daemon.terminate().await.success(), "{}", daemon.log());
 
     let mut daemon = home.start(&[]);
     daemon.serving(&home).await;
+    let admin = endpoints_admin(&home).await;
     let row = |rows: &[(EndpointId, bool, bool, bool)], id: &EndpointId| {
         rows.iter()
             .find(|r| &r.0 == id)
@@ -96,7 +82,7 @@ async fn a_disable_kept_across_a_daemon_restart_moves_the_client_to_its_next_end
     };
     // The control: the disable survived the restart while `config.yaml`
     // still says enabled -- the state the client used to misread.
-    let before = rows(&home).await;
+    let before = rows(&admin).await;
     assert_eq!(row(&before, &human()), (human(), false, true, false));
     assert!(
         std::fs::read_to_string(home.paths.config_file())
@@ -107,7 +93,7 @@ async fn a_disable_kept_across_a_daemon_restart_moves_the_client_to_its_next_end
 
     let mut app = human_app::start(&home);
     let deadline = tokio::time::Instant::now() + PATIENCE;
-    while !row(&rows(&home).await, &spare()).3 {
+    while !row(&rows(&admin).await, &spare()).3 {
         assert!(
             tokio::time::Instant::now() < deadline,
             "the client never leased `human-spare`: {}\n{}",
@@ -116,7 +102,7 @@ async fn a_disable_kept_across_a_daemon_restart_moves_the_client_to_its_next_end
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let after = rows(&home).await;
+    let after = rows(&admin).await;
     assert_eq!(
         row(&after, &human()),
         (human(), false, true, false),
@@ -124,5 +110,6 @@ async fn a_disable_kept_across_a_daemon_restart_moves_the_client_to_its_next_end
     );
     assert!(app.running(), "{}", app.report());
     assert!(app.terminate().success(), "{}", app.log());
+    drop(admin);
     assert!(daemon.terminate().await.success(), "{}", daemon.log());
 }

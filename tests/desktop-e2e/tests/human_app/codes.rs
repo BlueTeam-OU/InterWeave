@@ -59,7 +59,7 @@ use interweave_human_ui_model::{
 };
 use interweave_ipc_client::IpcBinding;
 use interweave_local_client_api::{
-    AddressSource, AdminBinding as _, AdminCapability, AdminPort as _, BootstrapAddress,
+    AddressSource, AdminBinding as _, AdminCapability, AdminPort, BootstrapAddress,
 };
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
 
@@ -86,13 +86,17 @@ async fn allowed(home: &Home) -> Vec<String> {
     view.peers().map(|p| p.as_str().to_owned()).collect()
 }
 
-/// Every bootstrap address the daemon holds, authored then added.
-async fn addresses(home: &Home) -> Vec<BootstrapAddress> {
-    let port = home
-        .binding()
+/// A peers admin port, held for every read a case makes (why:
+/// `harness::until_lease`).
+async fn peers_admin(home: &Home) -> impl AdminPort {
+    home.binding()
         .admin([AdminCapability::Peers].into())
         .await
-        .expect("an admin port");
+        .expect("an admin port")
+}
+
+/// Every bootstrap address the daemon holds, authored then added.
+async fn addresses(port: &impl AdminPort) -> Vec<BootstrapAddress> {
     port.bootstrap_addresses().await.expect("the address list")
 }
 
@@ -173,7 +177,8 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
         trusted.iter().any(|p| p == world.b_peer.as_str()),
         "the control: the trust read is live and holds B: {trusted:?}"
     );
-    let before = addresses(&world.a).await;
+    let peers = peers_admin(&world.a).await;
+    let before = addresses(&peers).await;
     assert!(
         !before.iter().any(|r| r.address.contains(&hostile)),
         "{before:?}"
@@ -225,7 +230,7 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
     let deadline = Instant::now() + PATIENCE;
     loop {
         pump(&mut model, &mut facade, &mut commands, start).await;
-        let now = addresses(&world.a).await;
+        let now = addresses(&peers).await;
         if now.len() > before.len() {
             break;
         }
@@ -254,7 +259,7 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let after = addresses(&world.a).await;
+    let after = addresses(&peers).await;
     let mut want = before.clone();
     want.extend(lines.iter().map(|line| BootstrapAddress {
         address: line.clone(),
@@ -417,7 +422,8 @@ async fn a_code_image_pasted_in_the_window_adds_its_addresses_and_nothing_else()
         format!("/ip4/10.0.0.8/tcp/4001/p2p/{hostile}"),
     ];
     let trusted = allowed(&world.a).await;
-    let before = addresses(&world.a).await;
+    let peers = peers_admin(&world.a).await;
+    let before = addresses(&peers).await;
     assert!(
         !before.iter().any(|r| r.address.contains(&hostile)),
         "the control: none of the code's lines yet: {before:?}"
@@ -456,7 +462,7 @@ async fn a_code_image_pasted_in_the_window_adds_its_addresses_and_nothing_else()
         )
         .await;
     drop(words);
-    assert_eq!(addresses(&world.a).await, before, "text pastes no add");
+    assert_eq!(addresses(&peers).await, before, "text pastes no add");
 
     // The code's image: added at once, as one add.
     let _image = clipboard::Owner::hold(
@@ -466,7 +472,7 @@ async fn a_code_image_pasted_in_the_window_adds_its_addresses_and_nothing_else()
     window.activate(&paste, "click").await;
     let deadline = Instant::now() + PATIENCE;
     let after = loop {
-        let now = addresses(&world.a).await;
+        let now = addresses(&peers).await;
         if now.len() >= before.len() + lines.len() {
             break now;
         }
@@ -589,14 +595,15 @@ async fn a_hostile_clipboard_owner_is_given_up_at_the_deadline() {
         "/ip4/10.0.0.9/tcp/4001/p2p/{}",
         world.b_peer.as_str()
     )];
-    let before = addresses(&world.a).await;
+    let peers = peers_admin(&world.a).await;
+    let before = addresses(&peers).await;
     let _image = clipboard::Owner::hold(
         "image/png",
         clipboard::Holding::Whole(code_png(&lines.join("\n"))),
     );
     window.activate(&paste, "click").await;
     let deadline = Instant::now() + PATIENCE;
-    while addresses(&world.a).await.len() <= before.len() {
+    while addresses(&peers).await.len() <= before.len() {
         assert!(
             Instant::now() < deadline,
             "the paste after the hostile owners was never added\n{}",

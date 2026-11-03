@@ -10,9 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use interweave_ipc_client::IpcBinding;
-use interweave_local_client_api::{
-    AdminBinding as _, AdminCapability, AdminPort as _, LeaseRecord,
-};
+use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort, LeaseRecord};
+use interweave_transport_api::TransportError;
 
 use crate::common::{Home, PATIENCE, human};
 
@@ -209,21 +208,51 @@ pub(crate) fn start_with(home: &Home, extra: &[&str]) -> App {
 
 /// The `human` endpoint's live lease on `home`'s daemon.
 pub(crate) async fn human_lease(binding: &IpcBinding) -> Option<LeaseRecord> {
-    let admin = binding
+    lease_on(&endpoints_admin(binding).await)
+        .await
+        .expect("the leases")
+}
+
+async fn endpoints_admin(binding: &IpcBinding) -> impl AdminPort {
+    binding
         .admin([AdminCapability::Endpoints].into())
         .await
-        .expect("an admin port");
-    let views = admin.leases().await.expect("the leases");
-    views
+        .expect("an admin port")
+}
+
+async fn lease_on(admin: &impl AdminPort) -> Result<Option<LeaseRecord>, TransportError> {
+    Ok(admin
+        .leases()
+        .await?
         .into_iter()
         .find(|v| v.endpoint == human())
-        .and_then(|v| v.lease)
+        .and_then(|v| v.lease))
 }
 
 /// Wait until the `human` lease is held (`true`) or free (`false`).
+///
+/// One admin port answers every turn, the rule for every poll of the
+/// daemon in these cases: the shipped profile admits four admin
+/// connections, and a closed one keeps its slot until the daemon's task
+/// for it ends (ipc-server's `Slot` moves into that task in `server.rs`;
+/// no test pins the window), so a port opened per turn could be refused
+/// under the full suite's load (j197). A port whose daemon went away
+/// (`BackendUnavailable`, `ShuttingDown`) is dropped and the next turn
+/// opens another; any other answer to the read fails the wait with it.
 pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
     let deadline = tokio::time::Instant::now() + PATIENCE;
-    while human_lease(binding).await.is_some() != held {
+    let mut admin = None;
+    loop {
+        let port = match admin.take() {
+            Some(port) => port,
+            None => endpoints_admin(binding).await,
+        };
+        match lease_on(&port).await {
+            Ok(lease) if lease.is_some() == held => return,
+            Ok(_) => admin = Some(port),
+            Err(TransportError::BackendUnavailable | TransportError::ShuttingDown) => {}
+            Err(e) => panic!("the leases: {e:?}\n{}", app.log()),
+        }
         assert!(
             tokio::time::Instant::now() < deadline,
             "the human lease never became {}: {}",
