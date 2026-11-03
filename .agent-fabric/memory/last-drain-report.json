@@ -418,13 +418,6 @@
     {
       "agent": "language-culture-en",
       "decision": "supersede",
-      "key": "language-culture/domain:typed-names-not-joined#names a person types (contact names) are never joined into one list string; a name holding \"and\" or a comma reads as more people",
-      "observed_at": "2026-10-23",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "language-culture-en",
-      "decision": "supersede",
       "key": "language-culture/workflow:word-against-the-where-cell#before wording a design s9 key, list every case its Where cell and the spec rows it cites name; a text true in the request's cases broke in the next one three times",
       "observed_at": "2026-10-23",
       "rule": "same-agent"
@@ -1046,7 +1039,6 @@
     ".agent-fabric/memory/rust-services-dev/workflow/mutation-runs-save-the-fix-first.md",
     ".agent-fabric/memory/rust-services-dev/workflow/narrow-before-driving.md",
     ".agent-fabric/memory/rust-services-dev/workflow/post-review-from-transcript.md",
-    ".agent-fabric/memory/rust-services-dev/workflow/spike-tmpdir-sun-len.md",
     ".agent-fabric/memory/rust-services-dev/workflow/supply-on-a-for-branch.md",
     ".agent-fabric/memory/rust-ui-dev/solution/recovery-warning-placement.md",
     "memory/domains/rust-ui-dev/domain/android-device-credential-prompt.md",
@@ -1180,7 +1172,6 @@
     "memory/domains/rust-ui-dev/domain/slint-swipe-handler-no-size.md",
     "memory/domains/rust-ui-dev/domain/slint-timer-running-assignment.md",
     ".agent-fabric/memory/rust-ui-dev/solution/accept-carries-shown-context.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/android-no-identity-key.md",
     ".agent-fabric/memory/rust-ui-dev/solution/card-parser-grammar-rule.md",
     ".agent-fabric/memory/rust-ui-dev/solution/cli-session-step-drops-updates.md",
     ".agent-fabric/memory/rust-ui-dev/solution/pixel-debug-key-not-mine.md",
@@ -1283,7 +1274,7 @@
     ".agent-fabric/memory/ux-designer/workflow/spec-cites-only-recorded-methods.md",
     ".agent-fabric/memory/ux-designer/workflow/workflow-carried-2026-10-18.md"
   ],
-  "files_written": 712,
+  "files_written": 710,
   "harvest": {
     "host": "develop-qzapp",
     "in_scope": 55,
@@ -1517,7 +1508,9 @@
   },
   "held_back": [
     "language-culture/solution:interweave-copy-conventions",
-    "p2p-network-dev/threads:j134-control-plane-over-interweave"
+    "p2p-network-dev/threads:j134-control-plane-over-interweave",
+    "rust-services-dev/workflow:spike-tmpdir-sun-len",
+    "rust-ui-dev/solution:android-no-identity-key"
   ],
   "hygiene_problems": [],
   "memory_helpful": {},
@@ -2102,11 +2095,6 @@
       "heading": "InterWeave rust CI job — cargo target cache sizes, nextest gains, and how a warm cache was measured before merge (PR #288, 2026-10-16)",
       "home": ".agent-fabric/memory/devex-tooling/solution",
       "key": "c1948927def50f9c"
-    },
-    {
-      "heading": "names a person types (contact names) are never joined into one list string; a name holding \"and\" or a comma reads as more people",
-      "home": "memory/domains/language-culture/domain",
-      "key": "e5b4734ccabaac3f"
     },
     {
       "heading": "I hold English (en-US) in gzapp too, since 2026-10-10; how a gzapp en-US supply is delivered and validated from this account",
@@ -4203,11 +4191,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-23"
     },
-    ".agent-fabric/memory/rust-services-dev/workflow/spike-tmpdir-sun-len.md#TMPDIR for daemon runs — the scratchpad is too long for SUN_LEN, but $XDG_RUNTIME_DIR breaks the netns e2e test; set it per run, not for xtask ci": {
-      "agent": "rust-services-dev-02",
-      "host": "develop-qzapp",
-      "observed": "2026-10-25"
-    },
     ".agent-fabric/memory/rust-services-dev/workflow/supply-on-a-for-branch.md#How a supply to another agent's branch is delivered and closed here — for/ branch off their commit, fabric-jobs deliver, REPLY": {
       "agent": "rust-services-dev-02",
       "host": "develop-qzapp",
@@ -4259,11 +4242,6 @@
       "observed": "2026-10-09"
     },
     ".agent-fabric/memory/rust-ui-dev/solution/android-no-identity-key.md#Android's facade has no identity key (2026-10-24) -- Your card empty, Share refused there; j53b's job": {
-      "agent": "rust-ui-dev-02",
-      "host": "develop-qzapp",
-      "observed": "2026-10-24"
-    },
-    ".agent-fabric/memory/rust-ui-dev/solution/android-no-identity-key.md#Android's identity key -- opened or made under the Keystore since #414 (2026-10-24); what is still missing there": {
       "agent": "rust-ui-dev-02",
       "host": "develop-qzapp",
       "observed": "2026-10-24"
@@ -6120,9 +6098,9 @@
     "p2p-network-dev-01@develop-qzapp": 1793184086999,
     "p2p-network-dev-02@develop-qzapp": 1793342266938,
     "rust-services-dev-01@develop-qzapp": 1792887577653,
-    "rust-services-dev-02@develop-qzapp": 1793428738476,
+    "rust-services-dev-02@develop-qzapp": 1792900723999,
     "rust-ui-dev-01@develop-qzapp": 1793397244328,
-    "rust-ui-dev-02@develop-qzapp": 1793436686932,
+    "rust-ui-dev-02@develop-qzapp": 1792873554999,
     "user@develop-qzapp": 1793413110252,
     "ux-designer-01@develop-qzapp": 1793401616617
   }
