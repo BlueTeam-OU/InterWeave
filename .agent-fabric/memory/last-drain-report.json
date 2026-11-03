@@ -418,6 +418,13 @@
     {
       "agent": "language-culture-en",
       "decision": "supersede",
+      "key": "language-culture/domain:typed-names-not-joined#names a person types (contact names) are never joined into one list string; a name holding \"and\" or a comma reads as more people",
+      "observed_at": "2026-10-23",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "language-culture-en",
+      "decision": "supersede",
       "key": "language-culture/workflow:word-against-the-where-cell#before wording a design s9 key, list every case its Where cell and the spec rows it cites name; a text true in the request's cases broke in the next one three times",
       "observed_at": "2026-10-23",
       "rule": "same-agent"
@@ -2095,6 +2102,11 @@
       "heading": "InterWeave rust CI job — cargo target cache sizes, nextest gains, and how a warm cache was measured before merge (PR #288, 2026-10-16)",
       "home": ".agent-fabric/memory/devex-tooling/solution",
       "key": "c1948927def50f9c"
+    },
+    {
+      "heading": "names a person types (contact names) are never joined into one list string; a name holding \"and\" or a comma reads as more people",
+      "home": "memory/domains/language-culture/domain",
+      "key": "e5b4734ccabaac3f"
     },
     {
       "heading": "I hold English (en-US) in gzapp too, since 2026-10-10; how a gzapp en-US supply is delivered and validated from this account",
