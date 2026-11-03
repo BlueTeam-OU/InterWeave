@@ -607,7 +607,13 @@ impl IdentityFlow {
                 }
                 let entered = (0..PHRASE_WORDS).any(|p| entry.word(p).is_some())
                     || !entry.picker().typed().is_empty();
-                if entered && !*discard_asked {
+                if *discard_asked {
+                    // Back on the open dialog is its default, Continue
+                    // entering: a second Back never drops the words
+                    // unasked (section 7).
+                    *discard_asked = false;
+                    Vec::new()
+                } else if entered {
                     *discard_asked = true;
                     Vec::new()
                 } else {
@@ -1505,6 +1511,14 @@ mod tests {
         flow.back();
         assert!(flow.discard_asked());
         flow.discard(false);
+        assert_eq!(flow.screen(), ScreenId::R2);
+        assert_eq!(flow.entry().and_then(|e| e.word(0)), Some("acid"));
+        flow.back();
+        flow.back();
+        assert!(
+            !flow.discard_asked(),
+            "Back on the dialog continues entering"
+        );
         assert_eq!(flow.screen(), ScreenId::R2);
         assert_eq!(flow.entry().and_then(|e| e.word(0)), Some("acid"));
         flow.back();
