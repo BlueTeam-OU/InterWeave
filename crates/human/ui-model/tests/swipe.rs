@@ -574,6 +574,63 @@ fn a_reply_to_a_hidden_row_is_unavailable_while_its_snackbar_is_up() {
     assert!(matches!(reply, Some(Reply::Unavailable(_))), "{reply:?}");
 }
 
+/// Start-window §5.2 and item 17 (a), with the store asked: a target
+/// hidden by a Dismiss whose snackbar is open reads unavailable and asks
+/// the store nothing, whatever it holds; its Undo makes it present again;
+/// dismissed again and the snackbar closed, the store is asked once --
+/// after the closed snackbar's copy is released -- and the line stays
+/// unavailable while it answers and after it says the target is gone.
+/// Mutations: an ask while the snackbar is open; a stored answer shown for
+/// a hidden target; the line present while the ask is out.
+#[test]
+fn a_dismissed_target_asks_the_store_only_once_its_snackbar_closed() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let k = key(&p);
+    let target = read(&mut model, &p, 2, 2);
+    model.unread_listed(vec![ListedInbound {
+        row: row(5),
+        origin: Origin::Direct {
+            peer: p.clone(),
+            endpoint: endpoint("human"),
+        },
+        envelope: HumanChatV2 {
+            reply_to: Some(format!("{:032x}", 2)),
+            ..envelope(5, "re")
+        },
+        received_at: 5,
+    }]);
+    let reply = |model: &UiModel| {
+        model
+            .messages(&k)
+            .into_iter()
+            .find(|m| m.local_at == 5)
+            .and_then(|m| m.reply)
+    };
+    assert!(matches!(reply(&model), Some(Reply::Present(_))));
+    assert!(model.take_reply_asks().is_empty(), "held");
+
+    model.hide(target);
+    assert!(matches!(reply(&model), Some(Reply::Unavailable(_))));
+    assert!(model.take_reply_asks().is_empty(), "hidden: nothing asked");
+    assert_eq!(model.undo(snack_id(&model)), None);
+    assert!(matches!(reply(&model), Some(Reply::Present(_))), "undone");
+
+    model.hide(target);
+    model.snackbar_closed(snack_id(&model));
+    assert_eq!(model.take_released().copies, [(Table::Unread, row(2))]);
+    let asks = model.take_reply_asks();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert_eq!(asks[0].conversation, k);
+    assert_eq!(asks[0].target, format!("{:032x}", 2));
+    assert!(
+        matches!(reply(&model), Some(Reply::Unavailable(_))),
+        "while the store is asked"
+    );
+    model.reply_target_answered(&asks[0], false);
+    assert!(matches!(reply(&model), Some(Reply::Unavailable(_))));
+}
+
 #[test]
 fn a_new_snackbar_replaces_the_old_and_its_undo_goes_with_it() {
     let p = peer();
