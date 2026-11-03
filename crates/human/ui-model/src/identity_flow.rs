@@ -201,6 +201,10 @@ enum Screen {
         notice: Option<Notice>,
         checking: bool,
         discard_asked: bool,
+        /// "Show all my words" opened the grid as a full list (section
+        /// 4.4, over 130 % font): flow state, so a rotation or a return
+        /// from Home finds it open.
+        reviewing: bool,
     },
     R3 {
         origin: Origin,
@@ -473,6 +477,18 @@ impl IdentityFlow {
         }
     }
 
+    /// R2's words show as a full list (`IdReviewWords` opened it).
+    #[must_use]
+    pub fn reviewing(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::R2 {
+                reviewing: true,
+                ..
+            }
+        )
+    }
+
     /// R2's phrase entry, for its grid.
     #[must_use]
     pub fn entry(&self) -> Option<&PhraseEntry> {
@@ -622,8 +638,15 @@ impl IdentityFlow {
                 entry,
                 discard_asked,
                 checking,
+                reviewing,
                 ..
             } => {
+                // The list's Back closes it, nothing changed: the
+                // discard dialog is for Back on R2 itself.
+                if *reviewing {
+                    *reviewing = false;
+                    return Vec::new();
+                }
                 if *checking {
                     return Vec::new();
                 }
@@ -723,11 +746,34 @@ impl IdentityFlow {
         }
     }
 
-    /// R2: edit a grid position.
+    /// R2: edit a grid position; chosen from the full list, the list
+    /// closes onto the picker.
     pub fn edit(&mut self, position: usize) {
-        if let Screen::R2 { entry, notice, .. } = &mut self.screen {
+        if let Screen::R2 {
+            entry,
+            notice,
+            reviewing,
+            ..
+        } = &mut self.screen
+        {
             entry.edit(position);
             *notice = None;
+            *reviewing = false;
+        }
+    }
+
+    /// R2: open (`true`) or close the words as a full list. It opens only
+    /// while neither the discard dialog nor a check is pending: either
+    /// holds R2's words where they are.
+    pub fn review_words(&mut self, open: bool) {
+        if let Screen::R2 {
+            reviewing,
+            discard_asked,
+            checking,
+            ..
+        } = &mut self.screen
+        {
+            *reviewing = open && !*discard_asked && !*checking;
         }
     }
 
@@ -969,6 +1015,7 @@ impl IdentityFlow {
             notice: None,
             checking: false,
             discard_asked: false,
+            reviewing: false,
         }
     }
 
@@ -998,6 +1045,7 @@ impl IdentityFlow {
             notice: None,
             checking: false,
             discard_asked: false,
+            reviewing: false,
         };
     }
 
@@ -1559,6 +1607,35 @@ mod tests {
         assert_eq!(flow.screen(), ScreenId::R1);
         flow.primary();
         assert_eq!(flow.entry().and_then(|e| e.word(0)), None, "words dropped");
+    }
+
+    /// Section 4.4's full list over 130 % font: Back closes it with every
+    /// word kept and no dialog; a position chosen there closes it onto
+    /// that position; it never opens over the dialog or a check.
+    #[test]
+    fn r2s_full_list_closes_on_back_or_a_position_and_waits_for_the_dialog() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        enter(&mut flow, "acid");
+        flow.review_words(true);
+        assert!(flow.reviewing());
+        assert_eq!(flow.back(), []);
+        assert!(!flow.reviewing(), "Back closes the list");
+        assert!(!flow.discard_asked(), "the list's Back asks nothing");
+        assert_eq!(flow.entry().and_then(|e| e.word(0)), Some("acid"));
+        flow.review_words(true);
+        flow.edit(0);
+        assert!(!flow.reviewing(), "a position chosen closes the list");
+        assert_eq!(flow.picker().map(WordPicker::typed), Some("acid"));
+        flow.back();
+        assert!(flow.discard_asked());
+        flow.review_words(true);
+        assert!(!flow.reviewing(), "never over the discard dialog");
+        flow.discard(false);
+        flow.review_words(true);
+        flow.review_words(false);
+        assert!(!flow.reviewing());
     }
 
     #[test]
