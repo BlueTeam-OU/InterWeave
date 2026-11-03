@@ -454,6 +454,20 @@ fn the_identity_page_keeps_tab_on_its_own_stops() {
     );
 }
 
+fn tap(view: &View, x: f32, y: f32) {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let position = slint::LogicalPosition::new(x, y);
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    });
+}
+
 /// One word per letter but x, so the keypad has a disabled key; "act"
 /// is a whole word that starts two more, so its chip leads a row of
 /// three (design/2026-10-19-android-identity.md section 4).
@@ -668,6 +682,15 @@ fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
     );
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Chip("act".to_owned())]);
+    // Still typing after the rule's Enter: Space and Enter add nothing to
+    // the key focus went to.
+    page.key(" ");
+    page.enter();
+    assert_eq!(page.take(), [], "typing: Space and Enter press no key");
+    // TAB is navigating again: Enter presses the focused key, w after q.
+    page.tab();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')]);
 }
 
 /// A banner that appears takes focus (section 8): Welcome's refused
@@ -735,6 +758,15 @@ fn the_discard_dialog_takes_focus_holds_it_and_gives_it_back() {
     assert_eq!(page.last(), "ui-trace focus=identity-key");
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Key('w')], "back on w");
+
+    // A tap outside the dialog is Continue entering too.
+    page.key(Key::Backspace);
+    page.key(Key::Escape);
+    page.take();
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    tap(&page.view, 2.0, 2.0);
+    page.settle();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
 
     page.key(Key::Escape);
     page.key(Key::Escape);

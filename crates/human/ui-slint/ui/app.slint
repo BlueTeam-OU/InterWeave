@@ -1684,9 +1684,6 @@ component IdentityStop inherits FocusScope {
     changed focus-seq => {
         if (root.focus-wanted) { root.focus(); }
     }
-    // Enter goes on to the page, for its suggestion rule, while the
-    // person types letters; Space still presses.
-    in property <bool> enter-passes;
     callback pressed();
     callback focus-taken();
     accessible-role: button;
@@ -1694,7 +1691,6 @@ component IdentityStop inherits FocusScope {
     accessible-enabled: root.enabled-action;
     accessible-action-default => { if (root.enabled-action) { root.pressed(); } }
     key-pressed(event) => {
-        if (event.text == Key.Return && root.enter-passes) { return reject; }
         if (event.text == Key.Return || event.text == " ") {
             if (root.enabled-action) { root.pressed(); }
             return accept;
@@ -1893,14 +1889,34 @@ component IdentityScreen inherits FocusScope {
         root.chip-taken = true;
         root.chip(word);
     }
-    // The person types letters on a hardware keyboard: Enter is then the
-    // suggestion rule's (section 8), even on the key focus went to after
-    // a chip, which would otherwise take every Enter. TAB or a press of a
-    // key ends it, and Enter presses the focused control again.
+    // Enter and Space follow the last input (section 8). Typing -- the
+    // last was a hardware letter, Backspace or Enter by the suggestion
+    // rule -- Enter takes the only suggestion or the whole-word chip and
+    // otherwise does nothing, and Space does nothing: on the key focus
+    // went to after a chip they would add a letter. Navigating -- TAB, a
+    // tap or a press of a control -- they press the focused control.
     property <bool> typing;
     function press-key(letter: string) {
         root.typing = false;
         root.key(letter);
+    }
+    // The rule's Enter: the only chip, or the whole word typed, which
+    // leads the row.
+    function enter-takes() -> bool {
+        return root.page.picker && root.page.chips.length > 0
+            && (root.page.chips.length == 1 || root.page.chips[0] == root.page.typed);
+    }
+    capture-key-pressed(event) => {
+        if (!root.typing || root.page.dialog) { return reject; }
+        if (event.text == Key.Return) {
+            if (root.enter-takes()) {
+                root.take(root.page.chips[0]);
+                root.typing = true;
+            }
+            return accept;
+        }
+        if (event.text == " ") { return accept; }
+        reject
     }
     // A hardware keyboard enters letters (acceptance item 15); Escape is
     // Back.
@@ -1928,15 +1944,11 @@ component IdentityScreen inherits FocusScope {
             root.key(event.text);
             return accept;
         }
-        // Enter takes the only suggestion, or the whole-word chip, which
-        // leads the row, when the letters typed are a word (section 8).
-        if (event.text == Key.Return && root.page.picker && root.page.chips.length > 0
-                && (root.page.chips.length == 1 || root.page.chips[0] == root.page.typed)) {
+        // Enter with no control focused: the suggestion rule's.
+        if (event.text == Key.Return && root.enter-takes()) {
             root.take(root.page.chips[0]);
             return accept;
         }
-        // Typing, with no suggestion Enter can take: nothing.
-        if (event.text == Key.Return && root.typing) { return accept; }
         reject
     }
     Rectangle { background: Palette.surface; }
@@ -2068,7 +2080,7 @@ component IdentityScreen inherits FocusScope {
                         label: slot.number + (slot.word != "" ? " " + slot.word : "");
                         focus-seq: root.focus-seq;
                         focus-wanted: root.want-seg == 1 && root.want-idx == i;
-                        pressed => { root.slot(i); }
+                        pressed => { root.typing = false; root.slot(i); }
                         focus-taken => { root.took("identity-slot:" + i, 1, i); }
                         Rectangle {
                             border-width: slot.current ? 2px : 1px;
@@ -2178,7 +2190,6 @@ component IdentityScreen inherits FocusScope {
                         focus-seq: root.focus-seq;
                         focus-wanted: root.want-seg == 3
                             && (root.want-idx == -1 ? key.first : root.want-idx == key.index);
-                        enter-passes: root.typing;
                         pressed => { root.press-key(key.letter); }
                         focus-taken => { root.took("identity-key", 3, key.index); }
                         // The key and its letter dim together; the ring does not.
@@ -2207,7 +2218,7 @@ component IdentityScreen inherits FocusScope {
                     focus-key: "identity-delete";
                     focus-seq: root.focus-seq;
                     focus-wanted: root.want-seg == 4;
-                    pressed => { root.delete-letter(); }
+                    pressed => { root.typing = false; root.delete-letter(); }
                     focused(k) => { root.took(k, 4, 0); }
                 }
                 ActionButton {
@@ -2216,7 +2227,7 @@ component IdentityScreen inherits FocusScope {
                     focus-key: "identity-clear";
                     focus-seq: root.focus-seq;
                     focus-wanted: root.want-seg == 5;
-                    pressed => { root.clear-word(); }
+                    pressed => { root.typing = false; root.clear-word(); }
                     focused(k) => { root.took(k, 5, 0); }
                 }
             }
@@ -2235,7 +2246,7 @@ component IdentityScreen inherits FocusScope {
             danger: root.page.primary-danger;
             focus-seq: root.focus-seq;
             focus-wanted: root.want-seg == 6;
-            pressed => { root.primary(); }
+            pressed => { root.typing = false; root.primary(); }
             focused(k) => { root.took(k, 6, 0); }
         }
         if root.page.secondary != "": HorizontalLayout {
@@ -2248,7 +2259,7 @@ component IdentityScreen inherits FocusScope {
                 focus-key: "identity-secondary";
                 focus-seq: root.focus-seq;
                 focus-wanted: root.want-seg == 7;
-                pressed => { root.secondary(); }
+                pressed => { root.typing = false; root.secondary(); }
                 focused(k) => { root.took(k, 7, 0); }
             }
         }
@@ -2261,7 +2272,7 @@ component IdentityScreen inherits FocusScope {
                 focus-key: "identity-tertiary";
                 focus-seq: root.focus-seq;
                 focus-wanted: root.want-seg == 8;
-                pressed => { root.tertiary(); }
+                pressed => { root.typing = false; root.tertiary(); }
                 focused(k) => { root.took(k, 8, 0); }
             }
         }
@@ -2279,12 +2290,15 @@ component IdentityScreen inherits FocusScope {
     // focus when it opens (the page's `changed page`).
     if root.page.dialog: Rectangle {
         background: #00000080;
-        TouchArea { }
+        // A tap outside the dialog is Continue entering, as Back is.
+        TouchArea { clicked => { root.dialog(false); } }
         Rectangle {
             width: min(parent.width - 48px, 360px);
             height: dialog-box.preferred-height;
             background: Palette.surface-container-high;
             border-radius: 16px;
+            // A tap on the dialog itself is no tap outside it.
+            TouchArea { }
             dialog-box := VerticalLayout {
                 padding: 24px;
                 spacing: 16px;
