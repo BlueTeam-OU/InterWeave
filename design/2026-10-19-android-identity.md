@@ -444,7 +444,11 @@ Errors appear inline on the screen they belong to, never in a snackbar.
 A snackbar times out, and these need the person's action. Their text
 is in `error` on the screen's surface. A banner uses
 `surface-container` with an `error` icon, as the look spec's notices
-do.
+do. On R2 every banner and notice of this table shows in one place,
+above the grid: the checksum banner, `IdOtherIdentity`, `IdBusy`,
+`IdStorageFailed`, `IdStorageUnknown` and `IdRestoreOther`. They are
+outcomes of one check, so at most one shows, with its own action
+(`TryAgain` or Continue) under its text.
 
 ## 7. Leaving, Back and interruptions
 
@@ -459,9 +463,10 @@ do.
   - Continue entering, however chosen, returns focus to the control
     that held it when Back was pressed. Back is a key, not a control
     on the screen, so that control stands for "what opened it" (§8).
-  - `IdDiscard` drops the words and goes back. On the screen Back
-    reaches, focus goes to the control that opened the screen just
-    left, as for C2's pages (§8).
+  - `IdDiscard` drops the words and goes back.
+  - Back from R2 or C3, with the dialog or with nothing entered: on
+    the screen Back reaches, focus goes to the control that opened
+    the screen just left, as for C2's pages (§8).
 - **The app leaves the screen.** Home, a call, or another app opening.
   A stopped Activity is neither completion nor cancellation (§11 Q1):
   - on return, every screen shows what it showed, with entered words
@@ -480,13 +485,23 @@ do.
 
 The screens are workable without touch: a hardware keyboard or switch
 access.
-- Focus order follows the reading order of §4 and §6, top to bottom:
-  app bar, position, letters, the suggestion chips, the letter keys
-  row by row, the delete key, the clear key, the checksum banner while
-  it shows (R2, §6: above the grid), the grid's positions by number (or
-  `IdReviewWords` over 130 % font), then the screen's actions, primary
-  first. The grid is under the keypad (§4 item 4); a build that draws
-  it above is a deviation, and moving it would change this order.
+- Focus order follows the reading order of §4 and §6:
+  - **R2 in portrait**, top to bottom: app bar, position, letters, the
+    suggestion chips, the letter keys row by row, the delete key, the
+    clear key, the banner or notice while one shows and then its
+    action (§6: above the grid), the grid's positions by number (or
+    `IdReviewWords` over 130 % font), then the screen's actions,
+    primary first. In portrait the grid is under the keypad (§4 item
+    4); a build that draws it above is a deviation, and moving it
+    would change this order.
+  - **R2 in landscape**, start side, then end side (§4, Landscape):
+    app bar, position, letters, the banner or notice and its action,
+    the grid (or `IdReviewWords`), then the chips, the letter keys,
+    delete and clear, then the screen's actions, primary first.
+  - **C3**: app bar, title, body, position, letters, and while it
+    shows `IdCheckWrong` under the entry with `TryAgain` then
+    `IdShowAgain`, then the chips, the letter keys, delete and clear.
+    In landscape, the end side's chips and keys follow the same way.
 - A typed hardware letter acts as its key, and Backspace as the delete
   key.
 - What Enter and Space do depends on the last input:
@@ -499,13 +514,19 @@ access.
   - **Navigating** — the last input was Tab, an arrow, a tap, or a
     press of a control. Enter and Space press the focused control, as
     on every other screen.
+  - Every other input leaves the mode as it was: Space, an Enter that
+    did nothing, Back and Escape. Closing the discard dialog (§7),
+    however it is closed, returns the screen to the mode it was in
+    when Back was pressed.
   - A screen opens as typing. Either way the focus ring is drawn on
     the focused control, so the person sees what Enter would press
     once they move.
 - After a chip fills a position, focus goes to the keypad's first
   enabled key.
 - After an error banner appears, focus goes to the banner.
-- After a dialog closes, focus returns to what opened it.
+- After a dialog closes, focus returns to what opened it. The discard
+  dialog's `IdDiscard` leaves the screen instead, and §7 names where
+  focus goes then.
 - Between the two pages of C2 or S2: going forward, focus goes to the
   PeerId page's title, so the reading starts at the top; Back to the
   words page returns focus to the primary action that left it.
@@ -757,16 +778,27 @@ scale would also be a finding of the Android review
 15. A hardware keyboard enters a word by its letters, with Enter on a
     single suggestion and on the whole-word chip ("car"). Focus follows
     §8:
-    - Tab from the app bar visits, in order, position, letters, chips,
-      keys, delete, clear, the checksum banner (when shown), the grid
-      (or `IdReviewWords` at 200 %) and the actions, primary first.
-    - After typing "ab", Enter does nothing and Space does nothing.
-      After a Tab to a key, Enter and Space each press that key.
+    - Tab from the app bar visits §8's order for R2 in portrait and in
+      landscape, with the checksum banner shown and, by a test hook,
+      with `IdStorageFailed` shown; and for C3 with `IdCheckWrong`
+      shown.
+    - On a newly opened R2, Enter does nothing. After typing "ab",
+      Enter does nothing and Space does nothing, and after each the
+      next Enter still does nothing. After "car", Enter takes the
+      "car" chip, and Space then does nothing. While typing, the focus
+      ring shows on the focused control.
+    - After a Tab to a key, and after an arrow to a key, Enter and
+      Space each press that key; after a tap on a key, Enter presses
+      the focused control.
     - Backspace deletes the last letter.
     - On R2 and C3 with a word entered, Back opens the dialog. Back
-      again, Escape and a tap outside each close it with every word
-      kept and focus on the control focused before the first Back.
+      again, Escape, a tap outside and `IdContinueEntering` each close
+      it with every word kept, focus on the control focused before the
+      first Back, and, after typing "ab", Enter still doing nothing.
       Only `IdDiscard` leaves, with the words gone.
+    - Back from C3, with `IdDiscard` or with nothing entered, puts
+      focus on `IdPeerIdWritten`; from R2 opened by R1, on
+      `IdEnterWords`.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the
