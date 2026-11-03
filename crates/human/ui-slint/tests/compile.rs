@@ -54,11 +54,18 @@ fn every_wrapped_text_has_a_height_of_its_own() {
     let mut missing = Vec::new();
     let mut checked = 0_usize;
     for (at, line) in lines.iter().enumerate() {
+        let code = line.split("//").next().unwrap_or_default();
         let Some(value) = line
             .trim_start()
             .strip_prefix("wrap")
             .and_then(|rest| rest.trim_start().strip_prefix(':'))
         else {
+            // A `wrap:` after something else on its line (a one-line
+            // `Text { wrap: word-wrap; }`) is an element this scan cannot
+            // read, so it is refused rather than passed unread.
+            if code.contains("wrap:") || code.contains("wrap :") {
+                missing.push(format!("{}: wrap not on a line of its own", at + 1));
+            }
             continue;
         };
         let value = value.split("//").next().unwrap_or_default().trim();
