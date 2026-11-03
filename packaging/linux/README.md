@@ -159,9 +159,13 @@ run with the workspace's tests.
   starts it is systemd: the person's `enable` of its unit (the row
   above), or starting the client unit, whose `BindsTo=` also pulls its
   daemon in and stops the client with it; the human client, which has no
-  unit, shows guidance when no daemon serves its profile. Whether a
-  launch action from the client is owed is the owner's, with packaging,
-  so the carry is re-carried by name.
+  unit, shows guidance when no daemon serves its profile. No launch
+  action from the client is owed: §18 (9) shows guidance, and
+  `human-client-packaging.md` lets a launcher start the daemon without
+  requiring it, so a client-side launch is an option the owner may ask
+  for. For Linux the carry's substance is met by the units, with the
+  limit the row above names; the carry stays by name as that option
+  (architect-cto's ruling of 2026-11-03, REPLY 01a1a0df).
 - **The SIGHUP carry (Stage 13, §16).**
   `tests/desktop-e2e/tests/daemon.rs::sighup_stops_as_sigterm_does_and_exits_with_the_units_restart_status`:
   SIGTERM's stop sequence in order, both sockets unlinked, the lock
