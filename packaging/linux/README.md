@@ -155,10 +155,11 @@ run with the workspace's tests.
   shown by the `default.target.wants` link, not by a login, since CI's
   manager lingers and no login is made.
 - **Client autostart of the daemon (Stage 15, §18 (9), carried to this
-  row).** Not met by a test: no client starts the daemon. What starts it
-  is the person's `enable` of its unit (the row above); the client unit's
-  `BindsTo=` runs the other way, from daemon to client, and the human
-  client shows guidance when no daemon serves its profile. Whether a
+  row).** Not met by a test: no client program starts the daemon. What
+  starts it is systemd: the person's `enable` of its unit (the row
+  above), or starting the client unit, whose `BindsTo=` also pulls its
+  daemon in and stops the client with it; the human client, which has no
+  unit, shows guidance when no daemon serves its profile. Whether a
   launch action from the client is owed is the owner's, with packaging,
   so the carry is re-carried by name.
 - **The SIGHUP carry (Stage 13, §16).**
