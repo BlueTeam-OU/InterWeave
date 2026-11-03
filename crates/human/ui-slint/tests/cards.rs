@@ -4415,3 +4415,65 @@ fn a_render_that_changes_nothing_leaves_every_contact_row_equal() {
         assert!(was == is, "row {index} made again differs");
     }
 }
+
+/// The card page scrolls to its last line at a phone's sizes. On the
+/// Galaxy A40 (about 411 x 891 logical pixels, either way up) a damaged
+/// key's Make a new key lay below the page's scroll extent and could not be
+/// reached by touch or by Tab, and in landscape the fingerprint was cut in
+/// half (j54's device run, 2026-11-03): the page took its height from its
+/// column's measured height, and a wrapped Text under a conditional layout
+/// is measured a line short. The other tests here open the page in a window
+/// tall enough for all of it, which is why none saw it. Both cases check
+/// the page's last line, the `PeerId`, and the damaged case also its last
+/// control. Mutation: the height taken off a wrapped Text these two states
+/// draw (the key-problem block, the `PeerId`); a Text drawn only after a key
+/// is made is the compile test's to hold.
+#[test]
+fn the_card_page_scrolls_to_its_last_line_at_a_phones_sizes() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    let ready = || OwnKey::Ready {
+        fingerprint: "0123456789abcdef".to_owned(),
+    };
+    // One view, as the platform is set up once per test.
+    let (mut view, mut model) = own_editor(keyless(KeyProblem::Damaged));
+    // The phone's fonts measure taller than these: the default size, then
+    // large text, so the line is not met by a few pixels' luck.
+    for font in [None, Some(28.0)] {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(font.map(i_slint_core::lengths::LogicalLength::new));
+        for (width, height) in [(411.0, 891.0), (891.0, 411.0), (320.0, 568.0)] {
+            for (case, identity, lasts) in [
+                (
+                    "damaged",
+                    keyless(KeyProblem::Damaged),
+                    vec![text(UiText::KeyMakeNew), Q],
+                ),
+                ("ready", ada(true, ready()), vec![Q]),
+            ] {
+                model.identity_shown(identity);
+                view.window()
+                    .window()
+                    .set_size(slint::LogicalSize::new(width, height));
+                view.render(&model);
+                settle();
+                view.window().window().dispatch_event(
+                    slint::platform::WindowEvent::PointerScrolled {
+                        position: slint::LogicalPosition::new(width / 2.0, height / 2.0),
+                        delta_x: 0.0,
+                        delta_y: -100_000.0,
+                    },
+                );
+                settle();
+                for last in &lasts {
+                    let (_, top, _, bottom) = bounds(&view, last);
+                    assert!(
+                        top >= 0.0 && bottom <= height,
+                        "{case} at {width}x{height}, font {font:?}: {last:?} spans \
+                     {top}..{bottom}, the window ends at {height}"
+                    );
+                }
+            }
+        }
+    }
+}
