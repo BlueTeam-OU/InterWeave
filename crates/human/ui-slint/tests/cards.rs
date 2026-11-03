@@ -4423,8 +4423,11 @@ fn a_render_that_changes_nothing_leaves_every_contact_row_equal() {
 /// half (j54's device run, 2026-11-03): the page took its height from its
 /// column's measured height, and a wrapped Text under a conditional layout
 /// is measured a line short. The other tests here open the page in a window
-/// tall enough for all of it, which is why none saw it. Mutation: any
-/// wrapped Text on the page without its own height.
+/// tall enough for all of it, which is why none saw it. Both cases check
+/// the page's last line, the `PeerId`, and the damaged case also its last
+/// control. Mutation: the height taken off a wrapped Text these two states
+/// draw (the key-problem block, the `PeerId`); a Text drawn only after a key
+/// is made is the compile test's to hold.
 #[test]
 fn the_card_page_scrolls_to_its_last_line_at_a_phones_sizes() {
     use interweave_human_ui_model::{KeyProblem, OwnKey};
@@ -4440,13 +4443,13 @@ fn the_card_page_scrolls_to_its_last_line_at_a_phones_sizes() {
             .context()
             .set_platform_default_font_size(font.map(i_slint_core::lengths::LogicalLength::new));
         for (width, height) in [(411.0, 891.0), (891.0, 411.0), (320.0, 568.0)] {
-            for (case, identity, last) in [
+            for (case, identity, lasts) in [
                 (
                     "damaged",
                     keyless(KeyProblem::Damaged),
-                    text(UiText::KeyMakeNew),
+                    vec![text(UiText::KeyMakeNew), Q],
                 ),
-                ("ready", ada(true, ready()), Q),
+                ("ready", ada(true, ready()), vec![Q]),
             ] {
                 model.identity_shown(identity);
                 view.window()
@@ -4462,12 +4465,14 @@ fn the_card_page_scrolls_to_its_last_line_at_a_phones_sizes() {
                     },
                 );
                 settle();
-                let (_, top, _, bottom) = bounds(&view, last);
-                assert!(
-                    top >= 0.0 && bottom <= height,
-                    "{case} at {width}x{height}, font {font:?}: {last:?} spans \
-                 {top}..{bottom}, the window ends at {height}"
-                );
+                for last in &lasts {
+                    let (_, top, _, bottom) = bounds(&view, last);
+                    assert!(
+                        top >= 0.0 && bottom <= height,
+                        "{case} at {width}x{height}, font {font:?}: {last:?} spans \
+                     {top}..{bottom}, the window ends at {height}"
+                    );
+                }
             }
         }
     }

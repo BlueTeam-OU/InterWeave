@@ -52,10 +52,25 @@ fn every_wrapped_text_has_a_height_of_its_own() {
     let source = std::fs::read_to_string(&path).expect("app.slint");
     let lines: Vec<&str> = source.lines().collect();
     let mut missing = Vec::new();
+    let mut checked = 0_usize;
     for (at, line) in lines.iter().enumerate() {
-        let wraps = line.trim_start().starts_with("wrap:")
-            && (line.contains("word-wrap") || line.contains("char-wrap"));
-        if !wraps {
+        let Some(value) = line
+            .trim_start()
+            .strip_prefix("wrap")
+            .and_then(|rest| rest.trim_start().strip_prefix(':'))
+        else {
+            continue;
+        };
+        let value = value.split("//").next().unwrap_or_default().trim();
+        let value = value.trim_end_matches(';').trim();
+        // An expression such as `root.wraps ? word-wrap : no-wrap` is held
+        // as wrapped when it names a wrapping mode; one naming no mode at
+        // all cannot be read here, so it is refused rather than passed.
+        if value == "no-wrap" {
+            continue;
+        }
+        if !value.contains("word-wrap") && !value.contains("char-wrap") {
+            missing.push(format!("{}: wrap bound to {value:?}", at + 1));
             continue;
         }
         let Some(open) = element_start(&lines, at) else {
@@ -65,11 +80,18 @@ fn every_wrapped_text_has_a_height_of_its_own() {
         if element_name(lines[open]) != Some("Text") {
             continue;
         }
+        checked += 1;
         let own = direct_bindings(&lines, open);
         if !own.iter().any(|b| *b == "min-height" || *b == "height") {
             missing.push(format!("{}: {}", open + 1, lines[open].trim()));
         }
     }
+    // 113 when this was written: a floor, so a scan that stops finding
+    // them fails rather than checks nothing.
+    assert!(
+        checked >= 100,
+        "the scan found only {checked} wrapped Texts in app.slint"
+    );
     assert!(
         missing.is_empty(),
         "wrapped Text without min-height: self.preferred-height:\n{}",
