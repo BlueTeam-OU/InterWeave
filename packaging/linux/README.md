@@ -132,3 +132,67 @@ v0.1.0's archive has neither, and needs glibc 2.43.
 A deployment of many profiles renders each profile's `config.yaml` from its
 own record of who is who and installs the units with its own tooling
 instead (ADR-0055 decisions 4 and 5); nothing here has to be done by hand.
+
+## What the tests show (plan §22)
+
+Stage 19's Validate rows for this package, each with the test on `main`
+that meets it or the limit that stands in its place. The cases under a
+user manager run in CI's `rust` job, a required context, in the step
+"The packaged user units under the user manager (plan §22)"; the others
+run with the workspace's tests.
+
+- **service/autostart lifecycle.**
+  `tests/desktop-e2e/tests/user_units.rs::the_installed_daemon_unit_starts_restarts_on_sighup_and_stops`:
+  installed, the unit is disabled and inactive; started, it serves the
+  profile's own PeerId; SIGHUP ends the run with the status
+  `RestartForceExitStatus=` and `SuccessExitStatus=` both name, as the
+  manager saw it, restarts it no sooner than `RestartSec=`, logs no
+  failure, and the new daemon serves the same PeerId with a fresh lease
+  epoch; the control, SIGKILL, is restarted and logged as a failure; a
+  stop exits 0, is not restarted and leaves no socket; enabled, the
+  daemon is wanted by `default.target` and the enabled client starts
+  with its daemon and stops with it. Limit: starting with the manager is
+  shown by the `default.target.wants` link, not by a login, since CI's
+  manager lingers and no login is made.
+- **Client autostart of the daemon (Stage 15, §18 (9), carried to this
+  row).** Not met by a test: no client program starts the daemon. What
+  starts it is systemd: the person's `enable` of its unit (the row
+  above), or starting the client unit, whose `BindsTo=` also pulls its
+  daemon in and stops the client with it; the human client, which has no
+  unit, shows guidance when no daemon serves its profile. Whether a
+  launch action from the client is owed is the owner's, with packaging,
+  so the carry is re-carried by name.
+- **The SIGHUP carry (Stage 13, §16).**
+  `tests/desktop-e2e/tests/daemon.rs::sighup_stops_as_sigterm_does_and_exits_with_the_units_restart_status`:
+  SIGTERM's stop sequence in order, both sockets unlinked, the lock
+  released and kept, and the exit status read from the unit file, which
+  must name it in both keys and not as 0 to 3; started again, the same
+  PeerId and a fresh epoch. The restart through the unit is the row
+  above.
+- **The units' CI cover (§28 step 4, the supervision-units carry).** The
+  CI step named above runs the `#[ignore]`d cases of `user_units.rs`, the
+  two that need a manager, one at a time under the runner's lingering
+  user manager; the others run in the `Tests` step without one.
+- **uninstall semantics.**
+  `user_units.rs::uninstall_stops_every_instance_removes_the_package_and_keeps_the_profile`:
+  every instance stopped, disabled and no longer loaded, the templates
+  and the four programs removed, no socket left, every file under the
+  profile's four XDG directories kept, a link left by a partial
+  uninstall removed by a second run, a run from a shell with no session
+  variables and one from a shell with another account's both reaching
+  this account's manager, and a reinstall serving the same PeerId from
+  the kept key. Beside it:
+  `user_units.rs::uninstall_with_no_manager_removes_every_link_with_the_package`,
+  `user_units.rs::uninstall_refuses_a_running_manager_it_cannot_reach`
+  and `user_units.rs::uninstall_refuses_a_manager_whose_query_fails`
+  (removes nothing when it could not stop what runs), and for install,
+  `user_units.rs::install_with_a_missing_input_writes_nothing` and
+  `user_units.rs::install_over_a_directory_at_a_destination_writes_nothing`.
+- **flock on NFS homes.** A limit, by reason: whether the profile lock
+  excludes a second host is the NFS server's lock manager's answer, not
+  this program's, and mounting NFS needs root, which no test of this
+  repository has. What the daemon owns is tested:
+  `tests/desktop-e2e/tests/daemon.rs::a_second_daemon_for_the_profile_fails_fast`
+  and `crates/config/profile-config/tests/lock.rs::a_child_holding_the_lock_blocks_the_parent_until_it_is_killed`.
+  The rule for a shared home is the paragraph "Never run one profile on
+  two hosts at once" above.

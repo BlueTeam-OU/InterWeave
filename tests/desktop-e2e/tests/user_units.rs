@@ -24,8 +24,11 @@
 //! template into the manager's runtime unit directory (`link --runtime`,
 //! gone at logout) and gives its instance a runtime drop-in naming the
 //! installed binary and the scratch XDG tree, since the template's `%h` is
-//! the real home. Everything else -- `Restart=`, `RestartSec=`, the exit
-//! statuses, `BindsTo=`, `WantedBy=` -- is the shipped template's.
+//! the real home. The daemon's drop-in also adds an `ExecStopPost=` that
+//! records how each run ended, as the manager saw it, since a status the
+//! manager counts a success is not in its journal. Everything else --
+//! `Restart=`, `RestartSec=`, the exit statuses, `BindsTo=`, `WantedBy=`
+//! -- is the shipped template's.
 
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -138,6 +141,29 @@ fn template_seconds(key: &str) -> Duration {
         .find_map(|line| line.strip_prefix(key))
         .unwrap_or_else(|| panic!("{key} in the template"));
     Duration::from_secs(value.trim().parse().expect("whole seconds"))
+}
+
+/// The status the template restarts on and logs as a success: the one
+/// number both `RestartForceExitStatus=` and `SuccessExitStatus=` name.
+/// `daemon.rs` holds the daemon to the same lines.
+fn template_restart_status() -> String {
+    let text = std::fs::read_to_string(packaging().join("systemd/interweave-daemon@.service"))
+        .expect("the daemon template");
+    let named = |key: &str| -> Vec<String> {
+        text.lines()
+            .filter_map(|line| line.strip_prefix(key))
+            .flat_map(str::split_whitespace)
+            .map(str::to_owned)
+            .collect()
+    };
+    let force = named("RestartForceExitStatus=");
+    assert_eq!(force.len(), 1, "one restart status: {force:?}");
+    assert_eq!(
+        force,
+        named("SuccessExitStatus="),
+        "restarted and a success"
+    );
+    force[0].clone()
 }
 
 /// The shell a script runs from.
@@ -282,6 +308,12 @@ impl Installed {
             env(&roots.cache_home),
             env(roots.runtime_dir.as_deref().expect("a runtime dir")),
         );
+        // `$$` is a literal `$` to the manager, so the shell reads the
+        // two variables the manager sets for `ExecStopPost=`.
+        let daemon = format!(
+            "{daemon}ExecStopPost=/bin/sh -c 'echo \"$$EXIT_CODE $$EXIT_STATUS\" >> {}'\n",
+            env(&self.exits_file()),
+        );
         // InterWeave ships no automated client; a sleeper is the
         // deployment's program here, which is all BindsTo= needs.
         let client = "[Service]\nExecStart=\nExecStart=/usr/bin/sleep infinity\n";
@@ -291,6 +323,21 @@ impl Installed {
             std::fs::write(dir.join("e2e.conf"), conf).expect("a drop-in");
         }
         systemctl_ok(&["daemon-reload"]);
+    }
+
+    /// Where the daemon drop-in's `ExecStopPost=` appends each run's end.
+    fn exits_file(&self) -> PathBuf {
+        self.home.root.path().join("daemon-exits")
+    }
+
+    /// Each ended run of the daemon, oldest first, as the manager saw it:
+    /// `exited <status>` or `killed <signal>`.
+    fn exits(&self) -> Vec<String> {
+        std::fs::read_to_string(self.exits_file())
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
     }
 
     /// Until the daemon's two sockets accept and its admin port answers
@@ -420,8 +467,8 @@ impl Drop for Installed {
 /// The service lifecycle under the account's manager, from an install
 /// that enables nothing: started, the daemon serves; SIGHUP stops it
 /// cleanly and the unit starts it again no sooner than `RestartSec=`,
-/// the stop counted a success, with a fresh epoch and the same `PeerId`
-/// -- and the control, SIGKILL, restarts it too but is a failure; a stop
+/// the stop counted a success and ended with the status the template
+/// names, with a fresh epoch and the same `PeerId` -- and the control, SIGKILL, restarts it too but is a failure; a stop
 /// is not restarted and leaves no socket; enabling it is what makes it
 /// start with the manager, and makes the enabled client start with it
 /// and stop with it.
@@ -465,6 +512,11 @@ async fn the_installed_daemon_unit_starts_restarts_on_sighup_and_stops() {
         "a SIGHUP stop is logged as a success: {:#?}",
         installed.manager_lines()
     );
+    assert_eq!(
+        installed.exits(),
+        [format!("exited {}", template_restart_status())],
+        "the SIGHUP run ended with the status the unit restarts on"
+    );
     assert_eq!(installed.serving().await, key, "the same PeerId");
     assert_ne!(
         installed.lease_epoch().await,
@@ -482,12 +534,20 @@ async fn the_installed_daemon_unit_starts_restarts_on_sighup_and_stops() {
         "the control, SIGKILL, is logged as a failure: {:#?}",
         installed.manager_lines()
     );
+    assert_eq!(
+        installed.exits().get(1).map(String::as_str),
+        Some("killed KILL")
+    );
     installed.serving().await;
 
     // A stop is final: exit 0, no restart, no socket left.
     systemctl_ok(&["stop", daemon]);
     assert_eq!(show(daemon, "ActiveState"), "inactive");
     assert_eq!(show(daemon, "ExecMainStatus"), "0");
+    assert_eq!(
+        installed.exits().get(2).map(String::as_str),
+        Some("exited 0")
+    );
     assert!(installed.sockets_gone(), "both sockets unlinked");
     tokio::time::sleep(restart_sec + Duration::from_secs(1)).await;
     assert_eq!(
