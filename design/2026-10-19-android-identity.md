@@ -13,6 +13,9 @@ screen and "identity" names only the person's identities (§2, §3,
 Revised 2026-11-03: Back and a tap outside on the discard dialog (§7),
 what Enter and Space do (§8) and the full focus order (§8), with
 acceptance 15, at rust-ui-dev-01's QUESTION 01a1a324 (REPLY 01a1a331).
+Revised the same day: in portrait R2's grid sits above a fixed picker
+(§4, §8, acceptance 13), at rust-ui-dev-01's height figures (REPLY
+01a1a333).
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -338,7 +341,25 @@ message of its own.
 
 ## 4. The word picker
 
-One position is entered at a time. From the top of the screen:
+One position is entered at a time. In portrait R2 has two parts. At
+the top, under the app bar, a scrolling area holds the banner or
+notice while one shows (§6) and the phrase so far (item 4). Under it,
+fixed to the bottom of the screen and never scrolling, is the picker,
+items 1 to 3 below, then the screen's actions. C3 has no grid, so it
+is the picker alone.
+
+- Why: the grid does not fit under the keypad. On a 360 × 640 dp phone
+  at 100 % the column comes to about 800 dp against about 570 dp
+  between the status and navigation bars (rust-ui-dev-01's figures
+  from the view's own sizes, REPLY 01a1a333; computed, not measured on
+  the phone). Under the keypad the grid would either push the keypad
+  and the primary out of view as the person types, or shrink to a box
+  of about one row. A keypad at the bottom is also where every system
+  keyboard is.
+- The scrolling area keeps the current position in view: when the
+  position changes, it scrolls so that the position's row shows.
+
+The picker, from its top:
 
 1. **The position:** "Word n of 24" (`IdWordPosition`), and below it
    the letters typed so far. The letters show in a display that looks
@@ -377,7 +398,8 @@ One position is entered at a time. From the top of the screen:
      display, ready to delete or replace;
    - at a font scale over 130 % the grid is replaced by a "show all my
      words" button opening it as a full list, so the keypad keeps its
-     room.
+     room. The button takes the grid's place, in the scrolling area
+     above the picker.
 
 **Sizes.** Every key is at least 48 dp tall. On a 360 dp wide phone a
 QWERTY key is about 31 dp wide with 4 dp gaps, the width every
@@ -390,9 +412,10 @@ before it enters a word. Suggestion chips and the grid's positions are
 **Font scale.**
 - The letters, chips and words follow the font scale. The keys grow in
   height, never in count.
-- At 200 % on a 360 × 640 dp phone, from the top: the app bar,
-  position, letters, suggestions, keypad and primary action fit
-  without scrolling. The phrase grid moves behind its button (above).
+- At 200 % on a 360 × 640 dp phone, from the top: the app bar, the
+  "show all my words" button, position, letters, suggestions, keypad
+  and primary action fit without scrolling. The phrase grid is behind
+  its button (above).
 - The longest BIP-39 word has eight letters. Chips are sized to their
   word and wrap to a second row before any word is cut.
 
@@ -490,14 +513,12 @@ an edit of the words).
 The screens are workable without touch: a hardware keyboard or switch
 access.
 - Focus order follows the reading order of §4 and §6:
-  - **R2 in portrait**, top to bottom: app bar, position, letters, the
-    suggestion chips, the letter keys row by row, the delete key, the
-    clear key, the banner or notice while one shows and then its
-    action (§6: above the grid), the grid's positions by number (or
-    `IdReviewWords` over 130 % font), then the screen's actions,
-    primary first. In portrait the grid is under the keypad (§4 item
-    4); a build that draws it above is a deviation, and moving it
-    would change this order.
+  - **R2 in portrait**, top to bottom (§4): app bar, the banner or
+    notice while one shows and then its action (§6: above the grid),
+    the grid's positions by number (or `IdReviewWords` over 130 %
+    font), position, letters, the suggestion chips, the letter keys
+    row by row, the delete key, the clear key, then the screen's
+    actions, primary first.
   - **R2 in landscape**, start side, then end side (§4, Landscape):
     app bar, position, letters, the banner or notice and its action,
     the grid (or `IdReviewWords`), then the chips, the letter keys,
@@ -769,7 +790,10 @@ landscape:
     §6's notices. A refused write whose read-back fails (a hook) shows
     `IdStorageUnknown`, never "nothing was changed". Try again works, and Back leaves with nothing changed.
 13. At 200 % on the Pixel 9a, R2's keypad, suggestions and primary
-    action fit without scrolling, and no word is cut.
+    action fit without scrolling, and no word is cut. At 100 % in
+    portrait the grid is above the picker in a scrolling area, the
+    keypad, suggestions and primary stay in view while all 24 words
+    are entered, and the current position's row is always visible.
 14. Every key and chip is at least 48 dp tall. Keys are at least 28 dp
     wide.
 
