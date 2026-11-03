@@ -181,7 +181,8 @@ example 7 and 19). The person enters each with the picker (§4), one
 after the other. "Word 7 of 24" heads each entry.
 - After a right word, the entry moves on to the next position.
 - After both are right: → C4.
-- A wrong word shows an inline error under the entry (string
+- A wrong word shows an inline error just above the entry, at the
+  foot of the scrolling area over the fixed picker (§4; string
   `IdCheckWrong`). It says which position, and to compare with the
   paper. The entry clears, and two actions appear:
   - try again (stays on C3);
@@ -526,9 +527,9 @@ access.
     app bar, position, letters, the banner or notice and its action,
     the grid (or `IdReviewWords`), then the chips, the letter keys,
     delete and clear, then the screen's actions, primary first.
-  - **C3**: app bar, title, body, position, letters, and while it
-    shows `IdCheckWrong` under the entry with `TryAgain` then
-    `IdShowAgain`, then the chips, the letter keys, delete and clear.
+  - **C3**: app bar, title, body, and while it shows `IdCheckWrong`
+    (above the entry, §4) with `TryAgain` then `IdShowAgain`, then
+    position, letters, the chips, the letter keys, delete and clear.
     In landscape, the end side's chips and keys follow the same way.
 - A typed hardware letter acts as its key, and Backspace as the delete
   key.
