@@ -577,9 +577,10 @@ fn a_reply_to_a_hidden_row_is_unavailable_while_its_snackbar_is_up() {
 /// Start-window §5.2 and item 17 (a), with the store asked: a target
 /// hidden by a Dismiss whose snackbar is open reads unavailable and asks
 /// the store nothing, whatever it holds; its Undo makes it present again;
-/// dismissed again and the snackbar closed, the store is asked once --
-/// after the closed snackbar's copy is released -- and the line stays
-/// unavailable while it answers and after it says the target is gone.
+/// dismissed again and the snackbar closed, the store is asked once, and
+/// the line stays unavailable while it answers and after it says the
+/// target is gone: a dismissed item held no store row (its row went when
+/// it was read), so nothing about it is stored.
 /// Mutations: an ask while the snackbar is open; a stored answer shown for
 /// a hidden target; the line present while the ask is out.
 #[test]

@@ -2108,7 +2108,8 @@ impl UiModel {
 
     /// Forget `keys` entirely: shown nowhere, offered nothing, no reply
     /// resolved to them; a reply to one asks the store about it (§5.2).
-    /// Only items no store row holds.
+    /// An item's stored rows, if it holds any, stay in the store: the
+    /// ceiling and a closed window let go of such items, to load again.
     fn drop_items(&mut self, keys: &[ItemKey]) {
         for key in keys {
             if self.ephemeral_set.remove(key) {
