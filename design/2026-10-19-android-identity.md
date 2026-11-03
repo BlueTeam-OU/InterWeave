@@ -447,11 +447,15 @@ is in `error` on the screen's surface. A banner uses
 do. On R2 every banner and notice of this table shows in one place,
 above the grid: the checksum banner, `IdOtherIdentity`, `IdBusy`,
 `IdStorageFailed`, `IdStorageUnknown` and `IdRestoreOther`. They are
-outcomes of one check, so at most one shows, with its own action
-(`TryAgain` or Continue) under its text.
+outcomes of one check, so at most one shows. `IdBusy`,
+`IdStorageFailed` and `IdStorageUnknown` carry `TryAgain` under their
+text and `IdRestoreOther` carries Continue; the checksum banner and
+`IdOtherIdentity` have no action of their own (the table's way out is
+an edit of the words).
 
 ## 7. Leaving, Back and interruptions
 
+- **Escape acts as Back** on R2 and C3, wherever Back is named below.
 - **Back with words entered (R2, C3):** a dialog asks whether to
   delete the words entered (`IdDiscardTitle`). The actions are delete
   and continue entering; continue entering is the default focus. With
@@ -521,8 +525,8 @@ access.
   - A screen opens as typing. Either way the focus ring is drawn on
     the focused control, so the person sees what Enter would press
     once they move.
-- After a chip fills a position, focus goes to the keypad's first
-  enabled key.
+- When R2 or C3 opens, and after a chip fills a position, focus goes
+  to the keypad's first enabled key.
 - After an error banner appears, focus goes to the banner.
 - After a dialog closes, focus returns to what opened it. The discard
   dialog's `IdDiscard` leaves the screen instead, and §7 names where
@@ -782,7 +786,8 @@ scale would also be a finding of the Android review
       landscape, with the checksum banner shown and, by a test hook,
       with `IdStorageFailed` shown; and for C3 with `IdCheckWrong`
       shown.
-    - On a newly opened R2, Enter does nothing. After typing "ab",
+    - A newly opened R2 or C3 has focus on the keypad's first enabled
+      key, and Enter does nothing. After typing "ab",
       Enter does nothing and Space does nothing, and after each the
       next Enter still does nothing. After "car", Enter takes the
       "car" chip, and Space then does nothing. While typing, the focus
@@ -795,6 +800,8 @@ scale would also be a finding of the Android review
       again, Escape, a tap outside and `IdContinueEntering` each close
       it with every word kept, focus on the control focused before the
       first Back, and, after typing "ab", Enter still doing nothing.
+      After a Tab to a key, Back, then `IdContinueEntering`, Enter
+      presses that key.
       Only `IdDiscard` leaves, with the words gone.
     - Back from C3, with `IdDiscard` or with nothing entered, puts
       focus on `IdPeerIdWritten`; from R2 opened by R1, on
