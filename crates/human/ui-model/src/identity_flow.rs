@@ -441,6 +441,27 @@ impl IdentityFlow {
         )
     }
 
+    /// The app bar shows a back arrow (design section 3): on every screen
+    /// whose Back stays in the flow or returns to Settings. W and K1 are
+    /// first screens, whose Back leaves the app, which an arrow would
+    /// not say; C4 and R4 have no Back. The arrow is [`Self::back`], as
+    /// the platform's Back is. `the_back_arrow_shows_where_back_stays_in_the_app`
+    /// holds the list.
+    #[must_use]
+    pub fn back_arrow(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::C1
+                | Screen::C2
+                | Screen::C3(_)
+                | Screen::R1
+                | Screen::R2 { .. }
+                | Screen::R3 { .. }
+                | Screen::S1 { .. }
+                | Screen::S2
+        )
+    }
+
     /// R2's or C3's Back with words entered asks first
     /// (`IdDiscardTitle`).
     #[must_use]
@@ -1457,6 +1478,122 @@ mod tests {
         look(&flow);
 
         assert_eq!(seen, [C1, C2, C3, C4, R2, R3, R4, S1, S2], "control");
+    }
+
+    /// Section 3's app bar: the back arrow shows on every screen whose
+    /// Back goes somewhere in the app, and on no other. Each screen is
+    /// built fresh and its Back pressed, so the arrow's answer is checked
+    /// against what Back does there: never `Finish` behind an arrow, and
+    /// on a screen without one, `Finish` (W, K1) or nothing (C4, R4).
+    /// Mutation: dropping any arm of `back_arrow`, or adding W, K1, C4 or
+    /// R4, fails here.
+    #[test]
+    fn the_back_arrow_shows_where_back_stays_in_the_app() {
+        use ScreenId::{C1, C2, C3, C4, K1, R1, R2, R3, R4, S1, S2, W};
+
+        let create = |steps: usize| {
+            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+            if steps > 0 {
+                flow.primary();
+            }
+            if steps > 1 {
+                flow.created(words(), mine(), [6, 18]);
+                flow.primary();
+            }
+            if steps > 2 {
+                flow.primary();
+            }
+            if steps > 3 {
+                enter(&mut flow, "galaxy");
+                enter(&mut flow, "saddle");
+            }
+            flow
+        };
+        let restore = |steps: usize| {
+            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+            flow.restore();
+            if steps > 0 {
+                flow.primary();
+            }
+            if steps > 1 {
+                fill(&mut flow);
+                flow.primary();
+                flow.checked(Some(mine()));
+            }
+            if steps > 2 {
+                flow.primary();
+                flow.restored(Ok(()));
+            }
+            flow
+        };
+        let show = |steps: usize| {
+            let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+            if steps > 0 {
+                flow.primary();
+                flow.prompted(true);
+                flow.offline(Ok((words(), mine())));
+            }
+            flow
+        };
+        let k1 = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+                new_keys: false,
+            },
+        );
+
+        let mut seen = Vec::new();
+        for mut flow in [
+            create(0),
+            create(1),
+            create(2),
+            create(3),
+            create(4),
+            restore(0),
+            restore(1),
+            restore(2),
+            restore(3),
+            k1,
+            show(0),
+            show(1),
+        ] {
+            let screen = flow.screen();
+            let arrow = flow.back_arrow();
+            let effects = flow.back();
+            let moved = flow.screen() != screen || flow.discard_asked();
+            if arrow {
+                assert!(
+                    !effects.contains(&Effect::Finish),
+                    "{screen:?}: {effects:?}"
+                );
+                assert!(moved, "{screen:?}: the arrow goes somewhere");
+            } else {
+                assert!(
+                    effects == [Effect::Finish] || (effects.is_empty() && !moved),
+                    "{screen:?}: {effects:?}"
+                );
+            }
+            seen.push((screen, arrow));
+        }
+        assert_eq!(
+            seen,
+            [
+                (W, false),
+                (C1, true),
+                (C2, true),
+                (C3, true),
+                (C4, false),
+                (R1, true),
+                (R2, true),
+                (R3, true),
+                (R4, false),
+                (K1, false),
+                (S1, true),
+                (S2, true),
+            ]
+        );
     }
 
     /// Item 12 on R1: every fresh-install path into R2 is told that the
