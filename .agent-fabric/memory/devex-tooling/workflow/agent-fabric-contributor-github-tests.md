@@ -5,7 +5,7 @@ topic: "agent-fabric-contributor-github-tests"
 description: "changing agent-fabric's tools/fabric/github modules or their tests? push a for/ branch, not a patch — they are in devex-tooling's contributor entry"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

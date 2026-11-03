@@ -5,7 +5,7 @@ topic: "reflection-evidence-for-the-owner-names-its-build-and-source"
 description: A measurement taken to the owner names the commit it ran on and the data it read, and that commit is checked as an ancestor of origin/main first; the same numbers from unmerged code support a narrower claim
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -26,4 +26,4 @@ applies to ADR text, applied to evidence.
 
 *References: landed-means-merge-commit-on-main*
 
-*Observed 2026-10-22 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

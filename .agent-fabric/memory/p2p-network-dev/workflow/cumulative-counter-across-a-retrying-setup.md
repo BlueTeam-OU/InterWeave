@@ -5,7 +5,7 @@ topic: "cumulative-counter-across-a-retrying-setup"
 description: "a test reading a cumulative drop counter after a setup phase that retries under load must subtract the setup's share; snapshot before the phase"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

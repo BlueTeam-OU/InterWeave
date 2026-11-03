@@ -5,7 +5,7 @@ topic: "device-run-check-focus"
 description: On the shared Pixel, a scripted device run checks which app has focus before every tap and stops if it is not InterWeave; blind tap sequences can hit system settings
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -32,7 +32,7 @@ org.interweave.human; prefer one action per run while exploring; never
 tap blind after Back. Never run adb outside phone-run (one stray
 connect attempt was made outside it that day).
 
-Related: [[device-review-pixel-lease]]
+Related: [[workflow-carried-2026-10-18]]
 
 2026-10-19 run 2 (worked, phone never lost): a sourced lib whose tap/swipe/key
 call a guard on `mCurrentFocus` first, plus a reconnect check (the link drops

@@ -218,6 +218,7 @@ fn direction(d: Direction) -> &'static str {
 pub(crate) fn message_value(item: &MessageItem) -> Value {
     let reply = item.reply.as_ref().map(|r| match r {
         Reply::Present(key) => json!({ "id": key.to_string() }),
+        Reply::Stored(_) => json!({ "stored": true }),
         Reply::Unavailable(_) => json!({ "unavailable": true }),
     });
     json!({
@@ -356,6 +357,55 @@ mod tests {
         assert_eq!(value["card"]["has_photo"], false);
         assert_eq!(value["text"], "");
         assert!(message(item, false).contains("    card: Ada Lovelace\n"));
+    }
+
+    /// A reply whose target is not held prints `{"unavailable": true}`
+    /// until the store answers, and `{"stored": true}` once it says the
+    /// conversation holds the target (README, start-window §5.2).
+    /// Mutation: Stored printed as unavailable.
+    #[test]
+    fn a_reply_to_a_stored_target_prints_stored() {
+        use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
+        use interweave_human_client_api::{Origin, Received};
+        use interweave_human_ui_model::{ConversationKey, RowId, UiModel};
+        let peer = interweave_transport_api::TransportIdentity::parse(
+            "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+        )
+        .expect("a PeerId");
+        let human = interweave_transport_api::EndpointId::parse("human").expect("valid");
+        let key = ConversationKey::Direct {
+            peer: peer.clone(),
+            endpoint: Some(human.clone()),
+        };
+        let mut model = UiModel::new();
+        model.received(Received {
+            row: RowId::from_stored(2),
+            origin: Origin::Direct {
+                peer,
+                endpoint: human,
+            },
+            envelope: HumanChatV2 {
+                v: 2,
+                kind: MessageKind::Text,
+                app_message_id: format!("{:032x}", 2),
+                text: "re".to_owned(),
+                reply_to: Some(format!("{:032x}", 1)),
+                sent_at_ms: None,
+                from_endpoint: None,
+            },
+            received_at: 2,
+        });
+        let reply_to =
+            |model: &UiModel| message_value(&model.messages(&key)[0])["reply_to"].clone();
+        assert_eq!(
+            reply_to(&model),
+            json!({ "unavailable": true }),
+            "unanswered"
+        );
+        let asks = model.take_reply_asks();
+        assert_eq!(asks.len(), 1, "{asks:?}");
+        model.reply_target_answered(&asks[0], true);
+        assert_eq!(reply_to(&model), json!({ "stored": true }));
     }
 
     #[test]

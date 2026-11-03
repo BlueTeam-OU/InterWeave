@@ -5,13 +5,14 @@ topic: "arming-words-2026-10-27-ii"
 description: "arming words given 2026-10-27 evening as InterWeave below-minimum authority, each on a read head with its posted review"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 86c2750fd7757c6a
   - d642cc06ff53b848
 ---
 
@@ -28,5 +29,10 @@ derived_from:
 - #499 (3 work, 5 fix) p2p-network-dev-01 v0.2.0 release check + RUSTSEC-2026-0414 lock bump: given UNASKED at 281a8707 (DECISION 01a18200-5b50-70ef-b91d-aa70334bf092), 2026-10-28 10:40Z, to unblock every PR.
 - #504 (3 work, 2 fix, boundary) p2p-network-dev-01 port-0 fixture flake: given at 65c16491 (REPLY 01a1826a-5258-7c48-8d06-df1af580482f), 2026-10-28 12:12Z.
 - #507 (3 work, 2 fix, test-only free_port class) given at 8848b5c2 (j451, REPLY 01a182a9-bc92-7aa2-a433-5526825ca052, 2026-10-28)
+- 2026-10-28 ~14:00Z the owner: "arm 506 505 507" — #505 (1 work, 1 fix) armed at 9c23f083 (queued 2), #506 (2 work, 8 fix) armed at a37ccde7, #507 already merged by p2p-network-dev-01 on my word
+- #508 (2 work, 5 fix, human-cli G8 peers state + G7 listen filters) given at 7e020b2d then again at aab0ec8b after F5's test (j452, REPLY 01a182fb-e1af-7960-9fb4-9295b421b6ed; 2026-10-28 ~14:50Z); a word covers one head only — a push between my read and the send costs a re-ask
+- #510 (1 work, 15 fix, ux-designer-01, design/2026-10-27-start-window.md B3 placement answers) given at 4f8f04de (j453, 2026-10-30 ~05:15Z)
+- 2026-10-30 ~05:20Z the owner: "arm 509" — #509 (1 work, 1 fix) armed at f0fd0559, queued at 1
+- #511 (1 work, 2 fix, p2p-network-dev-02, Pixel run record route_hold 4/4 + paths 2/2) given at babdad9d (j455, 2026-10-30 ~06:00Z)
 
-*Observed 2026-10-28 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

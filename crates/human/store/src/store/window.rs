@@ -222,6 +222,27 @@ const SHOWN_CONVERSATIONS: &str = "SELECT DISTINCT
    FROM kept_inbound INDEXED BY kept_inbound_by_kind
   WHERE kind IN ('text', 'card')";
 
+/// Whether a direct conversation stores a shown row of an id, unread or
+/// kept: each table probed on its `_by_message` index (schema v13) at all
+/// five columns, the row never read, so no payload is.
+const REPLY_TARGET_DIRECT: &str = "SELECT EXISTS (
+     SELECT 1 FROM unread_inbound INDEXED BY unread_inbound_by_message
+      WHERE app_message_id = ?1 AND channel_id IS NULL
+        AND source_peer = ?2 AND source_endpoint = ?3 AND kind IN ('text', 'card'))
+  OR EXISTS (
+     SELECT 1 FROM kept_inbound INDEXED BY kept_inbound_by_message
+      WHERE app_message_id = ?1 AND channel_id IS NULL
+        AND source_peer = ?2 AND source_endpoint = ?3 AND kind IN ('text', 'card'))";
+
+/// The same for a channel, whoever published: the id and the channel, the
+/// kind read from the index entry.
+const REPLY_TARGET_CHANNEL: &str = "SELECT EXISTS (
+     SELECT 1 FROM unread_inbound INDEXED BY unread_inbound_by_message
+      WHERE app_message_id = ?1 AND channel_id = ?2 AND kind IN ('text', 'card'))
+  OR EXISTS (
+     SELECT 1 FROM kept_inbound INDEXED BY kept_inbound_by_message
+      WHERE app_message_id = ?1 AND channel_id = ?2 AND kind IN ('text', 'card'))";
+
 /// A peer's distinct endpoints: its conversations by a range on the
 /// index's key, its contacts' routes by the route index, never a scan of
 /// either (`the_endpoint_count_reads_its_indexes`).
@@ -384,6 +405,35 @@ impl HumanStore {
             ],
             |r| r.get(0),
         )?)
+    }
+
+    /// Whether `conversation` stores a row of `app_message_id` this build
+    /// shows, unread or kept: a reply's target the person can page to
+    /// (`design/2026-10-27-start-window.md` §5.2). A row of the id in
+    /// another conversation, or of a kind this build cannot show, is not
+    /// one; a pending row is never asked about, since the model holds every
+    /// one. Read from two index entries, never a row
+    /// (`a_reply_target_is_read_from_an_index_alone`).
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn reply_target_present(
+        &self,
+        conversation: &StoreConversation,
+        app_message_id: &str,
+    ) -> Result<bool, StoreError> {
+        Ok(match conversation {
+            StoreConversation::Direct { peer, endpoint } => self.conn.query_row(
+                REPLY_TARGET_DIRECT,
+                params![app_message_id, peer.as_str(), endpoint.as_str()],
+                |r| r.get(0),
+            )?,
+            StoreConversation::Channel(channel) => self.conn.query_row(
+                REPLY_TARGET_CHANNEL,
+                params![app_message_id, channel.as_str()],
+                |r| r.get(0),
+            )?,
+        })
     }
 
     /// One page of `conversation`'s rows of a kind this build shows, unread
@@ -685,7 +735,7 @@ impl HumanStore {
 mod tests {
     use super::{
         CHANNEL, CHANNEL_COUNTS, DIRECT, DIRECT_COUNTS, ENDPOINT_COUNT, INBOUND_COUNTS,
-        SHOWN_CONVERSATIONS, page_sql,
+        REPLY_TARGET_CHANNEL, REPLY_TARGET_DIRECT, SHOWN_CONVERSATIONS, page_sql,
     };
     use crate::{HumanStore, StoreOptions};
 
@@ -780,6 +830,49 @@ mod tests {
                 }),
                 "a row read: {plan:?}"
             );
+        }
+    }
+
+    /// Both reply-target probes read a covering `_by_message` index of each
+    /// inbound table and never a row, so never a payload: every step on an
+    /// inbound table is a SEARCH through a covering index, and the SELECT
+    /// names no column of a row (design §5.2, schema v13). Mutations:
+    /// `kind` dropped from either index in migration 13; the channel probe
+    /// bound by `channel_key`, the generated form.
+    #[test]
+    fn a_reply_target_is_read_from_an_index_alone() {
+        let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        for (sql, params) in [
+            (REPLY_TARGET_DIRECT, &["m", "p", "e"][..]),
+            (REPLY_TARGET_CHANNEL, &["m", "c"][..]),
+        ] {
+            let plan: Vec<String> = store
+                .conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .expect("plan")
+                .query_map(rusqlite::params_from_iter(params), |r| {
+                    r.get::<_, String>(3)
+                })
+                .expect("rows")
+                .collect::<Result<_, _>>()
+                .expect("plan rows");
+            for index in [
+                "SEARCH unread_inbound USING COVERING INDEX unread_inbound_by_message",
+                "SEARCH kept_inbound USING COVERING INDEX kept_inbound_by_message",
+            ] {
+                assert!(
+                    plan.iter().any(|step| step.contains(index)),
+                    "{index} not used: {plan:?}"
+                );
+            }
+            assert!(
+                !plan.iter().any(|step| {
+                    (step.contains("unread_inbound") || step.contains("kept_inbound"))
+                        && !step.contains("COVERING INDEX")
+                }),
+                "a row read: {plan:?}"
+            );
+            assert!(!sql.contains("payload"), "{sql}");
         }
     }
 

@@ -2,20 +2,21 @@
 role: "architect-cto"
 class: threads
 topic: "redacted-mayor-deck-claims-2026-10-27"
-description: "gzapp product claims confirmed for brand-comms' [redacted] mayor deck (2026-10-27, main 298717e9d) — the rewordings and the strikes, reusable for any sent deck"
+description: "gzapp product claims confirmed for brand-comms' deck for the first deployment city's mayor (2026-10-27, main 298717e9d) — the rewordings and the strikes, reusable for any sent deck"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 91ed479d90d5f26c
   - dac9b63f482580d4
 ---
 
-## gzapp product claims confirmed for brand-comms' [redacted] mayor deck (2026-10-27, main 298717e9d) — the rewordings and the strikes, reusable for any sent deck
+## gzapp product claims confirmed for brand-comms' deck for the first deployment city's mayor (2026-10-27, main 298717e9d) — the rewordings and the strikes, reusable for any sent deck
 
 j414 (brand-comms-01 QUESTION 01a17ca8). Confirmed at gzapp main 298717e9d:
 - C1 "arrival estimates" struck → "live vehicle positions, predicted journey times and crowding" (ADR-060 grades freshness; ADR-058 predicted leg durations); status = "pre-production, reference stack with synthetic vehicles/riders, not deployed in any city" (README).
@@ -31,4 +32,4 @@ j414 (brand-comms-01 QUESTION 01a17ca8). Confirmed at gzapp main 298717e9d:
 
 **C13 (equipment, integration, roads, 2026-10-27):** beacon NOT optional — crowding worker reads beacon_sightings only, boarding detection = beacon contact (ADR-016); ADR-008 "mixed fleets" = beacon|sensor families, not beacon-less; sensor optional (env data). No ticketing/payment; self-hosted OTP/Nominatim/tiles (ADR-035); GTFS bundle hand-authored v1 = input file; FCM (ADR-077) is a phone-platform dependency → say "city's or operators' existing systems", not "third-party". Nothing on the roads. Line reworded with "plus a small Bluetooth beacon".
 
-*Observed 2026-10-27 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

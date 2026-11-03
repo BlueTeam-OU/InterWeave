@@ -5,7 +5,7 @@ topic: "linux-archive-glibc-floor-v0-1-1-2026-10-25"
 description: "j369 2026-10-25 — Linux archive floor glibc 2.35 x86_64 ruled; ADR-0065 A 2026-10-25 (second) on IW #444; v0.1.1 PATCH owed; what I still owe the owner and p2p-network-dev-01"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "clean-target-after-runs"
 description: "InterWeave's target/ grows to ~90 GB across clippy/test/feature runs on this shared host — measure and remove it after a test batch"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: InterWeave
 derived_from:
   - 04f30aa82f0312a9
+  - 253ad9f4ceb38185
   - 77eab4076fa048f9
 ---
 
@@ -30,5 +31,7 @@ run's processes by PID first). Say in the status how many bytes were removed. Ne
 build or a review that reads target/ is running. Also: git worktrees and scratch under the scratchpad.
 
 2026-10-17: the host's disks filled and the fleet went down twice. fabric-coordinator's broadcast 01a14a95-abad asked every agent to clean up. Mine: InterWeave target/ 23.3 GiB plus ten ignored spikes/*/target 4.6 GiB (find them with `git status --porcelain --ignored`); home 30G before, 3.3G after. Clean after every test batch, not only when asked.
+
+2026-10-27 fleet cleanup (j87): `cargo clean` misses ignored `spikes/*/harness/target/` (and `node/target/`), ~3 GB per copy; list them with `git status --porcelain --ignored spikes` and remove only those. Finished worktrees held 50+ GB of target/: clean a worktree when its job is delivered, not at the next sweep.
 
 *Observed 2026-10-08 (p2p-network-dev)*

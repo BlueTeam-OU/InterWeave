@@ -463,7 +463,8 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         })
     }
 
-    /// The windowed mode's reads: a page, the contacts, a photo.
+    /// The windowed mode's reads: a page, the contacts, a photo, a reply's
+    /// target.
     fn window_command(
         &mut self,
         command: &WindowCommand,
@@ -498,6 +499,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 self.rows_read += read;
                 updates.push(Update::Page(Box::new(rows)));
             }
+            WindowCommand::ReadReplyTarget(ask) => updates.push(Update::ReplyTarget {
+                stored: listing::reply_target(store, ask).map_err(|e| store_failure(&e))?,
+                ask: ask.clone(),
+            }),
             // A failed read is the list's to say, as the start's is: the
             // command is done either way.
             WindowCommand::ReadContacts => updates.push(Update::ContactDirectory(

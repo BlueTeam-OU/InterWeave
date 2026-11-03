@@ -5,7 +5,7 @@ topic: "j95-profile-format-marker"
 description: "Where the profile-format marker is checked and raised in InterWeave, why the raise sits after the runtime start, and what rust-ui-dev's release.rs rows must accept"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

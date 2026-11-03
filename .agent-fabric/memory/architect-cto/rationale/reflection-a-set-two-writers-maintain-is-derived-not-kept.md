@@ -5,7 +5,7 @@ topic: "reflection-a-set-two-writers-maintain-is-derived-not-kept"
 description: "when an operator and a client both write into one trust list, no invariant the client \"keeps\" over it can hold; keep each writer's set apart and let the transport derive the composed set"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

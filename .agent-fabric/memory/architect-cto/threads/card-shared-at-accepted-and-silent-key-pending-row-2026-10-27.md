@@ -5,7 +5,7 @@ topic: "card-shared-at-accepted-and-silent-key-pending-row-2026-10-27"
 description: "Ruling 2026-10-27 (j397): card_shared_at is set at Accepted (cards 5.3); the silent first key also counts an own-card row pending outbound; ADR-0063 decision 1 owes an amendment on rust-ui-dev-02's j54 branch"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 636704fec693ac7a
+  - 98cbbaf266a8bcdb
 ---
 
 ## Ruling 2026-10-27 (j397): card_shared_at is set at Accepted (cards 5.3); the silent first key also counts an own-card row pending outbound; ADR-0063 decision 1 owes an amendment on rust-ui-dev-02's j54 branch
@@ -66,7 +67,7 @@ three for/ commits reach main via #467.
 may-have-left conversation (it does not until the record exists) and the §29 bullet omitted the
 share-again-list gap. Fixed as review-fix **432bc99c** (fourth commit on the for/ branch); design
 5.3 clause asked of ux-designer-01 by locator (REQUEST 01a17b13). Lesson: when I cite another
-owner's text as "names X too", read it at the PR head first ([[contract-text-about-a-lane-s-unmerged-code-is-read-from-that-branch-s-head]]).
+owner's text as "names X too", read it at the PR head first ([[reflection-contract-text-about-a-lane-s-unmerged-code-is-read-from-that-branch-s-head]]).
 ux-designer-01's 5.3 clause + §7 third part: **1cf914da** on `for/rust-ui-dev-02/j72-card-may-have-left`
 (from b30dbbbf, Answers: #467 F10); rust-ui-dev-02 folds it. Nothing further owed by me on j397 but
 the DCUTR.md sentence from j400 belongs to a separate batch.
@@ -79,6 +80,6 @@ the same PR is re-read after every fold, not only before the first supply.
 
 **CLOSED 2026-10-27:** #467 merged fd456bee (11 work, 9 fix); all five for/ commits (ed0151ed, 9ba021be, 89fdb3e1, 432bc99c, 81bdfea3) and ux-designer-01's c9d361a5 + 1cf914da on origin/main. Still open elsewhere: the may-have-left store record and 5.5 own card row (rust-ui-dev-02 next batches, §29 bullets); see [[own-card-row-unverified-own-fields-reader-2026-10-27]].
 
-*References: contract-text-about-a-lane-s-unmerged-code-is-read-from-that-branch-s-head, own-card-row-unverified-own-fields-reader-2026-10-27*
+*References: own-card-row-unverified-own-fields-reader-2026-10-27, reflection-contract-text-about-a-lane-s-unmerged-code-is-read-from-that-branch-s-head*
 
-*Observed 2026-10-27 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

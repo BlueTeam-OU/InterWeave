@@ -3519,7 +3519,9 @@ fn message_row(
     };
     let mark = status_mark(item);
     let reply = match &item.reply {
-        Some(Reply::Present(_)) => placeholder_en::text(UiText::ReplyPresent),
+        // Held, or stored where paging reaches it: one line, since the
+        // person reads it as "scroll up and it is there" (start-window §5.2).
+        Some(Reply::Present(_) | Reply::Stored(_)) => placeholder_en::text(UiText::ReplyPresent),
         Some(Reply::Unavailable(_)) => placeholder_en::text(UiText::ReplyUnavailable),
         None => "",
     };

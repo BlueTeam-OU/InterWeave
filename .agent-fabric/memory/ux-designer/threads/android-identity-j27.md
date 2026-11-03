@@ -5,7 +5,7 @@ topic: "android-identity-j27"
 description: "j27: Android identity screens design note (create, show phrase, recover) for plan §20 steps 7-8 — where it is and what it waits on"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

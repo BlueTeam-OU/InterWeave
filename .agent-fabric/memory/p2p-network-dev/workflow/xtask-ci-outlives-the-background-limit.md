@@ -5,7 +5,7 @@ topic: "xtask-ci-outlives-the-background-limit"
 description: cargo xtask ci takes over two hours on this host and a backgrounded Bash call is killed at 7200 s; run it detached (setsid nohup, log to a file, a ci=$? line) and wait on that line
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

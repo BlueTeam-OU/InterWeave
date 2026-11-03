@@ -5,7 +5,7 @@ topic: "re-review-brief-needs-card-base-and-previous-findings"
 description: "fabric-review brief refuses a re-review whose base is not on origin/main unless card_base names the first round's base, and refuses any re-review without previous_findings (a file)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -2,22 +2,23 @@
 role: "p2p-network-dev"
 class: workflow
 topic: "host-cargo-is-system-1-98-no-rustup"
-description: "develop-qzapp has only the distro cargo (Fedora 1.98.1), no rustup. Since #142 (400fb1e3) the pin IS 1.98.1, so local clippy = CI clippy; before that the 1.97.1 pin was not honoured locally. Lessons that outlive the skew: never pipe a…"
+description: "develop-qzapp's cargo is the distro's (Fedora), no rustup; it floats with dnf (1.99.0 since 2026-10-19; the pin is 1.99.1 since #422, 2026-10-24, so local cargo needs --ignore-rust-version), so read rustc against rust-toolchain.toml…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 59a28efdcf2af047
   - 8e8f4398a80d4a52
   - a30c1b6d1f8a2159
   - faf8cb2c1134e70d
 ---
 
-## develop-qzapp has only the distro cargo (Fedora 1.98.1), no rustup. Since #142 (400fb1e3) the pin IS 1.98.1, so local clippy = CI clippy; before that the 1.97.1 pin was not honoured locally. Lessons that outlive the skew: never pipe a verify step, -D warnings is the whole check, an expect/allow lint must exist in the pinned clippy
+## develop-qzapp's cargo is the distro's (Fedora), no rustup; it floats with dnf (1.99.0 since 2026-10-19; the pin is 1.99.1 since #422, 2026-10-24, so local cargo needs --ignore-rust-version), so read rustc against rust-toolchain.toml before trusting a local clippy. Lessons that outlive any skew: never pipe a verify step, -D warnings is the whole check, an expect/allow lint must exist in the pinned clippy
 
 Measured 2026-09-17 on `develop-qzapp` as `p2p-network-dev-01`: `which -a cargo` gives `/usr/sbin/cargo` and `/usr/bin/cargo` only, `rustup` is not on PATH, and `cargo clippy --version` is `0.1.98` while `rust-toolchain.toml` pins `channel = "1.97.1"`. `cargo xtask ci` therefore runs clippy on 1.98 and fails on `clippy::chunks_exact_to_as_chunks` in `crates/api/transport-api` — the "known 1.98-vs-1.97.1 lint" the Stage 11 handover names. CI (which honours the pin) is green on the same tree.
 
@@ -35,9 +36,11 @@ Measured 2026-09-17 on `develop-qzapp` as `p2p-network-dev-01`: `which -a cargo`
 
 **The skew ENDED 2026-09-28.** devex-tooling moved `rust-toolchain.toml` and `rust-version` to 1.98.1 on #142 (400fb1e3, the owner's call), and the host's rustc is Fedora 1.98.1, so a local `cargo clippy --workspace --all-targets --locked -- -D warnings` is now the CI gate. If the pin moves again, re-read `rustc --version` against it before trusting a local gate, and use the scratchpad rustup recipe above for any version the host does not have.
 
-**The skew RETURNED by 2026-10-19.** The host's cargo is now Fedora 1.99.0 (`clippy 0.1.99`) while `rust-toolchain.toml` still pins 1.98.1. On PR #310 (j92) clippy 1.99 fired the new `clippy::double_must_use` in `crates/api/trust-api/src/lib.rs:159`, outside the diff. So the local gate is again `-D warnings -A clippy::double-must-use` given by name, the exit has to be 0, and the output is read. A lint named in an `#[expect]` or `allow` must exist in clippy 1.98.
+**The skew RETURNED by 2026-10-19.** The host's cargo is now Fedora 1.99.0 (`clippy 0.1.99`) while `rust-toolchain.toml` still pins 1.98.1. On PR #310 (j92) clippy 1.99 fired the new `clippy::double_must_use` in `crates/api/trust-api/src/lib.rs:159`, outside the diff. So the local gate was then `-D warnings -A clippy::double-must-use` given by name, with exit 0 required and the output read, and a lint named in an `#[expect]` or `allow` had to exist in clippy 1.98.
 
-**A second 1.99-only lint, 2026-10-20 (j94).** `clippy::assert_is_empty` fires in `tests/local-client-conformance/src/lib.rs:1461,1473`, outside any diff of mine. The local gate on the touched packages is now `-D warnings -A clippy::double_must_use -A clippy::assert_is_empty`, both named, exit 0 required. A third one can appear at any time: read the error before allowing it.
+**A second 1.99-only lint, 2026-10-20 (j94).** `clippy::assert_is_empty` fires in `tests/local-client-conformance/src/lib.rs:1461,1473`, outside any diff of mine. The local gate on the touched packages became `-D warnings -A clippy::double_must_use -A clippy::assert_is_empty`, both named, exit 0 required.
+
+**The pin moved AHEAD of the host, 2026-10-24 (#422, 1c2c9e08).** devex-tooling moved `rust-toolchain.toml` and `rust-version` to 1.99.1 and allowed `clippy::assert_is_empty` in `[workspace.lints]`; p2p-network-dev-02's supply removed the `double_must_use` sites. The host's rustc is still Fedora 1.99.0, so every cargo command on a workspace crate refuses with "requires rustc 1.99.1" until it is told otherwise: local builds and tests run with `--ignore-rust-version` (measured on j121, 2026-10-24), or under the scratchpad rustup at the pin (recipe above). Neither `-A` flag is needed any more. A lint named in an `#[expect]` or `allow` must exist in the PINNED clippy, 1.99.1 now. Whichever way the next dnf update moves rustc, read `rustc --version` against `rust-toolchain.toml` before trusting a local gate.
 
 *References: known-failing-masks-new-failures*
 

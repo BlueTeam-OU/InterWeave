@@ -5,7 +5,7 @@ topic: "reflection-a-refusal-reached-by-another-act-or-audience-gets-its-own-mes
 description: "A message key carries one audience's remedy; a refusal reached by a different act or served to a different audience gets its own key, because shared copy tells someone the wrong fix"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -22,4 +22,4 @@ carry two audiences' instructions, and the merchant has no Settings to
 reach"; "create's copy tells the staffer the wrong act"
 (…d97e375c043a). The person-facing side of the error-label rule.
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

@@ -5,7 +5,7 @@ topic: "spec-cites-only-recorded-methods"
 description: a design note names an API method or IPC minor as settled only if it is in architecture/contracts on main; otherwise as a dependency with its owner and the acceptance it blocks
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

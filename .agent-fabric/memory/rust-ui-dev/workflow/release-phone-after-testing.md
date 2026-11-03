@@ -5,13 +5,14 @@ topic: "release-phone-after-testing"
 description: "every Pixel run goes through the remit's .agent-fabric/bin/phone-run (own lease, own adb server, nothing left); never adb on the shared port 5037; how a lost pairing looks"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 205348c51fa87f44
   - 466cb4a21bc24d1f
   - 85285401b18a3e8d
 ---
@@ -36,6 +37,7 @@ own still connected after telling a peer I held none. What the remit does not sa
   open, so pair at once, then connect to the port the main screen shows.
 - **"No route to host"** means the phone is off the network or asleep. A refused port means
   Wireless debugging is off or has moved. Either way it is the owner's step.
+- **mDNS does not reach this host** (rust-ui-dev-02, 2026-10-27): `adb mdns services` listing nothing proves nothing. The Pixel's address moves within the a private-network address LAN (.54, .55, .57 across 10-26 and 10-27). Ask the owner, or a peer who has just connected, for the address:port the Wireless debugging screen shows.
 - **The link drops mid-run:** reconnect before each adb step (`adb get-state || adb connect`).
 - Report the release, and the state the app is left in, with the run's results.
 

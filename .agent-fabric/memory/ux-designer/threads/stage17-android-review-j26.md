@@ -5,7 +5,7 @@ topic: "stage17-android-review-j26"
 description: "j26: plan §20 clause (j) — my on-device look-and-feel review of the Android app is a condition of Stage 17's close; status and what it waits on"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -23,7 +23,7 @@ derived_from:
 - Told architect-cto (REPLY 01a15271-cae5): heuristic + spec review, not a test with people; reference = conventions, not their feature set (read receipts, reactions, typing meet product rules -> product questions, never rank-1).
 - Blocked: Pixel unreachable (no route to a private-network address:43191, 2026-10-19 04:40Z); fabric-coordinator asked the owner (their j280, REPLY 01a15272-ab38). rust-ui-dev-01 installs main's build with their key first.
 - Review against main's specs after #300 (my swipe-followups fold, head incl. ab0073d1) merges.
-Related: [[device-review-pixel-lease]], [[android-look-proposal]]
+Related: [[workflow-carried-2026-10-18]], [[android-look-proposal]]
 - Candidate missing flow for the review: does the Android app offer any backup of contacts/trust/settings? human-client-ui.md §9 requires stating that recovery needs them; if no backup exists the advice cannot be acted on.
 
 2026-10-19 ~11:20: run 2 done on main ffce28df; §6 ranked (F1-F13, M1-M3) at dcdb2b40,

@@ -288,10 +288,12 @@ input: answered allow, the tool ran and the peer had `ack` 3.1 s after
 its send (e); answered deny, the call ended with the host's message and
 no retry (f). `--permission-prompts host` without that flag asked nobody
 and denied (g); `--permission-prompts none` denied with its own text
-(h). So a headless deployment's `reply` leaves through one of four:
-`--allowedTools`, `auto`, `bypassPermissions` or an answering host. Not
-established: `--allowedTools` in `acceptEdits`, `dontAsk` or `plan`, and
-what sets `auto` on this login.
+(h). So, of the permission paths measured, a headless deployment's
+`reply` leaves through four: `--allowedTools`, `auto`,
+`bypassPermissions` or an answering host; every other combination
+measured denies it (fact 56). Not established: `--allowedTools` in
+`acceptEdits`, `dontAsk` or `plan`, and what sets `auto` on this
+login.
 
 **Carried measurement, S27 (2026-11-03, Claude Code 2.1.286,
 rust-services-dev, plan §22): a policy file in a system's own `/etc`

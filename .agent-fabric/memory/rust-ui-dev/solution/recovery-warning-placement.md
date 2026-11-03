@@ -5,7 +5,7 @@ topic: "recovery-warning-placement"
 description: "Where the Android identity flow's pre-phrase statements go (R1/K1, not R2) and who edits the matrix row that cites their tests"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"
@@ -39,7 +39,7 @@ send the test names; don't edit the row on the code PR (#392 F2).
 language-culture-en may send a corrected text minutes after the first
 delivery when a neighbouring key changes (IdActiveElsewhere, 01a16713 →
 01a16717): read the inbox before arming. Item 12 is job j46 after #391
-lands. Related: [[labels-keep-is-reserved]], [[identity-key-rulings-j37]].
+lands. Related: [[labels-english-supplier]], [[identity-key-rulings-j37]].
 
 *References: identity-key-rulings-j37, labels-keep-is-reserved*
 

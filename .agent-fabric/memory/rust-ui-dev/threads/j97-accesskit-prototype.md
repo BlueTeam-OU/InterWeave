@@ -5,7 +5,7 @@ topic: "j97-accesskit-prototype"
 description: "j97 (2026-10-17): app-side AccessKit adapter prototype for Android built, two APKs (unpatched / hover-patched) waiting for the Pixel; what is measured and what is not"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

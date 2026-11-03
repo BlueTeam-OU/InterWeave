@@ -5,7 +5,7 @@ topic: "text-brief-facts-and-couplings"
 description: "Briefing language-culture for a person-facing text (release page, refusal screen): mark each fact decided or PROPOSAL, and name every coupling between the sentence and what a placeholder or another role's file renders"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "review-old-schema-fixtures"
 description: "A store rewrite/migration path must be tested from an OLDER-schema store (test-data/upgrade tree), not only one HumanStore::open made at the current version"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
