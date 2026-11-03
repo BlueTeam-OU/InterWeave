@@ -5,7 +5,7 @@ topic: "pixel-checks-owed"
 description: "Device checks owed on the Pixel once the owner is back (InterWeave, from 2026-10-21)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

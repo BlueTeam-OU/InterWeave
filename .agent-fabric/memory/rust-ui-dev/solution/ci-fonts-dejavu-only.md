@@ -5,7 +5,7 @@ topic: "ci-fonts-dejavu-only"
 description: "InterWeave CI's rust job has only fonts-dejavu-core; a ui-slint layout test can pass here and fail there; reproduce with a DejaVu-only fontconfig"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

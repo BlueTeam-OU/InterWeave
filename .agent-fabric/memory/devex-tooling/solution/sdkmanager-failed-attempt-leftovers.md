@@ -5,7 +5,7 @@ topic: "sdkmanager-failed-attempt-leftovers"
 description: "retrying or cleaning up an sdkmanager install in CI? a failed attempt leaves only staging and <pkg>/.installer; never rm -rf a pinned package dir"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

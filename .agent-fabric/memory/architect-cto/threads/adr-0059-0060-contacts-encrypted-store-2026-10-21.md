@@ -5,13 +5,14 @@ topic: "adr-0059-0060-contacts-encrypted-store-2026-10-21"
 description: "ADR-0059 (contact card as a chat kind, accepted before it is a contact) and ADR-0060 (human store encrypted at rest under a platform-sealed key): the owner's direction, the bounds I chose, where the work waits (plan §29, SPIKE-011, PR #332)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 22969b0240743774
   - 5e26a2cbf0e5c974
 ---
 
@@ -25,7 +26,6 @@ then "all contacts and conversations data should go in secure storage
 if not already". Before this the plan had only the local half (schema
 v5 `contacts`/`contact_routes` since Stage 14, nothing writing them;
 contacts UX carried out of Stage 15 as carry 11).
-
 **Recorded on IW PR #332 (branch adr/contact-cards-encrypted-store,
 3 work commits, off main 65c0ab2a):**
 - ADR-0059: `contact_card` HumanChatV2 kind (name 1-64 scalars NFC,
@@ -46,35 +46,11 @@ contacts UX carried out of Stage 15 as carry 11).
 - Plan §29 Stage 21 (recorded, NOT opened; opens on the owner's word),
   SPIKE-011 in SPIKES.md + §3 table; Stage 15 carry 11 pointed to §29.
 
-**Why these shapes:** the parser rejects any kind but `text` today, so
-a new kind costs nothing shipped; a card written to contacts unasked
-lets any trusted peer rename itself; column-only encryption leaves the
-social graph (conversation_index, routes) in clear; `user-presence`
-for the store key would lose unread content on unattended restarts.
-
-**Owner's later words the same day, all on #332 (head 71a5035b, 7 work):** "open stage 21 after 17 closes" (plan §29 opens from Stage 17's closing record, which j148 names); "interweave data must never go on backup on cloud or work with app to move between phones" and "the backup for the future will be done between the app via interweave itself eventually, not via external provider" → ADR-0060 decision 8: no platform backup/transfer/external provider ever (allowBackup=false + total extraction rules already declared; manifest check owed in §29 step 2, the retention suite's item 13 cannot prove it); the future backup is device-to-device over InterWeave's own protocol, its own ADR later.
-
-**Open:** blind review of e692c9e2, then re-review e692c9e2..71a5035b; owner's word to arm #332 (under
-minimum); owner to confirm/adjust the photo bound and the v1 desktop
-level; rust-ui-dev does the work when the stage opens; #324's ADR-0058
-rows will sit adjacent in README/digest — expect a textual conflict
-when the second of #324/#332 lands. Related:
-[[adr-0058-third-party-notices-2026-10-21]].
-
-**Review rounds on #332 (2026-10-21):** 6 blind rounds; 20 findings, all
-judged real/partly; the ones worth remembering: the shape schema must
-change with the prose (F1); migration order must scrub while the
-plaintext holds its name and mark the complete copy durably (F13, F17);
-"key missing" vs "damaged" need a precedence and the recovery screen a
-confirmed discard (F19); Android store key needs its own alias namespace
-apart from the IWK1 seed custody (F3); the desktop key is
-<state_dir>/human-store.key outside human/ (F2).
-
+[… 4 earlier entries of this thread moved to adr-0059-0060-contacts-encrypted-store-2026-10-21-log.md on 2026-10-28, not drained …]
 **Owner's later words the same day, folded into #332:** several own
 cards, choose per conversation (ADR-0059 d2); "a cli way to do
 everything must exist" → ADR-0059 d9, a command-line human client on the
 shared crates, the stage's one new app; transportctl gains nothing.
-
 **Owed next (own PR after #332): ADR-0061, a person holds several
 network identities** — "a user should have multiple network identities":
 several profiles (each its own PeerId, store, key, trust set; ADR-0016
@@ -84,7 +60,6 @@ conversation runs under; Android = several embedded runtimes or one
 active profile at a time (ADR-0041 to read); recovery phrase per
 identity. Read ADR-0016, 0041, 0042 custody aliases, STATE.md per-profile
 store first.
-
 **Bridge decision 2026-10-21 (DECISION 01a15d3c-20aa to rust-services-dev-01, j57):**
 CHANNEL-EVENT.md §Content gains ONE exception: a HumanChatV2 contact_card
 is parsed with chat-protocol's parser (never a second one), meta carries
@@ -98,7 +73,6 @@ negative-conformance suite (tests/transport-contract) mutates every
 top-level property of a text envelope and holds schema and parser to the
 same verdict; a top-level card gave 15 disagreements and a red rust job
 on the armed PR (fixed 118dab19).
-
 **Landed:** #332 merged b03e6f30 (ADR-0059, ADR-0060, plan §29, SPIKE-011,
 schema 2.1.0). **Next PR #335** (branch adr/several-network-identities):
 ADR-0061 (identity = a whole profile; desktop client of several daemons;
@@ -109,7 +83,6 @@ recorded not opened; ADR-0059 A 2026-10-21 (photo pixels only, proposal
 has no Keep, contacts name/photo provenance columns — ux-designer-01's
 #334 A1-A3); §29 step 1's parser three-way answer (j57). Under minimum:
 owner's word to arm.
-
 **#335 review lessons (5 rounds, 16 findings, head bd31b69a reviewed
 clean, awaiting the owner's word):** (1) never promise unlinkability of
 two identities against a counterparty — Identify sends listen/observed
@@ -126,7 +99,5 @@ and a test exist; (6) an Accept rule must join a PeerId's existing
 contact or Move's "never two names" is hollow; (7) ADR-0041 amended as a
 triple: one runtime per active identity, stay-reachable per identity,
 restart of that identity's runtime alone.
-
-*References: adr-0058-third-party-notices-2026-10-21*
 
 *Observed 2026-10-21 (architect-cto)*

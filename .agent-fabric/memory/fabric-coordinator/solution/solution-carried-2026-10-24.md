@@ -1,10 +1,11 @@
 ---
 role: "fabric-coordinator"
 class: solution
+topic: "solution-carried-2026-10-24"
 description: "why interweave-human send/listen cannot carry GZCoord between agents, and what ADR-064 chose instead"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

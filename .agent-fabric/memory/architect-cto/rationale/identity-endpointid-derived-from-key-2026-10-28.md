@@ -5,7 +5,7 @@ topic: "identity-endpointid-derived-from-key-2026-10-28"
 description: "the owner's direction of 2026-10-28: a user identity IS an EndpointId derived from the identity's own key pair as the PeerId is from the node's (same algorithm, same multihash); trust is per identity (EndpointId); no installed user base…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 1d12a492ea8eda7c
+  - 2aa20e3f7800e98f
 ---
 
 ## the owner's direction of 2026-10-28: a user identity IS an EndpointId derived from the identity's own key pair as the PeerId is from the node's (same algorithm, same multihash); trust is per identity (EndpointId); no installed user base, so a clean break (the fleet updated at once, ids recreated) — ADR-0067 to write after the owner confirms my reading
@@ -27,6 +28,24 @@ Owner's words, 2026-10-28: "each user identity is a endpointId and that endpoint
 
 **Rounds 3-5 (2026-10-28):** F14: a node list the client kept equal to the union could not survive an operator's endpoint-less allow and leaked a person's trust to an inheriting agent endpoint. Final model (c104d40f, 4871a3d0, da70b599): operator's list (ADR-0028, endpoint-less calls only) / each endpoint's overlay set / admission set DERIVED by the transport as their union over every endpoint's overlay set; at the route: overlay set, else authored subset narrowing the operator's list, else the operator's list and never the admission set; "profile trust"/PeerTrustPolicy in ADR-0012/0030 = the admission set, trust-core endpoint-free (composition hands it the derived sets); ADR-0012 amended three-part (new history file). F15: ADR-0028 overlay shape carries the inbound/outbound maps and their load rules. Six amended records on #506 now: 0012, 0028, 0030, 0055, 0061, 0063.
 
+**Rounds 6-10 (2026-10-28):** F18 ADR-0012 amended three-part (new history/0012-amendments.md, PeerTrustPolicy = the derived admission set, trust-core endpoint-free); F19 union wording "every endpoint's overlay set (its identities', or any endpoint the operator gave one)" propagated to 0061/0028 title/README/digest; CI red on 9bc5fc57: the error-contract matrix (tests/transport-contract error_contract_matrix.rs, count_code counts every bare `no_route` token on a line of ENDPOINTS.md/DIRECT.md) — fixed by naming the inbound routing step (step 6; 5-7 collapse) instead of the code (776e240a, a37ccde7). Round 10 clean at a37ccde7; #506 (2 work, 8 fix) waits on the owner's word. LESSON: a contract sentence that names an error code owes a MATRIX row in p2p-network-dev's test; in my lane, cite the rule that already carries the code instead.
+
+**LANDED 2026-10-28:** #506 (2 work, 8 fix) merged 90f04b42 on the owner's word ("arm 506 505 507"); j450 closed. ADR-0067 + amendments to 0012/0028/0030/0055/0061/0063 on main; Stage 22 stays unopened (owner: roadmap only). Proposal to fabric-coordinator sent as REQUEST (renderer runs `transportctl endpoint init` per endpoint, roster carries ids, trust stays the operator's list, one re-render at the Stage 22 release) — queued under the fleet hold. fabric-coordinator REPLY 01a182f8-919b: queued as their j458; answered (likely an ADR-064 amendment: roster labels become EndpointIds, label kept as alias) when the hold lifts and Stage 22 opens.
+
+**ACCEPTED 2026-10-31:** fabric-coordinator REPLY 01a18fc0-1b08 (to my REQUEST 01a182f8-11e7): the renderer proposal is accepted as an amendment of agent-fabric ADR-064 rules 2, 3 and 12, not a new record — a roster row carries its account's EndpointIds beside its PeerId (one per endpoint the render configures: gzcoord, later fabric-control), keyed by alias and covered by both signatures; `endpoint` stays only as the alias a client's --endpoint resolves locally; keys minted in the account by `transportctl endpoint init --profile <p> --alias <label>` beside `identity init`, never leaving it; trust unchanged (`trust.policy: static-allowlist`, endpoint-less `transportctl trust allow|revoke`, no per-endpoint overlay set); rule 10 stands (no EndpointId in GZCoord metadata). Renderer change: roster.schema.json v2 (alias→EndpointId map), roster.py reader/canonical_row/render_config (`endpoints.entries` with sealed key file + alias; default_direct_endpoint = the gzcoord alias), provisioning mints and reads ids back before the row is signed, release.json pinned to the Stage 22 release with every account re-keyed/re-signed/re-rendered in one `fabric-ctl all`. Nothing built or dated: their j458 stays blocked on Stage 22 opening (Cargo status stage-18; `transportctl endpoint init` not on InterWeave main). Nothing owed by me.
+
+**j54 carry ruled 2026-10-31** (rust-ui-dev-02's QUESTION 01a19121, my
+DECISION 01a19125-9eb5): the "may have left" store record (ADR-0063 d1 A
+2026-10-27) and the old-key own-card row across a restart (#467 R5) are not
+built before Stage 22; both are §30 step 2's items (the replacement
+identity's share-again list over the old EndpointId's conversations; the
+old-key row the old identity's by `local_endpoint_id`; no per-row key
+epoch). Reason: ADR-0067 d5 withdrew the silent first key and the key
+change, and builds nothing before Stage 22; the interim gap is bounded (no
+installed base; this build shows a key-change proposal, not silence). Plan
+wording in commit 4e7e03e7 on the same for/ branch as j60's STATE.md
+supply, riding rust-ui-dev-02's j60 PR.
+
 *References: owner-identity-model-endpointid-is-user-identity-2026-10-21, stage-22-several-identities-roadmap-only-2026-10-28*
 
-*Observed 2026-10-28 (architect-cto)*
+*Observed 2026-10-31 (architect-cto)*

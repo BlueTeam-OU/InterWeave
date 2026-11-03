@@ -5,7 +5,7 @@ topic: "reflection-a-landed-amendment-is-never-edited-a-later-body-change-is-a-n
 description: Once an amendment has landed, its history note, log row and digest bullet stay as they are; a later change to the body gets its own dated amendment heading, row and bullet, and appending a dated paragraph inside the old note is a defect…
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -26,4 +26,4 @@ CORRECTS the slice that said to append a dated paragraph to the note:
 that holds only when the body text did not change (gzapp ADR-075
 §2.2).
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

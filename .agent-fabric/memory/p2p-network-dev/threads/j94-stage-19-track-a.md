@@ -5,7 +5,7 @@ topic: "j94-stage-19-track-a"
 description: Stage 19 Track A (j94) — order, branch, the SIGHUP ruling (option A), who owns the release workflow, key and Skia choice
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

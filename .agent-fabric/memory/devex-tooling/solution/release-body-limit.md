@@ -5,7 +5,7 @@ topic: "release-body-limit"
 description: "GitHub release body limit for release.yml's page — 125000 chars, unverified source, counted with CRLF as two"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

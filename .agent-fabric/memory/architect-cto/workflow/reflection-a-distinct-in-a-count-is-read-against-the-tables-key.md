@@ -5,7 +5,7 @@ topic: "reflection-a-distinct-in-a-count-is-read-against-the-tables-key"
 description: "Before ruling a count DISTINCT over a column, read the table's UNIQUE key: within a group the key already scopes, DISTINCT is a no-op, and outside it DISTINCT merges rows the key deliberately keeps apart"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

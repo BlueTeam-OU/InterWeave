@@ -5,7 +5,7 @@ topic: "desktop-startup-refusal-invisible"
 description: "human-desktop's start-up refusals: once stderr-only, now a RefusalWindow (#327, merged e97f7313); what it covers and what is still not built"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

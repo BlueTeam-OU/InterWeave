@@ -5,7 +5,7 @@ topic: "owner-reminder-5b-limits-at-the-second-host"
 description: "STANDING REMINDER — when the fleet's second host runs under ADR-0055 decision 5b (the control plane's remote host, likely edge-hosting on H2), remind the owner of the limits they accepted on 2026-10-27 for the first remote host (one…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

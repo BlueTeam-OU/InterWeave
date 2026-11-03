@@ -5,7 +5,7 @@ topic: "j48-relay-hop-unreached-tight-loop"
 description: "A circuit through a down relay was redialled each second by the composition's reconnect round; fixed by a route hold (ADR-0011 A 2026-10-21) on #329"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

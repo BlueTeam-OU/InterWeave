@@ -5,13 +5,14 @@ topic: "never-blind-inbox-watch"
 description: "Never start gzcoord-inbox with output to /dev/null or with & disown; it swallows the next delivery"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 98d651548dc2843d
   - ccbd288ec7b87d7e
 ---
 
@@ -26,6 +27,8 @@ by reflex. A delivery it consumed would have been lost, so I had to find and kil
 
 **How to apply:** re-arm with the tool call only: Bash(command: 'gzcoord-inbox --until-delivery',
 run_in_background: true, timeout: 7200000). Never pkill -f with the pattern in my own command line.
+
+2026-10-24: did it again by reflex (`gzcoord-inbox --until-delivery >/dev/null 2>&1 & disown` in a Bash call); caught at once, killed by PID (pgrep -af, then kill <pid>), re-armed as a background tool call. The next watch took over its mark; no delivery was lost that time. Re-arm ONLY with run_in_background: true.
 
 *Anchors: `agent-fabric:bin/gzcoord-inbox::--until-delivery`*
 

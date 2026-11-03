@@ -5,13 +5,14 @@ topic: "arming-tool"
 description: "How to arm, gate, post reviews in InterWeave — fabric-pr verbs since the tools/gh forwarders were retired (4a010c6b)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 10bd41d31145074c
   - b52e5f1f9a6e0e9f
   - d227b3f7b631f978
 ---
@@ -30,5 +31,6 @@ tools/gh/post-review.sh, pr-gate.sh, arm.sh, pr-review-status.sh no longer exist
 `../agent-fabric/bin/fabric-pr <verb>` from the working copy: `gate <n>`, `post-review <n>` (body on stdin),
 `arm <n> --basis "..."`, `review-status <n>`. Never `gh pr merge --auto` by hand.
 Under 8 work commits the basis needs the owner's word.
+Before asking a role for an AUTHORIZES line, re-read the PR body: on 2026-10-19 architect-cto-01 held InterWeave #313 because its body still listed F7, F11 and the device run as coming, though F7 and F11 were on the head (REPLY 01a15632-cdd1). The word is given on a finished head, and for a boundary PR not before its platform path has run. Rewrite the body first; ask after the device run. (reflection; MESSAGE-IDs 01a1562e-0405, 01a15632-cdd1, 01a15633-9698)
 
 *Observed 2026-10-11 (rust-ui-dev)*

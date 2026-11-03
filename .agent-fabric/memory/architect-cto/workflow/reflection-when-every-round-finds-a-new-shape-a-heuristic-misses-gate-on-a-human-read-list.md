@@ -5,7 +5,7 @@ topic: "reflection-when-every-round-finds-a-new-shape-a-heuristic-misses-gate-on
 description: "When each review round finds another shape a free-text scan misses, stop patching the scan and move that class to an exact gate, a pinned list of input digests a person has read, the scan staying as a tripwire; a digest list made by a…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -23,4 +23,4 @@ proves nothing by itself" (01a164e4); "The digests are a reading, not
 a hash run… Do not patch the scan again; that is round five"
 (01a164f5). The record holds the notice-specific rule.
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

@@ -5,7 +5,7 @@ topic: "reflection-a-column-in-state-md-s-row-may-be-a-later-stage-s"
 description: "W44 — before naming a column in a ruling or an index, read the STATE.md row's trailing note and the store's schema.rs: a column listed in the row can be documented as a later stage's (contacts.local_endpoint_id is Stage 22's, absent at v9)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

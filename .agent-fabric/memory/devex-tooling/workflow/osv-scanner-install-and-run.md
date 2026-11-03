@@ -5,7 +5,7 @@ topic: "osv-scanner-install-and-run"
 description: "installing osv-scanner for a login and running InterWeave's Gradle OSV check (plan §20 gate h)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

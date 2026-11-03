@@ -5,7 +5,7 @@ topic: "reflection-a-p2-every-round-on-a-new-shape-means-the-adr-has-no-design"
 description: When review finds a P2 in each new implementation of one feature and each shape leaves the decision to a caller, stop the rounds and write the design into the ADR first, one seam returning a typed outcome, then conform
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -27,4 +27,4 @@ to invoke it.
 
 *References: design-first-implementation-conforms*
 
-*Observed 2026-10-22 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

@@ -5,7 +5,7 @@ topic: "shell-reader-allow-list-not-parser"
 description: a guard reading what a shell script runs or what a workflow YAML calls — read a declared subset and refuse the rest, never chase forms with regexes
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "android-check-needs-javac"
 description: "a JDK 17 with javac is at /opt/android-sdk/jdk on develop-qzapp (not on PATH); set JAVA_HOME to it for Gradle and check_android_target.sh"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

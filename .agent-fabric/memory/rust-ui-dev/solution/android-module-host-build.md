@@ -5,7 +5,7 @@ topic: "android-module-host-build"
 description: "A new module in apps/human-android must be cfg(target_os = \"android\") when it uses jni/keystore/ui-slint; per-crate test runs and the Android check miss a broken host build"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

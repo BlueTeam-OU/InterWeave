@@ -5,7 +5,7 @@ topic: "reflection-a-stage-tied-dead-function-exemption-needs-a-real-consumer-in
 description: "A dead-function exemption tied to a stage names in its reason something the next stage's exit gate actually requires; an entry reasoned 'first read by the X stack' goes red at every stage move until a real consumer reads it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -24,4 +24,4 @@ the eight would go red again exactly as the seventeen did" (01a0e2f2).
 tools/checks/domain_fn_exempt.txt's header says entries expire with
 their stage, not what makes a reason valid (checked 2026-10-23).
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

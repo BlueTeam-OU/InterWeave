@@ -2,10 +2,10 @@
 role: "rust-ui-dev"
 class: workflow
 topic: "codex-review-engine"
-description: "InterWeave arming needs a Codex review too (ADR-053): run it with --gateway chatgpt; the bare form refuses on missing env"
+description: "InterWeave's Codex review is an additional review, not required to arm (agent-fabric policies/arming.json); run it with --gateway chatgpt, and judge its findings like any other"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,20 +13,22 @@ origin:
     working_copy: interweave
 derived_from:
   - 4e1091c2d4e8d20b
+  - 5b5f09c26657720f
 ---
 
-## InterWeave arming needs a Codex review too (ADR-053): run it with --gateway chatgpt; the bare form refuses on missing env
+## InterWeave's Codex review is an additional review, not required to arm (agent-fabric policies/arming.json); run it with --gateway chatgpt, and judge its findings like any other
 
-`fabric-pr gate <n>` shows `review=claude ✓/✗ codex absent`: the arming policy names two engines (agent-fabric ADR-053), so a posted review-class review is not enough.
+Corrected 2026-10-24 (drain #412 review F8, REQUEST 01a16db9). The earlier claim that arming needs a Codex review was wrong. agent-fabric `policies/arming.json` on main lists `reviews: ["claude"]`, `boundary_reviews: ["claude"]` and `additional_reviews: ["codex"]`. Only the review class's review gates `fabric-pr arm`; a Codex review is additional. `fabric-pr arm --dry-run` prints "codex: absent ... arming on the required review(s) alone" when there is none.
 
-Run: `fabric-review --engine codex <PR> <request.yaml> --gateway chatgpt` (the same request yaml as `fabric-review brief`, range ending at the head). It posts the review itself.
-
-Without `--gateway chatgpt` it refuses: `AGENT_FABRIC_CODEX_BASE_URL`, `AGENT_FABRIC_CODEX_KEY` not set. The secrets file does not carry them. With the flag it uses the sign-in that `fabric-secrets sync` wrote to `/run/user/<uid>/agent-fabric/gateway/chatgpt-signin.json`. This login has no `~/.codex-chatgpt`.
-
-Found on #384 (2026-10-22).
+When you do run it (it is still worth having, and its findings are judged before they are answered like any other, ADR-053):
+- `fabric-review --engine codex <PR> <request.yaml> --gateway chatgpt`, with the same request yaml as `fabric-review brief`, range ending at the head. It posts the review itself.
+- Without `--gateway chatgpt` it refuses: `AGENT_FABRIC_CODEX_BASE_URL` and `AGENT_FABRIC_CODEX_KEY` are not set. With the flag it uses the sign-in `fabric-secrets sync` wrote under the login's runtime directory.
+- A Codex review that marks paths "not read" is partial coverage of the head.
 
 Related: [[arming-tool]]
 
 *References: arming-tool*
 
-*Observed 2026-10-22 (rust-ui-dev)*
+*Anchors: `agent-fabric:policies/arming.json::additional_reviews`*
+
+*Observed 2026-10-24 (rust-ui-dev)*

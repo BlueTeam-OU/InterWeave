@@ -5,7 +5,7 @@ topic: "j62-add-addresses-state"
 description: "j62 admin.peers.add_addresses (IPC 2.9, all-or-none add): branch stacked on #378, what is built and proved, what waits (2026-10-22)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

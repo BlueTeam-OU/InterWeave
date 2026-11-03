@@ -5,7 +5,7 @@ topic: "reflection-a-ruling-restates-the-current-behaviour-read-at-origin-main"
 description: "When a DECISION or REPLY describes what the code, a contract or a store does today, it cites the file and line read at origin/main; plans, guard-list comments and my own earlier summaries are not the record, and a ruling whose premise…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -26,4 +26,4 @@ kept' was wrong against RETENTION.md" (01a159ee-a9c0); the ADR-053
 vocabulary corrected to the leg lifecycle state (01a1566f-ecb4).
 Extends the VERIFIED-bullet rule to every ruling's premise.
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

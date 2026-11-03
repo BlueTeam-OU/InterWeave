@@ -5,7 +5,7 @@ topic: "workflow-cite-the-contracts-classes-not-their-codes"
 description: "a comment that restates a contract's enumerated list (error codes per class) gets a finding every review round; name the contract's classes and restate no codes"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

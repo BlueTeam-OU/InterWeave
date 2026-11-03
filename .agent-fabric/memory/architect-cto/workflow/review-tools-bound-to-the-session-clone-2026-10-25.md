@@ -5,7 +5,7 @@ topic: "review-tools-bound-to-the-session-clone-2026-10-25"
 description: "The review class's MCP tools (review_diff/log/show/check) are bound to the SESSION's project clone; a review of another project's PR dispatched from this session reads nothing through them and is not coverage — dispatch a gzapp review…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
