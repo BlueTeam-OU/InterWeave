@@ -233,11 +233,12 @@ async fn lease_on(admin: &impl AdminPort) -> Result<Option<LeaseRecord>, Transpo
 ///
 /// One admin port answers every turn, the rule for every poll of the
 /// daemon in these cases: the shipped profile admits four admin
-/// connections, and a closed one keeps its slot until its task on the
-/// daemon ends (ipc-server's `admission.rs` tests), so a port opened per
-/// turn could be refused under the full suite's load (j197). A port whose daemon went away (`BackendUnavailable`,
-/// `ShuttingDown`) is dropped and the next turn opens another; any other
-/// answer to the read fails the wait with it.
+/// connections, and a closed one keeps its slot until the daemon's task
+/// for it ends (ipc-server's `Slot` moves into that task in `server.rs`;
+/// no test pins the window), so a port opened per turn could be refused
+/// under the full suite's load (j197). A port whose daemon went away
+/// (`BackendUnavailable`, `ShuttingDown`) is dropped and the next turn
+/// opens another; any other answer to the read fails the wait with it.
 pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut admin = None;
