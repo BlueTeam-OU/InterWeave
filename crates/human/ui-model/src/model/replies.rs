@@ -89,17 +89,29 @@ impl UiModel {
         }
     }
 
-    /// An item holding application id `id` is about to go: a reply to it
-    /// keeps what its line says now until the store answers.
-    pub(super) fn target_leaving(&mut self, conversation: &ConversationKey, id: &str) {
+    /// An item holding application id `id` is about to go. When it leaves
+    /// an unread or kept row in the store (`stored`: a release by the
+    /// ceiling), a reply to it keeps what its line says now until the
+    /// store answers, so a release on screen changes no line. When it
+    /// holds none (dropped by the session bound, dismissed once its
+    /// snackbar closed) the model knows it is gone, and the line reads
+    /// unavailable at once (§5.2, item 17 (b)). The store is asked either
+    /// way.
+    pub(super) fn target_leaving(
+        &mut self,
+        conversation: &ConversationKey,
+        id: &str,
+        stored: bool,
+    ) {
         let pair = (conversation.clone(), id.to_owned());
         if !self.replies.targets.contains_key(&pair) {
             return;
         }
-        let shown = matches!(
-            self.reply(conversation, Some(id)),
-            Some(Reply::Present(_) | Reply::Stored(_))
-        );
+        let shown = stored
+            && matches!(
+                self.reply(conversation, Some(id)),
+                Some(Reply::Present(_) | Reply::Stored(_))
+            );
         if let Some(record) = self.replies.targets.get_mut(&pair) {
             record.stored = shown;
             if record.asking {

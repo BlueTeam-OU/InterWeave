@@ -646,6 +646,44 @@ fn a_reply_is_linked_when_held_and_neutral_when_not() {
     );
 }
 
+/// Item 17 (b): a reply whose target was dropped by the session bound
+/// reads unavailable at once -- the model knows no store row backs a
+/// session-only item -- while the store is asked, after it answers, and
+/// after a failed read (start-window §5.2; #535 review F1). Mutation: the
+/// line kept as it read before the drop, whatever the item held.
+#[test]
+fn a_reply_to_a_target_the_session_bound_dropped_is_unavailable_at_once() {
+    let p = peer();
+    let mut model = UiModel::new();
+    model.set_bounds_for_test(
+        0,
+        interweave_human_ui_model::HELD_ROW_CAP,
+        interweave_human_ui_model::READ_PROPOSAL_CAP,
+    );
+    let mut reply = envelope(2, "re: dropped");
+    reply.reply_to = Some(format!("{:032x}", 1));
+    model.unread_listed(vec![
+        listed(1, &p, envelope(1, "original"), 1),
+        listed(2, &p, reply, 2),
+    ]);
+    let line = |model: &UiModel| {
+        model
+            .messages(&key(&p))
+            .into_iter()
+            .find(|m| m.source == "re: dropped")
+            .and_then(|m| m.reply)
+    };
+    assert!(matches!(line(&model), Some(Reply::Present(_))));
+    model.read(RowId::from_stored(1));
+    assert_eq!(model.messages(&key(&p)).len(), 1, "the target dropped");
+    let unavailable = Some(Reply::Unavailable(format!("{:032x}", 1)));
+    assert_eq!(line(&model), unavailable, "while the store is asked");
+    let asks = model.take_reply_asks();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    model.reply_target_failed(&asks[0]);
+    assert_eq!(line(&model), unavailable, "after a failed read");
+}
+
 #[test]
 fn an_accepted_outbound_is_terminal_with_no_actions_and_its_own_label() {
     let p = peer();

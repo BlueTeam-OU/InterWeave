@@ -2114,12 +2114,14 @@ impl UiModel {
             if self.ephemeral_set.remove(key) {
                 self.ephemeral.retain(|k| k != key);
             }
-            if let Some((conversation, id)) = self
-                .items
-                .get(key)
-                .map(|i| (i.conversation.clone(), i.envelope.app_message_id.clone()))
-            {
-                self.target_leaving(&conversation, &id);
+            if let Some((conversation, id, stored)) = self.items.get(key).map(|i| {
+                (
+                    i.conversation.clone(),
+                    i.envelope.app_message_id.clone(),
+                    i.rows.iter().any(|(table, _)| *table != Table::Pending),
+                )
+            }) {
+                self.target_leaving(&conversation, &id, stored);
             }
             if let Some(item) = self.items.remove(key) {
                 self.reply_dropped(&item.conversation, item.envelope.reply_to.as_deref());
