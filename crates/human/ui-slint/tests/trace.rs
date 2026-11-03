@@ -291,3 +291,77 @@ fn the_trace_says_where_the_start_stands_on_connect() {
             .contains(&"ui-trace connect=not-owed".to_owned())
     );
 }
+
+fn tab(view: &View) {
+    use slint::platform::{Key, WindowEvent};
+    let key: slint::SharedString = Key::Tab.into();
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text: key });
+}
+
+/// Show my phrase as a driver steps it: Settings' Show recovery phrase
+/// reached by TAB says its focus key, the screens over the window say
+/// theirs as the root names them, and the key waiting for the person is
+/// said as offline with its notice until it is unlocked.
+#[test]
+fn the_trace_says_the_identity_flow_and_the_locked_state() {
+    use interweave_human_ui_model::ScreenId;
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let mut model = UiModel::new();
+    model.authentication_needed(true);
+    view.render(&model);
+    for expected in [
+        "ui-trace connectivity=offline",
+        "ui-trace notice=authentication-needed",
+    ] {
+        assert!(
+            said.borrow().iter().any(|l| l == expected),
+            "{expected:?} in {:#?}",
+            said.borrow()
+        );
+    }
+    let first = said.borrow().len();
+    model.authentication_needed(false);
+    view.render(&model);
+    // A model whose session never opened is still re-opening: the
+    // notice the unlock leaves is the session's own.
+    assert_eq!(
+        said.borrow()[first..],
+        [
+            "ui-trace connectivity=unknown",
+            "ui-trace notice=reconnecting"
+        ]
+    );
+
+    view.offer_show_phrase(|| {});
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::TrustHeading));
+    let _ = intents(&mut view, &mut model);
+    // Bounded: Settings holds a few dozen stops at most.
+    let reached = (0..64).any(|_| {
+        tab(&view);
+        said.borrow()
+            .last()
+            .is_some_and(|l| l == "ui-trace focus=show-phrase")
+    });
+    assert!(reached, "show-phrase by TAB in {:#?}", said.borrow());
+
+    let first = said.borrow().len();
+    for screen in [ScreenId::S1, ScreenId::S1, ScreenId::S2, ScreenId::Done] {
+        view.trace_identity(Some(screen));
+    }
+    assert_eq!(
+        said.borrow()[first..],
+        [
+            "ui-trace identity=s1",
+            "ui-trace identity=s2",
+            "ui-trace identity=closed",
+        ]
+    );
+}
