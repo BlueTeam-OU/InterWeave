@@ -10,6 +10,13 @@ and is not merged; it lands with rust-ui-dev's build PR.
 Revised 2026-10-23: what the phrase holds is the PeerId on every
 screen and "identity" names only the person's identities (§2, §3,
 §9), at architect-cto-01's REPLYs 01a16736 and 01a1673d.
+Revised 2026-11-03: Back and a tap outside on the discard dialog (§7),
+what Enter and Space do (§8) and the full focus order (§8), with
+acceptance 15, at rust-ui-dev-01's QUESTION 01a1a324 (REPLY 01a1a331).
+Revised the same day: in portrait R2's grid sits above a fixed picker
+(§4, §8, acceptance 13), at rust-ui-dev-01's height figures (REPLY
+01a1a333). And: what "Show all my words" opens (§4 item 4, §8,
+acceptance 2 and 15), at rust-ui-dev-01's QUESTION 01a1a34d.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -175,7 +182,8 @@ example 7 and 19). The person enters each with the picker (§4), one
 after the other. "Word 7 of 24" heads each entry.
 - After a right word, the entry moves on to the next position.
 - After both are right: → C4.
-- A wrong word shows an inline error under the entry (string
+- A wrong word shows an inline error just above the entry, at the
+  foot of the scrolling area over the fixed picker (§4; string
   `IdCheckWrong`). It says which position, and to compare with the
   paper. The entry clears, and two actions appear:
   - try again (stays on C3);
@@ -335,7 +343,26 @@ message of its own.
 
 ## 4. The word picker
 
-One position is entered at a time. From the top of the screen:
+One position is entered at a time. In portrait R2 has two parts. At
+the top, under the app bar, a scrolling area holds the banner or
+notice while one shows (§6) and the phrase so far (item 4). Under it,
+fixed to the bottom of the screen and never scrolling, is the picker,
+items 1 to 3 below, then the screen's actions. C3 has no grid: its
+title, body and, after a wrong word, `IdCheckWrong` with its two
+actions sit in the scrolling area above the fixed picker.
+
+- Why: the grid does not fit under the keypad. On a 360 × 640 dp phone
+  at 100 % the column comes to about 800 dp against about 570 dp
+  between the status and navigation bars (rust-ui-dev-01's figures
+  from the view's own sizes, REPLY 01a1a333; computed, not measured on
+  the phone). Under the keypad the grid would either push the keypad
+  and the primary out of view as the person types, or shrink to a box
+  of about one row. A keypad at the bottom is also where every system
+  keyboard is.
+- The scrolling area keeps the current position in view: when the
+  position changes, it scrolls so that the position's row shows.
+
+The picker, from its top:
 
 1. **The position:** "Word n of 24" (`IdWordPosition`), and below it
    the letters typed so far. The letters show in a display that looks
@@ -374,7 +401,27 @@ One position is entered at a time. From the top of the screen:
      display, ready to delete or replace;
    - at a font scale over 130 % the grid is replaced by a "show all my
      words" button opening it as a full list, so the keypad keeps its
-     room.
+     room. The button takes the grid's place, in the scrolling area
+     above the picker. "Over 130 %" is strict: at exactly 130 % the
+     grid shows.
+   - **The full list** (rust-ui-dev-01's QUESTION 01a1a34d). The
+     button opens a full-screen page over R2, in the identity screens'
+     style, titled `IdReviewWords`, with no new text. It is the grid
+     in one column: 24 rows, each a 48 dp stop showing the number and
+     the word, or nothing yet; the current position is outlined in
+     `primary`. The page scrolls and opens with the current position
+     in view. The picker and R2's actions are hidden while it shows.
+     It shows words, so it is secure like R2 (acceptance 2).
+   - Tapping or pressing a row does what tapping a grid position
+     does: the list closes and R2 edits that position.
+   - Back, Escape and the app bar's back arrow (§3) close the list
+     with nothing changed. They never open the discard dialog, which
+     is for Back on R2 itself. No other close control: the app bar's
+     arrow is the visible one.
+   - The open list is part of the flow's state: a rotation, a return
+     from Home and a font change that stays over 130 % keep it open. A
+     font change to 130 % or below closes it, and R2 shows the grid. Process death drops it
+     with the words (§7).
 
 **Sizes.** Every key is at least 48 dp tall. On a 360 dp wide phone a
 QWERTY key is about 31 dp wide with 4 dp gaps, the width every
@@ -387,9 +434,12 @@ before it enters a word. Suggestion chips and the grid's positions are
 **Font scale.**
 - The letters, chips and words follow the font scale. The keys grow in
   height, never in count.
-- At 200 % on a 360 × 640 dp phone, from the top: the app bar,
-  position, letters, suggestions, keypad and primary action fit
-  without scrolling. The phrase grid moves behind its button (above).
+- At 200 % on a 360 × 640 dp phone, from the top: the app bar, the
+  "show all my words" button, position, letters, suggestions, keypad
+  and primary action fit without scrolling. The phrase grid is behind
+  its button (above). The scrolling area is never under 48 dp tall:
+  while a §6 banner shows, the banner comes first and the button is
+  reached by scrolling the area.
 - The longest BIP-39 word has eight letters. Chips are sized to their
   word and wrap to a second row before any word is cut.
 
@@ -441,14 +491,33 @@ Errors appear inline on the screen they belong to, never in a snackbar.
 A snackbar times out, and these need the person's action. Their text
 is in `error` on the screen's surface. A banner uses
 `surface-container` with an `error` icon, as the look spec's notices
-do.
+do. On R2 every banner and notice of this table shows in one place,
+above the grid: the checksum banner, `IdOtherIdentity`, `IdBusy`,
+`IdStorageFailed`, `IdStorageUnknown` and `IdRestoreOther`. They are
+outcomes of one check, so at most one shows. `IdBusy`,
+`IdStorageFailed` and `IdStorageUnknown` carry `TryAgain` under their
+text and `IdRestoreOther` carries Continue; the checksum banner and
+`IdOtherIdentity` have no action of their own (the table's way out is
+an edit of the words).
 
 ## 7. Leaving, Back and interruptions
 
+- **Escape acts as Back** on R2 and C3, wherever Back is named below.
 - **Back with words entered (R2, C3):** a dialog asks whether to
   delete the words entered (`IdDiscardTitle`). The actions are delete
   and continue entering; continue entering is the default focus. With
   nothing entered, Back goes straight back.
+  - Only `IdDiscard` drops the words. Back again (the system Back or
+    Escape) and a tap outside the dialog mean `IdContinueEntering`:
+    the dialog closes and every word stays. A second Back must never
+    lose 24 words typed from paper.
+  - Continue entering, however chosen, returns focus to the control
+    that held it when Back was pressed. Back is a key, not a control
+    on the screen, so that control stands for "what opened it" (§8).
+  - `IdDiscard` drops the words and goes back.
+  - Back from R2 or C3, with the dialog or with nothing entered: on
+    the screen Back reaches, focus goes to the control that opened
+    the screen just left, as for C2's pages (§8).
 - **The app leaves the screen.** Home, a call, or another app opening.
   A stopped Activity is neither completion nor cancellation (§11 Q1):
   - on return, every screen shows what it showed, with entered words
@@ -467,15 +536,61 @@ do.
 
 The screens are workable without touch: a hardware keyboard or switch
 access.
-- Focus order follows the reading order: app bar, position, letters,
-  suggestions, keypad, grid, primary action.
-- A typed hardware letter acts as its key. Enter takes the only
-  suggestion when exactly one is shown, or the whole-word chip when the
-  letters typed are a word.
-- After a chip fills a position, focus goes to the keypad's first
-  enabled key.
+- Focus order follows the reading order of §4 and §6:
+  - **R2 in portrait**, top to bottom (§4): app bar, the banner or
+    notice while one shows and then its action (§6: above the grid),
+    the grid's positions by number (or `IdReviewWords` over 130 %
+    font), position, letters, the suggestion chips, the letter keys
+    row by row, the delete key, the clear key, then the screen's
+    actions, primary first.
+  - **R2 in landscape**, start side, then end side (§4, Landscape):
+    app bar, position, letters, the banner or notice and its action,
+    the grid (or `IdReviewWords`), then the chips, the letter keys,
+    delete and clear, then the screen's actions, primary first.
+  - **C3**: app bar, title, body, and while it shows `IdCheckWrong`
+    (above the entry, §4) with `TryAgain` then `IdShowAgain`, then
+    position, letters, the chips, the letter keys, delete and clear.
+    In landscape, the end side's chips and keys follow the same way.
+- A typed hardware letter acts as its key, and Backspace as the delete
+  key.
+- An arrow moves focus to the nearest control in its direction, a
+  disabled key included (below), as the platform's directional focus
+  does: across a keypad row, between rows, and between the grid's
+  positions. Tab and Shift+Tab follow the order above.
+- What Enter and Space do depends on the last input:
+  - **Typing** — the last input was a hardware letter, Backspace, or
+    an Enter that acted under this rule. Enter takes the only
+    suggestion when exactly one is shown, or the whole-word chip when
+    the letters typed are a word; otherwise it does nothing. Space
+    does nothing: no word holds a space, and a Space typed between
+    words must not press whichever key holds focus.
+  - **Navigating** — the last input was Tab, an arrow, a tap, or a
+    press of a control. Enter and Space press the focused control, as
+    on every other screen.
+  - Every other input leaves the mode as it was: Space, an Enter that
+    did nothing, Back and Escape. Closing the discard dialog (§7),
+    however it is closed, returns the screen to the mode it was in
+    when Back was pressed.
+  - The full list (§4 item 4) has no keypad and is always navigating:
+    Enter and Space press the focused row or arrow, and letters and
+    Backspace do nothing. Choosing a row, by any input, returns R2 in
+    typing mode, an exception to "a press sets navigating", as closing
+    the discard dialog is: the person is back to entering letters.
+  - A screen opens as typing. Either way the focus ring is drawn on
+    the focused control, so the person sees what Enter would press
+    once they move.
+- The full list (§4 item 4): when it opens, focus is on the current
+  position's row; Tab goes app bar arrow, then rows 1 to 24. When it
+  closes with nothing changed, focus returns to `IdReviewWords`; when
+  a row is chosen, to the keypad's first enabled key (the delete key
+  when the word put back leaves no letter enabled), in typing mode;
+  when a font change closes it, to the grid's current position.
+- When R2 or C3 opens, and after a chip fills a position, focus goes
+  to the keypad's first enabled key.
 - After an error banner appears, focus goes to the banner.
-- After a dialog closes, focus returns to what opened it.
+- After a dialog closes, focus returns to what opened it. The discard
+  dialog's `IdDiscard` leaves the screen instead, and §7 names where
+  focus goes then.
 - Between the two pages of C2 or S2: going forward, focus goes to the
   PeerId page's title, so the reading starts at the top; Back to the
   words page returns focus to the primary action that left it.
@@ -587,7 +702,8 @@ names are suggestions; rust-ui-dev names them.
 | `IdContinueEntering` | Continue entering | §7's dialog: the default action |
 | `IdKeyDelete` | Delete last letter | The keypad's delete key (its accessible label) |
 | `IdKeyClear` | Clear this word | The keypad's clear key (its accessible label) |
-| `IdReviewWords` | Show all my words | The grid's button at large font (§4) |
+| `IdReviewWords` | Show all my words | The grid's button at large font (§4), and the title of the full list it opens (§4 item 4) |
+| `AddClose` (exists) | Back | The accessible label of the app bar's back arrow (§3), first on the full list (§4 item 4). It is the add page's back arrow: one act, going back, under one name, so the key is reused as `TryAgain` is; a second key with the same meaning would need an exception in `every_ui_text_appears_once_in_all` the test does not allow for |
 
 Against the list the proposal gave: `IdC1Points` is six keys, one per
 point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
@@ -601,7 +717,7 @@ app's keys, not this flow's, added to `labels.rs` by #313 and not yet
 on main; so are `CopyPeerId` and `PeerIdCopied` (§5). Their rows are
 in the table above. `IdTryAgain` and
 `IdRetry` are both `TryAgain`. `IdKeepEntering` is
-`IdContinueEntering`.
+`IdContinueEntering`. `IdBack` is `AddClose`.
 
 ## 10. Acceptance
 
@@ -614,8 +730,8 @@ landscape:
    leads to the PeerId page, which shows the PeerId in full, grouped
    by four, and no word; Back there shows the same words. S2 has the
    same two pages. A screenshot (`adb exec-out screencap`) of both C2
-   pages, of C3, of R2 (also when reached from K1) and of both S2
-   pages is black, and Recents shows no content for the flow.
+   pages, of C3, of R2 (also when reached from K1), of R2's full list
+   (§4 item 4) and of both S2 pages is black, and Recents shows no content for the flow.
 3. Long-press on any word copies nothing, and no word ever reaches the
    clipboard. The only clipboard write in the flow is "Copy PeerId",
    which gives the canonical PeerId with no spaces, checked by pasting
@@ -713,8 +829,20 @@ landscape:
 12. Profile busy and storage failure, by rust-ui-dev's test hooks, show
     §6's notices. A refused write whose read-back fails (a hook) shows
     `IdStorageUnknown`, never "nothing was changed". Try again works, and Back leaves with nothing changed.
-13. At 200 % on the Pixel 9a, R2's keypad, suggestions and primary
-    action fit without scrolling, and no word is cut.
+13. Run twice: at the Pixel 9a's own size, and set to 360 × 640 dp
+    (`adb shell wm size 945x1680` at its 420 dpi, through
+    `phone-run`, then `wm size reset`), the size §4's figures are for.
+    - At 200 %, R2's "show all my words" button, position, letters,
+      suggestions, keypad and primary action fit without scrolling,
+      and no word is cut. While a §6 banner shows, the scrolling area
+      is at least 48 dp tall and scrolling it reaches the button.
+    - At 100 % in portrait the grid is above the picker in a
+      scrolling area, the keypad, suggestions and primary stay in view
+      while all 24 words are entered, and the current position's row
+      is always visible.
+    - On C3 at 200 %, after a wrong word, `IdCheckWrong`, `TryAgain`
+      and `IdShowAgain` can be reached, scrolling the area above the
+      picker if they must, with the picker in view.
 14. Every key and chip is at least 48 dp tall. Keys are at least 28 dp
     wide.
 
@@ -726,7 +854,53 @@ scale would also be a finding of the Android review
 (`design/2026-10-19-android-review.md`, S2).
 15. A hardware keyboard enters a word by its letters, with Enter on a
     single suggestion and on the whole-word chip ("car"). Focus follows
-    §8.
+    §8:
+    - Tab from the app bar visits §8's order for R2 in portrait and in
+      landscape, with the checksum banner shown and, by a test hook,
+      with `IdStorageFailed` shown; and for C3 with `IdCheckWrong`
+      shown.
+    - A newly opened R2 or C3 has focus on the keypad's first enabled
+      key, and Enter does nothing. After typing "ab",
+      Enter does nothing and Space does nothing, and after each the
+      next Enter still does nothing. After "car", Enter takes the
+      "car" chip, and Space then does nothing. While typing, the focus
+      ring shows on the focused control.
+    - After a Tab to a key, and after an arrow to a key, Enter and
+      Space each press that key; after a tap on a key, Enter presses
+      the focused control.
+    - Backspace deletes the last letter.
+    - At 200 %, `IdReviewWords` opens the full list with focus on the
+      current position's row. Back, Escape and the app bar arrow each
+      close it with nothing changed, no discard dialog and focus on
+      `IdReviewWords`. Tab from the app bar arrow visits rows 1 to 24
+      in order. With position 20 current, it opens with row 20 in
+      view. On the list, Enter and Space each press the focused row,
+      and a letter or Backspace changes nothing.
+    - Choosing filled row 5 by Enter closes it with position 5 being
+      edited and focus as §8 says; a second Enter at once takes the
+      whole-word chip (typing mode), so position 5 keeps its word and
+      the entry moves on.
+    - A rotation, Home and back, and a font change from 200 % to
+      150 % each keep it open. Setting the font to 130 % closes it,
+      with the grid shown and focus on the current position.
+    - After "ab", an arrow from a key beside a disabled key lands on
+      the disabled key; Down from the first keypad row lands on the
+      key below; in landscape, an arrow toward the end side from the
+      start side reaches the end side's nearest control; Shift+Tab
+      visits §8's order in reverse.
+    - Escape, like Back, opens the dialog on R2 and C3 with a word
+      entered, and with nothing entered leaves with focus as for Back
+      (below).
+    - On R2 and C3 with a word entered, Back opens the dialog. Back
+      again, Escape, a tap outside and `IdContinueEntering` each close
+      it with every word kept, focus on the control focused before the
+      first Back, and, after typing "ab", Enter still doing nothing.
+      After a Tab to a key, Back, then `IdContinueEntering`, Enter
+      presses that key.
+      Only `IdDiscard` leaves, with the words gone.
+    - Back from C3, with `IdDiscard` or with nothing entered, puts
+      focus on `IdPeerIdWritten`; from R2 opened by R1, on
+      `IdEnterWords`.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the
