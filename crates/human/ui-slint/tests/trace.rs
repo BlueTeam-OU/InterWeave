@@ -365,3 +365,91 @@ fn the_trace_says_the_identity_flow_and_the_locked_state() {
         ]
     );
 }
+
+/// S1 from Settings, as a driver steps it: TAB reaches the primary
+/// action, which says its focus key, and Enter on it is the primary --
+/// the press that raises the phrase prompt. The keyboard cannot leave
+/// the page for the window behind it on the way.
+#[test]
+fn the_identity_primary_is_reached_by_tab_and_pressed_by_enter() {
+    use interweave_human_ui_model::{IdentityFlow, Start};
+    use interweave_human_ui_slint::{IdentityInput, identity_page};
+    use slint::platform::{Key, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let model = UiModel::new();
+    view.render(&model);
+    let inputs = Rc::new(RefCell::new(Vec::new()));
+    let into = Rc::clone(&inputs);
+    view.on_identity(move |input| into.borrow_mut().push(input));
+    let flow = IdentityFlow::new(&["abandon"], Start::ShowPhrase);
+    view.show_identity(Some(identity_page(&flow)));
+    slint::platform::update_timers_and_animations();
+    let first = said.borrow().len();
+    let reached = (0..16).any(|_| {
+        tab(&view);
+        said.borrow()
+            .last()
+            .is_some_and(|l| l == "ui-trace focus=identity-primary")
+    });
+    assert!(reached, "identity-primary by TAB in {:#?}", said.borrow());
+    // Past the page's last stop, TAB comes round to its first again.
+    for _ in 0..4 {
+        tab(&view);
+    }
+    let lines = said.borrow()[first..].to_vec();
+    for line in &lines {
+        assert!(
+            line.starts_with("ui-trace focus=identity-"),
+            "focus left the page: {lines:#?}"
+        );
+    }
+    while said.borrow().last().map(String::as_str) != Some("ui-trace focus=identity-primary") {
+        tab(&view);
+    }
+    let key: slint::SharedString = Key::Return.into();
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text: key });
+    assert_eq!(*inputs.borrow(), [IdentityInput::Primary]);
+}
+
+/// Welcome's two actions: TAB steps through them in reading order and
+/// round again, Shift+TAB back, and neither reaches the window behind.
+#[test]
+fn the_identity_page_keeps_tab_on_its_own_stops() {
+    use interweave_human_ui_model::{IdentityFlow, Start};
+    use interweave_human_ui_slint::identity_page;
+    use slint::platform::{Key, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    view.render(&UiModel::new());
+    let flow = IdentityFlow::new(&["abandon"], Start::FirstRun { void_paper: false });
+    view.show_identity(Some(identity_page(&flow)));
+    slint::platform::update_timers_and_animations();
+    let first = said.borrow().len();
+    for _ in 0..3 {
+        tab(&view);
+    }
+    let key: slint::SharedString = Key::Backtab.into();
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text: key });
+    assert_eq!(
+        said.borrow()[first..],
+        [
+            "ui-trace focus=identity-primary",
+            "ui-trace focus=identity-secondary",
+            "ui-trace focus=identity-primary",
+            "ui-trace focus=identity-secondary",
+        ]
+    );
+}
