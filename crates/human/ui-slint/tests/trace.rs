@@ -522,6 +522,24 @@ impl Identity {
         Self::new(flow)
     }
 
+    /// C3, checking positions 8 and 20 (galaxy, saddle) of WORDS' first
+    /// 24, with nothing entered.
+    fn at_c3() -> Self {
+        use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
+        use interweave_human_ui_slint::{IdentityInput, apply_identity};
+        use interweave_transport_api::TransportIdentity;
+        let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+        apply_identity(&mut flow, IdentityInput::Primary);
+        let words: [&'static str; 24] = WORDS[..24].try_into().expect("24 words");
+        let peer = TransportIdentity::parse("12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e")
+            .expect("a PeerId");
+        flow.created(words, peer, [8, 20]);
+        apply_identity(&mut flow, IdentityInput::Primary);
+        apply_identity(&mut flow, IdentityInput::Primary);
+        assert_eq!(flow.screen(), ScreenId::C3, "control: at C3");
+        Self::new(flow)
+    }
+
     fn settle(&mut self) {
         let queued: Vec<_> = self.queued.borrow_mut().drain(..).collect();
         for input in queued {
@@ -691,6 +709,50 @@ fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
     page.tab();
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Key('w')]);
+}
+
+/// C3's Back with a word entered asks the same dialog as R2's (section
+/// 7): Continue entering stays on C3 with the letters, Delete words goes
+/// back to C2, and with nothing entered Back goes straight back.
+#[test]
+fn c3_back_with_words_entered_asks_the_discard_dialog() {
+    use interweave_human_ui_model::ScreenId;
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_c3();
+    page.key("g");
+    page.key(Key::Escape);
+    assert_eq!(page.take(), [IdentityInput::Key('g'), IdentityInput::Back]);
+    assert!(page.flow.discard_asked(), "letters typed: the dialog shows");
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-keep");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
+    assert_eq!(page.flow.screen(), ScreenId::C3);
+    assert_eq!(
+        page.flow.picker().map(|p| p.typed().to_owned()),
+        Some("g".to_owned()),
+        "Continue entering keeps the letters"
+    );
+    page.key(Key::Escape);
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-delete");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Back, IdentityInput::Dialog(true)]
+    );
+    assert_eq!(page.flow.screen(), ScreenId::C2, "Delete words: back to C2");
+    page.flow.primary();
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::C3);
+    page.key(Key::Escape);
+    assert_eq!(page.take(), [IdentityInput::Back]);
+    assert!(!page.flow.discard_asked());
+    assert_eq!(
+        page.flow.screen(),
+        ScreenId::C2,
+        "nothing entered: straight back"
+    );
 }
 
 /// A banner that appears takes focus (section 8): Welcome's refused
