@@ -236,8 +236,10 @@ pub enum Reply {
     /// transport; a target the ceiling just released reads so before the
     /// store answers, since its rows stayed in the store.
     Stored(String),
-    /// It is not held here and not stored in this conversation, or it is
-    /// hidden by a Dismiss whose snackbar is open: show a neutral
+    /// It is not held here and the store has not said this conversation
+    /// holds it (it does not, it has not answered yet, or its read
+    /// failed); or it is hidden by a Dismiss whose snackbar is open; or
+    /// more than one held message carries its id: show a neutral
     /// placeholder. Never fetched, never a reason to doubt the message.
     Unavailable(String),
 }

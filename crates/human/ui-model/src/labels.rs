@@ -302,9 +302,10 @@ ui_texts! {
     /// conversation, or stored in it where paging brings it back
     /// (start-window §5.2).
     ReplyPresent => "In reply to an earlier message",
-    /// A reply whose target is neither shown nor stored in this
-    /// conversation, or is hidden by a Dismiss whose snackbar is open:
-    /// neutral, never a doubt.
+    /// A reply whose target is neither shown nor known to be stored in
+    /// this conversation (the store has not answered, or its read
+    /// failed), is hidden by a Dismiss whose snackbar is open, or is one
+    /// of several shown messages with its id: neutral, never a doubt.
     ReplyUnavailable => "In reply to a message not shown here",
     /// The composer's text field.
     Composer => "Message",
