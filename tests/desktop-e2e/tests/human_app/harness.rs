@@ -10,9 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use interweave_ipc_client::IpcBinding;
-use interweave_local_client_api::{
-    AdminBinding as _, AdminCapability, AdminPort as _, LeaseRecord,
-};
+use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort, LeaseRecord};
 
 use crate::common::{Home, PATIENCE, human};
 
@@ -209,21 +207,50 @@ pub(crate) fn start_with(home: &Home, extra: &[&str]) -> App {
 
 /// The `human` endpoint's live lease on `home`'s daemon.
 pub(crate) async fn human_lease(binding: &IpcBinding) -> Option<LeaseRecord> {
-    let admin = binding
+    lease_on(&endpoints_admin(binding).await)
+        .await
+        .expect("the leases")
+}
+
+async fn endpoints_admin(binding: &IpcBinding) -> impl AdminPort {
+    binding
         .admin([AdminCapability::Endpoints].into())
         .await
-        .expect("an admin port");
-    let views = admin.leases().await.expect("the leases");
-    views
+        .expect("an admin port")
+}
+
+async fn lease_on(
+    admin: &impl AdminPort,
+) -> Result<Option<LeaseRecord>, interweave_transport_api::TransportError> {
+    Ok(admin
+        .leases()
+        .await?
         .into_iter()
         .find(|v| v.endpoint == human())
-        .and_then(|v| v.lease)
+        .and_then(|v| v.lease))
 }
 
 /// Wait until the `human` lease is held (`true`) or free (`false`).
+///
+/// One admin port answers every turn: the daemon admits four admin
+/// connections and frees a slot only once a closed connection's task has
+/// ended, so a port opened per turn could be refused under the full
+/// suite's load (j197). A port that stops answering -- its daemon gone --
+/// is dropped and the next turn opens another.
 pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
     let deadline = tokio::time::Instant::now() + PATIENCE;
-    while human_lease(binding).await.is_some() != held {
+    let mut admin = None;
+    loop {
+        let port = match admin.take() {
+            Some(port) => port,
+            None => endpoints_admin(binding).await,
+        };
+        if let Ok(lease) = lease_on(&port).await {
+            if lease.is_some() == held {
+                return;
+            }
+            admin = Some(port);
+        }
         assert!(
             tokio::time::Instant::now() < deadline,
             "the human lease never became {}: {}",
