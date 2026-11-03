@@ -401,7 +401,26 @@ The picker, from its top:
    - at a font scale over 130 % the grid is replaced by a "show all my
      words" button opening it as a full list, so the keypad keeps its
      room. The button takes the grid's place, in the scrolling area
-     above the picker.
+     above the picker. "Over 130 %" is strict: at exactly 130 % the
+     grid shows.
+   - **The full list** (rust-ui-dev-01's QUESTION 01a1a34d). The
+     button opens a full-screen page over R2, in the identity screens'
+     style, titled `IdReviewWords`, with no new text. It is the grid
+     in one column: 24 rows, each a 48 dp stop showing the number and
+     the word, or nothing yet; the current position is outlined in
+     `primary`. The page scrolls and opens with the current position
+     in view. The picker and R2's actions are hidden while it shows.
+     It shows words, so it is secure like R2 (acceptance 2).
+   - Tapping or pressing a row does what tapping a grid position
+     does: the list closes and R2 edits that position.
+   - Back, Escape and the app bar's back arrow (§3) close the list
+     with nothing changed. They never open the discard dialog, which
+     is for Back on R2 itself. No other close control: the app bar's
+     arrow is the visible one.
+   - The open list is part of the flow's state: a rotation, a return
+     from Home and a font change that stays over 130 % keep it open. A
+     font change to 130 % or below closes it, and R2 shows the grid. Process death drops it
+     with the words (§7).
 
 **Sizes.** Every key is at least 48 dp tall. On a 360 dp wide phone a
 QWERTY key is about 31 dp wide with 4 dp gaps, the width every
@@ -554,6 +573,11 @@ access.
   - A screen opens as typing. Either way the focus ring is drawn on
     the focused control, so the person sees what Enter would press
     once they move.
+- The full list (§4 item 4): when it opens, focus is on the current
+  position's row; Tab goes app bar arrow, then rows 1 to 24. When it
+  closes with nothing changed, focus returns to `IdReviewWords`; when
+  a row is chosen, to the keypad's first enabled key, in typing mode;
+  when a font change closes it, to the grid's current position.
 - When R2 or C3 opens, and after a chip fills a position, focus goes
   to the keypad's first enabled key.
 - After an error banner appears, focus goes to the banner.
@@ -698,8 +722,8 @@ landscape:
    leads to the PeerId page, which shows the PeerId in full, grouped
    by four, and no word; Back there shows the same words. S2 has the
    same two pages. A screenshot (`adb exec-out screencap`) of both C2
-   pages, of C3, of R2 (also when reached from K1) and of both S2
-   pages is black, and Recents shows no content for the flow.
+   pages, of C3, of R2 (also when reached from K1), of R2's full list
+   (§4 item 4) and of both S2 pages is black, and Recents shows no content for the flow.
 3. Long-press on any word copies nothing, and no word ever reaches the
    clipboard. The only clipboard write in the flow is "Copy PeerId",
    which gives the canonical PeerId with no spaces, checked by pasting
@@ -837,6 +861,14 @@ scale would also be a finding of the Android review
       Space each press that key; after a tap on a key, Enter presses
       the focused control.
     - Backspace deletes the last letter.
+    - At 200 %, `IdReviewWords` opens the full list with focus on the
+      current position's row. Back, Escape and the app bar arrow each
+      close it with nothing changed, no discard dialog and focus on
+      `IdReviewWords`. Choosing row 5 closes it with position 5 being
+      edited, focus on the keypad's first enabled key and Enter after
+      "ab" doing nothing. A rotation keeps it open; setting the font
+      to 130 % closes it, with the grid shown and focus on the current
+      position.
     - After "ab", an arrow from a key beside a disabled key lands on
       the disabled key; Down from the first keypad row lands on the
       key below; in landscape, an arrow toward the end side from the
