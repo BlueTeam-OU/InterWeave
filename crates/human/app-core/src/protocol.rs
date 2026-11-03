@@ -15,7 +15,7 @@ use interweave_human_store::RowId;
 use interweave_human_ui_model::{
     CardOutcome, ContactChange, ConversationKey, DirectoryContact, IdentityView, ItemKey,
     ListedOutbound, PageAsk, PageRows, Photo, PhotoAsk, PhotoEdit, Proposal, ProposalContext,
-    StoredSummary, Table, TrustChange,
+    ReplyAsk, StoredSummary, Table, TrustChange,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -181,6 +181,9 @@ pub enum WindowCommand {
     ReadContacts,
     /// One contact's photo, as it stood when the model asked.
     ReadPhoto(PhotoAsk),
+    /// Whether a conversation stores a reply's target the model does not
+    /// hold ([`UiModel::take_reply_asks`](interweave_human_ui_model::UiModel::take_reply_asks)).
+    ReadReplyTarget(ReplyAsk),
 }
 
 /// The store at a windowed start (design/2026-10-27-start-window.md
@@ -222,6 +225,15 @@ pub enum Update {
     /// A page of the open conversation, as its [`WindowCommand::FetchPage`]
     /// asked: a failed read is that command's [`Update::Failed`].
     Page(Box<PageRows>),
+    /// The store's answer to a [`WindowCommand::ReadReplyTarget`]: a
+    /// failed read is that command's [`Update::Failed`].
+    ReplyTarget {
+        /// The ask it answers.
+        ask: ReplyAsk,
+        /// Whether the conversation stores the target as a row the app
+        /// can show.
+        stored: bool,
+    },
     /// Every contact, without their photos, read again: or why not, and
     /// none is then known.
     ContactDirectory(Result<Vec<DirectoryContact>, Failure>),

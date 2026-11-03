@@ -260,6 +260,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         match update {
             Update::Started(start) => self.started(*start),
             Update::Page(rows) => self.model.page_arrived(*rows),
+            Update::ReplyTarget { ask, stored } => self.model.reply_target_answered(&ask, stored),
             Update::ContactDirectory(answer) => {
                 self.model.contacts_directory(answer.map_err(|_| ()));
             }
@@ -444,6 +445,9 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 // its failure row, a photo its initials.
                 match &command {
                     Command::Window(WindowCommand::FetchPage(ask)) => self.model.page_failed(ask),
+                    Command::Window(WindowCommand::ReadReplyTarget(ask)) => {
+                        self.model.reply_target_failed(ask);
+                    }
                     Command::Window(WindowCommand::ReadPhoto(ask)) => {
                         self.model
                             .photo_arrived(&ask.contact_id, ask.photo_at, None);
@@ -631,7 +635,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     }
 
     /// What the windowed mode asks to read, since the last turn: its
-    /// pages, the contacts, the photos a view shows.
+    /// pages, the contacts, the photos a view shows, and replies' targets
+    /// not held. Taken last in a turn, after what closed snackbars let go
+    /// of, so a dismissed target's copy is gone from the store before the
+    /// store is asked whether it holds the target (start-window §5.2).
     fn window_reads(&mut self, commands: &mut Vec<Command>) {
         for ask in self.model.take_page_asks() {
             commands.push(Command::Window(WindowCommand::FetchPage(Box::new(ask))));
@@ -641,6 +648,9 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         }
         for ask in self.model.take_photo_asks() {
             commands.push(Command::Window(WindowCommand::ReadPhoto(ask)));
+        }
+        for ask in self.model.take_reply_asks() {
+            commands.push(Command::Window(WindowCommand::ReadReplyTarget(ask)));
         }
     }
 
