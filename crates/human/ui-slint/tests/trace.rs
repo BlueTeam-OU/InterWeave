@@ -597,10 +597,13 @@ fn r2_reaches_every_position_and_key_by_tab_in_reading_order() {
     use interweave_human_ui_slint::IdentityInput;
     let mut page = Identity::at_r2();
     // R2 opens on the first key; back round to the primary, the last.
-    for _ in 0..25 {
+    for _ in 0..26 {
         page.backtab();
     }
     assert_eq!(page.last(), "ui-trace focus=identity-primary", "control");
+    // The app bar's arrow heads the order (section 8).
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-back");
     for i in 0..24 {
         page.tab();
         assert_eq!(page.last(), format!("ui-trace focus=identity-slot:{i}"));
@@ -643,11 +646,12 @@ fn r2_reaches_every_position_and_key_by_tab_in_reading_order() {
     }
     let lines = page.said.borrow()[first..].to_vec();
     assert_eq!(
-        lines[..3],
+        lines[..4],
         [
             "ui-trace focus=identity-delete",
             "ui-trace focus=identity-clear",
             "ui-trace focus=identity-primary",
+            "ui-trace focus=identity-back",
         ]
     );
     for line in &lines {
@@ -753,11 +757,12 @@ fn r2s_grid_is_a_full_list_behind_a_button_over_130_percent() {
     );
 
     // Focus is on the first key after the chip: the stop before it is
-    // the button, the grid's one stop, and the banner-less page starts
-    // there.
+    // the button, the grid's one stop, and before it, at the banner-less
+    // page's start, the app bar's arrow.
     page.backtab();
     assert_eq!(page.last(), "ui-trace focus=identity-review");
     page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-back");
     page.tab();
     assert_eq!(page.last(), "ui-trace focus=identity-review");
     page.tab();
@@ -1054,6 +1059,8 @@ fn r2_and_c3_open_on_the_first_enabled_key_typing() {
     use interweave_human_ui_model::ScreenId;
     use interweave_human_ui_slint::IdentityInput;
     let mut page = at_r1();
+    // The app bar's arrow, then the primary.
+    page.tab();
     page.tab();
     assert_eq!(page.last(), "ui-trace focus=identity-primary", "control");
     page.enter();
@@ -1106,6 +1113,8 @@ fn back_from_r2_focuses_what_opened_it() {
     use interweave_human_ui_slint::IdentityInput;
     use slint::platform::Key;
     let mut page = at_r1();
+    // The app bar's arrow, then the primary.
+    page.tab();
     page.tab();
     page.enter();
     assert_eq!(page.flow.screen(), ScreenId::R2, "control");
@@ -1264,4 +1273,88 @@ fn an_arrow_skips_a_position_scrolled_out_of_view() {
         .and_then(|i| i.parse().ok())
         .expect("a position");
     assert!(before.contains(&at), "slot {at} was in view: {before:?}");
+}
+
+/// Section 3's app bar: every screen whose Back stays in the app shows
+/// the back arrow at the start side, labelled `AddClose`, heading the
+/// page's TAB order, and pressing it is Back; W, a first screen, shows
+/// none and TAB never meets one. In RTL the arrow is at the end side.
+/// Mutation: without the page's arrow (or with `back_arrow` false), C1
+/// has no `identity-back` stop and this fails; drawn on W, the count
+/// there fails.
+#[test]
+fn the_app_bar_arrow_is_back_on_every_screen_that_has_one() {
+    use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
+    use interweave_human_ui_slint::{IdentityInput, apply_identity};
+    let arrows = |page: &Identity| {
+        ElementHandle::find_by_accessible_label(page.view.window(), text(UiText::AddClose))
+            .filter(|e| {
+                e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Button)
+            })
+            .map(|e| e.absolute_position().x)
+            .collect::<Vec<_>>()
+    };
+
+    let width = 360.0;
+    let sized = |page: &mut Identity| {
+        page.view
+            .window()
+            .window()
+            .set_size(slint::LogicalSize::new(width, 640.0));
+        page.settle();
+    };
+    let mut page = Identity::new(IdentityFlow::new(
+        WORDS,
+        Start::FirstRun { void_paper: false },
+    ));
+    sized(&mut page);
+    assert_eq!(
+        arrows(&page),
+        Vec::<f32>::new(),
+        "W leaves the app: no arrow"
+    );
+    let first = page.said.borrow().len();
+    for _ in 0..4 {
+        page.tab();
+    }
+    assert!(
+        page.said.borrow()[first..]
+            .iter()
+            .all(|l| l != "ui-trace focus=identity-back"),
+        "{:#?}",
+        page.said.borrow()
+    );
+
+    apply_identity(&mut page.flow, IdentityInput::Primary);
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::C1, "control");
+    let at = arrows(&page);
+    assert_eq!(at.len(), 1, "C1's arrow");
+    assert!(at[0] < width / 2.0, "at the start side: {at:?} of {width}");
+    // The first TAB from the page itself reaches the arrow, then the
+    // primary; Enter on the arrow is Back.
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-back");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-back");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Back]);
+    assert_eq!(page.flow.screen(), ScreenId::W);
+
+    // One platform per test: S1 on the same window.
+    page.flow = IdentityFlow::new(WORDS, Start::ShowPhrase);
+    page.view.window().set_rtl(true);
+    sized(&mut page);
+    let at = arrows(&page);
+    assert_eq!(at.len(), 1, "S1's arrow, in RTL");
+    assert!(
+        at[0] > width / 2.0,
+        "at the end side in RTL: {at:?} of {width}"
+    );
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-back");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Back]);
 }

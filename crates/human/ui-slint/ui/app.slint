@@ -420,6 +420,11 @@ export struct IdentityPage {
     // while it shows, with the app bar's back arrow as its way out.
     review-label: string,
     review: bool,
+    // The app bar's back arrow (section 3), on the screens whose Back
+    // stays in the app; drawn inactive while Back waits too (S1 going
+    // offline, R2 checking). Its label names the full list's arrow too.
+    back-arrow: bool,
+    back-active: bool,
     back-label: string,
     primary: string,
     primary-enabled: bool,
@@ -1766,7 +1771,8 @@ component IdentityScreen inherits FocusScope {
     // The page is modal: TAB and Shift+TAB step through its own stops,
     // in reading order, and never reach the window behind it (which
     // Slint's own navigation would, past the last stop). The stops are
-    // segments, in reading order: 0 the banner, 1 the grid's positions
+    // segments, in reading order: 0 the app bar's back arrow, then the
+    // banner (`banner-idx`), 1 the grid's positions
     // (over 130 % font, its one button), 2 the chips, 3 the keypad's
     // letters, 4 delete, 5 clear, 6 the primary, 7 the secondary, 8 the
     // tertiary -- each as long as the
@@ -1787,7 +1793,7 @@ component IdentityScreen inherits FocusScope {
         if (root.page.review) {
             return seg == 0 ? 1 : seg == 1 ? root.page.grid.length : 0;
         }
-        if (seg == 0) { return root.page.notice != "" ? 1 : 0; }
+        if (seg == 0) { return root.banner-idx() + (root.page.notice != "" ? 1 : 0); }
         // Over 130 % the grid is one stop, "Show all my words".
         if (seg == 1) { return root.large-text ? min(root.page.grid.length, 1) : root.page.grid.length; }
         if (seg == 2) { return root.page.picker ? root.page.chips.length : 0; }
@@ -1798,6 +1804,10 @@ component IdentityScreen inherits FocusScope {
         if (seg == 7) { return root.page.secondary != "" ? 1 : 0; }
         if (seg == 8) { return root.page.tertiary != "" ? 1 : 0; }
         return root.page.dialog ? 1 : 0;
+    }
+    // The banner's stop in segment 0: after the app bar's arrow.
+    function banner-idx() -> int {
+        return root.page.back-arrow ? 1 : 0;
     }
     // Where segment `seg`'s first stop stands among the page's.
     function base(seg: int) -> int {
@@ -2018,7 +2028,7 @@ component IdentityScreen inherits FocusScope {
                 // just left (section 7).
                 root.go(6, 0);
             } else if (notice-new) {
-                root.go(0, 0);
+                root.go(0, root.banner-idx());
             } else if (root.at-seg >= 0) {
                 root.again(root.at-seg, root.at-idx);
             }
@@ -2063,7 +2073,7 @@ component IdentityScreen inherits FocusScope {
             root.typing = root.saved-typing;
             root.again(root.saved-seg, root.saved-idx);
         } else if (notice-new) {
-            root.go(0, 0);
+            root.go(0, root.banner-idx());
         } else if (chip && root.page.picker) {
             root.go(3, -1);
         } else if (root.at-seg >= 0) {
@@ -2172,15 +2182,71 @@ component IdentityScreen inherits FocusScope {
         padding-left: root.inset-left + 16px;
         padding-right: root.inset-right + 16px;
         spacing: 12px;
-        Text {
-            text: root.page.title;
-            font-size: Type.title-large;
-            font-weight: 500;
-            color: Palette.on-surface;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-            accessible-role: text;
-            accessible-label: self.text;
+        // The app bar (section 3): the back arrow where Back stays in the
+        // app, at the start side, and the screen's title.
+        HorizontalLayout {
+            spacing: 8px;
+            if root.page.back-arrow && !root.rtl: VerticalLayout {
+                alignment: center;
+                IconButton {
+                    glyph: Glyph.back;
+                    rtl: root.rtl;
+                    ink: Palette.on-surface;
+                    active: root.page.back-active;
+                    label: root.page.back-label;
+                    focus-key: "identity-back";
+                    focus-seq: root.focus-seq;
+                    property <int> arrow: root.arrow-seq;
+                    changed arrow => { root.source(0, 0, 0, 0, self.absolute-position, self.width, self.height); }
+                    property <int> probe: root.probe-seq;
+                    changed probe => {
+                        root.offer(0, 0, 0, 0, true,
+                            self.absolute-position, self.width, self.height);
+                    }
+                    // The full list's arrow is segment 0's stop while it
+                    // shows; this one is hidden under it.
+                    focus-wanted: !root.page.review && root.want-seg == 0 && root.want-idx == 0;
+                    pressed => { root.typing = false; root.back(); }
+                    focused(k) => { root.took(k, 0, 0); }
+                }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.page.title;
+                font-size: Type.title-large;
+                font-weight: 500;
+                color: Palette.on-surface;
+                vertical-alignment: center;
+                horizontal-alignment: root.rtl ? right : left;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            if root.page.back-arrow && root.rtl: VerticalLayout {
+                alignment: center;
+                IconButton {
+                    glyph: Glyph.back;
+                    rtl: root.rtl;
+                    ink: Palette.on-surface;
+                    active: root.page.back-active;
+                    label: root.page.back-label;
+                    focus-key: "identity-back";
+                    focus-seq: root.focus-seq;
+                    property <int> arrow: root.arrow-seq;
+                    changed arrow => { root.source(0, 0, 0, 0, self.absolute-position, self.width, self.height); }
+                    property <int> probe: root.probe-seq;
+                    changed probe => {
+                        root.offer(0, 0, 0, 0, true,
+                            self.absolute-position, self.width, self.height);
+                    }
+                    // The full list's arrow is segment 0's stop while it
+                    // shows; this one is hidden under it.
+                    focus-wanted: !root.page.review && root.want-seg == 0 && root.want-idx == 0;
+                    pressed => { root.typing = false; root.back(); }
+                    focused(k) => { root.took(k, 0, 0); }
+                }
+            }
         }
         page-flick := Flickable {
             vertical-stretch: 1;
@@ -2201,14 +2267,14 @@ component IdentityScreen inherits FocusScope {
                             focus-key: "identity-banner";
                             focus-seq: root.focus-seq;
                             property <int> arrow: root.arrow-seq;
-                            changed arrow => { root.source(0, 0, 0, 1, self.absolute-position, self.width, self.height); }
+                            changed arrow => { root.source(0, root.banner-idx(), 0, 1, self.absolute-position, self.width, self.height); }
                             property <int> probe: root.probe-seq;
                             changed probe => {
-                                root.offer(0, 0, 0, 1, self.absolute-position.y + self.height / 2 >= page-flick.absolute-position.y && self.absolute-position.y + self.height / 2 <= page-flick.absolute-position.y + page-flick.height,
+                                root.offer(0, root.banner-idx(), 0, 1, self.absolute-position.y + self.height / 2 >= page-flick.absolute-position.y && self.absolute-position.y + self.height / 2 <= page-flick.absolute-position.y + page-flick.height,
                                     self.absolute-position, self.width, self.height);
                             }
-                            focus-wanted: root.want-seg == 0;
-                            focused(k) => { root.took(k, 0, 0); }
+                            focus-wanted: root.want-seg == 0 && root.want-idx == root.banner-idx();
+                            focused(k) => { root.took(k, 0, root.banner-idx()); }
                         }
                     }
                 }

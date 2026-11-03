@@ -193,6 +193,10 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         dialog_keep: text(UiText::IdContinueEntering).into(),
         dialog: flow.discard_asked(),
         screen: screen_id(screen),
+        // One label for the page's arrow and the full list's (section 3).
+        back_arrow: flow.back_arrow(),
+        back_active: !flow.waiting(),
+        back_label: text(UiText::AddClose).into(),
         ..IdentityPage::default()
     };
     let (title, paragraphs, primary): (UiText, Vec<UiText>, Option<UiText>) = match screen {
@@ -365,7 +369,6 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ));
         page.current = i32::try_from(entry.current()).unwrap_or(0);
         page.review_label = text(UiText::IdReviewWords).into();
-        page.back_label = text(UiText::AddClose).into();
         page.review = flow.reviewing();
         page.primary_enabled = entry.complete() && !flow.waiting();
     }
