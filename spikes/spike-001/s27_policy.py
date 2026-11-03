@@ -134,8 +134,14 @@ def main() -> int:
                                       if spec["settings"] else None)
 
         if spec["where"] == "container":
+            # Pulled first, so the digest recorded is the image that runs:
+            # an inspect of an image not yet local answers nothing.
+            pulled = podman("pull", "-q", IMAGE)
             image = podman("image", "inspect", "--format", "{{.Digest}}", IMAGE)
-            record["image"] = {"name": IMAGE, "digest": image.stdout.strip()}
+            digest = image.stdout.strip()
+            if pulled.returncode or image.returncode or not digest.startswith("sha256:"):
+                raise SystemExit(f"no digest for {IMAGE}: {(pulled.stderr + image.stderr).strip()}")
+            record["image"] = {"name": IMAGE, "digest": digest}
             # keep-id: this login's uid is the same inside, so the scratch
             # tree it owns is writable there; uid 0 inside is not root here.
             mounts = []
@@ -165,6 +171,9 @@ def main() -> int:
                           "grep ' /etc ' /proc/self/mountinfo | wc -l")
             record["container_etc"] = seen.stdout.strip().splitlines()
             names = ["CLAUDE_CONFIG_DIR", *login, "DISABLE_AUTOUPDATER", "LANG", "PATH"]
+            # What the session inside receives: the named variables and the
+            # two set here, not the podman client's environment.
+            passed_names = sorted({*names, "HOME", "XDG_RUNTIME_DIR"} - set(login)) + sorted(login)
             cmd = ["podman", "exec", "-i", "--user", str(os.getuid()), "-w", str(workdir), "-e", f"HOME={home}",
                    # A container has no login session, and without a runtime
                    # directory the bridge serves its refusal, which declares
@@ -226,7 +235,8 @@ def main() -> int:
         record["policy_lines"] = [l[25:][:300] for l in log.splitlines() if POLICY_LINES.search(l)][:20]
         stderr = (out / "stderr.txt").read_text(errors="replace")
         record["stderr_head"] = stderr.splitlines()[:10]
-        record["env_passed"] = sorted(k for k in env if k not in login) + sorted(login)
+        record["env_passed"] = (passed_names if spec["where"] == "container"
+                                else sorted(k for k in env if k not in login) + sorted(login))
     finally:
         if proc is not None and proc.poll() is None:
             stop_group(proc.pid, lambda s: time.sleep(s), steps=(("group", 9, 5),))
