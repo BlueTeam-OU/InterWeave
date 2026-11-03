@@ -257,13 +257,44 @@ second line is the pin's `[archive] minisign_public_key`. Keep the
 the tag key, by a new key and a new pin, and a person checking an older
 archive checks it against the pin of its time.
 
+## What the tests show (plan §22)
+
+Stage 19's Android rows, each with what meets it on `main` or what it
+still waits on.
+
+- **The release run (ADR-0057).** Met by the tagged runs of `v0.1.0`
+  (40179792207, 2026-10-25; its page recorded in plan §22) and `v0.2.0`
+  (40568434157, 2026-10-27, on 32ade966; every job passed, `release apk
+  signing` among them, which refuses a certificate other than the one
+  the `release` environment pins). The `v0.2.0` page, read 2026-11-03,
+  carries `interweave-0.2.0-arm64-v8a.apk` (SHA-256
+  `5aadbfca9cc80a5dd2d420b6e0e3fe04cab4f6bc0400692c485fa28dbb67c2c9`) with
+  a `.sha256` beside it, `THIRD-PARTY-NOTICES-android.md` with its own,
+  the signing certificate's SHA-256
+  `a7f38b5e32aec4b8db0627950740ea98389a59dfb3c73844546f12a038d026e1`,
+  the same as `v0.1.0`'s, and the Slint badge. `tools/ci/test_release_android_apk.sh`, in CI's `tool
+  self-tests` job, holds the signing step to the release key: an APK
+  signed by another key, or of another package, is refused.
+- **Android update/reinstall behavior.** No test on `main`; owed, and a
+  limit until it lands. The release page says an update keeps the
+  identity and the messages, Android refuses an older release over a
+  newer one, and an uninstall deletes the app's data. What `main` shows
+  is the precondition of an update in place, one signing key for every
+  release (the run above). The rest is device evidence: §21's S12 rows,
+  p2p-network-dev-02's on the test phone (S21-12, an invalidated or
+  missing key; TM-26, the backup exclusion and a half-restored install),
+  and
+  two cases those rows do not name: the previous release's APK updated
+  in place by this one, serving the same PeerId from the same store,
+  and an older APK refused over a newer one.
+
 ## What this does not prove
 
 - The prebuilt Skia is the same bytes on every run, not reviewed bytes
   (ADR-0057 decision 4).
 - Nothing here installs the APK on a phone: a release's update and
   reinstall behaviour is plan §22's Validate row, read from a device
-  run (§21's S12).
+  run (§21's S12 and the two cases above).
 - The self-tests sign minimal APKs with throwaway keys made at test
   time; the release key and a real `assembleRelease` APK meet the
   scripts only in the run itself. The tag and archive checks are tested
