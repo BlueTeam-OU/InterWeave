@@ -345,8 +345,9 @@ One position is entered at a time. In portrait R2 has two parts. At
 the top, under the app bar, a scrolling area holds the banner or
 notice while one shows (§6) and the phrase so far (item 4). Under it,
 fixed to the bottom of the screen and never scrolling, is the picker,
-items 1 to 3 below, then the screen's actions. C3 has no grid, so it
-is the picker alone.
+items 1 to 3 below, then the screen's actions. C3 has no grid: its
+title, body and, after a wrong word, `IdCheckWrong` with its two
+actions sit in the scrolling area above the fixed picker.
 
 - Why: the grid does not fit under the keypad. On a 360 × 640 dp phone
   at 100 % the column comes to about 800 dp against about 570 dp
@@ -415,7 +416,9 @@ before it enters a word. Suggestion chips and the grid's positions are
 - At 200 % on a 360 × 640 dp phone, from the top: the app bar, the
   "show all my words" button, position, letters, suggestions, keypad
   and primary action fit without scrolling. The phrase grid is behind
-  its button (above).
+  its button (above). The scrolling area is never under 48 dp tall:
+  while a §6 banner shows, the banner comes first and the button is
+  reached by scrolling the area.
 - The longest BIP-39 word has eight letters. Chips are sized to their
   word and wrap to a second row before any word is cut.
 
@@ -793,11 +796,20 @@ landscape:
 12. Profile busy and storage failure, by rust-ui-dev's test hooks, show
     §6's notices. A refused write whose read-back fails (a hook) shows
     `IdStorageUnknown`, never "nothing was changed". Try again works, and Back leaves with nothing changed.
-13. At 200 % on the Pixel 9a, R2's keypad, suggestions and primary
-    action fit without scrolling, and no word is cut. At 100 % in
-    portrait the grid is above the picker in a scrolling area, the
-    keypad, suggestions and primary stay in view while all 24 words
-    are entered, and the current position's row is always visible.
+13. Run twice: at the Pixel 9a's own size, and set to 360 × 640 dp
+    (`adb shell wm size 945x1680` at its 420 dpi, through
+    `phone-run`, then `wm size reset`), the size §4's figures are for.
+    - At 200 %, R2's "show all my words" button, position, letters,
+      suggestions, keypad and primary action fit without scrolling,
+      and no word is cut. While a §6 banner shows, the scrolling area
+      is at least 48 dp tall and scrolling it reaches the button.
+    - At 100 % in portrait the grid is above the picker in a
+      scrolling area, the keypad, suggestions and primary stay in view
+      while all 24 words are entered, and the current position's row
+      is always visible.
+    - On C3 at 200 %, after a wrong word, `IdCheckWrong`, `TryAgain`
+      and `IdShowAgain` can be reached, scrolling the area above the
+      picker if they must, with the picker in view.
 14. Every key and chip is at least 48 dp tall. Keys are at least 28 dp
     wide.
 
@@ -824,6 +836,11 @@ scale would also be a finding of the Android review
       Space each press that key; after a tap on a key, Enter presses
       the focused control.
     - Backspace deletes the last letter.
+    - After "ab", an arrow from a key beside a disabled key lands on
+      the disabled key; Down from the first keypad row lands on the
+      key below; in landscape, an arrow toward the end side from the
+      start side reaches the end side's nearest control; Shift+Tab
+      visits §8's order in reverse.
     - Escape, like Back, opens the dialog on R2 and C3 with a word
       entered, and with nothing entered leaves with focus as for Back
       (below).
