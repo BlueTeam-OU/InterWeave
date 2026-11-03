@@ -852,8 +852,10 @@ fn reply_line(root: &Root, key: &ConversationKey, text: &str) -> Option<Reply> {
 /// target stored in the conversation beyond the window reads present
 /// (`Reply::Stored`); one never received, and one stored only in another
 /// conversation, read unavailable. Paging up to the target makes it held.
-/// No ask adds a row read. Mutation: the model side not turning the
-/// model's reply asks into commands.
+/// That a probe reads no row is the store's plan test
+/// (`a_reply_target_is_read_from_an_index_alone`), which the facade's row
+/// count cannot see. Mutation: the model side not turning the model's
+/// reply asks into commands.
 #[tokio::test]
 async fn a_reply_target_beyond_the_window_reads_present_from_the_store() {
     let from = peer();
@@ -887,7 +889,6 @@ async fn a_reply_target_beyond_the_window_reads_present_from_the_store() {
         ),
         "not answered yet"
     );
-    let read = root.side.rows_read();
     root.turn().await;
     let answers: Vec<(String, bool)> = root
         .updates
@@ -898,7 +899,6 @@ async fn a_reply_target_beyond_the_window_reads_present_from_the_store() {
         })
         .collect();
     assert_eq!(answers.len(), 3, "one ask per target: {answers:?}");
-    assert_eq!(root.side.rows_read(), read, "an ask reads no row");
     assert_eq!(
         reply_line(&root, &key, "message 78"),
         Some(Reply::Stored(format!("{:032x}", 1))),

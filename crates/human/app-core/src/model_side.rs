@@ -636,9 +636,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
 
     /// What the windowed mode asks to read, since the last turn: its
     /// pages, the contacts, the photos a view shows, and replies' targets
-    /// not held. Taken last in a turn, after what closed snackbars let go
-    /// of, so a dismissed target's copy is gone from the store before the
-    /// store is asked whether it holds the target (start-window §5.2).
+    /// not held (start-window §5.2).
     fn window_reads(&mut self, commands: &mut Vec<Command>) {
         for ask in self.model.take_page_asks() {
             commands.push(Command::Window(WindowCommand::FetchPage(Box::new(ask))));
