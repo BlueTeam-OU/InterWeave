@@ -232,7 +232,9 @@ pub enum Reply {
     Present(ItemKey),
     /// It is not held, and this conversation stores it as a row the app
     /// can show, unread or kept: paging reaches it, so the line reads as
-    /// [`Self::Present`]'s. The store was asked, never the transport.
+    /// [`Self::Present`]'s. The store says so when asked, never the
+    /// transport; a target the ceiling just released reads so before the
+    /// store answers, since its rows stayed in the store.
     Stored(String),
     /// It is not held here and not stored in this conversation, or it is
     /// hidden by a Dismiss whose snackbar is open: show a neutral

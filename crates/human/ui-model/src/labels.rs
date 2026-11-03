@@ -298,9 +298,13 @@ ui_texts! {
     PathRelayed => "Connected through a relay",
     /// An unread message whose content is also kept (U2b).
     UnreadAlsoKept => "Unread, kept",
-    /// A reply whose target is shown in this conversation.
+    /// A reply whose target the person can reach: shown in this
+    /// conversation, or stored in it where paging brings it back
+    /// (start-window §5.2).
     ReplyPresent => "In reply to an earlier message",
-    /// A reply whose target is not held here: neutral, never a doubt.
+    /// A reply whose target is neither shown nor stored in this
+    /// conversation, or is hidden by a Dismiss whose snackbar is open:
+    /// neutral, never a doubt.
     ReplyUnavailable => "In reply to a message not shown here",
     /// The composer's text field.
     Composer => "Message",
