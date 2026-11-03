@@ -52,7 +52,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 
 - A conversation is `<peer>` (its default endpoint), `<peer>/<endpoint>`, or `#<channel>`, as `conversations` prints it.
 - A message id is `p<row>`, `u<row>` or `k<row>`: the message's row in the store's pending, unread or kept table. It names the same message to the next run while the row stays in that table. Reading or keeping a message moves it to another table and so gives it another id, which the verb prints. No id survives a discard and recreate of the store.
-- A message's `reply_to` is `{"id": <id>}` when the run holds the message it answers, and `{"unavailable": true}` when it does not: the original is gone or ambiguous, it is older than the rows `messages` or `read` holds at that point of its walk, or, on `listen`'s lines, it is in a conversation the run holds no rows of. It is never an id made up for it or the sender's reference to it: an id names a row this run holds.
+- A message's `reply_to` is `{"id": <id>}` when the run holds the message it answers; `{"stored": true}` when the run does not hold it but the store holds it in that conversation, unread or kept, so a later page shows it (the store is asked once the reply is held, and the line is the one the run held when it printed); and `{"unavailable": true}` otherwise: the original is gone, ambiguous, hidden by a Dismiss whose Undo is still open, not yet answered by the store, or, on `listen`'s lines, in a conversation the run holds no rows of. It is never an id made up for it or the sender's reference to it: an id names a row this run holds.
 
 ### What a run sees
 
