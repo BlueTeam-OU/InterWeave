@@ -420,11 +420,13 @@ jobs:
             DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
             systemctl --user show-environment > /dev/null
 
-      # The cases are #[ignore]d because a plain `cargo test` may have no
-      # user manager; with Tests' own selection, for the rollback row's
-      # reason (above), and every case of the binary, one at a time: each
-      # refuses to run beside another's interweave-*@ unit, since
-      # uninstall.sh stops every instance of the account. Measured 23 s.
+      # The cases that need a manager are #[ignore]d because a plain
+      # `cargo test` may have no user manager; this step runs those two
+      # (`--run-ignored only`: the lifecycle and the uninstall case), with
+      # Tests' own selection, for the rollback row's reason (above), one at
+      # a time: each refuses to run beside another's interweave-*@ unit,
+      # since uninstall.sh stops every instance of the account. The
+      # binary's other cases need no manager and run in Tests. Measured 23 s.
       - name: The packaged user units under the user manager (plan §22)
         timeout-minutes: 5
         env:
