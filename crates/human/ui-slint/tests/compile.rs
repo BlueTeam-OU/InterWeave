@@ -51,6 +51,23 @@ fn every_wrapped_text_has_a_height_of_its_own() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/app.slint");
     let source = std::fs::read_to_string(&path).expect("app.slint");
     let lines: Vec<&str> = source.lines().collect();
+    let (checked, missing) = wrap_scan(&lines);
+    // 113 when this was written: a floor, so a scan that stops finding
+    // them fails rather than checks nothing.
+    assert!(
+        checked >= 100,
+        "the scan found only {checked} wrapped Texts in app.slint"
+    );
+    assert!(
+        missing.is_empty(),
+        "wrapped Text without min-height: self.preferred-height:\n{}",
+        missing.join("\n")
+    );
+}
+
+/// The wrapped Texts the scan checked, and every line it refuses: a
+/// wrapped Text without a height of its own, a wrap it cannot read.
+fn wrap_scan(lines: &[&str]) -> (usize, Vec<String>) {
     let mut missing = Vec::new();
     let mut checked = 0_usize;
     for (at, line) in lines.iter().enumerate() {
@@ -79,7 +96,7 @@ fn every_wrapped_text_has_a_height_of_its_own() {
             missing.push(format!("{}: wrap bound to {value:?}", at + 1));
             continue;
         }
-        let Some(open) = element_start(&lines, at) else {
+        let Some(open) = element_start(lines, at) else {
             missing.push(format!("{}: no element opens above it", at + 1));
             continue;
         };
@@ -87,22 +104,28 @@ fn every_wrapped_text_has_a_height_of_its_own() {
             continue;
         }
         checked += 1;
-        let own = direct_bindings(&lines, open);
+        let own = direct_bindings(lines, open);
         if !own.iter().any(|b| *b == "min-height" || *b == "height") {
             missing.push(format!("{}: {}", open + 1, lines[open].trim()));
         }
     }
-    // 113 when this was written: a floor, so a scan that stops finding
-    // them fails rather than checks nothing.
-    assert!(
-        checked >= 100,
-        "the scan found only {checked} wrapped Texts in app.slint"
-    );
-    assert!(
-        missing.is_empty(),
-        "wrapped Text without min-height: self.preferred-height:\n{}",
-        missing.join("\n")
-    );
+    (checked, missing)
+}
+
+/// The scan itself refuses a one-line Text, which the line walk cannot
+/// place, and passes the same Text written one binding to a line.
+#[test]
+fn the_wrap_scan_refuses_a_wrap_it_cannot_place() {
+    let inline = ["Text { wrap: word-wrap; }"];
+    let (_, missing) = wrap_scan(&inline);
+    assert_eq!(missing, ["1: wrap not on a line of its own"]);
+    let placed = [
+        "Text {",
+        "    wrap: word-wrap;",
+        "    min-height: self.preferred-height;",
+        "}",
+    ];
+    assert_eq!(wrap_scan(&placed), (1, Vec::new()));
 }
 
 /// The line that opens the element holding line `at`: walking up, the
