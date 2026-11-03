@@ -173,6 +173,14 @@ struct Check {
     done: usize,
     picker: WordPicker,
     wrong: Option<usize>,
+    discard_asked: bool,
+}
+
+impl Check {
+    /// A right word was taken, or letters are typed: Back asks first.
+    fn entered(&self) -> bool {
+        self.done > 0 || !self.picker.typed().is_empty()
+    }
 }
 
 /// The screen showing.
@@ -429,7 +437,8 @@ impl IdentityFlow {
         )
     }
 
-    /// R2's Back with words entered asks first (`IdDiscardTitle`).
+    /// R2's or C3's Back with words entered asks first
+    /// (`IdDiscardTitle`).
     #[must_use]
     pub fn discard_asked(&self) -> bool {
         matches!(
@@ -437,7 +446,10 @@ impl IdentityFlow {
             Screen::R2 {
                 discard_asked: true,
                 ..
-            }
+            } | Screen::C3(Check {
+                discard_asked: true,
+                ..
+            })
         )
     }
 
@@ -504,6 +516,7 @@ impl IdentityFlow {
                     done: 0,
                     picker: WordPicker::new(self.list),
                     wrong: None,
+                    discard_asked: false,
                 });
                 Vec::new()
             }
@@ -586,8 +599,17 @@ impl IdentityFlow {
                 self.screen = Screen::C1;
                 Vec::new()
             }
-            Screen::C3(_) => {
-                self.screen = Screen::C2;
+            Screen::C3(check) => {
+                // As on R2 below: the open dialog's Back is Continue
+                // entering, and with nothing entered Back goes straight
+                // back (section 7).
+                if check.discard_asked {
+                    check.discard_asked = false;
+                } else if check.entered() {
+                    check.discard_asked = true;
+                } else {
+                    self.screen = Screen::C2;
+                }
                 Vec::new()
             }
             // The identity is about to be sealed: there is no way back.
@@ -637,13 +659,24 @@ impl IdentityFlow {
         }
     }
 
-    /// R2's discard dialog: delete the words (`true`) or keep entering.
+    /// R2's or C3's discard dialog: delete the words (`true`) or keep
+    /// entering. C3's delete returns to C2, and C3 asks both positions
+    /// again on return.
     pub fn discard(&mut self, delete: bool) {
-        if let Screen::R2 { discard_asked, .. } = &mut self.screen {
-            *discard_asked = false;
-            if delete {
-                self.leave_r2();
+        match &mut self.screen {
+            Screen::R2 { discard_asked, .. } if *discard_asked => {
+                *discard_asked = false;
+                if delete {
+                    self.leave_r2();
+                }
             }
+            Screen::C3(check) if check.discard_asked => {
+                check.discard_asked = false;
+                if delete {
+                    self.screen = Screen::C2;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1526,6 +1559,43 @@ mod tests {
         assert_eq!(flow.screen(), ScreenId::R1);
         flow.primary();
         assert_eq!(flow.entry().and_then(|e| e.word(0)), None, "words dropped");
+    }
+
+    #[test]
+    fn back_from_c3_with_words_asks_first_and_delete_asks_both_again() {
+        let mut flow = created_at_c2();
+        flow.primary();
+        assert_eq!(flow.back(), []);
+        assert_eq!(
+            flow.screen(),
+            ScreenId::C2,
+            "nothing entered: straight back"
+        );
+        flow.primary();
+        assert!(flow.press('g'));
+        flow.back();
+        assert!(flow.discard_asked(), "letters typed are words entered");
+        flow.discard(false);
+        assert_eq!(flow.screen(), ScreenId::C3);
+        assert_eq!(flow.picker().map(WordPicker::typed), Some("g"));
+        flow.clear_letters();
+        enter(&mut flow, "galaxy");
+        flow.back();
+        assert!(flow.discard_asked(), "a right word taken is a word entered");
+        flow.back();
+        assert!(
+            !flow.discard_asked(),
+            "Back on the dialog continues entering"
+        );
+        assert_eq!(flow.check(), Some((18, None)), "the right word kept");
+        flow.back();
+        flow.discard(true);
+        assert_eq!(flow.screen(), ScreenId::C2);
+        assert_eq!(flow.words(), Some(&words()), "the identity is kept");
+        flow.primary();
+        assert_eq!(flow.check(), Some((6, None)), "both positions asked again");
+        flow.discard(true);
+        assert_eq!(flow.screen(), ScreenId::C3, "no dialog, no discard");
     }
 
     #[test]
