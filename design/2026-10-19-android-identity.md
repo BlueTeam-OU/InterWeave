@@ -10,6 +10,9 @@ and is not merged; it lands with rust-ui-dev's build PR.
 Revised 2026-10-23: what the phrase holds is the PeerId on every
 screen and "identity" names only the person's identities (§2, §3,
 §9), at architect-cto-01's REPLYs 01a16736 and 01a1673d.
+Revised 2026-11-03: Back and a tap outside on the discard dialog (§7),
+what Enter and Space do (§8) and the full focus order (§8), with
+acceptance 15, at rust-ui-dev-01's QUESTION 01a1a324 (REPLY 01a1a331).
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -449,6 +452,16 @@ do.
   delete the words entered (`IdDiscardTitle`). The actions are delete
   and continue entering; continue entering is the default focus. With
   nothing entered, Back goes straight back.
+  - Only `IdDiscard` drops the words. Back again (the system Back or
+    Escape) and a tap outside the dialog mean `IdContinueEntering`:
+    the dialog closes and every word stays. A second Back must never
+    lose 24 words typed from paper.
+  - Continue entering, however chosen, returns focus to the control
+    that held it when Back was pressed. Back is a key, not a control
+    on the screen, so that control stands for "what opened it" (§8).
+  - `IdDiscard` drops the words and goes back. On the screen Back
+    reaches, focus goes to the control that opened the screen just
+    left, as for C2's pages (§8).
 - **The app leaves the screen.** Home, a call, or another app opening.
   A stopped Activity is neither completion nor cancellation (§11 Q1):
   - on return, every screen shows what it showed, with entered words
@@ -467,11 +480,28 @@ do.
 
 The screens are workable without touch: a hardware keyboard or switch
 access.
-- Focus order follows the reading order: app bar, position, letters,
-  suggestions, keypad, grid, primary action.
-- A typed hardware letter acts as its key. Enter takes the only
-  suggestion when exactly one is shown, or the whole-word chip when the
-  letters typed are a word.
+- Focus order follows the reading order of §4 and §6, top to bottom:
+  app bar, position, letters, the suggestion chips, the letter keys
+  row by row, the delete key, the clear key, the checksum banner while
+  it shows (R2, §6: above the grid), the grid's positions by number (or
+  `IdReviewWords` over 130 % font), then the screen's actions, primary
+  first. The grid is under the keypad (§4 item 4); a build that draws
+  it above is a deviation, and moving it would change this order.
+- A typed hardware letter acts as its key, and Backspace as the delete
+  key.
+- What Enter and Space do depends on the last input:
+  - **Typing** — the last input was a hardware letter, Backspace, or
+    an Enter that acted under this rule. Enter takes the only
+    suggestion when exactly one is shown, or the whole-word chip when
+    the letters typed are a word; otherwise it does nothing. Space
+    does nothing: no word holds a space, and a Space typed between
+    words must not press whichever key holds focus.
+  - **Navigating** — the last input was Tab, an arrow, a tap, or a
+    press of a control. Enter and Space press the focused control, as
+    on every other screen.
+  - A screen opens as typing. Either way the focus ring is drawn on
+    the focused control, so the person sees what Enter would press
+    once they move.
 - After a chip fills a position, focus goes to the keypad's first
   enabled key.
 - After an error banner appears, focus goes to the banner.
@@ -726,7 +756,17 @@ scale would also be a finding of the Android review
 (`design/2026-10-19-android-review.md`, S2).
 15. A hardware keyboard enters a word by its letters, with Enter on a
     single suggestion and on the whole-word chip ("car"). Focus follows
-    §8.
+    §8:
+    - Tab from the app bar visits, in order, position, letters, chips,
+      keys, delete, clear, the checksum banner (when shown), the grid
+      (or `IdReviewWords` at 200 %) and the actions, primary first.
+    - After typing "ab", Enter does nothing and Space does nothing.
+      After a Tab to a key, Enter and Space each press that key.
+    - Backspace deletes the last letter.
+    - On R2 and C3 with a word entered, Back opens the dialog. Back
+      again, Escape and a tap outside each close it with every word
+      kept and focus on the control focused before the first Back.
+      Only `IdDiscard` leaves, with the words gone.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the
