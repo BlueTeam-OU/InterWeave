@@ -5,7 +5,7 @@ This takes a Linux account that has nothing of InterWeave on it to a Claude Code
 
 **Run every step but step 7 as the account that will run Claude Code.** The bridge reads the profile's configuration and connects to the daemon's socket. Both live under that account's own home and runtime directory. Step 7 is the one setting that is host-wide: an administrator writes it as root, once per host. Nothing else is installed system-wide.
 
-What the plugin's steps rest on is measured in SPIKE-001's S19, S20, S21, S22 and S24 ([`spikes/spike-001/README.md`](../../spikes/spike-001/README.md)); the daemon's are `packaging/linux/README.md`'s. What a production host still lacks is in [What this does not give you](#what-this-does-not-give-you).
+What the plugin's steps rest on is measured in SPIKE-001's S19 to S22 and S24 to S28 ([`spikes/spike-001/README.md`](../../spikes/spike-001/README.md)); the daemon's are `packaging/linux/README.md`'s. What a production host still lacks is in [What this does not give you](#what-this-does-not-give-you).
 
 ## 0. Before you start
 
