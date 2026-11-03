@@ -703,6 +703,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdKeyDelete` | Delete last letter | The keypad's delete key (its accessible label) |
 | `IdKeyClear` | Clear this word | The keypad's clear key (its accessible label) |
 | `IdReviewWords` | Show all my words | The grid's button at large font (§4), and the title of the full list it opens (§4 item 4) |
+| `IdBack` (new) | Back | The accessible label of the app bar's back arrow (§3), first on the full list (§4 item 4). Final as drafted by language-culture (REPLY 01a1a37f) |
 
 Against the list the proposal gave: `IdC1Points` is six keys, one per
 point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
