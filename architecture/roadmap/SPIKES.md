@@ -270,6 +270,52 @@ stdin has closed and the last turn has ended, the other permission
 modes, a host answering permission prompts, the in-session `/plugin
 configure`, and what sets `auto` on this login.
 
+**Carried measurement, S26 (2026-11-03, Claude Code 2.1.286,
+rust-services-dev, plan §19): without `--allowedTools`, `reply` leaves a
+print session in `bypassPermissions` and through a host that answers,
+and in no other mode.** Read off `spikes/spike-001/README.md` §S26
+(facts 51–56, runs `s26-a` to `s26-h`). Every run was S25's c with no
+`--allowedTools`, differing only in its permission flags. `acceptEdits`,
+`dontAsk` and `plan` denied `reply` as `manual` did, each with a text of
+its own, and the peer had nothing (a, c, d). `bypassPermissions`, taken
+from `--permission-mode` alone, let it through, the peer's `ack` 4.0 s
+after its send; read from the help, that mode grants every tool the
+session has (b). With `--permission-prompt-tool stdio` the session wrote
+one `can_use_tool` control request naming the tool and carrying its
+input: answered allow, the tool ran and the peer had `ack` 3.1 s after
+its send (e); answered deny, the call ended with the host's message and
+no retry (f). `--permission-prompts host` without that flag asked nobody
+and denied (g); `--permission-prompts none` denied with its own text
+(h). So a headless deployment's `reply` leaves through one of four:
+`--allowedTools`, `auto`, `bypassPermissions` or an answering host. Not
+established: `--allowedTools` in `acceptEdits`, `dontAsk` or `plan`, and
+what sets `auto` on this login.
+
+**Carried measurement, S27 (2026-11-03, Claude Code 2.1.286,
+rust-services-dev, plan §22): a policy file in a system's own `/etc`
+reads as the mount does; the `channelsEnabled` refusal is measured on a
+login that is not claude.ai; server-managed and MDM policy are named
+limits.** Read off `spikes/spike-001/README.md` §S27 (facts 57–61, runs
+`s27-a` to `s27-g`). Each run was one print session with no daemon,
+asked `channel_enable` 5 s after its start. In a container of the run,
+the file written into the container's own `/etc` by its root and read by
+a session running as an ordinary uid registered the channel, and
+without it the session was refused on Anthropic's allowlist (a, b); the
+same file under S22's private mount answered the same (c). A fleet
+host's own `/etc` was not written. On this login's claude.ai token
+`channelsEnabled: false` did not refuse (d), as S22 found. On a
+placeholder API key, which the gate reads as a login that is not
+claude.ai, `false` and the list alone were refused with "channels not
+enabled by org policy (set channelsEnabled: true in managed settings)",
+and `true` registered (e, g, f); the gate answers before any model call,
+so the key's failure to authenticate never came into play. Server-managed
+policy was fetched at every start and none found (404 on the token, 401
+on the key); read from the binary, the fetch goes to the first-party
+endpoint or a gateway's, which the gate refuses before any policy (60).
+MDM policy is read on Linux only under WSL, through the Windows
+registry tool (61). Not established: a Team or Enterprise subscription,
+a valid Console key, a served policy, and MDM.
+
 ---
 
 ## SPIKE-002 — transport wire/race and GossipSub cache behavior
