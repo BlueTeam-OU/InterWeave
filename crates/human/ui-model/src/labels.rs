@@ -620,8 +620,14 @@ ui_texts! {
     /// ANDROID, identity screens: The keypad's clear key (its accessible
     /// label).
     IdKeyClear => "Clear this word",
-    /// ANDROID, identity screens: The grid's button at large font (§4).
+    /// ANDROID, identity screens: The grid's button at large font, and
+    /// the title of the full list it opens (§4.4).
     IdReviewWords => "Show all my words",
+    /// ANDROID, identity screens: the app bar's back arrow, its
+    /// accessible label (§3: it does what Back does); first on R2's full
+    /// list (§4.4), where it is the only visible way out.
+    // PLACEHOLDER (en)
+    IdBack => "Back",
     /// How long a waiting message has waited, from when it was written,
     /// rounded down (#304 F10): under a minute.
     AgeJustNow => "just now",
@@ -2248,6 +2254,9 @@ mod tests {
         // The card page's action and the confirmation's act: one name for
         // one act, as the identity-key design's strings give it.
         (UiText::KeyMakeNew, UiText::KeyNewConfirm),
+        // The add page's back arrow and the identity screens' app bar
+        // arrow: one act, going back, under one name.
+        (UiText::AddClose, UiText::IdBack),
     ];
 
     #[test]
