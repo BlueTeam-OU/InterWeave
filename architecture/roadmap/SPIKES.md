@@ -343,7 +343,8 @@ accepted in one (67). In e the first turn said nothing about events: a
 greeting started a turn of its own 0.1 s after the send, and the model
 answered in text and called no tool, three of three (68). Every print
 session on this build reported `permissionMode` `default` where
-2.1.286's reported `auto`; what changed it is not established (69).
+S24's h and S25's runs on 2.1.286 without `--permission-mode`
+reported `auto`; what changed it is not established (69).
 Not established: a message that asks for an answer after such a first
 turn, and the rule behind d, read from four runs and not from the
 binary.
