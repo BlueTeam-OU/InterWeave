@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use interweave_ipc_client::IpcBinding;
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort, LeaseRecord};
+use interweave_transport_api::TransportError;
 
 use crate::common::{Home, PATIENCE, human};
 
@@ -219,9 +220,7 @@ async fn endpoints_admin(binding: &IpcBinding) -> impl AdminPort {
         .expect("an admin port")
 }
 
-async fn lease_on(
-    admin: &impl AdminPort,
-) -> Result<Option<LeaseRecord>, interweave_transport_api::TransportError> {
+async fn lease_on(admin: &impl AdminPort) -> Result<Option<LeaseRecord>, TransportError> {
     Ok(admin
         .leases()
         .await?
@@ -235,8 +234,9 @@ async fn lease_on(
 /// One admin port answers every turn: the daemon admits four admin
 /// connections and frees a slot only once a closed connection's task has
 /// ended, so a port opened per turn could be refused under the full
-/// suite's load (j197). A port that stops answering -- its daemon gone --
-/// is dropped and the next turn opens another.
+/// suite's load (j197). A port whose daemon went away (`BackendUnavailable`,
+/// `ShuttingDown`) is dropped and the next turn opens another; any other
+/// answer to the read fails the wait with it.
 pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut admin = None;
@@ -245,11 +245,11 @@ pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
             Some(port) => port,
             None => endpoints_admin(binding).await,
         };
-        if let Ok(lease) = lease_on(&port).await {
-            if lease.is_some() == held {
-                return;
-            }
-            admin = Some(port);
+        match lease_on(&port).await {
+            Ok(lease) if lease.is_some() == held => return,
+            Ok(_) => admin = Some(port),
+            Err(TransportError::BackendUnavailable | TransportError::ShuttingDown) => {}
+            Err(e) => panic!("the leases: {e:?}\n{}", app.log()),
         }
         assert!(
             tokio::time::Instant::now() < deadline,
