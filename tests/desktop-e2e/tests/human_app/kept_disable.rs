@@ -39,11 +39,7 @@ fn home() -> Home {
 }
 
 /// An admin port for the endpoints, held for as long as the case asks the
-/// daemon anything: the daemon admits four admin connections and frees a
-/// slot only once the closed connection's task has ended, so a poll that
-/// opened a port each turn ran out of them under the full suite's load
-/// (`Overloaded`, or `BackendUnavailable` when that refusal beat the
-/// hello, j197).
+/// daemon anything (why: `harness::until_lease`).
 async fn endpoints_admin(home: &Home) -> impl AdminPort {
     home.binding()
         .admin([AdminCapability::Endpoints].into())

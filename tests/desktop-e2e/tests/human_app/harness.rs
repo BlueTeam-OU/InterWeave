@@ -231,10 +231,11 @@ async fn lease_on(admin: &impl AdminPort) -> Result<Option<LeaseRecord>, Transpo
 
 /// Wait until the `human` lease is held (`true`) or free (`false`).
 ///
-/// One admin port answers every turn: the daemon admits four admin
-/// connections and frees a slot only once a closed connection's task has
-/// ended, so a port opened per turn could be refused under the full
-/// suite's load (j197). A port whose daemon went away (`BackendUnavailable`,
+/// One admin port answers every turn, the rule for every poll of the
+/// daemon in these cases: the shipped profile admits four admin
+/// connections, and a closed one keeps its slot until its task on the
+/// daemon ends (ipc-server's `admission.rs` tests), so a port opened per
+/// turn could be refused under the full suite's load (j197). A port whose daemon went away (`BackendUnavailable`,
 /// `ShuttingDown`) is dropped and the next turn opens another; any other
 /// answer to the read fails the wait with it.
 pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
