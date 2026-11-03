@@ -363,6 +363,11 @@ export struct PeerTrustBlock {
 export struct IdKey {
     letter: string,
     enabled: bool,
+    // Its place in its layout's reading order, from 0: its focus stop.
+    index: int,
+    // The layout's first enabled key, where focus goes after a chip
+    // fills a position (section 8).
+    first: bool,
 }
 
 export struct IdKeyRow {
@@ -1662,6 +1667,59 @@ component IdentityPrimary inherits FocusScope {
     }
 }
 
+// One of the identity page's keypad keys, suggestion chips or grid
+// positions: a stop in the focus order, acting on Enter or Space and on a
+// tap. A disabled key keeps its stop and is marked disabled (section 8).
+// Its look is its children's; the ring is placed, so it sizes nothing.
+component IdentityStop inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
+    in property <string> label;
+    in property <bool> enabled-action: true;
+    in property <length> radius: 4px;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    // Enter goes on to the page, for its suggestion rule, while the
+    // person types letters; Space still presses.
+    in property <bool> enter-passes;
+    callback pressed();
+    callback focus-taken();
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled-action;
+    accessible-action-default => { if (root.enabled-action) { root.pressed(); } }
+    key-pressed(event) => {
+        if (event.text == Key.Return && root.enter-passes) { return reject; }
+        if (event.text == Key.Return || event.text == " ") {
+            if (root.enabled-action) { root.pressed(); }
+            return accept;
+        }
+        reject
+    }
+    changed has-focus => {
+        if (self.has-focus) { root.focus-taken(); }
+    }
+    @children
+    TapArea {
+        enabled: root.enabled-action;
+        radius: root.radius;
+        tapped => { root.pressed(); }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        radius: root.radius;
+        shown: root.has-focus;
+    }
+}
+
 // The identity screens' page. FLAG_SECURE, the no-clipboard rule and the
 // IME-free entry are kept by what is NOT here: no TextInput, so no
 // system keyboard and no copy of a word; the window's secure flag is the
@@ -1693,44 +1751,156 @@ component IdentityScreen inherits FocusScope {
     // A control of the page took focus: its focus key, for the window's
     // focus-id and the debug build's trace.
     callback focused(string);
-    // The window's focus-id, to step from.
-    in property <string> focus-id;
     // The page is modal: TAB and Shift+TAB step through its own stops,
     // in reading order, and never reach the window behind it (which
-    // Slint's own navigation would, past the last stop).
+    // Slint's own navigation would, past the last stop). The stops are
+    // segments, in reading order: 0 the banner, 1 the grid's positions,
+    // 2 the chips, 3 the keypad's letters, 4 delete, 5 clear, 6 the
+    // primary, 7 the secondary, 8 the tertiary -- each as long as the
+    // page holds of it, so every stop counted is drawn. While the
+    // dialog shows, TAB stays on its two actions, 9 and 10.
     property <int> focus-seq;
-    property <string> focus-target;
-    function stop(i: int) -> string {
-        if (mod(i, 5) == 0) { return "identity-delete"; }
-        if (mod(i, 5) == 1) { return "identity-clear"; }
-        if (mod(i, 5) == 2) { return "identity-primary"; }
-        if (mod(i, 5) == 3) { return "identity-secondary"; }
-        return "identity-tertiary";
+    property <int> want-seg: -1;
+    // The stop wanted in `want-seg`; -1 in the keypad is its first
+    // enabled key.
+    property <int> want-idx;
+    // The stop focus stands on, as the stop said when it took it; -1
+    // when it is on the page itself.
+    property <int> at-seg: -1;
+    property <int> at-idx;
+    function size(seg: int) -> int {
+        if (seg == 0) { return root.page.notice != "" ? 1 : 0; }
+        if (seg == 1) { return root.page.grid.length; }
+        if (seg == 2) { return root.page.picker ? root.page.chips.length : 0; }
+        // The 26 letters, in either layout.
+        if (seg == 3) { return root.page.picker ? 26 : 0; }
+        if (seg == 4 || seg == 5) { return root.page.picker ? 1 : 0; }
+        if (seg == 6) { return root.page.waiting == "" && root.page.primary != "" ? 1 : 0; }
+        if (seg == 7) { return root.page.secondary != "" ? 1 : 0; }
+        if (seg == 8) { return root.page.tertiary != "" ? 1 : 0; }
+        return root.page.dialog ? 1 : 0;
     }
-    function present(key: string) -> bool {
-        if (key == "identity-delete" || key == "identity-clear") { return root.page.picker; }
-        if (key == "identity-primary") { return root.page.waiting == "" && root.page.primary != ""; }
-        if (key == "identity-secondary") { return root.page.secondary != ""; }
-        return root.page.tertiary != "";
+    // Where segment `seg`'s first stop stands among the page's.
+    function base(seg: int) -> int {
+        return (seg > 0 ? root.size(0) : 0) + (seg > 1 ? root.size(1) : 0)
+            + (seg > 2 ? root.size(2) : 0) + (seg > 3 ? root.size(3) : 0)
+            + (seg > 4 ? root.size(4) : 0) + (seg > 5 ? root.size(5) : 0)
+            + (seg > 6 ? root.size(6) : 0) + (seg > 7 ? root.size(7) : 0)
+            + (seg > 8 ? root.size(8) : 0);
     }
-    // Where the focus stands among the stops: -1 on none of them.
-    function at() -> int {
-        if (root.focus-id == "identity-delete") { return 0; }
-        if (root.focus-id == "identity-clear") { return 1; }
-        if (root.focus-id == "identity-primary") { return 2; }
-        if (root.focus-id == "identity-secondary") { return 3; }
-        if (root.focus-id == "identity-tertiary") { return 4; }
-        return -1;
+    function segment-of(stop: int) -> int {
+        if (stop < root.base(1)) { return 0; }
+        if (stop < root.base(2)) { return 1; }
+        if (stop < root.base(3)) { return 2; }
+        if (stop < root.base(4)) { return 3; }
+        if (stop < root.base(5)) { return 4; }
+        if (stop < root.base(6)) { return 5; }
+        if (stop < root.base(7)) { return 6; }
+        if (stop < root.base(8)) { return 7; }
+        return 8;
     }
-    // The next present stop `step` (1 or 4, that is -1) at a time; from
-    // none, the first or the last.
-    function next(step: int) -> string {
-        let from = root.at() == -1 ? (step == 1 ? 4 : 0) : root.at();
-        if (root.present(root.stop(from + step))) { return root.stop(from + step); }
-        if (root.present(root.stop(from + 2 * step))) { return root.stop(from + 2 * step); }
-        if (root.present(root.stop(from + 3 * step))) { return root.stop(from + 3 * step); }
-        if (root.present(root.stop(from + 4 * step))) { return root.stop(from + 4 * step); }
-        return root.stop(from + 5 * step);
+    // A stop took focus: it says its focus key, which names only its kind
+    // -- never a letter or a word, so a debug trace of a keyboard entry
+    // cannot spell the phrase -- and its place.
+    function took(key: string, seg: int, idx: int) {
+        root.at-seg = seg;
+        root.at-idx = idx;
+        root.focused(key);
+    }
+    // A stop the page's own render may have just made misses the first
+    // `focus-seq` change; the second, one timer turn later, focuses it.
+    property <bool> rebump;
+    function go(seg: int, idx: int) {
+        root.want-seg = seg;
+        root.want-idx = idx;
+        root.focus-seq += 1;
+        root.rebump = true;
+    }
+    Timer {
+        interval: 1ms;
+        running: root.rebump;
+        triggered => {
+            root.rebump = false;
+            root.focus-seq += 1;
+        }
+    }
+    // One stop on (1) or back (-1), round past either end; from the page
+    // itself, the first or the last.
+    function step(by: int) {
+        if (root.page.dialog) {
+            root.go(root.at-seg == 10 ? 9 : 10, 0);
+            return;
+        }
+        let stops = root.base(9);
+        if (stops == 0) { return; }
+        let here = root.at-seg >= 0 && root.at-seg <= 8 && root.at-idx < root.size(root.at-seg)
+            ? root.base(root.at-seg) + root.at-idx : -1;
+        let next = here == -1 ? (by == 1 ? 0 : stops - 1) : mod(here + by + stops, stops);
+        root.go(root.segment-of(next), next - root.base(root.segment-of(next)));
+    }
+    // Back on stop `seg`/`idx` once the page is rebuilt, the nearest of
+    // its segment if it shrank; where the page has none of it, on the
+    // page itself, so the keyboard never falls off the page.
+    function again(seg: int, idx: int) {
+        if (seg < 0 || seg > 8 || root.size(seg) == 0) {
+            root.at-seg = -1;
+            root.focus();
+            return;
+        }
+        root.go(seg, min(idx, root.size(seg) - 1));
+    }
+    // Section 8's focus rules, applied to each page an input makes: the
+    // dialog takes focus on Continue entering, its default, and gives it
+    // back to what had it; a banner that appears takes it; a chip that
+    // fills a position hands it to the keypad's first enabled key; else
+    // it stays on its stop.
+    property <bool> dialog-shown;
+    property <string> notice-shown;
+    property <bool> chip-taken;
+    property <int> saved-seg: -1;
+    property <int> saved-idx;
+    init => {
+        root.dialog-shown = root.page.dialog;
+        root.notice-shown = root.page.notice;
+    }
+    changed page => {
+        if (root.page.dialog) {
+            if (!root.dialog-shown) {
+                root.dialog-shown = true;
+                root.saved-seg = root.at-seg;
+                root.saved-idx = root.at-idx;
+                root.go(10, 0);
+            }
+            return;
+        }
+        let notice-new = root.page.notice != "" && root.page.notice != root.notice-shown;
+        root.notice-shown = root.page.notice;
+        let chip = root.chip-taken;
+        root.chip-taken = false;
+        if (root.dialog-shown) {
+            root.dialog-shown = false;
+            root.again(root.saved-seg, root.saved-idx);
+        } else if (notice-new) {
+            root.go(0, 0);
+        } else if (chip && root.page.picker) {
+            root.go(3, -1);
+        } else if (root.at-seg >= 0) {
+            root.again(root.at-seg, root.at-idx);
+        }
+    }
+    function take(word: string) {
+        root.typing = false;
+        root.chip-taken = true;
+        root.chip(word);
+    }
+    // The person types letters on a hardware keyboard: Enter is then the
+    // suggestion rule's (section 8), even on the key focus went to after
+    // a chip, which would otherwise take every Enter. TAB or a press of a
+    // key ends it, and Enter presses the focused control again.
+    property <bool> typing;
+    function press-key(letter: string) {
+        root.typing = false;
+        root.key(letter);
     }
     // A hardware keyboard enters letters (acceptance item 15); Escape is
     // Back.
@@ -1741,22 +1911,32 @@ component IdentityScreen inherits FocusScope {
         }
         if (event.text == Key.Tab || event.text == Key.Backtab) {
             FocusMode.keyboard = true;
-            root.focus-target = root.next(event.text == Key.Tab ? 1 : 4);
-            root.focus-seq += 1;
+            root.typing = false;
+            root.step(event.text == Key.Tab ? 1 : -1);
             return accept;
         }
+        // The dialog is modal to the keyboard too: no letter reaches the
+        // words behind it.
+        if (root.page.dialog) { return accept; }
         if (event.text == Key.Backspace && root.page.picker) {
+            root.typing = true;
             root.delete-letter();
             return accept;
         }
         if (root.page.picker && event.text >= "a" && event.text <= "z" && event.text.character-count == 1) {
+            root.typing = true;
             root.key(event.text);
             return accept;
         }
-        if (event.text == Key.Return && root.page.picker && root.page.chips.length == 1) {
-            root.chip(root.page.chips[0]);
+        // Enter takes the only suggestion, or the whole-word chip, which
+        // leads the row, when the letters typed are a word (section 8).
+        if (event.text == Key.Return && root.page.picker && root.page.chips.length > 0
+                && (root.page.chips.length == 1 || root.page.chips[0] == root.page.typed)) {
+            root.take(root.page.chips[0]);
             return accept;
         }
+        // Typing, with no suggestion Enter can take: nothing.
+        if (event.text == Key.Return && root.typing) { return accept; }
         reject
     }
     Rectangle { background: Palette.surface; }
@@ -1784,19 +1964,20 @@ component IdentityScreen inherits FocusScope {
             content := VerticalLayout {
                 spacing: 12px;
                 alignment: start;
+                // A stop, so focus can go to it when it appears (section 8).
                 if root.page.notice != "": Rectangle {
                     background: Palette.surface-container;
                     border-radius: 4px;
                     VerticalLayout {
                         padding: 12px;
-                        Text {
+                        FocusNote {
                             text: root.page.notice;
-                            color: Palette.error;
-                            font-size: Type.body-medium;
-                            wrap: word-wrap;
-                            min-height: self.preferred-height;
-                            accessible-role: text;
-                            accessible-label: self.text;
+                            ink: Palette.error;
+                            rtl: root.rtl;
+                            focus-key: "identity-banner";
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.want-seg == 0;
+                            focused(k) => { root.took(k, 0, 0); }
                         }
                     }
                 }
@@ -1880,16 +2061,20 @@ component IdentityScreen inherits FocusScope {
                 // R2's phrase so far: four columns of six (section 4.4).
                 if root.page.grid.length > 0: GridLayout {
                     spacing: 4px;
-                    for slot[i] in root.page.grid: Rectangle {
+                    for slot[i] in root.page.grid: IdentityStop {
                         row: floor(i / 4);
                         col: mod(i, 4);
                         min-height: 48px;
-                        border-width: slot.current ? 2px : 1px;
-                        border-color: slot.current ? Palette.primary : Palette.outline;
-                        border-radius: 4px;
-                        accessible-role: button;
-                        accessible-label: slot.number + (slot.word != "" ? " " + slot.word : "");
-                        accessible-action-default => { root.slot(i); }
+                        label: slot.number + (slot.word != "" ? " " + slot.word : "");
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.want-seg == 1 && root.want-idx == i;
+                        pressed => { root.slot(i); }
+                        focus-taken => { root.took("identity-slot:" + i, 1, i); }
+                        Rectangle {
+                            border-width: slot.current ? 2px : 1px;
+                            border-color: slot.current ? Palette.primary : Palette.outline;
+                            border-radius: 4px;
+                        }
                         HorizontalLayout {
                             padding-left: 6px;
                             spacing: 6px;
@@ -1909,7 +2094,6 @@ component IdentityScreen inherits FocusScope {
                                 accessible-role: none;
                             }
                         }
-                        TapArea { tapped => { root.slot(i); } }
                     }
                 }
             }
@@ -1942,16 +2126,21 @@ component IdentityScreen inherits FocusScope {
             HorizontalLayout {
                 spacing: 8px;
                 min-height: 48px;
-                for word in root.page.chips: Rectangle {
+                for word[i] in root.page.chips: IdentityStop {
                     min-height: 48px;
                     min-width: chip-text.preferred-width + 24px;
-                    border-radius: 8px;
-                    border-width: 1px;
-                    border-color: Palette.outline;
-                    background: Palette.surface-container;
-                    accessible-role: button;
-                    accessible-label: word;
-                    accessible-action-default => { root.chip(word); }
+                    radius: 8px;
+                    label: word;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.want-seg == 2 && root.want-idx == i;
+                    pressed => { root.take(word); }
+                    focus-taken => { root.took("identity-chip", 2, i); }
+                    Rectangle {
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: Palette.outline;
+                        background: Palette.surface-container;
+                    }
                     chip-text := Text {
                         text: word;
                         font-size: Type.body-large;
@@ -1960,7 +2149,6 @@ component IdentityScreen inherits FocusScope {
                         vertical-alignment: center;
                         accessible-role: none;
                     }
-                    TapArea { tapped => { root.chip(word); } }
                 }
                 if root.page.matches != "": Text {
                     text: root.page.matches;
@@ -1982,27 +2170,30 @@ component IdentityScreen inherits FocusScope {
                 for row in (self.alphabetical ? root.page.alpha-rows : root.page.rows): HorizontalLayout {
                     spacing: 4px;
                     alignment: center;
-                    for key in row.keys: Rectangle {
+                    for key in row.keys: IdentityStop {
                         width: keypad.key-width;
                         height: 48px;
-                        border-radius: 4px;
-                        background: Palette.surface-container-high;
-                        opacity: key.enabled ? 1.0 : 0.38;
-                        accessible-role: button;
-                        accessible-label: key.letter;
-                        accessible-enabled: key.enabled;
-                        accessible-action-default => { if (key.enabled) { root.key(key.letter); } }
-                        Text {
-                            text: key.letter;
-                            font-size: Type.body-large;
-                            color: Palette.on-surface;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                            accessible-role: none;
-                        }
-                        TapArea {
-                            enabled: key.enabled;
-                            tapped => { root.key(key.letter); }
+                        label: key.letter;
+                        enabled-action: key.enabled;
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.want-seg == 3
+                            && (root.want-idx == -1 ? key.first : root.want-idx == key.index);
+                        enter-passes: root.typing;
+                        pressed => { root.press-key(key.letter); }
+                        focus-taken => { root.took("identity-key", 3, key.index); }
+                        // The key and its letter dim together; the ring does not.
+                        Rectangle {
+                            border-radius: 4px;
+                            background: Palette.surface-container-high;
+                            opacity: key.enabled ? 1.0 : 0.38;
+                            Text {
+                                text: key.letter;
+                                font-size: Type.body-large;
+                                color: Palette.on-surface;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                accessible-role: none;
+                            }
                         }
                     }
                 }
@@ -2015,18 +2206,18 @@ component IdentityScreen inherits FocusScope {
                     target: 48px;
                     focus-key: "identity-delete";
                     focus-seq: root.focus-seq;
-                    focus-wanted: root.focus-target == "identity-delete";
+                    focus-wanted: root.want-seg == 4;
                     pressed => { root.delete-letter(); }
-                    focused(k) => { root.focused(k); }
+                    focused(k) => { root.took(k, 4, 0); }
                 }
                 ActionButton {
                     text: root.page.key-clear-label;
                     target: 48px;
                     focus-key: "identity-clear";
                     focus-seq: root.focus-seq;
-                    focus-wanted: root.focus-target == "identity-clear";
+                    focus-wanted: root.want-seg == 5;
                     pressed => { root.clear-word(); }
-                    focused(k) => { root.focused(k); }
+                    focused(k) => { root.took(k, 5, 0); }
                 }
             }
         }
@@ -2043,9 +2234,9 @@ component IdentityScreen inherits FocusScope {
             enabled-action: root.page.primary-enabled;
             danger: root.page.primary-danger;
             focus-seq: root.focus-seq;
-            focus-wanted: root.focus-target == "identity-primary";
+            focus-wanted: root.want-seg == 6;
             pressed => { root.primary(); }
-            focused(k) => { root.focused(k); }
+            focused(k) => { root.took(k, 6, 0); }
         }
         if root.page.secondary != "": HorizontalLayout {
             alignment: center;
@@ -2056,9 +2247,9 @@ component IdentityScreen inherits FocusScope {
                 target: 48px;
                 focus-key: "identity-secondary";
                 focus-seq: root.focus-seq;
-                focus-wanted: root.focus-target == "identity-secondary";
+                focus-wanted: root.want-seg == 7;
                 pressed => { root.secondary(); }
-                focused(k) => { root.focused(k); }
+                focused(k) => { root.took(k, 7, 0); }
             }
         }
         if root.page.tertiary != "": HorizontalLayout {
@@ -2069,9 +2260,9 @@ component IdentityScreen inherits FocusScope {
                 target: 48px;
                 focus-key: "identity-tertiary";
                 focus-seq: root.focus-seq;
-                focus-wanted: root.focus-target == "identity-tertiary";
+                focus-wanted: root.want-seg == 8;
                 pressed => { root.tertiary(); }
-                focused(k) => { root.focused(k); }
+                focused(k) => { root.took(k, 8, 0); }
             }
         }
         if root.page.footnote != "": Text {
@@ -2084,7 +2275,8 @@ component IdentityScreen inherits FocusScope {
             accessible-label: self.text;
         }
     }
-    // Section 7's dialog: "Continue entering" is the default.
+    // Section 7's dialog: "Continue entering" is the default, and takes
+    // focus when it opens (the page's `changed page`).
     if root.page.dialog: Rectangle {
         background: #00000080;
         TouchArea { }
@@ -2161,15 +2353,21 @@ component IdentityScreen inherits FocusScope {
                         filled: root.page.dialog-danger;
                         danger: root.page.dialog-danger;
                         target: 48px;
+                        focus-key: "identity-dialog-delete";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.want-seg == 9;
                         pressed => { root.dialog(true); }
+                        focused(k) => { root.took(k, 9, 0); }
                     }
                     ActionButton {
                         text: root.page.dialog-keep;
                         text-button: true;
                         target: 48px;
-                        focus-seq: root.page.dialog ? 1 : 0;
-                        focus-wanted: true;
+                        focus-key: "identity-dialog-keep";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.want-seg == 10;
                         pressed => { root.dialog(false); }
+                        focused(k) => { root.took(k, 10, 0); }
                     }
                 }
             }
@@ -8435,7 +8633,6 @@ export component AppWindow inherits Window {
         height: root.height;
         page: root.identity;
         rtl: root.rtl;
-        focus-id: root.focus-id;
         code-font: root.code-font;
         inset-top: root.safe-area-insets.top;
         inset-bottom: root.safe-area-insets.bottom;

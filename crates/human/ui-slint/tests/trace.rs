@@ -453,3 +453,295 @@ fn the_identity_page_keeps_tab_on_its_own_stops() {
         ]
     );
 }
+
+/// One word per letter but x, so the keypad has a disabled key; "act"
+/// is a whole word that starts two more, so its chip leads a row of
+/// three (design/2026-10-19-android-identity.md section 4).
+const WORDS: &[&str] = &[
+    "act", "action", "actor", "bean", "cabin", "dawn", "eagle", "fabric", "galaxy", "habit",
+    "icon", "jacket", "kale", "label", "machine", "napkin", "oak", "paddle", "quarter", "rabbit",
+    "saddle", "table", "ugly", "vacant", "wagon", "yard", "zebra", "zone",
+];
+
+/// The identity page as the root runs it: each input applied to the
+/// flow and the page shown again, then two timer turns, as the app's
+/// loop gives them.
+struct Identity {
+    view: View,
+    flow: interweave_human_ui_model::IdentityFlow,
+    said: Rc<RefCell<Vec<String>>>,
+    queued: Rc<RefCell<Vec<interweave_human_ui_slint::IdentityInput>>>,
+    applied: Vec<interweave_human_ui_slint::IdentityInput>,
+}
+
+impl Identity {
+    fn new(flow: interweave_human_ui_model::IdentityFlow) -> Self {
+        i_slint_backend_testing::init_no_event_loop();
+        let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+        view.window().show().expect("shown");
+        let said = Rc::new(RefCell::new(Vec::<String>::new()));
+        let to = Rc::clone(&said);
+        view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+        view.render(&UiModel::new());
+        let queued = Rc::new(RefCell::new(Vec::new()));
+        let into = Rc::clone(&queued);
+        view.on_identity(move |input| into.borrow_mut().push(input));
+        let mut page = Self {
+            view,
+            flow,
+            said,
+            queued,
+            applied: Vec::new(),
+        };
+        page.settle();
+        page
+    }
+
+    /// R2, the restore's word entry, with nothing entered.
+    fn at_r2() -> Self {
+        use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
+        use interweave_human_ui_slint::{IdentityInput, apply_identity};
+        let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+        apply_identity(&mut flow, IdentityInput::Secondary);
+        apply_identity(&mut flow, IdentityInput::Primary);
+        assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
+        Self::new(flow)
+    }
+
+    fn settle(&mut self) {
+        let queued: Vec<_> = self.queued.borrow_mut().drain(..).collect();
+        for input in queued {
+            self.applied.push(input.clone());
+            interweave_human_ui_slint::apply_identity(&mut self.flow, input);
+        }
+        self.view
+            .show_identity(Some(interweave_human_ui_slint::identity_page(&self.flow)));
+        // A headless window makes an element inside an `if` only when
+        // the tree is walked; a real one draws first.
+        let _ = ElementHandle::find_by_accessible_label(self.view.window(), "q").count();
+        for _ in 0..2 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+            slint::platform::update_timers_and_animations();
+        }
+    }
+
+    fn key(&mut self, key: impl Into<slint::SharedString>) {
+        use slint::platform::WindowEvent;
+        let text = key.into();
+        let window = self.view.window().window();
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text });
+        self.settle();
+    }
+
+    fn tab(&mut self) {
+        self.key(slint::platform::Key::Tab);
+    }
+
+    fn backtab(&mut self) {
+        self.key(slint::platform::Key::Backtab);
+    }
+
+    fn enter(&mut self) {
+        self.key(slint::platform::Key::Return);
+    }
+
+    fn last(&self) -> String {
+        self.said.borrow().last().cloned().unwrap_or_default()
+    }
+
+    /// What the page's controls did since the last call.
+    fn take(&mut self) -> Vec<interweave_human_ui_slint::IdentityInput> {
+        std::mem::take(&mut self.applied)
+    }
+}
+
+/// R2 by keyboard alone (design section 8): TAB reaches every grid
+/// position, then every key of the keypad in its reading order, a
+/// disabled one too, then the actions, and comes round; Enter presses
+/// the focused key and focus stays on it while the page is rebuilt.
+#[test]
+fn r2_reaches_every_position_and_key_by_tab_in_reading_order() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    for i in 0..24 {
+        page.tab();
+        assert_eq!(page.last(), format!("ui-trace focus=identity-slot:{i}"));
+    }
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Slot(23)]);
+    page.tab();
+    // The key's focus line names the kind alone, never its letter.
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('q')], "the first key is q");
+    // The page rebuilt; focus stayed on q, so the next stop is w.
+    page.key(slint::platform::Key::Backspace);
+    page.take();
+    page.tab();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')]);
+    page.key(slint::platform::Key::Backspace);
+    page.take();
+    // On to x, which no word continues with: a stop, pressing nothing.
+    for _ in 0..19 {
+        page.tab();
+    }
+    page.enter();
+    assert_eq!(page.take(), [], "x is disabled and keeps its stop");
+    for _ in 0..5 {
+        page.tab();
+    }
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('m')], "m is the last key");
+    page.key(slint::platform::Key::Backspace);
+    page.take();
+    let first = page.said.borrow().len();
+    loop {
+        page.tab();
+        if page.last() == "ui-trace focus=identity-slot:0" {
+            break;
+        }
+        assert!(page.said.borrow().len() - first < 8, "came round");
+    }
+    let lines = page.said.borrow()[first..].to_vec();
+    assert_eq!(
+        lines[..3],
+        [
+            "ui-trace focus=identity-delete",
+            "ui-trace focus=identity-clear",
+            "ui-trace focus=identity-primary",
+        ]
+    );
+    for line in &lines {
+        assert!(line.starts_with("ui-trace focus=identity-"), "{lines:#?}");
+    }
+}
+
+/// A chip filled a position: focus goes to the keypad's first enabled
+/// key (section 8). Enter takes the whole-word chip when the letters
+/// typed are a word, beside the words it starts.
+#[test]
+fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    for letter in ["z", "e"] {
+        page.key(letter);
+    }
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Key('z'), IdentityInput::Key('e')]
+    );
+    // Past the 24 positions, the one chip left.
+    for _ in 0..25 {
+        page.tab();
+    }
+    assert_eq!(page.last(), "ui-trace focus=identity-chip");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Chip("zebra".to_owned())]);
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Key('q')],
+        "q, the first enabled"
+    );
+
+    // Typing again: Enter is the suggestion rule's, not the focused
+    // key's, and with three words and no whole one it takes nothing.
+    page.key(slint::platform::Key::Backspace);
+    page.key("a");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Delete, IdentityInput::Key('a')]
+    );
+    for letter in ["c", "t"] {
+        page.key(letter);
+    }
+    page.take();
+    let chips = interweave_human_ui_slint::identity_page(&page.flow).chips;
+    assert_eq!(
+        slint::Model::row_count(&chips),
+        3,
+        "control: act, action, actor"
+    );
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Chip("act".to_owned())]);
+}
+
+/// A banner that appears takes focus (section 8): Welcome's refused
+/// lock, from its primary.
+#[test]
+fn a_banner_that_appears_takes_focus() {
+    use interweave_human_ui_model::{IdentityFlow, Start, StepFailed};
+    let mut page = Identity::new(IdentityFlow::new(
+        WORDS,
+        Start::FirstRun { void_paper: false },
+    ));
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    page.flow.held(Err(StepFailed::Busy));
+    page.settle();
+    assert_eq!(page.last(), "ui-trace focus=identity-banner");
+    // Shown again, it stays where the person moved focus.
+    page.tab();
+    let at = page.last();
+    page.settle();
+    assert_eq!(page.last(), at);
+}
+
+/// The discard dialog (section 7): it opens with focus on Continue
+/// entering, keeps TAB and every letter to itself, and closing gives
+/// focus back to what had it; Back on it continues entering.
+#[test]
+fn the_discard_dialog_takes_focus_holds_it_and_gives_it_back() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    page.key("o");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [
+            IdentityInput::Key('o'),
+            IdentityInput::Chip("oak".to_owned())
+        ]
+    );
+    // Focus on w, the second key.
+    page.tab();
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-keep");
+    let first = page.said.borrow().len();
+    page.tab();
+    page.tab();
+    page.backtab();
+    assert_eq!(
+        page.said.borrow()[first..],
+        [
+            "ui-trace focus=identity-dialog-delete",
+            "ui-trace focus=identity-dialog-keep",
+            "ui-trace focus=identity-dialog-delete",
+        ]
+    );
+    page.key("b");
+    page.key(Key::Backspace);
+    assert_eq!(page.take(), [IdentityInput::Back], "only Escape's Back");
+    page.tab();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
+    assert!(!page.flow.discard_asked());
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')], "back on w");
+
+    page.key(Key::Escape);
+    page.key(Key::Escape);
+    assert!(!page.flow.discard_asked(), "Back on the dialog continues");
+    assert_eq!(
+        page.flow.entry().and_then(|e| e.word(0)),
+        Some("oak"),
+        "and keeps the words"
+    );
+}

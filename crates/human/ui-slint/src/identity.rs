@@ -126,14 +126,27 @@ fn strings(items: impl IntoIterator<Item = String>) -> ModelRc<SharedString> {
 
 fn rows(flow: &IdentityFlow, rows: &[&str]) -> ModelRc<IdKeyRow> {
     let picker = flow.picker();
+    let enabled = |letter| picker.is_some_and(|p| p.enabled(letter));
+    // Where focus goes after a chip fills a position (section 8): the
+    // first enabled key in this layout's reading order.
+    let first = rows
+        .iter()
+        .flat_map(|row| row.chars())
+        .find(|&l| enabled(l));
+    let mut index = 0;
     ModelRc::new(VecModel::from(
         rows.iter()
             .map(|row| IdKeyRow {
                 keys: ModelRc::new(VecModel::from(
                     row.chars()
-                        .map(|letter| IdKey {
-                            letter: letter.to_string().into(),
-                            enabled: picker.is_some_and(|p| p.enabled(letter)),
+                        .map(|letter| {
+                            index += 1;
+                            IdKey {
+                                letter: letter.to_string().into(),
+                                enabled: enabled(letter),
+                                index: index - 1,
+                                first: first == Some(letter),
+                            }
                         })
                         .collect::<Vec<_>>(),
                 )),
