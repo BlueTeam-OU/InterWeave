@@ -24,6 +24,17 @@
 //! the answer can be lost with the event that reports it, the count
 //! cannot.
 //!
+//! # The profile's total is counted here too, for every session
+//!
+//! `admin.status`'s `ipc.events_dropped_total` is one counter for the
+//! profile (`LOCAL-IPC.md` §admin.status, A 2026-11-04), moved by the
+//! same two branches of [`SessionQueues::push`] that drop: an oldest
+//! copy dropped, or a copy no queue could take. Whichever session it
+//! was, joined or not: the ledger keeps a count only for a session that
+//! joined, and loses it when the session ends, so a sum of its counts
+//! would miss the one and fall at the other. Monotonic, and never reset
+//! while the runtime runs.
+//!
 //! # Queues are opened by a join, never conjured
 //!
 //! For the same reason endpoint queues are: the key set must be chosen by
@@ -134,6 +145,8 @@ struct Queue {
 pub struct SessionQueues {
     queues: BTreeMap<String, Queue>,
     losses: LossLedger,
+    /// Every copy [`Self::push`] dropped or could not queue.
+    dropped_total: u64,
 }
 
 impl SessionQueues {
@@ -143,6 +156,7 @@ impl SessionQueues {
         Self {
             queues: BTreeMap::new(),
             losses: LossLedger::new(),
+            dropped_total: 0,
         }
     }
 
@@ -150,6 +164,14 @@ impl SessionQueues {
     #[must_use]
     pub fn losses(&self) -> &LossLedger {
         &self.losses
+    }
+
+    /// Every copy a push dropped or could not queue since this set was
+    /// made, for any session, the ended ones included
+    /// (`ipc.events_dropped_total`).
+    #[must_use]
+    pub fn dropped_total(&self) -> u64 {
+        self.dropped_total
     }
 
     /// The ledger, for the joins, leaves, session ends and ingress
@@ -238,11 +260,13 @@ impl SessionQueues {
         // be unbounded by whatever arrives.
         let Some(queue) = self.queues.get_mut(session) else {
             self.losses.overflowed(session);
+            self.dropped_total = self.dropped_total.saturating_add(1);
             return Err(SessionDrop::NotOpen);
         };
         let pushed = if queue.events.len() >= queue.bound {
             queue.events.pop_front();
             self.losses.overflowed(session);
+            self.dropped_total = self.dropped_total.saturating_add(1);
             Pushed::DroppedOldest { bound: queue.bound }
         } else {
             Pushed::Queued
@@ -313,6 +337,36 @@ mod tests {
             rest.iter().map(|e| e.payload.bytes()).collect::<Vec<_>>(),
             [b"two".as_slice(), b"three"]
         );
+    }
+
+    /// The profile's total moves on each copy a push drops or cannot
+    /// queue, whichever session it was: one that joined, one that never
+    /// did (the ledger keeps nothing for it), and one since ended. A push
+    /// with room is the control, and moves nothing.
+    #[test]
+    fn every_dropped_copy_moves_the_profile_total() {
+        let general = ChannelId::parse("general").expect("valid channel");
+        let mut q = SessionQueues::new();
+        q.losses_mut().joined("joined", &general);
+        q.open("joined", 1);
+        q.open("unjoined", 1);
+        for session in ["joined", "unjoined"] {
+            assert_eq!(q.push(session, event(b"one")), Ok(Pushed::Queued));
+        }
+        assert_eq!(q.dropped_total(), 0, "room, nothing dropped");
+        for session in ["joined", "unjoined"] {
+            assert_eq!(
+                q.push(session, event(b"two")),
+                Ok(Pushed::DroppedOldest { bound: 1 })
+            );
+        }
+        assert_eq!(q.dropped_total(), 2, "an oldest each, joined or not");
+        assert_eq!(q.losses().read("unjoined").queue_overflow, 0, "no ledger");
+        assert_eq!(q.push("closed", event(b"x")), Err(SessionDrop::NotOpen));
+        assert_eq!(q.dropped_total(), 3, "a copy no queue could take");
+        q.losses_mut().released("joined");
+        q.close("joined");
+        assert_eq!(q.dropped_total(), 3, "a session's end lowers nothing");
     }
 
     #[test]
