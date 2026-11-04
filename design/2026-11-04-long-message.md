@@ -179,9 +179,18 @@ the app, on wide it takes the conversation's pane.
 
 Show source in the reader shows the whole raw source, in the code font,
 in the same scroll, wrapping as the row's source does. A source line
-longer than the screen wraps over as many lines as it needs; however
-it is cut into pieces to be drawn, no seam, gap or repeated character
-shows where one piece meets the next. The switch keeps the position
+longer than the screen wraps over as many lines as it needs. Where the
+body is drawn in pieces (the toolkit cannot draw one block taller than
+its ceiling), a piece ends at a newline wherever there is one, and
+there nothing shows. Only a run of text with no newline that is longer
+than a piece — a few thousand characters — is split elsewhere: at a
+word boundary, or at a grapheme where there is none, so that no
+character is lost, repeated or cut, and no gap opens. The one thing
+that shows is a short, ragged line at that boundary, where the text
+itself does not break. That is accepted (rust-ui-dev's j92 note on
+#561: the toolkit does not say where it wraps): it changes no
+character, Copy takes the source whole, and it happens about once per
+piece of such a run, never in a body of ordinary paragraphs. The switch keeps the position
 as nearly as the two forms allow: the first block on screen before the
 switch is on screen after it.
 
@@ -376,7 +385,8 @@ it, those checks are blocked, never passed.
   the 32 767 px ceiling.
 - **A5** The reader opens on each shape with its first screen drawn
   within 0.5 s on the A40, optimised build; End reaches the body's last
-  line within 1 s; scrolling shows no blank screen and no seam (§5.2).
+  line within 1 s; scrolling shows no blank screen, and no seam but §5.2's ragged line at
+  a piece boundary inside a run with no newline.
   The build measures and reports both times; a figure it cannot reach
   comes back to ux-designer, not changed quietly. Precondition: the
   toolkit offers the scroll bar and the fast-scroll thumb of §5.1; a
@@ -429,7 +439,16 @@ miss the cut line, or look for the next message inside the reader.
   them to 2 000 and 40 after it, and architect-cto was told (INFO
   01a1a8a6-fc67). The build waits for the amendment carrying them.
 - **Q3 — rust-ui-dev**: does the composer draw a draft at the ceiling
-  without the same panic? A long draft is not designed here.
+  without the same panic? **Answered** (#561, rust-ui-dev's j92 note):
+  no, a draft of many lines panics the desktop at scale 1 and 2. What
+  the person sees once it is fixed, the whole of what this note asks
+  of the composer: the field grows with the draft up to six lines at
+  the current text size, then keeps that height and scrolls inside
+  itself, the caret kept in view; every character of the draft is
+  kept, sent and restored as today — nothing is cut, refused or
+  dropped for its length below the envelope's ceiling. How the build
+  bounds it is rust-ui-dev's. A long draft's other questions are not
+  designed here.
 
 Left out on purpose: search within a message; selecting part of a
 message; a "show more" in steps inside the conversation (it grows the
