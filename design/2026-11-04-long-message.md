@@ -251,15 +251,24 @@ item, so the text cannot go from under the person while they read it.
 **Both, characters and lines.** A body is cut when it has more than
 **2 000 characters** or more than **40 lines**, and the preview is then
 at most **1 600 characters** and **32 lines**. A character is a
-grapheme cluster, counted over the message's source text as sent —
-markup and link destinations included, so that nothing drawn is
-outside the count; a line is one of the model's lines (a paragraph, a
+grapheme cluster; a line is one of the model's lines (a paragraph, a
 list item, a table row, a code line, a heading, a rule), however it
 wraps, and each link's control, drawn as a line of its own (§4.1),
-counts as one. This is HUMAN-CHAT.md's counting (architect-cto's
-amendment on #562 at 30e5731ef, which found a body of empty-label links
-that the drawn text alone did not count); every other figure in this
-note counts the same way. The gap between the two figures is there so that a body just
+counts as one. What the characters are counted over is the contract's:
+architect-cto's HUMAN-CHAT.md amendment on #562, not yet on `main`,
+counts them over the source text as sent, markup and link destinations
+included. **That does not yet count everything drawn** (§11 Q4): an
+autolink's address is drawn twice, in the text and on its control;
+every control adds its label's prefix and spells a hidden character as
+a code; a reference link's destination is drawn once per use; an image
+with no description draws a placeholder longer than its source. A body
+under the figures can then still draw past the ceiling. What the person
+needs, and what this note asks of the count: it covers everything
+drawn, each time it is drawn — each control's label as shown, once per
+use, and each placeholder's text — and no single control's label is
+drawn past the ceiling, however long its destination. Until Q4 is
+answered the build waits; every other figure in this note counts the
+way the answer does. The gap between the two figures is there so that a body just
 over the bound is never cut to hide only its last sentence or two.
 
 Why both: characters bound a body that is one long paragraph, which
@@ -366,7 +375,9 @@ Run on the Pixel 9a and the A40 for Android, the desktop build at
 scale 1 and 2, with a body of each of these shapes, the largest whose
 envelope fits the 196 608-byte ceiling: one long paragraph, a list of
 one-letter items, a code block, a table of 256 rows, first-level
-headings. Each is checked in formatted and source mode, at 100 % and
+headings, headings of autolinks, one reference link used many times,
+images with no description, and one link whose destination is padded
+with hidden characters (§6). Each is checked in formatted and source mode, at 100 % and
 200 % text, left to right and right to left.
 
 **Precondition on Android** for every TalkBack check below (A6's
@@ -460,6 +471,11 @@ miss the cut line, or look for the next message inside the reader.
   rule. The ruling took the first figures, 2 400 and 48; §6 lowered
   them to 2 000 and 40 after it, and architect-cto was told (INFO
   01a1a8a6-fc67). The build waits for the amendment carrying them.
+- **Q4 — architect-cto** (OBSERVATION 01a1a8d3, #561 review round 9,
+  F23): the contract's count, over the source text, misses what links
+  and images draw (§6). Will the count cover everything drawn, once per
+  drawing, and how is one control's label kept under the ceiling beside
+  the rule that it shows the full destination? Open; the build waits.
 - **Q3 — rust-ui-dev**: does the composer draw a draft at the ceiling
   without the same panic? **Answered** (#561, rust-ui-dev's j92 note):
   no, a draft of many lines panics the desktop at scale 1 and 2. What
