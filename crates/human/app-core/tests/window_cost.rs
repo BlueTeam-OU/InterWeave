@@ -350,7 +350,9 @@ fn say(cost: &Cost) {
 }
 
 /// What the larger backlog's start and first page may hold above the
-/// smaller's: allocator and statement-cache noise, far under a page.
+/// smaller's: about one page's measured peak. A cost the same at both
+/// sizes cancels between them, so what this bounds is growth with the
+/// backlog, and reading a conversation whole is several times it.
 const SLACK: usize = 256 * 1024;
 
 /// The start and a conversation's first page cost what the window holds
