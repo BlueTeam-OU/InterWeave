@@ -19,15 +19,20 @@ what the design needs changed in them is asked in §16, not changed
 here.
 
 **What this note replaces.** `design/2026-10-21-contact-cards.md`
-designed the identity flows (its §4, §5.1, §5.2, §5.7, §6.3) before
-ADR-0067 (A 2026-10-28) made an EndpointId the name of the endpoint's
-own key and made trust per identity. Where this note and those sections
-differ, this note governs, and each of those sections carries a line
-pointing here. What this note does not mention there stands as written:
-the editor's photo step and unsaved-changes dialog (cards §5.2), the
-switch and its switcher (cards §5.7.1), what changes the identity in
-front (cards §5.7.3), the new-conversation rule (cards §5.7.4) and
-Make default and Turn off (cards §5.2). A rule is stated in one place;
+designed the identity flows (its §4, §5.1, §5.2, §5.4.1, §5.7, §6.3,
+§6.4) before ADR-0067 (A 2026-10-28) made an EndpointId the name of the
+endpoint's own key and made trust per identity. Where this note and
+those sections differ, this note governs, and each of them (§4, §5.1,
+§5.2, §5.4.1, §5.7.1, §5.7.2, §5.7.3, §5.7.5, §5.7.6, §6.3, §6.4)
+carries a line pointing here. Wherever those sections say "route
+label" of one of the person's own identities, read §6.1's rule: the
+card's name, else the alias, as the name, and `ShortEndpoint` where a
+second line shows the route. What this note does not mention there
+stands as written: the editor's photo step and unsaved-changes dialog
+(cards §5.2), the switch and its switcher (cards §5.7.1) but for that
+rule, what changes the identity in front (cards §5.7.3) but for §5.3
+below, the new-conversation rule (cards §5.7.4) and Make default and
+Turn off (cards §5.2). A rule is stated in one place;
 other sections point to it.
 
 Owner of the design: ux-designer. The words are language-culture's:
@@ -82,14 +87,14 @@ acceptance case in §14 that needs one says so:
   `main` names the alias and gives it no grammar. architect-cto ruled it
   (§16 Q4): the retired label grammar `^[a-z][a-z0-9._-]{0,63}$`,
   unique within the profile over authored and added entries, refused by
-  name (`AliasInvalid`, `AliasTaken`); the text is on their branch
-  `develop-qzapp/architect-cto-01/docs/j509-identities-note-rulings`
-  and enforcement is p2p-network-dev's Stage 22 batch.
+  name (`AliasInvalid`, `AliasTaken`); the text is on their PR
+  BlueTeam-OU/InterWeave#553, and enforcement is p2p-network-dev's
+  Stage 22 batch.
 
 **architect-cto's rulings of 2026-11-04** (REPLY 01a1a69f, answering
 §16) are cited below as "ruled"; they land as amendments dated A
-2026-11-04 in `human-client-ui.md` and `ENDPOINTS.md` on the branch
-named in D3. Until that branch is on `main` they are a dependency of the
+2026-11-04 in `human-client-ui.md` and `ENDPOINTS.md` on PR #553.
+Until it is on `main` they are a dependency of the
 same kind as D1–D3, and the cases that rest on them say so.
 
 ## 2. What the owner asked, and how it is read
@@ -142,8 +147,12 @@ Contact-cards §3 stands, except its "one identity in front" item, which
   face or a colour alone (WCAG 1.4.1).
 - **No screen in front of one identity shows another identity's
   conversations, contacts, card or trusted peers**, and no count, list,
-  suggestion or state is computed from them, except the switch's badge,
-  which counts and names nothing (contact-cards §5.7.1).
+  suggestion or state is computed from them, with two exceptions: the
+  switch's badge, which counts and names nothing (contact-cards
+  §5.7.1), and a channel's posts, which the device admits from every
+  peer it trusts whichever identity reads the channel (ADR-0067 d. 6,
+  broadcast stays node-wide; §5.1). Neither names another identity or
+  its peers.
 - **An EndpointId is never typed and never chosen** (ADR-0067 d. 2). The
   person meets it only as the short form §6.1 shows.
 
@@ -164,7 +173,7 @@ gets a row here.
 | N6 | Contacts, a contact | delete, move, remove a route, rename, remove a photo | the identity as the app bar's subtitle |
 | N7 | **Trust** | trust, untrust | the identity as the app bar's subtitle, and `TrustScope` under the title (§5.1) |
 | N8 | **Peers** | trust (a row's Trust), add, remove an address | the identity as the subtitle; a row's trust state is the identity's (§5.1) |
-| N9 | **add-a-peer's trust step** (`design/2026-10-22-add-a-peer.md` §5.3) | trust | `TrustStepAs` above its Trust button ("Trust as {identity}") |
+| N9 | **add-a-peer's trust step** (`design/2026-10-22-add-a-peer.md` §5.3) | trust | the Trust button's label is `TrustStepAs` ("Trust as {identity}") |
 | N10 | an identity's card | save, make default, turn off, remove | that identity as the subtitle; `IdentityNotInFront` when it is not in front (cards §5.7.2) |
 | N11 | Your identities | add | no identity in front acts: the list names each identity on its row, and the check marks the one in front |
 | N12 | Details | add as a contact, open contact | `DetailsIdentity` (cards §6.4) |
@@ -200,8 +209,7 @@ front, and only that identity admits the peer at the route. So:
   file would reach this identity, which it does not. Every row of an
   identity's set is the identity's own and can be untrusted here.
   **Alternative named:** keep the line on rows the seed copied. Rejected
-  for that reason. If D2's list reports an origin anyway, this note
-  shows none. Ruled (§16 Q5): the list reports every row of an
+  for that reason. Ruled (§16 Q5): the list reports every row of an
   identity's set, the seed's included, as the client's own write, with
   no configuration origin.
 - **Peers rows** (add-a-peer §5.2): the trust state is the identity in
@@ -217,12 +225,15 @@ front, and only that identity admits the peer at the route. So:
 - **The contact page's route rows** show `ContactRouteTrusted` or
   `ContactRouteNotTrusted` from the identity in front's set (cards §6.3).
 - **The trust step after adding an address** (N9) trusts as the
-  identity in front, and says so on its button.
+  identity in front, and its button's label says so (`TrustStepAs`).
 - **Channels**: a channel's publishers are admitted by the device, for
   every identity (ADR-0067 d. 6, broadcast stays node-wide). With two
   or more identities held, a channel conversation's Details carry
-  `ChannelTrustNode` ("Anyone any of your identities trusts can post in
-  this channel."), which names no identity and no peer.
+  `ChannelTrustNode` ("Anyone this device trusts can post in this
+  channel: a peer any of your identities trusts, or one in this device's
+  own list of trusted peers."), which names no identity and no peer. The
+  device's own list is the operator's (ADR-0067 d. 6), written by
+  `transportctl trust allow` and never by an identity's trust act.
 - **The no-reach notice** (add-a-peer §5.6), shown when the device knows
   no address and trusts no peer: in front of an identity that trusts no
   peer, that identity can write to no one even when another identity
@@ -234,7 +245,9 @@ front, and only that identity admits the peer at the route. So:
   identity in front's effective set, never the device's admission set,
   and the second form shows when that set is empty while the address
   list or another identity's set is not. The notice promises nothing
-  about channels, whose publishers the device admits (above).
+  about channels, whose publishers the device admits (above). With one
+  identity held, `NoReachIdentity` is never shown, and the notice shows
+  as add-a-peer §5.6 says, unchanged.
 
 ### 5.2 An identity that cannot act now
 
@@ -252,11 +265,28 @@ the same text as its reason:
 - **Could not start** (`IdentityNotHidden`): the advertise assertion
   failed, so the client took no lease. "{identity} is not connected:
   this device could not make sure it stays unlisted." With **Try again**
-  (`TryAgain`) on the identity's row and in the composer's place. Try
+  (`TryAgain`) on the identity's row and, in a conversation, at the end
+  of that line, which stands in place of `ComposerAs`; the composer's
+  field stays, drafts can be typed, and Send stays disabled. Try
   again runs the assertion and then the lease again. With one identity
   held the same line names no identity (`IdentityNotHiddenOne`: "Not
   connected: this device could not make sure you stay unlisted.").
 - **Off** and **no lease** as cards §5.7.6 says.
+
+Entering either state while the send control has focus moves focus to
+the composer's field, which stays (§11 F21); focus on the field stays
+there.
+
+### 5.3 A switch and the identity's pages
+
+Cards §5.7.3 lists what a switch closes on a wide layout. Since Trust
+and Peers are now the identity's (N7, N8), they close with the
+identity's other pages: a switch on a wide layout closes Trust and
+Peers like a conversation or a contact page, and the pane shows the new
+identity's empty-pane placeholder. Your identities is the one page that
+belongs to no identity and stays, its check mark moving. On a narrow
+layout the switch is reached only from Chats (cards §5.7.3), so neither
+page is open at a switch.
 
 ## 6. Your identities and Add an identity
 
@@ -268,7 +298,12 @@ Cards §5.1 stands, with these changes:
   `ShortEndpoint` built as `ShortPeer` is ("…" and its last eight
   characters), labelled `IdentityIdLabel` in the accessible name ("seen
   by others as …x6gY6Eri"). The route label of the old design no longer
-  exists; the alias is local and is not shown on the list (§6.2).
+  exists; the alias is local and is not shown on this line (§6.2).
+  Wherever an identity is named, the switch and the switcher's rows
+  included, its name is the card's name, else its alias (ADR-0061
+  d. 1, "named by its label"); the switcher's rows show
+  `ShortEndpoint` as their second line, and Details' `DetailsIdentity`
+  (cards §6.4) shows it beside the avatar.
   Two identities of one device then differ on this line by their keys,
   never by a word the person chose. Ruled (§16 Q3): from the Stage 22
   release a counterparty's client shows a route as this same short
@@ -279,11 +314,12 @@ Cards §5.1 stands, with these changes:
   the desktop, which the phone cannot run). Its second half changes for
   ADR-0067: "Each identity trusts its own peers. A peer that any of your
   identities trusts can connect to this device, and reaches only the
-  identities that trust it. A channel is the exception: anyone any of
-  your identities trusts can post in a channel, whichever identity
-  reads it." Ruled (§16 Q1): §13's criterion is amended to this
+  identities that trust it. A channel is the exception: anyone this
+  device trusts can post in a channel, whichever identity reads it."
+  Ruled (§16 Q1): §13's criterion is amended to this
   sentence, its channel clause included (ADR-0067 d. 6, broadcast
-  stays node-wide).
+  stays node-wide); its "anyone this device trusts" covers the device's
+  own list too, as `ChannelTrustNode` says (§5.1).
 - **Add an identity** opens the add form (§6.2), not an empty card page
   with a route-label field.
 
@@ -295,7 +331,12 @@ The person writes a card; the client makes everything else.
 does not exist yet: title `AddIdentityTitle` ("New identity"), Photo,
 Name (required), Family name, then `IdentityNewNote`: "A new identity
 starts with nobody: it trusts no one, and no one has its card until you
-share it." and **Create** (`CreateIdentity`), filled. No id field, no
+share it." Then `IdentityNewOldContacts`: "Someone who saved an
+identity you removed keeps its name and photo. This one is new to
+them." ADR-0061 d. 7 asks the client to say this before the add; the
+client keeps no record of removed identities, so the line is always on
+the form, and Remove's dialog says it too (§7). §16 Q7 asks whether
+the dialog alone would do. Then **Create** (`CreateIdentity`), filled. No id field, no
 label field, no advertise control (§8).
 
 **The alias.** The client makes the alias from the name, under D3's
@@ -321,11 +362,16 @@ of a person who only wanted a name. The rule rests on D3 as ruled.
 **Create**, on a valid form (cards §5.2's input rules):
 
 1. Create shows a progress indicator in itself and the form stops
-   taking input; Back and Escape do nothing while it runs, since what
-   it starts cannot be stopped halfway.
+   taking input; Back and Escape do nothing while it runs, for at most
+   the add's wait (below), since what it starts cannot be stopped
+   halfway.
 2. The client generates the identity's key, seals it, and calls the add
    with its public key (D1; ADR-0067 d. 4); the endpoint is created
-   with advertise off and an empty trusted set (ADR-0067 d. 6).
+   with advertise off and an empty trusted set (ADR-0067 d. 6). The
+   form keeps that key for as long as it is open: **every later Create
+   on the same form calls the add with the same key**, never a new one,
+   so a retry can only make the same EndpointId, which is one identity
+   whether the first add landed or not.
 3. It writes the identity's card.
 4. **Done**: Your identities opens, the new row focused, and
    `ConfirmIdentityAdded` ("{name} added. It trusts no one yet.") with
@@ -341,20 +387,31 @@ Outcomes other than Done, each with nothing half-made shown as made:
   refuses by name): Create is not offered and `IdentityLimit` shows in
   its place, focused; the form was never opened if the list knew it
   (cards §5.1, "At the bound").
-- **Refused or failed** before the endpoint exists: nothing is created,
-  the form stays filled, `IdentityAddFailed` above Create, focus on it.
-  The generated key is deleted.
-- **The answer was lost** (the connection to the daemon dropped, or the
-  embedded call did not return): the client knows the EndpointId it
-  asked for, since it derives from the key it made, so it reads the
-  endpoint list (`admin.endpoints.list`) and looks for that id. Found:
-  it goes on with step 3. Not found: as Refused. While it reads,
-  Create keeps its progress indicator; a read that fails too leaves
-  the form filled with `IdentityAddUnknown` ("Could not tell whether
-  {name} was created. Check Your identities before trying again.") and
-  Back enabled. **Alternative named:** try the add again at once. Rejected:
-  a second key would make a second identity if the first add had
-  landed.
+- **Refused or failed** before the endpoint exists (an answer saying
+  so): nothing is created, the form stays filled, `IdentityAddFailed`
+  above Create, focus on it. The key stays with the form (step 2).
+- **The answer was lost**: the connection to the daemon dropped, or no
+  answer came within **the add's wait, 30 seconds** (a hypothesis: well
+  past a key's sealing and one configuration write on the slowest
+  supported phone; falsified if rust-ui-dev measures an add that lands
+  later than that). The client knows the EndpointId it asked for, since
+  it derives from the key it made, so it reads the endpoint list
+  (`admin.endpoints.list`) and looks for that id. Found: it goes on with
+  step 3. Not found, or the read fails: the form stays filled with
+  `IdentityAddUnknown` ("Could not tell whether {name} was created.
+  Create tries again and cannot make it twice.") above Create, focus on
+  it, and Back enabled. Create there reads the list first and, the id
+  absent, calls the add again with the same key (step 2). **Alternative
+  named:** try the add again at once, with a new key. Rejected: a
+  second key would make a second identity if the first add had landed.
+- **The form is left while the outcome is unknown** (Back after
+  `IdentityAddUnknown`, or the app ends): the key file is kept, since an
+  add still running may yet use it. At the client's next start, and
+  whenever Your identities opens, the client lists the endpoints: a
+  kept key whose id is listed is an identity, named by its alias until
+  it has a card (the card case below); one whose id is not listed by a
+  list that answered is deleted. A key is never deleted on a list that
+  failed.
 - **The endpoint exists and the card could not be written** (store
   degraded or failed): the identity exists and is named by its alias
   until it has a card (ADR-0061 d. 1, "named by its label"). Your
@@ -411,8 +468,10 @@ answered. What the person sees:
 
 **What the build has** (`NetworkService.kt` on `main`): one notification
 of new messages, a count and no content, on a private channel; the
-service's ongoing notification names the device. Nothing else. This
-note keeps the count form and adds the identity.
+service's ongoing notification names the device, and a network-off
+notice says when the device has no network; neither names an identity,
+and both stay as they are. This note keeps the count form and adds the
+identity.
 
 **After the unlock**, with two or more identities held:
 
@@ -429,7 +488,10 @@ note keeps the count form and adds the identity.
   to two or more, it opens Chats of the identity in front with the
   switcher open over it, switching nothing, and the person picks, since
   no one identity is the notification's (`human-client-ui.md` §13: a
-  switch is one explicit act).
+  switch is one explicit act). ADR-0061 d. 9, §13 and the exit gate
+  say opening a notification switches to its identity; this case,
+  which one entry for every identity creates, has none, and §16 Q7
+  asks architect-cto to rule it.
 
 **On the lock screen**, whatever the person's preview setting
 (`human-client-ui.md` §10):
@@ -449,8 +511,13 @@ second one can be. The mechanism (a group whose children are hidden on
 the lock screen and whose summary carries a public form) is
 rust-ui-dev's; what is checked is what the lock screen shows (§14).
 
-**With one identity held**: as today, no identity named, the lock-screen
-entry unchanged.
+**With one identity held**: one notification as today, naming no
+identity, and on the lock screen **the same entry as with two or
+more**: the app's own public form with `MessagesWaitingLocked`, in
+place of the system's redaction `main` gets today by giving none. With
+the system's redaction for one identity and the app's form for two,
+the entry itself would tell a viewer of the locked phone that a second
+identity exists.
 
 **The desktop** has no system notification today (`human-client-ui.md`
 §10 makes one optional). This note specifies none. Ruled (§16 Q6): a
@@ -549,7 +616,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | Chats (two or more identities) | back or app title, the switch, the app options ⋮, then the list as today |
 | switcher (sheet or dialog) | its title (a focus stop, so the reading starts there), the identity rows, Your identities |
 | Your identities | back arrow, title, the shared-device statement, `IdentitiesUnlisted`, the rows in order (a row is one stop; its Try again, when shown, the next), Add an identity or `IdentityLimit` |
-| add form | back arrow, title, photo buttons, Name, Family name, `IdentityNewNote`, Create |
+| add form | back arrow, title, photo buttons, Name, Family name, `IdentityNewNote`, `IdentityNewOldContacts`, the line above Create when one shows, Create |
 | an identity's page | as cards §5.2, then `IdentityAlias` and its Copy, then the overflow |
 | Trust | back arrow, title and subtitle, `TrustScope`, then as today |
 | Peers | back arrow, title and subtitle, Show my address, Add an address, `PeersShared`, `PeersNoTrust`, the rows as today |
@@ -581,6 +648,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F18 | a notification of another identity opens the app | after the transition, the conversation list's title of that identity | device |
 | F19 | the lock-screen entry or the summary opened with news in two or more identities, switcher shown | the switcher's title | device |
 | F20 | Move done (cards §6.3) | the moved-to contact page's title | keyboard |
+| F21 | the identity in front becomes Starting or Could not start while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted |
 
 ## 12. Accessibility beyond focus
 
@@ -641,8 +709,22 @@ a proposal for language-culture-en.
 | `ConfirmRouteRemoved` | snackbar | removed {route title} from {contact} |
 | `ContactRouteRemovedTrust` | that snackbar, second clause | still trusted (by {identity} with two or more) |
 
-Changed: `IdentitiesShareDevice` (second half, §6.1); `PeerStateNeedsTrust`
-is kept only with one identity held; `IdentityRemoveLabel` is retired.
+Also new: `IdentityNewOldContacts` (the add form, §6.2: someone who
+saved a removed identity keeps its name and photo; this one is new to
+them). `IdentityAddUnknown`'s second sentence now says Create cannot
+make it twice (§6.2).
+
+Changed: `IdentitiesShareDevice` (second half, §6.1);
+`IdentityRemoveLoses` (its items are §7's, trusted peers and the key
+added); `ChannelTrustNode` covers the device's own list (§5.1);
+`PeerStateNeedsTrust` is kept only with one identity held.
+
+Retired, since nothing shows them any more: `IdentityRemoveLabel`
+(§7); `TrustAllIdentities` (cards §5.7.2's "trust is the device's",
+false since ADR-0067); the route-label field's `IdentityRouteField`,
+`IdentityRouteHelp`, `IdentityRouteNeeded`,
+`IdentityRouteBadCharacters`, `IdentityRouteTooLong`,
+`IdentityRouteTaken`, and `IdentityRouteLabel` (§6.1, §6.2).
 
 ## 14. Acceptance
 
@@ -666,7 +748,8 @@ pass before it lands.
 5. An identity's trust rows carry no configuration origin. Needs D2.
 6. In front of an identity whose set is empty while the address list is
    not, Chats shows `NoReachIdentity` with an action opening Trust.
-   Needs D2; pending §16 Q2.
+   With one identity held, the notice is add-a-peer §5.6's, unchanged.
+   Needs D2 and #553 (§16 Q2).
 7. Add: the form has no id, label or advertise field; Create makes an
    identity whose endpoint has advertise off and an empty trusted set,
    observed from the daemon (`admin.endpoints.list`, trust list for
@@ -674,25 +757,31 @@ pass before it lands.
    unchanged. Needs D1, D2. *(§13 bullet 18; exit gate.)*
 8. Add's alias follows §6.2's rule for each of its four examples and
    for a name of only punctuation (`identity`); renaming the card
-   leaves the alias. Needs D3.
+   leaves the alias. Needs D3 (#553).
 9. Add at the bound: with 64 endpoints, Create is not offered and
    `IdentityLimit` is focused; the daemon's refusal by name shows the
    same if the list was stale. Needs D1. *(Exit gate, "the add refused
    at the profile's 64-endpoint bound".)*
-10. Add with the daemon stopped after the add call is sent and before
-    its answer: the client lists, finds the id, writes the card, and
-    one identity exists, never two. Needs D1.
+10. Add's lost answer, two runs, each ending with exactly one identity
+    for the form's key: (a) the daemon stopped after it has written the
+    add and before it answers, then started again: `IdentityAddUnknown`
+    shows, Create reads the list, finds the id, writes the card; (b) the
+    daemon stopped before it writes the add, then started again: Create
+    reads the list, does not find the id, and adds with the same key. In
+    both, no second EndpointId exists, and after Back on
+    `IdentityAddUnknown` with the daemon down, the key file stays until
+    a list that answers. Needs D1.
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
-    agent's), and lists none as an identity. *(§13 bullet 17.)*
+    agent's), and lists none as an identity. *(§13 bullet 18.)*
 13. Remove: the dialog lists §7's items in order, with the key and
     `IdentityRemoveOthersKeep`; first focus on Cancel; after Remove the
     endpoint is gone from the overlay, the key file and alias are gone,
     its conversations, pending outbound (tried no further), contacts,
     trusted set and card are gone, and a may-have-reached count was
     shown when one existed. Not offered on the first identity or the
-    default. Needs D1. *(§13 bullets 16, 36; exit gate.)*
+    default. Needs D1. *(§13 bullets 17, 36; exit gate.)*
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*
@@ -701,7 +790,8 @@ pass before it lands.
     `IdentityNotHidden` with Try again and no lease is granted; made to
     block, it shows `IdentityStarting` and no lease is granted until it
     returns; after a daemon restart with the delta removed, the re-lease
-    asserts again with the same two results. Needs D1. *(§13 bullet 18;
+    asserts again with the same two results; a trusted peer's directory
+    query lists no identity of this device. Needs D1. *(§13 bullet 19;
     exit gate.)*
 16. Notifications, Android, two identities with new messages in both:
     after the unlock, one notification per identity, each naming it in
@@ -711,10 +801,12 @@ pass before it lands.
     no name and no count, and the same entry with news in one identity
     or both. Opening it after the unlock: with news in B only, the
     transition names B, then B's Chats; with news in both, the switcher
-    over A's Chats, nothing switched. Device row (Pixel 9a). *(§13 bullets 13,
-    15; exit gate.)*
-17. With one identity held, the notification and the lock-screen entry
-    are as on `main`. Device row.
+    over A's Chats, nothing switched (pending §16 Q7). Device row (Pixel
+    9a). *(§13 bullets 13, 16; exit gate.)*
+17. With one identity held, the notification after the unlock is as on
+    `main`, and the lock-screen entry is the same `MessagesWaitingLocked`
+    entry as with two: compared side by side on the device, the two
+    lock screens look the same. Device row.
 18. Contact page: on a contact with two routes, each route's menu holds
     Move and Remove from this contact; on a contact with one route, the
     menu holds no Remove, and is absent when Move is not offered either.
@@ -729,7 +821,11 @@ pass before it lands.
     Tab in that order on the desktop, and by a hardware keyboard on the
     Pixel; Escape and Back close each menu, sheet and dialog with
     focus on the opener; no key switches identity without the switcher.
-21. Focus table: each row F1–F20 holds, checked as its row says.
+21. Focus table: each row F1–F21 holds, checked as its row says.
+24. With two identities, a direct message reaching B from a route only A
+    holds as a contact is titled by the short PeerId in B's Chats, never
+    by A's name; B's Accept of a card on that route creates B's own
+    contact and leaves A's unchanged. *(§13 bullet 15; exit gate.)*
 22. Contrast: one row per mark and surface named in §12, each measured
     at or above its ratio, light and dark.
 23. TalkBack: each "as" line is read with its control, and each
@@ -757,7 +853,7 @@ pass before it lands.
 ## 16. Questions
 
 Asked of architect-cto (QUESTION 01a1a69a) and ruled the same day
-(REPLY 01a1a69f); the text lands on their branch named in §1 D3. Each
+(REPLY 01a1a69f); the text is PR #553. Each
 section above states the ruling where it applies:
 
 - **Q1** §13's identity-settings criterion against ADR-0067 d. 6:
@@ -770,6 +866,19 @@ section above states the ruling where it applies:
   profile (§1 D3, §6.2).
 - **Q5** an origin on an identity's trust rows: none (§5.1).
 - **Q6** a desktop notification: always the redacted form (§9).
+
+Open, asked after round 1 of #552's review:
+
+- **Q7** (a) Opening the lock-screen entry or the summary with news in
+  two or more identities opens the switcher and switches nothing (§9),
+  where ADR-0061 d. 9, §13 bullet 16 and the exit gate say opening
+  switches to the notification's identity; one entry for every identity
+  is what makes a notification with no one identity. Rule it as §9
+  does? (b) ADR-0061 d. 7 asks the client to say before the add that
+  counterparties may still hold a removed identity's contact; the
+  client keeps no record of removals, so the add form says it always
+  (`IdentityNewOldContacts`) and Remove's dialog says it too. Is the
+  dialog alone enough?
 
 To language-culture-en: the strings of §13, and whether "identity" can
 stay the person's word for one of these now that the recovery screens

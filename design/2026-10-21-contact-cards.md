@@ -148,6 +148,8 @@ From the contracts, listed so a reviewer can check each screen:
 
 ## 4. Where things are
 
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs what the app options and the switch name an identity by (§6.1) where the two differ.
+
 The Chats screen's top app bar is look spec §5's: one overflow button
 (⋮, labelled `AppOptions`, never "More options", Android review F12)
 whose menu holds "Trust". On main the shield of an earlier revision is
@@ -770,6 +772,8 @@ the person cannot use (architect-cto confirmed, §12 A2).
 
 #### 5.4.1 What Accept will do, said before it is done
 
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs the identity Accept's context line names (§5, N4) where the two differ.
+
 The client compares the card with the store and shows one context line
 and one Accept label.
 
@@ -1185,6 +1189,8 @@ identity's card is reached as Your card (§4).
 
 #### 5.7.1 The switch
 
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs what the switch and the switcher's rows name an identity by (§6.1) where the two differ.
+
 On the Chats screen's top app bar, between the title and the ⋮ (§4):
 the **identity switch**, a control showing the identity in front's
 24 dp avatar, its name (the card's name, else its route label), and a
@@ -1245,6 +1251,8 @@ would read as changing who speaks in it. It is always the identity in
 front, because only its conversations are shown.
 
 #### 5.7.3 Switching
+
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs which pages a switch closes on a wide layout, Trust and Peers included (§5.3) where the two differ.
 
 **What changes the identity in front**, all of it and nothing else,
 each an act of the person's and each named to them right after:
@@ -1355,6 +1363,8 @@ in when asked right after.) A notification offers no action that sends
 none is specified here (§11).
 
 #### 5.7.6 States of an identity
+
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs the Starting and Could not start states, and an identity named by its alias (§5.2, §6.1) where the two differ.
 
 - **Cannot send or receive** (its session holds no lease, or its
   endpoint is turned off, by the first identity's Turn off, §5.2, or in
@@ -1526,6 +1536,8 @@ their titles return to the short PeerId. The proposals in the session
 are recomputed (§5.4.5).
 
 ### 6.4 Details
+
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs what `DetailsIdentity` shows beside the avatar (§6.1) where the two differ.
 
 The conversation's Details dialog (look spec §6) gains, above the
 PeerId:
