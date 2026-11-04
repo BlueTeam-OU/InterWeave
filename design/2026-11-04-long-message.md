@@ -30,7 +30,9 @@ stop besides its bubble and its links, Read the whole message (§4.3,
 its §11 item 23 that checks that list: every text row, cut or whole,
 gains Copy message source, and a cut row Read the whole message too,
 both before Show source, which stays last (§4.3, §5.3). A card row,
-which has no Copy, is unchanged.
+which has no Copy, is unchanged. And it revises the look spec's §6
+Composer, whose field grows without a limit: it grows to six lines,
+then scrolls inside itself (§11 Q3, A11).
 
 ## 1. What is already decided
 
@@ -170,6 +172,23 @@ thumb (Android, shown once the body is taller than four screens) show
 where the person is in the body and let them move through it quickly.
 Whether the toolkit offers both is a precondition of A5 (§10).
 
+**Drawn in pieces**, in both modes, because the toolkit cannot draw
+one block taller than its ceiling. A piece ends where the text is drawn
+broken anyway, and there nothing shows: in source mode at a newline;
+in formatted mode at a block boundary (a paragraph, a list item, a
+table row, a code line, a heading), since a single newline inside a
+paragraph is not drawn as a break. Only a stretch with no such
+boundary that is longer than a piece — one long source line, or one
+long paragraph, hard-wrapped or not — is split elsewhere: at a word
+boundary, or at a grapheme where there is none, so that no character
+is lost, repeated or cut, and no gap opens. The one thing that shows is
+a short, ragged line at that split, where the text itself does not
+break. That is accepted (rust-ui-dev's j92 note on #561: the toolkit
+does not say where it wraps): it changes no character, Copy takes the
+source whole, and it comes about once per piece of such a stretch — a
+few thousand characters, rust-ui-dev's estimate of a piece — never
+between blocks or lines that break anyway.
+
 **Across a resize.** A window that changes between narrow and wide
 (a rotation, a fold, a desktop resize) keeps the reader open, at the
 same place in the body, with focus where it was: on narrow it covers
@@ -179,18 +198,8 @@ the app, on wide it takes the conversation's pane.
 
 Show source in the reader shows the whole raw source, in the code font,
 in the same scroll, wrapping as the row's source does. A source line
-longer than the screen wraps over as many lines as it needs. Where the
-body is drawn in pieces (the toolkit cannot draw one block taller than
-its ceiling), a piece ends at a newline wherever there is one, and
-there nothing shows. Only a run of text with no newline that is longer
-than a piece — a few thousand characters — is split elsewhere: at a
-word boundary, or at a grapheme where there is none, so that no
-character is lost, repeated or cut, and no gap opens. The one thing
-that shows is a short, ragged line at that boundary, where the text
-itself does not break. That is accepted (rust-ui-dev's j92 note on
-#561: the toolkit does not say where it wraps): it changes no
-character, Copy takes the source whole, and it happens about once per
-piece of such a run, never in a body of ordinary paragraphs. The switch keeps the position
+longer than the screen wraps over as many lines as it needs, drawn in
+pieces as §5.1 says. The switch keeps the position
 as nearly as the two forms allow: the first block on screen before the
 switch is on screen after it.
 
@@ -385,8 +394,8 @@ it, those checks are blocked, never passed.
   the 32 767 px ceiling.
 - **A5** The reader opens on each shape with its first screen drawn
   within 0.5 s on the A40, optimised build; End reaches the body's last
-  line within 1 s; scrolling shows no blank screen, and no seam but §5.2's ragged line at
-  a piece boundary inside a run with no newline.
+  line within 1 s; scrolling shows no blank screen, and no seam but §5.1's ragged line at
+  a split inside a stretch with no break, in either mode.
   The build measures and reports both times; a figure it cannot reach
   comes back to ux-designer, not changed quietly. Precondition: the
   toolkit offers the scroll bar and the fast-scroll thumb of §5.1; a
@@ -413,6 +422,11 @@ it, those checks are blocked, never passed.
   Keep on it keeps the whole message: after a restart the reader opens
   on all of it. A message arriving in the conversation while the reader
   is open stays unread until the reader closes (§7).
+- **A11** The composer, given a draft of many lines up to the
+  envelope's ceiling (pasted, and typed past six lines), grows to six
+  lines at 100 % and at 200 % text, then keeps that height and scrolls
+  inside itself with the caret in view; nothing panics; the message
+  sent carries every character of the draft (§11 Q3).
 
 **H1** (the hypothesis of §2, unvalidated): a person given a
 conversation with a long pasted log in its middle, asked to find the
