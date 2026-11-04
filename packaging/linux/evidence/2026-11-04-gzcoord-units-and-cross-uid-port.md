@@ -206,7 +206,7 @@ Both `gzcoord` units were `active` at the end, and uid 1022 still held
   loaded host. The SIGKILL figure is `RestartSec=5` plus the start.
 - **A CI case.** None of this is one: it is a host record, as before.
 - **What the deployment lost.** The `gzcoord` daemon was not serving
-  for about 0.45 s across the stop and the start that followed it
+  for about 0.44 s across the stop and the start that followed it
   (`SIGTERM` at 14:28:59.062, `serving` at 14:28:59.501), and for 5.27
   s after the kill. What GZCoord
   traffic to this account was missed in those windows was not
