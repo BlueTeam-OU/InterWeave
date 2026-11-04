@@ -2142,3 +2142,44 @@ fn a_row_with_no_reason_draws_no_empty_reason_line() {
         "no line between body and status: {plain_gap} against {reason_gap}"
     );
 }
+
+/// Trust at 200 % text in a phone-wide window stays inside it: no line
+/// of the page widens the column past the window's right edge (#304 F4
+/// at 200 %; the A40 at 200 %, `device-runs/2026-11-04-samsung-a40.md`,
+/// where the unwrapped caption over this profile's `PeerId` cut the page
+/// at the edge). Mutation: the caption unwrapped again.
+#[test]
+fn trust_at_200_percent_text_stays_inside_a_phone_wide_window() {
+    use interweave_human_client_api::TrustList;
+    const WIDTH: f32 = 411.0;
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(WIDTH, 800.0));
+    let mut model = UiModel::new();
+    view.render(&model);
+    press(&view, placeholder_en::text(UiText::AppOptions));
+    press(&view, placeholder_en::text(UiText::TrustHeading));
+    let _ = intents(&mut view, &model);
+    let _ = model.trust_settings_mut().opened();
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(alice()),
+        allowed: Vec::new(),
+    }));
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    for label in [UiText::OwnPeerId, UiText::TrustExplanation] {
+        let found = labelled(&view, placeholder_en::text(label));
+        assert!(!found.is_empty(), "{label:?} on Trust");
+        for e in found {
+            let right = e.absolute_position().x + e.size().width;
+            assert!(
+                right <= WIDTH + 0.5,
+                "{label:?} reaches {right} past the window's {WIDTH}"
+            );
+        }
+    }
+}

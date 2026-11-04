@@ -10,7 +10,7 @@
 //! (a fixed name, or one with the integer handles the view gives rows),
 //! where the start stands on onboarding's Connect, Show's state, the add's result and each trust block's state, the
 //! connectivity and the session notice the window shows, the identity
-//! screen over it, and each credential prompt the root raised and its
+//! screen over it and whether its page carries ADR-0043's warning, and each credential prompt the root raised and its
 //! answer. Never a
 //! person-facing text, an address, a `PeerId` or a name -- a focus id
 //! that is not a key's shape is written as `?`
@@ -171,6 +171,9 @@ pub(crate) struct Tracer {
     before: Shown,
     /// The identity screen last said shown.
     identity: Option<&'static str>,
+    /// Whether the identity page last said shown carries ADR-0043's
+    /// warning.
+    warns: bool,
 }
 
 impl Tracer {
@@ -179,17 +182,26 @@ impl Tracer {
             sink,
             before: Shown::default(),
             identity: None,
+            warns: false,
         }
     }
 
     /// Say the identity screen `screen` is over the window, or, `None`,
-    /// that the flow's page has left it -- when it changed.
-    pub(crate) fn identity(&mut self, screen: Option<ScreenId>) {
+    /// that the flow's page has left it, and then whether the page `warns`
+    /// that the phrase may be live elsewhere -- each when it changed. A
+    /// page that has left warns of nothing.
+    pub(crate) fn identity(&mut self, screen: Option<ScreenId>, warns: bool) {
         let now = screen.and_then(identity);
         if let Some(line) = identity_change(self.identity, now) {
             (self.sink)(&line);
         }
         self.identity = now;
+        let warns = warns && now.is_some();
+        if warns != self.warns {
+            let kind = if warns { "active-elsewhere" } else { "none" };
+            (self.sink)(&format!("{PREFIX} warns={kind}"));
+        }
+        self.warns = warns;
     }
 
     /// Say how `now` differs from what was last said.
@@ -401,13 +413,17 @@ mod tests {
         let said = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
         let to = Rc::clone(&said);
         let mut tracer = Tracer::new(Rc::new(move |l: &str| to.borrow_mut().push(l.to_owned())));
-        tracer.identity(None);
+        tracer.identity(None, false);
         for screen in [ScreenId::S1, ScreenId::S1, ScreenId::S2, ScreenId::Done] {
-            tracer.identity(Some(screen));
+            tracer.identity(Some(screen), false);
         }
-        tracer.identity(None);
-        tracer.identity(Some(ScreenId::K1));
-        tracer.identity(None);
+        tracer.identity(None, false);
+        tracer.identity(Some(ScreenId::K1), true);
+        tracer.identity(Some(ScreenId::K1), true);
+        tracer.identity(Some(ScreenId::R2), false);
+        tracer.identity(Some(ScreenId::R1), true);
+        // Done with a warning flag still set warns of nothing.
+        tracer.identity(Some(ScreenId::Done), true);
         assert_eq!(
             *said.borrow(),
             [
@@ -415,7 +431,13 @@ mod tests {
                 "ui-trace identity=s2",
                 "ui-trace identity=closed",
                 "ui-trace identity=k1",
+                "ui-trace warns=active-elsewhere",
+                "ui-trace identity=r2",
+                "ui-trace warns=none",
+                "ui-trace identity=r1",
+                "ui-trace warns=active-elsewhere",
                 "ui-trace identity=closed",
+                "ui-trace warns=none",
             ]
         );
     }

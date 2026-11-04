@@ -5158,6 +5158,12 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         text: root.trust-heading;
                         font-size: Type.title-large;
+                        // Wrapped, as every line on this page: an unwrapped
+                        // Text's minimum width is its whole line, which at a
+                        // large font widens the page past the window (the A40
+                        // at 200 %, look.rs's trust_at_200_percent case).
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
                         vertical-alignment: center;
                         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                         accessible-role: text;
@@ -5190,6 +5196,8 @@ export component AppWindow inherits Window {
                     text: root.own-peer-id-label;
                     font-size: Type.body-small;
                     font-weight: 700;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: none;
                 }
                 // This profile's own identity, exact and selectable to copy
@@ -5243,6 +5251,8 @@ export component AppWindow inherits Window {
                     text: root.entry-label;
                     font-size: Type.body-small;
                     font-weight: 700;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: none;
                 }
                 // A Material outlined field, its error under it, and "Trust
@@ -5336,6 +5346,8 @@ export component AppWindow inherits Window {
                 if root.trust-placeholder != "": Text {
                     text: root.trust-placeholder;
                     color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: text;
                     accessible-label: self.text;
                 }

@@ -24,6 +24,10 @@
 //! - `keystore_user_presence_unlock`: from the locked state, Unlock asks
 //!   the prompt, the person's grant unwraps the key, and the service
 //!   then runs. A person grants the prompt.
+//! - `r1_warns_that_the_phrase_may_be_live_elsewhere` and
+//!   `k1_warns_that_the_phrase_may_be_live_elsewhere`: TM-48's case, the
+//!   warning on R1 and on K1 read off the trace's `warns=` line, which
+//!   says what the page handed to the window carries. No person.
 //!
 //! The presence cases need a phone whose app holds a `user-presence`
 //! identity a person made, as `device-runs/2026-10-20-gate-b.md` set it
@@ -160,6 +164,50 @@ fn keystore_user_presence_unlock() {
         std::thread::sleep(Duration::from_millis(500));
     }
     passed(&s.lines_after(from, &["notice=none"], PATIENCE), &s);
+}
+
+/// TM-48's device case: R1, reached from Welcome on a first run, carries
+/// ADR-0043's warning before R2 takes a word, R2 does not, and Back to R1
+/// carries it again. Needs a phone whose app has no identity (its data
+/// cleared): the case makes none, so it leaves the phone at Welcome.
+#[test]
+#[ignore = "a phone with the debug APK and no identity (the app's data cleared), ANDROID_SERIAL naming it"]
+fn r1_warns_that_the_phrase_may_be_live_elsewhere() {
+    let mut s = screens();
+    passed(&s.launch_to_identity("w", PATIENCE), &s);
+    let from = s.mark();
+    passed(&s.open_restore(PATIENCE), &s);
+    passed(
+        &s.lines_after(from, &["identity=r1", "warns=active-elsewhere"], PATIENCE),
+        &s,
+    );
+    let from = s.mark();
+    passed(&s.open_phrase_entry(PATIENCE), &s);
+    passed(&s.lines_after(from, &["warns=none"], PATIENCE), &s);
+    passed(
+        &s.identity_back(&["identity=r1", "warns=active-elsewhere"], PATIENCE),
+        &s,
+    );
+}
+
+/// TM-48's device case on K1: an identity whose key the Keystore no
+/// longer holds opens on K1 with a restore offered, which carries the
+/// warning, and R2 after it does not. Needs the seed key dropped first
+/// (`E2eCase`'s `drop-seed-key`); the case restores nothing, so the
+/// phone stays on K1.
+#[test]
+#[ignore = "a phone with the debug APK and an identity whose seed key was dropped (drop-seed-key), ANDROID_SERIAL naming it"]
+fn k1_warns_that_the_phrase_may_be_live_elsewhere() {
+    let mut s = screens();
+    passed(&s.launch_to_identity("k1", PATIENCE), &s);
+    passed(&s.lines_after(0, &["warns=active-elsewhere"], PATIENCE), &s);
+    let from = s.mark();
+    passed(&s.open_phrase_entry(PATIENCE), &s);
+    passed(&s.lines_after(from, &["warns=none"], PATIENCE), &s);
+    passed(
+        &s.identity_back(&["identity=k1", "warns=active-elsewhere"], PATIENCE),
+        &s,
+    );
 }
 
 /// Past the key's validity, then a cold launch: locked, the prompt up.

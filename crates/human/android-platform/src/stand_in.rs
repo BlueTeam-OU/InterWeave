@@ -16,6 +16,7 @@ use std::path::Path;
 
 use interweave_profile_config::{
     PersistError, ProfilePaths, TrustBoundary, create_private_dir_within,
+    write_private_atomic_within,
 };
 
 /// The profile's document: the embedded deployment, wildcard listeners,
@@ -71,8 +72,7 @@ pub fn provision(app_data_dir: &Path, profile: &str) -> Result<(), PersistError>
     if paths.config_file().exists() {
         return Ok(());
     }
-    create_private_dir_within(paths.config_dir(), paths.boundary())?;
-    std::fs::write(paths.config_file(), document(profile)).map_err(PersistError::Io)
+    write_config(&paths, &document(profile))
 }
 
 /// Write `document` as `profile`'s configuration under `app_data_dir`,
@@ -92,6 +92,16 @@ pub fn provision_replacing(
     document: &str,
 ) -> Result<(), PersistError> {
     let paths = ProfilePaths::resolve_embedded(profile, TrustBoundary::new(app_data_dir)?)?;
+    write_config(&paths, document)
+}
+
+/// `document` as the configuration file, owner-only whatever the
+/// process's umask and whatever mode a file already there had: the app's
+/// start refuses a configuration another account can change, and the
+/// instrumentation's process, which calls [`provision_replacing`], once
+/// wrote one at 0666 on the A40 (2026-11-04, j89), so the next start
+/// answered -3 (`a_provisioned_profile_is_owner_only_and_stays_so`).
+fn write_config(paths: &ProfilePaths, document: &str) -> Result<(), PersistError> {
     create_private_dir_within(paths.config_dir(), paths.boundary())?;
-    std::fs::write(paths.config_file(), document).map_err(PersistError::Io)
+    write_private_atomic_within(&paths.config_file(), document.as_bytes(), paths.boundary())
 }
