@@ -186,6 +186,8 @@ A direct conversation's overflow (⋮) gains **Share a card**
 
 ### 5.1 Your identities (list)
 
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs the list's second line, the shared-device statement and Add an identity (§6.1, §6.2) where the two differ.
+
 Shown while two or more identities are held; with one, the menu opens
 §5.2 for it (§4). What is visible, top to bottom:
 
@@ -263,6 +265,8 @@ the list returns with the new row focused, and switching is the
 person's act (§5.7.3).
 
 ### 5.2 An identity's card
+
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs Remove's dialog, and the trust a turned-off identity keeps (§7); the alias line (§6.2) where the two differ.
 
 Opened from a row of §5.1, from Add an identity (empty, §5.1), from the
 menu's Your card while one identity is held (§4), or from Share when the
@@ -1223,6 +1227,8 @@ choosing the row already chosen closes it with nothing changed.
 
 #### 5.7.2 Where the identity in front is named
 
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs this table whole (§5): trust is the identity's since ADR-0067 where the two differ.
+
 | screen | what it can do | how it names the identity |
 |---|---|---|
 | Chats | open, start or delete a conversation | the switch (§5.7.1) |
@@ -1315,6 +1321,8 @@ person switches first, on Chats (§5.7.1); nothing on this screen
 switches.
 
 #### 5.7.5 Notifications
+
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs the grouping and the lock screen (§9) where the two differ.
 
 A notification names the identity it arrived on, in its visible text
 and not only by an icon: on Android the identity's name is the
@@ -1429,6 +1437,8 @@ conversations") only when there is more than one. A row opens the contact page.
   replaces the old).
 
 ### 6.3 A contact
+
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs where Move sits and the route's Remove from this contact (§10) where the two differ.
 
 App bar: back arrow, the name as title, the identity in front as the
 subtitle while two or more are held, overflow with **Delete contact**
