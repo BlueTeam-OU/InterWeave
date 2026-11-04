@@ -135,9 +135,10 @@ fn without_try_again_it_is_neither_shown_nor_reached_and_close_has_focus() {
 /// draws its ring, and the ring covers no neighbour: the path's label
 /// stands above its field. The first Tab comes from Try again's focus by
 /// a call and lands on the path, a text field, which is told no focus
-/// reason: the window's `KeyboardScope` draws its ring (#546 F1).
+/// reason: the window's `KeyboardScope` draws its ring (#546 F1). The
+/// scroll area around the path clips, and cuts no ring.
 /// Mutations: the path's 4 px spacing back; the scope's capture setting
-/// no keyboard mode.
+/// no keyboard mode; the scroll body's padding taken off.
 #[test]
 fn tab_runs_through_the_path_close_and_try_again() {
     let view = screen(&store_page());
@@ -151,6 +152,8 @@ fn tab_runs_through_the_path_close_and_try_again() {
                 "the ring at {:?} covers {over:#?}",
                 focus(&view)
             );
+            let cut = common::ring_cut(view.window()).expect("the ring above");
+            assert!(cut.is_empty(), "at {:?}: {cut:#?}", focus(&view));
             checked.push(focus(&view));
         }
         seen.push(focus(&view));

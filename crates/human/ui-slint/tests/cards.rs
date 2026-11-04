@@ -4524,6 +4524,8 @@ fn tab_each_ring_covers_nothing(view: &View, stops: usize) -> std::collections::
         let on = view.window().get_focus_id().to_string();
         if let Some(over) = common::ring_overdraws(view.window()) {
             assert!(over.is_empty(), "the ring at {on:?} covers {over:#?}");
+            let cut = common::ring_cut(view.window()).expect("the ring above");
+            assert!(cut.is_empty(), "at {on:?}: {cut:#?}");
             checked.insert(on);
         }
     }

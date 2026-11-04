@@ -8480,14 +8480,24 @@ export component RefusalWindow inherits Window {
             }
             reject
         }
+        // The scroll area clips, so the path field's ring needs room
+        // inside it: the body stands a ring's reach in from its sides and
+        // end, the window's 24 px margin made up of the two, and the
+        // actions keep the same line
+        // (`tab_runs_through_the_path_close_and_try_again`, `ring_cut`).
         VerticalLayout {
             padding: 24px;
+            padding-left: 24px - FocusMode.ring-reach;
+            padding-right: 24px - FocusMode.ring-reach;
             spacing: 16px;
             Flickable {
                 vertical-stretch: 1;
                 content-height: body.preferred-height;
                 body := VerticalLayout {
                     width: parent.width;
+                    padding-left: FocusMode.ring-reach;
+                    padding-right: FocusMode.ring-reach;
+                    padding-bottom: FocusMode.ring-reach;
                     spacing: 16px;
                     Text {
                         text: root.heading;
@@ -8604,6 +8614,8 @@ export component RefusalWindow inherits Window {
             // fit one line of a 320 px window (seen), and a layout cannot
             // ask the window's width without a binding loop (Slint 1.18).
             VerticalLayout {
+                padding-left: FocusMode.ring-reach;
+                padding-right: FocusMode.ring-reach;
                 spacing: 12px;
                 if root.can-discard: HorizontalLayout {
                     alignment: start;

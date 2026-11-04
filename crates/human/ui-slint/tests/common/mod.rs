@@ -101,3 +101,44 @@ pub(crate) fn ring_overdraws(window: &impl ElementRoot) -> Option<Vec<String>> {
         .collect();
     Some(over)
 }
+
+/// Each scroll area holding the shown ring's control that cuts the ring:
+/// a `Flickable` clips, so a control in one keeps a ring's reach of room
+/// inside it, or its ring is drawn without the sides that fall outside
+/// (the refusal screen's path, seen rendered in j83). `None` when no ring
+/// is shown, as for [`ring_overdraws`].
+pub(crate) fn ring_cut(window: &impl ElementRoot) -> Option<Vec<String>> {
+    let ring = Edges::of(&shown_ring(window)?);
+    let centre = ring.centre();
+    let cut = ElementQuery::from_root(window)
+        .find_all()
+        .into_iter()
+        .filter(|e| e.type_name().as_deref() == Some("Flickable"))
+        .filter_map(|e| {
+            let area = Edges::of(&e);
+            let holds = area.left <= centre.0
+                && centre.0 <= area.right
+                && area.top <= centre.1
+                && centre.1 <= area.bottom;
+            let inside = ring.left >= area.left
+                && ring.right <= area.right
+                && ring.top >= area.top
+                && ring.bottom <= area.bottom;
+            (holds && !inside).then(|| {
+                format!(
+                    "{:?} ({}, {})-({}, {}) cuts the ring ({}, {})-({}, {})",
+                    e.id(),
+                    area.left,
+                    area.top,
+                    area.right,
+                    area.bottom,
+                    ring.left,
+                    ring.top,
+                    ring.right,
+                    ring.bottom,
+                )
+            })
+        })
+        .collect();
+    Some(cut)
+}

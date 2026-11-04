@@ -977,6 +977,8 @@ fn tab_each_draws_one_ring(view: &View, stops: usize) -> std::collections::BTree
         assert_eq!(rings_shown(view), 1, "one focus ring at {on:?}");
         let over = common::ring_overdraws(view.window()).expect("the ring counted above");
         assert!(over.is_empty(), "the ring at {on:?} covers {over:#?}");
+        let cut = common::ring_cut(view.window()).expect("the ring counted above");
+        assert!(cut.is_empty(), "at {on:?}: {cut:#?}");
         reached.insert(on);
     }
     reached
