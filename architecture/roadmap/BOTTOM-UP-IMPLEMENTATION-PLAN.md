@@ -5828,6 +5828,13 @@ none is the status value's, which stays on this stage.
   (`apps/human-desktop`, `apps/human-android`), the one `owed` item
   outside S12 and C-04; the clients are rust-ui-dev's, so the cases are
   theirs to land or to record as a limit, the row's step naming them.
+  Landed on #556 (rust-ui-dev-01, 2026-11-04): the desktop case
+  `tests/desktop-e2e/tests/human_app/content_free_logs.rs::no_body_name_or_card_field_reaches_the_clients_log`,
+  the shipped client over two real daemons, no planted word in its one
+  log and no platform notification; the Android client recorded as the
+  row's limit (no host test reaches its Android-only modules, and its
+  notification text is built from a count by type), so the step cell
+  moved to `—`.
 - **S21-06's and TM-04's step cells** still name S6 (01) while
   S21-06's limit cell holds decided (2)'s figures and clause (c) is met
   by them. Nothing is owed on either (p2p-network-dev-01, 2026-10-25,
