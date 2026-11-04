@@ -215,7 +215,16 @@ front, and only that identity admits the peer at the route. So:
   title says, with two or more identities held: "The peers listed here
   can exchange messages with {identity}. Each of your other identities
   trusts its own peers." With
-  one identity, `TrustExplanation` stays as it is.
+  one identity, `TrustScope` is not shown (its second sentence would be
+  false), and from the Stage 22 release `TrustExplanation` loses "Only"
+  and its claim about this profile and says what the list is: the
+  peers this identity trusts, who can write to it (ruled, §16 Q9: the
+  first identity's set and the device's own list differ from the
+  seed's first write on, and a peer only the device's list holds can
+  post in a channel). Revoking with one identity is `ConfirmRevoke` in
+  a form without "Its connections to this profile will close now", for
+  the same ruling: the connections close only when no set holds the
+  peer.
 - **No "From this profile's configuration" line on an identity's
   rows.** Today each row says where it came from (`TrustFromConfiguration`
   or `TrustAddedHere`). After the change the first identity's set is
@@ -839,6 +848,8 @@ the same text, and so do `ContactRouteTrustedAs` and
 | `IdentityRemoveLoses` | This deletes from this device: / The conversations of {identity}, with their unread and kept messages and the messages waiting to be sent / The contacts of {identity} / The list of peers that {identity} trusts / The card of {identity}, with its name and photo / `IdentityRemoveKey` / People who write to {identity} will no longer reach you. This cannot be undone. | its items are §7's, in its order, the trusted peers and the key added; one item a line, each "/" a line break |
 | `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button |
 | `PeerStateNeedsTrust` | unchanged | kept only with one identity held |
+| `TrustExplanation` | *(proposed)* The peers listed here are the peers you trust. They can exchange messages with you. A change made here stays until you change it again. | from the Stage 22 release: no "Only", no claim about this profile (§5.1, §16 Q9) |
+| `ConfirmRevoke` | *(proposed)* Do you want to stop trusting {peer}? This peer can then no longer exchange messages with you, until you trust it again. | from the Stage 22 release: no claim that connections close (§5.1, §16 Q9); `{peer}` the exact PeerId, whole, as today |
 
 **Retired**, since nothing shows them any more: `IdentityRemoveLabel`
 (§7); `TrustAllIdentities` (cards §5.7.2's "trust is the device's",
@@ -961,6 +972,12 @@ pass before it lands.
     holds as a contact is titled by the short PeerId in B's Chats, never
     by A's name; B's Accept of a card on that route creates B's own
     contact and leaves A's unchanged. *(`human-client-ui.md` §13 bullet 15; exit gate.)*
+25. With one identity held, on the Stage 22 release: Trust's
+    explanation is §13's changed `TrustExplanation`, and revoking a peer
+    shows §13's changed `ConfirmRevoke`; with that peer also in the
+    device's own list (`transportctl trust allow`), after the revoke its
+    connection stays and the identity's route refuses its message. Needs
+    D2. *(§16 Q9.)*
 
 ## 15. Deliberately left out
 
@@ -1018,7 +1035,9 @@ Asked after rounds 1 and 2 of #552's review (QUESTIONs 01a1a6a8 and
   in front and the address list alone; the Q2 ruling's "or another
   identity's set" is withdrawn (§5.1).
 
-Open, asked of architect-cto after language-culture-en's pass (j242):
+Asked of architect-cto after language-culture-en's pass (j242,
+QUESTION 01a1a71f-2302) and ruled the same day (REPLY 01a1a727), from
+ADR-0067 d. 6 as it stands, no amendment:
 
 - **Q9** with one identity held, from the Stage 22 release, the first
   identity's set is seeded once from the device's own list (ADR-0067
@@ -1029,9 +1048,12 @@ Open, asked of architect-cto after language-culture-en's pass (j242):
   profile", while a peer only the device's list holds can post in a
   channel) and `ConfirmRevoke` ("Its connections to this profile will
   close now", while the device's list still admits the peer). Asked:
-  can the two lists differ with one identity held? If they can, both
-  take a form without the claim, as `TrustScope` and `ConfirmRevokeAs`
-  do; until it is ruled, both stand as on `main`.
+  can the two lists differ with one identity held? Ruled: yes, from the
+  seed's first write on either side, so both take a form without the
+  claim from the Stage 22 release, each keeping its own key, since
+  `TrustScope`'s "each of your other identities" is false with one
+  (§5.1, §13). Until that release both are true as on `main`, where the
+  client's trust acts write the node's list.
 
 Answered by language-culture-en (REPLY 01a1a71c, their j242): the
 strings are §13's, and "identity" stays the person's word for a user
