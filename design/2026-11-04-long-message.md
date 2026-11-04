@@ -405,10 +405,14 @@ it, those checks are blocked, never passed.
   drawn height instead, which would hold one figure for every shape:
   the cut would then move with the width and the text size, and the
   same message would show a different part after a rotation. That is
-  a judgement, kept for H1's walkthrough to test at 200 % text.
+  a judgement, kept for H1's walkthrough to test at 200 % text. For
+  the four link and image shapes, A3's figures come with Q4's answer
+  (§11), since how tall their preview may be depends on how they are
+  counted; until then the build measures and reports them, and A3 is
+  open on them, neither passed nor failed.
 - **A4** At 200 % text, on the narrowest layout and at the highest
-  scale, a whole body at the bound in each shape — A1's body, as
-  paragraph, list, code, table and headings — draws without a panic,
+  scale, a whole body at the bound in each of the shapes above, the
+  four link and image shapes included, draws without a panic,
   and the build measures and reports the tallest row's height against
   the 32 767 px ceiling.
 - **A5** The reader opens on each shape with its first screen drawn
