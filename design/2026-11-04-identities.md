@@ -168,7 +168,7 @@ gets a row here.
 | N1 | Chats | open, start, delete a conversation | the switch in the app bar (cards §5.7.1) |
 | N2 | a conversation | send, share, accept or decline a card, delete messages | `ComposerAs` above the send control with the 24 dp avatar; the send control's name `SendAs`; with no composer, the line where the composer would be |
 | N3 | the share sheet | share | `ShareCardAs` (cards §5.3) |
-| N4 | a card proposal | accept, decline | `ComposerAs` of its conversation (N2) is on screen; Accept's context line (cards §5.4.1) adds `ProposalAs` ("saved to {identity}'s contacts") as its last clause |
+| N4 | a card proposal | accept, decline | `ComposerAs` of its conversation (N2) is on screen; Accept's context (cards §5.4.1) ends with `ProposalAs` ("If you accept, the card is saved in the contacts of {identity}."), a sentence of its own |
 | N5 | new conversation | start | `NewConversationAs` at its top (cards §5.7.4) |
 | N6 | Contacts, a contact | delete, move, remove a route, rename, remove a photo | the identity as the app bar's subtitle |
 | N7 | **Trust** | trust, untrust | the identity as the app bar's subtitle, and `TrustScope` under the title (§5.1) |
@@ -197,8 +197,9 @@ front, and only that identity admits the peer at the route. So:
 
 - **Trust** (the page): its list is the trusted set of the identity
   in front (D2), its subtitle names the identity, and `TrustScope` under the
-  title says, with two or more identities held: "Peers you trust here
-  can write to {identity}. Your other identities trust their own." With
+  title says, with two or more identities held: "The peers listed here
+  can exchange messages with {identity}. Each of your other identities
+  trusts its own peers." With
   one identity, `TrustExplanation` stays as it is.
 - **No "From this profile's configuration" line on an identity's
   rows.** Today each row says where it came from (`TrustFromConfiguration`
@@ -229,9 +230,9 @@ front, and only that identity admits the peer at the route. So:
 - **Channels**: a channel's publishers are admitted by the device, for
   every identity (ADR-0067 d. 6, broadcast stays node-wide). With two
   or more identities held, a channel conversation's Details carry
-  `ChannelTrustNode` ("Anyone this device trusts can post in this
-  channel: a peer any of your identities trusts, or one in this device's
-  own list of trusted peers."), which names no identity and no peer. The
+  `ChannelTrustNode` ("A peer can post in this channel if any of your
+  identities trusts it, or if it is in this device's own list of trusted
+  peers."), which names no identity and no peer. The
   device's own list is the operator's (ADR-0067 d. 6), written by
   `transportctl trust allow` and never by an identity's trust act.
 - **The no-reach notice** (add-a-peer §5.6), shown when the device knows
@@ -240,8 +241,8 @@ front, and only that identity admits the peer at the route. So:
   trusts many. This note reads "trusts no peer" as **the set of the identity
   in front is empty** and shows the notice then, with a second form
   `NoReachIdentity` when the address list is not empty ("{identity}
-  trusts no one yet. To write as {identity}, trust a peer while you use
-  it."), its action opening Trust. Ruled (§16 Q2): the set is the
+  does not trust any peer yet. To exchange messages as {identity}, trust
+  a peer."), its action opening Trust. Ruled (§16 Q2): the set is the
   effective set of the identity in front, never the device's admission set,
   and the second form shows when that set is empty while the address
   list or another identity's set is not. The notice promises nothing
@@ -263,14 +264,15 @@ the same text as its reason:
   while the call blocks, the identity stays Starting (exit gate:
   "with it made to block, no lease is granted until it returns").
 - **Could not start** (`IdentityNotHidden`): the advertise assertion
-  failed, so the client took no lease. "{identity} is not connected:
-  this device could not make sure it stays unlisted." With **Try again**
+  failed, so the client took no lease. "{identity} is not connected.
+  This device could not make sure that {identity} stays unlisted." With **Try again**
   (`TryAgain`) on the identity's row and, in a conversation, at the end
   of that line, which stands in place of `ComposerAs`; the composer's
   field stays, drafts can be typed, and Send stays disabled. Try
   again runs the assertion and then the lease again. With one identity
-  held the same line names no identity (`IdentityNotHiddenOne`: "Not
-  connected: this device could not make sure you stay unlisted.").
+  held the same line names no identity (`IdentityNotHiddenOne`: "You
+  are not connected. This device could not make sure that you stay
+  unlisted.").
 - **Off** and **no lease** as cards §5.7.6 says.
 
 Entering either state while the send control has focus moves focus to
@@ -296,8 +298,8 @@ Cards §5.1 stands, with these changes:
 
 - **The row's second line** is the identity's short EndpointId,
   `ShortEndpoint` built as `ShortPeer` is ("…" and its last eight
-  characters), labelled `IdentityIdLabel` in the accessible name ("seen
-  by others as …x6gY6Eri"). The route label of the old design no longer
+  characters), labelled `IdentityIdLabel` in the accessible name ("Shown
+  to the people you write to as …x6gY6Eri"). The route label of the old design no longer
   exists; the alias is local and is not shown on this line (§6.2).
   Wherever an identity is named, the switch and the switcher's rows
   included, its name is the card's name, else its alias (ADR-0061
@@ -313,13 +315,14 @@ Cards §5.1 stands, with these changes:
   first half (one PeerId and one device's addresses; a second profile on
   the desktop, which the phone cannot run). Its second half changes for
   ADR-0067: "Each identity trusts its own peers. A peer that any of your
-  identities trusts can connect to this device, and reaches only the
-  identities that trust it. A channel is the exception: anyone this
-  device trusts can post in a channel, whichever identity reads it."
+  identities trusts can connect to this device. That peer reaches only
+  the identities that trust it. In a channel, a peer can post if any of
+  your identities trusts it or if it is in this device's own list of
+  trusted peers, whichever of your identities reads the channel."
   Ruled (§16 Q1): `human-client-ui.md` §13's criterion is amended to this
   sentence, its channel clause included (ADR-0067 d. 6, broadcast
-  stays node-wide); its "anyone this device trusts" covers the device's
-  own list too, as `ChannelTrustNode` says (§5.1).
+  stays node-wide); its channel clause names the device's own list
+  too, as `ChannelTrustNode` does (§5.1).
 - **Add an identity** opens the add form (§6.2), not an empty card page
   with a route-label field.
 
@@ -330,10 +333,10 @@ The person writes a card; the client makes everything else.
 **The form** is the identity's card page (cards §5.2) for a card that
 does not exist yet: title `AddIdentityTitle` ("New identity"), Photo,
 Name (required), Family name, then `IdentityNewNote`: "A new identity
-starts with nobody: it trusts no one, and no one has its card until you
-share it." Then `IdentityNewOldContacts`: "Someone who saved an
-identity you removed keeps its name and photo. This one is new to
-them." ADR-0061 d. 7 asks the client to say this before the add; the
+has no contacts and trusts no peer. No one has its card until you share
+it." Then `IdentityNewOldContacts`: "If you removed an identity
+before, people who saved it as a contact still have its name and photo.
+To them, this new identity is a different one." ADR-0061 d. 7 asks the client to say this before the add; the
 client keeps no record of removed identities, so the line is always on
 the form, and Remove's dialog says it too (§7). §16 Q7 (b) asks whether
 the dialog alone would do. Then **Create** (`CreateIdentity`), filled. No id field, no
@@ -349,7 +352,7 @@ already holds that alias, `-2`, `-3` … is added, the lowest free one.
 So "Anna Rossi" gives `anna-rossi`, a second "Anna Rossi"
 `anna-rossi-2`, "Ελένη" `identity` (or `identity-2` when that is
 taken), and "2024 team" `identity-2024-team`. It is shown on the identity's page under the card's fields,
-read-only, as `IdentityAlias` ("Name in commands: {alias}") with Copy,
+read-only, as `IdentityAlias` ("Name to use on the command line: {alias}") with Copy,
 so a person who uses the command line can find it. Editing the card's
 name later does not change it, since a script may use it; the command
 line renames it (ADR-0061 d. 7), and a rename it refuses is its own
@@ -374,7 +377,8 @@ of a person who only wanted a name. The rule rests on D3 as ruled.
    whether the first add landed or not.
 3. It writes the identity's card.
 4. **Done**: Your identities opens, the new row focused, and
-   `ConfirmIdentityAdded` ("{name} added. It trusts no one yet.") with
+   `ConfirmIdentityAdded` ("{name} was created. It does not trust any peer
+   yet.") with
    no Undo; Remove is the way back, and it confirms (§7). The new
    identity is **not** put in front: switching is the person's act
    (cards §5.7.3). With one identity held before, this is the moment
@@ -398,8 +402,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
   it derives from the key it made, so it reads the endpoint list
   (`admin.endpoints.list`) and looks for that id. Found: it goes on with
   step 3. Not found, or the read fails: the form stays filled with
-  `IdentityAddUnknown` ("Could not tell whether {name} was created.
-  Create tries again and cannot make it twice.") above Create, focus on
+  `IdentityAddUnknown` ("InterWeave could not check whether {name} was
+  created. Choose Create to try again. If {name} was already
+  created, Create does not create a second one.") above Create, focus on
   it, and Back enabled. Create there reads the list first and, the id
   absent, calls the add again with the same key (step 2). **Alternative
   named:** try the add again at once, with a new key. Rejected: a
@@ -416,8 +421,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   degraded or failed): the identity exists and is named by its alias
   until it has a card (ADR-0061 d. 1, "named by its label"). Your
   identities opens with the row focused and `IdentityCardNotSaved`
-  under it ("The name and photo were not saved. Open it to try
-  again."); its page opens with the form's values kept for this
+  under it ("The name and photo were not saved. Open this identity
+  to try again."); its page opens with the form's values kept for this
   session.
 
 ## 7. Remove an identity, and turning the first one off
@@ -428,14 +433,14 @@ where focus lands — with its dialog changed for ADR-0067:
 - **What goes** (`IdentityRemoveLoses`), in this order: its conversations
   and their messages (unread, kept and waiting to be sent); its
   contacts; its trusted peers; its card; its key (`IdentityRemoveKey`:
-  "its key, so this identity can never be used again"); and that people
+  "The key of {identity}. No one can use this identity again."); and that people
   who write to it are no longer reached.
 - **What may already have gone**: `IdentityRemoveMayHaveReached` with
   the count, as cards §5.2 says.
 - **What others keep** (`IdentityRemoveOthersKeep`, replacing
   `IdentityRemoveLabel`): "People who saved {identity} as a contact
-  keep its name and photo. Their messages to it will reach no one. A new
-  identity you add later is a different one to them." The old line,
+  still have its name and photo. Their messages to it reach no one. To
+  them, an identity that you add later is a different one." The old line,
   that a later identity on the freed label would be reached under the
   old contact, stopped being true with ADR-0067 d. 2: a new identity has
   a new key and so a new EndpointId.
@@ -458,9 +463,10 @@ switch the person cannot move is a question the system already
 answered. What the person sees:
 
 - on Your identities, under the shared-device statement,
-  `IdentitiesUnlisted`: "Your identities are not listed to other
-  devices. Someone who knows an identity can still write to it if that
-  identity trusts them.";
+  `IdentitiesUnlisted`: "Other devices cannot get a list of your
+  identities from this device. A peer that already knows one of your
+  identities can still send messages to that identity if that identity
+  trusts the peer.";
 - the Starting and Could not start states (§5.2), which are the only
   moments the setting is visible as work.
 
@@ -478,11 +484,12 @@ identity.
 - one notification per identity that has new messages, its title the
   count as today, its sub-text (shown in the header) the identity's
   name; all of them in one notification group whose summary names the
-  identities in its lines ("{identity}: {n} new"), one line each;
+  identities in its lines (`NotificationIdentityLine`, "{identity}: 3 new
+  messages"), one line each;
 - opening an identity's notification switches to it visibly first
   (cards §5.7.5's transition, "Opening as {identity}"), then shows its
-  Chats; opening one of the identity in front shows its Chats with no
-  transition;
+  Chats; opening the notification of the identity in front shows its
+  Chats with no transition;
 - opening the summary, when every new message belongs to one identity,
   does what opening that identity's notification does; when they belong
   to two or more, it opens Chats of the identity in front with the
@@ -536,7 +543,7 @@ contact's only route, and leaves the contact with its other routes
 
 **Placement.** Each route row (cards §6.3) keeps **Open conversation**
 as its one visible button, and gains a route menu button at its end
-(⋮, 48 dp, accessible name `RouteMenu`: "Options for {route title}"),
+(⋮, 48 dp, accessible name `RouteMenu`: "Options for {title}"),
 which holds, in order:
 
 1. **Move to another contact** (`MoveRoute`), offered as cards §6.3
@@ -565,10 +572,11 @@ deletes nothing the person cannot have back:
 - the route's conversation stays; its title is the short PeerId again
   (or the route title `human-client-ui.md` §4 needs), since it is under
   no contact of this identity; a later card on it is a new proposal;
-- trust is not touched (`ContactRouteRemovedTrust` in the snackbar says
-  so only when the route is trusted: "Still trusted by {identity}"; with
-  one identity "Still trusted");
-- `ConfirmRouteRemoved` ("Removed {route title} from {contact}") with
+- trust is not touched (the snackbar says so only when the route is trusted:
+  `ConfirmRouteRemovedTrustedAs`, "… {identity} still trusts {peer}.";
+  with one identity `ConfirmRouteRemovedTrusted`, "… You still trust
+  {peer}.");
+- `ConfirmRouteRemoved` ("Conversation removed from {contact}") with
   **Undo**, which puts the route back under the contact with its key.
   The Undo is withdrawn, its snackbar closed, as soon as the route comes
   under another contact (an Accept, Details' Add as a contact, a Move
@@ -654,8 +662,8 @@ can, and the TalkBack rows of §14 are blocked until it does.
 
 - **Names in words.** Every "as" line, subtitle and scope line is text
   in the accessibility tree, read with its control: the send control's
-  name is `SendAs`, Trust's buttons `TrustAs` ("Trust {peer} as
-  {identity}") with two or more identities held.
+  name is `SendAs`, Trust's buttons `TrustAs` ("Trust as {identity}:
+  {peer}") with two or more identities held.
 - **Announcements**: `ConfirmIdentityAdded`, `ConfirmRouteRemoved` and
   the switch's snackbar are announced once through the live region
   (WCAG 4.1.3); the transition's `SwitchingTo` too.
@@ -677,54 +685,116 @@ can, and the TalkBack rows of §14 are blocked until it does.
 
 ## 13. Strings
 
-New keys, each with where it shows and what it must say; the text is
-a proposal for language-culture-en.
+The text of every string this note shows, as language-culture-en wrote
+it (en-US). Key names are suggestions; rust-ui-dev names them.
+Placeholders are cards §10's, and also `{alias}` (an identity's alias),
+`{short}` (`ShortEndpoint`'s text), `{tail}` (the last eight
+characters of an EndpointId), `{contact}` (a contact's name) and
+`{count}` (a number in digits). A key ending in `As` is the form shown
+with two or more identities held; the key without it is the form with
+one, unchanged unless this section says so. A text shown with two or
+more identities never says "you trust" or "this profile" for a trust
+that is now an identity's: it names `{identity}`, the identity in
+front.
 
-| key | where | must say |
+**New keys.**
+
+| key | text | where | must say |
+|---|---|---|---|
+| `ProposalAs` | If you accept, the card is saved in the contacts of {identity}. | Accept's context, its last sentence, in every case (N4) | the contact is saved to the identity in front |
+| `TrustStepAs` | Trust as {identity} | add-a-peer trust step's button (N9) | "Trust as {identity}" |
+| `TrustScope` | The peers listed here can exchange messages with {identity}. Each of your other identities trusts its own peers. | Trust, under the title | peers trusted here write to this identity; the other identities trust their own |
+| `TrustAs` | Trust as {identity}: {peer} | each Trust button's accessible name | trust {peer} as {identity}; begins with the button's visible label |
+| `RemoveTrustAs` | Remove trust as {identity}: {peer} | each Remove trust button's accessible name, Trust | untrust {peer} as {identity}; begins with the visible label |
+| `PeersShared` | These addresses are saved on this device, for all your identities. | Peers, under Add | addresses are the device's, for every identity |
+| `PeerStateTrustedAs` | Trusted by {identity}: this device tries to connect to this address | a Peers row, in place of `PeerStateTrusted` | trusted by {identity}; the device dials it |
+| `PeerStateNeedsTrustAs` | Not trusted by {identity} | a Peers row | not trusted by {identity}; no claim about connecting |
+| `ChannelTrustNode` | A peer can post in this channel if any of your identities trusts it, or if it is in this device's own list of trusted peers. | a channel's Details | anyone any of the person's identities trusts, or the device's own list holds, can post in the channel; names no identity and no peer |
+| `NoReachIdentity` | {identity} does not trust any peer yet. To exchange messages as {identity}, trust a peer. | Chats, the no-reach notice's second form | {identity} trusts no one yet; trust a peer while using it |
+| `IdentityStarting` / `IdentityStartingOne` | {identity} is connecting and cannot send yet. / Connecting. You cannot send yet. | row, switcher, composer | the identity is starting and cannot send yet |
+| `IdentityNotHidden` / `IdentityNotHiddenOne` | {identity} is not connected. This device could not make sure that {identity} stays unlisted. / You are not connected. This device could not make sure that you stay unlisted. | row, switcher, composer | not connected: could not make sure it stays unlisted |
+| `ShortEndpoint` | …{tail} | Your identities, a row's second line; the switcher's rows; `DetailsIdentity` | the short id, built as `ShortPeer` |
+| `IdentityIdLabel` | Shown to the people you write to as {short} | that line's accessible name | read as what others see |
+| `IdentitiesUnlisted` | Other devices cannot get a list of your identities from this device. A peer that already knows one of your identities can still send messages to that identity if that identity trusts the peer. | Your identities | identities are not listed to other devices; someone who knows one can still write to it if it trusts them |
+| `AddIdentityTitle` | New identity | the add form | a new identity |
+| `IdentityNewNote` | A new identity has no contacts and trusts no peer. No one has its card until you share it. | the add form | it trusts no one and no one has its card until shared |
+| `IdentityNewOldContacts` | If you removed an identity before, people who saved it as a contact still have its name and photo. To them, this new identity is a different one. | the add form | someone who saved a removed identity keeps its name and photo; this one is new to them |
+| `CreateIdentity` | Create | the add form's primary | create |
+| `IdentityAlias` | Name to use on the command line: {alias} | an identity's page | the name used in commands, with the alias; the alias last, nothing touching it |
+| `ConfirmIdentityAdded` | {name} was created. It does not trust any peer yet. | snackbar | {name} added; it trusts no one yet |
+| `IdentityAddUnknown` | InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one. | the add form, above Create | could not tell whether it was created; Create tries again and cannot make it twice |
+| `IdentityCardNotSaved` | The name and photo were not saved. Open this identity to try again. | a row | name and photo not saved; open it to try again |
+| `IdentityRemoveKey` | The key of {identity}. No one can use this identity again. | Remove dialog, an item of `IdentityRemoveLoses` | its key, so it can never be used again |
+| `IdentityRemoveOthersKeep` | People who saved {identity} as a contact still have its name and photo. Their messages to it reach no one. To them, an identity that you add later is a different one. | Remove dialog | others keep its name and photo, their messages reach no one, a new identity is a different one to them |
+| `MessagesWaitingLocked` | New messages | lock screen | new messages, no count, no name; the same text as `MessagesChannel`, so the key may be that one |
+| `NotificationIdentityLine` | {identity}: 1 new message / {identity}: {count} new messages | the group summary's lines (§9), one an identity; the first for a count of one, the second for any other | the identity and its count; plural forms language-culture's |
+| `RouteMenu` | Options for {title} | a route row's menu button | options for the route's title |
+| `RemoveRoute` | Remove from this contact | route menu | remove from this contact |
+| `ConfirmRouteRemoved` | Conversation removed from {contact} | snackbar, with Undo, when the route is not trusted | removed the route from {contact} |
+| `ConfirmRouteRemovedTrusted` / `ConfirmRouteRemovedTrustedAs` | Conversation removed from {contact}. You still trust {peer}. / Conversation removed from {contact}. {identity} still trusts {peer}. | the same snackbar when the route is trusted, with one identity / with two or more | removed, and trust is unchanged; each case one whole template, never a clause added to another |
+
+**Existing trust strings, their form with two or more identities.**
+Each is shown in place of the key it names, with two or more
+identities held; with one, that key's text stands.
+
+| key | in place of | text |
 |---|---|---|
-| `ProposalAs` | Accept's context line, last clause (N4) | the contact is saved to the identity in front |
-| `TrustStepAs` | add-a-peer trust step's button (N9) | "Trust as {identity}" |
-| `TrustScope` | Trust, under the title | peers trusted here write to this identity; the other identities trust their own |
-| `TrustAs` | each Trust button's accessible name | trust {peer} as {identity} |
-| `PeersShared` | Peers, under Add | addresses are the device's, for every identity |
-| `PeerStateNeedsTrustAs` | a Peers row | not trusted by {identity}; no claim about connecting |
-| `ChannelTrustNode` | a channel's Details | anyone any of the person's identities trusts can post in the channel |
-| `NoReachIdentity` | Chats, the no-reach notice's second form | {identity} trusts no one yet; trust a peer while using it |
-| `IdentityStarting` | row, switcher, composer | the identity is starting and cannot send yet |
-| `IdentityNotHidden`, `IdentityNotHiddenOne` | row, switcher, composer | not connected: could not make sure it stays unlisted |
-| `ShortEndpoint`, `IdentityIdLabel` | Your identities, a row's second line | the short id; read as what others see |
-| `IdentitiesUnlisted` | Your identities | identities are not listed to other devices; someone who knows one can still write to it if it trusts them |
-| `AddIdentityTitle` | the add form | a new identity |
-| `IdentityNewNote` | the add form | it trusts no one and no one has its card until shared |
-| `CreateIdentity` | the add form's primary | create |
-| `IdentityAlias` | an identity's page | the name used in commands, with the alias |
-| `ConfirmIdentityAdded` | snackbar | {name} added; it trusts no one yet |
-| `IdentityAddUnknown` | the add form | could not tell whether it was created; check before trying again |
-| `IdentityCardNotSaved` | a row | name and photo not saved; open it to try again |
-| `IdentityRemoveKey` | Remove dialog | its key, so it can never be used again |
-| `IdentityRemoveOthersKeep` | Remove dialog | others keep its name and photo, their messages reach no one, a new identity is a different one to them |
-| `MessagesWaitingLocked` | lock screen | new messages, no count, no name |
-| `RouteMenu` | a route row's menu button | options for {route title} |
-| `RemoveRoute` | route menu | remove from this contact |
-| `ConfirmRouteRemoved` | snackbar | removed {route title} from {contact} |
-| `ContactRouteRemovedTrust` | that snackbar, second clause | still trusted (by {identity} with two or more) |
+| `NoTrustedPeerAs` | `NoTrustedPeer` | No peer is trusted by {identity} |
+| `ConfirmAllowAs` | `ConfirmAllow` | Do you want {identity} to trust {peer}? This peer can then exchange messages with {identity} until you remove trust from it. |
+| `ConfirmRevokeAs` | `ConfirmRevoke` | Do you want {identity} to stop trusting {peer}? This peer can then no longer exchange messages with {identity}, until {identity} trusts it again. |
+| `PeerTrustedAs` | `PeerTrusted` | {peer} is trusted by {identity}. |
+| `PeerUntrustedAs` | `PeerUntrusted` | {peer} is no longer trusted by {identity}. |
+| `AlreadyTrustedAs` | `AlreadyTrusted` | That peer is already trusted by {identity}. |
+| `PeersNoTrustAs` | `PeersNoTrust` | An address lets this device reach a peer. Adding an address does not mean that {identity} trusts the peer. Trust is a separate step. |
+| `PeersTrustUnreadAs` | `PeersTrustUnread` | The list of peers that {identity} trusts could not be read, so this page does not show whether {identity} trusts each peer. |
+| `TrustStepTitleAs` | `TrustStepTitle` | Do you want {identity} to trust {peer}? |
+| `TrustStepBodyAs` | `TrustStepBody` | Trust lets this peer exchange messages with {identity}. Before you choose Trust as {identity}, compare this PeerId with the PeerId on the other person's screen. |
+| `TrustStepDoneAs` | `TrustStepDone` | Trusted by {identity} |
+| `TrustStepLaterAs` | `TrustStepLater` | Not trusted by {identity} yet |
+| `TrustStepWaitingAs` | `TrustStepWaiting` | InterWeave is adding {peer} to the peers that {identity} trusts. This is not finished yet. |
+| `TrustStepLaterUnknownAs` | `TrustStepLaterUnknown` | You did not choose Trust as {identity}. InterWeave could not check whether {identity} already trusts this peer. |
+| `TrustStepUnknownAs` | `TrustStepUnknown` | InterWeave could not check whether {identity} trusts {peer}. Choose Trust as {identity} to try again. Trusting a peer twice does no harm. |
+| `TrustStepNotMadeAs` | `TrustStepNotMade` | {identity} still does not trust {peer}. Your choice of Trust as {identity} was not saved. Choose Trust as {identity} to try again. |
+| `TrustStepSupersededAs` | `TrustStepSuperseded` | {identity} does not trust {peer}. Your choice of Trust as {identity} was not saved. Another program or window on this device might have changed whether {identity} trusts {peer} at about the same time. If you still want {identity} to trust {peer}, choose Trust as {identity} again. |
+| `TrustStepSupersededUnreadAs` | `TrustStepSupersededUnread` | Your choice of Trust as {identity} for {peer} was not saved. Another program or window on this device might have changed whether {identity} trusts {peer} at about the same time. InterWeave could not check whether {identity} trusts {peer}. To see whether {identity} trusts {peer}, open the trust settings. |
+| `ConfirmPeerTrustedAs` | `ConfirmPeerTrusted` | Peer trusted by {identity} |
+| `ConfirmAddressRemovedTrustedAs` | `ConfirmAddressRemovedTrusted` | Address removed. {identity} still trusts this peer. |
+| `ConnectBodyAs` | `ConnectBody` | InterWeave can reach a person as {identity} only when this device knows their address and {identity} trusts them. Each of you shows your address, and the other person adds it. |
+| `ConnectDoneTrustedAs` | `ConnectDoneTrusted` | You added an address, and {identity} trusts this peer. |
+| `ConnectDoneNeedsTrustAs` | `ConnectDoneNeedsTrust` | You added an address. {identity} does not trust this peer yet. |
+| `ConnectDoneTrustUnknownAs` | `ConnectDoneTrustUnknown` | You added an address. InterWeave could not check whether {identity} trusts this peer. |
+| `ContactDeleteConfirmAs` | `ContactDeleteConfirm` | Delete {name}? Your conversations with them stay, and whether {identity} trusts their PeerId does not change. |
+| `MoveRouteConfirmAs` | `MoveRouteConfirm` (cards §10) | Move this conversation from {name} to {other}? Moving does not change whether {identity} trusts {peer}. |
+| `ContactRouteTrustedAs` / `ContactRouteNotTrustedAs` | `ContactRouteTrusted` / `ContactRouteNotTrusted` (cards §10) | Trusted by {identity} / Not trusted by {identity} |
 
-Also new: `IdentityNewOldContacts` (the add form, §6.2: someone who
-saved a removed identity keeps its name and photo; this one is new to
-them). `IdentityAddUnknown`'s second sentence now says Create cannot
-make it twice (§6.2).
+`TrustStepBodyAs` leaves out "connects to this address only after you
+trust this PeerId": in front of one identity the device may already
+connect, because another identity trusts the peer, and saying so would
+tell the person that (§4). `ConfirmRevokeAs` leaves out "Its
+connections to this profile will close now" for the same reason (§7:
+the peer leaves the device's admission set only when no other set
+holds it). `ContactRouteNotTrustedAs` and `PeerStateNeedsTrustAs` have
+the same text, and so do `ContactRouteTrustedAs` and
+`TrustStepDoneAs`; each pair says one thing.
 
-Changed: `IdentitiesShareDevice` (second half, §6.1);
-`IdentityRemoveLoses` (its items are §7's, trusted peers and the key
-added); `ChannelTrustNode` covers the device's own list (§5.1);
-`PeerStateNeedsTrust` is kept only with one identity held.
+**Changed.**
 
-Retired, since nothing shows them any more: `IdentityRemoveLabel`
+| key | text | what changed |
+|---|---|---|
+| `IdentitiesShareDevice` | First half as cards §10, each platform's, up to and not including "Any peer you trust who knows an identity's label"; then: Each identity trusts its own peers. A peer that any of your identities trusts can connect to this device, That peer reaches only the identities that trust it. In a channel, a peer can post if any of your identities trusts it or if it is in this device's own list of trusted peers, whichever of your identities reads the channel. | the second half, for ADR-0067 (§6.1) |
+| `IdentityRemoveLoses` | This deletes from this device: / The conversations of {identity}, with their unread and kept messages and the messages waiting to be sent / The contacts of {identity} / The list of peers that {identity} trusts / The card of {identity}, with its name and photo / `IdentityRemoveKey` / People who write to {identity} will no longer reach you. This cannot be undone. | its items are §7's, in its order, the trusted peers and the key added; one item a line, each "/" a line break |
+| `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button |
+| `ChannelTrustNode` | as above | covers the device's own list (§5.1) |
+| `PeerStateNeedsTrust` | unchanged | kept only with one identity held |
+
+**Retired**, since nothing shows them any more: `IdentityRemoveLabel`
 (§7); `TrustAllIdentities` (cards §5.7.2's "trust is the device's",
 false since ADR-0067); the route-label field's `IdentityRouteField`,
 `IdentityRouteHelp`, `IdentityRouteNeeded`,
 `IdentityRouteBadCharacters`, `IdentityRouteTooLong`,
-`IdentityRouteTaken`, and `IdentityRouteLabel` (§6.1, §6.2).
+`IdentityRouteTaken`, and `IdentityRouteLabel` (§6.1, §6.2);
+`ContactRouteRemovedTrust`, a clause added to another string, replaced
+by the two whole templates of `ConfirmRouteRemovedTrusted`.
 
 ## 14. Acceptance
 
@@ -858,8 +928,8 @@ section above states the ruling where it applies:
 
 - **Q1** `human-client-ui.md` §13's identity-settings criterion against ADR-0067 d. 6:
   amended to §6.1's sentence with a channel clause.
-- **Q2** the no-reach rule's trust set: the identity in front's
-  effective set (§5.1).
+- **Q2** the no-reach rule's trust set: the effective set of the
+  identity in front (§5.1).
 - **Q3** how a route is shown now the alias stays local: the short
   EndpointId, built as `ShortPeer` (§6.1).
 - **Q4** the alias's grammar: the retired label grammar, unique in the
