@@ -1,0 +1,763 @@
+# Several identities in one client: the identity in front, Add, Remove, trust, notifications and a contact's routes — desktop and Android
+
+Status: proposal, 2026-11-04. **This note opens no stage.** Stage 22
+(plan §30, several user identities in one client) is roadmap only: it
+opens on the owner's word alone, and nothing here may be built before
+that word. A design is the one part of the stage that can go first, and
+this is it.
+
+Asked by architect-cto (REQUEST 01a1a689, job j89), read against
+`origin/main` b563dd00c, for four things: how every acting screen names
+the identity it acts as (§5); Add an identity, Remove one, advertise off
+and the lock-screen notification under several identities (§6–§9); the
+contact page's route-delete control beside Move (§10); and what the
+keyboard reaches on each new screen (§11). It is written against plan
+§30's steps and `human-client-ui.md` §3, §4, §10 and §13 as they stand.
+Where a step's wording leaves a choice open, this note decides it and
+names the alternative. The plan, §13 and the ADRs are architect-cto's;
+what the design needs changed in them is asked in §16, not changed
+here.
+
+**What this note replaces.** `design/2026-10-21-contact-cards.md`
+designed the identity flows (its §4, §5.1, §5.2, §5.7, §6.3) before
+ADR-0067 (A 2026-10-28) made an EndpointId the name of the endpoint's
+own key and made trust per identity. Where this note and those sections
+differ, this note governs, and each of those sections carries a line
+pointing here. What this note does not mention there stands as written:
+the editor's photo step and unsaved-changes dialog (cards §5.2), the
+switch and its switcher (cards §5.7.1), what changes the identity in
+front (cards §5.7.3), the new-conversation rule (cards §5.7.4) and
+Make default and Turn off (cards §5.2). A rule is stated in one place;
+other sections point to it.
+
+Owner of the design: ux-designer. The words are language-culture's:
+§13 names each string, where it shows and what it must say, and its
+text here is a proposal for language-culture-en. Colours are roles of
+`design/2026-10-16-android-look.md` §3. Both clients render the same
+Slint UI (`crates/human/ui-slint`) from the same `ui-model`; "narrow"
+and "wide" are the layouts `app.slint` already has (one pane, two
+panes). Built by rust-ui-dev, in steps 1–3 of plan §30.
+
+## 1. What is already decided
+
+The records this note answers to, so a reviewer can check it against
+them:
+
+- **ADR-0061**: an identity is an endpoint of the node with its card
+  (d. 1); it is created through the administrative boundary (d. 2); a
+  conversation speaks as exactly one identity for life (d. 3); a contact
+  is one remote identity held by the local identity that accepted it
+  (d. 4); what two identities of one node share is said (d. 5); Remove,
+  Turn off and every command-line form (d. 7); the client operates as
+  one identity at a time and names it on every acting screen, and the
+  lock screen's redacted form names none (d. 9).
+- **ADR-0067**: the EndpointId is derived from the endpoint's key and
+  cannot be chosen (d. 2); what a person types to pick an endpoint is a
+  **local alias** that never reaches the wire (d. 3); the add takes a
+  key and returns the derived id (d. 4); a different key is another
+  identity, and the key-change proposal is withdrawn (d. 5); **trust is
+  per identity**: each identity's trusted set is its own, an added
+  identity's starts empty, the first identity's is seeded once from what
+  the device trusted (d. 6); broadcast admission stays the node's
+  (d. 6).
+- **Plan §30**: steps 1–3 and the exit gate; the route-delete control
+  "beside Move" is ux-designer's to place (step 2).
+- **`human-client-ui.md`** §3 (contacts, one identity at a time), §4
+  (conversations, the shared-node statement), §10 (notifications) and
+  §13 (the Stage 22 criteria, bullets 7 and 13 to 19 and 36 by that
+  section's own count).
+
+**Dependencies, not facts.** None of these is on `main`, and every
+acceptance case in §14 that needs one says so:
+
+- **D1** `admin.endpoints.add`, `admin.endpoints.remove` and
+  `admin.endpoints.set_advertise` (p2p-network-dev, plan §30 Activate;
+  `LOCAL-IPC.md` lists only `list`, `revoke`, `set_enabled` and
+  `set_default` today), and the embedded host's configuration path for
+  the same three on Android.
+- **D2** the endpoint dimension of `admin.trust.set` and
+  `admin.trust.list` (p2p-network-dev's IPC minor, contract text
+  architect-cto's; ADR-0067 d. 6).
+- **D3** the alias's grammar and uniqueness rule. `ENDPOINTS.md` names
+  the alias (a local display name, unique within the profile) and gives
+  it no grammar; §6.2 depends on one (§16 Q4).
+
+## 2. What the owner asked, and how it is read
+
+The owner, as ADR-0061 and ADR-0067 quote them:
+
+> One user of the app can have many user identities on the same phone.
+> So for any EndpointId he can add a display_name and a photo
+
+> two endpointid are two identities even if they belong to one user.
+> Avoid any ux that can let the user think that is operating with one
+> while operating instead with the other
+
+> trust is per identity (endpointid)
+
+Read here as in contact-cards §1, with one addition from the third
+quote: trusting a peer is something the person does **as** an identity,
+so the Trust screens are acting screens like Send and Accept, and they
+name the identity in front (§5.1). Until ADR-0067, contact-cards §5.7.2
+said the opposite (trust was the device's); that row is replaced.
+
+## 3. The person's goals
+
+- "Be the right person to the right people, and never mix them up"
+  (contact-cards §2). At every moment they can act, they know which
+  identity acts.
+- "Start a second identity for work." They think of a name and a face,
+  never of a key or an id. They need to know that the new identity
+  starts with nobody: it trusts no one and no one has its card.
+- "Stop being this identity." They need to see everything that goes
+  before it goes, that it cannot be undone, and what the people who knew
+  that identity keep.
+- "I trust Anna as my work self, not as my private self." Trusting is
+  now per identity; a person who learnt the old rule must not trust in
+  the wrong one.
+- "Nobody who picks up my locked phone learns who I am in this app."
+- "This contact has a route I no longer want under it." They want it
+  out of the contact without losing the contact or the conversation.
+
+## 4. Rules every screen here keeps
+
+Contact-cards §3 stands, except its "one identity in front" item, which
+§5 restates for ADR-0067. In addition:
+
+- **With one identity held, nothing of this note's identity naming is
+  shown** (ADR-0061 d. 3): no switch, no "as" line, no identity subtitle,
+  no trust-scope line. The first identity is shown only where asked for
+  (its card, Settings).
+- **The identity is named in words** on every acting screen, never by a
+  face or a colour alone (WCAG 1.4.1).
+- **No screen in front of one identity shows another identity's
+  conversations, contacts, card or trusted peers**, and no count, list,
+  suggestion or state is computed from them, except the switch's badge,
+  which counts and names nothing (contact-cards §5.7.1).
+- **An EndpointId is never typed and never chosen** (ADR-0067 d. 2). The
+  person meets it only as the short form §6.1 shows.
+
+## 5. The identity in front on every acting screen
+
+With two or more identities held, each screen that can send, share,
+accept, trust, create or delete names the identity in front. This table
+replaces contact-cards §5.7.2 and is the one list; a screen added later
+gets a row here.
+
+| # | screen | acts | how it names the identity, both platforms |
+|---|---|---|---|
+| N1 | Chats | open, start, delete a conversation | the switch in the app bar (cards §5.7.1) |
+| N2 | a conversation | send, share, accept or decline a card, delete messages | `ComposerAs` above the send control with the 24 dp avatar; the send control's name `SendAs`; with no composer, the line where the composer would be |
+| N3 | the share sheet | share | `ShareCardAs` (cards §5.3) |
+| N4 | a card proposal | accept, decline | `ComposerAs` of its conversation (N2) is on screen; Accept's context line (cards §5.4.1) adds `ProposalAs` ("saved to {identity}'s contacts") as its last clause |
+| N5 | new conversation | start | `NewConversationAs` at its top (cards §5.7.4) |
+| N6 | Contacts, a contact | delete, move, remove a route, rename, remove a photo | the identity as the app bar's subtitle |
+| N7 | **Trust** | trust, untrust | the identity as the app bar's subtitle, and `TrustScope` under the title (§5.1) |
+| N8 | **Peers** | trust (a row's Trust), add, remove an address | the identity as the subtitle; a row's trust state is the identity's (§5.1) |
+| N9 | **add-a-peer's trust step** (`design/2026-10-22-add-a-peer.md` §5.3) | trust | `TrustStepAs` above its Trust button ("Trust as {identity}") |
+| N10 | an identity's card | save, make default, turn off, remove | that identity as the subtitle; `IdentityNotInFront` when it is not in front (cards §5.7.2) |
+| N11 | Your identities | add | no identity in front acts: the list names each identity on its row, and the check marks the one in front |
+| N12 | Details | add as a contact, open contact | `DetailsIdentity` (cards §6.4) |
+| N13 | discard and recreate | delete stored data | not one identity: the confirmation says it is every identity's data (cards §7.2) |
+| N14 | recovery, show my phrase | — | not an identity: the device's (ADR-0061 d. 6) |
+
+Peers' Add and Remove of an address act on the device's address list,
+which every identity shares (ADR-0062: one overlay for the node). The
+subtitle still shows, since the same screen trusts as the identity
+(N8), and `PeersShared` says under the Add button that addresses are
+the device's, for every identity. **Alternative named:** move Trust off
+the Peers screen so that Peers names no identity. Rejected: add-a-peer
+§3 makes trust "a second act on the same screen", which a person needs
+right after adding an address, and taking it away would add a trip to
+Trust for every new peer.
+
+### 5.1 Trust is the identity's
+
+ADR-0067 d. 6: what the person trusts, they trust as the identity in
+front, and only that identity admits the peer at the route. So:
+
+- **Trust** (the page): its list is the identity in front's trusted
+  set (D2), its subtitle names the identity, and `TrustScope` under the
+  title says, with two or more identities held: "Peers you trust here
+  can write to {identity}. Your other identities trust their own." With
+  one identity, `TrustExplanation` stays as it is.
+- **No "From this profile's configuration" line on an identity's
+  rows.** Today each row says where it came from (`TrustFromConfiguration`
+  or `TrustAddedHere`). After the change the first identity's set is
+  seeded once from what the device trusted, and from then on the
+  configuration's list no longer decides it (ADR-0067 d. 6), so
+  "from the configuration" would tell the person that a change in the
+  file would reach this identity, which it does not. Every row of an
+  identity's set is the identity's own and can be untrusted here.
+  **Alternative named:** keep the line on rows the seed copied. Rejected
+  for that reason. If D2's list reports an origin anyway, this note
+  shows none; §16 Q5 asks whether it will.
+- **Peers rows** (add-a-peer §5.2): the trust state is the identity in
+  front's. `PeerStateTrusted` stays ("this device tries to connect to
+  this address": true, since the device dials every peer any identity
+  trusts). `PeerStateNeedsTrust` today adds "this device does not
+  connect to this address", which is false when another identity trusts
+  that peer and would tell the person so. With two or more identities
+  held, it reads `PeerStateNeedsTrustAs` ("Not trusted by {identity}")
+  with no claim about connecting. **Alternative named:** say "another
+  of your identities trusts this peer". Rejected: it shows another
+  identity's trust, which §4 forbids.
+- **The contact page's route rows** show `ContactRouteTrusted` or
+  `ContactRouteNotTrusted` from the identity in front's set (cards §6.3).
+- **The trust step after adding an address** (N9) trusts as the
+  identity in front, and says so on its button.
+- **Channels**: a channel's publishers are admitted by the device, for
+  every identity (ADR-0067 d. 6, broadcast stays node-wide). With two
+  or more identities held, a channel conversation's Details carry
+  `ChannelTrustNode` ("Anyone any of your identities trusts can post in
+  this channel."), which names no identity and no peer.
+- **The no-reach notice** (add-a-peer §5.6), shown when the device knows
+  no address and trusts no peer: in front of an identity that trusts no
+  peer, that identity can write to no one even when another identity
+  trusts many. This note reads "trusts no peer" as **the identity in
+  front's set is empty** and shows the notice then, with a second form
+  `NoReachIdentity` when the address list is not empty ("{identity}
+  trusts no one yet. To write as {identity}, trust a peer while you use
+  it."), its action opening Trust. §3 of `human-client-ui.md` says "the
+  trust set" and predates ADR-0067; §16 Q2 asks architect-cto to confirm
+  this reading.
+
+### 5.2 An identity that cannot act now
+
+Contact-cards §5.7.6 stands, with these states added. Each is shown on
+the identity's row in Your identities and in the switcher, and in place
+of `ComposerAs` in its conversations, the send control disabled with
+the same text as its reason:
+
+- **Starting** (`IdentityStarting`): the client is asserting the
+  identity's advertise setting before it takes the lease (§8), or is
+  taking the lease. No send, no Share, no Accept, no trust act until it
+  ends; drafts can be typed. There is no time-out of the design's own:
+  while the call blocks, the identity stays Starting (exit gate:
+  "with it made to block, no lease is granted until it returns").
+- **Could not start** (`IdentityNotHidden`): the advertise assertion
+  failed, so the client took no lease. "{identity} is not connected:
+  this device could not make sure it stays unlisted." With **Try again**
+  (`TryAgain`) on the identity's row and in the composer's place. Try
+  again runs the assertion and then the lease again. With one identity
+  held the same line names no identity (`IdentityNotHiddenOne`: "Not
+  connected: this device could not make sure you stay unlisted.").
+- **Off** and **no lease** as cards §5.7.6 says.
+
+## 6. Your identities and Add an identity
+
+### 6.1 The list
+
+Cards §5.1 stands, with these changes:
+
+- **The row's second line** is the identity's short EndpointId,
+  `ShortEndpoint` built as `ShortPeer` is ("…" and its last eight
+  characters), labelled `IdentityIdLabel` in the accessible name ("seen
+  by others as …x6gY6Eri"). The route label of the old design no longer
+  exists; the alias is local and is not shown on the list (§6.2).
+  Two identities of one device then differ on this line by their keys,
+  never by a word the person chose. §16 Q3 asks how a counterparty's
+  client shows a route now, since this line should match it.
+- **The shared-device statement** `IdentitiesShareDevice` keeps its
+  first half (one PeerId and one device's addresses; a second profile on
+  the desktop, which the phone cannot run). Its second half changes for
+  ADR-0067: "Each identity trusts its own peers. A peer that any of your
+  identities trusts can connect to this device, and reaches only the
+  identities that trust it." `human-client-ui.md` §13 still asks this
+  page to say that any trusted peer can address any identity and that
+  no setting narrows it; §16 Q1 asks architect-cto to amend that
+  criterion, and until it is answered this note's sentence is the
+  proposal.
+- **Add an identity** opens the add form (§6.2), not an empty card page
+  with a route-label field.
+
+### 6.2 Add an identity
+
+The person writes a card; the client makes everything else.
+
+**The form** is the identity's card page (cards §5.2) for a card that
+does not exist yet: title `AddIdentityTitle` ("New identity"), Photo,
+Name (required), Family name, then `IdentityNewNote`: "A new identity
+starts with nobody: it trusts no one, and no one has its card until you
+share it." and **Create** (`CreateIdentity`), filled. No id field, no
+label field, no advertise control (§8).
+
+**The alias.** The client makes the alias from the name: lowercased,
+letters and digits kept, every other run of characters made one `-`,
+cut to the grammar's length, and `-2`, `-3` … added when the profile
+already has that alias; a name that leaves nothing gives `identity-2`
+and so on. It is shown on the identity's page under the card's fields,
+read-only, as `IdentityAlias` ("Name in commands: {alias}") with Copy,
+so a person who uses the command line can find it. Editing the card's
+name later does not change it, since a script may use it; the command
+line renames it (ADR-0061 d. 7). **Alternative named:** an alias field
+in the form. Rejected: most people will never use the command line, an
+extra required field is a needless choice (recognition over recall),
+and a field whose rules come from a grammar would put errors in front
+of a person who only wanted a name. This rule needs D3; where D3's
+grammar differs, the rule adapts and the decision stands.
+
+**Create**, on a valid form (cards §5.2's input rules):
+
+1. Create shows a progress indicator in itself and the form stops
+   taking input; Back and Escape do nothing while it runs, since what
+   it starts cannot be stopped halfway.
+2. The client generates the identity's key, seals it, and calls the add
+   with its public key (D1; ADR-0067 d. 4); the endpoint is created
+   with advertise off and an empty trusted set (ADR-0067 d. 6).
+3. It writes the identity's card.
+4. **Done**: Your identities opens, the new row focused, and
+   `ConfirmIdentityAdded` ("{name} added. It trusts no one yet.") with
+   no Undo; Remove is the way back, and it confirms (§7). The new
+   identity is **not** put in front: switching is the person's act
+   (cards §5.7.3). With one identity held before, this is the moment
+   the switch and the "as" lines appear (cards §5.7.3, "When the
+   identities change").
+
+Outcomes other than Done, each with nothing half-made shown as made:
+
+- **At the bound** (64 endpoints, authored and added together; the add
+  refuses by name): Create is not offered and `IdentityLimit` shows in
+  its place, focused; the form was never opened if the list knew it
+  (cards §5.1, "At the bound").
+- **Refused or failed** before the endpoint exists: nothing is created,
+  the form stays filled, `IdentityAddFailed` above Create, focus on it.
+  The generated key is deleted.
+- **The answer was lost** (the connection to the daemon dropped, or the
+  embedded call did not return): the client knows the EndpointId it
+  asked for, since it derives from the key it made, so it reads the
+  endpoint list (`admin.endpoints.list`) and looks for that id. Found:
+  it goes on with step 3. Not found: as Refused. While it reads,
+  Create keeps its progress indicator; a read that fails too leaves
+  the form filled with `IdentityAddUnknown` ("Could not tell whether
+  {name} was created. Check Your identities before trying again.") and
+  Back enabled. **Alternative named:** try the add again at once. Rejected:
+  a second key would make a second identity if the first add had
+  landed.
+- **The endpoint exists and the card could not be written** (store
+  degraded or failed): the identity exists and is named by its alias
+  until it has a card (ADR-0061 d. 1, "named by its label"). Your
+  identities opens with the row focused and `IdentityCardNotSaved`
+  under it ("The name and photo were not saved. Open it to try
+  again."); its page opens with the form's values kept for this
+  session.
+
+## 7. Remove an identity, and turning the first one off
+
+Cards §5.2's Remove stands — who may be removed, when it is not offered,
+where focus lands — with its dialog changed for ADR-0067:
+
+- **What goes** (`IdentityRemoveLoses`), in this order: its conversations
+  and their messages (unread, kept and waiting to be sent); its
+  contacts; its trusted peers; its card; its key (`IdentityRemoveKey`:
+  "its key, so this identity can never be used again"); and that people
+  who write to it are no longer reached.
+- **What may already have gone**: `IdentityRemoveMayHaveReached` with
+  the count, as cards §5.2 says.
+- **What others keep** (`IdentityRemoveOthersKeep`, replacing
+  `IdentityRemoveLabel`): "People who saved {identity} as a contact
+  keep its name and photo. Their messages to it will reach no one. A new
+  identity you add later is a different one to them." The old line,
+  that a later identity on the freed label would be reached under the
+  old contact, stopped being true with ADR-0067 d. 2: a new identity has
+  a new key and so a new EndpointId.
+- **Cancel** first focus, **Remove** filled in `error`, no Undo.
+- **Its trusted peers** leave the device's admission set when no other
+  set holds them; nothing on the remaining identities' screens changes.
+
+**Turn off this identity** (the first identity) stands as cards §5.2
+says. One addition: its trust stays. Turned off, it admits nothing
+(its endpoint is disabled), and turned on again it trusts the same
+peers.
+
+## 8. Advertise off
+
+Every identity's endpoint is unlisted, from its creation, and the first
+one's from the client's first start of this release (ADR-0061 d. 5):
+the endpoint directory lists none of them to a trusted peer. **There is
+no control for it**, on any screen, and none is offered as disabled: a
+switch the person cannot move is a question the system already
+answered. What the person sees:
+
+- on Your identities, under the shared-device statement,
+  `IdentitiesUnlisted`: "Your identities are not listed to other
+  devices. Someone who knows an identity can still write to it if that
+  identity trusts them.";
+- the Starting and Could not start states (§5.2), which are the only
+  moments the setting is visible as work.
+
+## 9. Notifications under several identities
+
+**What the build has** (`NetworkService.kt` on `main`): one notification
+of new messages, a count and no content, on a private channel; the
+service's ongoing notification names the device. Nothing else. This
+note keeps the count form and adds the identity.
+
+**After the unlock**, with two or more identities held:
+
+- one notification per identity that has new messages, its title the
+  count as today, its sub-text (shown in the header) the identity's
+  name; all of them in one notification group whose summary names the
+  identities in its lines ("{identity}: {n} new"), one line each;
+- opening an identity's notification switches to it visibly first
+  (cards §5.7.5's transition, "Opening as {identity}"), then shows its
+  Chats; opening one of the identity in front shows its Chats with no
+  transition;
+- opening the summary, when every new message belongs to one identity,
+  does what opening that identity's notification does; when they belong
+  to two or more, it opens Chats of the identity in front with the
+  switcher open over it, switching nothing, and the person picks, since
+  no one identity is the notification's (`human-client-ui.md` §13: a
+  switch is one explicit act).
+
+**On the lock screen**, whatever the person's preview setting
+(`human-client-ui.md` §10):
+
+- **one entry only**, the same whatever the number of identities, the
+  identities that have news and their counts: the app's name and
+  `MessagesWaitingLocked` ("New messages"), no count, no name;
+- opening it asks for the unlock, then does what opening the summary
+  does above. Only after the unlock is any identity shown.
+
+**Alternative named:** one group per identity (cards §5.7.5 said so).
+Rejected: on the lock screen each group shows as its own redacted entry,
+so the number of entries tells someone holding the locked phone how many
+identities have news and which messages belong together. The identity's
+name is not the only thing a person may be hiding; that they have a
+second one can be. The mechanism (a group whose children are hidden on
+the lock screen and whose summary carries a public form) is
+rust-ui-dev's; what is checked is what the lock screen shows (§14).
+
+**With one identity held**: as today, no identity named, the lock-screen
+entry unchanged.
+
+**The desktop** has no system notification today (`human-client-ui.md`
+§10 makes one optional). This note specifies none. A desktop
+notification added later cannot carry a separate lock-screen form on
+the freedesktop interface, so it may not name an identity until
+architect-cto rules how it keeps §10 (§16 Q6).
+
+## 10. The contact page: a route's actions
+
+Plan §30 step 2: Move puts a second route under a contact, and lands
+with a control that deletes a route from a contact, beside it. The
+command line already has the action (`contacts route delete`): it
+removes one route of a contact and the key recorded for it, refuses a
+contact's only route, and leaves the contact with its other routes
+(`apps/human-cli/README.md`).
+
+**Placement.** Each route row (cards §6.3) keeps **Open conversation**
+as its one visible button, and gains a route menu button at its end
+(⋮, 48 dp, accessible name `RouteMenu`: "Options for {route title}"),
+which holds, in order:
+
+1. **Move to another contact** (`MoveRoute`), offered as cards §6.3
+   says;
+2. **Remove from this contact** (`RemoveRoute`), offered only while the
+   contact holds two or more routes.
+
+On a contact with one route the menu holds Move alone (when offered),
+and the menu button is absent when it would hold nothing. The contact's
+**Delete contact** stays in the app bar's overflow.
+
+**Alternatives named.** (a) Two inline buttons, Move and Remove, beside
+Open conversation. Rejected: at 200 % text on a 360 dp phone three
+buttons do not fit on a row and wrap into an order that no longer reads
+as one row's; and a destructive control next to the row's main one is
+one slip away. (b) Remove shown on a contact's only route, doing Delete
+contact. Rejected: one control whose result depends on a count the
+person may not have noticed; and it hides the stronger act behind the
+weaker word.
+
+**Remove from this contact** runs at once, with no dialog, since it
+deletes nothing the person cannot have back:
+
+- the route leaves the contact, with its recorded key; the contact keeps
+  its name, photo and other routes;
+- the route's conversation stays; its title is the short PeerId again
+  (or the route title `human-client-ui.md` §4 needs), since it is under
+  no contact of this identity; a later card on it is a new proposal;
+- trust is not touched (`ContactRouteRemovedTrust` in the snackbar says
+  so only when the route is trusted: "Still trusted by {identity}"; with
+  one identity "Still trusted");
+- `ConfirmRouteRemoved` ("Removed {route title} from {contact}") with
+  **Undo**, which puts the route back under the contact with its key.
+  The Undo is withdrawn, its snackbar closed, as soon as the route comes
+  under another contact (an Accept, Details' Add as a contact, a Move
+  into another contact), as soon as the contact is deleted, or as soon
+  as a route of the same PeerId comes under the contact (a Move), since
+  the reverse would break "one route per PeerId". A kill inside the
+  window leaves the route removed, as the snackbar said
+  (`design/2026-10-16-message-swipe.md`'s rule). Snackbar lifetime is
+  cards §6.2's. The proposals in the session are recomputed
+  (cards §5.4.5).
+- Focus: on the next route row's Open conversation, else the previous
+  one's; the contact always has one left.
+
+## 11. Keyboard and focus
+
+Every new control is reached by Tab on the desktop and by a hardware
+keyboard or switch access on Android, in the reading order the screen
+shows, and has a non-gesture form (none of these screens has a
+gesture). TalkBack does not reach the app yet (plan §21's carried
+accessibility reach): every control here is a labelled one so that it
+can, and the TalkBack rows of §14 are blocked until it does.
+
+**Keys, on every screen of this note:**
+
+- Tab and Shift+Tab follow the reading order below; arrows move within
+  a menu, a sheet's choice rows and a dialog's buttons, as the toolkit's
+  menus already do, and do not leave them.
+- Enter and Space press the focused control. In a text field, Enter
+  presses the form's primary (Create on the add form, Save on a card)
+  and Space types a space.
+- Escape (desktop) and Back (Android) close the open menu, sheet or
+  dialog with nothing changed, and focus returns to its opener; with
+  none open, they leave the page as its back arrow does, through the
+  unsaved-changes dialog when cards §5.2 asks for it.
+- **No shortcut switches identity.** Switching is reached by Tab to the
+  switch and Enter. **Alternative named:** Ctrl+1…9 to switch. Rejected:
+  a switch made without the switcher in view is the act the owner's rule
+  forbids by name, since the person may not see which identity a
+  number is.
+
+**Reading order of each new or changed screen:**
+
+| screen | Tab order |
+|---|---|
+| Chats (two or more identities) | back or app title, the switch, the app options ⋮, then the list as today |
+| switcher (sheet or dialog) | its title (a focus stop, so the reading starts there), the identity rows, Your identities |
+| Your identities | back arrow, title, the shared-device statement, `IdentitiesUnlisted`, the rows in order (a row is one stop; its Try again, when shown, the next), Add an identity or `IdentityLimit` |
+| add form | back arrow, title, photo buttons, Name, Family name, `IdentityNewNote`, Create |
+| an identity's page | as cards §5.2, then `IdentityAlias` and its Copy, then the overflow |
+| Trust | back arrow, title and subtitle, `TrustScope`, then as today |
+| Peers | back arrow, title and subtitle, Show my address, Add an address, `PeersShared`, `PeersNoTrust`, the rows as today |
+| a contact | as cards §6.3; on each route row, Open conversation, then the route menu button |
+| route menu | Move, Remove |
+| Remove dialog (identity) | title, the list of what goes, Cancel, Remove |
+
+**Focus table.** One row per case; prose elsewhere points here.
+
+| # | case | focus goes to | check |
+|---|---|---|---|
+| F1 | the switcher opens | its title | keyboard |
+| F2 | the switcher closes with nothing changed | the switch | keyboard |
+| F3 | a switch by the switcher or Switch back | the switch, naming the new identity (cards §5.7.3) | keyboard |
+| F4 | Your identities opens | the title | keyboard |
+| F5 | the add form opens | the Name field | keyboard |
+| F6 | Create ends Done | the new identity's row | keyboard |
+| F7 | Create refused, failed or unknown | the line above Create (`IdentityAddFailed`, `IdentityAddUnknown`) | keyboard |
+| F8 | Create at the bound | `IdentityLimit` | keyboard |
+| F9 | Create done, card not saved | the new row; `IdentityCardNotSaved` is read with it | keyboard |
+| F10 | the identity Remove dialog opens | Cancel | keyboard |
+| F11 | Remove done | as cards §5.2 ("Where it lands") | keyboard |
+| F12 | the route menu opens | its first item | keyboard |
+| F13 | the route menu closes with nothing chosen | the route menu button | keyboard |
+| F14 | Remove from this contact | the next route row's Open conversation, else the previous | keyboard |
+| F15 | its Undo | the restored row's Open conversation | keyboard |
+| F16 | its Undo withdrawn while focused | the snackbar's place is taken by the page: focus to the page title | keyboard |
+| F17 | Try again on Could not start | stays on Try again while Starting; on success, the row (or the composer's field in a conversation) | keyboard |
+| F18 | a notification of another identity opens the app | after the transition, the conversation list's title of that identity | device |
+| F19 | the lock-screen entry or the summary opened with news in two or more identities, switcher shown | the switcher's title | device |
+| F20 | Move done (cards §6.3) | the moved-to contact page's title | keyboard |
+
+## 12. Accessibility beyond focus
+
+- **Names in words.** Every "as" line, subtitle and scope line is text
+  in the accessibility tree, read with its control: the send control's
+  name is `SendAs`, Trust's buttons `TrustAs` ("Trust {peer} as
+  {identity}") with two or more identities held.
+- **Announcements**: `ConfirmIdentityAdded`, `ConfirmRouteRemoved` and
+  the switch's snackbar are announced once through the live region
+  (WCAG 4.1.3); the transition's `SwitchingTo` too.
+- **Targets**: the switch, each switcher row, the route menu button and
+  Try again are at least 48 dp high on Android, 24 px on the desktop
+  (WCAG 2.5.8).
+- **Contrast**: the check mark of the identity in front, the avatar ring
+  on the switch and the `error` fill of Remove hold 3:1 against every
+  surface they sit on (`surface`, `surface-container`, the sheet's
+  `surface-container-low`), and text 4.5:1 (WCAG 1.4.3, 1.4.11). Each
+  is one row of §14's contrast case.
+- **Reduced motion**: the transition and the list's cross-fade keep
+  their duration and lose their movement (cards §5.7.3, §5.7.5).
+- **Long names and other scripts**: a name is isolated plain text
+  (cards §3); the switch ellipsises at the end, never below the avatar
+  and three graphemes; every "as" line wraps rather than truncates, so
+  the whole name is always read; at 200 % text each line still fits
+  the 360 dp width by wrapping.
+
+## 13. Strings
+
+New keys, each with where it shows and what it must say; the text is
+a proposal for language-culture-en.
+
+| key | where | must say |
+|---|---|---|
+| `ProposalAs` | Accept's context line, last clause (N4) | the contact is saved to the identity in front |
+| `TrustStepAs` | add-a-peer trust step's button (N9) | "Trust as {identity}" |
+| `TrustScope` | Trust, under the title | peers trusted here write to this identity; the other identities trust their own |
+| `TrustAs` | each Trust button's accessible name | trust {peer} as {identity} |
+| `PeersShared` | Peers, under Add | addresses are the device's, for every identity |
+| `PeerStateNeedsTrustAs` | a Peers row | not trusted by {identity}; no claim about connecting |
+| `ChannelTrustNode` | a channel's Details | anyone any of the person's identities trusts can post in the channel |
+| `NoReachIdentity` | Chats, the no-reach notice's second form | {identity} trusts no one yet; trust a peer while using it |
+| `IdentityStarting` | row, switcher, composer | the identity is starting and cannot send yet |
+| `IdentityNotHidden`, `IdentityNotHiddenOne` | row, switcher, composer | not connected: could not make sure it stays unlisted |
+| `ShortEndpoint`, `IdentityIdLabel` | Your identities, a row's second line | the short id; read as what others see |
+| `IdentitiesUnlisted` | Your identities | identities are not listed to other devices; someone who knows one can still write to it if it trusts them |
+| `AddIdentityTitle` | the add form | a new identity |
+| `IdentityNewNote` | the add form | it trusts no one and no one has its card until shared |
+| `CreateIdentity` | the add form's primary | create |
+| `IdentityAlias` | an identity's page | the name used in commands, with the alias |
+| `ConfirmIdentityAdded` | snackbar | {name} added; it trusts no one yet |
+| `IdentityAddUnknown` | the add form | could not tell whether it was created; check before trying again |
+| `IdentityCardNotSaved` | a row | name and photo not saved; open it to try again |
+| `IdentityRemoveKey` | Remove dialog | its key, so it can never be used again |
+| `IdentityRemoveOthersKeep` | Remove dialog | others keep its name and photo, their messages reach no one, a new identity is a different one to them |
+| `MessagesWaitingLocked` | lock screen | new messages, no count, no name |
+| `RouteMenu` | a route row's menu button | options for {route title} |
+| `RemoveRoute` | route menu | remove from this contact |
+| `ConfirmRouteRemoved` | snackbar | removed {route title} from {contact} |
+| `ContactRouteRemovedTrust` | that snackbar, second clause | still trusted (by {identity} with two or more) |
+
+Changed: `IdentitiesShareDevice` (second half, §6.1); `PeerStateNeedsTrust`
+is kept only with one identity held; `IdentityRemoveLabel` is retired.
+
+## 14. Acceptance
+
+Each case is observable on the running build. "Two identities" means the
+first and one added. Cases that need D1, D2 or D3 say so; they cannot
+pass before it lands.
+
+1. With one identity held, no switch, no "as" line, no identity subtitle,
+   no `TrustScope`, `PeersShared`'s identity form or `ChannelTrustNode`
+   appears on any screen of §5's table. *(§13 bullet 13.)*
+2. With two identities held, each screen N1–N12 names the identity in
+   front as its row says, in words; switching changes every one of them
+   at once. *(§13 bullet 13; exit gate.)*
+3. With two identities, Trust in front of A lists A's trusted peers
+   only; trusting P there makes P appear in A's list and not in B's;
+   a message from P to B's endpoint is refused at the route while one to
+   A's is delivered. Needs D2. *(ADR-0067 d. 6.)*
+4. In front of A, with P trusted only by B, P's Peers row reads
+   `PeerStateNeedsTrustAs` naming A and nothing about connecting; no
+   screen in front of A says that another identity trusts P. Needs D2.
+5. An identity's trust rows carry no configuration origin. Needs D2.
+6. In front of an identity whose set is empty while the address list is
+   not, Chats shows `NoReachIdentity` with an action opening Trust.
+   Needs D2; pending §16 Q2.
+7. Add: the form has no id, label or advertise field; Create makes an
+   identity whose endpoint has advertise off and an empty trusted set,
+   observed from the daemon (`admin.endpoints.list`, trust list for
+   that endpoint); the new row is focused and the identity in front is
+   unchanged. Needs D1, D2. *(§13 bullet 18; exit gate.)*
+8. Add's alias follows §6.2's rule for "Anna Rossi" (`anna-rossi`), for
+   a second "Anna Rossi" (`anna-rossi-2`) and for a name of only
+   punctuation; renaming the card leaves the alias. Needs D3.
+9. Add at the bound: with 64 endpoints, Create is not offered and
+   `IdentityLimit` is focused; the daemon's refusal by name shows the
+   same if the list was stale. Needs D1. *(Exit gate, "the add refused
+   at the profile's 64-endpoint bound".)*
+10. Add with the daemon stopped after the add call is sent and before
+    its answer: the client lists, finds the id, writes the card, and
+    one identity exists, never two. Needs D1.
+11. Add with the card write made to fail: the identity exists, named by
+    its alias, with `IdentityCardNotSaved`. Needs D1.
+12. Add offers no configured endpoint that is not an identity (an
+    agent's), and lists none as an identity. *(§13 bullet 17.)*
+13. Remove: the dialog lists §7's items in order, with the key and
+    `IdentityRemoveOthersKeep`; first focus on Cancel; after Remove the
+    endpoint is gone from the overlay, the key file and alias are gone,
+    its conversations, pending outbound (tried no further), contacts,
+    trusted set and card are gone, and a may-have-reached count was
+    shown when one existed. Not offered on the first identity or the
+    default. Needs D1. *(§13 bullets 16, 36; exit gate.)*
+14. Turn off the first identity once another is on: listed as off, its
+    trusted set unchanged when turned on again; the composed-profile
+    check passes. *(Exit gate.)*
+15. Advertise: no screen offers a control for it; with `advertise: true`
+    authored and the assertion made to fail, the identity shows
+    `IdentityNotHidden` with Try again and no lease is granted; made to
+    block, it shows `IdentityStarting` and no lease is granted until it
+    returns; after a daemon restart with the delta removed, the re-lease
+    asserts again with the same two results. Needs D1. *(§13 bullet 18;
+    exit gate.)*
+16. Notifications, Android, two identities with new messages in both:
+    after the unlock, one notification per identity, each naming it in
+    its header, in one group; opening B's from A's screens shows the
+    transition naming B before any of B's content. On the lock screen,
+    with previews on and with them off: one entry, `MessagesWaitingLocked`,
+    no name and no count, and the same entry with news in one identity
+    or both. Opening it after the unlock: with news in B only, the
+    transition names B, then B's Chats; with news in both, the switcher
+    over A's Chats, nothing switched. Device row (Pixel 9a). *(§13 bullets 13,
+    15; exit gate.)*
+17. With one identity held, the notification and the lock-screen entry
+    are as on `main`. Device row.
+18. Contact page: on a contact with two routes, each route's menu holds
+    Move and Remove from this contact; on a contact with one route, the
+    menu holds no Remove, and is absent when Move is not offered either.
+19. Remove from this contact: the route and its recorded key leave the
+    contact, the conversation stays titled by the short PeerId, trust is
+    unchanged, the snackbar says so; Undo puts route and key back; the
+    Undo is withdrawn on each of §10's three events; a kill inside the
+    window leaves the route removed. The command line's `contacts route
+    delete` and this control leave the store the same. *(Plan §30 step
+    2.)*
+20. Keyboard: every control of §11's reading-order table is reached by
+    Tab in that order on the desktop, and by a hardware keyboard on the
+    Pixel; Escape and Back close each menu, sheet and dialog with
+    focus on the opener; no key switches identity without the switcher.
+21. Focus table: each row F1–F20 holds, checked as its row says.
+22. Contrast: one row per mark and surface named in §12, each measured
+    at or above its ratio, light and dark.
+23. TalkBack: each "as" line is read with its control, and each
+    announcement of §12 is spoken once. **Blocked** until the app's
+    accessibility tree reaches TalkBack (plan §21); a precondition, not
+    a pass.
+
+## 15. Deliberately left out
+
+- **Replacing an identity whose key is lost** (ADR-0067 d. 5: a new
+  identity, never a new key under the old name). It changes
+  `design/2026-10-24-identity-key.md` whole and is asked for as its own
+  revision; nothing here builds "make a new key".
+- **Per-conversation notifications** and any inline reply: the build
+  has a count notification, and cards §5.7.5's rule (an inline reply
+  names the identity it replies as) stands for later.
+- **A desktop system notification** (§9, §16 Q6).
+- **Editing the alias in the graphical clients** (§6.2): the command
+  line's.
+- **Trusting a peer for several identities at once.** Each identity
+  trusts as itself; a "trust for all" control would be the cross-
+  identity act the owner's rule forbids.
+- **Turning off an added identity** (cards §11).
+
+## 16. Questions
+
+To architect-cto, as QUESTIONs; until answered, this note's reading is
+the proposal:
+
+- **Q1** `human-client-ui.md` §13 asks the identity settings to say
+  "that any peer the node trusts can address the identity whose label it
+  learns, and that no setting narrows it today". Since ADR-0067 d. 6
+  each identity's own set narrows it. Amend the criterion to §6.1's
+  sentence?
+- **Q2** §3's no-reach rule reads "the trust set empty". Is it the
+  identity in front's set (§5.1, `NoReachIdentity`), or the device's
+  admission set?
+- **Q3** §3 and §4 tell two identities of one node apart "by their route
+  label, which that node chose". The alias never reaches the wire
+  (ADR-0067 d. 3), so a counterparty sees the EndpointId. Is a route
+  shown as its short EndpointId (§6.1's `ShortEndpoint`), and does
+  `DirectTitle` take it?
+- **Q4** The alias's grammar and uniqueness (D3), so §6.2's rule can be
+  fixed.
+- **Q5** Does the endpoint dimension of `admin.trust.list` (D2) report a
+  row's origin? §5.1 shows none either way.
+- **Q6** A desktop notification has no separate lock-screen form. Until
+  ruled, the desktop names no identity in one, and specifies none.
+
+To language-culture-en: the strings of §13, and whether "identity" can
+stay the person's word for one of these now that the recovery screens
+call the device's key "this device" (contact-cards §12 L1).
