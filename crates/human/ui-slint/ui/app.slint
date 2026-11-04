@@ -410,6 +410,9 @@ export struct IdentityPage {
     // 4.3). Rows, so a shorter row centres under the first.
     rows: [IdKeyRow],
     alpha-rows: [IdKeyRow],
+    // Some letter continues what is typed. When none does, section 8's
+    // "first enabled key" is the delete key.
+    any-key: bool,
     key-delete-label: string,
     key-clear-label: string,
     // R2's phrase so far, and the position being entered (from 0).
@@ -2003,11 +2006,20 @@ component IdentityScreen inherits FocusScope {
     // The screen the last page was, to tell a screen opening from a page
     // rebuilt.
     property <IdScreen> screen-shown;
+    // The keypad's first enabled key, or delete when the letters typed
+    // leave none enabled (section 8).
+    function keypad() {
+        if (root.page.any-key) {
+            root.go(3, -1);
+        } else {
+            root.go(4, 0);
+        }
+    }
     // R2 and C3 open on the keypad's first enabled key, typing (section 8).
     function opened() {
         if (root.page.picker) {
             root.typing = true;
-            root.go(3, -1);
+            root.keypad();
         }
     }
     init => {
@@ -2055,7 +2067,7 @@ component IdentityScreen inherits FocusScope {
                 root.go(1, root.page.current);
             } else if (row) {
                 root.typing = true;
-                root.go(3, -1);
+                root.keypad();
             } else if (font) {
                 root.go(1, root.page.current);
             } else {
@@ -2084,7 +2096,7 @@ component IdentityScreen inherits FocusScope {
         } else if (notice-new) {
             root.go(0, root.banner-idx());
         } else if (chip && root.page.picker) {
-            root.go(3, -1);
+            root.keypad();
         } else if (root.at-seg >= 0) {
             root.again(root.at-seg, root.at-idx);
         }

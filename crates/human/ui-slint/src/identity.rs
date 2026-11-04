@@ -347,6 +347,9 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         }
         page.rows = rows(flow, &QWERTY);
         page.alpha_rows = rows(flow, &ALPHABET);
+        page.any_key = flow
+            .picker()
+            .is_some_and(|p| ('a'..='z').any(|l| p.enabled(l)));
     }
     if let Some((position, wrong)) = flow.check() {
         page.position = numbered(UiText::IdWordPosition, position + 1).into();
@@ -682,5 +685,24 @@ mod tests {
         flow.prompted(true);
         let page = page(&flow);
         assert_eq!(page.waiting, en(UiText::IdGoingOffline));
+    }
+
+    /// "The first enabled key" falls back to delete when what is typed
+    /// is a word no letter continues (section 8).
+    #[test]
+    fn any_key_is_false_once_no_letter_continues_what_is_typed() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        assert!(page(&flow).any_key, "control: nothing typed");
+        for letter in "acid".chars() {
+            flow.press(letter);
+        }
+        assert_eq!(
+            flow.picker()
+                .map(interweave_human_ui_model::WordPicker::typed),
+            Some("acid")
+        );
+        assert!(!page(&flow).any_key);
     }
 }

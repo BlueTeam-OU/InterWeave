@@ -1055,6 +1055,46 @@ fn the_identity_page_steps_back_in_reverse_order() {
     );
 }
 
+/// Over 130 % font, a full-list row whose word no letter continues
+/// puts focus on the delete key, the keypad having no enabled key
+/// (section 8).
+#[test]
+fn a_row_whose_word_no_letter_continues_focuses_delete() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    text_size(&mut page, 28.0);
+    page.key("o");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [
+            IdentityInput::Key('o'),
+            IdentityInput::Chip("oak".to_owned())
+        ]
+    );
+    tab_to(&mut page, "ui-trace focus=identity-review");
+    page.enter();
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-slot:0", "control");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Review(true), IdentityInput::Slot(0)]
+    );
+    assert_eq!(
+        page.flow
+            .picker()
+            .map(interweave_human_ui_model::WordPicker::typed),
+        Some("oak"),
+        "control: no word continues oak"
+    );
+    assert_eq!(page.last(), "ui-trace focus=identity-delete");
+    // Typing: Enter is the suggestion rule's, taking the whole word, not
+    // the focused delete.
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Chip("oak".to_owned())]);
+}
+
 /// TAB until focus is on `line`, a bounded number of times.
 fn tab_to(page: &mut Identity, line: &str) {
     for _ in 0..64 {
