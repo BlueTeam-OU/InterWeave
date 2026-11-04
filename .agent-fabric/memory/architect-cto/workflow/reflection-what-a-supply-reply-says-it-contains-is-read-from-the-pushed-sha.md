@@ -5,7 +5,7 @@ topic: "reflection-what-a-supply-reply-says-it-contains-is-read-from-the-pushed-
 description: "Before a supply REPLY says a commit carries something or a validator passes, run git show --stat on that exact sha and the validator on it, after the last edit"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -22,4 +22,4 @@ nothing of the three-part record" (01a153e2-53c2); "My last reply said
 validate_adr_index passes on 68583332. It does not" (01a15ba0-8ca3). A
 validator cannot catch a claim made in a message.
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

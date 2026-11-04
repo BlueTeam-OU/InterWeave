@@ -2,24 +2,26 @@
 role: "devex-tooling"
 class: solution
 topic: "host-rust-floats-rustup-via-fabric-tools"
-description: "develop-qzapp's system rust floats with dnf (1.99.0 on 2026-10-19, pin 1.98.1); fabric-tools --install rustup gives an account the pin, but links only cargo/rustc/rustup"
+description: "develop-qzapp's system rust floats with dnf (1.99.0 on 2026-10-19; pin 1.99.1 since InterWeave #422, 1.98.1 before); fabric-tools --install rustup gives an account the pin, but links only cargo/rustc/rustup"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 73d39c684775d2d6
   - eae0d113696ee4d0
 ---
 
-## develop-qzapp's system rust floats with dnf (1.99.0 on 2026-10-19, pin 1.98.1); fabric-tools --install rustup gives an account the pin, but links only cargo/rustc/rustup
+## develop-qzapp's system rust floats with dnf (1.99.0 on 2026-10-19; pin 1.99.1 since InterWeave #422, 1.98.1 before); fabric-tools --install rustup gives an account the pin, but links only cargo/rustc/rustup
 
 develop-qzapp's /usr/bin cargo, rustc, clippy-driver and rustfmt are Fedora packages (cargo-1.99.0-1.fc43
 on 2026-10-19), which a dnf update moves with no commit in InterWeave. InterWeave's rust-toolchain.toml
-pin (1.98.1) is honoured only by rustup. The fix for an account is `fabric-tools --install rustup`, run from an
+pin (1.99.1 since #422, 2026-10-24; 1.98.1 before) is honoured only by rustup. Fedora's 1.99.0 still differs
+from the pin at patch level, so check_rustc_pin.sh fails on the system compiler. The fix for an account is `fabric-tools --install rustup`, run from an
 InterWeave working copy. It installs rustup 1.29.1 into ~/.cargo and links ONLY cargo, rustc and rustup into
 ~/.local/bin, which comes before /usr/bin. The first cargo run auto-installs the pinned channel.
 `cargo clippy`/`cargo fmt` are then the pin's because cargo finds a subcommand in $CARGO_HOME/bin (rustup's

@@ -1293,7 +1293,9 @@ fn a_body_past_a_bound_is_its_source_as_text() {
 
 /// U2a, U2b, U2c: a conversation says what it is in text; retention is
 /// text, an unread copy of a kept message saying both; a reply whose
-/// target is not held shows the neutral placeholder.
+/// target is not held shows the neutral placeholder until the store says
+/// the conversation holds the target, and then the held line, in place
+/// (start-window §5.2). Mutation: `Reply::Stored` drawn as unavailable.
 #[test]
 fn rows_say_kind_retention_and_reply_as_text() {
     let mut view = view();
@@ -1340,6 +1342,13 @@ fn rows_say_kind_retention_and_reply_as_text() {
     assert_eq!(labelled(&view, text(UiText::ReplyUnavailable)).len(), 1);
     let unread = placeholder_en::label(interweave_human_ui_model::LabelKey::Unread);
     assert!(!labelled(&view, unread).is_empty(), "retention is text");
+
+    let asks = model.take_reply_asks();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    model.reply_target_answered(&asks[0], true);
+    view.render(&model);
+    assert_eq!(labelled(&view, text(UiText::ReplyPresent)).len(), 1);
+    assert!(labelled(&view, text(UiText::ReplyUnavailable)).is_empty());
 }
 
 /// U2b: an unread re-sent copy of a message this client kept says both

@@ -1689,3 +1689,237 @@ fn a_relist_that_reopens_gives_a_new_opening() {
     assert_eq!(again.0, conversation());
     assert!(again.1 > first.1, "a new opening");
 }
+
+// --- a reply whose target is not held (section 5.2, item 17 (b)) ----------
+
+/// Kept row `n`, replying to row `target`.
+fn reply_row(n: i64, target: i64) -> ListedInbound {
+    let mut listed = row(n);
+    listed.envelope.reply_to = Some(format!("{target:032x}"));
+    listed
+}
+
+/// The page for `ask` of kept rows `rows`, row `reply` replying to row
+/// `target`.
+fn kept_with_reply(ask: &PageAsk, rows: &[i64], reply: i64, target: i64, end: PageEnd) -> PageRows {
+    PageRows {
+        ask: ask.clone(),
+        unread: Vec::new(),
+        kept: rows
+            .iter()
+            .map(|n| {
+                if *n == reply {
+                    reply_row(*n, target)
+                } else {
+                    row(*n)
+                }
+            })
+            .collect(),
+        proposals: Vec::new(),
+        end,
+    }
+}
+
+fn reply_of(model: &UiModel, n: i64) -> Option<crate::model::Reply> {
+    model
+        .messages(&conversation())
+        .into_iter()
+        .find(|m| m.key == crate::model::ItemKey(Table::Kept, RowId::from_stored(n)))
+        .and_then(|m| m.reply)
+}
+
+/// The one reply ask the model makes, for row `target`.
+fn one_reply_ask(model: &mut UiModel, target: i64) -> crate::model::replies::ReplyAsk {
+    let mut asks = model.take_reply_asks();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    let ask = asks.remove(0);
+    assert_eq!(
+        (&ask.conversation, ask.target.as_str()),
+        (&conversation(), format!("{target:032x}").as_str())
+    );
+    ask
+}
+
+/// Item 17 (b), a target kept and older than anything loaded: the reply
+/// asks the store once, reads unavailable until it answers, and stored
+/// once it does -- a line the person reads as "scroll up and it is
+/// there" -- and asks nothing more; the target loading makes the line
+/// the held one. Mutations: no ask when the reply is built; an ask on
+/// every take; the stored answer not shown.
+#[test]
+fn a_reply_to_a_stored_target_not_loaded_asks_once_and_reads_present() {
+    use crate::model::Reply;
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(kept_with_reply(&ask, &[5, 6, 7], 7, 1, PageEnd::More));
+    let ask = one_reply_ask(&mut model, 1);
+    assert!(
+        matches!(reply_of(&model, 7), Some(Reply::Unavailable(_))),
+        "unanswered"
+    );
+    assert!(model.take_reply_asks().is_empty(), "never asked twice");
+    model.reply_target_answered(&ask, true);
+    assert_eq!(
+        reply_of(&model, 7),
+        Some(Reply::Stored(format!("{:032x}", 1)))
+    );
+
+    reached(&mut model);
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(
+        &ask,
+        &[1, 2, 3, 4],
+        Table::Kept,
+        PageEnd::Exhausted,
+    ));
+    assert!(
+        matches!(reply_of(&model, 7), Some(Reply::Present(_))),
+        "held now"
+    );
+    assert!(
+        model.take_reply_asks().is_empty(),
+        "a held target asks nothing"
+    );
+}
+
+/// Item 17 (b), a release on screen: with the window at its held-row
+/// ceiling and focus on a reply, a row the drain hands over makes the
+/// ceiling let go of the held row farthest from the focus -- the reply's
+/// target -- and the reply's line stays present while the store is
+/// asked and after it answers: a release changes no line. Mutations: the line taken from the
+/// store's answer alone (unavailable while the ask is out); no ask when
+/// the target leaves.
+#[test]
+fn a_target_the_ceiling_releases_keeps_its_reply_present() {
+    use crate::model::Reply;
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, 8, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(kept_with_reply(
+        &ask,
+        &[5, 6, 7, 8, 9, 10, 11, 12],
+        12,
+        5,
+        PageEnd::More,
+    ));
+    place(&mut model, 12, Table::Kept);
+    assert!(matches!(reply_of(&model, 12), Some(Reply::Present(_))));
+    assert!(model.take_reply_asks().is_empty(), "its target is held");
+
+    let arrived = row(13);
+    model.received(interweave_human_client_api::Received {
+        row: arrived.row,
+        origin: arrived.origin,
+        envelope: arrived.envelope,
+        received_at: arrived.received_at,
+    });
+    assert!(
+        !holds(&model, 5, Table::Kept),
+        "the ceiling let the target go"
+    );
+    assert_eq!(
+        reply_of(&model, 12),
+        Some(Reply::Stored(format!("{:032x}", 5))),
+        "while the store is asked"
+    );
+    let ask = one_reply_ask(&mut model, 5);
+    model.reply_target_answered(&ask, true);
+    assert_eq!(
+        reply_of(&model, 12),
+        Some(Reply::Stored(format!("{:032x}", 5)))
+    );
+}
+
+/// An answer the target moved under is not shown: the target loaded and
+/// left again while the ask was out, so the store is asked again, and
+/// only that answer counts. A failed read leaves the line as it was.
+/// Mutation: a stale answer applied.
+#[test]
+fn an_answer_the_target_moved_under_is_asked_again() {
+    use crate::model::Reply;
+    let mut model = started(0);
+    model.set_bounds_for_test(SESSION_ITEM_CAP, 8, 256);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(kept_with_reply(
+        &ask,
+        &[5, 6, 7, 8, 9, 10, 11, 12],
+        12,
+        1,
+        PageEnd::More,
+    ));
+    place(&mut model, 12, Table::Kept);
+    let first = one_reply_ask(&mut model, 1);
+    // The target loads, and the ceiling lets it go again.
+    reached(&mut model);
+    let ask = one_ask(&mut model);
+    model.page_arrived(rows_of(&ask, &[1, 2, 3, 4], Table::Kept, PageEnd::More));
+    assert!(!holds(&model, 1, Table::Kept), "let go again");
+    assert!(model.take_reply_asks().is_empty(), "one ask out at a time");
+    model.reply_target_answered(&first, false);
+    assert_eq!(
+        reply_of(&model, 12),
+        Some(Reply::Stored(format!("{:032x}", 1))),
+        "the stale answer is not shown"
+    );
+    let again = one_reply_ask(&mut model, 1);
+    model.reply_target_failed(&again);
+    assert_eq!(
+        reply_of(&model, 12),
+        Some(Reply::Stored(format!("{:032x}", 1))),
+        "a failed read changes nothing"
+    );
+    assert!(
+        model.take_reply_asks().is_empty(),
+        "nor asks again by itself"
+    );
+}
+
+/// A record per target lasts as long as a held reply names it: the
+/// reply let go, the record goes, and a late answer adds none. Mutation:
+/// the record kept past its last reply.
+#[test]
+fn a_reply_target_record_goes_with_its_last_reply() {
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(kept_with_reply(&ask, &[5, 6], 6, 1, PageEnd::More));
+    let asks = model.take_reply_asks();
+    assert_eq!(model.reply_targets(), 1);
+    model.window_input(WindowInput::Closed(conversation()));
+    assert_eq!(model.reply_targets(), 0, "the window let its rows go");
+    model.reply_target_answered(&asks[0], true);
+    assert_eq!(model.reply_targets(), 0, "a late answer adds no record");
+}
+
+/// An answer counts only for the ask its record waits on: a reply let go
+/// while its ask was out, and built again with an ask of its own, does
+/// not take the first ask's late answer as the second's (#535 review,
+/// risk 1). Mutation: an answer matched by its target alone.
+#[test]
+fn a_late_answer_to_an_earlier_ask_is_not_the_newer_asks() {
+    use crate::model::Reply;
+    let mut model = started(0);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(kept_with_reply(&ask, &[5, 6], 6, 1, PageEnd::More));
+    let first = one_reply_ask(&mut model, 1);
+    model.window_input(WindowInput::Closed(conversation()));
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(kept_with_reply(&ask, &[5, 6], 6, 1, PageEnd::More));
+    let second = one_reply_ask(&mut model, 1);
+    assert_ne!(first, second);
+    model.reply_target_answered(&first, true);
+    assert!(
+        matches!(reply_of(&model, 6), Some(Reply::Unavailable(_))),
+        "the late answer is not this ask's"
+    );
+    model.reply_target_answered(&second, true);
+    assert_eq!(
+        reply_of(&model, 6),
+        Some(Reply::Stored(format!("{:032x}", 1)))
+    );
+}

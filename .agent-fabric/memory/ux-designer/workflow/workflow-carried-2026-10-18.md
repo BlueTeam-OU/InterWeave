@@ -5,7 +5,7 @@ topic: "workflow-carried-2026-10-18"
 description: "How ux-designer reaches InterWeave's Android test phone (Pixel 9a) for a device review — the lease, pairing, cleanup"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 5629f73d5ee964c4
+  - 5d39085751450c2c
 ---
 
 ## How ux-designer reaches InterWeave's Android test phone (Pixel 9a) for a device review — the lease, pairing, cleanup
@@ -40,6 +41,8 @@ Related: [[swipe-actions-j1]]
 - The connect port (e.g. A private-network address:43191 on 2026-10-16) differs from the pairing port and can change; mDNS does not reach this VM, so ask the owner for the address shown under Wireless debugging. A different account's debug key means a reinstall wipes the app's data on the phone: ask the build's owner to install instead.
 - From InterWeave #294 (2026-10-17, fabric-coordinator's INFO 01a14841-76d1): a phone run is `.agent-fabric/bin/phone-run <command>`, which takes the lease and leaves no adb process on any path; the run begins with `adb connect <ip>:<port>`. Read the remit on main before the next run; my scratchpad dev.sh wrapper is superseded by it.
 - Before reviewing, prove which build is on the phone; the installed app can be an older build than the one under review (2026-10-16: a pre-final #289 build). Check a string the target head added in the installed native library, or compare the APK sha256 the installer reports, and name the commit in the review. If it is wrong, ask the build's owner to install `<commit>` with their key (`adb install -r`, data kept) and to reply with the commit and APK sha; never reinstall under your own key without the owner's word, since that wipes the app's data.
+- 2026-10-26: only rust-ui-dev-01 holds the debug key the Pixel's app is signed with (rust-ui-dev-02 has none); ask them for a data-kept install.
+- `adb connect` exits 0 even on "failed to connect"/"No route to host"; a script that then runs `adb wait-for-device` hangs until killed (2026-10-26, the phone had moved IP). Check `adb devices` for the serial in state `device` before going on, and give wait-for-device a timeout. The phone's IP:port can change (DHCP, Wireless debugging restart): ping first, ask the owner for the current pair.
 
 *References: swipe-actions-j1*
 

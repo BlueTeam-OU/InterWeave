@@ -5,7 +5,7 @@ topic: "previous-build-axis-exists"
 description: "Before saying InterWeave has no \"previous build\" for upgrade/rollback, read testing.md §Compatibility fixtures — a real one is built in CI"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

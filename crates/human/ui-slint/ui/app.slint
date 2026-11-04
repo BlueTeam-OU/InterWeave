@@ -647,6 +647,7 @@ component ActionButton inherits FocusScope {
             label := Text {
                 text: root.text;
                 wrap: root.wraps ? word-wrap : no-wrap;
+                min-height: self.preferred-height;
                 horizontal-alignment: root.wraps ? center : left;
                 font-size: root.text-button || root.filled || root.tonal ? Type.label-large : Type.body-medium;
                 font-weight: root.text-button || root.filled || root.tonal ? 500 : 400;
@@ -711,6 +712,7 @@ component FocusHeading inherits FocusScope {
                 font-size: root.font-size;
                 color: Palette.on-surface;
                 wrap: root.wraps ? word-wrap : no-wrap;
+                min-height: self.preferred-height;
                 overflow: root.wraps ? clip : elide;
                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 accessible-role: none;
@@ -873,6 +875,7 @@ component RefusedLines inherits VerticalLayout {
         color: root.ink;
         font-size: root.font-size;
         wrap: word-wrap;
+        min-height: self.preferred-height;
         min-width: 0;
         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
         accessible-role: none;
@@ -884,6 +887,7 @@ component RefusedLines inherits VerticalLayout {
         font-size: root.font-size;
         font-family: root.code-font;
         wrap: char-wrap;
+        min-height: self.preferred-height;
         min-width: 0;
         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
         accessible-role: none;
@@ -893,6 +897,7 @@ component RefusedLines inherits VerticalLayout {
         color: root.ink;
         font-size: root.font-size;
         wrap: word-wrap;
+        min-height: self.preferred-height;
         min-width: 0;
         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
         accessible-role: none;
@@ -943,6 +948,7 @@ component FocusNote inherits FocusScope {
             font-weight: root.font-weight;
             color: root.ink;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             min-width: 0;
             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
             accessible-role: none;
@@ -1013,6 +1019,7 @@ component LinkButton inherits FocusScope {
                     color: root.ink;
                     font-size: Type.body-medium;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     // A word longer than the line breaks inside itself
                     // rather than widening the list (seen with a long URL).
                     min-width: 0;
@@ -1364,6 +1371,7 @@ component Snackbar inherits Rectangle {
             Text {
                 text: root.text;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
                 min-width: 0;
                 horizontal-stretch: 1;
                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
@@ -1492,6 +1500,7 @@ component MenuItem inherits FocusScope {
             vertical-alignment: center;
             // At 200 % a label wraps rather than being cut (section 8).
             wrap: word-wrap;
+            min-height: self.preferred-height;
             horizontal-stretch: 1;
             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
             accessible-role: none;
@@ -1572,6 +1581,7 @@ component NoticeCard inherits Rectangle {
             text: root.message;
             color: Palette.notice-text;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             vertical-alignment: center;
             accessible-role: text;
             accessible-label: self.text;
@@ -1653,6 +1663,7 @@ component IdentityScreen inherits FocusScope {
             font-weight: 500;
             color: Palette.on-surface;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             accessible-role: text;
             accessible-label: self.text;
         }
@@ -1672,6 +1683,7 @@ component IdentityScreen inherits FocusScope {
                             color: Palette.error;
                             font-size: Type.body-medium;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             accessible-role: text;
                             accessible-label: self.text;
                         }
@@ -1682,6 +1694,7 @@ component IdentityScreen inherits FocusScope {
                     font-size: Type.body-large;
                     color: Palette.on-surface;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: text;
                     accessible-label: self.text;
                 }
@@ -1718,6 +1731,7 @@ component IdentityScreen inherits FocusScope {
                         font-size: Type.body-medium;
                         color: Palette.on-surface-variant;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         accessible-role: none;
                     }
                     Text {
@@ -1726,6 +1740,7 @@ component IdentityScreen inherits FocusScope {
                         font-size: Type.body-large;
                         color: Palette.on-surface;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         accessible-role: text;
                         accessible-label: root.page.peer-label + " " + root.page.peer-groups;
                     }
@@ -1737,6 +1752,7 @@ component IdentityScreen inherits FocusScope {
                         font-size: Type.body-medium;
                         color: Palette.on-surface-variant;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         accessible-role: none;
                     }
                     Text {
@@ -1745,6 +1761,7 @@ component IdentityScreen inherits FocusScope {
                         font-size: Type.body-large;
                         color: Palette.on-surface;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         accessible-role: text;
                         accessible-label: root.page.second-peer-label + " " + root.page.second-peer-groups;
                     }
@@ -1950,6 +1967,7 @@ component IdentityScreen inherits FocusScope {
             font-size: Type.body-medium;
             color: Palette.on-surface-variant;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             accessible-role: text;
             accessible-label: self.text;
         }
@@ -1971,6 +1989,7 @@ component IdentityScreen inherits FocusScope {
                     font-size: Type.title-medium;
                     color: Palette.on-surface;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: text;
                     accessible-label: self.text;
                 }
@@ -1979,6 +1998,7 @@ component IdentityScreen inherits FocusScope {
                     font-size: Type.body-medium;
                     color: Palette.on-surface;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: text;
                     accessible-label: self.text;
                 }
@@ -1997,6 +2017,7 @@ component IdentityScreen inherits FocusScope {
                         font-size: Type.body-medium;
                         color: Palette.on-surface;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         horizontal-stretch: 1;
                         accessible-role: none;
                     }
@@ -2006,6 +2027,7 @@ component IdentityScreen inherits FocusScope {
                     font-size: Type.body-medium;
                     color: Palette.on-surface-variant;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: text;
                     accessible-label: self.text;
                 }
@@ -2014,6 +2036,7 @@ component IdentityScreen inherits FocusScope {
                     font-size: Type.body-medium;
                     color: Palette.on-surface-variant;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: text;
                     accessible-label: self.text;
                 }
@@ -2099,6 +2122,7 @@ component NameField inherits VerticalLayout {
         color: Palette.error;
         font-size: Type.body-small;
         wrap: word-wrap;
+        min-height: self.preferred-height;
         accessible-role: text;
         accessible-label: self.text;
     }
@@ -2228,6 +2252,7 @@ component PathField {
                 Text {
                     text: root.path;
                     wrap: char-wrap;
+                    min-height: self.preferred-height;
                     font-family: root.code-font;
                     font-size: Type.body-medium;
                     color: transparent;
@@ -2296,6 +2321,7 @@ component FocusLine inherits FocusScope {
             font-family: root.font-family;
             font-size: root.font-size;
             wrap: word-wrap;
+            min-height: self.preferred-height;
             color: root.ink;
             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
             accessible-role: none;
@@ -4268,6 +4294,7 @@ export component AppWindow inherits Window {
             Text {
                 text: root.trust-explanation;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
                 accessible-role: text;
                 accessible-label: self.text;
             }
@@ -4393,6 +4420,7 @@ export component AppWindow inherits Window {
                     color: Palette.error;
                     font-size: Type.body-small;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: text;
                     accessible-label: self.text;
                 }
@@ -4478,6 +4506,7 @@ export component AppWindow inherits Window {
                         // column's minimum, which pushed Remove trust past
                         // the window's edge in a wider font (CI's DejaVu).
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                 }
                 // A text button in the error colour, at a 48 target, on
@@ -4500,6 +4529,7 @@ export component AppWindow inherits Window {
             if root.trust-outcome != "": Text {
                 text: root.trust-outcome;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
                 accessible-role: text;
                 accessible-label: self.text;
             }
@@ -4632,6 +4662,7 @@ export component AppWindow inherits Window {
                         font-size: Type.body-medium;
                         color: Palette.on-surface;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         min-width: 0;
                         accessible-role: text;
                         accessible-label: self.text;
@@ -4672,6 +4703,7 @@ export component AppWindow inherits Window {
                         font-family: root.code-font;
                         font-size: Type.body-medium;
                         wrap: char-wrap;
+                        min-height: self.preferred-height;
                         min-width: 0;
                         accessible-role: text;
                         accessible-label: self.text;
@@ -4700,6 +4732,7 @@ export component AppWindow inherits Window {
                         for line in [root.show-none, root.show-none-what]: Text {
                             text: line;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             min-width: 0;
                             color: Palette.on-surface;
                             accessible-role: text;
@@ -4792,6 +4825,7 @@ export component AppWindow inherits Window {
                     if root.peers-list-shown && root.peers-list-read && root.peers-trust-line == "": Text {
                         text: root.peers-no-trust;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         min-width: 0;
                         color: Palette.on-surface-variant;
                         accessible-role: text;
@@ -4800,6 +4834,7 @@ export component AppWindow inherits Window {
                     if root.peers-list-shown && root.peers-empty != "": Text {
                         text: root.peers-empty;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         min-width: 0;
                         accessible-role: text;
                         accessible-label: self.text;
@@ -4840,6 +4875,7 @@ export component AppWindow inherits Window {
                                         font-size: Type.title-small;
                                         font-weight: 500;
                                         wrap: word-wrap;
+                                        min-height: self.preferred-height;
                                         min-width: 0;
                                         accessible-role: text;
                                         accessible-label: name;
@@ -4853,6 +4889,7 @@ export component AppWindow inherits Window {
                                         font-size: Type.title-small;
                                         font-weight: 500;
                                         wrap: char-wrap;
+                                        min-height: self.preferred-height;
                                         min-width: 0;
                                         accessible-role: none;
                                     }
@@ -4861,6 +4898,7 @@ export component AppWindow inherits Window {
                                         font-family: root.code-font;
                                         font-size: Type.body-medium;
                                         wrap: char-wrap;
+                                        min-height: self.preferred-height;
                                         color: Palette.on-surface-variant;
                                         accessible-role: none;
                                     }
@@ -4868,6 +4906,7 @@ export component AppWindow inherits Window {
                                         text: row.state;
                                         font-size: Type.body-medium;
                                         wrap: word-wrap;
+                                        min-height: self.preferred-height;
                                         min-width: 0;
                                         accessible-role: none;
                                     }
@@ -4875,6 +4914,7 @@ export component AppWindow inherits Window {
                                         text: row.origin;
                                         font-size: Type.body-small;
                                         wrap: word-wrap;
+                                        min-height: self.preferred-height;
                                         min-width: 0;
                                         color: Palette.on-surface-variant;
                                         accessible-role: none;
@@ -4961,6 +5001,7 @@ export component AppWindow inherits Window {
                             if !row.removable: Text {
                                 text: root.not-removable-label;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                                 min-width: 0;
                                 color: Palette.on-surface-variant;
                                 accessible-role: text;
@@ -5026,6 +5067,7 @@ export component AppWindow inherits Window {
                         text: root.address-help;
                         font-size: Type.body-small;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         min-width: 0;
                         color: Palette.on-surface-variant;
                         accessible-role: text;
@@ -5037,6 +5079,7 @@ export component AppWindow inherits Window {
                         color: Palette.error;
                         font-size: Type.body-small;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         min-width: 0;
                         accessible-role: text;
                         accessible-label: self.text;
@@ -5143,6 +5186,7 @@ export component AppWindow inherits Window {
                     if root.peers-add-open && root.add-result != "": Text {
                         text: root.add-result;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         min-width: 0;
                         accessible-role: text;
                         accessible-label: self.text;
@@ -5168,6 +5212,7 @@ export component AppWindow inherits Window {
                             font-family: root.code-font;
                             font-size: Type.body-medium;
                             wrap: char-wrap;
+                            min-height: self.preferred-height;
                             accessible-role: text;
                             accessible-label: self.text;
                         }
@@ -5191,6 +5236,7 @@ export component AppWindow inherits Window {
                         Text {
                             text: root.trust-step-body;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             min-width: 0;
                             accessible-role: text;
                             accessible-label: self.text;
@@ -5198,6 +5244,7 @@ export component AppWindow inherits Window {
                         Text {
                             text: root.trust-step-both;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             min-width: 0;
                             accessible-role: text;
                             accessible-label: self.text;
@@ -5455,6 +5502,7 @@ export component AppWindow inherits Window {
                                 if root.contact-photo-source != "": Text {
                                     text: root.contact-photo-source;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                     font-size: Type.body-medium;
                                     color: Palette.on-surface-variant;
                                     accessible-role: text;
@@ -5487,6 +5535,7 @@ export component AppWindow inherits Window {
                         Text {
                             text: root.contact-name-source;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             font-size: Type.body-medium;
                             color: Palette.on-surface-variant;
                             accessible-role: text;
@@ -5518,6 +5567,7 @@ export component AppWindow inherits Window {
                                 font-size: Type.body-large;
                                 color: Palette.on-surface;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                                 accessible-role: text;
                                 accessible-label: self.text;
                             }
@@ -5534,6 +5584,7 @@ export component AppWindow inherits Window {
                                 font-family: root.code-font;
                                 font-size: Type.body-medium;
                                 wrap: char-wrap;
+                                min-height: self.preferred-height;
                                 color: Palette.on-surface;
                                 accessible-role: text;
                                 accessible-label: self.text;
@@ -5557,6 +5608,7 @@ export component AppWindow inherits Window {
                             for line in route.sharing: Text {
                                 text: line;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                                 font-size: Type.body-medium;
                                 color: Palette.on-surface;
                                 accessible-role: text;
@@ -5566,6 +5618,7 @@ export component AppWindow inherits Window {
                         if root.contact-shares-note != "": Text {
                             text: root.contact-shares-note;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             font-size: Type.body-medium;
                             color: Palette.on-surface-variant;
                             accessible-role: text;
@@ -5612,6 +5665,7 @@ export component AppWindow inherits Window {
                             Text {
                                 text: root.delete-contact-confirm;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                                 font-size: Type.body-medium;
                                 color: Palette.on-surface;
                                 accessible-role: text;
@@ -5760,6 +5814,7 @@ export component AppWindow inherits Window {
                         Text {
                             text: root.own-shared-note;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             font-size: Type.body-medium;
                             color: Palette.on-surface-variant;
                             accessible-role: text;
@@ -5805,6 +5860,7 @@ export component AppWindow inherits Window {
                                 text: root.own-key-made;
                                 font-size: Type.body-medium;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                                 color: Palette.on-surface;
                                 accessible-role: text;
                                 accessible-label: self.text;
@@ -5817,6 +5873,7 @@ export component AppWindow inherits Window {
                                     font-size: Type.title-small;
                                     font-weight: 700;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                     color: Palette.on-surface;
                                     accessible-role: text;
                                     accessible-label: self.text;
@@ -5854,6 +5911,7 @@ export component AppWindow inherits Window {
                                     font-size: Type.title-small;
                                     font-weight: 700;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                     color: Palette.error;
                                     accessible-role: text;
                                     accessible-label: self.text;
@@ -5863,6 +5921,7 @@ export component AppWindow inherits Window {
                                 text: root.own-key-reason;
                                 font-size: Type.body-medium;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                                 color: Palette.on-surface;
                                 accessible-role: text;
                                 accessible-label: self.text;
@@ -5880,6 +5939,7 @@ export component AppWindow inherits Window {
                                 text: root.own-key-cannot-share;
                                 font-size: Type.body-medium;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                                 color: Palette.on-surface;
                                 accessible-role: text;
                                 accessible-label: self.text;
@@ -5949,6 +6009,7 @@ export component AppWindow inherits Window {
                                 font-family: root.code-font;
                                 font-size: Type.body-medium;
                                 wrap: char-wrap;
+                                min-height: self.preferred-height;
                                 color: Palette.on-surface;
                                 accessible-role: text;
                                 accessible-label: self.text;
@@ -6622,6 +6683,7 @@ export component AppWindow inherits Window {
                                             font-size: Type.body-small;
                                             color: Palette.on-surface-variant;
                                             wrap: word-wrap;
+                                            min-height: self.preferred-height;
                                             min-width: 0;
                                             horizontal-stretch: 1;
                                             horizontal-alignment: item.text-alignment;
@@ -6716,6 +6778,7 @@ export component AppWindow inherits Window {
                                                 horizontal-stretch: 1;
                                                 text: line.text;
                                                 wrap: word-wrap;
+                                                min-height: self.preferred-height;
                                                 // A word longer than the line breaks inside itself rather
                                                 // than widening the list (seen with a long URL in the body).
                                                 min-width: 0;
@@ -6742,6 +6805,7 @@ export component AppWindow inherits Window {
                                                     width: parent.width - 12px;
                                                     text: line.text;
                                                     wrap: word-wrap;
+                                                    min-height: self.preferred-height;
                                                     color: Palette.on-surface;
                                                     font-family: root.code-font;
                                                     font-size: Type.body-medium;
@@ -6765,6 +6829,7 @@ export component AppWindow inherits Window {
                                     if item.show-source: Text {
                                         text: row.source;
                                         wrap: word-wrap;
+                                        min-height: self.preferred-height;
                                         // A word longer than the line breaks inside itself rather
                                         // than widening the list (seen with a long URL in the body).
                                         min-width: 0;
@@ -6796,6 +6861,7 @@ export component AppWindow inherits Window {
                                         font-size: Type.body-small;
                                         color: Palette.error;
                                         wrap: word-wrap;
+                                        min-height: self.preferred-height;
                                         min-width: 0px;
                                         horizontal-alignment: root.rtl ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
                                         accessible-role: text;
@@ -6834,6 +6900,7 @@ export component AppWindow inherits Window {
                                             font-size: Type.body-small;
                                             color: row.status-error ? Palette.error : Palette.on-surface-variant;
                                             wrap: word-wrap;
+                                            min-height: self.preferred-height;
                                             min-width: 0px;
                                             horizontal-alignment: root.rtl ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
                                             accessible-role: text;
@@ -7118,6 +7185,7 @@ export component AppWindow inherits Window {
                         font-size: Type.body-large;
                         color: Palette.on-surface;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                         accessible-role: text;
                         accessible-label: self.text;
@@ -7557,6 +7625,7 @@ export component AppWindow inherits Window {
                     color: Palette.on-surface;
                     font-size: Type.body-medium;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     // The exact PeerId is one word wider than a phone: as
                     // the text's minimum it would lay the dialog past the
                     // window's edge. Without it the PeerId breaks whole.
@@ -7689,6 +7758,7 @@ export component AppWindow inherits Window {
                     text: root.header-title;
                     font-size: Type.title-large;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -7708,6 +7778,7 @@ export component AppWindow inherits Window {
                         font-family: root.code-font;
                         font-size: Type.body-medium;
                         wrap: char-wrap;
+                        min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
                         accessible-label: self.text;
@@ -7717,6 +7788,7 @@ export component AppWindow inherits Window {
                     text: root.details-route;
                     font-size: Type.body-medium;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface-variant;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -7725,6 +7797,7 @@ export component AppWindow inherits Window {
                     text: root.details-card;
                     font-size: Type.body-medium;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface-variant;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -7819,6 +7892,7 @@ export component AppWindow inherits Window {
                     text: root.discard-title;
                     font-size: Type.title-large;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -7916,6 +7990,7 @@ export component AppWindow inherits Window {
                     text: root.new-key-title;
                     font-size: Type.title-large;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -7924,6 +7999,7 @@ export component AppWindow inherits Window {
                     text: root.new-key-body;
                     font-size: Type.body-medium;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -7932,6 +8008,7 @@ export component AppWindow inherits Window {
                     text: root.new-key-old;
                     font-size: Type.body-medium;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -7940,6 +8017,7 @@ export component AppWindow inherits Window {
                     text: root.new-key-pending;
                     font-size: Type.body-medium;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -8016,6 +8094,7 @@ export component AppWindow inherits Window {
                     text: root.share-title;
                     font-size: Type.title-large;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -8027,6 +8106,7 @@ export component AppWindow inherits Window {
                     text: root.share-key-reason;
                     font-size: Type.body-medium;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -8042,6 +8122,7 @@ export component AppWindow inherits Window {
                     text: root.share-key-blocked;
                     font-size: Type.body-medium;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -8049,6 +8130,7 @@ export component AppWindow inherits Window {
                 if root.share-key-reason == "" && root.share-no-name != "": Text {
                     text: root.share-no-name;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     color: Palette.on-surface;
                     accessible-role: text;
                     accessible-label: self.text;
@@ -8078,6 +8160,7 @@ export component AppWindow inherits Window {
                                 text: root.share-preview-name;
                                 font-size: Type.title-medium;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                                 color: Palette.on-surface;
                                 accessible-role: text;
                                 accessible-label: self.text;
@@ -8095,6 +8178,7 @@ export component AppWindow inherits Window {
                 if root.share-key-reason == "": Text {
                     text: root.share-note;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     font-size: Type.body-medium;
                     color: Palette.on-surface-variant;
                     accessible-role: text;
@@ -8374,6 +8458,7 @@ export component RefusalWindow inherits Window {
                         font-weight: 700;
                         color: Palette.on-surface;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         accessible-role: text;
                         accessible-label: self.text;
                     }
@@ -8382,6 +8467,7 @@ export component RefusalWindow inherits Window {
                         font-size: Type.body-medium;
                         color: Palette.on-surface-variant;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         accessible-role: text;
                         accessible-label: self.text;
                         accessible-live-region: polite;
@@ -8391,6 +8477,7 @@ export component RefusalWindow inherits Window {
                         font-size: Type.body-large;
                         color: Palette.on-surface;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                         accessible-role: text;
                         accessible-label: self.text;
                     }
@@ -8415,6 +8502,7 @@ export component RefusalWindow inherits Window {
                                 Text {
                                     text: root.path;
                                     wrap: char-wrap;
+                                    min-height: self.preferred-height;
                                     font-family: root.code-font;
                                     font-size: Type.body-medium;
                                     color: transparent;
@@ -8456,6 +8544,7 @@ export component RefusalWindow inherits Window {
                             font-size: Type.body-medium;
                             color: Palette.on-surface-variant;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             accessible-role: text;
                             accessible-label: self.text;
                             accessible-live-region: polite;
@@ -8465,6 +8554,7 @@ export component RefusalWindow inherits Window {
                             font-size: Type.body-medium;
                             color: Palette.on-surface-variant;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             accessible-role: text;
                             accessible-label: self.text;
                             accessible-live-region: polite;
@@ -8560,6 +8650,7 @@ export component RefusalWindow inherits Window {
                     font-size: Type.title-large;
                     color: Palette.on-surface;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: text;
                     accessible-label: self.text;
                 }
@@ -8575,6 +8666,7 @@ export component RefusalWindow inherits Window {
                             font-size: Type.body-medium;
                             color: Palette.on-surface;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             accessible-role: text;
                             accessible-label: self.text;
                         }
@@ -8593,6 +8685,7 @@ export component RefusalWindow inherits Window {
                                 font-size: Type.body-medium;
                                 color: Palette.on-surface;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                                 horizontal-stretch: 1;
                                 accessible-role: none;
                             }
@@ -8602,6 +8695,7 @@ export component RefusalWindow inherits Window {
                             font-size: Type.body-medium;
                             color: Palette.on-surface-variant;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             accessible-role: text;
                             accessible-label: self.text;
                         }
@@ -8610,6 +8704,7 @@ export component RefusalWindow inherits Window {
                             font-size: Type.body-medium;
                             color: Palette.on-surface-variant;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                             accessible-role: text;
                             accessible-label: self.text;
                         }

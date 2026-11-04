@@ -5,7 +5,7 @@ topic: "reflection-contract-text-about-a-lane-s-unmerged-code-is-read-from-that-
 description: "Before supplying contract prose that describes code a lane has built but not merged, read the code at their branch head, not at main; a supply sent first says the code's reading wins and asks for the line"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -23,4 +23,4 @@ more sentence contradicts the code" (01a169f9), and earlier "no
 profile key holds a default of 16" (01a15f30). Adds the lane's branch
 to the origin/main rule.
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

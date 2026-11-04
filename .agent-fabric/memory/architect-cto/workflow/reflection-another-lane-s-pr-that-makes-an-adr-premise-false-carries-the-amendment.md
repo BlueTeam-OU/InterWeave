@@ -5,7 +5,7 @@ topic: "reflection-another-lane-s-pr-that-makes-an-adr-premise-false-carries-the
 description: When a PR changes a fact an ADR states as current, the ADR is amended in that same PR even if its conclusion holds, and before supplying the amendment the fact is grepped in the body, the security section, the digest and the log row
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -24,4 +24,4 @@ moment the tree makes it false, in the PR that makes it false"
 two more (01a15aba-b00d, 01a15b98-5931). The converse of the owed-
 clause rule.
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

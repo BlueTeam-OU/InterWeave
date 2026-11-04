@@ -5,7 +5,7 @@ topic: "bridge-pull-event-double-escaped"
 description: "claude-channel pull mode escapes an event twice on the host line; any size bound on an event must measure both modes"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

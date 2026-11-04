@@ -5,7 +5,7 @@ topic: "no-edits-under-background-build"
 description: "a background cargo build/e2e reads the working tree as it compiles; editing meanwhile makes it test a half-written tree (j134, 2026-10-24)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

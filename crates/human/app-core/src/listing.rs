@@ -17,7 +17,7 @@ use interweave_human_store::{
 };
 use interweave_human_ui_model::{
     ConversationKey, ListedInbound, ListedOutbound, NewestRow, PageAsk, PageEnd, PageMark,
-    PageOrder, PageRows, StoredSummary, Table,
+    PageOrder, PageRows, ReplyAsk, StoredSummary, Table,
 };
 use interweave_transport_api::MediaType;
 
@@ -156,6 +156,37 @@ pub(crate) fn summaries(store: &HumanStore) -> Result<Summarised, StoreError> {
     })
 }
 
+/// A conversation as the store's rows name it, or `None` for a peer's
+/// default endpoint: no stored row is under it, since each records the
+/// endpoint its sender asserted.
+fn stored_conversation(conversation: &ConversationKey) -> Option<StoreConversation> {
+    match conversation {
+        ConversationKey::Direct {
+            peer,
+            endpoint: Some(endpoint),
+        } => Some(StoreConversation::Direct {
+            peer: peer.clone(),
+            endpoint: endpoint.clone(),
+        }),
+        ConversationKey::Channel(channel) => Some(StoreConversation::Channel(channel.clone())),
+        ConversationKey::Direct { endpoint: None, .. } => None,
+    }
+}
+
+/// Whether `ask`'s conversation stores its target as a row the app can
+/// show, unread or kept (start-window §5.2): from two index entries, no
+/// row read, so it adds nothing to the rows a start or a page is measured
+/// in.
+///
+/// # Errors
+/// The store's.
+pub(crate) fn reply_target(store: &HumanStore, ask: &ReplyAsk) -> Result<bool, StoreError> {
+    match stored_conversation(&ask.conversation) {
+        Some(conversation) => store.reply_target_present(&conversation, &ask.target),
+        None => Ok(false),
+    }
+}
+
 /// One page of the open conversation as `ask` names it: its rows decoded,
 /// each table apart, its cards as proposals, and whether more remain -- at
 /// the unread room said apart, since the limit row shows only then -- with
@@ -171,18 +202,8 @@ pub(crate) fn page(store: &HumanStore, ask: PageAsk) -> Result<(PageRows, u64), 
         proposals: Vec::new(),
         end: PageEnd::Exhausted,
     };
-    let conversation = match &rows.ask.conversation {
-        ConversationKey::Direct {
-            peer,
-            endpoint: Some(endpoint),
-        } => StoreConversation::Direct {
-            peer: peer.clone(),
-            endpoint: endpoint.clone(),
-        },
-        ConversationKey::Channel(channel) => StoreConversation::Channel(channel.clone()),
-        // The peer's default endpoint: no stored row is under it, since
-        // each records the endpoint its sender asserted.
-        ConversationKey::Direct { endpoint: None, .. } => return Ok((rows, 0)),
+    let Some(conversation) = stored_conversation(&rows.ask.conversation) else {
+        return Ok((rows, 0));
     };
     let cursor = |m: PageMark| WindowCursor::at(m.received_at, m.kept, m.row);
     let window = store.conversation_window(

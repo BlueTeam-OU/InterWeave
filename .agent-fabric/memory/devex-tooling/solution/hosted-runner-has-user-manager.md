@@ -5,7 +5,7 @@ topic: "hosted-runner-has-user-manager"
 description: "CI needs systemctl --user or journalctl --user on a GitHub-hosted ubuntu runner? it lingers at boot; only the session vars are missing"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

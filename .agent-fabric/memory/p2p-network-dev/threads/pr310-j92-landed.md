@@ -5,7 +5,7 @@ topic: "pr310-j92-landed"
 description: "#310 merged 0e2137b6 2026-10-19 (j92 kademlia full-bucket flake + ADR-0055 decision 4 citations); one pre-existing P3 carried to the next kademlia_adversarial change"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

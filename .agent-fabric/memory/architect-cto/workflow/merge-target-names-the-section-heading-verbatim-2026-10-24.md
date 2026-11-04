@@ -5,13 +5,14 @@ topic: "merge-target-names-the-section-heading-verbatim-2026-10-24"
 description: "A memory's merge_target is matched against a drained slice's section heading verbatim; a topic's words or a heading's opening do not match, and the memory is then filed as a topic of its own beside the old text (fabric-coordinator's drain…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - be41faae68b93370
   - dd4478933ea17fda
 ---
 
@@ -24,8 +25,8 @@ lock-in") matched no heading and were filed beside, not in place of,
 the section they meant. Before writing a merge_target, open the slice
 (`memory_read`) and copy its `##` heading byte for byte; a target that
 points at another not-yet-drained memory cannot match anything and
-should instead be a [[link]] in the body.
+should instead be a `[[link]]` in the body.
 
 *References: link*
 
-*Observed 2026-10-24 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

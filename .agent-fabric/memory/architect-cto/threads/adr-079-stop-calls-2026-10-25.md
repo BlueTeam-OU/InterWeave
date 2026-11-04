@@ -5,7 +5,7 @@ topic: "adr-079-stop-calls-2026-10-25"
 description: "gzapp ADR-079 (Ephemeral Stop Calls and Demand Consolidation) drafted 2026-10-25 as PR #1166 (draft, 2 work): what it records, what it amends, what it waits on (review from a relaunched session, owner's acceptance), and PR 9's dependency…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

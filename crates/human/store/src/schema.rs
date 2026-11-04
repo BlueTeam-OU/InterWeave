@@ -28,7 +28,7 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction};
 use crate::StoreError;
 
 /// The schema version this build writes and expects.
-pub const SCHEMA_VERSION: i64 = 12;
+pub const SCHEMA_VERSION: i64 = 13;
 
 /// The three tables ADR-0044 lets hold content.
 const RETENTION_TABLES: &[&str] = &["pending_outbound", "unread_inbound", "kept_inbound"];
@@ -154,12 +154,39 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     if current < 12 {
         migration_12(&tx)?;
     }
+    if current < 13 {
+        migration_13(&tx)?;
+    }
     // The version bump rides the SAME transaction as the DDL above, which
     // is what makes a crashed migration a no-op rather than a schema the
     // store misreads on the next open.
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     Ok(())
+}
+
+/// v13 — a reply's target by its id (STATE.md's v13 paragraph;
+/// `design/2026-10-27-start-window.md` §5.2, architect-cto's DECISION
+/// 01a1a081): `_by_message` on each inbound table, so whether a
+/// conversation stores a reply's target is one probe of an index entry,
+/// never a row read. Led by the id, so one index serves both shapes of
+/// conversation: a direct one fixes all five columns, a channel the id
+/// and the channel, whoever published (the UNIQUE key leads with the
+/// publisher, so it cannot serve a channel). `kind` is in the entry
+/// because v10 appended it after `payload`: read from the row, it is
+/// read past the body. Over the tables' own columns for v10's reason (a
+/// generated column is recomputed from its row). An index build only: no
+/// row is written.
+fn migration_13(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "
+        CREATE INDEX unread_inbound_by_message
+            ON unread_inbound (app_message_id, channel_id, source_peer, source_endpoint, kind);
+        CREATE INDEX kept_inbound_by_message
+            ON kept_inbound (app_message_id, channel_id, source_peer, source_endpoint, kind);
+        ",
+    )
+    .map_err(migration_error)
 }
 
 /// v12 — the same-name rule's other two keys (STATE.md's v12 paragraph;
@@ -1291,6 +1318,16 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
                 "unread_inbound_by_channel",
                 &["channel_key", "received_at", "row_id"],
             ),
+            (
+                "unread_inbound_by_message",
+                &[
+                    "app_message_id",
+                    "channel_id",
+                    "source_peer",
+                    "source_endpoint",
+                    "kind",
+                ],
+            ),
         ],
         foreign_keys: &[],
     },
@@ -1335,6 +1372,16 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             (
                 "kept_inbound_by_channel",
                 &["channel_key", "received_at", "row_id"],
+            ),
+            (
+                "kept_inbound_by_message",
+                &[
+                    "app_message_id",
+                    "channel_id",
+                    "source_peer",
+                    "source_endpoint",
+                    "kind",
+                ],
             ),
         ],
         foreign_keys: &[],

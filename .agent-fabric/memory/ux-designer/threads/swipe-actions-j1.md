@@ -5,7 +5,7 @@ topic: "swipe-actions-j1"
 description: "Status of j1, swipe actions on messages in the Android client — spec merged, build merged; the device review is partial and blocked on the phone link, TalkBack items deferred (IW #297)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -49,7 +49,7 @@ Hide-for-now would be a new intent and Like a product change; both
 are architect-cto's if the owner wants them.
 
 Persona done: "AI Margaret Lovelace, ux-designer" (agent-fabric #281, 6240d7e4).
-Related: [[human-client-message-kinds-and-actions]]
+Related: [[solution-carried-2026-10-24]]
 
 2026-10-16, final: spec FINAL at b8f532da (5 work commits). architect-cto-01
 ruled Undo of Cancel restores the cancelled record under both ids

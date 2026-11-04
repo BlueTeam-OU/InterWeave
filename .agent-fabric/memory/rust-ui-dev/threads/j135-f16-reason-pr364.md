@@ -5,7 +5,7 @@ topic: "j135-f16-reason-pr364"
 description: "j135 / PR #364 — F16's second half (look spec acceptance 23): needs-attention row reason; state, waits, what is owed"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "adr-0052-rule-10-no-local-network-2026-10-26"
 description: "ADR-0052 rule 10 (A 2026-10-26) — a carrier-assigned private cellular address is not shown, advertised, offered or counted; supply d2d1674a on for/p2p-network-dev-02/adr-0052-no-lan-private; bridge half to rust-ui-dev-01"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 17638832fd023538
+  - 7e1b8d2690f80d34
 ---
 
 ## ADR-0052 rule 10 (A 2026-10-26) — a carrier-assigned private cellular address is not shown, advertised, offered or counted; supply d2d1674a on for/p2p-network-dev-02/adr-0052-no-lan-private; bridge half to rust-ui-dev-01
@@ -34,7 +35,7 @@ Supply: d2d1674a on develop-qzapp/architect-cto-01/for/p2p-network-dev-02/adr-00
 DCUTR.md §6, human-client-android.md). One PR, p2p-network-dev-02 integrates;
 rust-ui-dev-01 supplies the Kotlin NetworkCapabilities read + android-platform seam
 (REQUEST 01a1796c-4f68-7e2d-a7ea-e69db15437f7). Awaiting: p2p-02's branch name; the
-ruling is final once their PR's review passes on it (see [[a-ruling-is-final-only-after-its-amendment-passed-review]]).
+ruling is final once their PR's review passes on it (see [[reflection-a-ruling-is-final-only-after-its-amendment-passed-review]]).
 Job closes when d2d1674a reaches origin/main.
 
 **2026-10-26 19:30Z.** rust-ui-dev-01's bridge half supplied as c72dabbf..59310f3f
@@ -57,6 +58,6 @@ under host tests. Still unverified: the Pixel row (Show on Wi-Fi and mobile data
 device); a peer that ran Identify before the classification keeps the learned address; mDNS
 not covered (off in the Android profile). The ruling is final (review passed on the amendment).
 
-*References: a-ruling-is-final-only-after-its-amendment-passed-review*
+*References: reflection-a-ruling-is-final-only-after-its-amendment-passed-review*
 
-*Observed 2026-10-26 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

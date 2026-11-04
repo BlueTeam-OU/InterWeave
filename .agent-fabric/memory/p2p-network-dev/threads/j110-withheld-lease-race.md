@@ -5,7 +5,7 @@ topic: "j110-withheld-lease-race"
 description: "j110 diagnosis: tests/automated-client a_withheld_lease_is_retried... races the daemon's lease release after Client::disconnect(); fix by waiting on the admin lease list"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

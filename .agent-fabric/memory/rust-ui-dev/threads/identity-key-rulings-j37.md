@@ -5,7 +5,7 @@ topic: "identity-key-rulings-j37"
 description: "Card vectors (#343) and architect-cto's rulings on ADR-0063 identity-key UX: 17 section-13 criteria, Remove deletes key, recovery warns of key change"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

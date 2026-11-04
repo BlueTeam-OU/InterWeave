@@ -5,7 +5,7 @@ topic: "define-once-point-elsewhere"
 description: In a spec, a state condition used in several sections is defined in one place; other sections point to it, never paraphrase it
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

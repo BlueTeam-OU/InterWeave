@@ -5,7 +5,7 @@ topic: "release-logic-lives-in-tools-ci"
 description: "editing release.yml (or any workflow step with a case/flag mapping)? the logic goes in a tools/ci script with a mocked-gh self-test, or review files a P2"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "git-rm-then-commit-stages-only-the-rm"
 description: "After `git rm` plus file edits, a bare `git commit` commits only the deletion; a build passing on the tree proves nothing about the commit"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

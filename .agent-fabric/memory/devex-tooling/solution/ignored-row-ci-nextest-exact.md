@@ -5,7 +5,7 @@ topic: "ignored-row-ci-nextest-exact"
 description: "wiring one #[ignore]d test into CI? use nextest -E 'test(=name)' --no-tests=fail, never cargo test -- --exact"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

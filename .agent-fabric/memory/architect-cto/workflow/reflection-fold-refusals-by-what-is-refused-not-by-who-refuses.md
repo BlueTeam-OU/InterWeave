@@ -5,7 +5,7 @@ topic: "reflection-fold-refusals-by-what-is-refused-not-by-who-refuses"
 description: A fold of refusals into categories draws its line by what is refused, a policy refusal to denied and a route that cannot be dialled to dial_failed, never by who refuses
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -23,4 +23,4 @@ line by WHO refuses; the line that holds is WHAT is refused"
 (01a13e6a-70e3). observability.md carries the instance. Adds the fold
 category to the error-label rule.
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

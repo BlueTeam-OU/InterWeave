@@ -5,7 +5,7 @@ topic: "play-guard-followups"
 description: "check_android_no_play_services.sh after #311: fixtures exempt, STRICT required, lock mode an allow-list; what a lockMode edit must keep"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

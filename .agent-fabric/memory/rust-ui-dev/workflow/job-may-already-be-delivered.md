@@ -5,7 +5,7 @@ topic: "job-may-already-be-delivered"
 description: A job a fresh session is launched for may already be delivered and merged; read its thread and the for/ branch before redoing it
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

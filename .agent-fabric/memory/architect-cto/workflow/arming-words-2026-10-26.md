@@ -5,7 +5,7 @@ topic: "arming-words-2026-10-26"
 description: "Arming words given or withheld on 2026-10-26 (InterWeave #462 given at 1e5821eb; #464 withheld because the head moved after the ask), and the check that decides it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 30a6121dcee2a32f
+  - 93bb24adbb139b32
 ---
 
 ## Arming words given or withheld on 2026-10-26 (InterWeave #462 given at 1e5821eb; #464 withheld because the head moved after the ask), and the check that decides it
@@ -41,7 +42,7 @@ whether the paths are a boundary, and the review state, in one line. A
 request's head is stale the moment its sender pushes again; a word for a
 stale head arms nothing and reads as consent. Read the diff and the
 posted review bodies, not the request's summary of them.
-See [[the-arming-word-is-given-on-a-finished-head-only]].
+See [[reflection-the-arming-word-is-given-on-a-finished-head-only]].
 
 **2026-10-27 j400:** #466 (4 work, 5 fix; boundary hole_punch.rs) given at 018d296d: three rounds
 chained from the merge-base, round 3 clean, 0 threads; reviewer ran no check (sandbox), CI pending
@@ -64,6 +65,6 @@ dial's failure is the crate's dial's (next architecture batch).
 
 - **#488 (4 work, 17 fix, design only: start-window U1-U4, contact-cards 5.4.1 tie-break, ux-designer-01 j77)**: given at 14c652c3 (j426, 2026-10-27); seven rounds chained from merge-base fde14292. Side effect: the per-peer endpoint bound now counts contact_routes too (20afc55a, 5th commit on the state-v10 for/ branch) so §11's "at most 63 same-device lines" holds.
 
-*References: the-arming-word-is-given-on-a-finished-head-only*
+*References: reflection-the-arming-word-is-given-on-a-finished-head-only*
 
-*Observed 2026-10-27 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

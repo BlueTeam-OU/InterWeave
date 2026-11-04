@@ -5,7 +5,7 @@ topic: "view-change-runs-desktop-e2e"
 description: "A ui-slint change that moves, renames or hides a control also runs tests/desktop-e2e's human_app suite before the commit, not only ui-slint's own tests"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

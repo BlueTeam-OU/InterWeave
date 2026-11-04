@@ -5,7 +5,7 @@ topic: "cold-read-on-sonnet"
 description: "Cold reads are Explore dispatches on model sonnet, not opus (since 2026-10-10)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -30,7 +30,7 @@ comprehension and naturalness, which sonnet does well.
 misses something a stronger read would have caught, report it to
 fabric-coordinator with the example; the rule changes on evidence.
 Reviews (code-review class) are unchanged: fable.
-Related: [[cold-read-without-meanings]]
+Related: [[workflow-carried-2026-10-10]]
 
 *References: cold-read-without-meanings*
 

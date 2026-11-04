@@ -32,6 +32,7 @@ use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
 pub(crate) mod cards;
 pub(crate) mod directory;
+pub(crate) mod replies;
 pub(crate) mod summaries;
 mod swipe;
 pub(crate) mod window;
@@ -223,13 +224,23 @@ pub enum ItemStatus {
     Inbound(Retention),
 }
 
-/// What a message replies to, if anything (`human-client-ui.md` §15).
+/// What a message replies to, if anything (`human-client-ui.md` §15;
+/// `design/2026-10-27-start-window.md` §5.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reply {
     /// The referenced message is shown in this session.
     Present(ItemKey),
-    /// It is not held here: show a neutral placeholder. Never fetched,
-    /// never a reason to doubt the message.
+    /// It is not held, and this conversation stores it as a row the app
+    /// can show, unread or kept: paging reaches it, so the line reads as
+    /// [`Self::Present`]'s. The store says so when asked, never the
+    /// transport; a target the ceiling just released reads so before the
+    /// store answers, since its rows stayed in the store.
+    Stored(String),
+    /// It is not held here and the store has not said this conversation
+    /// holds it (it does not, it has not answered yet, or its read
+    /// failed); or it is hidden by a Dismiss whose snackbar is open; or
+    /// more than one held message carries its id: show a neutral
+    /// placeholder. Never fetched, never a reason to doubt the message.
     Unavailable(String),
 }
 
@@ -750,6 +761,8 @@ pub struct UiModel {
     windowed: Option<summaries::Summaries>,
     /// The open conversation's window, in the windowed mode.
     windows: window::Windows,
+    /// What the store said of replies' targets not held (§5.2).
+    replies: replies::Replies,
     /// The contacts as the windowed mode reads them, and their photos.
     directory: directory::Directory,
     /// Stored rows the last listing or start could not decode for
@@ -801,6 +814,7 @@ impl UiModel {
             cards: cards::Cards::default(),
             windowed: None,
             windows: window::Windows::default(),
+            replies: replies::Replies::default(),
             directory: directory::Directory::default(),
             rows_not_shown: 0,
             bounds: Bounds::default(),
@@ -1849,6 +1863,7 @@ impl UiModel {
             .push(key);
         self.by_row.insert((table, row), key);
         let conversation_key = conversation.clone();
+        self.reply_built(&conversation, envelope.reply_to.as_deref());
         self.items.insert(
             key,
             inbound_item(
@@ -1914,6 +1929,7 @@ impl UiModel {
             _ => None,
         };
         let conversation_key = conversation.clone();
+        self.reply_built(&conversation, envelope.reply_to.as_deref());
         self.items.insert(
             key,
             Item {
@@ -2003,20 +2019,23 @@ impl UiModel {
 
     fn reply(&self, conversation: &ConversationKey, target: Option<&str>) -> Option<Reply> {
         let target = target?;
-        let holders = self
+        let keys = self
             .by_app
             .get(&(conversation.clone(), target.to_owned()))
-            .map(|keys| {
-                // A hidden message is not held as far as a reply is
-                // concerned: the neutral placeholder (§15).
-                keys.iter()
-                    .filter(|k| self.items.get(k).is_some_and(|i| !i.hidden))
-                    .copied()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        Some(match holders.as_slice() {
+            .map_or(&[][..], Vec::as_slice);
+        // A hidden message is not held as far as a reply is concerned, nor
+        // stored, while its snackbar can bring it back (§5.2): the neutral
+        // placeholder, whatever the store holds.
+        let shown: Vec<ItemKey> = keys
+            .iter()
+            .filter(|k| self.items.get(k).is_some_and(|i| !i.hidden))
+            .copied()
+            .collect();
+        Some(match shown.as_slice() {
             [only] => Reply::Present(*only),
+            [] if keys.is_empty() && self.replies.stored(conversation, target) => {
+                Reply::Stored(target.to_owned())
+            }
             _ => Reply::Unavailable(target.to_owned()),
         })
     }
@@ -2092,13 +2111,25 @@ impl UiModel {
     }
 
     /// Forget `keys` entirely: shown nowhere, offered nothing, no reply
-    /// resolved to them. Only items no store row holds.
+    /// resolved to them; a reply to one asks the store about it (§5.2).
+    /// An item's stored rows, if it holds any, stay in the store: the
+    /// ceiling and a closed window let go of such items, to load again.
     fn drop_items(&mut self, keys: &[ItemKey]) {
         for key in keys {
             if self.ephemeral_set.remove(key) {
                 self.ephemeral.retain(|k| k != key);
             }
+            if let Some((conversation, id, stored)) = self.items.get(key).map(|i| {
+                (
+                    i.conversation.clone(),
+                    i.envelope.app_message_id.clone(),
+                    i.rows.iter().any(|(table, _)| *table != Table::Pending),
+                )
+            }) {
+                self.target_leaving(&conversation, &id, stored);
+            }
             if let Some(item) = self.items.remove(key) {
+                self.reply_dropped(&item.conversation, item.envelope.reply_to.as_deref());
                 for row in &item.rows {
                     self.by_row.remove(row);
                 }

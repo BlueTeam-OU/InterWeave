@@ -40,18 +40,36 @@ pub(crate) fn private_tempdir_in(dir: impl AsRef<Path>) -> tempfile::TempDir {
     temp
 }
 
+/// What v13 added (a reply's target by its id: STATE.md's v13
+/// paragraph), undone on a file this build made. A macro, so every
+/// earlier undo begins with the same text: a file faked at v12 or before
+/// that kept v13's indexes would refuse the migration that builds them.
+macro_rules! undo_v13 {
+    () => {
+        "DROP INDEX unread_inbound_by_message;
+     DROP INDEX kept_inbound_by_message;
+     "
+    };
+}
+
+/// [`undo_v13!`] as a string.
+pub(crate) const UNDO_V13: &str = undo_v13!();
+
 /// What v12 added (the same-name rule's shape keys: STATE.md's v12
-/// paragraph), undone on a file this build made: the indexes before the
-/// columns they cover, and the keys' version row back to version 1's. A
-/// macro, so [`UNDO_V10`] begins with the same text.
+/// paragraph), undone on a file this build made, after v13's: the indexes
+/// before the columns they cover, and the keys' version row back to
+/// version 1's. A macro, so [`UNDO_V10`] begins with the same text.
 macro_rules! undo_v12 {
     () => {
-        "DROP INDEX contacts_by_shape_key;
+        concat!(
+            undo_v13!(),
+            "DROP INDEX contacts_by_shape_key;
      DROP INDEX contacts_by_compat_shape_key;
      ALTER TABLE contacts DROP COLUMN shape_key;
      ALTER TABLE contacts DROP COLUMN compat_shape_key;
      UPDATE settings SET value = '1' WHERE key = 'name_key_version';
      "
+        )
     };
 }
 

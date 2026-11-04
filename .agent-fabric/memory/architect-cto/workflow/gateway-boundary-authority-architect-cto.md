@@ -5,7 +5,7 @@ topic: "gateway-boundary-authority-architect-cto"
 description: "STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -14,6 +14,7 @@ origin:
 derived_from:
   - 2ac4f2bcb85b779c
   - 2ae2c7a18fdefa15
+  - 874bf9c199ef0ca8
   - cce50b0d8f93ade1
 ---
 
@@ -56,6 +57,6 @@ once it exists (dropped included). Add a plain job with
 
 **Why:** three different refusals (header field, auto mode, no working
 copy) on three successive authorizations; none should be rediscovered.
-**How to apply:** a gateway or agent-fabric arm REQUEST is answered as fabric-coordinator's to arm (the settings have named it since 2026-10-20), never judged by this list; the judging list below applies to InterWeave and gzapp alone, where architect-cto holds the authority.
+**How to apply:** a gateway or agent-fabric arm REQUEST is answered as fabric-coordinator's to arm (the settings have named it since 2026-10-20), never judged by this list; the judging list above applies to InterWeave and gzapp alone, where architect-cto holds the authority.
 
-*Observed 2026-10-24 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

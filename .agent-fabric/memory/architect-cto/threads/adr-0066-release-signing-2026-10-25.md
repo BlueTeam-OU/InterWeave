@@ -5,7 +5,7 @@ topic: "adr-0066-release-signing-2026-10-25"
 description: "j366 2026-10-25 — ADR-0066 release signing (owner's OpenPGP tag key by hand, minisign archive key in the release environment, pin packaging/release-keys.toml read from the tagged commit and from main's tip, fail closed) supplied onto…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

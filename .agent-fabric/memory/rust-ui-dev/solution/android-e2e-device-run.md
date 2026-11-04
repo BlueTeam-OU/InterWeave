@@ -5,13 +5,14 @@ topic: "android-e2e-device-run"
 description: "running InterWeave's android-e2e --ignored cases on the Pixel over wireless adb -- the traps that cost a run on 2026-10-16"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 362b8fe663eb2788
   - 3eb1b2ac38fe58f7
 ---
 
@@ -36,9 +37,11 @@ Learned on j66's device runs (InterWeave#283, merged f4104bce):
   from apps/human-android/android with ANDROID_SERIAL set, then each
   test file with `-- --ignored --test-threads 1`.
 Related: [[device-case-reads-while-connected]].
+- The android-e2e cases run the Rust service inside E2eCase's instrumentation process, not NetworkService.kt, and adb.rs's restart() is a no-op. So they prove Keystore, but never foreground-service lifecycle, process death, network callbacks or notifications: on 2026-10-20 no notification and no FGS line appeared during human_chat on the Pixel. Those lines need the app in its normal mode (since #358, tests/android-e2e/tests/app_lifecycle.rs). (reflection; MESSAGE-IDs 01a15272-9de5, 01a159a3-af5a)
+- In a fresh worktree, also run `cargo build -p interweave-transport-daemon` before the cases. The harness takes the daemon from target/debug next to the test binary, and `cargo test --no-run` does not build it. Without it, every case fails within seconds, before reaching the phone (j179, 2026-10-30).
 
 *References: device-case-reads-while-connected*
 
 *Anchors: `tests/android-e2e/README.md::installDebug installDebugAndroidTest`*
 
-*Observed 2026-10-16 (rust-ui-dev)*
+*Observed 2026-10-30 (rust-ui-dev)*

@@ -5,7 +5,7 @@ topic: "ipc-2-10-callers-chain-2026-10-24"
 description: "IPC 2.10 (lost admin writes, superseded) cannot open until rust-ui-dev-01 supplies the human client's set_trust callers; 2.11 and the bridge's loss counters queue behind it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

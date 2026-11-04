@@ -5,7 +5,7 @@ topic: "j39-add-peer-unknown-retries"
 description: "j39 state — add-a-peer unknown-retry rule and Peers row contact names, PR #388"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

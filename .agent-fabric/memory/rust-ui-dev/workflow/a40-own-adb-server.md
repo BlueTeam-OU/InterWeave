@@ -5,7 +5,7 @@ topic: "a40-own-adb-server"
 description: "Driving the Samsung A40 (InterWeave Stage 17 device, API 30): no phone-run for it; lease samsung-a40 + own adb server port, address only from the owner"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 3520c6cd7c564843
+  - 474afb8246bdb027
 ---
 
 ## Driving the Samsung A40 (InterWeave Stage 17 device, API 30): no phone-run for it; lease samsung-a40 + own adb server port, address only from the owner
@@ -32,6 +33,11 @@ server, connects, runs, and `adb kill-server` on EXIT (2026-10-22, j131).
 - Device tests that write the profile (the android-e2e `provision` case) go
   here, never on the Pixel.
 Related: [[release-phone-after-testing]] [[android-e2e-device-run]]
+- Each step's `adb connect` puts a "Wireless debugging connected" banner over
+  the top ~200 px for a few seconds; a tap there opens Developer options. Wait
+  ~8 s after connecting before tapping (j159, 2026-10-25). The owner's own
+  `adb pair`/`adb connect` from this session starts a server on 5037: stop that
+  one process by pid afterwards. API 30's `pm` has no `clear-permission-flags`.
 
 *References: android-e2e-device-run, pixel-no-destructive, release-phone-after-testing*
 

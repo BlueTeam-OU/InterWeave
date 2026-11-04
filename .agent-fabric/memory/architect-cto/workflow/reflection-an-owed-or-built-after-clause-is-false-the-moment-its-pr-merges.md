@@ -5,7 +5,7 @@ topic: "reflection-an-owed-or-built-after-clause-is-false-the-moment-its-pr-merg
 description: When ADR or contract text says a gap is owed, at this writing or built after, and an open PR closes it, the text is false the moment that PR merges and returns as a review finding; strike every such clause in one commit after the closing…
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -25,4 +25,4 @@ InterWeave and gzapp 2026-10-08..10: "three contract sentences that say
 rounds until no "built after" remained (…13803b7866a0, …904e5ec9626a).
 Adds tense and gap clauses to the state-sentence rule.
 
-*Observed 2026-10-23 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*

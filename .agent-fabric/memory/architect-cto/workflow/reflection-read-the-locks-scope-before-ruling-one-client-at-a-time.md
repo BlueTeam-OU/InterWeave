@@ -5,7 +5,7 @@ topic: "reflection-read-the-locks-scope-before-ruling-one-client-at-a-time"
 description: "W44 — before ruling that two clients may coexist on one profile, read what the \"one at a time\" exclusion actually locks (a store-wide instance lock vs a per-endpoint lease); the contract's lease rule and the client's lock are different…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 59f30d1c995fe58e
+  - f8babc1a1ea26e9b
 ---
 
 ## W44 — before ruling that two clients may coexist on one profile, read what the "one at a time" exclusion actually locks (a store-wide instance lock vs a per-endpoint lease); the contract's lease rule and the client's lock are different scopes
@@ -21,8 +22,8 @@ derived_from:
 
 **Why:** a README sentence that names two things ("one store and one lease") was read for the one I was asked about.
 
-**How to apply:** when a ruling says two things may coexist, find the exclusion mechanism in code (the lock, the lease, the socket) and state its scope in the ruling; a contract rule about leases says nothing about a client's store lock. Related: [[a-ruling-restates-the-current-behaviour-read-at-origin-main]].
+**How to apply:** when a ruling says two things may coexist, find the exclusion mechanism in code (the lock, the lease, the socket) and state its scope in the ruling; a contract rule about leases says nothing about a client's store lock. Related: [[reflection-a-ruling-restates-the-current-behaviour-read-at-origin-main]].
 
-*References: a-ruling-restates-the-current-behaviour-read-at-origin-main*
+*References: reflection-a-ruling-restates-the-current-behaviour-read-at-origin-main*
 
-*Observed 2026-10-27 (architect-cto)*
+*Observed 2026-10-30 (architect-cto)*
