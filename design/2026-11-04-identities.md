@@ -221,10 +221,13 @@ front, and only that identity admits the peer at the route. So:
   peers this identity trusts, who can write to it (ruled, §16 Q9: the
   first identity's set and the device's own list differ from the
   seed's first write on, and a peer only the device's list holds can
-  post in a channel). Revoking with one identity is `ConfirmRevoke` in
-  a form without "Its connections to this profile will close now", for
-  the same ruling: the connections close only when no set holds the
-  peer.
+  post in a channel). Revoking, with one identity or several, states
+  only what the act does at this identity's route: the peer's messages
+  to this identity are refused until it is trusted again
+  (`ConfirmRevoke`, `ConfirmRevokeAs`; ruled, §16 Q10). Nothing about
+  channels, connections, the device's own list or another identity's
+  set: a peer the device's own list or another identity's set still
+  holds keeps its connection and can still post in a channel.
 - **No "From this profile's configuration" line on an identity's
   rows.** Today each row says where it came from (`TrustFromConfiguration`
   or `TrustAddedHere`). After the change the first identity's set is
@@ -804,7 +807,7 @@ every character before trusting.
 |---|---|---|
 | `NoTrustedPeerAs` | `NoTrustedPeer` | No peer is trusted by {identity} |
 | `ConfirmAllowAs` | `ConfirmAllow` | Do you want {identity} to trust {peer}? This peer can then exchange messages with {identity} until you remove trust from it. |
-| `ConfirmRevokeAs` | `ConfirmRevoke` | Do you want {identity} to stop trusting {peer}? This peer can then no longer exchange messages with {identity}, until {identity} trusts it again. |
+| `ConfirmRevokeAs` | `ConfirmRevoke` | Do you want {identity} to stop trusting {peer}? Messages that this peer sends to {identity} are then refused, until {identity} trusts it again. |
 | `PeerTrustedAs` | `PeerTrusted` | {peer} is trusted by {identity}. |
 | `PeerUntrustedAs` | `PeerUntrusted` | {peer} is no longer trusted by {identity}. |
 | `AlreadyTrustedAs` | `AlreadyTrusted` | That peer is already trusted by {identity}. |
@@ -849,7 +852,7 @@ the same text, and so do `ContactRouteTrustedAs` and
 | `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button |
 | `PeerStateNeedsTrust` | unchanged | kept only with one identity held |
 | `TrustExplanation` | The peers listed here can exchange messages with you. A change made here stays until you change it again. | from the Stage 22 release: no "Only", no claim about this profile (§5.1, §16 Q9) |
-| `ConfirmRevoke` | Do you want to stop trusting {peer}? This peer can then no longer exchange messages with you, until you trust it again. | from the Stage 22 release: no claim that connections close (§5.1, §16 Q9); `{peer}` the exact PeerId, whole, as today |
+| `ConfirmRevoke` | Do you want to stop trusting {peer}? Messages that this peer sends to you are then refused, until you trust it again. | from the Stage 22 release: it states the route's refusal only, no claim that connections close or about channels (§5.1, §16 Q9, Q10); `{peer}` the exact PeerId, whole, as today |
 
 **Retired**, since nothing shows them any more: `IdentityRemoveLabel`
 (§7); `TrustAllIdentities` (cards §5.7.2's "trust is the device's",
@@ -976,8 +979,10 @@ pass before it lands.
     explanation is §13's changed `TrustExplanation`, and revoking a peer
     shows §13's changed `ConfirmRevoke`; with that peer also in the
     device's own list (`transportctl trust allow`), after the revoke its
-    connection stays and the identity's route refuses its message. Needs
-    D2. *(§16 Q9.)*
+    connection stays, the identity's route refuses its direct message,
+    and its post in a channel the person reads is still shown, which the
+    confirmation's text does not contradict. With two identities, the
+    same with `ConfirmRevokeAs`. Needs D2. *(§16 Q9, Q10.)*
 
 ## 15. Deliberately left out
 
@@ -1055,7 +1060,8 @@ ADR-0067 d. 6 as it stands, no amendment:
   (§5.1, §13). Until that release both are true as on `main`, where the
   client's trust acts write the node's list.
 
-Open, asked of architect-cto after round 8 of #552's review:
+Asked of architect-cto after round 8 of #552's review (QUESTION
+01a1a736) and ruled the same day (REPLY 01a1a738):
 
 - **Q10** the revoke confirmations' "no longer exchange messages".
   `ConfirmRevoke` (one identity, as Q9 prescribes its shape) and
@@ -1066,10 +1072,14 @@ Open, asked of architect-cto after round 8 of #552's review:
   person reads, which Q9 counts as exchanging messages when it removes
   "Only" from `TrustExplanation`. Asked: may the string claim only
   what the identity's route now refuses (its direct messages), or no
-  exclusion at all? The words then are language-culture-en's, and §14
-  case 25 checks the stated scope against what the peer can still do
-  in a channel. Until it is ruled both strings stand as §13 gives
-  them.
+  exclusion at all? Ruled: the first. Both confirmations state only
+  that the peer's messages to this identity are refused until it is
+  trusted again, nothing about channels, connections, the device's
+  list or another identity's set (§5.1, §13); the Q9 ruling's shape
+  for `ConfirmRevoke` is withdrawn. Worded by language-culture-en
+  (REPLY 01a1a73b); §14 case 25 checks the channel post against it.
+  architect-cto aligns `human-client-glossary.md`'s Remove trust row
+  and `human-client-ui.md`'s eviction warning on their own branch.
 
 Answered by language-culture-en (REPLY 01a1a71c, their j242): the
 strings are §13's, and "identity" stays the person's word for a user
