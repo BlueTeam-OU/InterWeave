@@ -1042,7 +1042,7 @@ ADR-0067 d. 6 as it stands, no amendment:
 - **Q9** with one identity held, from the Stage 22 release, the first
   identity's set is seeded once from the device's own list (ADR-0067
   d. 6), and the operator's `transportctl trust allow` and revoke write
-  the device's list only. Two one-identity strings this note keeps are
+  the device's list only. Two one-identity strings on `main`, as asked, are
   true only while the two lists hold the same peers: `TrustExplanation`
   ("Only the peers listed here can exchange messages with this
   profile", while a peer only the device's list holds can post in a
@@ -1054,6 +1054,22 @@ ADR-0067 d. 6 as it stands, no amendment:
   `TrustScope`'s "each of your other identities" is false with one
   (§5.1, §13). Until that release both are true as on `main`, where the
   client's trust acts write the node's list.
+
+Open, asked of architect-cto after round 8 of #552's review:
+
+- **Q10** the revoke confirmations' "no longer exchange messages".
+  `ConfirmRevoke` (one identity, as Q9 prescribes its shape) and
+  `ConfirmRevokeAs` say the revoked peer "can then no longer exchange
+  messages with" the person or {identity}. A peer the device's own
+  list still holds (or, with two or more, another identity's set)
+  stays in the admission set and can still post in a channel the
+  person reads, which Q9 counts as exchanging messages when it removes
+  "Only" from `TrustExplanation`. Asked: may the string claim only
+  what the identity's route now refuses (its direct messages), or no
+  exclusion at all? The words then are language-culture-en's, and §14
+  case 25 checks the stated scope against what the peer can still do
+  in a channel. Until it is ruled both strings stand as §13 gives
+  them.
 
 Answered by language-culture-en (REPLY 01a1a71c, their j242): the
 strings are §13's, and "identity" stays the person's word for a user
