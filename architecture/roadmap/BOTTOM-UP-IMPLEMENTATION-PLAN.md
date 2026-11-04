@@ -7167,9 +7167,10 @@ owner:
   from which source, is not told apart (the peer cache was on):
   p2p-network-dev-02's (j69).
 - SPIKE-011's items not established and carried to step 3 (SPIKES.md):
-  the rewrite of the store key on a device has no device record, and
-  its Keystore sealing on a real Keystore and its key file on a device
-  had none until 2026-11-04 — the
+  the rewrite of the store key on a device, and its key file's refusals
+  there (a missing, newer-version or truncated file refused by name, as
+  the desktop measured), have no device record, and its Keystore
+  sealing on a real Keystore had none until 2026-11-04 — the
   invalidated-key case runs against a fake Keystore, and the phone rows
   open the encrypted store under the real Keystore on both phones (#377
   is in each build they ran) without asserting it, and the identity
@@ -7181,9 +7182,9 @@ owner:
   #560): `interweave.store.human-android` is sealed on the real
   Keystore, inside secure hardware (the TEE) by `KeyInfo`, and the
   store key file kept its digest across a PIN change, a fingerprint
-  enrolment and the cold starts between, so the sealing and the key
-  file are shown and the rewrite on a device is not — rust-ui-dev's, a
-  device row; the
+  enrolment and the cold starts between, so the sealing is shown, the
+  key file's persistence with it, and the key file's refusals and the
+  rewrite on a device are not — rust-ui-dev's, a device row; the
   system-libcrypto build is not pinned, the workspace selecting
   `bundled-sqlcipher-vendored-openssl` — rust-ui-dev's, when a build
   needs it.

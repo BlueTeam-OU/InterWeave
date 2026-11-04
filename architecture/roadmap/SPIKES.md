@@ -943,8 +943,9 @@ The Keystore sealing was read on a device on 2026-11-04
 (`apps/human-android/device-runs/2026-11-04-samsung-a40.md`, #560): the
 store key under its own alias, inside secure hardware, on the Samsung
 A40, and its key file read by digest across a lock change and the cold
-starts between; the rewrite on a device and the system-libcrypto build
-stay carried.
+starts between, which shows the file persists and not its refusals; the
+key file's refusals on a device, the rewrite there and the
+system-libcrypto build stay carried.
 
 ## SPIKE-012 — withdrawn before it opened
 
