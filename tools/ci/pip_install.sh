@@ -27,10 +27,18 @@
 # exits 1 for a network error after its own retries as for a mismatch,
 # and a mismatch repeated costs seconds.
 #
+# The bound needs GNU timeout: `gnutimeout` when it is on PATH, else a
+# `timeout` that is GNU's. ubuntu-26.04's `timeout` is uutils (0.10.0),
+# which sends the --kill-after KILL to pip alone, so a descendant that
+# ignores TERM outlives the attempt and holds the step's output open
+# (measured in ubuntu:26.04, 2026-11-04: 30 s for a 1 s limit, 3 s with
+# gnutimeout, which that image ships).
+#
 # Exit codes:
 #   0  installed
 #   1  every attempt failed (each one's status is printed)
-#   2  usage: no requirements file, a limit that is not a positive integer
+#   2  usage: no requirements file, a limit that is not a positive
+#      integer, no GNU timeout
 # <<< help
 
 set -euo pipefail
@@ -48,13 +56,20 @@ req="$1"
 [[ -f "$req" ]] || die "$req is not a file"
 limit="${PIP_INSTALL_ATTEMPT_SECONDS:-120}"
 [[ "$limit" =~ ^[1-9][0-9]*$ ]] || die "PIP_INSTALL_ATTEMPT_SECONDS is not a positive integer: $limit"
+if command -v gnutimeout > /dev/null; then
+    timeout_bin=gnutimeout
+elif [[ "$(timeout --version 2>/dev/null)" == *"GNU coreutils"* ]]; then
+    timeout_bin=timeout
+else
+    die "no GNU timeout (gnutimeout, or a GNU timeout): the attempt limit would not reach pip's children"
+fi
 
 for ((n = 1; n <= ATTEMPTS; n++)); do
     start="$SECONDS"
     status=0
     # --kill-after: a pip that ignores TERM mid-download must not outlive
     # the attempt that was meant to bound it.
-    timeout --kill-after=10 "$limit" \
+    "$timeout_bin" --kill-after=10 "$limit" \
         python3 -m pip install --require-hashes --progress-bar off --timeout 30 \
         --disable-pip-version-check -r "$req" \
         || status=$?

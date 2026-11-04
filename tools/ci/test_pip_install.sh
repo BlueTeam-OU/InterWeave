@@ -8,8 +8,11 @@
 # python3 is a stub on PATH. It logs each call's arguments and acts out
 # the next line of the sandbox's plan: `ok` exits 0, `fail` exits 1,
 # `hang` sleeps far past the attempt limit, `deaf` does the same with
-# TERM ignored (so only --kill-after ends it). The attempt limit is
-# one second, so a hang costs the run a second, not two minutes.
+# TERM ignored, in itself and in a child it leaves behind (so only
+# --kill-after ends it, and only if the KILL reaches the child too:
+# uutils timeout's does not). The attempt limit is one second, so a
+# hang costs the run a second, not two minutes. The real timeout runs
+# those cases; stub ones say which timeout the script chose.
 #
 # Exit codes:
 #   0  all assertions passed
@@ -111,6 +114,56 @@ for bad in 0 abc -5; do
         pass "an attempt limit of '$bad' exits 2"
     else fail "limit '$bad': status $STATUS, $CALLS calls" "$OUT"; fi
 done
+
+# Which timeout bounds the attempt. PATH here holds only the stubs and
+# links to what the script and the python3 stub run, so the host's own
+# timeout and gnutimeout stay out of it. A stub timeout logs its name
+# and runs the command without a limit; `uutils` answers --version as
+# ubuntu-26.04's does.
+TOOLS="$SANDBOX/tools"
+mkdir -p "$TOOLS"
+for t in bash env wc sed cat sleep; do ln -s "$(command -v "$t")" "$TOOLS/$t"; done
+stub_timeout() { # <dir> <name> <version line>
+    mkdir -p "$1"
+    cat > "$1/$2" <<STUB
+#!/usr/bin/env bash
+if [[ "\${1:-}" == --version ]]; then echo '$3'; exit 0; fi
+echo "$2" >> "$SANDBOX/timeouts"
+shift 2
+exec "\$@"
+STUB
+    chmod +x "$1/$2"
+}
+stub_timeout "$SANDBOX/gnu" gnutimeout 'timeout (GNU coreutils) 9.7'
+stub_timeout "$SANDBOX/gnu" timeout 'timeout (uutils coreutils) 0.10.0'
+stub_timeout "$SANDBOX/gnuonly" timeout 'timeout (GNU coreutils) 9.7'
+stub_timeout "$SANDBOX/uutils" timeout 'timeout (uutils coreutils) 0.10.0'
+# with_timeouts <dir> <plan...> -- <args...>: run, with only <dir>'s timeouts.
+with_timeouts() {
+    local dir="$1"; shift
+    : > "$SANDBOX/log"; : > "$SANDBOX/plan"; : > "$SANDBOX/timeouts"
+    while [[ $# -gt 0 && "$1" != -- ]]; do echo "$1" >> "$SANDBOX/plan"; shift; done
+    shift
+    OUT="$(PATH="$dir:$BIN:$TOOLS" PIP_INSTALL_ATTEMPT_SECONDS=1 "$BASH" "$UNDER_TEST" "$@" 2>&1)"
+    STATUS=$?
+    CALLS=$(wc -l < "$SANDBOX/log")
+    TIMEOUTS="$(cat "$SANDBOX/timeouts")"
+}
+
+with_timeouts "$SANDBOX/gnu" ok -- "$REQ"
+if [[ $STATUS -eq 0 && $CALLS -eq 1 && "$TIMEOUTS" == gnutimeout ]]; then
+    pass "gnutimeout bounds the attempt when it is on PATH, before a uutils timeout"
+else fail "gnutimeout preferred: status $STATUS, $CALLS calls, timeouts '$TIMEOUTS'" "$OUT"; fi
+
+with_timeouts "$SANDBOX/gnuonly" ok -- "$REQ"
+if [[ $STATUS -eq 0 && $CALLS -eq 1 && "$TIMEOUTS" == timeout ]]; then
+    pass "a GNU timeout bounds the attempt when there is no gnutimeout"
+else fail "GNU timeout: status $STATUS, $CALLS calls, timeouts '$TIMEOUTS'" "$OUT"; fi
+
+with_timeouts "$SANDBOX/uutils" ok -- "$REQ"
+if [[ $STATUS -eq 2 && $CALLS -eq 0 && -z "$TIMEOUTS" && "$OUT" == *"no GNU timeout"* ]]; then
+    pass "a uutils timeout and no gnutimeout exits 2 before pip runs"
+else fail "uutils only: status $STATUS, $CALLS calls, timeouts '$TIMEOUTS'" "$OUT"; fi
 
 OUT="$(bash "$UNDER_TEST" --help)"
 if [[ $? -eq 0 && "$OUT" == *"PIP_INSTALL_ATTEMPT_SECONDS"* && "$OUT" != *">>> help"* ]]; then
