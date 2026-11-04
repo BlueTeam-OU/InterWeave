@@ -31,8 +31,8 @@ second line shows the route. And wherever they say trust is the
 device's — cards §5.1's shared-device statement, §5.7.2's Trust row,
 `IdentitiesShareDevice`'s last sentence and `TrustAllIdentities` —
 read §5.1 and §6.1: since ADR-0067 d. 6 trust is the identity's (and
-#553 has `human-client-ui.md` name these four as overridden until this
-proposal is revised: a dependency until #553 is on `main`). What this note does not mention there
+#553 has `human-client-ui.md` name these four as overridden until
+contact-cards is revised: a dependency until #553 is on `main`). What this note does not mention there
 stands as written: the editor's photo step and unsaved-changes dialog
 (cards §5.2), the switch and its switcher (cards §5.7.1) but for that
 rule, what changes the identity in front (cards §5.7.3) but for §5.3
@@ -752,7 +752,7 @@ front.
 | `ProposalAs` | If you accept, the card is saved in the contacts of {identity}. | Accept's context, its last sentence, in every case but S (N4) | the contact is saved to the identity in front |
 | `TrustStepAs` | Trust as {identity} | add-a-peer trust step's button (N9) | "Trust as {identity}" |
 | `TrustScope` | The peers listed here can exchange messages with {identity}. Each of your other identities trusts its own peers. | Trust, under the title | peers trusted here write to this identity; the other identities trust their own |
-| `TrustPeerAs` | Trust as {identity} *(proposed: the text of `TrustStepAs`)* | the Trust page's trust control and its confirmation's primary, in place of `TrustPeer` ("Trust this peer") | "Trust as {identity}" |
+| `TrustPeerAs` | Trust as {identity} | the Trust page's trust control and its confirmation's primary, in place of `TrustPeer` ("Trust this peer") | "Trust as {identity}" |
 | `TrustAs` | Trust as {identity}: {peer} | the accessible name of the Trust page's trust controls (`TrustPeerAs`) and of a Peers row's Trust (`TrustThisPeer`) | trust {peer} as {identity}; begins with the button's visible label |
 | `RemoveTrustAs` | Remove trust as {identity}: {peer} | each Remove trust button's accessible name, Trust | untrust {peer} as {identity}; begins with the visible label |
 | `PeersShared` | These addresses are saved on this device, for all your identities. | Peers, under Add | addresses are the device's, for every identity |
