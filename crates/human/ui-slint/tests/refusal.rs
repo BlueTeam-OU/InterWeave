@@ -131,11 +131,14 @@ fn without_try_again_it_is_neither_shown_nor_reached_and_close_has_focus() {
     }
 }
 
-/// Tab runs path, Close, Try again, and back to the path, and the ring
-/// at each stop that draws one covers no neighbour: the path's label
-/// stands above its field. The path draws its ring the second time
-/// round, once a Tab to Close has put the window in keyboard mode.
-/// Mutation: the path's 4 px spacing back.
+/// Tab runs path, Close, Try again, and back to the path, each stop
+/// draws its ring, and the ring covers no neighbour: the path's label
+/// stands above its field. The first Tab comes from Try again's focus by
+/// a call and lands on the path, a text field, which is told no focus
+/// reason: the window's `KeyboardScope` draws its ring (#546 F1). The
+/// scroll area around the path clips, and cuts no ring.
+/// Mutations: the path's 4 px spacing back; the scope's capture setting
+/// no keyboard mode; the scroll body's padding taken off.
 #[test]
 fn tab_runs_through_the_path_close_and_try_again() {
     let view = screen(&store_page());
@@ -149,12 +152,14 @@ fn tab_runs_through_the_path_close_and_try_again() {
                 "the ring at {:?} covers {over:#?}",
                 focus(&view)
             );
+            let cut = common::ring_cut(view.window()).expect("the ring above");
+            assert!(cut.is_empty(), "at {:?}: {cut:#?}", focus(&view));
             checked.push(focus(&view));
         }
         seen.push(focus(&view));
     }
     assert_eq!(seen, ["path", "close", "retry", "path"]);
-    assert!(checked.contains(&"path".to_owned()), "{checked:?}");
+    assert_eq!(checked, seen, "a ring at every stop");
 }
 
 #[test]
@@ -406,8 +411,14 @@ fn the_full_confirmation_lists_every_loss_and_cancel_has_focus() {
         (1, 0),
         "Enter alone cancels"
     );
-    key(&view, Key::Tab);
-    assert_eq!(focus(&view), "dialog-confirm");
+    // The dialog moves focus by a call; the Tab still draws the ring.
+    let to = common::modal_tab(
+        view.window(),
+        view.window().window(),
+        || focus(&view),
+        slint::platform::update_timers_and_animations,
+    );
+    assert_eq!(to, "dialog-confirm");
     key(&view, Key::Tab);
     assert_eq!(focus(&view), "dialog-cancel", "Tab stays in the dialog");
     key(&view, Key::Escape);

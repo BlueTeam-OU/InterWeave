@@ -977,6 +977,8 @@ fn tab_each_draws_one_ring(view: &View, stops: usize) -> std::collections::BTree
         assert_eq!(rings_shown(view), 1, "one focus ring at {on:?}");
         let over = common::ring_overdraws(view.window()).expect("the ring counted above");
         assert!(over.is_empty(), "the ring at {on:?} covers {over:#?}");
+        let cut = common::ring_cut(view.window()).expect("the ring counted above");
+        assert!(cut.is_empty(), "at {on:?}: {cut:#?}");
         reached.insert(on);
     }
     reached
@@ -3756,6 +3758,13 @@ fn the_trust_dialog_names_its_act_and_hands_focus_back() {
         Some(text(UiText::RemoveTrust)),
         "the act is named"
     );
+    let to = common::modal_tab(
+        view.window(),
+        view.window().window(),
+        || focus(&view),
+        slint::platform::update_timers_and_animations,
+    );
+    assert_eq!(to, "trust-confirm", "Tab");
     assert!(view.back(), "Back is the dialog's");
     let _ = intents(&mut view, &mut model);
     view.render(&model);

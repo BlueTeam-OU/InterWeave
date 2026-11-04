@@ -8,6 +8,8 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -436,9 +438,21 @@ fn the_identity_page_keeps_tab_on_its_own_stops() {
     view.show_identity(Some(identity_page(&flow)));
     slint::platform::update_timers_and_animations();
     let first = said.borrow().len();
+    // Ctrl+Tab is no Tab of the page's (`FocusMode.navigates`), and draws
+    // no ring; Tab draws it, the page having taken focus by a call.
+    common::ctrl_tab(view.window().window());
+    assert_eq!(said.borrow().len(), first, "Ctrl+Tab moves no focus");
+    assert!(
+        common::shown_ring(view.window()).is_none(),
+        "control: no ring yet"
+    );
     for _ in 0..3 {
         tab(&view);
     }
+    assert!(
+        common::shown_ring(view.window()).is_some(),
+        "Tab draws the ring"
+    );
     let key: slint::SharedString = Key::Backtab.into();
     let window = view.window().window();
     window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
@@ -572,6 +586,21 @@ impl Identity {
 
     fn backtab(&mut self) {
         self.key(slint::platform::Key::Backtab);
+    }
+
+    /// Tab with Shift held, as a hardware keyboard may send Shift+Tab.
+    fn shift_tab(&mut self) {
+        use slint::platform::{Key, WindowEvent};
+        let (shift, tab): (slint::SharedString, slint::SharedString) =
+            (Key::Shift.into(), Key::Tab.into());
+        let window = self.view.window().window();
+        window.dispatch_event(WindowEvent::KeyPressed {
+            text: shift.clone(),
+        });
+        window.dispatch_event(WindowEvent::KeyPressed { text: tab.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text: tab });
+        window.dispatch_event(WindowEvent::KeyReleased { text: shift });
+        self.settle();
     }
 
     fn enter(&mut self) {
@@ -985,8 +1014,16 @@ fn the_discard_dialog_takes_focus_holds_it_and_gives_it_back() {
     page.key(Key::Escape);
     assert!(page.flow.discard_asked(), "control: the dialog shows");
     assert_eq!(page.last(), "ui-trace focus=identity-dialog-keep");
+    // Ctrl+Tab moves no focus in the dialog (`FocusMode.navigates`).
     let first = page.said.borrow().len();
+    common::ctrl_tab(page.view.window().window());
+    page.settle();
+    assert_eq!(page.said.borrow().len(), first, "Ctrl+Tab moves no focus");
     page.tab();
+    assert!(
+        common::shown_ring(page.view.window()).is_some(),
+        "Tab draws the ring"
+    );
     page.tab();
     page.backtab();
     assert_eq!(
@@ -1053,6 +1090,20 @@ fn the_identity_page_steps_back_in_reverse_order() {
             && forward[6] == "ui-trace focus=identity-slot:1",
         "control: the walk crosses the segments: {forward:#?}"
     );
+    // Shift+Tab can come as Tab with Shift held, as Slint's own
+    // navigation takes it: back, from the grid's first row to the arrow.
+    tab_to(&mut page, "ui-trace focus=identity-slot:0");
+    page.shift_tab();
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-back",
+        "Tab with Shift steps back"
+    );
+    // Ctrl+Tab is no Tab of the page's (`FocusMode.navigates`).
+    let before = page.said.borrow().len();
+    common::ctrl_tab(page.view.window().window());
+    page.settle();
+    assert_eq!(page.said.borrow().len(), before, "Ctrl+Tab moves no focus");
 }
 
 /// Over 130 % font, a full-list row whose word no letter continues
