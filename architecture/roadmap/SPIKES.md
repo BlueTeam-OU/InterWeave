@@ -939,6 +939,11 @@ sealing of the key (decision 3: the harness takes its key from the
 environment); the rewrite and the key file on the device; the
 system-libcrypto build, which the phone cannot link and the desktop
 measured within the same bounds and which this Result does not pin.
+The Keystore sealing was read on a device on 2026-11-04
+(`apps/human-android/device-runs/2026-11-04-samsung-a40.md`, #560): the
+store key under its own alias, inside secure hardware, on the Samsung
+A40; the rewrite on a device and the system-libcrypto build stay
+carried.
 
 ## SPIKE-012 — withdrawn before it opened
 

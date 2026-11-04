@@ -5354,7 +5354,11 @@ and were not in this review's scope. No contract flipped
 at this gate.
 
 **What this stage did not prove, carried by name:** the Keystore
-user-presence and network-callback instrumented cases; the Recents
+user-presence and network-callback instrumented cases (the A40 run of
+2026-11-04, `device-runs/2026-11-04-samsung-a40.md`, showed a PIN change
+and a fingerprint enrolment invalidate none of the app's keys, none
+being bound to authentication; the `user-presence` profile's
+invalidated-key case stays carried); the Recents
 thumbnail's content; notification arrival at API 33+ (measured since,
 2026-10-31, `device-runs/2026-10-31-pixel-9a.md`, 3 runs of 3 under
 the person's grant, with that record's bounds); device transfer
@@ -5363,10 +5367,21 @@ targetSdk 36 doubt); the four unbuilt instrumented cases of (b); the
 Android half of render parity; the desktop ↔ Android platform matrix
 comparing decoded fields and the relayed route indicator live on the
 Android path (both Stage 18's); the accessibility reach and TalkBack
-(the release gate); from the design review's close table, F3's toolkit
-handle, F4's Trust at 200 % in light theme, F10's retry state on a
-phone, F6's truncation at 200 % and acceptance 23's network-denied
-state (the release gate); N1, the permission toast the target SDK
+(the release gate; the card page in the owner's hands on the A40 on
+2026-11-04, the same record: no node for the page, and unusable); from
+the design review's close table, F3's toolkit handle, F4's Trust at
+200 % in light theme (found not met on the A40 on 2026-11-04, the page
+laid out wider than the phone at that scale, fixed by a2aa9802's
+wrapping on #560 with
+`crates/human/ui-slint/tests/look.rs::trust_at_200_percent_text_stays_inside_a_phone_wide_window`
+as the guard, and met on the fixed build in light theme, the same
+record), F10's retry state on a phone (met there: one status over
+300 s, its age moving, the last problem named, the written time
+unchanged), F6's truncation at 200 % (met there) and acceptance 23's
+network-denied state (the release gate; not reachable on the A40, a
+platform limit: Android 11 refuses `pm revoke` of INTERNET as not a
+changeable permission, so the state needs a build or a platform that
+can withhold it); N1, the permission toast the target SDK
 raises, unranked (architect-cto's target-SDK decision, taken with the
 `dataExtractionRules` doubt above); the relayed-paths fix on the Pixel, measured
 on the A40 only (p2p-network-dev's second device run, when the phone is
@@ -5834,7 +5849,14 @@ none is the status value's, which stays on this stage.
   Samsung A40 on 2026-11-03 (`apps/human-android/device-runs/2026-11-03-samsung-a40.md`,
   #542, on the owner's word to wipe the phone): the row's `owed:` item
   is the invalidation alone since then, the StrongBox branch and
-  TalkBack named in the record as not run.
+  TalkBack named in the record as not run. Both rows' device items ran
+  on the same phone on 2026-11-04 (`apps/human-android/device-runs/2026-11-04-samsung-a40.md`,
+  #560): TM-48's two Android cases passed, the warning on R1 and K1 and
+  not on R2, read from the trace behind `FLAG_SECURE`; TM-54's PIN
+  change and fingerprint enrolment invalidated no key, none being bound
+  to authentication, the invalidated-key case of a `user-presence`
+  profile left to §20's carry. Both rows read `—` since, their limit
+  cells naming the record; S12's open rows are the others named above.
 - **TM-45's owed cases** (step S10 (02, with rust-ui-dev)): the
   notification content and the clients' own logs as a shadow archive
   (`apps/human-desktop`, `apps/human-android`), the one `owed` item
@@ -5890,8 +5912,10 @@ none is the status value's, which stays on this stage.
   to `S12 (rust-ui-dev)`, since the identity key's Keystore cipher,
   alias retirement and invalidation had no device run then (the cipher
   and the alias retirement ran on the A40 on 2026-11-03,
-  `apps/human-android/device-runs/2026-11-03-samsung-a40.md`, #542; the
-  invalidation is still owed) and are S12's item in rust-ui-dev's
+  `apps/human-android/device-runs/2026-11-03-samsung-a40.md`, #542, and
+  the invalidation on 2026-11-04,
+  `apps/human-android/device-runs/2026-11-04-samsung-a40.md`, #560, after
+  which the row reads `—`) and were S12's item in rust-ui-dev's
   lane, run with the store key's device rows in the owner's phone
   window; TM-56 moves to a §29 carry
   (rust-ui-dev): the same-name three-key rule and a rendered title told
@@ -7082,11 +7106,19 @@ owner:
   not reached, so the held-row ceiling and not the backlog bounds what
   a conversation pages in; the case in CI holds the start's and the
   first page's Rust peak, and the first page's SQLite peak, at 2000
-  rows within one page's slack of 200's. Left open by name: the
-  Android chat case not rerun on a phone after the
-  removal, and the A40's pane still on "Select a conversation" 3 s
-  after a tap and its rows shown by the next screenshot some 10 s later
-  (the device record, one try), not re-measured since #521's draw fix; and a reply whose target lies
+  rows within one page's slack of 200's. Left open by name at that
+  close, and closed on 2026-11-04 on the A40
+  (`apps/human-android/device-runs/2026-11-04-samsung-a40.md`, #560): the
+  Android chat case rerun on a phone after the removal, both device
+  cases passing three times on a build carrying #520; and the A40's
+  pane, left on "Select a conversation" 3 s after a tap in the first
+  record, re-measured by the phone's own clock on a debug build (the
+  cargo dev profile, unoptimised): the page switches within half a
+  second and the UI thread then stays busy 7.7 to 12.3 s before it
+  takes the next input, two such opens ending in an ANR with
+  `android_main` at 11.7 s of CPU, so the cost is the first draw after
+  a page and not the network; the release build's figure is not
+  measured (rust-ui-dev-02's j90). Still open: a reply whose target lies
   beyond the held rows read as `unavailable` on the command line, the
   store lookup by message id architect-cto's to decide (j462).
 - Found after the close, from the owner's second review of the client
@@ -7139,8 +7171,13 @@ owner:
   key's run on the A40 on 2026-11-03
   (`apps/human-android/device-runs/2026-11-03-samsung-a40.md`) exercised the
   same `KeystoreCipher.kt` on a real Keystore under the identity's
-  alias, the store key's alias not read there — rust-ui-dev's, a
-  device row; the
+  alias, the store key's alias not read there, and read on the same
+  phone on 2026-11-04 (`apps/human-android/device-runs/2026-11-04-samsung-a40.md`,
+  #560): `interweave.store.human-android` is sealed on the real
+  Keystore, inside secure hardware (the TEE) by `KeyInfo`, and the
+  store key file kept its digest across a PIN change, a fingerprint
+  enrolment and the cold starts between, so the sealing is shown and
+  the rewrite on a device is not — rust-ui-dev's, a device row; the
   system-libcrypto build is not pinned, the workspace selecting
   `bundled-sqlcipher-vendored-openssl` — rust-ui-dev's, when a build
   needs it.
