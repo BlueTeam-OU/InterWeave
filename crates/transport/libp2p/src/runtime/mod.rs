@@ -2653,6 +2653,9 @@ impl SwarmRuntime {
                                         .map(kademlia_driver::KademliaState::record_writes_dropped),
                                     direct_reservations_outstanding: outstanding,
                                     broadcast_join_references: join_references,
+                                    broadcast_queue_overflow_total: broadcast_state
+                                        .queues
+                                        .dropped_total(),
                                     pre_auth: funnel_counts,
                                     ingress,
                                     resolver: resolver_source,
