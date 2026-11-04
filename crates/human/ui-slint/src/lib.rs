@@ -52,6 +52,8 @@ mod store_screen;
 mod swipe;
 #[cfg(feature = "ui-trace")]
 mod trace;
+#[cfg(feature = "ui-trace")]
+pub use trace::{Prompt as TracedPrompt, prompt_line};
 mod window_marks;
 
 pub use cards::{PhotoPick, PhotoRequest};
@@ -1165,8 +1167,9 @@ impl View {
     }
 
     /// Write what the window shows to `sink` from now on, a line per
-    /// change: the page a render drew, where focus is, and the Peers
-    /// steps' outcomes,
+    /// change: the page a render drew, where focus is, the Peers steps'
+    /// outcomes, the connectivity and session notice, and the identity
+    /// screen the root says ([`trace_identity`](Self::trace_identity)),
     /// in kinds only (`trace.rs`). For a driver that steps the app by key
     /// events; the debug APK turns it on, the release build has none.
     #[cfg(feature = "ui-trace")]
@@ -1176,6 +1179,17 @@ impl View {
         self.window
             .on_focus_traced(move |id| to(&trace::focus_line(&id)));
         self.trace = Some(trace::Tracer::new(sink));
+    }
+
+    /// The identity flow's `screen` is over the window, or, `None`, its
+    /// page has left it: to the trace if one is on. The root says it as
+    /// it calls [`show_identity`](Self::show_identity), which is handed
+    /// a page and not the flow.
+    #[cfg(feature = "ui-trace")]
+    pub fn trace_identity(&mut self, screen: Option<interweave_human_ui_model::ScreenId>) {
+        if let Some(tracer) = self.trace.as_mut() {
+            tracer.identity(screen);
+        }
     }
 
     /// What this render showed, to the trace if one is on.
@@ -1207,6 +1221,8 @@ impl View {
         let now = trace::shown(
             page,
             model.connect_phase(),
+            model.connectivity(),
+            model.session_notice(),
             model.peers(),
             model.trust_settings(),
             |p| handles.of(p),

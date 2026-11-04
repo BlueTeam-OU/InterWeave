@@ -8,7 +8,10 @@
 //!
 //! A line names only kinds: the page, the focused control's focus key
 //! (a fixed name, or one with the integer handles the view gives rows),
-//! where the start stands on onboarding's Connect, Show's state, the add's result and each trust block's state. Never a
+//! where the start stands on onboarding's Connect, Show's state, the add's result and each trust block's state, the
+//! connectivity and the session notice the window shows, the identity
+//! screen over it, and each credential prompt the root raised and its
+//! answer. Never a
 //! person-facing text, an address, a `PeerId` or a name -- a focus id
 //! that is not a key's shape is written as `?`
 //! (`a_trace_carries_no_address_peer_or_name`). Compiled under the
@@ -16,8 +19,10 @@
 
 use std::rc::Rc;
 
+use interweave_human_client_api::Connectivity;
 use interweave_human_ui_model::{
-    AddResult, BlockProblem, BlockState, ConnectPhase, Peers, ShowState, TrustSettings,
+    AddResult, BlockProblem, BlockState, ConnectPhase, Peers, ScreenId, SessionNotice, ShowState,
+    TrustSettings,
 };
 use interweave_transport_api::TransportIdentity;
 
@@ -38,6 +43,11 @@ pub(crate) struct Shown {
     pub(crate) add: Option<(&'static str, usize)>,
     /// Each block's handle, state and problem, in the page's order.
     pub(crate) blocks: Vec<Block>,
+    /// The connectivity the window shows: `offline` while the key waits
+    /// for the person, as the model has it.
+    pub(crate) connectivity: &'static str,
+    /// The session notice above the chats, if any.
+    pub(crate) notice: Option<&'static str>,
 }
 
 /// One trust block: its handle, state and problem.
@@ -49,6 +59,8 @@ pub(crate) type Block = (i32, &'static str, Option<&'static str>);
 pub(crate) fn shown(
     page: &'static str,
     connect: ConnectPhase,
+    connectivity: Connectivity,
+    notice: Option<SessionNotice>,
     peers: &Peers,
     trust: &TrustSettings,
     mut handle: impl FnMut(&TransportIdentity) -> i32,
@@ -76,6 +88,21 @@ pub(crate) fn shown(
         ConnectPhase::Settled => "settled",
         ConnectPhase::Deferred => "deferred",
     };
+    let connectivity = match connectivity {
+        Connectivity::OnlineDirect => "online-direct",
+        Connectivity::OnlineRelay => "online-relay",
+        Connectivity::OnlinePartial => "online-partial",
+        Connectivity::Offline => "offline",
+        Connectivity::Unknown => "unknown",
+    };
+    let notice = notice.map(|n| match n {
+        SessionNotice::NoDaemon => "no-daemon",
+        SessionNotice::Reconnecting => "reconnecting",
+        SessionNotice::StorageDegraded => "storage-degraded",
+        SessionNotice::Refused(_) => "refused",
+        SessionNotice::NetworkDenied => "network-denied",
+        SessionNotice::AuthenticationNeeded => "authentication-needed",
+    });
     Shown {
         page,
         connect,
@@ -83,13 +110,67 @@ pub(crate) fn shown(
         adding: peers.add_waiting(),
         add,
         blocks,
+        connectivity,
+        notice,
     }
+}
+
+/// The identity screen a kind names: the design's screen id, lowercase
+/// (design/2026-10-19-android-identity.md), `None` once the flow has
+/// handed over.
+const fn identity(screen: ScreenId) -> Option<&'static str> {
+    Some(match screen {
+        ScreenId::W => "w",
+        ScreenId::C1 => "c1",
+        ScreenId::C2 => "c2",
+        ScreenId::C3 => "c3",
+        ScreenId::C4 => "c4",
+        ScreenId::R1 => "r1",
+        ScreenId::R2 => "r2",
+        ScreenId::R3 => "r3",
+        ScreenId::R4 => "r4",
+        ScreenId::K1 => "k1",
+        ScreenId::S1 => "s1",
+        ScreenId::S2 => "s2",
+        ScreenId::Done => return None,
+    })
+}
+
+/// A credential prompt the root asked the platform for, or its answer.
+/// The prompt a cold launch raises before anything binds is the
+/// Activity's own and has no asked line; its answer has one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prompt {
+    /// Show my phrase's prompt, before the words.
+    Phrase,
+    /// The prompt that unlocks the app: the notice's Unlock, or a key
+    /// operation the presence window held back.
+    Unlock,
+    /// The person authenticated.
+    Granted,
+    /// Cancelled, refused, or left (Recents, Back): the platform's
+    /// error, whichever.
+    Cancelled,
+}
+
+/// The line for `prompt`.
+#[must_use]
+pub fn prompt_line(prompt: Prompt) -> String {
+    let kind = match prompt {
+        Prompt::Phrase => "phrase",
+        Prompt::Unlock => "unlock",
+        Prompt::Granted => "granted",
+        Prompt::Cancelled => "cancelled",
+    };
+    format!("{PREFIX} prompt={kind}")
 }
 
 /// Where the lines go, and what was last said shown.
 pub(crate) struct Tracer {
     sink: Rc<dyn Fn(&str)>,
     before: Shown,
+    /// The identity screen last said shown.
+    identity: Option<&'static str>,
 }
 
 impl Tracer {
@@ -97,7 +178,18 @@ impl Tracer {
         Self {
             sink,
             before: Shown::default(),
+            identity: None,
         }
+    }
+
+    /// Say the identity screen `screen` is over the window, or, `None`,
+    /// that the flow's page has left it -- when it changed.
+    pub(crate) fn identity(&mut self, screen: Option<ScreenId>) {
+        let now = screen.and_then(identity);
+        if let Some(line) = identity_change(self.identity, now) {
+            (self.sink)(&line);
+        }
+        self.identity = now;
     }
 
     /// Say how `now` differs from what was last said.
@@ -152,6 +244,12 @@ pub(crate) fn changes(before: &Shown, now: &Shown) -> Vec<String> {
             None => format!("{PREFIX} add=none"),
         });
     }
+    if now.connectivity != before.connectivity {
+        lines.push(format!("{PREFIX} connectivity={}", now.connectivity));
+    }
+    if now.notice != before.notice {
+        lines.push(format!("{PREFIX} notice={}", now.notice.unwrap_or("none")));
+    }
     for block in &now.blocks {
         if !before.blocks.contains(block) {
             let (handle, state, problem) = block;
@@ -162,6 +260,11 @@ pub(crate) fn changes(before: &Shown, now: &Shown) -> Vec<String> {
         }
     }
     lines
+}
+
+/// The line for the identity screen moving from `before` to `now`.
+fn identity_change(before: Option<&'static str>, now: Option<&'static str>) -> Option<String> {
+    (before != now).then(|| format!("{PREFIX} identity={}", now.unwrap_or("closed")))
 }
 
 /// The line for focus moving to `id`, the window's `focus-id`.
@@ -247,5 +350,81 @@ mod tests {
             changes(&now, &later),
             ["ui-trace block:1=undecided problem=not-made"]
         );
+    }
+
+    /// The key waiting for the person: offline with its notice, then
+    /// both gone once it is unlocked.
+    #[test]
+    fn the_locked_state_is_said_and_its_end() {
+        let peers = Peers::default();
+        let trust = TrustSettings::default();
+        let at = |connectivity, notice| {
+            shown(
+                "conversations",
+                ConnectPhase::NotOwed,
+                connectivity,
+                notice,
+                &peers,
+                &trust,
+                |_| 0,
+            )
+        };
+        let locked = at(
+            Connectivity::Offline,
+            Some(SessionNotice::AuthenticationNeeded),
+        );
+        assert_eq!(
+            changes(&Shown::default(), &locked),
+            [
+                "ui-trace page=conversations",
+                "ui-trace connect=not-owed",
+                "ui-trace connectivity=offline",
+                "ui-trace notice=authentication-needed",
+            ]
+        );
+        let unlocked = at(Connectivity::Unknown, None);
+        assert_eq!(
+            changes(&locked, &unlocked),
+            ["ui-trace connectivity=unknown", "ui-trace notice=none"]
+        );
+        let online = at(Connectivity::OnlinePartial, None);
+        assert_eq!(
+            changes(&unlocked, &online),
+            ["ui-trace connectivity=online-partial"]
+        );
+    }
+
+    /// Show my phrase from Settings: S1, its words, the flow left; a
+    /// screen said once however often it is drawn.
+    #[test]
+    fn the_identity_screen_is_said_when_it_changes() {
+        let said = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let to = Rc::clone(&said);
+        let mut tracer = Tracer::new(Rc::new(move |l: &str| to.borrow_mut().push(l.to_owned())));
+        tracer.identity(None);
+        for screen in [ScreenId::S1, ScreenId::S1, ScreenId::S2, ScreenId::Done] {
+            tracer.identity(Some(screen));
+        }
+        tracer.identity(None);
+        tracer.identity(Some(ScreenId::K1));
+        tracer.identity(None);
+        assert_eq!(
+            *said.borrow(),
+            [
+                "ui-trace identity=s1",
+                "ui-trace identity=s2",
+                "ui-trace identity=closed",
+                "ui-trace identity=k1",
+                "ui-trace identity=closed",
+            ]
+        );
+    }
+
+    #[test]
+    fn each_prompt_has_its_line() {
+        assert_eq!(prompt_line(Prompt::Phrase), "ui-trace prompt=phrase");
+        assert_eq!(prompt_line(Prompt::Unlock), "ui-trace prompt=unlock");
+        assert_eq!(prompt_line(Prompt::Granted), "ui-trace prompt=granted");
+        assert_eq!(prompt_line(Prompt::Cancelled), "ui-trace prompt=cancelled");
     }
 }

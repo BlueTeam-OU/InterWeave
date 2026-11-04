@@ -32,6 +32,8 @@ use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustB
 
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
+#[cfg(feature = "ui-trace")]
+use interweave_human_ui_slint::{TracedPrompt, prompt_line};
 
 /// Where the window starts, as `Native.identityState` answers it.
 pub(crate) mod state {
@@ -483,6 +485,8 @@ pub(crate) fn authenticate() {
         .unwrap_or_else(PoisonError::into_inner)
         .is_some()
     {
+        #[cfg(feature = "ui-trace")]
+        log(&prompt_line(TracedPrompt::Unlock));
         ASKS.push(ask::UNLOCK);
     }
 }
@@ -506,6 +510,12 @@ fn authenticated(granted: bool) {
 
 /// `Native.prompted`: the credential prompt's answer.
 pub(crate) fn prompted(granted: bool) {
+    #[cfg(feature = "ui-trace")]
+    log(&prompt_line(if granted {
+        TracedPrompt::Granted
+    } else {
+        TracedPrompt::Cancelled
+    }));
     invoke_on_window(move || {
         if ONBOARDING.with(|slot| slot.borrow().is_none()) {
             authenticated(granted);
@@ -618,6 +628,8 @@ fn one(effect: Effect) -> Vec<Effect> {
         let effect = match o.gate.admit(effect, now_ms()) {
             Admit::Run(effect) => effect,
             Admit::Prompt => {
+                #[cfg(feature = "ui-trace")]
+                log(&prompt_line(TracedPrompt::Unlock));
                 ASKS.push(ask::UNLOCK);
                 return Vec::new();
             }
@@ -710,6 +722,8 @@ fn one(effect: Effect) -> Vec<Effect> {
                 Vec::new()
             }
             Effect::Prompt => {
+                #[cfg(feature = "ui-trace")]
+                log(&prompt_line(TracedPrompt::Phrase));
                 ASKS.push(ask::PROMPT);
                 Vec::new()
             }
@@ -747,6 +761,10 @@ fn render() {
     let handover = ONBOARDING.with(|slot| {
         let mut slot = slot.borrow_mut();
         let o = slot.as_mut()?;
+        // Said before the page is set, so a page's line comes before any
+        // ask its showing leads to (SECURE_OFF after `identity=closed`).
+        #[cfg(feature = "ui-trace")]
+        o.view.borrow_mut().trace_identity(Some(o.flow.screen()));
         if o.flow.screen() != ScreenId::Done {
             o.view.borrow().show_identity(Some(identity_page(&o.flow)));
             return None;
