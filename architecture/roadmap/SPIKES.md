@@ -349,6 +349,52 @@ Not established: a message that asks for an answer after such a first
 turn, and the rule behind d, read from four runs and not from the
 binary.
 
+**Carried measurement, S29 (2026-11-04, Claude Code 2.1.286 with 2.1.311
+and 2.1.317 for one case, rust-services-dev, plan §19): `--allowedTools`
+lets `reply` out in `acceptEdits` and `dontAsk` and not in `plan`; a
+message asking for an answer is answered through `reply` one run in
+three; the host reads a line whole to 8 MiB and paces nothing, the
+model's prompt bounding an event between 320 KiB and 1 MiB; the
+unflagged permission mode follows the build.** Read off
+`spikes/spike-001/README.md` §S29 (facts 70–75, runs `s29-a` to `s29-h`
+and `s29-s-*`, #555), each build installed into a scratch `HOME` of its
+own, every session under this login's `HOME`. With `--allowedTools`
+naming the bridge's tools, `reply` left a
+print session in `acceptEdits` and in `dontAsk`, three runs of three
+each, the peer's `ack` 3.9 to 10.3 s after its send, and was denied in
+`plan` three of three with S26's text, the model not retrying (70). A
+message asking to be answered with `ack`, after S28's silent first turn,
+started a turn of its own each time and was answered through `reply`
+once in three runs; in the other two the model answered in text, called
+no tool and said the request came from the channel and not from the
+user (71). A stub channel server's line was read whole at 327,680
+bytes, the bridge's bound, at one byte past it, at 1 MiB and at 8 MiB,
+one run at each length;
+at the bound the turn answered, for one letter repeated and for random
+base64url, and at 1 MiB and 8 MiB the turn ended with the error result
+"Prompt is too long", so no line limit of the host's own was found and
+the model's prompt bounds an event between 320 KiB and 1 MiB for that
+content on `claude-sonnet-5-5` (72). The bridge's largest text line, 276,426 bytes
+for 46,000 U+0001, was taken and answered, as was the base64url line of
+65,785 bytes for 49,000 (73). Ten messages sent back to back became ten
+lines within 0.18 s, each in the debug log within 0.08 s of its line;
+the first started a turn and the other nine joined it as attachments
+within 1 ms of being queued, and the peer had `ack 1` 10.2 s and
+`ack 10` 15.1 s after the first send, so in this one run events
+during a turn the channel started joined it where fact 45's, during a
+user turn, waited (74). With no `--permission-mode` the same setup reported `auto` on
+2.1.286 and `default` on 2.1.311 and 2.1.317, one run each, the
+auto-mode gate line
+identical on all three, and four 2.1.286 sessions whose first `init`
+came about 32 s after the start reported `default` too; so fact 69's
+change follows the build on one install location and the mode is
+settled by something at start-up, neither read from the binary (75).
+What this changes in the bridge: nothing; its bound stays the only one
+on the line. Not established: a line past 8 MiB, another model's
+context, a burst past ten, an event at the bound in a conversation
+already holding others, whether the kind of turn decides joining, and
+what in a build sets the unflagged mode.
+
 ---
 
 ## SPIKE-002 — transport wire/race and GossipSub cache behavior

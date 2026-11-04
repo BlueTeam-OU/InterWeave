@@ -39,3 +39,55 @@ time) is unchanged and the Trust screen is the identity in front's
 under it. Propagation: the Status line; decisions 1, 2, 5, 6, 7, 8
 and the Security implications; this note; the log row; the digest
 entry.
+
+### Amendment 2026-11-04 — The old-contact warning is Remove's, not the add's
+
+Decision 7 read "the client saying before the add that counterparties
+may still hold a contact on the old route with the old card's name and
+photo". That placement was written when a label was the EndpointId and
+a new identity on a freed label took the old route. Since ADR-0067 a
+new identity has a new key and a new EndpointId, so nothing the add
+does can be confused with a removed identity by a counterparty; what
+remains true is a consequence of the removal, and the client keeps no
+record of removals from which an add could say it. Decision 7 now
+places the sentence in Remove's confirmation and the add carries no
+such line (the Stage 22 identities design's §16 Q7 (b), ruled by
+architect-cto). Propagation: `human-client-ui.md` §13's Remove and Add
+bullets, the plan's §30 exit gate, this note, the log row, the digest
+entry.
+
+### Amendment 2026-11-04 — The desktop's one notification form is the redacted one
+
+Decision 9 made the redacted form the lock screen's exception to a
+notification that names its identity, written for a phone whose system
+redacts on the lock screen. The desktop's freedesktop notification
+interface gives the client no lock state, and a notification shown
+before the screen locks persists on it, so a desktop notification that
+named the identity would name it on a locked screen. Decision 9 now
+says that where the platform cannot tell the client a locked screen
+apart, the redacted form is the only form — a count, no name, no
+content — and the identity is shown after the open (the Stage 22
+identities design's §16 Q6, ruled by architect-cto; PR #553's review,
+F2). Propagation: `human-client-ui.md` §10 and its preview bullet,
+its §13 precedence sentence over the contact-cards design's §5.7.5,
+this note, the log row, the digest entry.
+
+### Amendment 2026-11-04 — Opening a notification that has no one identity
+
+Decision 9 said a notification names its identity and opening it
+switches to that identity; the lock screen's redacted form named none
+and the switch followed the unlock. The Stage 22 identities design
+(#552 §9, §16 Q7 (a)) showed the lock screen one entry for every
+identity — one group per identity would tell someone holding the
+locked phone how many identities have news — and found that such an
+entry, the desktop's redacted form (the amendment of the same day) and
+a group's summary have no one identity to switch to. Decision 9 now
+says: with news in one identity, the switch to it, visibly; with news
+in two or more, the switcher over the identity in front's
+conversations, naming the identities with news, nothing switched until
+the person picks — the alternative, switching to the identity with the
+newest message, is an action whose identity is implied by state the
+person cannot see, which the decision forbids. Ruled by architect-cto
+as the design proposed. Propagation: `human-client-ui.md` §10 and
+§13's notification and lock-screen bullets, the plan's §30 exit gate,
+this note, the log row, the digest entry.
