@@ -318,6 +318,41 @@ impl Screens {
         self.answer("unlock", asked)
     }
 
+    /// A cold launch onto the identity flow's `screen` (`w` on a first
+    /// run, `k1` when the identity's key cannot be opened), its trace line
+    /// seen: the onboarding pages, which `launch` never waits for.
+    pub fn launch_to_identity(&mut self, screen: &str, patience: Duration) -> Step {
+        let name = "launch_to_identity";
+        let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
+        if let Err(why) = self.adb_ok(&["logcat", "-c"]) {
+            return step(name, false, why);
+        }
+        (self.seen, self.read, self.focus) = (Vec::new(), 0, String::new());
+        let want = format!("identity={screen}");
+        let launched = self
+            .front()
+            .and_then(|()| self.wait_all(0, &[want.as_str()], patience));
+        self.answer(name, launched)
+    }
+
+    /// Welcome's secondary, Restore: R1.
+    pub fn open_restore(&mut self, patience: Duration) -> Step {
+        let opened = self.press("identity-secondary", &["identity=r1"], patience);
+        self.answer("open_restore", opened)
+    }
+
+    /// The screen's primary, Enter recovery phrase on R1 and on K1: R2.
+    pub fn open_phrase_entry(&mut self, patience: Duration) -> Step {
+        let opened = self.press("identity-primary", &["identity=r2"], patience);
+        self.answer("open_phrase_entry", opened)
+    }
+
+    /// Back from an identity screen, and every one of `then` after it.
+    pub fn identity_back(&mut self, then: &[&str], patience: Duration) -> Step {
+        let left = self.back(then, patience);
+        self.answer("identity_back", left)
+    }
+
     /// Every one of `wants` among the lines after `from`.
     pub fn lines_after(&mut self, from: usize, wants: &[&str], patience: Duration) -> Step {
         let seen = self.wait_all(from, wants, patience);
