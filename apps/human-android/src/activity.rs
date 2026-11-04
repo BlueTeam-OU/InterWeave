@@ -549,7 +549,7 @@ fn android_main(app: AndroidApp) {
     // The debug build's trace, for the screen-driving tests: kinds only,
     // never text, an address or a PeerId (ui-slint's trace.rs).
     #[cfg(feature = "ui-trace")]
-    view.on_trace(|line| log(line));
+    view.on_trace(log);
     let handle = view.handle();
     view.set_wake(|| defer(turn));
     view.on_haptic(|| HAPTIC.raise());
