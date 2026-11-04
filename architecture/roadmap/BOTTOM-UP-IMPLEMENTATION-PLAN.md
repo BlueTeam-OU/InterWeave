@@ -7211,7 +7211,9 @@ removed from the overlay in between, the client's re-lease asserts it
 again, the same fail and block cases granting no re-lease, and a trusted
 peer's directory query lists no identity — and the
 endpoint directory lists no identity to a trusted peer; Remove, after one confirmation listing what
-goes, deletes an added identity's endpoint from the overlay, removes its
+goes and saying that counterparties keep the contact they accepted on
+the removed route (ADR-0061 decision 7 A 2026-11-04; the add says
+nothing of it), deletes an added identity's endpoint from the overlay, removes its
 conversations, its pending outbound (attempted no further, a
 may-have-reached row named), its contacts and its card, has no undo, and
 is absent on the first identity and on the default; turning the first

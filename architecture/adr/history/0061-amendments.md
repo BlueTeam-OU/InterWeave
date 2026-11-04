@@ -39,3 +39,19 @@ time) is unchanged and the Trust screen is the identity in front's
 under it. Propagation: the Status line; decisions 1, 2, 5, 6, 7, 8
 and the Security implications; this note; the log row; the digest
 entry.
+
+### Amendment 2026-11-04 — The old-contact warning is Remove's, not the add's
+
+Decision 7 read "the client saying before the add that counterparties
+may still hold a contact on the old route with the old card's name and
+photo". That placement was written when a label was the EndpointId and
+a new identity on a freed label took the old route. Since ADR-0067 a
+new identity has a new key and a new EndpointId, so nothing the add
+does can be confused with a removed identity by a counterparty; what
+remains true is a consequence of the removal, and the client keeps no
+record of removals from which an add could say it. Decision 7 now
+places the sentence in Remove's confirmation and the add carries no
+such line (the Stage 22 identities design's §16 Q7 (b), ruled by
+architect-cto). Propagation: `human-client-ui.md` §13's Remove and Add
+bullets, the plan's §30 exit gate, this note, the log row, the digest
+entry.
