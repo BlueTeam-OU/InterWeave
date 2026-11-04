@@ -7027,10 +7027,21 @@ owner:
   `conversations` count the store's unread rows, cards included, the
   undisplayable rows apart); and #520, `list_all`, `Listing` and
   `Update::Listed` removed, so no client lists the store at start.
-  Closed 2026-10-31: the window as seen is the build's. Left open by
-  name: the walk's cost on a backlog of tens of thousands of rows, not
-  measured on the window's read (SPIKE-011's entry, A 2026-10-31, says
-  what was); the Android chat case not rerun on a phone after the
+  Closed 2026-10-31: the window as seen is the build's. The walk's cost
+  on a backlog of tens of thousands of rows, left open by name at the
+  close as not measured on the window's read, was measured on
+  2026-11-04 (#556, rust-ui-dev-01,
+  `crates/human/app-core/tests/window_cost.rs`; SPIKE-011's entry,
+  A 2026-11-04): at 20 000 unread rows of 512 bytes in one
+  conversation, release, one desktop run, the start 31.9 ms and
+  0.02 MiB of Rust heap beside 3.53 MiB of SQLite's, the first page
+  2.4 ms and 0.23 + 0.02 MiB, the walk 34.8 ms and 3.14 + 0.02 MiB
+  over 16 pages, ending at the model's 1024 held rows with the oldest
+  not reached, so the held-row ceiling and not the backlog bounds what
+  a conversation pages in; the case in CI holds the start's and the
+  first page's Rust peak, and the first page's SQLite peak, at 2000
+  rows within one page's slack of 200's. Left open by name: the
+  Android chat case not rerun on a phone after the
   removal, and the A40's pane still on "Select a conversation" 3 s
   after a tap and its rows shown by the next screenshot some 10 s later
   (the device record, one try), not re-measured since #521's draw fix; and a reply whose target lies
