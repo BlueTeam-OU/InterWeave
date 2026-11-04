@@ -769,8 +769,10 @@ jobs:
           # tools/requirements.txt, and pip refuses the install if any
           # package in the resolved set is unpinned. A guard that
           # recomputes a frozen vector is only as trustworthy as the
-          # library that recomputed it.
-          python3 -m pip install --quiet --require-hashes -r tools/requirements.txt
+          # library that recomputed it. Each attempt is bounded and
+          # retried: a stalled download once spent 9.5 min here and took
+          # a merge-group job past its timeout (pip_install.sh --help).
+          bash tools/ci/pip_install.sh tools/requirements.txt
 
       - name: ADR index, template, and amendment record
         run: bash tools/checks/validate_adr_index.sh
@@ -1178,8 +1180,10 @@ jobs:
           # tools/requirements.txt, and pip refuses the install if any
           # package in the resolved set is unpinned. A guard that
           # recomputes a frozen vector is only as trustworthy as the
-          # library that recomputed it.
-          python3 -m pip install --quiet --require-hashes -r tools/requirements.txt
+          # library that recomputed it. Each attempt is bounded and
+          # retried: a stalled download once spent 9.5 min here and took
+          # a merge-group job past its timeout (pip_install.sh --help).
+          bash tools/ci/pip_install.sh tools/requirements.txt
 
       # test_check_dependencies.sh degrades to an absence-path-only run
       # when cargo-deny is missing, and reports success. That is right for
