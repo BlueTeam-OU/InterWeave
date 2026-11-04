@@ -445,7 +445,7 @@ miss the cut line, or look for the next message inside the reader.
   of the composer: the field grows with the draft up to six lines at
   the current text size, then keeps that height and scrolls inside
   itself, the caret kept in view; every character of the draft is
-  kept, sent and restored as today — nothing is cut, refused or
+  kept and sent as today — nothing is cut, refused or
   dropped for its length below the envelope's ceiling. How the build
   bounds it is rust-ui-dev's. A long draft's other questions are not
   designed here.
