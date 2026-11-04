@@ -1253,7 +1253,8 @@ impl View {
     /// view counts as unfocused, so nothing is read before then.
     ///
     /// The same hook, the window's only one, ends keyboard mode at any
-    /// press (`press_ends_keyboard_mode`).
+    /// press (`end_keyboard_mode_at_press`), so a host that skips this
+    /// keeps a clicked text field's ring after a Tab.
     #[cfg(feature = "desktop")]
     pub fn on_window_focus(&self, focused: impl Fn(bool) + 'static) {
         use slint::winit_030::{
@@ -1262,10 +1263,8 @@ impl View {
         let shared = Rc::clone(&self.shared);
         let view = slint::ComponentHandle::as_weak(&self.window);
         slint::ComponentHandle::window(&self.window).on_winit_window_event(move |window, event| {
-            if press_ends_keyboard_mode(event)
-                && let Some(view) = view.upgrade()
-            {
-                slint::ComponentHandle::global::<FocusMode<'_>>(&view).set_keyboard(false);
+            if let Some(view) = view.upgrade() {
+                end_keyboard_mode_at_press(&view, event);
             }
             if let WindowEvent::Focused(now) = event {
                 focused(*now);
@@ -4060,6 +4059,23 @@ pub(crate) fn press_ends_keyboard_mode(
     }
 }
 
+/// End `window`'s keyboard mode if `event` is a press
+/// (`press_ends_keyboard_mode`): the first thing each desktop window's
+/// winit filter does. Before Slint routes the press, so the control it
+/// focuses draws no ring. `a_press_ends_each_windows_keyboard_mode`.
+#[cfg(feature = "desktop")]
+pub(crate) fn end_keyboard_mode_at_press<W>(
+    window: &W,
+    event: &slint::winit_030::winit::event::WindowEvent,
+) where
+    W: slint::ComponentHandle,
+    for<'a> FocusMode<'a>: slint::Global<'a, W>,
+{
+    if press_ends_keyboard_mode(event) {
+        window.global::<FocusMode<'_>>().set_keyboard(false);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -4260,5 +4276,49 @@ mod tests {
         for event in &others {
             assert!(!super::press_ends_keyboard_mode(event), "{event:?}");
         }
+    }
+
+    /// Each desktop window's filter ends its own keyboard mode at a press
+    /// and leaves it at a release: the app window's and the refusal
+    /// screen's, whose path is a text field.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn a_press_ends_each_windows_keyboard_mode() {
+        use slint::ComponentHandle as _;
+        use slint::winit_030::winit::event::{DeviceId, ElementState, MouseButton, WindowEvent};
+        let mouse = |state| WindowEvent::MouseInput {
+            device_id: DeviceId::dummy(),
+            state,
+            button: MouseButton::Left,
+        };
+        i_slint_backend_testing::init_no_event_loop();
+        let app = super::AppWindow::new().expect("the app window");
+        let refusal = super::RefusalWindow::new().expect("the refusal window");
+        app.global::<super::FocusMode<'_>>().set_keyboard(true);
+        refusal.global::<super::FocusMode<'_>>().set_keyboard(true);
+        super::end_keyboard_mode_at_press(&app, &mouse(ElementState::Released));
+        super::end_keyboard_mode_at_press(&refusal, &mouse(ElementState::Released));
+        assert!(
+            app.global::<super::FocusMode<'_>>().get_keyboard(),
+            "a release"
+        );
+        assert!(
+            refusal.global::<super::FocusMode<'_>>().get_keyboard(),
+            "a release"
+        );
+        super::end_keyboard_mode_at_press(&app, &mouse(ElementState::Pressed));
+        assert!(
+            !app.global::<super::FocusMode<'_>>().get_keyboard(),
+            "the app window"
+        );
+        assert!(
+            refusal.global::<super::FocusMode<'_>>().get_keyboard(),
+            "the other window's mode is its own"
+        );
+        super::end_keyboard_mode_at_press(&refusal, &mouse(ElementState::Pressed));
+        assert!(
+            !refusal.global::<super::FocusMode<'_>>().get_keyboard(),
+            "the refusal screen"
+        );
     }
 }
