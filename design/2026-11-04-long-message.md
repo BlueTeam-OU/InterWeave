@@ -7,8 +7,11 @@ alternative (§2). architect-cto ruled on its two product questions
 (REPLY 01a1a89e-9df5, §11): Copy is allowed on every message (§5.3),
 and the bound is the contract's, in HUMAN-CHAT.md's Bounds bullet,
 with §6's figures and conditions. Until that amendment is on `main`,
-§6's figures are this note's and the amendment is a dependency of the
-build; where the two ever differ, the contract governs.
+the build waits for it, and it must carry §6's current figures (2 000
+and 40, lowered after the ruling: §11 Q2). Where the two ever differ,
+the contract governs only with figures that keep §6's ceiling
+condition; a contract figure that does not is raised with architect-cto
+before anything is built to it.
 
 Owner of the design: ux-designer. The words are language-culture's: §8
 names each string and what it must say. Colours are roles of
@@ -23,8 +26,11 @@ the look spec's edge case "A very long message"
 that line stands as written. It revises one rule of
 `design/2026-10-16-message-swipe.md` §7: a cut row has a second focus
 stop besides its bubble and its links, Read the whole message (§4.3,
-§9). The menu rule of message-swipe §7, Show source last, stands: the
-two new menu items come before it (§4.3).
+§9). And it revises message-swipe §7's list of a row's menu items, and
+its §11 item 23 that checks that list: every text row, cut or whole,
+gains Copy message source, and a cut row Read the whole message too,
+both before Show source, which stays last (§4.3, §5.3). A card row,
+which has no Copy, is unchanged.
 
 ## 1. What is already decided
 
@@ -93,7 +99,8 @@ under the text.
   as they do in the reader.
 - It ends at the last block boundary (a paragraph, a list item, a table
   row, a code line, a heading) inside the preview's limit (§6) when
-  that boundary is in the limit's last quarter; otherwise at the last
+  that boundary is in the last quarter of whichever limit cuts
+  (characters or lines); otherwise at the last
   word boundary inside the limit, and then an ellipsis (`…`) follows the
   preview's last word. The cut never falls inside a grapheme cluster. A
   table cut between rows keeps its header row.
@@ -142,8 +149,9 @@ message, as today.
 A page of its own: on a narrow layout it covers the app, on a wide one
 it takes the conversation's pane with the list beside it, as the
 contact page does. Its top app bar: Back (the navigation icon), the
-title `ReaderTitle` (§8: the sender, the day as the conversation's day
-separator says it, and the time), and two actions — Show source / Show
+title `ReaderTitle` (§8: the sender, the day, and the time; the day is
+Today or Yesterday as the day separator says it, else the short date
+the list's rows use, so the time is never cut off), and two actions — Show source / Show
 formatted (the same labels as the row's), and Copy (§5.3). Below the
 bar, the whole body in one continuous scroll, drawn as the person
 scrolls so that only what is near the screen is laid out. Its look is
@@ -273,8 +281,8 @@ are that locale's holder's.
 |---|---|---|---|
 | `LongMessageShown` | the cut line (§4.2) | that the message continues past what is shown, and the share shown (`{percent}`, the whole locale-formatted value, sign included) | The first {percent} of the message is shown. |
 | `ReadWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Read the whole message |
-| `ReaderTitle` | the reader's app bar (§5.1) | the sender (`{sender}`, `You` for one's own), the day as the day separator says it (`{day}`) and the time as the row shows it (`{time}`) | {sender}, {day}, {time} |
-| `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | (to be worded) |
+| `ReaderTitle` | the reader's app bar (§5.1) | the sender (`{sender}`, `You` for one's own), the day (`{day}`: `Today` or `Yesterday`, else the list rows' short date, `DateRowThisYear` or its older-year form) and the time as the row shows it (`{time}`) | {sender}, {day}, {time} |
+| `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | Opening the whole message |
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
 | `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied | Could not copy the message |
@@ -291,7 +299,8 @@ Show source and Show formatted reuse the row's existing labels.
 | Reader closed (Back, Escape) | the row's Read the whole message button | A6 |
 | Reader closed because its row left (§5.4) | stays where the person's act in the list left it | A7 |
 | Show source / Show formatted in the reader | stays on the action pressed | A6 |
-| Copy pressed | stays on Copy | A6 |
+| Copy pressed in the reader's app bar | stays on Copy | A6 |
+| Copy message source chosen from a row's menu (cut or whole) | the row's bubble, as when the menu closes with nothing done (message-swipe §7) | A6 |
 | The app sent to the background and back with the reader open | the reader, at its position, focus where it was | A7 |
 | The window resized between narrow and wide with the reader open | where it was in the reader (§5.1) | A7 |
 
@@ -342,11 +351,20 @@ it, those checks are blocked, never passed.
   equal to the preview's characters over the body's, rounded down and
   at least 1, and Read the whole message; its preview ends as §4.1
   says, and a table cut keeps its header. Its menu is in §4.3's order.
-- **A3** With a cut message in the middle of a conversation, the next
-  message is on screen after scrolling at most two screens past the cut
-  message's start at 100 % text, and at most five at 200 % (the same
-  preview takes more screens at the larger size: §6's figures give
-  about 4.9 on the Pixel 9a).
+- **A3** With a cut message in the middle of a conversation, the cut
+  row — preview, cut line, button and status — is at most as tall as
+  the figures below, counted in the conversation's viewport (the space
+  between its app bar and its composer, about 1 960 px on the Pixel 9a):
+  for the paragraph, list, code and table shapes, 2 viewports at 100 %
+  text and 7 at 200 %; for the headings shape, 4 and 12. The figures
+  are §6's estimates with the cut line, the button and the status
+  added (a paragraph at 200 %, about 12 500 px; headings at 200 %,
+  about 22 600 px); the build measures and reports each, and one over
+  its figure comes back to ux-designer. Why the cut is not bounded in
+  drawn height instead, which would hold one figure for every shape:
+  the cut would then move with the width and the text size, and the
+  same message would show a different part after a rotation. That is
+  a judgement, kept for H1's walkthrough to test at 200 % text.
 - **A4** At 200 % text, on the narrowest layout and at the highest
   scale, a whole body at the bound in each shape — A1's body, as
   paragraph, list, code, table and headings — draws without a panic,
@@ -403,7 +421,8 @@ miss the cut line, or look for the next message inside the reader.
   branch, and it corrects their earlier DECISION 01a1a899 to
   rust-ui-dev (a line-box cap with paged source), so both read this
   rule. The ruling took the first figures, 2 400 and 48; §6 lowered
-  them to 2 000 and 40 after it, and architect-cto was told.
+  them to 2 000 and 40 after it, and architect-cto was told (INFO
+  01a1a8a6-fc67). The build waits for the amendment carrying them.
 - **Q3 — rust-ui-dev**: does the composer draw a draft at the ceiling
   without the same panic? A long draft is not designed here.
 
