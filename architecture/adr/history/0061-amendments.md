@@ -55,3 +55,19 @@ such line (the Stage 22 identities design's §16 Q7 (b), ruled by
 architect-cto). Propagation: `human-client-ui.md` §13's Remove and Add
 bullets, the plan's §30 exit gate, this note, the log row, the digest
 entry.
+
+### Amendment 2026-11-04 — The desktop's one notification form is the redacted one
+
+Decision 9 made the redacted form the lock screen's exception to a
+notification that names its identity, written for a phone whose system
+redacts on the lock screen. The desktop's freedesktop notification
+interface gives the client no lock state, and a notification shown
+before the screen locks persists on it, so a desktop notification that
+named the identity would name it on a locked screen. Decision 9 now
+says that where the platform cannot tell the client a locked screen
+apart, the redacted form is the only form — a count, no name, no
+content — and the identity is shown after the open (the Stage 22
+identities design's §16 Q6, ruled by architect-cto; PR #553's review,
+F2). Propagation: `human-client-ui.md` §10 and its preview bullet,
+its §13 precedence sentence over the contact-cards design's §5.7.5,
+this note, the log row, the digest entry.
