@@ -235,6 +235,125 @@ impl Screens {
         self.answer("trust", trusted)
     }
 
+    /// A cold launch of a profile whose key waits for the person
+    /// (`user-presence`, past its validity): the conversation list with
+    /// the window offline and the notice that asks for authentication,
+    /// from the first render. Connect is not waited for: its reads need
+    /// the runtime, which the locked key holds back.
+    pub fn launch_locked(&mut self, patience: Duration) -> Step {
+        let name = "launch_locked";
+        let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
+        if let Err(why) = self.adb_ok(&["logcat", "-c"]) {
+            return step(name, false, why);
+        }
+        (self.seen, self.read, self.focus) = (Vec::new(), 0, String::new());
+        let launched = self.front().and_then(|()| {
+            self.wait_all(
+                0,
+                &[
+                    "page=conversations",
+                    "connectivity=offline",
+                    "notice=authentication-needed",
+                ],
+                patience,
+            )
+        });
+        self.answer(name, launched)
+    }
+
+    /// Conversations -> the app's menu -> Trust (Settings), where Show
+    /// recovery phrase is.
+    pub fn open_trust(&mut self, patience: Duration) -> Step {
+        let opened = self
+            .press("app-options", &["focus=app-trust"], patience)
+            .and_then(|()| self.press("app-trust", &["page=trust"], patience));
+        self.answer("open_trust", opened)
+    }
+
+    /// Trust -> Show recovery phrase: S1, before any prompt.
+    pub fn open_phrase(&mut self, patience: Duration) -> Step {
+        let opened = self.press("show-phrase", &["identity=s1"], patience);
+        self.answer("open_phrase", opened)
+    }
+
+    /// S1's primary: the credential prompt for the words asked.
+    pub fn ask_words(&mut self, patience: Duration) -> Step {
+        let asked = self.press("identity-primary", &["prompt=phrase"], patience);
+        self.answer("ask_words", asked)
+    }
+
+    /// The person's grant, and the words page drawn: `prompt=granted`,
+    /// then `identity=s2`, both after `from` ([`Self::mark`]).
+    pub fn words_shown(&mut self, from: usize, patience: Duration) -> Step {
+        let shown = self.wait_all(from, &["prompt=granted", "identity=s2"], patience);
+        self.answer("words_shown", shown)
+    }
+
+    /// Back from the words: the flow closed.
+    pub fn close_words(&mut self, patience: Duration) -> Step {
+        let closed = self.back(&["identity=closed"], patience);
+        self.answer("close_words", closed)
+    }
+
+    /// Recents pressed while the prompt shows: the platform ends it as
+    /// the person's cancel (`onError` 10 on the A40), `prompt=cancelled`.
+    pub fn leave_by_recents(&mut self, patience: Duration) -> Step {
+        let from = self.seen.len();
+        let left = self
+            .key("KEYCODE_APP_SWITCH")
+            .and_then(|()| self.wait_all(from, &["prompt=cancelled"], patience));
+        self.answer("leave_by_recents", left)
+    }
+
+    /// The app brought back to the front, not relaunched: its task
+    /// resumed.
+    pub fn bring_back(&mut self) -> Step {
+        let back = self.front();
+        self.answer("bring_back", back)
+    }
+
+    /// The locked notice's Unlock: the unlock prompt asked.
+    pub fn unlock(&mut self, patience: Duration) -> Step {
+        let asked = self.press("notice", &["prompt=unlock"], patience);
+        self.answer("unlock", asked)
+    }
+
+    /// Every one of `wants` among the lines after `from`.
+    pub fn lines_after(&mut self, from: usize, wants: &[&str], patience: Duration) -> Step {
+        let seen = self.wait_all(from, wants, patience);
+        self.answer("lines_after", seen)
+    }
+
+    /// No line starting with `prefix` after `from` for all of `quiet`:
+    /// a step that fails on the first such line. The positive control
+    /// is the caller's: a line the same prefix carries that it waited
+    /// for before.
+    pub fn none_after(&mut self, from: usize, prefix: &str, quiet: Duration) -> Step {
+        let start = format!("{TRACE}{prefix}");
+        let deadline = Instant::now() + quiet;
+        let held = loop {
+            if let Err(why) = self.poll() {
+                break Err(why);
+            }
+            while self.next_focus().is_some() {}
+            if let Some(l) = self.seen[from..].iter().find(|l| l.starts_with(&start)) {
+                break Err(format!("{l:?} within {quiet:?}; {}", self.where_now()));
+            }
+            if Instant::now() >= deadline {
+                break Ok(());
+            }
+            std::thread::sleep(POLL);
+        };
+        self.answer("none_after", held)
+    }
+
+    /// How many trace lines have been read: the index a later wait
+    /// reads from.
+    #[must_use]
+    pub fn mark(&self) -> usize {
+        self.seen.len()
+    }
+
     /// Every trace line read so far, for a run file.
     #[must_use]
     pub fn trace(&self) -> &[String] {
@@ -461,6 +580,20 @@ impl Screens {
             "page {page}, focus {:?}; last trace lines {tail:?}",
             self.focus
         )
+    }
+
+    /// `am start` of the main activity: launches it, or brings its task
+    /// to the front.
+    fn front(&self) -> Result<(), String> {
+        self.adb_ok(&[
+            "shell",
+            "am",
+            "start",
+            "-W",
+            "-n",
+            &format!("{PACKAGE}/.MainActivity"),
+        ])
+        .map(drop)
     }
 
     fn key(&self, code: &str) -> Result<(), String> {

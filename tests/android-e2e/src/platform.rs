@@ -9,12 +9,24 @@
 //! hand are read here by these parsers, so a case asserts the platform's
 //! state and not the app's account of it.
 //!
-//! The parsers are pure, and each is unit-tested against the lines the
-//! device records quote. A dump whose shape a parser does not recognise
-//! is `None` or an error naming the dump, never a "no": a renamed field
-//! on another API level must fail the case, not pass its negative.
+//! The parsers are pure, and each is unit-tested against AOSP's dump
+//! layout (`ServiceRecord.dump`, `WindowManager.LayoutParams.toString`,
+//! `Bmgr`). Where a device record quotes a line the fixture is that
+//! line; the records quote no bound-only service record and no `fl=`
+//! line, so those fixtures follow AOSP's source and the first device
+//! run captures them. A dump whose shape a parser does not recognise is
+//! an error naming the dump, never a "no": no `(nothing)` and no record,
+//! a record with no `packageName=`, a value that is not one. The one
+//! exception is a service record's `isForeground` and `startRequested`,
+//! which AOSP prints only when set, so their absence reads false and a
+//! renamed one would too: what reads them true on the same phone is
+//! `fgs_lifecycle_stay_reachable_is_foreground_and_restarts_after_a_crash`,
+//! the control to run beside any case that asserts them false.
 
 use std::process::Command;
+
+use interweave_profile_config::ProfileConfig;
+use interweave_profile_config::runtime::{AvailabilityMode, KeyUnlockPolicy};
 
 use crate::adb::PACKAGE;
 
@@ -27,37 +39,54 @@ pub const REMOTE_MESSAGING: u32 = 0x200;
 /// One service record, as `dumpsys activity services` prints it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceRecord {
-    /// `isForeground=`.
+    /// `isForeground=`; false where AOSP prints no such line, which it
+    /// prints only for a service foreground now or before.
     pub foreground: bool,
     /// `types=`, the foreground service types; absent on levels that do
     /// not print it.
     pub types: Option<u32>,
     /// The foreground notice's channel, from `foregroundNoti=`.
     pub channel: Option<String>,
-    /// `startRequested=`: started, not only bound.
+    /// `startRequested=`: started, not only bound; false where AOSP
+    /// prints no such line, which it prints only for a service started
+    /// now or before.
     pub start_requested: bool,
 }
 
 /// The record of `component` in a `dumpsys activity services` dump:
-/// `Ok(None)` when the dump lists no such service (it is not running),
-/// an error when the record is there and a field this reads is not.
+/// `Ok(None)` when the dump says the service is not running -- AOSP's
+/// `(nothing)`, or other records with none of `component` -- and an
+/// error when it says neither, or the record is there and incomplete.
 ///
 /// # Errors
-/// The record's `isForeground`, `startRequested` or `types` missing or
-/// unreadable.
+/// A dump with no record and no `(nothing)`; a record with no
+/// `packageName=` (which AOSP always prints, so the record was cut); an
+/// `isForeground`, `startRequested` or `types` that is not a value.
 pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecord>, String> {
     let header = format!(" {component}}}");
+    let is_record = |l: &str| l.contains("* ServiceRecord{");
     let Some(start) = dump
         .lines()
-        .position(|l| l.contains("* ServiceRecord{") && l.ends_with(&header))
+        .position(|l| is_record(l) && l.ends_with(&header))
     else {
-        return Ok(None);
+        // A "not running" read off a dump this does not recognise would
+        // pass a negative for free.
+        return if dump
+            .lines()
+            .any(|l| l.trim() == "(nothing)" || is_record(l))
+        {
+            Ok(None)
+        } else {
+            Err(format!(
+                "no record of {component} and no (nothing):\n{dump}"
+            ))
+        };
     };
     // The record runs to the next record's header or the dump's end.
     let body: Vec<&str> = dump
         .lines()
         .skip(start + 1)
-        .take_while(|l| !l.contains("* ServiceRecord{"))
+        .take_while(|l| !is_record(l))
         .collect();
     let field = |name: &str| -> Option<&str> {
         body.iter().find_map(|l| {
@@ -65,10 +94,16 @@ pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecor
                 .find_map(|w| w.strip_prefix(name)?.strip_prefix('='))
         })
     };
+    if field("packageName").is_none() {
+        return Err(format!(
+            "{component}'s record has no packageName=, so it is cut:\n{}",
+            body.join("\n")
+        ));
+    }
     let flag = |name: &str| -> Result<bool, String> {
         match field(name) {
             Some("true") => Ok(true),
-            Some("false") => Ok(false),
+            Some("false") | None => Ok(false),
             other => Err(format!(
                 "{component}'s record has {name}={other:?}:\n{}",
                 body.join("\n")
@@ -144,6 +179,26 @@ pub fn transports(output: &str) -> (Vec<String>, Option<String>) {
     (all, selected)
 }
 
+/// `FLAG_SECURE`.
+const SECURE_BIT: u32 = 0x2000;
+
+/// Whether an `fl=` value names `SECURE`: AOSP prints the flags'
+/// names apart by spaces (`ViewDebug.flagsToString`), up to the next
+/// `key=`; a `|`-joined value and a hex mask are read too.
+fn secure_flag(value: &str) -> bool {
+    value
+        .split_whitespace()
+        .take_while(|w| !w.contains('='))
+        .flat_map(|w| w.trim_end_matches('}').split('|'))
+        .any(|f| {
+            f == "SECURE"
+                || f.strip_prefix('#')
+                    .or_else(|| f.strip_prefix("0x"))
+                    .and_then(|h| u32::from_str_radix(h, 16).ok())
+                    .is_some_and(|m| m & SECURE_BIT != 0)
+        })
+}
+
 /// The titles of the app's windows in a `dumpsys window windows` dump,
 /// each with whether its attributes carry `SECURE`. A window of the app
 /// whose attributes line is not found is an error: a "not secure" read
@@ -171,12 +226,36 @@ pub fn app_windows(dump: &str) -> Result<Vec<(String, bool)>, String> {
             .take_while(|n| !n.trim_start().starts_with("Window #"))
             .find_map(|n| {
                 let (_, rest) = n.split_once(" fl=")?;
-                Some(rest.split_whitespace().next().unwrap_or_default())
+                Some(rest)
             })
             .ok_or_else(|| format!("no fl= line for the window {title}:\n{dump}"))?;
-        out.push((title, fl.split('|').any(|f| f == "SECURE")));
+        out.push((title, secure_flag(fl)));
     }
     Ok(out)
+}
+
+/// The system's credential prompt's window title (`SystemUI`'s
+/// `AuthContainerView` sets it on every level this runs on).
+pub const BIOMETRIC_PROMPT: &str = "BiometricPrompt";
+
+/// Whether a `dumpsys window windows` dump lists a window whose title is
+/// exactly `title`.
+#[must_use]
+pub fn has_window(dump: &str, title: &str) -> bool {
+    let tail = format!(" {title}}}:");
+    dump.lines().any(|l| {
+        let t = l.trim();
+        t.starts_with("Window #") && t.ends_with(&tail)
+    })
+}
+
+/// Whether the credential prompt shows now.
+///
+/// # Panics
+/// As [`shell`].
+#[must_use]
+pub fn prompt_shown() -> bool {
+    has_window(&shell(&["dumpsys", "window", "windows"]), BIOMETRIC_PROMPT)
 }
 
 /// What the runtime was told by the app's network callback, from the
@@ -277,6 +356,213 @@ pub fn app_pid() -> Option<u32> {
     String::from_utf8_lossy(&out.stdout).trim().parse().ok()
 }
 
+/// The embedded profile's configuration, under the app's data
+/// directory, as `run-as` opens it.
+pub const CONFIG: &str = "interweave/config/profiles/human-android/config.yaml";
+
+/// The person's availability choice, which overrides the profile's
+/// authored `availability_mode` while it exists (ADR-0041 A 2026-10-10,
+/// `interweave_profile_config::availability_overlay`).
+pub const AVAILABILITY_OVERLAY: &str =
+    "interweave/state/profiles/human-android/availability-overlay.json";
+
+/// A profile's key policy as the app reads it: the schema's default,
+/// `background-compatible`, where the document names none.
+///
+/// # Errors
+/// The text is not a profile.
+pub fn unlock_policy(config: &str) -> Result<KeyUnlockPolicy, String> {
+    ProfileConfig::parse_yaml(config)
+        .map(|c| c.runtime.android.key_unlock_policy)
+        .map_err(|e| format!("not a profile ({e}):\n{config}"))
+}
+
+fn mode_text(mode: AvailabilityMode) -> &'static str {
+    match mode {
+        AvailabilityMode::ForegroundOnly => "foreground-only",
+        AvailabilityMode::StayReachable => "stay-reachable",
+    }
+}
+
+/// `config` with `runtime.android.availability_mode` set to `mode`: its
+/// line replaced where there is one, else added under `android:`, or
+/// under a new `android:` beneath `runtime:` -- the app's own first-run
+/// profile has neither and takes the schema's defaults. Nothing else
+/// changes, and the result is read back as the app parses it.
+///
+/// # Errors
+/// More than one line sets the mode, no `runtime:` block, or a result
+/// that does not parse to `mode`.
+pub fn with_availability(config: &str, mode: AvailabilityMode) -> Result<String, String> {
+    let set = format!("availability_mode: {}", mode_text(mode));
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let mut lines: Vec<String> = config.lines().map(str::to_owned).collect();
+    let at: Vec<usize> = (0..lines.len())
+        .filter(|&i| lines[i].trim_start().starts_with("availability_mode:"))
+        .collect();
+    match at.as_slice() {
+        [i] => {
+            let pad = " ".repeat(indent(&lines[*i]));
+            lines[*i] = format!("{pad}{set}");
+        }
+        [] => {
+            let runtime = lines
+                .iter()
+                .position(|l| l.trim_end() == "runtime:")
+                .ok_or_else(|| format!("no runtime: block in:\n{config}"))?;
+            let block_end = (runtime + 1..lines.len())
+                .find(|&i| {
+                    let t = lines[i].trim_start();
+                    !t.is_empty() && !t.starts_with('#') && indent(&lines[i]) == 0
+                })
+                .unwrap_or(lines.len());
+            // The document's own indent, at each level: a key indented
+            // otherwise would land under the wrong parent.
+            let child = |parent: usize, end: usize| {
+                (parent + 1..end)
+                    .map(|i| lines[i].as_str())
+                    .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+                    .map(indent)
+                    .filter(|&n| n > indent(&lines[parent]))
+            };
+            let step = child(runtime, block_end).unwrap_or(2);
+            if let Some(i) = (runtime + 1..block_end).find(|&i| lines[i].trim() == "android:") {
+                let at = child(i, block_end).unwrap_or(indent(&lines[i]) + step);
+                lines.insert(i + 1, format!("{}{set}", " ".repeat(at)));
+            } else {
+                lines.insert(runtime + 1, format!("{}{set}", " ".repeat(2 * step)));
+                lines.insert(runtime + 1, format!("{}android:", " ".repeat(step)));
+            }
+        }
+        _ => return Err(format!("more than one availability_mode in:\n{config}")),
+    }
+    let out = lines.join("\n") + "\n";
+    let read = ProfileConfig::parse_yaml(&out)
+        .map_err(|e| format!("the changed profile does not parse ({e}):\n{out}"))?;
+    if read.runtime.android.availability_mode == mode {
+        Ok(out)
+    } else {
+        Err(format!("the changed profile reads another mode:\n{out}"))
+    }
+}
+
+/// The app's profile as the phone held it before a case provisioned its
+/// own, written back when this is dropped, a failing case's unwind
+/// included, and read back to prove it.
+///
+/// A case provisions a profile derived from this one with its key
+/// policy unchanged: the app reseals its identity under the policy its
+/// profile names and deletes the other policy's key (ADR-0042 A
+/// 2026-10-10, `custody::reseal`), so a profile with another policy
+/// would destroy the person's identity setup, and no restore of the
+/// file brings that back.
+pub struct ProfileKept {
+    found: String,
+    stay_reachable_chosen: bool,
+}
+
+/// `adb shell <args>` with its exit status (the shell protocol carries
+/// it, where `exec-in` and `exec-out` do not), stdin fed from `input`.
+fn shell_status(args: &[&str], input: Option<&[u8]>) -> std::io::Result<(bool, Vec<u8>)> {
+    use std::io::Write as _;
+    use std::process::Stdio;
+    let mut child = Command::new("adb")
+        .arg("shell")
+        .args(args)
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    if let (Some(bytes), Some(mut stdin)) = (input, child.stdin.take()) {
+        stdin.write_all(bytes)?;
+    }
+    let out = child.wait_with_output()?;
+    Ok((out.status.success(), out.stdout))
+}
+
+/// The app's profile file now, or `None` when it cannot be read.
+fn read_config() -> Option<String> {
+    match shell_status(&["run-as", PACKAGE, "cat", CONFIG], None) {
+        Ok((true, bytes)) if !bytes.is_empty() => {
+            Some(String::from_utf8_lossy(&bytes).into_owned())
+        }
+        _ => None,
+    }
+}
+
+impl ProfileKept {
+    /// The phone's profile now, and whether the person chose to stay
+    /// reachable.
+    ///
+    /// # Panics
+    /// If the app holds no profile to keep (a phone with an identity a
+    /// person made is set up first), or the overlay cannot be asked.
+    #[must_use]
+    pub fn take() -> Self {
+        let found = read_config().unwrap_or_else(|| {
+            panic!("the app holds no profile to keep (a phone with an identity a person made)")
+        });
+        let (present, _) = shell_status(
+            &["run-as", PACKAGE, "test", "-e", AVAILABILITY_OVERLAY],
+            None,
+        )
+        .expect("adb");
+        Self {
+            found,
+            stay_reachable_chosen: present,
+        }
+    }
+
+    /// The profile as found.
+    #[must_use]
+    pub fn found(&self) -> &str {
+        &self.found
+    }
+
+    /// The found profile's key policy, which the case's own keeps.
+    ///
+    /// # Panics
+    /// If the found profile does not parse.
+    #[must_use]
+    pub fn unlock_policy(&self) -> KeyUnlockPolicy {
+        unlock_policy(&self.found).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Whether the person's choice to stay reachable is on: it overrides
+    /// any mode a case provisions, so a case that needs
+    /// `foreground-only` cannot run on such a phone without changing the
+    /// person's choice, which it does not do.
+    #[must_use]
+    pub fn stay_reachable_chosen(&self) -> bool {
+        self.stay_reachable_chosen
+    }
+}
+
+impl Drop for ProfileKept {
+    fn drop(&mut self) {
+        // Never a second panic while unwinding: reported, not asserted.
+        let _ = shell_status(&["am", "force-stop", PACKAGE], None);
+        // Written aside and moved over the profile, so a failed write
+        // leaves the provisioned profile whole rather than a cut one; then
+        // read back, since what proves the restore is the file.
+        let script = format!("'cat > {CONFIG}.e2e && mv {CONFIG}.e2e {CONFIG}'");
+        let wrote = shell_status(
+            &["run-as", PACKAGE, "sh", "-c", &script],
+            Some(self.found.as_bytes()),
+        );
+        if read_config().as_deref() != Some(self.found.as_str()) {
+            eprintln!(
+                "the phone's profile was NOT put back (write: {wrote:?}); it was:\n{}",
+                self.found
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,16 +579,24 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
     createTime=-1m2s startingBgTimeout=--
     startRequested=true delayedStop=false stopIfKilled=false callStart=true lastStartId=1
   * ServiceRecord{1a2b3c4 u0 com.example/.Other}
-    isForeground=false foregroundId=0 foregroundNoti=null
-    startRequested=false delayedStop=false stopIfKilled=false callStart=false lastStartId=0
+    intent={cmp=com.example/.Other}
+    packageName=com.example
+    createTime=-5m0s startingBgTimeout=--
 ";
 
-    // Bound by the window, not started, and no `types=` (API 30 prints
-    // none).
+    // Bound by the window and never started or foreground: AOSP's
+    // `ServiceRecord.dump` then prints no `isForeground=` line (only when
+    // `isForeground || foregroundId != 0`) and no `startRequested=` line
+    // (only when `startRequested || delayedStop || lastStartId != 0`).
     const BOUND: &str = "\
+ACTIVITY MANAGER SERVICES (dumpsys activity services)
+  User 0 active services:
   * ServiceRecord{8c1e2f1 u0 org.interweave.human/.NetworkService}
-    isForeground=false foregroundId=0 foregroundNoti=null
-    startRequested=false delayedStop=false stopIfKilled=false callStart=false lastStartId=0
+    intent={cmp=org.interweave.human/.NetworkService}
+    packageName=org.interweave.human
+    processName=org.interweave.human
+    createTime=-4s012ms startingBgTimeout=--
+    lastActivity=-4s012ms restartTime=-4s012ms createdFromFg=true
     Bindings:
     * IntentBindRecord{5e6f7a8 CREATE}:
 ";
@@ -340,13 +634,34 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
     }
 
     #[test]
-    fn no_record_is_not_running_and_a_record_missing_a_field_is_an_error() {
+    fn not_running_is_read_only_off_a_dump_that_says_so() {
         assert_eq!(
-            service_record("  (nothing)\n", NETWORK_SERVICE).expect("parsed"),
+            service_record("ACTIVITY MANAGER SERVICES\n  (nothing)\n", NETWORK_SERVICE)
+                .expect("parsed"),
             None
         );
-        let renamed = BOUND.replace("isForeground=", "isFg=");
-        assert!(service_record(&renamed, NETWORK_SERVICE).is_err());
+        // Only other records of the package: this one is not running.
+        let others = FOREGROUND.replace(
+            " org.interweave.human/.NetworkService}",
+            " org.interweave.human/.Other}",
+        );
+        assert_eq!(
+            service_record(&others, NETWORK_SERVICE).expect("parsed"),
+            None
+        );
+        // Control: neither a record nor (nothing) is no answer at all.
+        assert!(service_record("ACTIVITY MANAGER SERVICES\n", NETWORK_SERVICE).is_err());
+        assert!(service_record("", NETWORK_SERVICE).is_err());
+    }
+
+    #[test]
+    fn a_cut_record_or_an_unreadable_value_is_an_error() {
+        let cut = BOUND.replace("    packageName=org.interweave.human\n", "");
+        assert!(service_record(&cut, NETWORK_SERVICE).is_err());
+        let odd = FOREGROUND.replace("isForeground=true", "isForeground=maybe");
+        assert!(service_record(&odd, NETWORK_SERVICE).is_err());
+        let hex = FOREGROUND.replace("types=0x00000200", "types=00000200");
+        assert!(service_record(&hex, NETWORK_SERVICE).is_err());
     }
 
     // `bmgr backupnow`'s lines, as the gate-b record quotes its results.
@@ -389,14 +704,26 @@ Backup finished with result: Success
         );
     }
 
+    // AOSP's layout from API 30: `LayoutParams.toString` puts `fl=` on
+    // its own line, the names apart by spaces (`ViewDebug.flagsToString`),
+    // and `pfl=` on the next.
     const WINDOWS: &str = "\
 WINDOW MANAGER WINDOWS (dumpsys window windows)
   Window #3 Window{a1 u0 StatusBar}:
-    mAttrs={(0,0)(fillxWRAP) ty=STATUS_BAR fl=NOT_FOCUSABLE|SECURE}
+    mAttrs={(0,0)(fillxWRAP) gr=TOP ty=STATUS_BAR fmt=TRANSLUCENT
+      fl=NOT_FOCUSABLE SECURE
+      pfl=COLOR_SPACE_AGNOSTIC}
   Window #2 Window{b2 u0 org.interweave.human/org.interweave.human.MainActivity}:
-    mAttrs={(0,0)(fillxfill) sim={adjust=resize} ty=BASE_APPLICATION fl=LAYOUT_IN_SCREEN|SECURE|HARDWARE_ACCELERATED}
+    mDisplayId=0 rootTaskId=12 mSession=Session{f1 9009:u0a234} mClient=android.os.BinderProxy@e2
+    mAttrs={(0,0)(fillxfill) sim={adjust=resize forwardNavigation} ty=BASE_APPLICATION wanim=0x10302fe
+      fl=LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SPLIT_TOUCH SECURE HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=NO_MOVE_ANIMATION USE_BLAST
+      bhv=DEFAULT}
   Window #1 Window{c3 u0 org.interweave.human/org.interweave.human.MainActivity}:
-    mAttrs={(0,0)(fillxfill) ty=BASE_APPLICATION fl=LAYOUT_IN_SCREEN|HARDWARE_ACCELERATED}
+    mAttrs={(0,0)(fillxfill) ty=BASE_APPLICATION wanim=0x10302fe
+      fl=LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=NO_MOVE_ANIMATION USE_BLAST
+      bhv=DEFAULT}
 ";
 
     #[test]
@@ -414,10 +741,157 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
     #[test]
     fn a_window_with_no_flags_line_is_an_error_not_a_no() {
         let cut = WINDOWS.replace(
-            "    mAttrs={(0,0)(fillxfill) ty=BASE_APPLICATION fl=LAYOUT_IN_SCREEN|HARDWARE_ACCELERATED}\n",
+            "      fl=LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS\n",
             "",
         );
         assert!(app_windows(&cut).is_err());
+    }
+
+    #[test]
+    fn secure_is_read_anywhere_in_the_flags_and_nowhere_after_them() {
+        assert!(secure_flag("LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SECURE"));
+        assert!(!secure_flag("LAYOUT_IN_SCREEN HARDWARE_ACCELERATED"));
+        // On one line, the next key ends the flags.
+        assert!(!secure_flag("LAYOUT_IN_SCREEN pfl=SECURE"));
+        assert!(secure_flag("LAYOUT_IN_SCREEN|SECURE|HARDWARE_ACCELERATED"));
+        assert!(secure_flag("SECURE}"));
+        assert!(secure_flag("#81812100"), "a hex mask with the bit");
+        assert!(!secure_flag("#81810100"), "and without it");
+    }
+
+    // The example the cases' profiles come from, as shipped: its comment
+    // names user-presence, its key says otherwise.
+    const EXAMPLE: &str = include_str!("../../../architecture/config/examples/human-android.yaml");
+
+    // What the debug app writes on first run, `stand_in::document`
+    // (crates/human/android-platform/src/stand_in.rs) verbatim: behind a
+    // feature this crate does not turn on, so copied. No `android:`.
+    const STAND_IN: &str = "schema_version: 2
+profile:
+  name: human-android
+runtime:
+  deployment: embedded-android
+ipc:
+  enabled: false
+transport:
+  listen:
+    addresses: [\"/ip4/0.0.0.0/tcp/0\"]
+trust:
+  policy: static-allowlist
+  allowed_peers: []
+endpoints:
+  registration_policy: configured-only
+  default_direct_endpoint: human
+  entries:
+    - id: human
+      enabled: true
+      advertise: false
+      allowed_client_kinds: [human-client]
+      inbound: inherit_profile_trust
+      outbound: inherit_profile_trust
+channels:
+  desired: []
+";
+
+    /// The example as a case provisions it: its placeholders filled.
+    fn concrete_example() -> String {
+        let peer = interweave_profile_identity::ProfileIdentity::generate()
+            .transport_identity()
+            .expect("a peer");
+        interweave_test_support::e2e::example(
+            "human-android.yaml",
+            &peer,
+            "/ip4/0.0.0.0/tcp/0",
+            None,
+        )
+    }
+
+    /// Every first-run shape a phone may hold: the example as provisioned,
+    /// the debug app's stand-in, and profile-config's (`android:` with no
+    /// mode); and both as a person might indent them, four spaces a level.
+    fn shapes() -> [(&'static str, String); 5] {
+        [
+            ("example", concrete_example()),
+            ("stand-in", STAND_IN.to_owned()),
+            (
+                "first-run",
+                interweave_profile_config::provision::embedded_document("human-android"),
+            ),
+            (
+                "stand-in, four spaces",
+                STAND_IN.replace("\n  deployment:", "\n    deployment:"),
+            ),
+            (
+                "first-run, four spaces",
+                interweave_profile_config::provision::embedded_document("human-android")
+                    .replace("\n  deployment:", "\n    deployment:")
+                    .replace("\n  android:", "\n    android:")
+                    .replace("\n    endpoint: human", "\n        endpoint: human"),
+            ),
+        ]
+    }
+
+    #[test]
+    fn the_key_policy_is_read_as_the_app_reads_it() {
+        assert!(
+            EXAMPLE.contains("user-presence"),
+            "the fixture's trap is there"
+        );
+        for (name, text) in shapes() {
+            assert_eq!(
+                unlock_policy(&text),
+                Ok(KeyUnlockPolicy::BackgroundCompatible),
+                "{name}: a key that names none is the schema's default"
+            );
+        }
+        let presence = concrete_example().replace(
+            "key_unlock_policy: background-compatible",
+            "key_unlock_policy: user-presence",
+        );
+        assert_eq!(unlock_policy(&presence), Ok(KeyUnlockPolicy::UserPresence));
+        assert!(unlock_policy("not: [a profile").is_err());
+    }
+
+    #[test]
+    fn availability_is_set_on_every_shape_and_nothing_else_changes() {
+        for (name, text) in shapes() {
+            for mode in [
+                AvailabilityMode::ForegroundOnly,
+                AvailabilityMode::StayReachable,
+            ] {
+                let changed =
+                    with_availability(&text, mode).unwrap_or_else(|e| panic!("{name}: {e}"));
+                assert_eq!(
+                    ProfileConfig::parse_yaml(&changed)
+                        .expect("a profile")
+                        .runtime
+                        .android
+                        .availability_mode,
+                    mode,
+                    "{name}"
+                );
+                // The other lines are the found ones, in their order.
+                let kept: Vec<&str> = changed
+                    .lines()
+                    .filter(|l| {
+                        !l.trim_start().starts_with("availability_mode:") && l.trim() != "android:"
+                    })
+                    .collect();
+                let was: Vec<&str> = text
+                    .lines()
+                    .filter(|l| {
+                        !l.trim_start().starts_with("availability_mode:") && l.trim() != "android:"
+                    })
+                    .collect();
+                assert_eq!(kept, was, "{name}");
+            }
+        }
+        let twice = format!(
+            "{}  availability_mode: stay-reachable\n",
+            concrete_example()
+        );
+        assert!(with_availability(&twice, AvailabilityMode::ForegroundOnly).is_err());
+        assert!(with_availability("x: 1\n", AvailabilityMode::StayReachable).is_err());
     }
 
     #[test]
@@ -440,5 +914,19 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
         assert_eq!(wifi.on_local(), 2);
         assert_eq!(told("the runtime was told the networks: many"), None);
         assert_eq!(told("something else"), None);
+    }
+
+    #[test]
+    fn the_prompt_window_is_read_by_its_exact_title() {
+        let with = format!(
+            "{WINDOWS}  Window #4 Window{{d4 u0 BiometricPrompt}}:\n    mAttrs={{ty=STATUS_BAR_SUB_PANEL fl=SECURE}}\n"
+        );
+        assert!(has_window(&with, BIOMETRIC_PROMPT));
+        assert!(!has_window(WINDOWS, BIOMETRIC_PROMPT), "control: absent");
+        let other = with.replace("u0 BiometricPrompt}", "u0 BiometricPromptX}");
+        assert!(
+            !has_window(&other, BIOMETRIC_PROMPT),
+            "a title is matched whole"
+        );
     }
 }

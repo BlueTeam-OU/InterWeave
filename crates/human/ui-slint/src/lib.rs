@@ -85,6 +85,9 @@ mod generated {
 pub use generated::AppWindow;
 /// Which card page the pane shows, for a test that reads it.
 pub use generated::CardsPage;
+/// How far a focus ring reaches outside its control, for a test that
+/// measures a ring against it.
+pub use generated::FocusMode;
 /// The icons the views draw; a test reads which one a status takes.
 pub use generated::Glyph;
 pub use generated::IdentityPage;

@@ -23,9 +23,15 @@
 //!   `am kill`, and after `am crash` is restarted in a new process,
 //!   foreground again. At API 34+ its type must read `remoteMessaging`.
 //!
-//! Device only (`#[ignore]`d), as `src/adb.rs` says; `fgs_lifecycle`
-//! writes the app's profile, so it is for a phone whose data may be
-//! replaced, as `app_lifecycle.rs` is.
+//! Device only (`#[ignore]`d), as `src/adb.rs` says. `fgs_lifecycle`
+//! provisions the phone's own profile with only its authored
+//! availability mode changed, and puts the profile back as found when it
+//! ends (`platform::ProfileKept`). It needs a `background-compatible`
+//! key, and refuses another, since a restart under `user-presence` waits
+//! for the person and the crash restart below would measure that wait;
+//! and the foreground-only case refuses a phone whose person chose to
+//! stay reachable, a choice that overrides any mode provisioned and that
+//! the case does not change.
 //!
 //! What this does NOT prove: device transfer under `dataExtractionRules`
 //! at API 31+, which the record carries: GMS's D2D transport is asserted
@@ -40,11 +46,11 @@ use std::time::{Duration, Instant};
 
 use interweave_android_e2e_tests::adb::{AdbDevice, PACKAGE};
 use interweave_android_e2e_tests::platform::{
-    self, BackupResult, REMOTE_MESSAGING, ServiceRecord, app_pid, network_service, sdk, shell,
+    self, BackupResult, ProfileKept, REMOTE_MESSAGING, ServiceRecord, app_pid, network_service,
+    sdk, shell,
 };
 use interweave_android_e2e_tests::{Device, PATIENCE};
-use interweave_profile_identity::ProfileIdentity;
-use interweave_test_support::e2e;
+use interweave_profile_config::runtime::{AvailabilityMode, KeyUnlockPolicy};
 
 /// The positive control: a package that allows backup on every phone.
 const CONTROL: &str = "com.android.providers.settings";
@@ -102,8 +108,13 @@ fn backup_exclusion() {
 #[test]
 #[ignore = "needs a device with the app's androidTest build: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
 fn fgs_lifecycle_foreground_only_binds_and_ends_with_the_window() {
+    let kept = background_compatible();
+    assert!(
+        !kept.stay_reachable_chosen(),
+        "the person chose to stay reachable on this phone, which overrides foreground-only"
+    );
     let mut phone = AdbDevice::connect();
-    phone.start(&config("foreground-only"));
+    phone.start(&config(&kept, AvailabilityMode::ForegroundOnly));
     let log = || phone.log();
 
     launch();
@@ -130,8 +141,9 @@ fn fgs_lifecycle_foreground_only_binds_and_ends_with_the_window() {
 #[ignore = "needs a device with the app's androidTest build: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
 fn fgs_lifecycle_stay_reachable_is_foreground_and_restarts_after_a_crash() {
     let api = sdk();
+    let kept = background_compatible();
     let mut phone = AdbDevice::connect();
-    phone.start(&config("stay-reachable"));
+    phone.start(&config(&kept, AvailabilityMode::StayReachable));
     let log = || phone.log();
 
     launch();
@@ -167,16 +179,22 @@ fn fgs_lifecycle_stay_reachable_is_foreground_and_restarts_after_a_crash() {
     phone.stop();
 }
 
-/// The shipped Android example under `mode`, with a stranger as its one
-/// trusted peer: the service runs whoever it can reach.
-fn config(mode: &str) -> String {
-    let stranger = ProfileIdentity::generate()
-        .transport_identity()
-        .expect("a peer");
-    let raw = e2e::example("human-android.yaml", &stranger, "/ip4/0.0.0.0/tcp/0", None);
-    let from = "availability_mode: stay-reachable";
-    assert_eq!(raw.matches(from).count(), 1, "the example names one mode");
-    raw.replace(from, &format!("availability_mode: {mode}"))
+/// The phone's profile, kept to be put back, when its key does not wait
+/// for the person.
+fn background_compatible() -> ProfileKept {
+    let kept = ProfileKept::take();
+    assert_eq!(
+        kept.unlock_policy(),
+        KeyUnlockPolicy::BackgroundCompatible,
+        "fgs_lifecycle needs a phone whose key does not wait for the person"
+    );
+    kept
+}
+
+/// The phone's own profile under the authored `mode`, its key policy
+/// and peers as they are.
+fn config(kept: &ProfileKept, mode: AvailabilityMode) -> String {
+    platform::with_availability(kept.found(), mode).unwrap_or_else(|e| panic!("{e}"))
 }
 
 fn foreground() -> Option<ServiceRecord> {
@@ -212,17 +230,27 @@ fn home() {
 /// Backup Manager's state and transport as found, put back when dropped.
 struct BackupState {
     enabled: bool,
-    transport: Option<String>,
+    transport: String,
 }
 
 impl BackupState {
+    /// The state as found; one this cannot read fails the case before
+    /// anything is changed, so that the drop never puts back a guess.
     fn take() -> Self {
-        let enabled = shell(&["bmgr", "enabled"]);
-        let (_, transport) = platform::transports(&shell(&["bmgr", "list", "transports"]));
-        Self {
-            enabled: enabled.contains("currently enabled"),
-            transport,
-        }
+        let said = shell(&["bmgr", "enabled"]);
+        let enabled = match (
+            said.contains("currently enabled"),
+            said.contains("currently disabled"),
+        ) {
+            (true, false) => true,
+            (false, true) => false,
+            _ => panic!("bmgr enabled said neither enabled nor disabled: {said}"),
+        };
+        let listed = shell(&["bmgr", "list", "transports"]);
+        let (_, transport) = platform::transports(&listed);
+        let transport =
+            transport.unwrap_or_else(|| panic!("no selected transport to put back:\n{listed}"));
+        Self { enabled, transport }
     }
 }
 
@@ -235,9 +263,7 @@ impl Drop for BackupState {
                 .args(args)
                 .output();
         };
-        if let Some(t) = &self.transport {
-            run(&["bmgr", "transport", t]);
-        }
+        run(&["bmgr", "transport", &self.transport]);
         run(&[
             "bmgr",
             "enable",

@@ -1027,6 +1027,34 @@ fn the_discard_dialog_takes_focus_holds_it_and_gives_it_back() {
     );
 }
 
+/// Shift+TAB steps back through R2's stops in the reverse of TAB's
+/// order, across the segments: the last key, the actions, round to the
+/// app bar's arrow and into the grid.
+#[test]
+fn the_identity_page_steps_back_in_reverse_order() {
+    let mut page = Identity::at_r2();
+    tab_to(&mut page, "ui-trace focus=identity-delete");
+    page.backtab();
+    let mut forward = vec![page.last()];
+    for _ in 0..6 {
+        page.tab();
+        forward.push(page.last());
+    }
+    let mut back = vec![page.last()];
+    for _ in 0..6 {
+        page.backtab();
+        back.push(page.last());
+    }
+    back.reverse();
+    assert_eq!(back, forward);
+    assert!(
+        forward[0] == "ui-trace focus=identity-key"
+            && forward[4] == "ui-trace focus=identity-back"
+            && forward[6] == "ui-trace focus=identity-slot:1",
+        "control: the walk crosses the segments: {forward:#?}"
+    );
+}
+
 /// TAB until focus is on `line`, a bounded number of times.
 fn tab_to(page: &mut Identity, line: &str) {
     for _ in 0..64 {
