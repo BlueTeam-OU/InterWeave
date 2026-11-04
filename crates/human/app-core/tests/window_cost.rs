@@ -2,20 +2,20 @@
 // Copyright 2026 Andrea Benetton
 //! What the windowed start and a conversation's paging cost on a backlog
 //! (plan section 29's open item; SPIKE-011's entry, A 2026-10-31): time,
-//! and the heap's peak above where each step began, counted by this
-//! binary's allocator, on an on-disk store of one conversation's unread
-//! rows of 512 bytes each.
+//! and two heaps' peaks above where each step began -- Rust's, counted by
+//! this binary's allocator, and SQLite's own, which allocates with libc
+//! and not through it, as SQLite counts it -- on an on-disk store of one
+//! conversation's unread rows of 512 bytes each.
 //!
 //! `tests/window.rs` counts rows; this counts bytes and milliseconds.
 //! What it does NOT prove: the phone's figures (the device run's), a
 //! cipher store's (SPIKE-011 measured the cipher against the plaintext),
-//! SQLite's page cache, which it allocates through this allocator and so
-//! is counted, or the view's drawing.
+//! OpenSSL's heap, which neither counter sees, or the view's drawing.
 
 #![allow(clippy::expect_used, clippy::panic, clippy::print_stderr)]
 #![allow(
     unsafe_code,
-    reason = "a counting wrapper around the system allocator, for this test binary alone"
+    reason = "a counting wrapper around the system allocator, and SQLite's memory counters, for this test binary alone"
 )]
 
 mod common;
@@ -39,7 +39,8 @@ use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNo
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, MediaType, TransportIdentity};
 
-/// Bytes the heap holds now, and the most it has held since [`Peak::from_here`].
+/// Bytes the Rust heap holds now, and the most it has held since
+/// [`Peak::from_here`].
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 
@@ -93,28 +94,56 @@ fn grew(size: usize) {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-/// One step's cost: its time and the heap's peak above where it began.
+/// SQLite's own heap now (`sqlite3_memory_used`), and its peak since the
+/// last reset (`sqlite3_memory_highwater`), which `reset` starts again
+/// from now. The bundled build keeps SQLite's default memory statistics on.
+fn sqlite_heap(reset: bool) -> (usize, usize) {
+    // SAFETY: both are SQLite's thread-safe statistics calls, which take
+    // and return plain integers.
+    let (used, peak) = unsafe {
+        (
+            rusqlite::ffi::sqlite3_memory_used(),
+            rusqlite::ffi::sqlite3_memory_highwater(i32::from(reset)),
+        )
+    };
+    let bytes = |n: i64| usize::try_from(n).unwrap_or(0);
+    (bytes(used), bytes(peak))
+}
+
+/// One step's cost: its milliseconds, and each heap's peak bytes above
+/// where it began.
+#[derive(Debug, Clone, Copy)]
+struct Step {
+    ms: f64,
+    rust: usize,
+    sqlite: usize,
+}
+
+/// A step being measured.
 struct Peak {
-    base: usize,
+    rust: usize,
+    sqlite: usize,
     began: Instant,
 }
 
 impl Peak {
     fn from_here() -> Self {
-        let base = CURRENT.load(Ordering::Relaxed);
-        PEAK.store(base, Ordering::Relaxed);
+        let rust = CURRENT.load(Ordering::Relaxed);
+        PEAK.store(rust, Ordering::Relaxed);
+        let (sqlite, _) = sqlite_heap(true);
         Self {
-            base,
+            rust,
+            sqlite,
             began: Instant::now(),
         }
     }
 
-    /// The step's milliseconds and peak bytes.
-    fn end(self) -> (f64, usize) {
-        (
-            self.began.elapsed().as_secs_f64() * 1000.0,
-            PEAK.load(Ordering::Relaxed).saturating_sub(self.base),
-        )
+    fn end(self) -> Step {
+        Step {
+            ms: self.began.elapsed().as_secs_f64() * 1000.0,
+            rust: PEAK.load(Ordering::Relaxed).saturating_sub(self.rust),
+            sqlite: sqlite_heap(false).1.saturating_sub(self.sqlite),
+        }
     }
 }
 
@@ -211,13 +240,13 @@ impl Opener for NoOpener {
     fn authenticate(&mut self) {}
 }
 
-/// What a backlog cost: each step's milliseconds and peak heap bytes.
+/// What a backlog cost, step by step.
 #[derive(Debug)]
 struct Cost {
     rows: u32,
-    start: (f64, usize),
-    first_page: (f64, usize),
-    walk: (f64, usize),
+    start: Step,
+    first_page: Step,
+    walk: Step,
     pages: usize,
     held: usize,
     /// Whether the walk ended holding the conversation's oldest row: a
@@ -328,17 +357,22 @@ async fn cost(rows: u32) -> Cost {
 }
 
 fn say(cost: &Cost) {
-    let mib = |b: usize| f64::from(u32::try_from(b / 1024).unwrap_or(u32::MAX)) / 1024.0;
+    let step = |s: &Step| {
+        let mib = |b: usize| f64::from(u32::try_from(b / 1024).unwrap_or(u32::MAX)) / 1024.0;
+        format!(
+            "{:.1} ms / {:.2} MiB Rust + {:.2} MiB SQLite peak",
+            s.ms,
+            mib(s.rust),
+            mib(s.sqlite)
+        )
+    };
     eprintln!(
-        "window cost at {} rows: start {:.1} ms / {:.2} MiB peak; first page {:.1} ms / {:.2} MiB; \
-         walk until no page is asked {:.1} ms / {:.2} MiB over {} pages, {} rows held at the end, the oldest {}",
+        "window cost at {} rows: start {}; first page {}; walk until no page is asked {} \
+         over {} pages, {} rows held at the end, the oldest {}",
         cost.rows,
-        cost.start.0,
-        mib(cost.start.1),
-        cost.first_page.0,
-        mib(cost.first_page.1),
-        cost.walk.0,
-        mib(cost.walk.1),
+        step(&cost.start),
+        step(&cost.first_page),
+        step(&cost.walk),
         cost.pages,
         cost.held,
         if cost.reached_oldest {
@@ -350,17 +384,20 @@ fn say(cost: &Cost) {
 }
 
 /// What the larger backlog's start and first page may hold above the
-/// smaller's: about one page's measured peak. A cost the same at both
+/// smaller's: about one page's measured Rust peak. A cost the same at both
 /// sizes cancels between them, so what this bounds is growth with the
 /// backlog, and reading a conversation whole is several times it.
 const SLACK: usize = 256 * 1024;
 
 /// The start and a conversation's first page cost what the window holds
-/// and not what the store does: at ten times the backlog their peak heap
-/// stays within a fixed slack of the smaller one's. The walk's figures are
-/// printed (`--nocapture`) and bound nothing. Mutation: the start reading
-/// every row of a conversation (`summaries` paging to the end) makes the
-/// start's peak grow with the backlog.
+/// in Rust's heap, and not what the store does: at ten times the backlog
+/// their Rust peak, and the first page's SQLite peak, stay within a fixed
+/// slack of the smaller one's. The start's SQLite peak does grow -- its
+/// counts read every index page, into SQLite's page cache, whose ceiling
+/// (`cache_size`, SQLite's default here) bounds it -- so it is printed and
+/// bounds nothing, as are the walk's figures (`--nocapture`). Mutation: the
+/// start reading every row of a conversation (`summaries` paging to the
+/// end) makes the start's Rust peak grow with the backlog.
 #[tokio::test]
 #[allow(clippy::await_holding_lock)]
 async fn the_start_and_the_first_page_do_not_grow_with_the_backlog() {
@@ -369,13 +406,18 @@ async fn the_start_and_the_first_page_do_not_grow_with_the_backlog() {
     let large = cost(2_000).await;
     say(&small);
     say(&large);
+    for (what, small, large) in [
+        ("the start", small.start, large.start),
+        ("the first page", small.first_page, large.first_page),
+    ] {
+        assert!(
+            large.rust <= small.rust + SLACK,
+            "{what}'s Rust peak grew with the backlog: {small:?} against {large:?}"
+        );
+    }
     assert!(
-        large.start.1 <= small.start.1 + SLACK,
-        "the start's peak grew with the backlog: {small:?} against {large:?}"
-    );
-    assert!(
-        large.first_page.1 <= small.first_page.1 + SLACK,
-        "the first page's peak grew with the backlog: {small:?} against {large:?}"
+        large.first_page.sqlite <= small.first_page.sqlite + SLACK,
+        "the first page's SQLite peak grew with the backlog: {small:?} against {large:?}"
     );
 }
 
@@ -384,12 +426,14 @@ async fn the_start_and_the_first_page_do_not_grow_with_the_backlog() {
 /// -- --ignored --nocapture`; the figures are the printed line.
 ///
 /// Measured 2026-11-04 on the desktop host (Core Ultra 7 155H, ext4),
-/// release, one run: the start 21.0 ms and 0.02 MiB of peak heap, the
-/// first page 5.1 ms and 0.23 MiB, and the walk 20.2 ms and 3.15 MiB over
-/// 16 pages, ending at 1024 rows held with the oldest not reached -- the
-/// model's held-row ceiling (`HELD_ROW_CAP`) and not the backlog bounds
-/// what an unread conversation pages in. At 2000 rows, in the debug build
-/// the other test runs in, the start's peak was the same 0.02 MiB.
+/// release, one run, peaks as Rust's heap + SQLite's: the start 31.9 ms
+/// and 0.02 + 3.53 MiB; the first page 2.4 ms and 0.23 + 0.02 MiB; the
+/// walk 34.8 ms and 3.14 + 0.02 MiB over 16 pages, ending at 1024 rows
+/// held with the oldest not reached -- the model's held-row ceiling
+/// (`HELD_ROW_CAP`) and not the backlog bounds what an unread
+/// conversation pages in. The start's SQLite peak at 200, 2000 and 20 000
+/// rows, debug, debug and release: 0.10, 0.42 and 3.53 MiB, its counts'
+/// index pages in the page cache; past 20 000 not measured.
 #[tokio::test]
 #[ignore = "a 20 000-row store takes over a minute to seed: the figure for SPIKE-011, run by hand"]
 #[allow(clippy::await_holding_lock)]
