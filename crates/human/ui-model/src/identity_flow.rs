@@ -1773,6 +1773,16 @@ mod tests {
         flow.review_words(true);
         flow.review_words(false);
         assert!(!flow.reviewing());
+
+        // A check pending: the list waits for it.
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        fill(&mut flow);
+        flow.primary();
+        assert!(flow.waiting(), "control: the check is pending");
+        flow.review_words(true);
+        assert!(!flow.reviewing(), "never over a check");
     }
 
     #[test]
