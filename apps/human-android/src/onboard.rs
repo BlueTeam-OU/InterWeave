@@ -763,10 +763,13 @@ fn render() {
         let o = slot.as_mut()?;
         // Said before the page is set, so a page's line comes before any
         // ask its showing leads to (SECURE_OFF after `identity=closed`).
+        let page = (o.flow.screen() != ScreenId::Done).then(|| identity_page(&o.flow));
         #[cfg(feature = "ui-trace")]
-        o.view.borrow_mut().trace_identity(Some(o.flow.screen()));
-        if o.flow.screen() != ScreenId::Done {
-            o.view.borrow().show_identity(Some(identity_page(&o.flow)));
+        o.view
+            .borrow_mut()
+            .trace_identity(Some(o.flow.screen()), page.as_ref());
+        if let Some(page) = page {
+            o.view.borrow().show_identity(Some(page));
             return None;
         }
         o.view.borrow().show_identity(None);
