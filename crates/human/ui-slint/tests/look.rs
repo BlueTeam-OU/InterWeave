@@ -2146,7 +2146,7 @@ fn a_row_with_no_reason_draws_no_empty_reason_line() {
 /// Trust at 200 % text in a phone-wide window stays inside it: no line
 /// of the page widens the column past the window's right edge (#304 F4
 /// at 200 %; the A40 at 200 %, `device-runs/2026-11-04-samsung-a40.md`,
-/// where the unwrapped caption over this profile's PeerId cut the page
+/// where the unwrapped caption over this profile's `PeerId` cut the page
 /// at the edge). Mutation: the caption unwrapped again.
 #[test]
 fn trust_at_200_percent_text_stays_inside_a_phone_wide_window() {
