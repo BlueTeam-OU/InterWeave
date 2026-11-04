@@ -240,7 +240,10 @@ const SECURE_BIT: u32 = 0x2000;
 
 /// Whether an `fl=` value names `SECURE`: AOSP prints the flags'
 /// names apart by spaces (`ViewDebug.flagsToString`), up to the next
-/// `key=`; a `|`-joined value and a hex mask are read too.
+/// `key=`; a `|`-joined value and a hex mask are read too. The A40
+/// (Samsung, API 30) prints the mask as bare hex (`fl=1800518`, every
+/// window of its dump of 2026-11-04), so a word of hex digits alone is
+/// a mask: no flag's name is spelt in the letters A to F only.
 fn secure_flag(value: &str) -> bool {
     value
         .split_whitespace()
@@ -250,6 +253,8 @@ fn secure_flag(value: &str) -> bool {
             f == "SECURE"
                 || f.strip_prefix('#')
                     .or_else(|| f.strip_prefix("0x"))
+                    .or_else(|| f.bytes().all(|b| b.is_ascii_hexdigit()).then_some(f))
+                    .filter(|h| !h.is_empty())
                     .and_then(|h| u32::from_str_radix(h, 16).ok())
                     .is_some_and(|m| m & SECURE_BIT != 0)
         })
@@ -892,6 +897,44 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
       pfl=NO_MOVE_ANIMATION USE_BLAST
       bhv=DEFAULT}
 ";
+
+    // The A40's layout (Samsung, API 30), its lines as dumped on
+    // 2026-11-04: `fl=` is a bare hex mask. Window #0 is that dump's,
+    // verbatim; the app's two are its layout with the masks set by hand,
+    // one carrying `FLAG_SECURE` (0x2000) and one not, since the dump was
+    // taken with no app window up.
+    const A40_WINDOWS: &str = "\
+WINDOW MANAGER WINDOWS (dumpsys window windows)
+  Window #0 Window{c5413db u0 EdgeLightingWindow}:
+    mAttrs={(0,0)(fillxfill) gr=CENTER sim={forwardNavigation} layoutInDisplayCutoutMode=shortEdges ty=2228 fmt=TRANSLUCENT
+      fl=1800518
+      pfl=12020010
+      vsysui=600
+      sfl=20000}
+  Window #1 Window{d4 u0 org.interweave.human/org.interweave.human.MainActivity}:
+    mAttrs={(0,0)(fillxfill) sim={adjust=resize forwardNavigation} ty=1 fmt=TRANSLUCENT
+      fl=81812100
+      pfl=12020040
+      sfl=20000}
+  Window #2 Window{e5 u0 org.interweave.human/org.interweave.human.MainActivity}:
+    mAttrs={(0,0)(fillxfill) sim={adjust=resize forwardNavigation} ty=1 fmt=TRANSLUCENT
+      fl=81810100
+      pfl=12020040
+      sfl=20000}
+";
+
+    #[test]
+    fn a_bare_hex_mask_is_read_for_its_secure_bit_as_the_a40_prints_it() {
+        let w = app_windows(A40_WINDOWS).expect("parsed");
+        let secure: Vec<bool> = w.iter().map(|(_, s)| *s).collect();
+        // The positive: 0x81812100 carries 0x2000. The control beside it:
+        // 0x81810100, the A40's own value for an ordinary activity, does not.
+        assert_eq!(secure, [true, false], "{w:?}");
+        assert!(!secure_flag("1800518"));
+        // A name is still a name, and `key=` still ends the value.
+        assert!(secure_flag("NOT_FOCUSABLE SECURE"));
+        assert!(!secure_flag("81810100 pfl=2000"));
+    }
 
     #[test]
     fn only_the_apps_windows_are_read_each_with_its_secure_bit() {
