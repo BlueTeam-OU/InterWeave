@@ -13,7 +13,7 @@ use interweave_human_ui_model::{
 use interweave_transport_api::TransportIdentity;
 use slint::{ModelRc, SharedString, VecModel};
 
-use crate::generated::{IdKey, IdKeyRow, IdSlot, IdentityPage};
+use crate::generated::{IdKey, IdKeyRow, IdScreen, IdSlot, IdentityPage};
 
 /// QWERTY rows of 10, 9 and 7 (section 4.3).
 const QWERTY: [&str; 3] = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
@@ -43,6 +43,9 @@ pub enum IdentityInput {
     Slot(usize),
     /// The discard dialog: delete the words (`true`) or continue.
     Dialog(bool),
+    /// R2's words as a full list: "Show all my words" opens it (`true`);
+    /// the text falling to 130 % or below closes it (section 4.4).
+    Review(bool),
 }
 
 /// Apply `input` to `flow`; the effects are the root's to carry out.
@@ -92,6 +95,10 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
             flow.discard(delete);
             Vec::new()
         }
+        IdentityInput::Review(open) => {
+            flow.review_words(open);
+            Vec::new()
+        }
     }
 }
 
@@ -126,20 +133,51 @@ fn strings(items: impl IntoIterator<Item = String>) -> ModelRc<SharedString> {
 
 fn rows(flow: &IdentityFlow, rows: &[&str]) -> ModelRc<IdKeyRow> {
     let picker = flow.picker();
+    let enabled = |letter| picker.is_some_and(|p| p.enabled(letter));
+    // Where focus goes after a chip fills a position (section 8): the
+    // first enabled key in this layout's reading order.
+    let first = rows
+        .iter()
+        .flat_map(|row| row.chars())
+        .find(|&l| enabled(l));
+    let mut index = 0;
     ModelRc::new(VecModel::from(
         rows.iter()
             .map(|row| IdKeyRow {
                 keys: ModelRc::new(VecModel::from(
                     row.chars()
-                        .map(|letter| IdKey {
-                            letter: letter.to_string().into(),
-                            enabled: picker.is_some_and(|p| p.enabled(letter)),
+                        .map(|letter| {
+                            index += 1;
+                            IdKey {
+                                letter: letter.to_string().into(),
+                                enabled: enabled(letter),
+                                index: index - 1,
+                                first: first == Some(letter),
+                            }
                         })
                         .collect::<Vec<_>>(),
                 )),
             })
             .collect::<Vec<_>>(),
     ))
+}
+
+fn screen_id(screen: ScreenId) -> IdScreen {
+    match screen {
+        ScreenId::W => IdScreen::W,
+        ScreenId::C1 => IdScreen::C1,
+        ScreenId::C2 => IdScreen::C2,
+        ScreenId::C3 => IdScreen::C3,
+        ScreenId::C4 => IdScreen::C4,
+        ScreenId::R1 => IdScreen::R1,
+        ScreenId::R2 => IdScreen::R2,
+        ScreenId::R3 => IdScreen::R3,
+        ScreenId::R4 => IdScreen::R4,
+        ScreenId::K1 => IdScreen::K1,
+        ScreenId::S1 => IdScreen::S1,
+        ScreenId::S2 => IdScreen::S2,
+        ScreenId::Done => IdScreen::Done,
+    }
 }
 
 /// The page for the flow's current screen.
@@ -154,6 +192,11 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         dialog_delete: text(UiText::IdDiscard).into(),
         dialog_keep: text(UiText::IdContinueEntering).into(),
         dialog: flow.discard_asked(),
+        screen: screen_id(screen),
+        // One label for the page's arrow and the full list's (section 3).
+        back_arrow: flow.back_arrow(),
+        back_active: !flow.waiting(),
+        back_label: text(UiText::AddClose).into(),
         ..IdentityPage::default()
     };
     let (title, paragraphs, primary): (UiText, Vec<UiText>, Option<UiText>) = match screen {
@@ -304,6 +347,9 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         }
         page.rows = rows(flow, &QWERTY);
         page.alpha_rows = rows(flow, &ALPHABET);
+        page.any_key = flow
+            .picker()
+            .is_some_and(|p| ('a'..='z').any(|l| p.enabled(l)));
     }
     if let Some((position, wrong)) = flow.check() {
         page.position = numbered(UiText::IdWordPosition, position + 1).into();
@@ -324,6 +370,9 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
                 })
                 .collect::<Vec<_>>(),
         ));
+        page.current = i32::try_from(entry.current()).unwrap_or(0);
+        page.review_label = text(UiText::IdReviewWords).into();
+        page.review = flow.reviewing();
         page.primary_enabled = entry.complete() && !flow.waiting();
     }
 
@@ -636,5 +685,39 @@ mod tests {
         flow.prompted(true);
         let page = page(&flow);
         assert_eq!(page.waiting, en(UiText::IdGoingOffline));
+    }
+
+    /// The app bar's arrow is drawn inactive while Back waits: S1 going
+    /// offline (acceptance 15).
+    #[test]
+    fn the_back_arrow_is_inactive_while_the_page_waits() {
+        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        apply(&mut flow, IdentityInput::Primary);
+        let s1 = page(&flow);
+        assert!(s1.back_arrow && s1.back_active, "control: S1, not waiting");
+        flow.prompted(true);
+        assert!(flow.waiting(), "control: going offline");
+        let waiting = page(&flow);
+        assert!(waiting.back_arrow, "the arrow stays");
+        assert!(!waiting.back_active, "and is inactive");
+    }
+
+    /// "The first enabled key" falls back to delete when what is typed
+    /// is a word no letter continues (section 8).
+    #[test]
+    fn any_key_is_false_once_no_letter_continues_what_is_typed() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        assert!(page(&flow).any_key, "control: nothing typed");
+        for letter in "acid".chars() {
+            flow.press(letter);
+        }
+        assert_eq!(
+            flow.picker()
+                .map(interweave_human_ui_model::WordPicker::typed),
+            Some("acid")
+        );
+        assert!(!page(&flow).any_key);
     }
 }

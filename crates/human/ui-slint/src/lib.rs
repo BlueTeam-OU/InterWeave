@@ -1473,6 +1473,8 @@ impl View {
                 i(IdentityInput::Slot(slot));
             }
         });
+        let i = Rc::clone(&input);
+        w.on_identity_review(move |open| i(IdentityInput::Review(open)));
         w.on_identity_dialog(move |delete| input(IdentityInput::Dialog(delete)));
     }
 
