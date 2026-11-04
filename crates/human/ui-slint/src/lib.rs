@@ -1181,14 +1181,21 @@ impl View {
         self.trace = Some(trace::Tracer::new(sink));
     }
 
-    /// The identity flow's `screen` is over the window, or, `None`, its
-    /// page has left it: to the trace if one is on. The root says it as
-    /// it calls [`show_identity`](Self::show_identity), which is handed
-    /// a page and not the flow.
+    /// The identity flow's `screen` is over the window with `page`, or,
+    /// `None`, its page has left it: to the trace if one is on, with
+    /// whether `page` carries ADR-0043's warning, read from its paragraphs
+    /// rather than from the flow so the line says what the window was
+    /// handed. The root says it as it calls
+    /// [`show_identity`](Self::show_identity), which is handed a page and
+    /// not the flow.
     #[cfg(feature = "ui-trace")]
-    pub fn trace_identity(&mut self, screen: Option<interweave_human_ui_model::ScreenId>) {
+    pub fn trace_identity(
+        &mut self,
+        screen: Option<interweave_human_ui_model::ScreenId>,
+        page: Option<&IdentityPage>,
+    ) {
         if let Some(tracer) = self.trace.as_mut() {
-            tracer.identity(screen);
+            tracer.identity(screen, page.is_some_and(identity::warns_active_elsewhere));
         }
     }
 

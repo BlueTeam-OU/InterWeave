@@ -356,7 +356,7 @@ fn the_trace_says_the_identity_flow_and_the_locked_state() {
 
     let first = said.borrow().len();
     for screen in [ScreenId::S1, ScreenId::S1, ScreenId::S2, ScreenId::Done] {
-        view.trace_identity(Some(screen));
+        view.trace_identity(Some(screen), None);
     }
     assert_eq!(
         said.borrow()[first..],
@@ -364,6 +364,59 @@ fn the_trace_says_the_identity_flow_and_the_locked_state() {
             "ui-trace identity=s1",
             "ui-trace identity=s2",
             "ui-trace identity=closed",
+        ]
+    );
+}
+
+/// R1 and K1 with a restore are said to warn, from the pages the flow
+/// hands the window, and R2 and K1 with nothing to restore are not: the
+/// line TM-48's device case reads instead of the screen
+/// (`tests/android-e2e/tests/identity_lines.rs`).
+#[test]
+fn the_trace_says_which_identity_page_carries_the_warning() {
+    use interweave_human_ui_model::{IdentityFlow, RecoveryReason, ScreenId, Start};
+    use interweave_human_ui_slint::{IdentityInput, apply_identity, identity_page};
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let mut say = |flow: &IdentityFlow| {
+        let page = identity_page(flow);
+        view.trace_identity(Some(flow.screen()), Some(&page));
+    };
+
+    let mut first_run = IdentityFlow::new(&["abandon"], Start::FirstRun { void_paper: false });
+    say(&first_run);
+    let _ = apply_identity(&mut first_run, IdentityInput::Secondary);
+    assert_eq!(first_run.screen(), ScreenId::R1);
+    say(&first_run);
+    let _ = apply_identity(&mut first_run, IdentityInput::Primary);
+    assert_eq!(first_run.screen(), ScreenId::R2);
+    say(&first_run);
+    let recovery = |expected| {
+        IdentityFlow::new(
+            &["abandon"],
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected,
+                new_keys: false,
+            },
+        )
+    };
+    say(&recovery(Some(peer())));
+    say(&recovery(None));
+    assert_eq!(
+        *said.borrow(),
+        [
+            "ui-trace identity=w",
+            "ui-trace identity=r1",
+            "ui-trace warns=active-elsewhere",
+            "ui-trace identity=r2",
+            "ui-trace warns=none",
+            "ui-trace identity=k1",
+            "ui-trace warns=active-elsewhere",
+            "ui-trace warns=none",
         ]
     );
 }

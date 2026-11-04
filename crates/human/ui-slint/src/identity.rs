@@ -102,6 +102,15 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
     }
 }
 
+/// Whether `page` carries ADR-0043's warning among its paragraphs, as
+/// [`page`] words it: the trace's reading of what the window was handed.
+#[cfg(feature = "ui-trace")]
+pub(crate) fn warns_active_elsewhere(page: &IdentityPage) -> bool {
+    use slint::Model as _;
+    let warning = text(UiText::IdActiveElsewhere);
+    page.paragraphs.iter().any(|p| p.as_str() == warning)
+}
+
 fn text(t: UiText) -> String {
     placeholder_en::text(t).to_owned()
 }
