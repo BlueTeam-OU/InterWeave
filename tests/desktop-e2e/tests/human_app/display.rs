@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The window manager's one job these cases need: giving the client's
+//! The window manager's jobs these cases need: giving the client's
 //! window the input focus, as a desktop does when the person clicks it
-//! or switches to it. The test display has no window manager, so nothing
-//! else would, and a read follows the window's focus (STATE.md: a message
-//! is read when it is shown in a focused window).
+//! or switches to it, and raising it above the others. The test display
+//! has no window manager, so nothing else would, and a read follows the
+//! window's focus (STATE.md: a message is read when it is shown in a
+//! focused window). And the person's own hand: a key and a click, through
+//! XTEST.
 
 use std::time::Duration;
 
@@ -18,7 +20,14 @@ use crate::common::PATIENCE;
 /// its whole run: two such cases in parallel take it from each other, and
 /// each then waits for a read that never comes. Held for the case's run.
 /// A client the other cases start does not take it: with no window
-/// manager, nothing answers a window's request to be activated.
+/// manager, nothing answers a window's request to be activated. It can
+/// cover the case's window, though: every window opens at the display's
+/// origin and the one mapped last is on top, and a click goes to the
+/// window under the pointer while a read of a window's pixels returns
+/// what covers it. So [`luma_of`] and [`click`] raise the window first
+/// ([`raise`]); one mapped between the raise and the read or the click
+/// still covers it, which only a run of one case at a time excludes
+/// (nextest's `end-to-end` group, `.config/nextest.toml`).
 static FOCUS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// The display's focus, for this case alone until the guard drops.
@@ -55,6 +64,20 @@ pub(crate) async fn focus(pid: u32, log: impl Fn() -> String) {
         .expect("the display gives the window the focus");
 }
 
+/// Put `window` above its siblings, as a window manager does for the
+/// window a person clicks, so nothing another case opened covers it. A
+/// part it uncovers is drawn again by the client in its next frame.
+fn raise(conn: &RustConnection, window: Window) {
+    use x11rb::protocol::xproto::{ConfigureWindowAux, StackMode};
+    conn.configure_window(
+        window,
+        &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
+    )
+    .expect("a stacking request")
+    .check()
+    .expect("the display raises the window");
+}
+
 /// A viewable child of `root` whose `_NET_WM_PID` is `pid`.
 fn window_of(conn: &RustConnection, root: Window, wm_pid: u32, pid: u32) -> Option<Window> {
     let tree = conn.query_tree(root).ok()?.reply().ok()?;
@@ -88,6 +111,7 @@ pub(crate) fn luma_of(pid: u32) -> (usize, usize, Vec<u8>) {
         .expect("the _NET_WM_PID atom")
         .atom;
     let window = window_of(&conn, root, wm_pid, pid).expect("the client's window");
+    raise(&conn, window);
     let geometry = conn
         .get_geometry(window)
         .expect("a geometry request")
@@ -175,6 +199,7 @@ pub(crate) fn click(pid: u32, x: i32, y: i32) {
         .expect("the _NET_WM_PID atom")
         .atom;
     let window = window_of(&conn, root, wm_pid, pid).expect("the client's window");
+    raise(&conn, window);
     let at = conn
         .translate_coordinates(window, root, 0, 0)
         .expect("a translation request")
