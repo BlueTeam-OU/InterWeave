@@ -181,7 +181,7 @@ gets a row here.
 | N1 | Chats | open, start, delete a conversation | the switch in the app bar (cards §5.7.1) |
 | N2 | a conversation | send, share, accept or decline a card, delete messages | `ComposerAs` above the send control with the 24 dp avatar; the send control's name `SendAs`; with no composer, the line where the composer would be |
 | N3 | the share sheet | share | `ShareCardAs` (cards §5.3) |
-| N4 | a card proposal | accept, decline | `ComposerAs` of its conversation (N2) is on screen; Accept's context (cards §5.4.1) ends with `ProposalAs` ("If you accept, the card is saved in the contacts of {identity}."), a sentence of its own |
+| N4 | a card proposal | accept, decline | `ComposerAs` of its conversation (N2) is on screen; Accept's context (cards §5.4.1) ends with `ProposalAs` ("If you accept, the card is saved in the contacts of {identity}."), a sentence of its own, in every case but S, where Accept is not shown (Close stands in its place, cards §5.4.1) |
 | N5 | new conversation | start | `NewConversationAs` at its top (cards §5.7.4) |
 | N6 | Contacts, a contact | delete, move, remove a route, rename, remove a photo | the identity as the app bar's subtitle |
 | N7 | **Trust** | trust, untrust | the identity as the app bar's subtitle, and `TrustScope` under the title (§5.1) |
@@ -225,11 +225,15 @@ front, and only that identity admits the peer at the route. So:
   **Alternative named:** keep the line on rows the seed copied. Rejected
   for that reason. Ruled (§16 Q5): the list reports every row of an
   identity's set, the seed's included, as the client's own write, with
-  no configuration origin.
+  no configuration origin. So, from the Stage 22 release, Trust's rows
+  carry no origin line: `TrustFromConfiguration` is retired, and
+  `TrustAddedHere` stays only on Peers' address rows (add-a-peer §5.2),
+  where it marks where an address came from.
 - **Peers rows** (add-a-peer §5.2): the trust state is that of the identity
-  in front. `PeerStateTrusted` stays ("this device tries to connect to
-  this address": true, since the device dials every peer any identity
-  trusts). `PeerStateNeedsTrust` today adds "this device does not
+  in front. `PeerStateTrusted` stays with one identity ("this device
+  tries to connect to this address": true, since the device dials every
+  peer any identity trusts), and with two or more reads
+  `PeerStateTrustedAs`, the same claim after "Trusted by {identity}". `PeerStateNeedsTrust` today adds "this device does not
   connect to this address", which is false when another identity trusts
   that peer and would tell the person so. With two or more identities
   held, it reads `PeerStateNeedsTrustAs` ("Not trusted by {identity}")
@@ -604,7 +608,9 @@ deletes nothing the person cannot have back:
 - the route leaves the contact, with its recorded key; the contact keeps
   its name, photo and other routes;
 - the route's conversation stays; its title is the short PeerId again
-  (or the route title `human-client-ui.md` §4 needs), since it is under
+  (with the route, the short EndpointId, beside it when
+  `human-client-ui.md` §4 needs it: while a second conversation with
+  that peer on another route exists), since it is under
   no contact of this identity; a later card on it is a new proposal;
 - trust is not touched (the snackbar says so only when the route is trusted:
   `ConfirmRouteRemovedTrustedAs`, "… {identity} still trusts {peer}.";
@@ -735,7 +741,7 @@ front.
 
 | key | text | where | must say |
 |---|---|---|---|
-| `ProposalAs` | If you accept, the card is saved in the contacts of {identity}. | Accept's context, its last sentence, in every case (N4) | the contact is saved to the identity in front |
+| `ProposalAs` | If you accept, the card is saved in the contacts of {identity}. | Accept's context, its last sentence, in every case but S (N4) | the contact is saved to the identity in front |
 | `TrustStepAs` | Trust as {identity} | add-a-peer trust step's button (N9) | "Trust as {identity}" |
 | `TrustScope` | The peers listed here can exchange messages with {identity}. Each of your other identities trusts its own peers. | Trust, under the title | peers trusted here write to this identity; the other identities trust their own |
 | `TrustAs` | Trust as {identity}: {peer} | each Trust button's accessible name | trust {peer} as {identity}; begins with the button's visible label |
@@ -814,7 +820,7 @@ the same text, and so do `ContactRouteTrustedAs` and
 
 | key | text | what changed |
 |---|---|---|
-| `IdentitiesShareDevice` | First half as cards §10, each platform's, up to and not including "Any peer you trust who knows an identity's label"; then: Each identity trusts its own peers. A peer that any of your identities trusts can connect to this device, That peer reaches only the identities that trust it. In a channel, a peer can post if any of your identities trusts it or if it is in this device's own list of trusted peers, whichever of your identities reads the channel. | the second half, for ADR-0067 (§6.1) |
+| `IdentitiesShareDevice` | First half as cards §10, each platform's, up to and not including "Any peer you trust who knows an identity's label"; then: Each identity trusts its own peers. A peer that any of your identities trusts can connect to this device. That peer reaches only the identities that trust it. In a channel, a peer can post if any of your identities trusts it or if it is in this device's own list of trusted peers, whichever of your identities reads the channel. | the second half, for ADR-0067 (§6.1) |
 | `IdentityRemoveLoses` | This deletes from this device: / The conversations of {identity}, with their unread and kept messages and the messages waiting to be sent / The contacts of {identity} / The list of peers that {identity} trusts / The card of {identity}, with its name and photo / `IdentityRemoveKey` / People who write to {identity} will no longer reach you. This cannot be undone. | its items are §7's, in its order, the trusted peers and the key added; one item a line, each "/" a line break |
 | `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button |
 | `PeerStateNeedsTrust` | unchanged | kept only with one identity held |
@@ -825,6 +831,7 @@ false since ADR-0067); the route-label field's `IdentityRouteField`,
 `IdentityRouteHelp`, `IdentityRouteNeeded`,
 `IdentityRouteBadCharacters`, `IdentityRouteTooLong`,
 `IdentityRouteTaken`, and `IdentityRouteLabel` (§6.1, §6.2);
+`TrustFromConfiguration` (§5.1, from the Stage 22 release);
 `ContactRouteRemovedTrust`, a clause added to another string, replaced
 by the two whole templates of `ConfirmRouteRemovedTrusted`.
 
@@ -835,7 +842,7 @@ first and one added. Cases that need D1, D2 or D3 say so; they cannot
 pass before it lands.
 
 1. With one identity held, no switch, no "as" line, no identity subtitle,
-   no `TrustScope`, `PeersShared`'s identity form or `ChannelTrustNode`
+   no `TrustScope`, `PeersShared` or `ChannelTrustNode`
    appears on any screen of §5's table. *(`human-client-ui.md` §13 bullet 13.)*
 2. With two identities held, each screen N1–N12 names the identity in
    front as its row says, in words; switching changes every one of them
@@ -956,6 +963,13 @@ pass before it lands.
   trusts as itself; a "trust for all" control would be the cross-
   identity act the owner's rule forbids.
 - **Turning off an added identity** (cards §11).
+- **The recovery screens' word for the device's key**
+  (`design/2026-10-19-android-identity.md`): `IdCreate`, `IdRestore`,
+  `IdC1Point1`, `IdCreatedTitle`, `IdRestoredTitle`, `IdQReasonKey`,
+  `IdQLost` and `IdStorageFailed` call it "identity", which with two
+  identities reads as one of them, and `IdR1NewKeys` contradicts
+  ADR-0067 d. 5. They are that note's, revised with the identity-key
+  revision above, the words language-culture's.
 
 ## 16. Questions
 
@@ -986,6 +1000,23 @@ Asked after rounds 1 and 2 of #552's review (QUESTIONs 01a1a6a8 and
   in front and the address list alone; the Q2 ruling's "or another
   identity's set" is withdrawn (§5.1).
 
-To language-culture-en: the strings of §13, and whether "identity" can
-stay the person's word for one of these now that the recovery screens
-call the device's key "this device" (contact-cards §12 L1).
+Open, asked of architect-cto after language-culture-en's pass (j242):
+
+- **Q9** with one identity held, from the Stage 22 release, the first
+  identity's set is seeded once from the device's own list (ADR-0067
+  d. 6), and the operator's `transportctl trust allow` and revoke write
+  the device's list only. Two one-identity strings this note keeps are
+  true only while the two lists hold the same peers: `TrustExplanation`
+  ("Only the peers listed here can exchange messages with this
+  profile", while a peer only the device's list holds can post in a
+  channel) and `ConfirmRevoke` ("Its connections to this profile will
+  close now", while the device's list still admits the peer). Asked:
+  can the two lists differ with one identity held? If they can, both
+  take a form without the claim, as `TrustScope` and `ConfirmRevokeAs`
+  do; until it is ruled, both stand as on `main`.
+
+Answered by language-culture-en (REPLY 01a1a71c, their j242): the
+strings are §13's, and "identity" stays the person's word for a user
+identity, the device's being "this device's PeerId" (contact-cards §12
+L1); the Android recovery screens that still call the device's key an
+identity are §15's.
