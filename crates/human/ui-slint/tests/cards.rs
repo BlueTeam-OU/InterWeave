@@ -621,12 +621,13 @@ fn every_received_name_is_drawn_isolated() {
 
 /// TM-56 (`tests/SECURITY-MATRIX.md`): two contacts of one name, from
 /// two `PeerId`s, are told apart where the person reads them -- each
-/// conversation's header and its row in the list, as drawn and as a
-/// screen reader reads the row -- by the short `PeerId` beside the name,
-/// each its own and never the other's. The model's rule is its own test
+/// conversation's header, and its row in the list as the view hands it
+/// over and as a screen reader reads the row's item -- by the short
+/// `PeerId` beside the name, each its own and never the other's. The model's rule is its own test
 /// (`a_contacts_name_titles_its_conversation_told_apart_by_the_short_peer_id_when_shared`);
-/// this one is the window's. Mutation: the header or the row drawing the
-/// contact's name alone.
+/// this one is the window's. Mutations: the header, the row's title or
+/// the row item's accessible label cut to the contact's name. What the
+/// row's text draws is not read here.
 #[test]
 fn two_same_name_contacts_are_drawn_told_apart_by_their_short_peer_ids() {
     let mut view = view();
@@ -665,7 +666,17 @@ fn two_same_name_contacts_are_drawn_told_apart_by_their_short_peer_ids() {
             1,
             "one list row titled {title:?}"
         );
-        assert!(shows(&view, &title), "the row read as {title:?}");
+        // The list's item, not the header, which carries the same label.
+        assert_eq!(
+            labelled(&view, &title)
+                .iter()
+                .filter(|e| {
+                    e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::ListItem)
+                })
+                .count(),
+            1,
+            "one list item read as {title:?}"
+        );
         titles.push(title);
     }
     assert_ne!(titles[0], titles[1], "the two titles differ");
