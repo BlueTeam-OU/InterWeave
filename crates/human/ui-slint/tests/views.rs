@@ -2684,6 +2684,64 @@ fn long_content_wraps_inside_the_window() {
     }
 }
 
+/// A line past a piece's bound is drawn in pieces, each its own text item
+/// (j92: one item taller than 32,767 physical px panics the desktop's
+/// renderer), and the pieces meet with no gap: a code block's pieces are
+/// one surface, its text continuing on the next row of pixels, and a
+/// paragraph's run its own line height apart. The item's label reads the
+/// paragraph whole, as it was written.
+#[test]
+fn a_long_line_is_drawn_in_pieces_that_meet_with_no_gap() {
+    use interweave_human_ui_model::body::{PIECE_GRAPHEMES, PIECE_LINES};
+
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let code = (0..=PIECE_LINES)
+        .map(|n| format!("let x{n} = {n};"))
+        .collect::<Vec<_>>();
+    let run = "word ".repeat(PIECE_GRAPHEMES / 4);
+    model.received(received(
+        1,
+        &alice,
+        &format!("```\n{}\n```\n\n{}", code.join("\n"), run.trim_end()),
+    ));
+    open(&mut view, &mut model, &direct(&alice));
+    // Tall enough to hold the whole message: an item the list clips out
+    // of view is not in the tree the testing backend reads.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 8000.0));
+    slint::platform::update_timers_and_animations();
+
+    let bottom = |e: &ElementHandle| e.absolute_position().y + e.size().height;
+    let head = the(&view, &code[..PIECE_LINES].join("\n"));
+    let tail = the(&view, &code[PIECE_LINES]);
+    assert!(
+        (tail.absolute_position().y - bottom(&head)).abs() < 0.5,
+        "the code's second piece starts where the first ends: {} against {}",
+        tail.absolute_position().y,
+        bottom(&head)
+    );
+
+    let cut = interweave_human_ui_model::body::pieces(run.trim_end());
+    assert!(cut.len() > 1, "the run is longer than a piece");
+    let first = the(&view, cut[0].0);
+    let second = the(&view, cut[1].0);
+    assert!(
+        (second.absolute_position().y - bottom(&first)).abs() < 0.5,
+        "the run's second piece starts where the first ends: {} against {}",
+        second.absolute_position().y,
+        bottom(&first)
+    );
+    assert!(
+        all(&view).iter().any(|e| e
+            .accessible_label()
+            .is_some_and(|label| label.contains(run.trim_end()))),
+        "the item's label reads the run whole"
+    );
+}
+
 /// A conversation pressed is shown by the take that resolves the press,
 /// with no render after it: a root renders and then takes, so a press
 /// that yields no intent -- a conversation with nothing unread, or the

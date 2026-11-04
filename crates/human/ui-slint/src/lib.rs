@@ -3451,6 +3451,8 @@ fn action_model(actions: &[RowAction]) -> ModelRc<ActionRow> {
 /// An item's body as the view draws it, built once per item.
 struct DrawnBody {
     lines: ModelRc<BodyLine>,
+    /// The source in pieces, as the lines are.
+    source_pieces: ModelRc<SharedString>,
     link_rows: ModelRc<LinkRow>,
     /// The destinations, in the order of `link_rows`.
     links: Vec<String>,
@@ -3483,17 +3485,19 @@ fn image_text(alt: &str) -> String {
 
 fn drawn_body(item: &MessageItem) -> DrawnBody {
     let body = body::flatten(&item.body, &image_text);
-    let plain = body
-        .lines
-        .iter()
-        .map(|line| line.text.as_str())
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+    // A piece cut inside a run rejoins the run, with no break between.
+    let mut plain = String::new();
+    for line in body.lines.iter().filter(|line| !line.text.is_empty()) {
+        if !plain.is_empty() && line.join != body::Join::MidLine {
+            plain.push('\n');
+        }
+        plain.push_str(&line.text);
+    }
     let lines: Vec<BodyLine> = body
         .lines
         .iter()
-        .map(|line| {
+        .enumerate()
+        .map(|(index, line)| {
             let (kind, level) = match line.kind {
                 body::Kind::Text => (LineKind::Text, 0),
                 body::Kind::Heading(level) => (LineKind::Heading, i32::from(level)),
@@ -3509,8 +3513,17 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
                 quoted: line.quoted,
                 marker: line.marker.as_str().into(),
                 text: line.text.as_str().into(),
+                joined: line.join != body::Join::Starts,
+                continues: body
+                    .lines
+                    .get(index + 1)
+                    .is_some_and(|next| next.join != body::Join::Starts),
             }
         })
+        .collect();
+    let source_pieces: Vec<SharedString> = body::pieces(&item.source)
+        .into_iter()
+        .map(|(piece, _)| piece.into())
         .collect();
     let link_rows: Vec<LinkRow> = body
         .links
@@ -3529,6 +3542,7 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         .collect();
     DrawnBody {
         lines: ModelRc::new(VecModel::from(lines)),
+        source_pieces: ModelRc::new(VecModel::from(source_pieces)),
         link_rows: ModelRc::new(VecModel::from(link_rows)),
         links: body.links,
         plain,
@@ -3624,6 +3638,7 @@ fn message_row(
         gap: placed.gap,
         day: placed.day.into(),
         source: item.source.as_str().into(),
+        source_pieces: drawn.source_pieces.clone(),
         lines: drawn.lines.clone(),
         links: drawn.link_rows.clone(),
         reply: reply.into(),

@@ -191,6 +191,11 @@ export struct BodyLine {
     // A list item's marker on its first line: a bullet, or "3.".
     marker: string,
     text: string,
+    // A piece of the line before, drawn against it with no gap; and a
+    // line whose next one is such a piece (`body.rs`, j92: no drawn item
+    // may hold a whole long line).
+    joined: bool,
+    continues: bool,
 }
 
 // One link of a body: a separate control, activated only by a person,
@@ -268,8 +273,10 @@ export struct MessageRow {
     // time).
     cards-after: int,
     // The source as received, shown on the person's request: always
-    // viewable, however it rendered (HUMAN-CHAT.md).
+    // viewable, however it rendered (HUMAN-CHAT.md). Drawn from its
+    // pieces, as a body's lines are.
     source: string,
+    source-pieces: [string],
     // The body drawn from the block tree, and its links.
     lines: [BodyLine],
     links: [LinkRow],
@@ -7650,11 +7657,13 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                         if !item.show-source && !row.card: VerticalLayout {
-                                            spacing: 4px;
                                             // Mirrored right to left (section 7): the
                                             // indent, the quote bar and a list's marker
-                                            // at the line's start, on the right.
-                                            for line in row.lines: HorizontalLayout {
+                                            // at the line's start, on the right. 4 px
+                                            // between lines, none before a piece of
+                                            // the line above.
+                                            for line[line-index] in row.lines: HorizontalLayout {
+                                                padding-top: line-index == 0 || line.joined ? 0px : 4px;
                                                 padding-left: root.rtl ? 0px : line.depth * 16px;
                                                 padding-right: root.rtl ? line.depth * 16px : 0px;
                                                 spacing: 6px;
@@ -7695,14 +7704,21 @@ export component AppWindow inherits Window {
                                                     accessible-label: line.marker != "" ? line.marker + " " + self.text : self.text;
                                                 }
                                                 if line.kind == LineKind.code: Rectangle {
+                                                    // A block cut in pieces is one surface:
+                                                    // no corner or padding where they meet.
+                                                    property <length> pad-top: line.joined ? 0px : 6px;
+                                                    property <length> pad-bottom: line.continues ? 0px : 6px;
                                                     horizontal-stretch: 1;
                                                     background: Palette.surface;
-                                                    border-radius: 4px;
+                                                    border-top-left-radius: line.joined ? 0px : 4px;
+                                                    border-top-right-radius: line.joined ? 0px : 4px;
+                                                    border-bottom-left-radius: line.continues ? 0px : 4px;
+                                                    border-bottom-right-radius: line.continues ? 0px : 4px;
                                                     // Its text's height, padded 6 px round.
-                                                    height: code-text.preferred-height + 12px;
+                                                    height: code-text.preferred-height + self.pad-top + self.pad-bottom;
                                                     code-text := Text {
                                                         x: 6px;
-                                                        y: 6px;
+                                                        y: parent.pad-top;
                                                         width: parent.width - 12px;
                                                         text: line.text;
                                                         wrap: word-wrap;
@@ -7727,18 +7743,20 @@ export component AppWindow inherits Window {
                                                 }
                                             }
                                         }
-                                        if item.show-source: Text {
-                                            text: row.source;
-                                            wrap: word-wrap;
-                                            min-height: self.preferred-height;
-                                            // A word longer than the line breaks inside itself rather
-                                            // than widening the list (seen with a long URL in the body).
-                                            min-width: 0;
-                                            color: item.ink;
-                                            font-family: root.code-font;
-                                            font-size: Type.body-medium;
-                                            accessible-role: text;
-                                            accessible-label: self.text;
+                                        if item.show-source: VerticalLayout {
+                                            for piece in row.source-pieces: Text {
+                                                text: piece;
+                                                wrap: word-wrap;
+                                                min-height: self.preferred-height;
+                                                // A word longer than the line breaks inside itself rather
+                                                // than widening the list (seen with a long URL in the body).
+                                                min-width: 0;
+                                                color: item.ink;
+                                                font-family: root.code-font;
+                                                font-size: Type.body-medium;
+                                                accessible-role: text;
+                                                accessible-label: self.text;
+                                            }
                                         }
                                         // One control per link, after the text it came from, its full
                                         // destination as its label; nothing opens but a person's
