@@ -122,7 +122,7 @@ Trust mutation is always an explicit local settings action. A message may contai
 
 Desktop settings use the admin IPC binding. Android settings use `LocalAdminPort`. Network/event callbacks never receive either authority.
 
-High-impact changes require a confirmation view that shows the exact PeerId and scope. Removing trust should warn that active application connectivity to that peer will be evicted.
+High-impact changes require a confirmation view that shows the exact PeerId and scope. Removing trust should warn that active application connectivity to that peer will be evicted — until the Stage 22 release; from it (ADR-0067 decision 6, the identities design's §16 Q10) the confirmation states the route's refusal only: the peer's messages to this identity are refused until it is trusted again, and nothing about channels, whose publishers the node admits, about connections, which the node admits for a peer any endpoint trusts, about this device's list or about another identity's set — a revoke writes the identity's own set, and the refusal at this identity's route is the one fact true in every state.
 
 ## 9. Recovery UX
 

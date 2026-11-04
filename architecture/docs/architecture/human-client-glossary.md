@@ -22,7 +22,7 @@ headings. A complete sentence ends with a period.
 | profile | One identity with its settings on this device (human-client-ui.md §2). | account, user |
 | peer | Another device's PeerId as this profile sees it (human-client-ui.md §3). | contact, user, person, friend; a contact is application metadata and is not authenticated |
 | trust, trusted | A peer on this profile's list of trusted peers may exchange messages with it (human-client-ui.md §8). | allow, approve, verify, friend, follow |
-| Remove trust | The removal action; its confirmation says that connections close (human-client-ui.md §8). | block, ban, delete, revoke |
+| Remove trust | The removal action; its confirmation says that connections close, until the Stage 22 release, and from it (ADR-0067 decision 6) that the peer's messages to this identity are refused until it is trusted again — the route's refusal only, nothing about channels, connections or another identity's set (human-client-ui.md §8). | block, ban, delete, revoke |
 | list of trusted peers | The list the trust settings show and change (human-client-ui.md §8). | allowlist, whitelist, trust list |
 | route | A remote PeerId with the EndpointId it asserts (human-client-ui.md §3, §4). It is a routing label until the Stage 22 release and never a name; from that release (ADR-0067, A 2026-10-28) the EndpointId is derived from the endpoint's own key, as a PeerId is from the node's, and what a person types to pick one is a local alias. | address, account, recipient, identity |
 | endpoint | This device's routing selector (the local EndpointId), named to a person only in errors about this device (human-client-ui.md §12). A remote EndpointId is shown as part of a route, never as "endpoint". | identity, user, role, account |
