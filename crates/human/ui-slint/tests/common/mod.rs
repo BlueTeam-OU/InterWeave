@@ -105,26 +105,33 @@ pub(crate) fn ring_overdraws(window: &impl ElementRoot) -> Option<Vec<String>> {
 /// Each scroll area holding the shown ring's control that cuts the ring:
 /// a `Flickable` clips, so a control in one keeps a ring's reach of room
 /// inside it, or its ring is drawn without the sides that fall outside
-/// (the refusal screen's path, seen rendered in j83). `None` when no ring
-/// is shown, as for [`ring_overdraws`].
+/// (the refusal screen's path, seen rendered in j83). A scroll area holds
+/// the control when the ring is among its descendants (each `FocusRing`
+/// sits beside its control), so an overlay drawn over another view's list
+/// is not judged by that list (#547 F2). `None` when no ring is shown, as
+/// for [`ring_overdraws`].
 pub(crate) fn ring_cut(window: &impl ElementRoot) -> Option<Vec<String>> {
     let ring = Edges::of(&shown_ring(window)?);
-    let centre = ring.centre();
+    let shown = |e: &ElementHandle| {
+        e.type_name().as_deref() == Some("FocusRing") && e.computed_opacity() > 0.0
+    };
     let cut = ElementQuery::from_root(window)
         .find_all()
         .into_iter()
         .filter(|e| e.type_name().as_deref() == Some("Flickable"))
+        .filter(|e| {
+            e.query_descendants()
+                .match_predicate(shown)
+                .find_first()
+                .is_some()
+        })
         .filter_map(|e| {
             let area = Edges::of(&e);
-            let holds = area.left <= centre.0
-                && centre.0 <= area.right
-                && area.top <= centre.1
-                && centre.1 <= area.bottom;
             let inside = ring.left >= area.left
                 && ring.right <= area.right
                 && ring.top >= area.top
                 && ring.bottom <= area.bottom;
-            (holds && !inside).then(|| {
+            (!inside).then(|| {
                 format!(
                     "{:?} ({}, {})-({}, {}) cuts the ring ({}, {})-({}, {})",
                     e.id(),
