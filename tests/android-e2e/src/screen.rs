@@ -320,7 +320,7 @@ impl Screens {
 
     /// A cold launch onto the identity flow's `screen` (`w` on a first
     /// run, `k1` when the identity's key cannot be opened), its trace line
-    /// seen: the onboarding pages, which `launch` never waits for.
+    /// seen: the onboarding pages, where `launch` waits for Conversations.
     pub fn launch_to_identity(&mut self, screen: &str, patience: Duration) -> Step {
         let name = "launch_to_identity";
         let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
