@@ -124,9 +124,11 @@ jobs:
           # main's history, to ask whether the tag is on it.
           fetch-depth: 0
 
-      # cargo metadata reads the tagged commit's manifests with it.
+      # cargo metadata reads the tagged commit's manifests with it. The
+      # same form as ci.yml's rust job: no deprecated auto-install by
+      # `rustup show`, and --no-self-update keeps the image's rustup.
       - name: Install the pinned toolchain
-        run: rustup show active-toolchain || rustup toolchain install
+        run: rustup toolchain install --no-self-update && rustup show active-toolchain
 
       # The trigger's glob admits v01.2.3 and v1.2.3+build; release_tag.sh
       # holds the tag to the Semantic Versioning grammar without build
@@ -425,7 +427,8 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # rustup itself at the pin the Android hosts use, its SHA-256
-      # checked; then the toolchain rust-toolchain.toml names.
+      # checked; then the toolchain rust-toolchain.toml names, with
+      # --no-self-update so the install does not move rustup past its pin.
       - name: Install the pinned toolchain
         run: |
           pins=tools/host/android/android-toolchain.pins
@@ -437,7 +440,7 @@ jobs:
           chmod +x "$RUNNER_TEMP/rustup-init"
           "$RUNNER_TEMP/rustup-init" -y --no-modify-path --default-toolchain none --profile minimal
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          "$HOME/.cargo/bin/rustup" toolchain install
+          "$HOME/.cargo/bin/rustup" toolchain install --no-self-update
 
       # Step 6. The archive script also writes the archive's
       # THIRD-PARTY-NOTICES.md: it runs tools/ci/release_notices.py over
