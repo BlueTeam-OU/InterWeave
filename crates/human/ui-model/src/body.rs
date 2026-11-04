@@ -15,8 +15,18 @@
 //! separate control; an image is a placeholder naming its alt text, or
 //! only that it is an image when the alt text is empty or blank, and
 //! nothing is fetched.
+//!
+//! A line leaves here in pieces no larger than a piece's bound
+//! ([`PIECE_GRAPHEMES`], [`PIECE_LINES`]), which HUMAN-CHAT.md's Bounds
+//! asks of every drawn item. The desktop's software renderer keeps a
+//! filled rectangle's geometry in 16 bits and panics on one taller than
+//! 32,767 physical pixels, and a line's surfaces -- a code block's fill,
+//! a quote's bar -- are as tall as the line (j92). Its text alone would
+//! not: drawn with a vector font, as the desktop's are, one text item
+//! 80,000 physical pixels tall was measured to draw.
 
 use interweave_human_chat_protocol::{Block, Inline, Rendered};
+use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::labels::{UiText, fill, placeholder_en};
 
@@ -50,6 +60,32 @@ pub enum Kind {
     TableRow,
 }
 
+/// Whether a line is a piece of the line before it, and where it was cut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Join {
+    /// A line of its own.
+    Starts,
+    /// The rest of the line before, cut at a line break the text has:
+    /// drawn against it, it reads as the text did.
+    AfterBreak,
+    /// The rest of the line before, cut inside a run with no line break,
+    /// at a word boundary (or between characters where the run has none):
+    /// that piece ends early, a ragged line the text did not have, the
+    /// seam design/2026-11-04-long-message.md section 5.2 accepts.
+    MidLine,
+}
+
+/// The most characters, as a person counts them (grapheme clusters), one
+/// drawn piece holds: the most the conversation's preview of a cut body
+/// holds (design/2026-11-04-long-message.md section 6), so that a piece
+/// is no taller than such a preview, which that note's A4 measures under
+/// the renderer's ceiling at 200 % text.
+pub const PIECE_GRAPHEMES: usize = 1600;
+
+/// The most lines, as the text breaks them, one drawn piece holds: the
+/// preview's line bound, for the same reason.
+pub const PIECE_LINES: usize = 32;
+
 /// One drawn line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
@@ -63,6 +99,8 @@ pub struct Line {
     pub marker: String,
     /// Its text, plain: no markup is left in it.
     pub text: String,
+    /// Whether it is a piece of the line before.
+    pub join: Join,
 }
 
 /// A body: its lines, and its links' destinations in the order they
@@ -91,6 +129,7 @@ pub fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Body {
             quoted: false,
             marker: String::new(),
             text: source.clone(),
+            join: Join::Starts,
         }),
         Rendered::Markdown(blocks) => {
             let mut walk = Walk {
@@ -103,7 +142,98 @@ pub fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Body {
             }
         }
     }
+    body.lines = body.lines.into_iter().flat_map(Line::into_pieces).collect();
     body
+}
+
+impl Line {
+    /// This line in pieces within the bounds; the first keeps the marker.
+    fn into_pieces(self) -> Vec<Self> {
+        let cuts = pieces(&self.text);
+        if cuts.len() == 1 {
+            return vec![self];
+        }
+        cuts.iter()
+            .enumerate()
+            .map(|(i, &(text, join))| Self {
+                kind: self.kind,
+                depth: self.depth,
+                quoted: self.quoted,
+                marker: if i == 0 {
+                    self.marker.clone()
+                } else {
+                    String::new()
+                },
+                text: text.to_owned(),
+                join,
+            })
+            .collect()
+    }
+}
+
+/// `text` cut into pieces of at most [`PIECE_GRAPHEMES`] characters and
+/// [`PIECE_LINES`] lines, each with how it joins the one before: at the
+/// last line break inside the bound, whose break the cut takes the place
+/// of; else at the last word boundary, the space before it kept with the
+/// piece it ends; else between two characters. Never inside a character.
+#[must_use]
+pub fn pieces(text: &str) -> Vec<(&str, Join)> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    let mut join = Join::Starts;
+    loop {
+        // Where the most a piece may hold ends, if `rest` holds more, and
+        // the last break before that end. Ending at a piece's last break
+        // drops the break, so the piece holds a line more than it breaks.
+        // `beyond` is where the character after that end ends: a word may
+        // begin at the end itself, which only the character after says.
+        let mut cap = None;
+        let mut beyond = rest.len();
+        let mut last_break = None;
+        let mut breaks = 0;
+        for (taken, (at, grapheme)) in rest.grapheme_indices(true).enumerate() {
+            if taken == PIECE_GRAPHEMES {
+                cap = Some(at);
+                beyond = at + grapheme.len();
+                break;
+            }
+            if grapheme.ends_with('\n') {
+                breaks += 1;
+                last_break = Some((at, grapheme.len()));
+                if breaks == PIECE_LINES {
+                    cap = Some(at);
+                    break;
+                }
+            }
+        }
+        let Some(cap) = cap else {
+            out.push((rest, join));
+            return out;
+        };
+        let (end, next, next_join) = match last_break {
+            Some((at, len)) if at > 0 => (at, at + len, Join::AfterBreak),
+            _ => {
+                let at = word_cut(&rest[..beyond], cap).unwrap_or(cap);
+                (at, at, Join::MidLine)
+            }
+        };
+        out.push((&rest[..end], join));
+        rest = &rest[next..];
+        if rest.is_empty() {
+            return out;
+        }
+        join = next_join;
+    }
+}
+
+/// The last word boundary in `head`, past its start and at most `cap`,
+/// where a word begins, so that the next piece starts with a word and not
+/// with the space before it.
+fn word_cut(head: &str, cap: usize) -> Option<usize> {
+    head.split_word_bound_indices()
+        .rev()
+        .find(|&(at, word)| at > 0 && at <= cap && !word.starts_with(char::is_whitespace))
+        .map(|(at, _)| at)
 }
 
 /// The first line of `rendered` as the person wrote it, as plain text:
@@ -159,6 +289,7 @@ impl Walk<'_> {
             quoted,
             marker: marker.to_owned(),
             text,
+            join: Join::Starts,
         };
         match block {
             Block::Paragraph(content) => {
@@ -282,6 +413,7 @@ mod tests {
             quoted,
             marker: marker.to_owned(),
             text: text.to_owned(),
+            join: super::Join::Starts,
         }
     }
 
@@ -378,5 +510,195 @@ mod tests {
         let got = body(&deep);
         assert_eq!(got.lines, [line(Kind::Text, 0, false, "", &deep)]);
         assert!(got.links.is_empty());
+    }
+
+    mod pieces {
+        use unicode_segmentation::UnicodeSegmentation as _;
+
+        use super::super::{Join, Kind, PIECE_GRAPHEMES, PIECE_LINES, pieces};
+        use super::body;
+
+        fn graphemes(text: &str) -> usize {
+            text.graphemes(true).count()
+        }
+
+        /// The text again, from its pieces: a break where one was cut.
+        fn joined(cut: &[(&str, Join)]) -> String {
+            let mut text = String::new();
+            for &(piece, join) in cut {
+                if join == Join::AfterBreak {
+                    text.push('\n');
+                }
+                text.push_str(piece);
+            }
+            text
+        }
+
+        fn within_bounds(cut: &[(&str, Join)]) {
+            for &(piece, _) in cut {
+                assert!(
+                    graphemes(piece) <= PIECE_GRAPHEMES,
+                    "{} characters",
+                    graphemes(piece)
+                );
+                assert!(
+                    piece.lines().count() <= PIECE_LINES,
+                    "{} lines",
+                    piece.lines().count()
+                );
+            }
+        }
+
+        #[test]
+        fn a_line_within_both_bounds_is_one_piece() {
+            let text = "x".repeat(PIECE_GRAPHEMES);
+            assert_eq!(pieces(&text), [(text.as_str(), Join::Starts)]);
+            let lines = vec!["line"; PIECE_LINES].join("\n");
+            assert_eq!(pieces(&lines), [(lines.as_str(), Join::Starts)]);
+        }
+
+        #[test]
+        fn lines_past_the_bound_are_cut_at_a_break_which_the_cut_replaces() {
+            let text = (0..=PIECE_LINES * 3)
+                .map(|n| format!("line {n}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let cut = pieces(&text);
+            within_bounds(&cut);
+            assert_eq!(cut.len(), 4);
+            assert_eq!(
+                cut[0].0.lines().count(),
+                PIECE_LINES,
+                "a piece takes all the lines it may"
+            );
+            assert_eq!(cut[0].1, Join::Starts);
+            assert!(cut[1..].iter().all(|&(_, join)| join == Join::AfterBreak));
+            assert!(
+                cut.iter()
+                    .all(|&(piece, _)| !piece.starts_with('\n') && !piece.ends_with('\n'))
+            );
+            assert_eq!(joined(&cut), text);
+        }
+
+        #[test]
+        fn a_run_with_no_break_is_cut_where_a_word_begins() {
+            let text = "a word or two, ".repeat(400);
+            let cut = pieces(&text);
+            within_bounds(&cut);
+            assert!(cut.len() > 1);
+            assert!(cut[1..].iter().all(|&(_, join)| join == Join::MidLine));
+            for &(piece, _) in &cut[1..] {
+                assert!(
+                    piece.starts_with(|c: char| c.is_alphanumeric()),
+                    "{:?}",
+                    &piece[..10]
+                );
+            }
+            assert_eq!(joined(&cut), text, "nothing dropped, nothing repeated");
+        }
+
+        #[test]
+        fn a_cut_never_leaves_the_next_piece_starting_with_spaces() {
+            // The bound falls inside a run of spaces: the cut goes back to
+            // where the last word began, the spaces kept with the first.
+            let text = format!("a {}{}y", "x".repeat(PIECE_GRAPHEMES - 10), " ".repeat(20));
+            let cut = pieces(&text);
+            assert_eq!(cut[0], ("a ", Join::Starts));
+            assert!(cut[1].0.starts_with('x'));
+            assert_eq!(joined(&cut), text);
+        }
+
+        #[test]
+        fn a_break_inside_the_bound_is_cut_at_before_a_word_boundary() {
+            // The break is seamless, a word boundary is not.
+            let text = format!("first\n{}", "word ".repeat(PIECE_GRAPHEMES));
+            let cut = pieces(&text);
+            assert_eq!(cut[0], ("first", Join::Starts));
+            assert_eq!(cut[1].1, Join::AfterBreak);
+            assert_eq!(joined(&cut), text);
+        }
+
+        #[test]
+        fn a_run_with_no_word_boundary_is_cut_between_characters_never_inside_one() {
+            // One word of combining sequences, then of a family emoji: a
+            // grapheme of several code points, which a cut must not part.
+            for unit in ["e\u{301}", "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"] {
+                let text = unit.repeat(PIECE_GRAPHEMES * 2 + 5);
+                let cut = pieces(&text);
+                within_bounds(&cut);
+                assert_eq!(cut.len(), 3);
+                assert_eq!(graphemes(cut[0].0), PIECE_GRAPHEMES);
+                assert!(
+                    cut.iter().all(|&(piece, _)| piece.starts_with(unit)),
+                    "{unit:?}"
+                );
+                assert_eq!(joined(&cut), text);
+            }
+        }
+
+        #[test]
+        fn a_script_written_without_spaces_is_cut_between_its_characters() {
+            let text = "\u{6f22}\u{5b57}".repeat(PIECE_GRAPHEMES);
+            let cut = pieces(&text);
+            within_bounds(&cut);
+            assert_eq!(cut.len(), 2);
+            assert_eq!(joined(&cut), text);
+        }
+
+        #[test]
+        fn a_crlf_break_is_cut_whole() {
+            let text = vec!["line"; PIECE_LINES + 1].join("\r\n");
+            let cut = pieces(&text);
+            assert_eq!(cut.len(), 2);
+            assert!(
+                !cut[0].0.ends_with('\r'),
+                "the break is one character and goes whole"
+            );
+            assert_eq!(cut[1], ("line", Join::AfterBreak));
+        }
+
+        #[test]
+        fn a_body_line_past_the_bound_leaves_flatten_in_pieces_its_marker_on_the_first() {
+            let code = (0..=PIECE_LINES)
+                .map(|n| format!("let x{n} = {n};"))
+                .collect::<Vec<_>>();
+            let got = body(&format!(
+                "- item\n\n  ```\n  {}\n  ```\n",
+                code.join("\n  ")
+            ));
+            let kinds = got
+                .lines
+                .iter()
+                .map(|l| (l.kind, l.join))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                kinds,
+                [
+                    (Kind::Text, Join::Starts),
+                    (Kind::Code, Join::Starts),
+                    (Kind::Code, Join::AfterBreak),
+                ]
+            );
+            assert_eq!(got.lines[2].text, code[PIECE_LINES]);
+            assert!(
+                got.lines[1..]
+                    .iter()
+                    .all(|l| l.depth == 1 && l.marker.is_empty())
+            );
+
+            let long = format!("3. {}", "word ".repeat(PIECE_GRAPHEMES));
+            let got = body(&long);
+            assert_eq!(
+                got.lines.len(),
+                pieces(&"word ".repeat(PIECE_GRAPHEMES)).len()
+            );
+            assert!(got.lines.len() > 1);
+            assert_eq!(got.lines[0].marker, "3.");
+            assert!(
+                got.lines[1..]
+                    .iter()
+                    .all(|l| l.marker.is_empty() && l.join == Join::MidLine)
+            );
+        }
     }
 }
