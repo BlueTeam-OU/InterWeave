@@ -78,9 +78,19 @@ acceptance case in §14 that needs one says so:
 - **D2** the endpoint dimension of `admin.trust.set` and
   `admin.trust.list` (p2p-network-dev's IPC minor, contract text
   architect-cto's; ADR-0067 d. 6).
-- **D3** the alias's grammar and uniqueness rule. `ENDPOINTS.md` names
-  the alias (a local display name, unique within the profile) and gives
-  it no grammar; §6.2 depends on one (§16 Q4).
+- **D3** the alias's grammar and uniqueness rule. `ENDPOINTS.md` on
+  `main` names the alias and gives it no grammar. architect-cto ruled it
+  (§16 Q4): the retired label grammar `^[a-z][a-z0-9._-]{0,63}$`,
+  unique within the profile over authored and added entries, refused by
+  name (`AliasInvalid`, `AliasTaken`); the text is on their branch
+  `develop-qzapp/architect-cto-01/docs/j509-identities-note-rulings`
+  and enforcement is p2p-network-dev's Stage 22 batch.
+
+**architect-cto's rulings of 2026-11-04** (REPLY 01a1a69f, answering
+§16) are cited below as "ruled"; they land as amendments dated A
+2026-11-04 in `human-client-ui.md` and `ENDPOINTS.md` on the branch
+named in D3. Until that branch is on `main` they are a dependency of the
+same kind as D1–D3, and the cases that rest on them say so.
 
 ## 2. What the owner asked, and how it is read
 
@@ -191,7 +201,9 @@ front, and only that identity admits the peer at the route. So:
   identity's set is the identity's own and can be untrusted here.
   **Alternative named:** keep the line on rows the seed copied. Rejected
   for that reason. If D2's list reports an origin anyway, this note
-  shows none; §16 Q5 asks whether it will.
+  shows none. Ruled (§16 Q5): the list reports every row of an
+  identity's set, the seed's included, as the client's own write, with
+  no configuration origin.
 - **Peers rows** (add-a-peer §5.2): the trust state is the identity in
   front's. `PeerStateTrusted` stays ("this device tries to connect to
   this address": true, since the device dials every peer any identity
@@ -218,9 +230,11 @@ front, and only that identity admits the peer at the route. So:
   front's set is empty** and shows the notice then, with a second form
   `NoReachIdentity` when the address list is not empty ("{identity}
   trusts no one yet. To write as {identity}, trust a peer while you use
-  it."), its action opening Trust. §3 of `human-client-ui.md` says "the
-  trust set" and predates ADR-0067; §16 Q2 asks architect-cto to confirm
-  this reading.
+  it."), its action opening Trust. Ruled (§16 Q2): the set is the
+  identity in front's effective set, never the device's admission set,
+  and the second form shows when that set is empty while the address
+  list or another identity's set is not. The notice promises nothing
+  about channels, whose publishers the device admits (above).
 
 ### 5.2 An identity that cannot act now
 
@@ -256,18 +270,20 @@ Cards §5.1 stands, with these changes:
   by others as …x6gY6Eri"). The route label of the old design no longer
   exists; the alias is local and is not shown on the list (§6.2).
   Two identities of one device then differ on this line by their keys,
-  never by a word the person chose. §16 Q3 asks how a counterparty's
-  client shows a route now, since this line should match it.
+  never by a word the person chose. Ruled (§16 Q3): from the Stage 22
+  release a counterparty's client shows a route as this same short
+  EndpointId, in `DirectTitle` and on Details, so this line is what
+  the people the identity writes to see.
 - **The shared-device statement** `IdentitiesShareDevice` keeps its
   first half (one PeerId and one device's addresses; a second profile on
   the desktop, which the phone cannot run). Its second half changes for
   ADR-0067: "Each identity trusts its own peers. A peer that any of your
   identities trusts can connect to this device, and reaches only the
-  identities that trust it." `human-client-ui.md` §13 still asks this
-  page to say that any trusted peer can address any identity and that
-  no setting narrows it; §16 Q1 asks architect-cto to amend that
-  criterion, and until it is answered this note's sentence is the
-  proposal.
+  identities that trust it. A channel is the exception: anyone any of
+  your identities trusts can post in a channel, whichever identity
+  reads it." Ruled (§16 Q1): §13's criterion is amended to this
+  sentence, its channel clause included (ADR-0067 d. 6, broadcast
+  stays node-wide).
 - **Add an identity** opens the add form (§6.2), not an empty card page
   with a route-label field.
 
@@ -282,20 +298,25 @@ starts with nobody: it trusts no one, and no one has its card until you
 share it." and **Create** (`CreateIdentity`), filled. No id field, no
 label field, no advertise control (§8).
 
-**The alias.** The client makes the alias from the name: lowercased,
-letters and digits kept, every other run of characters made one `-`,
-cut to the grammar's length, and `-2`, `-3` … added when the profile
-already has that alias; a name that leaves nothing gives `identity-2`
-and so on. It is shown on the identity's page under the card's fields,
+**The alias.** The client makes the alias from the name, under D3's
+grammar: the name lowercased; its ASCII letters and digits kept, with
+no transliteration; every other run of characters made one `-`, and a
+`-` at either end dropped. A result that is empty is `identity`; one
+that begins with a digit is prefixed `identity-`. It is cut so that a
+suffix still fits the grammar's 64 characters, and when the profile
+already holds that alias, `-2`, `-3` … is added, the lowest free one.
+So "Anna Rossi" gives `anna-rossi`, a second "Anna Rossi"
+`anna-rossi-2`, "Ελένη" `identity` (or `identity-2` when that is
+taken), and "2024 team" `identity-2024-team`. It is shown on the identity's page under the card's fields,
 read-only, as `IdentityAlias` ("Name in commands: {alias}") with Copy,
 so a person who uses the command line can find it. Editing the card's
 name later does not change it, since a script may use it; the command
-line renames it (ADR-0061 d. 7). **Alternative named:** an alias field
+line renames it (ADR-0061 d. 7), and a rename it refuses is its own
+(`AliasInvalid`, `AliasTaken`). **Alternative named:** an alias field
 in the form. Rejected: most people will never use the command line, an
 extra required field is a needless choice (recognition over recall),
 and a field whose rules come from a grammar would put errors in front
-of a person who only wanted a name. This rule needs D3; where D3's
-grammar differs, the rule adapts and the decision stands.
+of a person who only wanted a name. The rule rests on D3 as ruled.
 
 **Create**, on a valid form (cards §5.2's input rules):
 
@@ -432,10 +453,10 @@ rust-ui-dev's; what is checked is what the lock screen shows (§14).
 entry unchanged.
 
 **The desktop** has no system notification today (`human-client-ui.md`
-§10 makes one optional). This note specifies none. A desktop
-notification added later cannot carry a separate lock-screen form on
-the freedesktop interface, so it may not name an identity until
-architect-cto rules how it keeps §10 (§16 Q6).
+§10 makes one optional). This note specifies none. Ruled (§16 Q6): a
+desktop notification has one form and cannot tell a locked screen from
+an unlocked one, so a later one is always the redacted form — the
+count, no name, no content — and the identity is shown after the open.
 
 ## 10. The contact page: a route's actions
 
@@ -651,9 +672,9 @@ pass before it lands.
    observed from the daemon (`admin.endpoints.list`, trust list for
    that endpoint); the new row is focused and the identity in front is
    unchanged. Needs D1, D2. *(§13 bullet 18; exit gate.)*
-8. Add's alias follows §6.2's rule for "Anna Rossi" (`anna-rossi`), for
-   a second "Anna Rossi" (`anna-rossi-2`) and for a name of only
-   punctuation; renaming the card leaves the alias. Needs D3.
+8. Add's alias follows §6.2's rule for each of its four examples and
+   for a name of only punctuation (`identity`); renaming the card
+   leaves the alias. Needs D3.
 9. Add at the bound: with 64 endpoints, Create is not offered and
    `IdentityLimit` is focused; the daemon's refusal by name shows the
    same if the list was stale. Needs D1. *(Exit gate, "the add refused
@@ -725,7 +746,7 @@ pass before it lands.
 - **Per-conversation notifications** and any inline reply: the build
   has a count notification, and cards §5.7.5's rule (an inline reply
   names the identity it replies as) stands for later.
-- **A desktop system notification** (§9, §16 Q6).
+- **A desktop system notification** (§9; its rule ruled, §16 Q6).
 - **Editing the alias in the graphical clients** (§6.2): the command
   line's.
 - **Trusting a peer for several identities at once.** Each identity
@@ -735,28 +756,20 @@ pass before it lands.
 
 ## 16. Questions
 
-To architect-cto, as QUESTIONs; until answered, this note's reading is
-the proposal:
+Asked of architect-cto (QUESTION 01a1a69a) and ruled the same day
+(REPLY 01a1a69f); the text lands on their branch named in §1 D3. Each
+section above states the ruling where it applies:
 
-- **Q1** `human-client-ui.md` §13 asks the identity settings to say
-  "that any peer the node trusts can address the identity whose label it
-  learns, and that no setting narrows it today". Since ADR-0067 d. 6
-  each identity's own set narrows it. Amend the criterion to §6.1's
-  sentence?
-- **Q2** §3's no-reach rule reads "the trust set empty". Is it the
-  identity in front's set (§5.1, `NoReachIdentity`), or the device's
-  admission set?
-- **Q3** §3 and §4 tell two identities of one node apart "by their route
-  label, which that node chose". The alias never reaches the wire
-  (ADR-0067 d. 3), so a counterparty sees the EndpointId. Is a route
-  shown as its short EndpointId (§6.1's `ShortEndpoint`), and does
-  `DirectTitle` take it?
-- **Q4** The alias's grammar and uniqueness (D3), so §6.2's rule can be
-  fixed.
-- **Q5** Does the endpoint dimension of `admin.trust.list` (D2) report a
-  row's origin? §5.1 shows none either way.
-- **Q6** A desktop notification has no separate lock-screen form. Until
-  ruled, the desktop names no identity in one, and specifies none.
+- **Q1** §13's identity-settings criterion against ADR-0067 d. 6:
+  amended to §6.1's sentence with a channel clause.
+- **Q2** the no-reach rule's trust set: the identity in front's
+  effective set (§5.1).
+- **Q3** how a route is shown now the alias stays local: the short
+  EndpointId, built as `ShortPeer` (§6.1).
+- **Q4** the alias's grammar: the retired label grammar, unique in the
+  profile (§1 D3, §6.2).
+- **Q5** an origin on an identity's trust rows: none (§5.1).
+- **Q6** a desktop notification: always the redacted form (§9).
 
 To language-culture-en: the strings of §13, and whether "identity" can
 stay the person's word for one of these now that the recovery screens
