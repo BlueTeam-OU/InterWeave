@@ -453,3 +453,105 @@ fn the_identity_page_keeps_tab_on_its_own_stops() {
         ]
     );
 }
+
+/// R2 with the picker has more than two stops, so Shift+TAB is seen to
+/// step back through them in the reverse of TAB's order -- on Welcome's
+/// two, one step either way reaches the same stop.
+#[test]
+fn the_identity_page_steps_back_in_reverse_order() {
+    use interweave_human_ui_model::{IdentityFlow, Start};
+    use interweave_human_ui_slint::identity_page;
+    use slint::platform::{Key, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    view.render(&UiModel::new());
+    let mut flow = IdentityFlow::new(&["abandon"], Start::FirstRun { void_paper: false });
+    flow.restore();
+    flow.primary();
+    view.show_identity(Some(identity_page(&flow)));
+    slint::platform::update_timers_and_animations();
+    let first = said.borrow().len();
+    for _ in 0..3 {
+        tab(&view);
+    }
+    let key: slint::SharedString = Key::Backtab.into();
+    let window = view.window().window();
+    for _ in 0..2 {
+        window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text: key.clone() });
+    }
+    assert_eq!(
+        said.borrow()[first..],
+        [
+            "ui-trace focus=identity-delete",
+            "ui-trace focus=identity-clear",
+            "ui-trace focus=identity-primary",
+            "ui-trace focus=identity-clear",
+            "ui-trace focus=identity-delete",
+        ]
+    );
+}
+
+/// The discard dialog is modal over R2: TAB and Shift+TAB stay on its
+/// two buttons, never on the page's stops behind the scrim, and Enter
+/// on its delete is the dialog's answer.
+#[test]
+fn the_identity_dialog_keeps_tab_on_its_two_buttons() {
+    use interweave_human_ui_model::{IdentityFlow, Start};
+    use interweave_human_ui_slint::{IdentityInput, identity_page};
+    use slint::platform::{Key, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    view.render(&UiModel::new());
+    let inputs = Rc::new(RefCell::new(Vec::new()));
+    let into = Rc::clone(&inputs);
+    view.on_identity(move |input| into.borrow_mut().push(input));
+    let mut flow = IdentityFlow::new(&["abandon"], Start::FirstRun { void_paper: false });
+    flow.restore();
+    flow.primary();
+    flow.press('a');
+    flow.choose("abandon");
+    flow.back();
+    assert!(flow.discard_asked());
+    view.show_identity(Some(identity_page(&flow)));
+    slint::platform::update_timers_and_animations();
+    let window = view.window().window();
+    let press = |key: Key| {
+        let text: slint::SharedString = key.into();
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text });
+        said.borrow().last().cloned().unwrap_or_default()
+    };
+    // The dialog's opening focus is a deferred change, so the first key
+    // still finds the focus behind the scrim: it enters the dialog on its
+    // default, "Continue entering".
+    let steps = [
+        press(Key::Tab),
+        press(Key::Backtab),
+        press(Key::Tab),
+        press(Key::Tab),
+        press(Key::Backtab),
+        press(Key::Backtab),
+    ];
+    assert_eq!(
+        steps,
+        [
+            "ui-trace focus=identity-dialog-keep",
+            "ui-trace focus=identity-dialog-delete",
+            "ui-trace focus=identity-dialog-keep",
+            "ui-trace focus=identity-dialog-delete",
+            "ui-trace focus=identity-dialog-keep",
+            "ui-trace focus=identity-dialog-delete",
+        ]
+    );
+    press(Key::Return);
+    assert_eq!(*inputs.borrow(), [IdentityInput::Dialog(true)]);
+}
