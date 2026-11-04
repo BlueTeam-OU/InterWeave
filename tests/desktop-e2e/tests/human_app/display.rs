@@ -125,3 +125,72 @@ pub(crate) fn luma_of(pid: u32) -> (usize, usize, Vec<u8>) {
         .collect();
     (width, height, luma)
 }
+
+/// Tab pressed and released on the test display's keyboard, through
+/// XTEST: what a person's key does, to the window holding the input
+/// focus ([`focus`] gives it), past every toolkit hook a test backend
+/// would skip.
+pub(crate) fn tab() {
+    use x11rb::protocol::xproto::{KEY_PRESS_EVENT, KEY_RELEASE_EVENT};
+    use x11rb::protocol::xtest::ConnectionExt as _;
+    /// `XK_Tab`.
+    const TAB: u32 = 0xff09;
+    let (conn, screen) = x11rb::connect(None).expect("the test display answers");
+    let root = conn.setup().roots[screen].root;
+    let (low, high) = (conn.setup().min_keycode, conn.setup().max_keycode);
+    let map = conn
+        .get_keyboard_mapping(low, high - low + 1)
+        .expect("a keymap request")
+        .reply()
+        .expect("the display's keymap");
+    let per = usize::from(map.keysyms_per_keycode);
+    let code = map
+        .keysyms
+        .chunks(per)
+        .position(|syms| syms.contains(&TAB))
+        .and_then(|at| u8::try_from(at).ok())
+        .map(|at| low + at)
+        .expect("a key that types Tab");
+    for kind in [KEY_PRESS_EVENT, KEY_RELEASE_EVENT] {
+        conn.xtest_fake_input(kind, code, x11rb::CURRENT_TIME, root, 0, 0, 0)
+            .expect("an XTEST request")
+            .check()
+            .expect("the display takes the key");
+    }
+}
+
+/// The first button pressed and released at `(x, y)` of the viewable
+/// top-level window of process `pid`, through XTEST: a person's click,
+/// which reaches the window's own event first, as no accessible action
+/// does.
+pub(crate) fn click(pid: u32, x: i32, y: i32) {
+    use x11rb::protocol::xproto::{BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, MOTION_NOTIFY_EVENT};
+    use x11rb::protocol::xtest::ConnectionExt as _;
+    let (conn, screen) = x11rb::connect(None).expect("the test display answers");
+    let root = conn.setup().roots[screen].root;
+    let wm_pid = conn
+        .intern_atom(false, b"_NET_WM_PID")
+        .expect("an atom request")
+        .reply()
+        .expect("the _NET_WM_PID atom")
+        .atom;
+    let window = window_of(&conn, root, wm_pid, pid).expect("the client's window");
+    let at = conn
+        .translate_coordinates(window, root, 0, 0)
+        .expect("a translation request")
+        .reply()
+        .expect("the window's place on the screen");
+    let to =
+        |c: i32, origin: i16| i16::try_from(c + i32::from(origin)).expect("a point on the screen");
+    let (root_x, root_y) = (to(x, at.dst_x), to(y, at.dst_y));
+    for (kind, detail) in [
+        (MOTION_NOTIFY_EVENT, 0),
+        (BUTTON_PRESS_EVENT, 1),
+        (BUTTON_RELEASE_EVENT, 1),
+    ] {
+        conn.xtest_fake_input(kind, detail, x11rb::CURRENT_TIME, root, root_x, root_y, 0)
+            .expect("an XTEST request")
+            .check()
+            .expect("the display takes the pointer's move and press");
+    }
+}
