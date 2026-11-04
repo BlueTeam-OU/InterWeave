@@ -149,11 +149,15 @@ message, as today.
 A page of its own: on a narrow layout it covers the app, on a wide one
 it takes the conversation's pane with the list beside it, as the
 contact page does. Its top app bar: Back (the navigation icon), the
-title `ReaderTitle` (§8: the sender, the day, and the time; the day is
-Today or Yesterday as the day separator says it, else the short date
-the list's rows use, so the time is never cut off), and two actions — Show source / Show
+title: the sender's name as the conversation shows it (`You` for one's
+own), one line cut with an ellipsis as every app bar title is (look
+spec §8), and two actions — Show source / Show
 formatted (the same labels as the row's), and Copy (§5.3). Below the
-bar, the whole body in one continuous scroll, drawn as the person
+bar, the first line of the content says when the message was sent,
+`ReaderSent` (§8): the day and the time, wrapping like the text, so
+neither is ever cut off; the day is shown as the conversation's rows
+show it and spoken as their accessible label says it (look spec §5.2).
+Under it, the whole body in one continuous scroll, drawn as the person
 scrolls so that only what is near the screen is laid out. Its look is
 the bubble's text on `surface`, without the bubble.
 
@@ -281,7 +285,7 @@ are that locale's holder's.
 |---|---|---|---|
 | `LongMessageShown` | the cut line (§4.2) | that the message continues past what is shown, and the share shown (`{percent}`, the whole locale-formatted value, sign included) | The first {percent} of the message is shown. |
 | `ReadWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Read the whole message |
-| `ReaderTitle` | the reader's app bar (§5.1) | the sender (`{sender}`, `You` for one's own), the day (`{day}`: `Today` or `Yesterday`, else the list rows' short date, `DateRowThisYear` or `DateRowOtherYear` of the look spec §9) and the time as the row shows it (`{time}`) | {sender}, {day}, {time} |
+| `ReaderSent` | the reader's first content line (§5.1) | when the message was sent: the day (`{day}`) and the time as the row shows it (`{time}`). On screen `{day}` is `Today`, `Yesterday`, else the rows' short date (`DateRowThisYear`, `DateRowOtherYear`); in its accessible label it is `Today`, `Yesterday`, else `DateFull`, never the short form (look spec §5.2, §9) | {day}, {time} |
 | `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | Opening the whole message |
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
@@ -295,7 +299,7 @@ Show source and Show formatted reuse the row's existing labels.
 
 | case | focus goes to | check |
 |---|---|---|
-| Read the whole message pressed (button or menu) | the reader's first content element: on Android, TalkBack's focus on the app bar's title; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
+| Read the whole message pressed (button or menu) | the reader's first content element: on Android, TalkBack's focus on the app bar's title (the sender), then `ReaderSent` next; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
 | Reader closed (Back, Escape) | the row's Read the whole message button | A6 |
 | Reader closed because its row left (§5.4) | stays where the person's act in the list left it | A7 |
 | Show source / Show formatted in the reader | stays on the action pressed | A6 |
