@@ -24,11 +24,14 @@
 //!   foreground again. At API 34+ its type must read `remoteMessaging`.
 //!
 //! Device only (`#[ignore]`d), as `src/adb.rs` says. `fgs_lifecycle`
-//! provisions the phone's own profile with only its availability mode
-//! changed, and puts the profile back as found when it ends
-//! (`platform::ProfileKept`); it needs a `background-compatible` one,
-//! and refuses another, since a restart under `user-presence` waits for
-//! the person and the crash restart below would measure that wait.
+//! provisions the phone's own profile with only its authored
+//! availability mode changed, and puts the profile back as found when it
+//! ends (`platform::ProfileKept`). It needs a `background-compatible`
+//! key, and refuses another, since a restart under `user-presence` waits
+//! for the person and the crash restart below would measure that wait;
+//! and the foreground-only case refuses a phone whose person chose to
+//! stay reachable, a choice that overrides any mode provisioned and that
+//! the case does not change.
 //!
 //! What this does NOT prove: device transfer under `dataExtractionRules`
 //! at API 31+, which the record carries: GMS's D2D transport is asserted
@@ -47,6 +50,7 @@ use interweave_android_e2e_tests::platform::{
     sdk, shell,
 };
 use interweave_android_e2e_tests::{Device, PATIENCE};
+use interweave_profile_config::runtime::{AvailabilityMode, KeyUnlockPolicy};
 
 /// The positive control: a package that allows backup on every phone.
 const CONTROL: &str = "com.android.providers.settings";
@@ -105,8 +109,12 @@ fn backup_exclusion() {
 #[ignore = "needs a device with the app's androidTest build: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
 fn fgs_lifecycle_foreground_only_binds_and_ends_with_the_window() {
     let kept = background_compatible();
+    assert!(
+        !kept.stay_reachable_chosen(),
+        "the person chose to stay reachable on this phone, which overrides foreground-only"
+    );
     let mut phone = AdbDevice::connect();
-    phone.start(&config(&kept, "foreground-only"));
+    phone.start(&config(&kept, AvailabilityMode::ForegroundOnly));
     let log = || phone.log();
 
     launch();
@@ -135,7 +143,7 @@ fn fgs_lifecycle_stay_reachable_is_foreground_and_restarts_after_a_crash() {
     let api = sdk();
     let kept = background_compatible();
     let mut phone = AdbDevice::connect();
-    phone.start(&config(&kept, "stay-reachable"));
+    phone.start(&config(&kept, AvailabilityMode::StayReachable));
     let log = || phone.log();
 
     launch();
@@ -177,15 +185,15 @@ fn background_compatible() -> ProfileKept {
     let kept = ProfileKept::take();
     assert_eq!(
         kept.unlock_policy(),
-        "background-compatible",
+        KeyUnlockPolicy::BackgroundCompatible,
         "fgs_lifecycle needs a phone whose key does not wait for the person"
     );
     kept
 }
 
-/// The phone's own profile under `mode`, its key policy and peers as
-/// they are.
-fn config(kept: &ProfileKept, mode: &str) -> String {
+/// The phone's own profile under the authored `mode`, its key policy
+/// and peers as they are.
+fn config(kept: &ProfileKept, mode: AvailabilityMode) -> String {
     platform::with_availability(kept.found(), mode).unwrap_or_else(|e| panic!("{e}"))
 }
 

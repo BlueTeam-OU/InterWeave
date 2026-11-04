@@ -51,6 +51,7 @@ use interweave_android_e2e_cases::keys;
 use interweave_android_e2e_tests::adb::PACKAGE;
 use interweave_android_e2e_tests::platform::{self, CONFIG, network_service, prompt_shown};
 use interweave_android_e2e_tests::screen::{Screens, Step};
+use interweave_profile_config::runtime::KeyUnlockPolicy;
 
 /// How long a screen's answer may take over the phone's own runtime.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -200,7 +201,7 @@ fn user_presence() {
     let config = String::from_utf8_lossy(&out.stdout);
     assert!(
         out.status.success()
-            && platform::config_value(&config, "key_unlock_policy") == Some("user-presence"),
+            && platform::unlock_policy(&config) == Ok(KeyUnlockPolicy::UserPresence),
         "the app's profile is not user-presence (gate-b's setup): {}",
         String::from_utf8_lossy(&out.stderr)
     );

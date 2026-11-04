@@ -40,6 +40,7 @@ use std::time::{Duration, Instant};
 use interweave_android_e2e_tests::Device;
 use interweave_android_e2e_tests::adb::{AdbDevice, PACKAGE};
 use interweave_android_e2e_tests::platform::{self, ProfileKept, Told};
+use interweave_profile_config::runtime::{AvailabilityMode, KeyUnlockPolicy};
 
 /// Where the script and what it writes live on the phone.
 const DIR: &str = "/data/local/tmp/interweave-net-drop";
@@ -65,12 +66,12 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
     let kept = ProfileKept::take();
     assert_eq!(
         kept.unlock_policy(),
-        "background-compatible",
+        KeyUnlockPolicy::BackgroundCompatible,
         "the case needs a phone whose key does not wait for the person"
     );
     let mut phone = AdbDevice::connect();
     phone.start(
-        &platform::with_availability(kept.found(), "stay-reachable")
+        &platform::with_availability(kept.found(), AvailabilityMode::StayReachable)
             .unwrap_or_else(|e| panic!("{e}")),
     );
     let serial = std::env::var("ANDROID_SERIAL").ok();

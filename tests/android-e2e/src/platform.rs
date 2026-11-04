@@ -15,10 +15,18 @@
 //! line; the records quote no bound-only service record and no `fl=`
 //! line, so those fixtures follow AOSP's source and the first device
 //! run captures them. A dump whose shape a parser does not recognise is
-//! an error naming the dump, never a "no": a renamed field on another
-//! API level must fail the case, not pass its negative.
+//! an error naming the dump, never a "no": no `(nothing)` and no record,
+//! a record with no `packageName=`, a value that is not one. The one
+//! exception is a service record's `isForeground` and `startRequested`,
+//! which AOSP prints only when set, so their absence reads false and a
+//! renamed one would too: what reads them true on the same phone is
+//! `fgs_lifecycle_stay_reachable_is_foreground_and_restarts_after_a_crash`,
+//! the control to run beside any case that asserts them false.
 
 use std::process::Command;
+
+use interweave_profile_config::ProfileConfig;
+use interweave_profile_config::runtime::{AvailabilityMode, KeyUnlockPolicy};
 
 use crate::adb::PACKAGE;
 
@@ -352,76 +360,150 @@ pub fn app_pid() -> Option<u32> {
 /// directory, as `run-as` opens it.
 pub const CONFIG: &str = "interweave/config/profiles/human-android/config.yaml";
 
-/// The value of a `key:` at any depth in a profile's YAML, from
-/// its one line that sets it; a comment that names the key or its value
-/// is not that line. `None` when no line sets it, or more than one does.
-#[must_use]
-pub fn config_value<'a>(config: &'a str, key: &str) -> Option<&'a str> {
-    let head = format!("{key}:");
-    let mut found = config.lines().filter_map(|l| {
-        let t = l.trim_start();
-        let v = t.strip_prefix(&head)?;
-        let v = v.split_once(" #").map_or(v, |(v, _)| v).trim();
-        (!v.is_empty()).then_some(v)
-    });
-    let one = found.next()?;
-    found.next().is_none().then_some(one)
-}
+/// The person's availability choice, which overrides the profile's
+/// authored `availability_mode` while it exists (ADR-0041 A 2026-10-10,
+/// `interweave_profile_config::availability_overlay`).
+pub const AVAILABILITY_OVERLAY: &str =
+    "interweave/state/profiles/human-android/availability-overlay.json";
 
-/// `config` with its one `availability_mode` set to `mode`, and nothing
-/// else changed.
+/// A profile's key policy as the app reads it: the schema's default,
+/// `background-compatible`, where the document names none.
 ///
 /// # Errors
-/// No line, or more than one, sets `availability_mode`.
-pub fn with_availability(config: &str, mode: &str) -> Result<String, String> {
-    config_value(config, "availability_mode")
-        .ok_or_else(|| format!("no one availability_mode in:\n{config}"))?;
-    let mut out: Vec<String> = Vec::new();
-    for l in config.lines() {
-        let t = l.trim_start();
-        if t.starts_with("availability_mode:") {
-            let indent = &l[..l.len() - t.len()];
-            out.push(format!("{indent}availability_mode: {mode}"));
-        } else {
-            out.push(l.to_owned());
-        }
+/// The text is not a profile.
+pub fn unlock_policy(config: &str) -> Result<KeyUnlockPolicy, String> {
+    ProfileConfig::parse_yaml(config)
+        .map(|c| c.runtime.android.key_unlock_policy)
+        .map_err(|e| format!("not a profile ({e}):\n{config}"))
+}
+
+fn mode_text(mode: AvailabilityMode) -> &'static str {
+    match mode {
+        AvailabilityMode::ForegroundOnly => "foreground-only",
+        AvailabilityMode::StayReachable => "stay-reachable",
     }
-    Ok(out.join("\n") + "\n")
+}
+
+/// `config` with `runtime.android.availability_mode` set to `mode`: its
+/// line replaced where there is one, else added under `android:`, or
+/// under a new `android:` beneath `runtime:` -- the app's own first-run
+/// profile has neither and takes the schema's defaults. Nothing else
+/// changes, and the result is read back as the app parses it.
+///
+/// # Errors
+/// More than one line sets the mode, no `runtime:` block, or a result
+/// that does not parse to `mode`.
+pub fn with_availability(config: &str, mode: AvailabilityMode) -> Result<String, String> {
+    let set = format!("availability_mode: {}", mode_text(mode));
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let mut lines: Vec<String> = config.lines().map(str::to_owned).collect();
+    let at: Vec<usize> = (0..lines.len())
+        .filter(|&i| lines[i].trim_start().starts_with("availability_mode:"))
+        .collect();
+    match at.as_slice() {
+        [i] => {
+            let pad = " ".repeat(indent(&lines[*i]));
+            lines[*i] = format!("{pad}{set}");
+        }
+        [] => {
+            let runtime = lines
+                .iter()
+                .position(|l| l.trim_end() == "runtime:")
+                .ok_or_else(|| format!("no runtime: block in:\n{config}"))?;
+            let block_end = (runtime + 1..lines.len())
+                .find(|&i| {
+                    let t = lines[i].trim_start();
+                    !t.is_empty() && !t.starts_with('#') && indent(&lines[i]) == 0
+                })
+                .unwrap_or(lines.len());
+            if let Some(i) = (runtime + 1..block_end).find(|&i| lines[i].trim() == "android:") {
+                let pad = " ".repeat(indent(&lines[i]) + 2);
+                lines.insert(i + 1, format!("{pad}{set}"));
+            } else {
+                lines.insert(runtime + 1, format!("    {set}"));
+                lines.insert(runtime + 1, "  android:".to_owned());
+            }
+        }
+        _ => return Err(format!("more than one availability_mode in:\n{config}")),
+    }
+    let out = lines.join("\n") + "\n";
+    let read = ProfileConfig::parse_yaml(&out)
+        .map_err(|e| format!("the changed profile does not parse ({e}):\n{out}"))?;
+    if read.runtime.android.availability_mode == mode {
+        Ok(out)
+    } else {
+        Err(format!("the changed profile reads another mode:\n{out}"))
+    }
 }
 
 /// The app's profile as the phone held it before a case provisioned its
 /// own, written back when this is dropped, a failing case's unwind
-/// included.
+/// included, and read back to prove it.
 ///
-/// A case provisions a profile derived from this one with its
-/// `key_unlock_policy` unchanged: the app reseals its identity under the
-/// policy its profile names and deletes the other policy's key
-/// (ADR-0042 A 2026-10-10, `custody::reseal`), so a profile with another
-/// policy would destroy the person's identity setup, and no restore of
-/// the file brings that back.
+/// A case provisions a profile derived from this one with its key
+/// policy unchanged: the app reseals its identity under the policy its
+/// profile names and deletes the other policy's key (ADR-0042 A
+/// 2026-10-10, `custody::reseal`), so a profile with another policy
+/// would destroy the person's identity setup, and no restore of the
+/// file brings that back.
 pub struct ProfileKept {
     found: String,
+    stay_reachable_chosen: bool,
+}
+
+/// `adb shell <args>` with its exit status (the shell protocol carries
+/// it, where `exec-in` and `exec-out` do not), stdin fed from `input`.
+fn shell_status(args: &[&str], input: Option<&[u8]>) -> std::io::Result<(bool, Vec<u8>)> {
+    use std::io::Write as _;
+    use std::process::Stdio;
+    let mut child = Command::new("adb")
+        .arg("shell")
+        .args(args)
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    if let (Some(bytes), Some(mut stdin)) = (input, child.stdin.take()) {
+        stdin.write_all(bytes)?;
+    }
+    let out = child.wait_with_output()?;
+    Ok((out.status.success(), out.stdout))
+}
+
+/// The app's profile file now, or `None` when it cannot be read.
+fn read_config() -> Option<String> {
+    match shell_status(&["run-as", PACKAGE, "cat", CONFIG], None) {
+        Ok((true, bytes)) if !bytes.is_empty() => {
+            Some(String::from_utf8_lossy(&bytes).into_owned())
+        }
+        _ => None,
+    }
 }
 
 impl ProfileKept {
-    /// The phone's profile now.
+    /// The phone's profile now, and whether the person chose to stay
+    /// reachable.
     ///
     /// # Panics
-    /// If `adb` cannot run, or the app holds no profile to keep: a phone
-    /// with no identity is set up first, by a person.
+    /// If the app holds no profile to keep (a phone with an identity a
+    /// person made is set up first), or the overlay cannot be asked.
     #[must_use]
     pub fn take() -> Self {
-        let out = Command::new("adb")
-            .args(["exec-out", "run-as", PACKAGE, "cat", CONFIG])
-            .output()
-            .expect("adb");
-        assert!(
-            out.status.success() && !out.stdout.is_empty(),
-            "the app holds no profile to keep (a phone with an identity a person made): {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        let found = read_config().unwrap_or_else(|| {
+            panic!("the app holds no profile to keep (a phone with an identity a person made)")
+        });
+        let (present, _) = shell_status(
+            &["run-as", PACKAGE, "test", "-e", AVAILABILITY_OVERLAY],
+            None,
+        )
+        .expect("adb");
         Self {
-            found: String::from_utf8_lossy(&out.stdout).into_owned(),
+            found,
+            stay_reachable_chosen: present,
         }
     }
 
@@ -434,41 +516,37 @@ impl ProfileKept {
     /// The found profile's key policy, which the case's own keeps.
     ///
     /// # Panics
-    /// If no one line sets `key_unlock_policy`.
+    /// If the found profile does not parse.
     #[must_use]
-    pub fn unlock_policy(&self) -> &str {
-        config_value(&self.found, "key_unlock_policy")
-            .unwrap_or_else(|| panic!("no one key_unlock_policy in the phone's profile"))
+    pub fn unlock_policy(&self) -> KeyUnlockPolicy {
+        unlock_policy(&self.found).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Whether the person's choice to stay reachable is on: it overrides
+    /// any mode a case provisions, so a case that needs
+    /// `foreground-only` cannot run on such a phone without changing the
+    /// person's choice, which it does not do.
+    #[must_use]
+    pub fn stay_reachable_chosen(&self) -> bool {
+        self.stay_reachable_chosen
     }
 }
 
 impl Drop for ProfileKept {
     fn drop(&mut self) {
         // Never a second panic while unwinding: reported, not asserted.
-        let _ = Command::new("adb")
-            .args(["shell", "am", "force-stop", PACKAGE])
-            .output();
-        let write = Command::new("adb")
-            .args([
-                "exec-in",
-                "run-as",
-                PACKAGE,
-                "sh",
-                "-c",
-                &format!("'cat > {CONFIG}'"),
-            ])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write as _;
-                if let Some(mut stdin) = child.stdin.take() {
-                    stdin.write_all(self.found.as_bytes())?;
-                }
-                child.wait()
-            });
-        if !matches!(write, Ok(status) if status.success()) {
+        let _ = shell_status(&["am", "force-stop", PACKAGE], None);
+        // Written aside and moved over the profile, so a failed write
+        // leaves the provisioned profile whole rather than a cut one; then
+        // read back, since what proves the restore is the file.
+        let script = format!("'cat > {CONFIG}.e2e && mv {CONFIG}.e2e {CONFIG}'");
+        let wrote = shell_status(
+            &["run-as", PACKAGE, "sh", "-c", &script],
+            Some(self.found.as_bytes()),
+        );
+        if read_config().as_deref() != Some(self.found.as_str()) {
             eprintln!(
-                "the phone's profile was NOT put back ({write:?}); it was:\n{}",
+                "the phone's profile was NOT put back (write: {wrote:?}); it was:\n{}",
                 self.found
             );
         }
@@ -675,55 +753,124 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
     // names user-presence, its key says otherwise.
     const EXAMPLE: &str = include_str!("../../../architecture/config/examples/human-android.yaml");
 
+    // What the debug app writes on first run, `stand_in::document`
+    // (crates/human/android-platform/src/stand_in.rs) verbatim: behind a
+    // feature this crate does not turn on, so copied. No `android:`.
+    const STAND_IN: &str = "schema_version: 2
+profile:
+  name: human-android
+runtime:
+  deployment: embedded-android
+ipc:
+  enabled: false
+transport:
+  listen:
+    addresses: [\"/ip4/0.0.0.0/tcp/0\"]
+trust:
+  policy: static-allowlist
+  allowed_peers: []
+endpoints:
+  registration_policy: configured-only
+  default_direct_endpoint: human
+  entries:
+    - id: human
+      enabled: true
+      advertise: false
+      allowed_client_kinds: [human-client]
+      inbound: inherit_profile_trust
+      outbound: inherit_profile_trust
+channels:
+  desired: []
+";
+
+    /// The example as a case provisions it: its placeholders filled.
+    fn concrete_example() -> String {
+        let peer = interweave_profile_identity::ProfileIdentity::generate()
+            .transport_identity()
+            .expect("a peer");
+        interweave_test_support::e2e::example(
+            "human-android.yaml",
+            &peer,
+            "/ip4/0.0.0.0/tcp/0",
+            None,
+        )
+    }
+
+    /// Every first-run shape a phone may hold: the example as provisioned,
+    /// the debug app's stand-in, and profile-config's (`android:` with no
+    /// mode).
+    fn shapes() -> [(&'static str, String); 3] {
+        [
+            ("example", concrete_example()),
+            ("stand-in", STAND_IN.to_owned()),
+            (
+                "first-run",
+                interweave_profile_config::provision::embedded_document("human-android"),
+            ),
+        ]
+    }
+
     #[test]
-    fn a_profile_value_is_read_off_its_line_and_never_a_comment() {
+    fn the_key_policy_is_read_as_the_app_reads_it() {
         assert!(
             EXAMPLE.contains("user-presence"),
             "the fixture's trap is there"
         );
-        assert_eq!(
-            config_value(EXAMPLE, "key_unlock_policy"),
-            Some("background-compatible")
+        for (name, text) in shapes() {
+            assert_eq!(
+                unlock_policy(&text),
+                Ok(KeyUnlockPolicy::BackgroundCompatible),
+                "{name}: a key that names none is the schema's default"
+            );
+        }
+        let presence = concrete_example().replace(
+            "key_unlock_policy: background-compatible",
+            "key_unlock_policy: user-presence",
         );
-        assert_eq!(
-            config_value(
-                "    key_unlock_policy: user-presence  # asks\n",
-                "key_unlock_policy"
-            ),
-            Some("user-presence")
-        );
-        // A comment that names the key and the other value is not a line
-        // that sets it.
-        assert_eq!(
-            config_value(
-                "  # key_unlock_policy: user-presence asks the person\n  key_unlock_policy: background-compatible\n",
-                "key_unlock_policy"
-            ),
-            Some("background-compatible")
-        );
-        assert_eq!(
-            config_value("a: x\n  a: y\n", "a"),
-            None,
-            "two lines set it: no answer"
-        );
-        assert_eq!(config_value("b: x\n", "a"), None);
+        assert_eq!(unlock_policy(&presence), Ok(KeyUnlockPolicy::UserPresence));
+        assert!(unlock_policy("not: [a profile").is_err());
     }
 
     #[test]
-    fn availability_changes_its_line_and_nothing_else() {
-        let changed = with_availability(EXAMPLE, "foreground-only").expect("one mode");
-        assert_eq!(
-            config_value(&changed, "availability_mode"),
-            Some("foreground-only")
+    fn availability_is_set_on_every_shape_and_nothing_else_changes() {
+        for (name, text) in shapes() {
+            for mode in [
+                AvailabilityMode::ForegroundOnly,
+                AvailabilityMode::StayReachable,
+            ] {
+                let changed =
+                    with_availability(&text, mode).unwrap_or_else(|e| panic!("{name}: {e}"));
+                assert_eq!(
+                    ProfileConfig::parse_yaml(&changed)
+                        .expect("a profile")
+                        .runtime
+                        .android
+                        .availability_mode,
+                    mode,
+                    "{name}"
+                );
+                // The other lines are the found ones, in their order.
+                let kept: Vec<&str> = changed
+                    .lines()
+                    .filter(|l| {
+                        !l.trim_start().starts_with("availability_mode:") && l.trim() != "android:"
+                    })
+                    .collect();
+                let was: Vec<&str> = text
+                    .lines()
+                    .filter(|l| {
+                        !l.trim_start().starts_with("availability_mode:") && l.trim() != "android:"
+                    })
+                    .collect();
+                assert_eq!(kept, was, "{name}");
+            }
+        }
+        let twice = format!(
+            "{}  availability_mode: stay-reachable\n",
+            concrete_example()
         );
-        let differ = EXAMPLE
-            .lines()
-            .zip(changed.lines())
-            .filter(|(a, b)| a != b)
-            .count();
-        assert_eq!(differ, 1, "{changed}");
-        assert_eq!(EXAMPLE.lines().count(), changed.lines().count());
-        assert!(with_availability("x: 1\n", "stay-reachable").is_err());
+        assert!(with_availability(&twice, AvailabilityMode::ForegroundOnly).is_err());
+        assert!(with_availability("x: 1\n", AvailabilityMode::StayReachable).is_err());
     }
 
     #[test]
