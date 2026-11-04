@@ -687,6 +687,21 @@ mod tests {
         assert_eq!(page.waiting, en(UiText::IdGoingOffline));
     }
 
+    /// The app bar's arrow is drawn inactive while Back waits: S1 going
+    /// offline (acceptance 15).
+    #[test]
+    fn the_back_arrow_is_inactive_while_the_page_waits() {
+        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        apply(&mut flow, IdentityInput::Primary);
+        let s1 = page(&flow);
+        assert!(s1.back_arrow && s1.back_active, "control: S1, not waiting");
+        flow.prompted(true);
+        assert!(flow.waiting(), "control: going offline");
+        let waiting = page(&flow);
+        assert!(waiting.back_arrow, "the arrow stays");
+        assert!(!waiting.back_active, "and is inactive");
+    }
+
     /// "The first enabled key" falls back to delete when what is typed
     /// is a word no letter continues (section 8).
     #[test]
