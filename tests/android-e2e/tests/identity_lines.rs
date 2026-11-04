@@ -49,7 +49,7 @@ use std::time::{Duration, Instant};
 
 use interweave_android_e2e_cases::keys;
 use interweave_android_e2e_tests::adb::PACKAGE;
-use interweave_android_e2e_tests::platform::{self, network_service, prompt_shown};
+use interweave_android_e2e_tests::platform::{self, CONFIG, network_service, prompt_shown};
 use interweave_android_e2e_tests::screen::{Screens, Step};
 
 /// How long a screen's answer may take over the phone's own runtime.
@@ -67,9 +67,6 @@ const QUIET: Duration = Duration::from_secs(8);
 
 /// Set when a person is at the phone to grant a prompt.
 const PERSON_ENV: &str = "INTERWEAVE_ANDROID_PERSON";
-
-/// The embedded profile's config, under the app's data directory.
-const CONFIG: &str = "interweave/config/profiles/human-android/config.yaml";
 
 #[test]
 #[ignore = "a phone with the debug APK and an identity, ANDROID_SERIAL naming it"]
@@ -116,6 +113,9 @@ fn presence_prompt_and_cancel() {
     user_presence();
     let mut s = screens();
     locked_launch(&mut s);
+    // Each "no service" is read off a dump that says it is not running
+    // (`platform::service_record`): one that does not say so fails the
+    // read, so these are not passed by a dump this does not recognise.
     assert!(
         network_service().is_none(),
         "no service before the person: {:?}",
@@ -200,8 +200,7 @@ fn user_presence() {
     let config = String::from_utf8_lossy(&out.stdout);
     assert!(
         out.status.success()
-            && config.contains("key_unlock_policy")
-            && config.contains("user-presence"),
+            && platform::config_value(&config, "key_unlock_policy") == Some("user-presence"),
         "the app's profile is not user-presence (gate-b's setup): {}",
         String::from_utf8_lossy(&out.stderr)
     );

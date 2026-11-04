@@ -9,10 +9,14 @@
 //! hand are read here by these parsers, so a case asserts the platform's
 //! state and not the app's account of it.
 //!
-//! The parsers are pure, and each is unit-tested against the lines the
-//! device records quote. A dump whose shape a parser does not recognise
-//! is `None` or an error naming the dump, never a "no": a renamed field
-//! on another API level must fail the case, not pass its negative.
+//! The parsers are pure, and each is unit-tested against AOSP's dump
+//! layout (`ServiceRecord.dump`, `WindowManager.LayoutParams.toString`,
+//! `Bmgr`). Where a device record quotes a line the fixture is that
+//! line; the records quote no bound-only service record and no `fl=`
+//! line, so those fixtures follow AOSP's source and the first device
+//! run captures them. A dump whose shape a parser does not recognise is
+//! an error naming the dump, never a "no": a renamed field on another
+//! API level must fail the case, not pass its negative.
 
 use std::process::Command;
 
@@ -27,37 +31,54 @@ pub const REMOTE_MESSAGING: u32 = 0x200;
 /// One service record, as `dumpsys activity services` prints it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceRecord {
-    /// `isForeground=`.
+    /// `isForeground=`; false where AOSP prints no such line, which it
+    /// prints only for a service foreground now or before.
     pub foreground: bool,
     /// `types=`, the foreground service types; absent on levels that do
     /// not print it.
     pub types: Option<u32>,
     /// The foreground notice's channel, from `foregroundNoti=`.
     pub channel: Option<String>,
-    /// `startRequested=`: started, not only bound.
+    /// `startRequested=`: started, not only bound; false where AOSP
+    /// prints no such line, which it prints only for a service started
+    /// now or before.
     pub start_requested: bool,
 }
 
 /// The record of `component` in a `dumpsys activity services` dump:
-/// `Ok(None)` when the dump lists no such service (it is not running),
-/// an error when the record is there and a field this reads is not.
+/// `Ok(None)` when the dump says the service is not running -- AOSP's
+/// `(nothing)`, or other records with none of `component` -- and an
+/// error when it says neither, or the record is there and incomplete.
 ///
 /// # Errors
-/// The record's `isForeground`, `startRequested` or `types` missing or
-/// unreadable.
+/// A dump with no record and no `(nothing)`; a record with no
+/// `packageName=` (which AOSP always prints, so the record was cut); an
+/// `isForeground`, `startRequested` or `types` that is not a value.
 pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecord>, String> {
     let header = format!(" {component}}}");
+    let is_record = |l: &str| l.contains("* ServiceRecord{");
     let Some(start) = dump
         .lines()
-        .position(|l| l.contains("* ServiceRecord{") && l.ends_with(&header))
+        .position(|l| is_record(l) && l.ends_with(&header))
     else {
-        return Ok(None);
+        // A "not running" read off a dump this does not recognise would
+        // pass a negative for free.
+        return if dump
+            .lines()
+            .any(|l| l.trim() == "(nothing)" || is_record(l))
+        {
+            Ok(None)
+        } else {
+            Err(format!(
+                "no record of {component} and no (nothing):\n{dump}"
+            ))
+        };
     };
     // The record runs to the next record's header or the dump's end.
     let body: Vec<&str> = dump
         .lines()
         .skip(start + 1)
-        .take_while(|l| !l.contains("* ServiceRecord{"))
+        .take_while(|l| !is_record(l))
         .collect();
     let field = |name: &str| -> Option<&str> {
         body.iter().find_map(|l| {
@@ -65,10 +86,16 @@ pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecor
                 .find_map(|w| w.strip_prefix(name)?.strip_prefix('='))
         })
     };
+    if field("packageName").is_none() {
+        return Err(format!(
+            "{component}'s record has no packageName=, so it is cut:\n{}",
+            body.join("\n")
+        ));
+    }
     let flag = |name: &str| -> Result<bool, String> {
         match field(name) {
             Some("true") => Ok(true),
-            Some("false") => Ok(false),
+            Some("false") | None => Ok(false),
             other => Err(format!(
                 "{component}'s record has {name}={other:?}:\n{}",
                 body.join("\n")
@@ -144,6 +171,26 @@ pub fn transports(output: &str) -> (Vec<String>, Option<String>) {
     (all, selected)
 }
 
+/// `FLAG_SECURE`.
+const SECURE_BIT: u32 = 0x2000;
+
+/// Whether an `fl=` value names `SECURE`: AOSP prints the flags'
+/// names apart by spaces (`ViewDebug.flagsToString`), up to the next
+/// `key=`; a `|`-joined value and a hex mask are read too.
+fn secure_flag(value: &str) -> bool {
+    value
+        .split_whitespace()
+        .take_while(|w| !w.contains('='))
+        .flat_map(|w| w.trim_end_matches('}').split('|'))
+        .any(|f| {
+            f == "SECURE"
+                || f.strip_prefix('#')
+                    .or_else(|| f.strip_prefix("0x"))
+                    .and_then(|h| u32::from_str_radix(h, 16).ok())
+                    .is_some_and(|m| m & SECURE_BIT != 0)
+        })
+}
+
 /// The titles of the app's windows in a `dumpsys window windows` dump,
 /// each with whether its attributes carry `SECURE`. A window of the app
 /// whose attributes line is not found is an error: a "not secure" read
@@ -171,10 +218,10 @@ pub fn app_windows(dump: &str) -> Result<Vec<(String, bool)>, String> {
             .take_while(|n| !n.trim_start().starts_with("Window #"))
             .find_map(|n| {
                 let (_, rest) = n.split_once(" fl=")?;
-                Some(rest.split_whitespace().next().unwrap_or_default())
+                Some(rest)
             })
             .ok_or_else(|| format!("no fl= line for the window {title}:\n{dump}"))?;
-        out.push((title, fl.split('|').any(|f| f == "SECURE")));
+        out.push((title, secure_flag(fl)));
     }
     Ok(out)
 }
@@ -301,6 +348,133 @@ pub fn app_pid() -> Option<u32> {
     String::from_utf8_lossy(&out.stdout).trim().parse().ok()
 }
 
+/// The embedded profile's configuration, under the app's data
+/// directory, as `run-as` opens it.
+pub const CONFIG: &str = "interweave/config/profiles/human-android/config.yaml";
+
+/// The value of a `key:` at any depth in a profile's YAML, from
+/// its one line that sets it; a comment that names the key or its value
+/// is not that line. `None` when no line sets it, or more than one does.
+#[must_use]
+pub fn config_value<'a>(config: &'a str, key: &str) -> Option<&'a str> {
+    let head = format!("{key}:");
+    let mut found = config.lines().filter_map(|l| {
+        let t = l.trim_start();
+        let v = t.strip_prefix(&head)?;
+        let v = v.split_once(" #").map_or(v, |(v, _)| v).trim();
+        (!v.is_empty()).then_some(v)
+    });
+    let one = found.next()?;
+    found.next().is_none().then_some(one)
+}
+
+/// `config` with its one `availability_mode` set to `mode`, and nothing
+/// else changed.
+///
+/// # Errors
+/// No line, or more than one, sets `availability_mode`.
+pub fn with_availability(config: &str, mode: &str) -> Result<String, String> {
+    config_value(config, "availability_mode")
+        .ok_or_else(|| format!("no one availability_mode in:\n{config}"))?;
+    let mut out: Vec<String> = Vec::new();
+    for l in config.lines() {
+        let t = l.trim_start();
+        if t.starts_with("availability_mode:") {
+            let indent = &l[..l.len() - t.len()];
+            out.push(format!("{indent}availability_mode: {mode}"));
+        } else {
+            out.push(l.to_owned());
+        }
+    }
+    Ok(out.join("\n") + "\n")
+}
+
+/// The app's profile as the phone held it before a case provisioned its
+/// own, written back when this is dropped, a failing case's unwind
+/// included.
+///
+/// A case provisions a profile derived from this one with its
+/// `key_unlock_policy` unchanged: the app reseals its identity under the
+/// policy its profile names and deletes the other policy's key
+/// (ADR-0042 A 2026-10-10, `custody::reseal`), so a profile with another
+/// policy would destroy the person's identity setup, and no restore of
+/// the file brings that back.
+pub struct ProfileKept {
+    found: String,
+}
+
+impl ProfileKept {
+    /// The phone's profile now.
+    ///
+    /// # Panics
+    /// If `adb` cannot run, or the app holds no profile to keep: a phone
+    /// with no identity is set up first, by a person.
+    #[must_use]
+    pub fn take() -> Self {
+        let out = Command::new("adb")
+            .args(["exec-out", "run-as", PACKAGE, "cat", CONFIG])
+            .output()
+            .expect("adb");
+        assert!(
+            out.status.success() && !out.stdout.is_empty(),
+            "the app holds no profile to keep (a phone with an identity a person made): {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        Self {
+            found: String::from_utf8_lossy(&out.stdout).into_owned(),
+        }
+    }
+
+    /// The profile as found.
+    #[must_use]
+    pub fn found(&self) -> &str {
+        &self.found
+    }
+
+    /// The found profile's key policy, which the case's own keeps.
+    ///
+    /// # Panics
+    /// If no one line sets `key_unlock_policy`.
+    #[must_use]
+    pub fn unlock_policy(&self) -> &str {
+        config_value(&self.found, "key_unlock_policy")
+            .unwrap_or_else(|| panic!("no one key_unlock_policy in the phone's profile"))
+    }
+}
+
+impl Drop for ProfileKept {
+    fn drop(&mut self) {
+        // Never a second panic while unwinding: reported, not asserted.
+        let _ = Command::new("adb")
+            .args(["shell", "am", "force-stop", PACKAGE])
+            .output();
+        let write = Command::new("adb")
+            .args([
+                "exec-in",
+                "run-as",
+                PACKAGE,
+                "sh",
+                "-c",
+                &format!("'cat > {CONFIG}'"),
+            ])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write as _;
+                if let Some(mut stdin) = child.stdin.take() {
+                    stdin.write_all(self.found.as_bytes())?;
+                }
+                child.wait()
+            });
+        if !matches!(write, Ok(status) if status.success()) {
+            eprintln!(
+                "the phone's profile was NOT put back ({write:?}); it was:\n{}",
+                self.found
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,16 +491,24 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
     createTime=-1m2s startingBgTimeout=--
     startRequested=true delayedStop=false stopIfKilled=false callStart=true lastStartId=1
   * ServiceRecord{1a2b3c4 u0 com.example/.Other}
-    isForeground=false foregroundId=0 foregroundNoti=null
-    startRequested=false delayedStop=false stopIfKilled=false callStart=false lastStartId=0
+    intent={cmp=com.example/.Other}
+    packageName=com.example
+    createTime=-5m0s startingBgTimeout=--
 ";
 
-    // Bound by the window, not started, and no `types=` (API 30 prints
-    // none).
+    // Bound by the window and never started or foreground: AOSP's
+    // `ServiceRecord.dump` then prints no `isForeground=` line (only when
+    // `isForeground || foregroundId != 0`) and no `startRequested=` line
+    // (only when `startRequested || delayedStop || lastStartId != 0`).
     const BOUND: &str = "\
+ACTIVITY MANAGER SERVICES (dumpsys activity services)
+  User 0 active services:
   * ServiceRecord{8c1e2f1 u0 org.interweave.human/.NetworkService}
-    isForeground=false foregroundId=0 foregroundNoti=null
-    startRequested=false delayedStop=false stopIfKilled=false callStart=false lastStartId=0
+    intent={cmp=org.interweave.human/.NetworkService}
+    packageName=org.interweave.human
+    processName=org.interweave.human
+    createTime=-4s012ms startingBgTimeout=--
+    lastActivity=-4s012ms restartTime=-4s012ms createdFromFg=true
     Bindings:
     * IntentBindRecord{5e6f7a8 CREATE}:
 ";
@@ -364,13 +546,34 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
     }
 
     #[test]
-    fn no_record_is_not_running_and_a_record_missing_a_field_is_an_error() {
+    fn not_running_is_read_only_off_a_dump_that_says_so() {
         assert_eq!(
-            service_record("  (nothing)\n", NETWORK_SERVICE).expect("parsed"),
+            service_record("ACTIVITY MANAGER SERVICES\n  (nothing)\n", NETWORK_SERVICE)
+                .expect("parsed"),
             None
         );
-        let renamed = BOUND.replace("isForeground=", "isFg=");
-        assert!(service_record(&renamed, NETWORK_SERVICE).is_err());
+        // Only other records of the package: this one is not running.
+        let others = FOREGROUND.replace(
+            " org.interweave.human/.NetworkService}",
+            " org.interweave.human/.Other}",
+        );
+        assert_eq!(
+            service_record(&others, NETWORK_SERVICE).expect("parsed"),
+            None
+        );
+        // Control: neither a record nor (nothing) is no answer at all.
+        assert!(service_record("ACTIVITY MANAGER SERVICES\n", NETWORK_SERVICE).is_err());
+        assert!(service_record("", NETWORK_SERVICE).is_err());
+    }
+
+    #[test]
+    fn a_cut_record_or_an_unreadable_value_is_an_error() {
+        let cut = BOUND.replace("    packageName=org.interweave.human\n", "");
+        assert!(service_record(&cut, NETWORK_SERVICE).is_err());
+        let odd = FOREGROUND.replace("isForeground=true", "isForeground=maybe");
+        assert!(service_record(&odd, NETWORK_SERVICE).is_err());
+        let hex = FOREGROUND.replace("types=0x00000200", "types=00000200");
+        assert!(service_record(&hex, NETWORK_SERVICE).is_err());
     }
 
     // `bmgr backupnow`'s lines, as the gate-b record quotes its results.
@@ -413,14 +616,26 @@ Backup finished with result: Success
         );
     }
 
+    // AOSP's layout from API 30: `LayoutParams.toString` puts `fl=` on
+    // its own line, the names apart by spaces (`ViewDebug.flagsToString`),
+    // and `pfl=` on the next.
     const WINDOWS: &str = "\
 WINDOW MANAGER WINDOWS (dumpsys window windows)
   Window #3 Window{a1 u0 StatusBar}:
-    mAttrs={(0,0)(fillxWRAP) ty=STATUS_BAR fl=NOT_FOCUSABLE|SECURE}
+    mAttrs={(0,0)(fillxWRAP) gr=TOP ty=STATUS_BAR fmt=TRANSLUCENT
+      fl=NOT_FOCUSABLE SECURE
+      pfl=COLOR_SPACE_AGNOSTIC}
   Window #2 Window{b2 u0 org.interweave.human/org.interweave.human.MainActivity}:
-    mAttrs={(0,0)(fillxfill) sim={adjust=resize} ty=BASE_APPLICATION fl=LAYOUT_IN_SCREEN|SECURE|HARDWARE_ACCELERATED}
+    mDisplayId=0 rootTaskId=12 mSession=Session{f1 9009:u0a234} mClient=android.os.BinderProxy@e2
+    mAttrs={(0,0)(fillxfill) sim={adjust=resize forwardNavigation} ty=BASE_APPLICATION wanim=0x10302fe
+      fl=LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SPLIT_TOUCH SECURE HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=NO_MOVE_ANIMATION USE_BLAST
+      bhv=DEFAULT}
   Window #1 Window{c3 u0 org.interweave.human/org.interweave.human.MainActivity}:
-    mAttrs={(0,0)(fillxfill) ty=BASE_APPLICATION fl=LAYOUT_IN_SCREEN|HARDWARE_ACCELERATED}
+    mAttrs={(0,0)(fillxfill) ty=BASE_APPLICATION wanim=0x10302fe
+      fl=LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=NO_MOVE_ANIMATION USE_BLAST
+      bhv=DEFAULT}
 ";
 
     #[test]
@@ -438,10 +653,77 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
     #[test]
     fn a_window_with_no_flags_line_is_an_error_not_a_no() {
         let cut = WINDOWS.replace(
-            "    mAttrs={(0,0)(fillxfill) ty=BASE_APPLICATION fl=LAYOUT_IN_SCREEN|HARDWARE_ACCELERATED}\n",
+            "      fl=LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS\n",
             "",
         );
         assert!(app_windows(&cut).is_err());
+    }
+
+    #[test]
+    fn secure_is_read_anywhere_in_the_flags_and_nowhere_after_them() {
+        assert!(secure_flag("LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SECURE"));
+        assert!(!secure_flag("LAYOUT_IN_SCREEN HARDWARE_ACCELERATED"));
+        // On one line, the next key ends the flags.
+        assert!(!secure_flag("LAYOUT_IN_SCREEN pfl=SECURE"));
+        assert!(secure_flag("LAYOUT_IN_SCREEN|SECURE|HARDWARE_ACCELERATED"));
+        assert!(secure_flag("SECURE}"));
+        assert!(secure_flag("#81812100"), "a hex mask with the bit");
+        assert!(!secure_flag("#81810100"), "and without it");
+    }
+
+    // The example the cases' profiles come from, as shipped: its comment
+    // names user-presence, its key says otherwise.
+    const EXAMPLE: &str = include_str!("../../../architecture/config/examples/human-android.yaml");
+
+    #[test]
+    fn a_profile_value_is_read_off_its_line_and_never_a_comment() {
+        assert!(
+            EXAMPLE.contains("user-presence"),
+            "the fixture's trap is there"
+        );
+        assert_eq!(
+            config_value(EXAMPLE, "key_unlock_policy"),
+            Some("background-compatible")
+        );
+        assert_eq!(
+            config_value(
+                "    key_unlock_policy: user-presence  # asks\n",
+                "key_unlock_policy"
+            ),
+            Some("user-presence")
+        );
+        // A comment that names the key and the other value is not a line
+        // that sets it.
+        assert_eq!(
+            config_value(
+                "  # key_unlock_policy: user-presence asks the person\n  key_unlock_policy: background-compatible\n",
+                "key_unlock_policy"
+            ),
+            Some("background-compatible")
+        );
+        assert_eq!(
+            config_value("a: x\n  a: y\n", "a"),
+            None,
+            "two lines set it: no answer"
+        );
+        assert_eq!(config_value("b: x\n", "a"), None);
+    }
+
+    #[test]
+    fn availability_changes_its_line_and_nothing_else() {
+        let changed = with_availability(EXAMPLE, "foreground-only").expect("one mode");
+        assert_eq!(
+            config_value(&changed, "availability_mode"),
+            Some("foreground-only")
+        );
+        let differ = EXAMPLE
+            .lines()
+            .zip(changed.lines())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(differ, 1, "{changed}");
+        assert_eq!(EXAMPLE.lines().count(), changed.lines().count());
+        assert!(with_availability("x: 1\n", "stay-reachable").is_err());
     }
 
     #[test]

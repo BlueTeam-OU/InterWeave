@@ -17,8 +17,11 @@
 //! after the return: a log that never carried the line would fail there,
 //! not pass the drop for free.
 //!
-//! Device only (`#[ignore]`d). It writes the app's profile, as
-//! `app_lifecycle.rs` does. Over wireless adb the link drops with the
+//! Device only (`#[ignore]`d). It provisions the phone's own profile as
+//! `stay-reachable`, its key policy and peers unchanged, and puts the
+//! profile back as found when it ends (`platform::ProfileKept`); it
+//! needs a `background-compatible` key, which a start does not wait on a
+//! person for. Over wireless adb the link drops with the
 //! Wi-Fi; the host waits for it, and on a phone that does not re-enable
 //! wireless debugging on its own a person turns it back on (the wait
 //! says so). Over USB nothing drops but the radio.
@@ -36,9 +39,7 @@ use std::time::{Duration, Instant};
 
 use interweave_android_e2e_tests::Device;
 use interweave_android_e2e_tests::adb::{AdbDevice, PACKAGE};
-use interweave_android_e2e_tests::platform::{self, Told};
-use interweave_profile_identity::ProfileIdentity;
-use interweave_test_support::e2e;
+use interweave_android_e2e_tests::platform::{self, ProfileKept, Told};
 
 /// Where the script and what it writes live on the phone.
 const DIR: &str = "/data/local/tmp/interweave-net-drop";
@@ -61,16 +62,17 @@ const BACK_PATIENCE: Duration = Duration::from_secs(600);
 #[test]
 #[ignore = "needs a device with the app's androidTest build: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); its Wi-Fi is switched off for 30 s"]
 fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
+    let kept = ProfileKept::take();
+    assert_eq!(
+        kept.unlock_policy(),
+        "background-compatible",
+        "the case needs a phone whose key does not wait for the person"
+    );
     let mut phone = AdbDevice::connect();
-    let stranger = ProfileIdentity::generate()
-        .transport_identity()
-        .expect("a peer");
-    phone.start(&e2e::example(
-        "human-android.yaml",
-        &stranger,
-        "/ip4/0.0.0.0/tcp/0",
-        None,
-    ));
+    phone.start(
+        &platform::with_availability(kept.found(), "stay-reachable")
+            .unwrap_or_else(|e| panic!("{e}")),
+    );
     let serial = std::env::var("ANDROID_SERIAL").ok();
 
     platform::shell(&["rm", "-rf", DIR]);
