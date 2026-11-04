@@ -71,6 +71,9 @@ const DONE: &str = "net-drop done";
 const OFF_FOR: u32 = 30;
 const ON_FOR: u32 = 60;
 
+/// How long the script waits for the app's process after starting it.
+const START_FOR: u32 = 30;
+
 /// Where a wireless-debugging port is taken from: the phone's
 /// `ip_local_port_range` (the A40's, read 2026-11-04; Linux's default).
 const PORTS: std::ops::RangeInclusive<u16> = 32768..=60999;
@@ -103,6 +106,9 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
         &platform::with_availability(kept.found(), AvailabilityMode::StayReachable)
             .unwrap_or_else(|e| panic!("{e}")),
     );
+    // The activity is brought to the front over an unlocked screen, so
+    // the run starts from the state a person leaves the app in.
+    platform::until_unlocked();
     platform::shell(&["rm", "-rf", DIR]);
     platform::shell(&["mkdir", "-p", DIR]);
     let script = format!("{DIR}/run.sh");
@@ -184,7 +190,13 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
 /// The phone's script: the app in front, then the Wi-Fi off and on with
 /// a marker before each switch, the app's process read at each step,
 /// and the log kept throughout. It turns the Wi-Fi back on whatever the
-/// host does meanwhile.
+/// host does meanwhile. Nothing in it waits on the screen: an
+/// `am start -W` behind a keyguard that came back after the host's
+/// unlock check never returns (the A40, 2026-11-04: the Wi-Fi went off
+/// 38 minutes late, after the host had given up), so the start is not
+/// waited on and the process is polled for, at most `START_FOR`
+/// seconds; a process that never came is an empty `pid-before`, which
+/// the host refuses.
 fn script_text() -> String {
     format!(
         "\
@@ -192,7 +204,9 @@ out={DIR}
 logcat -c
 logcat -v time > $out/logcat.txt &
 lp=$!
-am start -W -n {PACKAGE}/.MainActivity >/dev/null
+am start -n {PACKAGE}/.MainActivity >/dev/null
+n=0
+until pidof {PACKAGE} >/dev/null || [ $n -ge {START_FOR} ]; do sleep 1; n=$((n+1)); done
 sleep 5
 pidof {PACKAGE} > $out/pid-before
 log -t {TAG} '{OFF}'
@@ -332,4 +346,21 @@ fn the_phases_are_read_between_the_markers_and_a_missing_one_is_an_error() {
     );
     let cut = log.replace(DONE, "cut");
     assert!(phases(&cut).is_err(), "a log cut short is no reading");
+}
+
+#[test]
+fn the_script_waits_on_no_screen_and_polls_for_the_process() {
+    let script = script_text();
+    let start = script
+        .lines()
+        .find(|l| l.starts_with("am start"))
+        .expect("the script starts the app");
+    assert!(
+        !start.split_whitespace().any(|w| w == "-W"),
+        "an `am start -W` behind a keyguard never returns: {start}"
+    );
+    // Control: the start is followed by the bounded poll for the process.
+    let poll = format!("until pidof {PACKAGE} >/dev/null || [ $n -ge {START_FOR} ]");
+    assert!(script.contains(&poll), "no bounded poll in:\n{script}");
+    assert!(script.find(start) < script.find(&poll));
 }
