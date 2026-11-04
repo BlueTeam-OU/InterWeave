@@ -5818,7 +5818,11 @@ none is the status value's, which stays on this stage.
   carried shape below (the section it is carried to named), so the
   guard counts it carried and not empty: clause (a)'s "no row is
   empty" reads, at the close, as no row without a test or a named
-  carry.
+  carry. TM-54's Keystore cipher and its alias retirement ran on the
+  Samsung A40 on 2026-11-03 (`apps/human-android/device-runs/2026-11-03-samsung-a40.md`,
+  #542, on the owner's word to wipe the phone): the row's `owed:` item
+  is the invalidation alone since then, the StrongBox branch and
+  TalkBack named in the record as not run.
 - **TM-45's owed cases** (step S10 (02, with rust-ui-dev)): the
   notification content and the clients' own logs as a shadow archive
   (`apps/human-desktop`, `apps/human-android`), the one `owed` item
@@ -5864,9 +5868,12 @@ none is the status value's, which stays on this stage.
   (`crates/human/ui-slint/tests/cards.rs`, the key change read before
   Accept with both fingerprints); TM-54 moves
   to `S12 (rust-ui-dev)`, since the identity key's Keystore cipher,
-  alias retirement and invalidation have no device run yet and are
-  S12's item in rust-ui-dev's lane, run with the store key's device
-  rows in the owner's phone window; TM-56 moves to a §29 carry
+  alias retirement and invalidation had no device run then (the cipher
+  and the alias retirement ran on the A40 on 2026-11-03,
+  `apps/human-android/device-runs/2026-11-03-samsung-a40.md`, #542; the
+  invalidation is still owed) and are S12's item in rust-ui-dev's
+  lane, run with the store key's device rows in the owner's phone
+  window; TM-56 moves to a §29 carry
   (rust-ui-dev): the same-name three-key rule and a rendered title told
   apart by the short PeerId, Stage 21's carried work and not a Stage 18
   step. The four cells moved in one commit, a3c92915 on #451 (REPLY
@@ -6953,8 +6960,12 @@ owner:
   signal within one 30 s deadline and a bound of three read workers,
   41f99f82 and 9044e244 its wait; ba2d0153 and 447ecf7d take a pick
   only as the answer to the editor's latest request, unique in the
-  process), host-tested; not run on a phone, where a real provider
-  and TalkBack are unexercised.
+  process), host-tested; run on the Samsung A40 on 2026-11-03
+  (`apps/human-android/device-runs/2026-11-03-samsung-a40.md`, build 79d72395,
+  whose tree carries #483): the device's own provider answered the
+  `ACTION_GET_CONTENT` request with no chooser, a cancel left the card
+  unchanged, a chosen file was shown, saved and kept across a cold
+  restart; TalkBack stays unexercised.
 - The start listing, from the same review (P2-1): `list_all` decoded
   every pending, unread, kept and card row and every contact into one
   Update, and card standing was O(K × C), so a trusted peer's unread
@@ -7059,7 +7070,11 @@ owner:
   rewrite and the key file on a device, have no device record — the
   invalidated-key case runs against a fake Keystore, and the phone rows
   open the encrypted store under the real Keystore on both phones (#377
-  is in each build they ran) without asserting it — rust-ui-dev's, a
+  is in each build they ran) without asserting it, and the identity
+  key's run on the A40 on 2026-11-03
+  (`apps/human-android/device-runs/2026-11-03-samsung-a40.md`) exercised the
+  same `KeystoreCipher.kt` on a real Keystore under the identity's
+  alias, the store key's alias not read there — rust-ui-dev's, a
   device row; the
   system-libcrypto build is not pinned, the workspace selecting
   `bundled-sqlcipher-vendored-openssl` — rust-ui-dev's, when a build
