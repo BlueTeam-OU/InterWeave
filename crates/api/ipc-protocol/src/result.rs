@@ -218,7 +218,7 @@ impl AdminStatusResult {
                 active_leases: u64::try_from(status.active_leases).unwrap_or(u64::MAX),
                 cross_domain_capability_denied_total: counters.cross_domain_capability_denied_total,
                 peer_credential_refused_total: counters.peer_credential_refused_total,
-                events_dropped_total: None,
+                events_dropped_total: status.events_dropped,
             },
             pre_auth: status.pre_auth.map(|counts| PreAuthCounters {
                 tracked_sources: Some(u64::try_from(counts.tracked_sources).unwrap_or(u64::MAX)),
@@ -246,6 +246,7 @@ impl From<AdminStatusResult> for AdminStatus {
             peer: result.peer,
             connectivity: result.connectivity,
             active_leases: usize::try_from(result.ipc.active_leases).unwrap_or(usize::MAX),
+            events_dropped: result.ipc.events_dropped_total,
             // A block missing either count is not the funnel's view.
             pre_auth: result.pre_auth.and_then(|counters| {
                 Some(PreAuthCounts {
@@ -296,11 +297,12 @@ pub struct IpcCounters {
     /// Always emitted; absent on the wire reads as 0.
     #[serde(default)]
     pub peer_credential_refused_total: u64,
-    /// Events dropped from full client queues. NOT KEPT yet, so not
-    /// emitted: absent says "not counted", where a 0 would say "none
-    /// dropped", and only the first is true. The drops are the binding's
-    /// session queues', and counting them is its own batch
-    /// (architect-cto's ruling, relay seq 9633).
+    /// Copies the session queues dropped or could not queue, every
+    /// session's since the daemon started: the port's count, emitted only
+    /// when the port keeps one (`LOCAL-IPC.md` A 2026-11-04). Absent says
+    /// "not counted", where a 0 says "none dropped", so a port that
+    /// keeps none leaves it out. No minor: the member has been optional
+    /// in `admin-status` 1.1.0 since before this build emitted it.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -1761,6 +1763,7 @@ mod tests {
                 direct_tracked_peers: 5,
                 broadcast_tracked_peers: 6,
             }),
+            events_dropped: Some(7),
         };
         let result = AdminStatusResult::new(status.clone(), ServerCounters::default());
         let wire = serde_json::to_value(&result).expect("ser");
@@ -1787,6 +1790,7 @@ mod tests {
         let none = AdminStatus {
             pre_auth: None,
             ingress: None,
+            events_dropped: None,
             ..status
         };
         let wire = serde_json::to_value(AdminStatusResult::new(
@@ -1894,14 +1898,36 @@ mod tests {
             active_leases: 0,
             pre_auth: None,
             ingress: None,
+            events_dropped: None,
         };
-        let json = serde_json::to_value(AdminStatusResult::new(status, ServerCounters::default()))
-            .expect("ser");
-        assert!(json["ipc"].get("events_dropped_total").is_none(), "{json}");
+        let json = |status: &AdminStatus| {
+            serde_json::to_value(AdminStatusResult::new(
+                status.clone(),
+                ServerCounters::default(),
+            ))
+            .expect("ser")
+        };
+        let unkept = json(&status);
         assert!(
-            json["ipc"].get("peer_credential_refused_total").is_some(),
+            unkept["ipc"].get("events_dropped_total").is_none(),
+            "{unkept}"
+        );
+        assert!(
+            unkept["ipc"].get("peer_credential_refused_total").is_some(),
             "the kept ones are"
         );
+        // A port that keeps the count: a 0 is "none dropped" and emitted,
+        // and a count reads back as the port gave it.
+        for kept in [0, 3] {
+            let status = AdminStatus {
+                events_dropped: Some(kept),
+                ..status.clone()
+            };
+            let wire = json(&status);
+            assert_eq!(wire["ipc"]["events_dropped_total"], kept, "{wire}");
+            let back: AdminStatusResult = serde_json::from_value(wire).expect("de");
+            assert_eq!(AdminStatus::from(back), status);
+        }
     }
 
     #[test]

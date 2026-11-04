@@ -111,6 +111,19 @@ impl Node {
         limits: Limits,
         keepalive: KeepalivePolicy,
     ) -> Self {
+        let queue_bound = CompositionOptions::default().queue_bound;
+        Self::start_bounded(identity, profile, listen, limits, keepalive, queue_bound).await
+    }
+
+    /// As [`Self::start_with`], each client's event queue at `queue_bound`.
+    async fn start_bounded(
+        identity: &ProfileIdentity,
+        profile: &ProfileConfig,
+        listen: &str,
+        limits: Limits,
+        keepalive: KeepalivePolicy,
+        queue_bound: usize,
+    ) -> Self {
         let root = tempfile::tempdir().expect("tempdir");
         // The daemon's shape: a state directory holding the trust and
         // endpoint overlays (ADR-0028 A 2026-10-07, A 2026-10-11),
@@ -130,6 +143,7 @@ impl Node {
             endpoint_overlay_file: Some(
                 state.join(interweave_profile_config::endpoint_overlay::ENDPOINT_OVERLAY_FILE),
             ),
+            queue_bound,
             ..CompositionOptions::default()
         };
         let runtime = ComposedRuntime::start(identity, profile, options)
@@ -849,6 +863,112 @@ async fn an_unleased_connection_holds_commands_and_cannot_send_direct() {
         "no lease, no source, no send: {refused}"
     );
     drop(unleased);
+    node.stop().await;
+}
+
+/// `admin.status`'s `ipc.events_dropped_total` over the wire (LOCAL-IPC
+/// A 2026-11-04): `0` while nothing was dropped -- a kept count, so
+/// emitted -- then the copies a client that stopped reading lost from
+/// its session queue, one per broadcast once the socket, the event lane
+/// and the queue are all full. The queue is bounded at 16, the profile's
+/// least, so it fills well inside the writer's stall limit, which would
+/// otherwise close the client first and end its session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
+    use interweave_ipc_protocol::{ChannelParams, PublishParams, Request};
+    use interweave_transport_api::{ChannelId, MAX_PAYLOAD_BYTES, MessageId, Payload};
+    let other = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer");
+    let node = Node::start_bounded(
+        &ProfileIdentity::generate(),
+        &profile(other.as_str()),
+        "/ip4/127.0.0.1/tcp/0",
+        Limits::default(),
+        KeepalivePolicy::default(),
+        16,
+    )
+    .await;
+    let mut admin = Client::connect(&node.paths.admin).await;
+    admin.hello(ADMIN).await;
+    let mut asked = 0_u32;
+    let mut dropped = async || {
+        asked += 1;
+        admin
+            .send(&request_body(
+                &format!("status-{asked}"),
+                Request::AdminStatus,
+            ))
+            .await;
+        let answer: Value = serde_json::from_str(&admin.response().await).expect("json");
+        answer["result"]["ipc"]["events_dropped_total"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("the count is kept, so emitted: {answer}"))
+    };
+    assert_eq!(dropped().await, 0, "nothing dropped yet");
+
+    let general = ChannelId::parse("general").expect("channel");
+    let join = |id: &str| {
+        request_body(
+            id,
+            Request::ChannelJoin(ChannelParams {
+                channel: general.clone(),
+            }),
+        )
+    };
+    // Joined, and never read from again.
+    let mut stalled = Client::connect(&node.paths.data).await;
+    stalled.hello(DATA).await;
+    stalled.send(&join("join")).await;
+    assert!(stalled.response().await.contains(r#""ok":true"#));
+    let mut publisher = Client::connect(&node.paths.data).await;
+    publisher
+        .hello(
+            r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+            "client":{"kind":"broadcaster"},"requested_capabilities":["commands"]}"#,
+        )
+        .await;
+    publisher.send(&join("join")).await;
+    assert!(publisher.response().await.contains(r#""ok":true"#));
+    let mut copies = 0_u16;
+    let mut publish = async || {
+        copies += 1;
+        let [hi, lo] = copies.to_be_bytes();
+        let mut id = [0_u8; 16];
+        id[..2].copy_from_slice(&[hi, lo]);
+        publisher
+            .send(&request_body(
+                &format!("publish-{copies}"),
+                Request::BroadcastPublish(PublishParams {
+                    channel: general.clone(),
+                    message_id: MessageId::from_bytes(id),
+                    payload: Payload::at_ceiling(None, vec![0x5a; MAX_PAYLOAD_BYTES])
+                        .expect("payload"),
+                }),
+            ))
+            .await;
+        let answer = publisher.response().await;
+        assert!(answer.contains(r#""ok":true"#), "published: {answer}");
+    };
+    // Past the socket buffer, the lane and the queue: the first drop.
+    let mut first = 0;
+    for _ in 0..200 {
+        publish().await;
+        first = dropped().await;
+        if first > 0 {
+            break;
+        }
+    }
+    assert!(
+        first > 0,
+        "a stalled client's queue overflowed after {copies} copies"
+    );
+    // Everything is full now, so each copy drops exactly one more.
+    for _ in 0..5 {
+        publish().await;
+    }
+    assert_eq!(dropped().await, first + 5, "one per broadcast, counted");
+    drop((stalled, publisher, admin));
     node.stop().await;
 }
 

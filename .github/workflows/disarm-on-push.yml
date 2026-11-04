@@ -41,13 +41,17 @@ concurrency:
   group: disarm-on-push-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
+# The jobs name their image, ubuntu-26.04, rather than ubuntu-latest:
+# that label moves to a new image on GitHub's date, not on a commit here
+# (it moved to 26.04 from 2026-10-19, announced by a notice on every job),
+# so with the name an image change is an edit to the runs-on lines.
 jobs:
   disarm:
     # No fork skip: GitHub takes auto-merge off only when someone WITHOUT
     # write access pushes to the head, so a maintainer's push to a fork's
     # branch would keep it. Running on a fork's pull request is safe for
     # the reason above: nothing of the PR is checked out or run.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - name: Take the arming off a pull request whose head moved

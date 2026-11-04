@@ -85,6 +85,10 @@ env:
   CARGO_NEXTEST_VERSION: "0.9.148"
   CARGO_NEXTEST_SHA256: "223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc"
 
+# The jobs name their image, ubuntu-26.04, rather than ubuntu-latest:
+# that label moves to a new image on GitHub's date, not on a commit here
+# (it moved to 26.04 from 2026-10-19, announced by a notice on every job),
+# so with the name an image change is an edit to the runs-on lines.
 jobs:
   rust:
     # CONTEXT NAME: `rust`. Like the two below, this string is what the
@@ -94,7 +98,7 @@ jobs:
     # their own jobs, and `cargo xtask ci` would run all three sets a
     # third time; xtask is the local entry point, not a CI wrapper.
     name: rust
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Measured on #288, 2026-10-16: 10m03s with the cargo cache (below)
     # warm (clippy 29 s, test build 3m36s, 3206 tests in 204 binaries
     # 233 s under nextest), 14m29s with it cold. Before both, on main
@@ -136,9 +140,12 @@ jobs:
       # Installs exactly what rust-toolchain.toml pins, rustfmt and
       # clippy included. The runner's preinstalled toolchain is whatever
       # the image was built with, which is the floating compiler the pin
-      # exists to avoid.
+      # exists to avoid. With no name, `rustup toolchain install` installs
+      # the file's toolchain and is a no-op when it is there; a `rustup
+      # show` that installs a missing one is rustup 1.29's deprecated
+      # auto-install. --no-self-update keeps the image's rustup.
       - name: Install the pinned toolchain
-        run: rustup show active-toolchain || rustup toolchain install
+        run: rustup toolchain install --no-self-update && rustup show active-toolchain
 
       # The compiler cargo will use, and the clippy and rustfmt it runs,
       # are the pinned toolchain, and Cargo.toml's rust-version states it.
@@ -420,11 +427,13 @@ jobs:
             DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
             systemctl --user show-environment > /dev/null
 
-      # The cases are #[ignore]d because a plain `cargo test` may have no
-      # user manager; with Tests' own selection, for the rollback row's
-      # reason (above), and every case of the binary, one at a time: each
-      # refuses to run beside another's interweave-*@ unit, since
-      # uninstall.sh stops every instance of the account. Measured 23 s.
+      # The cases that need a manager are #[ignore]d because a plain
+      # `cargo test` may have no user manager; this step runs those two
+      # (`--run-ignored only`: the lifecycle and the uninstall case), with
+      # Tests' own selection, for the rollback row's reason (above), one at
+      # a time: each refuses to run beside another's interweave-*@ unit,
+      # since uninstall.sh stops every instance of the account. The
+      # binary's other cases need no manager and run in Tests. Measured 23 s.
       - name: The packaged user units under the user manager (plan §22)
         timeout-minutes: 5
         env:
@@ -498,7 +507,7 @@ jobs:
     # Every version is tools/host/android/android-toolchain.pins' — the
     # scripts read them there; this job only says which components it needs.
     name: android check (aarch64-linux-android)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 2m26s on main with no cargo cache (400b42b6, 2026-10-17), 100 s of
     # it the cargo check. The cap is for a hang.
     timeout-minutes: 40
@@ -563,7 +572,7 @@ jobs:
     # on the owner's word): the Gradle project is on main and the run time
     # is measured below, so nothing else is waited for.
     name: android apk (assembleDebug)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 5m27s on main with no cargo cache (400b42b6, 2026-10-17): 69 s of
     # toolchain install, ~30 s of it compiling cargo-ndk, and 252 s of
     # assembleDebug, most of it the cargo build. The cap is for a hang.
@@ -687,7 +696,7 @@ jobs:
 
   tree-checks:
     name: tree checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Measured 2.7 min over 12 runs, 2026-09-29; the cap is for a hang,
     # which otherwise runs to GitHub's six-hour default.
     timeout-minutes: 15
@@ -760,8 +769,10 @@ jobs:
           # tools/requirements.txt, and pip refuses the install if any
           # package in the resolved set is unpinned. A guard that
           # recomputes a frozen vector is only as trustworthy as the
-          # library that recomputed it.
-          python3 -m pip install --quiet --require-hashes -r tools/requirements.txt
+          # library that recomputed it. Each attempt is bounded and
+          # retried: a stalled download once spent 9.5 min here and took
+          # a merge-group job past its timeout (pip_install.sh --help).
+          bash tools/ci/pip_install.sh tools/requirements.txt
 
       - name: ADR index, template, and amendment record
         run: bash tools/checks/validate_adr_index.sh
@@ -1015,7 +1026,7 @@ jobs:
           curl -fsSL -o "$asset" "$url"
           echo "${CARGO_DENY_SHA256}  ${asset}" | sha256sum --check --strict
           # A directory this job creates, rather than /usr/local/bin.
-          # Writing there works on today's ubuntu-latest image — the runs
+          # Writing there works on the ubuntu-26.04 image — the runs
           # prove it — but only because that image happens to leave it
           # writable by the unprivileged runner user, which GitHub does
           # not document or guarantee. An image change would break both
@@ -1054,8 +1065,8 @@ jobs:
       # workspace never fetches a path-patched crate. Like the step above,
       # a registry outage can red this context with nothing in the diff to
       # explain it; the guard exits 2 rather than skip. It needs Python
-      # 3.11.4+ (tomllib, and tarfile's data filter); ubuntu-latest's
-      # python3 provides it.
+      # 3.11.4+ (tomllib, and tarfile's data filter); the ubuntu-26.04
+      # image's python3 provides it.
       - name: Vendored trees match their registry tarballs
         run: python3 tools/checks/check_vendored_provenance.py
 
@@ -1120,7 +1131,7 @@ jobs:
 
   tool-suites:
     name: tool self-tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Measured 2.6 min over 12 runs, 2026-09-29; the cap is for a hang,
     # which otherwise runs to GitHub's six-hour default.
     timeout-minutes: 15
@@ -1169,8 +1180,10 @@ jobs:
           # tools/requirements.txt, and pip refuses the install if any
           # package in the resolved set is unpinned. A guard that
           # recomputes a frozen vector is only as trustworthy as the
-          # library that recomputed it.
-          python3 -m pip install --quiet --require-hashes -r tools/requirements.txt
+          # library that recomputed it. Each attempt is bounded and
+          # retried: a stalled download once spent 9.5 min here and took
+          # a merge-group job past its timeout (pip_install.sh --help).
+          bash tools/ci/pip_install.sh tools/requirements.txt
 
       # test_check_dependencies.sh degrades to an absence-path-only run
       # when cargo-deny is missing, and reports success. That is right for
@@ -1184,7 +1197,7 @@ jobs:
           curl -fsSL -o "$asset" "$url"
           echo "${CARGO_DENY_SHA256}  ${asset}" | sha256sum --check --strict
           # A directory this job creates, rather than /usr/local/bin.
-          # Writing there works on today's ubuntu-latest image — the runs
+          # Writing there works on the ubuntu-26.04 image — the runs
           # prove it — but only because that image happens to leave it
           # writable by the unprivileged runner user, which GitHub does
           # not document or guarantee. An image change would break both
@@ -1242,7 +1255,7 @@ jobs:
 
       # android-toolchain.sh --install refuses a Python whose tarfile
       # `data` filter has known bypasses (before 3.12.11 / 3.13.4), and
-      # ubuntu-latest's own python3 is 3.12.3: every install case would be
+      # ubuntu-24.04's own python3 was 3.12.3: every install case would be
       # that refusal. The hosts it installs on run 3.14. Only those suites
       # get it (update-environment: false): the job's other suites use the
       # runner's python3 and the modules it carries (PyYAML among them).
@@ -1265,7 +1278,7 @@ jobs:
 
       # The `gh` suites mock `gh` and `curl` on PATH, so no token is used.
       # They do need jq and coreutils `timeout`, both present on
-      # ubuntu-latest. `test_check_vendored_advisories.sh` is the one
+      # ubuntu-26.04. `test_check_vendored_advisories.sh` is the one
       # suite that reaches the crates.io INDEX -- it resolves fixtures
       # from the registry at exact versions, because the guard it tests
       # cannot be exercised without that. It fetches the advisory

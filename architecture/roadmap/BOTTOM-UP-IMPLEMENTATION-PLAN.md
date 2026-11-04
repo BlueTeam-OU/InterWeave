@@ -3263,8 +3263,11 @@ while the event lane has room — up to 20 ms added latency per event and
 about fifty empty drains a second per idle connection; an awaitable
 `events()` is a neutral-API change (both bindings, the conformance
 suite), decided as its own batch after Stage 13, the constant retired
-then. And `ipc.events_dropped_total` is omitted from `admin.status`
-until a per-client drop count exists: the composition runtime's
+then. And `ipc.events_dropped_total` was omitted from `admin.status`
+until a per-client drop count existed (its shape ruled 2026-11-04,
+below; the per-session `session.losses` of 2.11 is not it, since a
+session's ledger ends with the session and counts only a session that
+joined): the composition runtime's
 `Diagnostics.events_dropped` counts neutral events the runtime→consumer
 channel refused, not a client queue's drops; a full session broadcast
 queue drops its oldest copy to take the new one and reports
@@ -3273,7 +3276,14 @@ queue drops its oldest copy to take the new one and reports
 B2 — summing that notification's `sessions` in the composition runtime
 and carrying it through `RuntimeStatus` to `InProcessAdmin` and a new
 `AdminStatus` field, unless the notification's own drop makes the sum
-unreliable, in which case the counter moves to the fan-out. Carried
+unreliable, in which case the counter moves to the fan-out. Ruled
+2026-11-04 (LOCAL-IPC.md `admin.status`, A 2026-11-04; p2p-network-dev's
+batch, #554): the counter is kept at the
+session queues' one push path, one for the profile, every copy any
+session queue drops or cannot take, closed and unjoined sessions
+included, monotonic since the daemon started; carried through the
+runtime's diagnostics to `admin.status`, no minor, since the member has
+been optional in `admin-status` 1.1.0 since 2026-10-01. Carried
 with them: `close.schema.json`'s description lists the close reasons
 without the limits refusal LOCAL-IPC §Close now names; it follows on
 the next change that touches that schema.
@@ -3617,7 +3627,9 @@ settled attempt (ADR-0011 A 2026-10-01). `peer.disconnected` had no
 producer until #162, measured on 60a1b977 as no frame in 30 s with a
 peer's daemon terminated. Carried from (8): an awaitable `events()` (the
 20 ms poll ships); the per-client drop count behind
-`ipc.events_dropped_total` (omitted meanwhile); `close.schema.json`'s
+`ipc.events_dropped_total` (omitted meanwhile; ruled 2026-11-04 as one
+counter at the session queues, §16's Stage 13 passage above, built by
+p2p-network-dev's batch); `close.schema.json`'s
 description listing the limits refusal. From ADR-0053 A 2026-09-30: the
 mDNS rebuild's two rule-4 excesses and their closers. From #162's review
 (0 P1, 0 P2, 5 P3, posted there), fixed before the close on the owner's
@@ -4919,7 +4931,7 @@ substitution — measured outside a session on 2026-10-22 (SPIKE-001
 S20: the plugin's declared defaults and `plugin install --config`
 values reach the bridge's argv and survive an update) and inside a
 channel session on 2026-10-24 (SPIKE-001 S25, fact 49, #427: a session that registered the channel starts the bridge with the declared defaults, or with the `--config` values, in its argv); organisation-policy gating — the `allowedChannelPlugins` half measured by S22 (2026-10-23, above), the `channelsEnabled` refusal measured 2026-11-03 on a login that is not claude.ai (S27, fact 59, a placeholder API key: `false` or the list alone refuses, `true` registers) and not applied by this account's claude.ai login (fact 58), server-managed policy a named limit (fact 60: none on this account, 404 on the token, the 401 on the key saying nothing about a policy) and MDM policy another (fact 61: read from the binary, not measured, on Linux only under WSL), a Team or Enterprise subscription and a valid Console key still not; permission relay (not declared, by design);
-size limits on `content` and `meta` and behaviour under load — measured 2026-10-22 across two daemons by rust-services-dev (#375 and #376; the rule is CHANNEL-EVENT.md §Content's host-line bound and measure, and for the pull receive's pause CHANNEL-EVENT.md §Delivery and TOOL-SURFACE.md's `receive` row): a 48 KiB payload arrives whole, 49,549 bytes on the host line as UTF-8 and 65,938 as base64url; the worst case, a payload of control characters only, goes as base64url within the 320 KiB host-line bound, 65,938 bytes pushed and 65,929 pulled plain, 262,610 and 262,605 once `;ce=br` is decoded (before #376: 295,309 and 344,452, 1,180,109 and 1,376,712); 64 direct sends all notified in 16.6 s after 126–133 retried `Overloaded` refusals; 200 broadcasts notified 37–38, within the bucket's bound of 40–41, 162–163 dropped silently, their order held in one run and not in the other; the pull receive at queue 16 over a 10 s pause 51 accepted and 51 delivered, at queue 16 under the smallest keepalive over a 30 s pause 55 and 55 with the lease lost, at queue 16 under the shipped keepalive over a 120 s pause 220 accepted, 96 delivered and 124 lost, and at queue 256 over a 60 s pause 151 and 151. What those tests do not reach stays carried: a real MCP host's own line limit and pacing (SPIKE-001's), a second host, the broadcast drop count at the daemon, and a 256-byte card name across real daemons (unit-tested by #379, `channel-core`'s `meta.rs` `the_widest_legal_card_name_fits_and_one_byte_more_does_not`); a server negotiating the 2026-07-28 revision — measured 2026-10-24 (S23, rust-services-dev, Claude Code 2.1.286, four interactive runs of a stub differing only in its `server/discover` answer; facts 34–38, #420): a server offering the revision is negotiated, every request then carrying its envelope, and the client skips channel notifications on it ("negotiated a modern protocol revision with no unsolicited notification path"), the event never reaching the conversation; the legacy answer registers and delivers, and so does the modern server under the legacy negotiation override; on the revision a `tools/list` result without `resultType` is rejected while a `server/discover` result without it is accepted (run d); read from the binary, not measured, the gate refuses a modern-era connection before the provider, policy and allowlist checks and the permission relay excludes it the same way; so no measured build registers a channel on the revision and the bridge stays legacy by measurement, answering as the control did — held on Claude Code 2.1.317 (S28, 2026-11-03, rust-services-dev, facts 65–66, #532: the revision's server skipped with the same line, the legacy control registered and delivered, the bridge connected legacy and registered); non-interactive delivery — measured 2026-10-24 (S24, rust-services-dev, Claude Code 2.1.286, eight print sessions with stdin held open on S22's setup; facts 39–44, #420): with the organisation's allow entry a `-p` session registers the channel through `--channels` or the stream-json `channel_enable` control request, a peer's message sent after the first turn starts a turn of its own about 2 s later with no further input, and the peer holds the reply's acknowledgement about 4 s after the send; the development flag does nothing in `-p` (its `channel_enable` is refused as not on the allowlist — consistent with fact 4's three timings delivering nothing, which ran on another build with a bare server and were not reproduced, so a cause and not a measurement); the `channel_enable` control request alone, with the allow entry and no flag, registers and answers (run g, the acknowledgement 4.1 s after the send), and a session without `--allowedTools` still replied (run h, 5.0 s), only run h recorded its permission mode (`auto`, what set it not established) and a to g did not record theirs, a session that skips logs no line, and an event during a turn, after stdin closes, or with `--channels` and no allow entry was not tried — measured 2026-10-24 (S25, rust-services-dev, Claude Code 2.1.286, nine runs; facts 45–50, #427): an event reaching the bridge during a running `-p` turn does not enter it, waits for it, and starts a turn of its own that replies (45); in the one run that closed stdin during a turn, the session finished that turn, took the event as a turn of its own, replied and exited 0 with no signal — run b's outcome, not a rule (46); `--channels` with no allow entry gives no channel and no refusal line in the debug log, stderr or stdout (the four patterns searched), the far peer's send accepted by the daemon's transport at the bridge's endpoint and the session's own bridge log not captured (47); `--permission-mode manual` (reported by `init` as `default`) denies the bridge's `reply` unless `--allowedTools` names it (48); `userConfig` reaches the argv in a registered session (49); the refusal's remedy `claude plugin configure <plugin>` lists and writes nothing, `--values-stdin` writes, so the refusal text changed on #427 (50); not run then: an event after stdin has closed and the last turn has ended (measured by S28, below) and permission modes other than `manual` and `auto` — the modes measured 2026-11-03 (S26, rust-services-dev, Claude Code 2.1.286, eight print sessions without `--allowedTools`; facts 51–56, #531): `acceptEdits`, `dontAsk` and `plan` deny `reply` as `manual` does, `dontAsk` and `plan` each with a text of its own and `acceptEdits` with `manual`'s (51); `bypassPermissions` lets it through and, read from the help, grants every tool the session has (52); a host answering the session's `can_use_tool` request over `--permission-prompt-tool stdio` decides it, allow running the tool and deny ending the call with the host's message and no retry (53), while `--permission-prompts host` without that flag asks nobody (54) and `--permission-prompts none` denies with a text of its own (55); so a headless deployment's `reply` leaves through `--allowedTools`, `auto`, `bypassPermissions` or an answering host, and of the paths measured through nothing else (56); not run: `--allowedTools` in `acceptEdits`, `dontAsk` or `plan`; an event after stdin has closed and the last turn has ended — measured 2026-11-03 (S28, rust-services-dev, Claude Code 2.1.317, seven print sessions on S25's setup; facts 67–69, #532): not delivered, three runs of three, the bridge stopped within 0.1 s of the close with no turn running and the session exited within a second, no notification reaching Claude Code, so a host that wants events holds stdin open (67); an event starts a turn of its own when the first turn said nothing about events, and a greeting got text and no tool call, three of three (68); every 2.1.317 print session reported `permissionMode` `default` where S24's h and S25's runs on 2.1.286 without `--permission-mode` reported `auto`, what changed it not established (69); not run: a message that asks for an answer after a first turn that said nothing about events; so the bridge serves a non-interactive agent on the organisation path alone, and INSTALL.md's headless bullet says so. From ADR-0023: `endpoints.query` and a `peer_endpoints` tool stay out
+size limits on `content` and `meta` and behaviour under load — measured 2026-10-22 across two daemons by rust-services-dev (#375 and #376; the rule is CHANNEL-EVENT.md §Content's host-line bound and measure, and for the pull receive's pause CHANNEL-EVENT.md §Delivery and TOOL-SURFACE.md's `receive` row): a 48 KiB payload arrives whole, 49,549 bytes on the host line as UTF-8 and 65,938 as base64url; the worst case, a payload of control characters only, goes as base64url within the 320 KiB host-line bound, 65,938 bytes pushed and 65,929 pulled plain, 262,610 and 262,605 once `;ce=br` is decoded (before #376: 295,309 and 344,452, 1,180,109 and 1,376,712); 64 direct sends all notified in 16.6 s after 126–133 retried `Overloaded` refusals; 200 broadcasts notified 37–38, within the bucket's bound of 40–41, 162–163 dropped silently, their order held in one run and not in the other; the pull receive at queue 16 over a 10 s pause 51 accepted and 51 delivered, at queue 16 under the smallest keepalive over a 30 s pause 55 and 55 with the lease lost, at queue 16 under the shipped keepalive over a 120 s pause 220 accepted, 96 delivered and 124 lost, and at queue 256 over a 60 s pause 151 and 151. What those tests do not reach was carried: a real MCP host's own line limit and pacing (SPIKE-001's; measured by S29, 2026-11-04, rust-services-dev, Claude Code 2.1.286, facts 72–74, #555): the host read a channel server's line whole at the bridge's bound of 327,680 bytes, one past it, 1 MiB and 8 MiB, one run at each length, the turn answering at the bound and ending "Prompt is too long" at 1 MiB and 8 MiB, so the model's prompt and not the host bounds an event, between 320 KiB and 1 MiB for that content on `claude-sonnet-5-5`; the bridge's largest text line of 276,426 bytes was taken; a burst of ten lines in 0.18 s was paced by nothing, nine joining the first's turn, ten acknowledgements within 15.1 s; still carried: a line past 8 MiB, another model's context, an event at the bound in a conversation already holding others, a burst past ten, a second host, the broadcast drop count at the daemon, and a 256-byte card name across real daemons (unit-tested by #379, `channel-core`'s `meta.rs` `the_widest_legal_card_name_fits_and_one_byte_more_does_not`); a server negotiating the 2026-07-28 revision — measured 2026-10-24 (S23, rust-services-dev, Claude Code 2.1.286, four interactive runs of a stub differing only in its `server/discover` answer; facts 34–38, #420): a server offering the revision is negotiated, every request then carrying its envelope, and the client skips channel notifications on it ("negotiated a modern protocol revision with no unsolicited notification path"), the event never reaching the conversation; the legacy answer registers and delivers, and so does the modern server under the legacy negotiation override; on the revision a `tools/list` result without `resultType` is rejected while a `server/discover` result without it is accepted (run d); read from the binary, not measured, the gate refuses a modern-era connection before the provider, policy and allowlist checks and the permission relay excludes it the same way; so no measured build registers a channel on the revision and the bridge stays legacy by measurement, answering as the control did — held on Claude Code 2.1.317 (S28, 2026-11-03, rust-services-dev, facts 65–66, #532: the revision's server skipped with the same line, the legacy control registered and delivered, the bridge connected legacy and registered); non-interactive delivery — measured 2026-10-24 (S24, rust-services-dev, Claude Code 2.1.286, eight print sessions with stdin held open on S22's setup; facts 39–44, #420): with the organisation's allow entry a `-p` session registers the channel through `--channels` or the stream-json `channel_enable` control request, a peer's message sent after the first turn starts a turn of its own about 2 s later with no further input, and the peer holds the reply's acknowledgement about 4 s after the send; the development flag does nothing in `-p` (its `channel_enable` is refused as not on the allowlist — consistent with fact 4's three timings delivering nothing, which ran on another build with a bare server and were not reproduced, so a cause and not a measurement); the `channel_enable` control request alone, with the allow entry and no flag, registers and answers (run g, the acknowledgement 4.1 s after the send), and a session without `--allowedTools` still replied (run h, 5.0 s), only run h recorded its permission mode (`auto`, what set it not established) and a to g did not record theirs, a session that skips logs no line, and an event during a turn, after stdin closes, or with `--channels` and no allow entry was not tried — measured 2026-10-24 (S25, rust-services-dev, Claude Code 2.1.286, nine runs; facts 45–50, #427): an event reaching the bridge during a running `-p` user turn does not enter it, waits for it, and starts a turn of its own that replies (45; in S29's one burst run, events during a turn the channel had started joined it, whether the kind of turn decides not established, fact 74, below); in the one run that closed stdin during a turn, the session finished that turn, took the event as a turn of its own, replied and exited 0 with no signal — run b's outcome, not a rule (46); `--channels` with no allow entry gives no channel and no refusal line in the debug log, stderr or stdout (the four patterns searched), the far peer's send accepted by the daemon's transport at the bridge's endpoint and the session's own bridge log not captured (47); `--permission-mode manual` (reported by `init` as `default`) denies the bridge's `reply` unless `--allowedTools` names it (48); `userConfig` reaches the argv in a registered session (49); the refusal's remedy `claude plugin configure <plugin>` lists and writes nothing, `--values-stdin` writes, so the refusal text changed on #427 (50); not run then: an event after stdin has closed and the last turn has ended (measured by S28, below) and permission modes other than `manual` and `auto` — the modes measured 2026-11-03 (S26, rust-services-dev, Claude Code 2.1.286, eight print sessions without `--allowedTools`; facts 51–56, #531): `acceptEdits`, `dontAsk` and `plan` deny `reply` as `manual` does, `dontAsk` and `plan` each with a text of its own and `acceptEdits` with `manual`'s (51); `bypassPermissions` lets it through and, read from the help, grants every tool the session has (52); a host answering the session's `can_use_tool` request over `--permission-prompt-tool stdio` decides it, allow running the tool and deny ending the call with the host's message and no retry (53), while `--permission-prompts host` without that flag asks nobody (54) and `--permission-prompts none` denies with a text of its own (55); so a headless deployment's `reply` leaves through `--allowedTools`, `auto`, `bypassPermissions` or an answering host, and of the paths measured through nothing else (56); not run then: `--allowedTools` in `acceptEdits`, `dontAsk` or `plan` (measured by S29, 2026-11-04, rust-services-dev, Claude Code 2.1.286, nine print sessions; fact 70, #555): it lets `reply` through in `acceptEdits` and `dontAsk`, three of three each, and not in `plan`, denied with S26's text and not retried; an event after stdin has closed and the last turn has ended — measured 2026-11-03 (S28, rust-services-dev, Claude Code 2.1.317, seven print sessions on S25's setup; facts 67–69, #532): not delivered, three runs of three, the bridge stopped within 0.1 s of the close with no turn running and the session exited within a second, no notification reaching Claude Code, so a host that wants events holds stdin open (67); an event starts a turn of its own when the first turn said nothing about events, and a greeting got text and no tool call, three of three (68); every 2.1.317 print session reported `permissionMode` `default` where S24's h and S25's runs on 2.1.286 without `--permission-mode` reported `auto`, what changed it not established (69), and S29 read the same setup, each build installed into a scratch `HOME` of its own and every session under this login's `HOME`, as `auto` on 2.1.286 and `default` on 2.1.311 and 2.1.317, one run each, with the same auto-mode gate line, four late-starting 2.1.286 sessions `default` too, so the mode is not the setup's alone and a deployment does not count on `auto` (75); not run then: a message that asks for an answer after a first turn that said nothing about events (measured by S29, 2026-11-04, fact 71, #555): answered through `reply` in one run of three, in text with no tool call in two, so the first turn or the system prompt asks for replies and the message asking does not suffice; so the bridge serves a non-interactive agent on the organisation path alone, and INSTALL.md's headless bullet says so. From ADR-0023: `endpoints.query` and a `peer_endpoints` tool stay out
 until that ADR's revisit. The `channel` meta key carries a
 ChannelId's canonical string as `common/channel-id` (the schema, `active`
 since Stage 13) defines it, and is not redefined here.
@@ -5828,6 +5840,14 @@ none is the status value's, which stays on this stage.
   (`apps/human-desktop`, `apps/human-android`), the one `owed` item
   outside S12 and C-04; the clients are rust-ui-dev's, so the cases are
   theirs to land or to record as a limit, the row's step naming them.
+  Landed on #556 (rust-ui-dev-01, 2026-11-04): the desktop case
+  `tests/desktop-e2e/tests/human_app/content_free_logs.rs::no_body_name_or_card_field_reaches_the_clients_log`,
+  the shipped client over two real daemons, no planted word in its one
+  log and no platform notification (by construction, not asserted:
+  the desktop has no notification code); the Android client recorded as the
+  row's limit (no host test reaches its Android-only modules, and its
+  notification text is built from a count by type), so the step cell
+  moved to `—`.
 - **S21-06's and TM-04's step cells** still name S6 (01) while
   S21-06's limit cell holds decided (2)'s figures and clause (c) is met
   by them. Nothing is owed on either (p2p-network-dev-01, 2026-10-25,
@@ -5878,6 +5898,13 @@ none is the status value's, which stays on this stage.
   apart by the short PeerId, Stage 21's carried work and not a Stage 18
   step. The four cells moved in one commit, a3c92915 on #451 (REPLY
   01a1754a-7708), which lands them when that pull request merges.
+  TM-56's carry landed on #556 (rust-ui-dev-01, 2026-11-04): the
+  rendered test
+  `crates/human/ui-slint/tests/cards.rs::two_same_name_contacts_are_drawn_told_apart_by_their_short_peer_ids`
+  hands the view two same-name contacts and reads each one's header
+  title, list-row title and row item's accessible label with its own
+  short PeerId (the drawn text is not read, and today is bound directly
+  to those titles), and the row's step cell moved to `—` with it.
 - **Clause (f)**: the ledger `tools/checks/domain_fn_exempt.txt` holds
   no `stage-18` entry (read 2026-10-25); the close re-reads it. Apart
   from the clause, `error_contract_matrix.rs` holds no `Proof::Stage(18)`
@@ -6235,7 +6262,14 @@ appears in any of the four.
    held by a plain socket without `SO_REUSEPORT` refusing the start
    (exit 1 on `EADDRINUSE`, a free-port start as the control); the
    cross-account refusal is carried as unverified until CI has a second
-   account. (Built on p2p-network-dev's branch: nine cases at 4db37607
+   account — measured on the host since, between two accounts: the
+   cross-uid `SO_REUSEPORT` rule itself in one direction, uid 1022
+   against a port uid 1016 holds with a daemon known to listen with it
+   (the 2026-10-27 record under `packaging/linux/evidence/`, ADR-0055 A
+   2026-10-27), and a held port refused in the other, uid 1016 against
+   uid 1022's, whose holder's build was not read, so that record shows
+   the refusal and not the rule (the 2026-11-04 record) — the CI case
+   still owed. (Built on p2p-network-dev's branch: nine cases at 4db37607
    before this record landed, the tenth, the held port, added on #305's
    review; the suite reads the ingress bucket's constants
    from `interweave-transport-runtime` as a dev-dependency rather than
@@ -6261,7 +6295,19 @@ appears in any of the four.
    the client starting with the daemon, both back 5 s after a SIGKILL,
    a taken port retried under the start limit; the client unit runs
    the deployment's program from the account's `libexec`, or a
-   drop-in's `ExecStart`, and InterWeave ships none.)
+   drop-in's `ExecStart`, and InterWeave ships none. Measured again
+   2026-11-04 on the fleet deployment's live units in one account's own
+   user manager, p2p-network-dev-01's run
+   `packaging/linux/evidence/2026-11-04-gzcoord-units-and-cross-uid-port.md`,
+   #554: a clean stop in 0.49 s, the client stopped first in 0.39 s and
+   the daemon in 0.10 s after it; from the daemon's `Starting` line the
+   daemon started in 0.025 s, the client in 0.050 s and the daemon was
+   serving at 0.149 s; both units back 5.3 s after a SIGKILL, the daemon
+   serving at 5.274 s, each figure from a quoted journal line;
+   and a port another account held refused — exit 1 on `EADDRINUSE`,
+   the unit retrying every 5 s, no socket of the asking account ever
+   appearing — with the same profile on a free port listening as the
+   control; single samples on a loaded host, no CI case, as before.)
 5. The stale clause in `CLAUDE.md` §1 about mDNS (the multicast backend
    was built after Stage 9; this record corrects it) — done in the
    series that lands this section.
@@ -6353,8 +6399,14 @@ merge named above.
 **Measured, and carried as limits.** Every case ran on one host's
 loopback under one uid. Carried by name, from `AUTOMATED-CLIENT.md` §5
 and decision 2: the cross-account port refusal rests on the kernel's
-documented `SO_REUSEPORT` rule and is not measured (one uid in the
-suite, as decision 5 says, until CI has a second account); a second
+documented `SO_REUSEPORT` rule and was measured on the host, not in
+the suite — between two accounts: the rule itself in one direction on
+2026-10-27, with a holder known to listen with `SO_REUSEPORT` (ADR-0055
+A 2026-10-27), and a held port refused in the other on 2026-11-04
+(step 4's second record), whose holder's build was not read, so that
+run shows the refusal and not the rule — the suite staying one uid as
+decision 5 says, so the CI case is still owed
+until CI has a second account; a second
 host is ADR-0034 §7's and SPIKE-004's limit; the second delivery of a
 retry after the dedup WINDOW is by decision (ADR-0019) and measured
 here only across the receiving daemon's restart; ordering across
@@ -6363,7 +6415,9 @@ among profiles and protection from same-uid code are outside the
 transport's threat model as stated there. Step 4's figures — a clean
 stop in 0.19 s with the client stopping with it, both units back 5 s
 after a SIGKILL, a taken port retried under the start limit — were
-measured on the host's user manager by hand (f68b7b56's record) and no
+measured on the host's user manager by hand (f68b7b56's record, and
+again on the deployment's live units on 2026-11-04: 0.49 s, 5.3 s, the
+held port refused) and no
 CI case holds them: a unit is proved by a deployment's own run, and the
 first deployment's record is where that lands. The refusal counts and
 the durations of the two burst cases are samples that depend on the
@@ -7015,10 +7069,21 @@ owner:
   `conversations` count the store's unread rows, cards included, the
   undisplayable rows apart); and #520, `list_all`, `Listing` and
   `Update::Listed` removed, so no client lists the store at start.
-  Closed 2026-10-31: the window as seen is the build's. Left open by
-  name: the walk's cost on a backlog of tens of thousands of rows, not
-  measured on the window's read (SPIKE-011's entry, A 2026-10-31, says
-  what was); the Android chat case not rerun on a phone after the
+  Closed 2026-10-31: the window as seen is the build's. The walk's cost
+  on a backlog of tens of thousands of rows, left open by name at the
+  close as not measured on the window's read, was measured on
+  2026-11-04 (#556, rust-ui-dev-01,
+  `crates/human/app-core/tests/window_cost.rs`; SPIKE-011's entry,
+  A 2026-11-04): at 20 000 unread rows of 512 bytes in one
+  conversation, release, one desktop run, the start 31.9 ms and
+  0.02 MiB of Rust heap beside 3.53 MiB of SQLite's, the first page
+  2.4 ms and 0.23 + 0.02 MiB, the walk 34.8 ms and 3.14 + 0.02 MiB
+  over 16 pages, ending at the model's 1024 held rows with the oldest
+  not reached, so the held-row ceiling and not the backlog bounds what
+  a conversation pages in; the case in CI holds the start's and the
+  first page's Rust peak, and the first page's SQLite peak, at 2000
+  rows within one page's slack of 200's. Left open by name: the
+  Android chat case not rerun on a phone after the
   removal, and the A40's pane still on "Select a conversation" 3 s
   after a tap and its rows shown by the next screenshot some 10 s later
   (the device record, one try), not re-measured since #521's draw fix; and a reply whose target lies
@@ -7211,17 +7276,25 @@ removed from the overlay in between, the client's re-lease asserts it
 again, the same fail and block cases granting no re-lease, and a trusted
 peer's directory query lists no identity — and the
 endpoint directory lists no identity to a trusted peer; Remove, after one confirmation listing what
-goes, deletes an added identity's endpoint from the overlay, removes its
+goes and saying that counterparties keep the contact they accepted on
+the removed route (ADR-0061 decision 7 A 2026-11-04; the add says
+nothing of it), deletes an added identity's endpoint from the overlay, removes its
 conversations, its pending outbound (attempted no further, a
 may-have-reached row named), its contacts and its card, has no undo, and
 is absent on the first identity and on the default; turning the first
 identity off is allowed once another is enabled, the composed-profile
 check passing with the authored entry disabled; the lock
-screen's redacted notification names no identity and the switch follows
-the unlock; the
+screen's redacted notification names no identity, is one entry whatever
+the number of identities with news, and opening it after the unlock
+switches to the one identity with news or opens the switcher naming
+the identities with news and switches nothing (ADR-0061 decision 9 A
+2026-11-04); the
 identity settings and the contact page state what identities of one node
 share (ADR-0061 decision 5); a notification names the identity it arrived
-on and opening it switches to that identity visibly first; with two
+on and opening it switches to that identity visibly first, one with no
+one identity (the desktop's redacted form, a group's summary) switching
+to the one identity with news or opening the switcher and switching
+nothing until the person picks; with two
 identities held, no screen in front of one shows the other's
 conversations, contacts or card, and a share, an Accept and a new
 conversation run under the identity in front and no other (the

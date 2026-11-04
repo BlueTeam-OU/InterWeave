@@ -313,6 +313,21 @@ impl Peer {
             .await;
     }
 
+    /// Commit a share of `card` -- a card's text as `build_card` makes it,
+    /// for B's own route -- to `peer`'s `endpoint`. Like [`Self::send`],
+    /// it is attempted at B's next step.
+    pub(crate) async fn send_card(
+        &mut self,
+        peer: &TransportIdentity,
+        endpoint: EndpointId,
+        card: &str,
+    ) {
+        let now = self.now();
+        Box::pin(self.client.send_card(peer.clone(), endpoint, card, now))
+            .await
+            .expect("the facade commits the card");
+    }
+
     pub(crate) fn accepted(&self, app_message_id: &str) -> bool {
         matches!(
             self.outbound.get(app_message_id),

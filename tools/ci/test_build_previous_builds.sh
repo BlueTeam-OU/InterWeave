@@ -77,14 +77,12 @@ chmod +x "\$CARGO_TARGET_DIR/release/\$bin"
 EOF
 RUSTUP_BIN="$SANDBOX/rustup-bin"
 mkdir -p "$RUSTUP_BIN"
-# rustup: records the tree it ran in; rustup-inactive makes `show
-# active-toolchain` fail (the pinned one is not installed), and
-# rustup-install-fails the install.
+# rustup: records the tree it ran in; rustup-install-fails fails the
+# install.
 cat > "$RUSTUP_BIN/rustup" <<EOF
 #!/usr/bin/env bash
 echo "rustup \$* sha=\$(cat HEAD-SHA 2>/dev/null)" >> "$SANDBOX/log"
 case "\$1" in
-  show) [[ -e "$SANDBOX/rustup-inactive" ]] && exit 1; exit 0 ;;
   toolchain) [[ -e "$SANDBOX/rustup-install-fails" ]] && exit 1; exit 0 ;;
 esac
 EOF
@@ -101,7 +99,7 @@ done
 reset() {
     rm -rf "$SANDBOX/out" "$SANDBOX/tmp" "$SANDBOX"/log "$SANDBOX"/known-commits \
            "$SANDBOX"/*-fails* "$SANDBOX"/cargo-no-output-* \
-           "$SANDBOX"/rustup-inactive "$SANDBOX"/cargo-hangs "$SANDBOX"/cargo-started
+           "$SANDBOX"/cargo-hangs "$SANDBOX"/cargo-started
     mkdir -p "$SANDBOX/tmp"
 }
 # run <list text> [args…]: the script against that list, into out/.
@@ -235,19 +233,18 @@ run_rustup() {
     rc=$?
 }
 reset
-touch "$SANDBOX/rustup-inactive"
 run_rustup "stage13-45ba3928 $SHA_A" "$SANDBOX/out"
-if [[ $rc -eq 0 ]] && grep -qx "rustup toolchain install sha=$SHA_A" "$SANDBOX/log" \
+if [[ $rc -eq 0 ]] && grep -qx "rustup toolchain install --no-self-update sha=$SHA_A" "$SANDBOX/log" \
    && [[ "$(grep -n "rustup toolchain install" "$SANDBOX/log" | cut -d: -f1)" -lt "$(grep -n '^cargo ' "$SANDBOX/log" | head -1 | cut -d: -f1)" ]]; then
     pass "rustup installs the toolchain in the commit's own tree, before cargo"
 else fail "rustup installs the toolchain in the commit's own tree, before cargo" "rc=$rc $(cat "$SANDBOX/log")"; fi
 reset
 run_rustup "stage13-45ba3928 $SHA_A" "$SANDBOX/out"
-if [[ $rc -eq 0 ]] && grep -qx "rustup show active-toolchain sha=$SHA_A" "$SANDBOX/log" && ! grep -q 'rustup toolchain install' "$SANDBOX/log"; then
-    pass "an installed toolchain is not installed again"
-else fail "an installed toolchain is not installed again" "rc=$rc $(cat "$SANDBOX/log")"; fi
+if [[ $rc -eq 0 && "$(grep -c '^rustup ' "$SANDBOX/log")" -eq 1 ]] && ! grep -q '^rustup show' "$SANDBOX/log"; then
+    pass "rustup runs once, as toolchain install, never as show"
+else fail "rustup runs once, as toolchain install, never as show" "rc=$rc $(cat "$SANDBOX/log")"; fi
 reset
-touch "$SANDBOX/rustup-inactive" "$SANDBOX/rustup-install-fails"
+touch "$SANDBOX/rustup-install-fails"
 run_rustup "stage13-45ba3928 $SHA_A" "$SANDBOX/out"
 if [[ $rc -eq 1 && "$out" == *"could not install the toolchain"* && -z "$(ls -A "$SANDBOX/out")" ]] && scratch_empty \
    && ! grep -q '^cargo ' "$SANDBOX/log"; then

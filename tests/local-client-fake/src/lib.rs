@@ -1113,6 +1113,8 @@ impl AdminPort for FakeAdmin {
             active_leases: state.leases.len(),
             pre_auth: None,
             ingress: None,
+            // The fake keeps no count of its queues' drops, so it names none.
+            events_dropped: None,
         })
     }
 

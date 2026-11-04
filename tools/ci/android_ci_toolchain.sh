@@ -161,7 +161,9 @@ install_sdk() {
 install_rust() {
     local target; need target RUST_ANDROID_TARGET
     local rustup="${RUSTUP:-rustup}"
-    (cd "$REPO" && { "$rustup" show active-toolchain || "$rustup" toolchain install; } >/dev/null) \
+    # Not `show active-toolchain ||`: its install of a missing toolchain is
+    # the auto-install rustup 1.29 deprecates (ci.yml's rust job says more).
+    (cd "$REPO" && "$rustup" toolchain install --no-self-update >/dev/null) \
         || fail "could not install the rust-toolchain.toml toolchain"
     (cd "$REPO" && "$rustup" target add "$target" >/dev/null) || fail "could not add the target $target"
     echo "$me: Rust target $target"

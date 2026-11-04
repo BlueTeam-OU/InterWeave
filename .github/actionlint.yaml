@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# actionlint's own configuration, read from here by check_workflows_lint.sh.
+#
+# ubuntu-26.04 is a GitHub-hosted label (actions/runner-images' README
+# lists it, and every job's set-up log says "Image: ubuntu-26.04"), but
+# actionlint's built-in list stops at 24.04 up to v1.7.12, so its
+# runner-label rule calls it unknown. Declaring it here is how actionlint
+# accepts a label it does not know. Drop the entry once the pinned
+# actionlint knows the label.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
