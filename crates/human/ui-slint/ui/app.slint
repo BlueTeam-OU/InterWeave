@@ -433,11 +433,15 @@ export struct IdentityPage {
 }
 
 // Whether the person is using the keyboard: a Tab sets it (each window's
-// `KeyboardScope`, and a control's own focus by Tab), focus that came by
-// a pointer, or any press, clears it. The focus
+// `KeyboardScope`, and a control's own focus by Tab); focus that came by
+// a pointer, or a press, clears it. The focus
 // ring is for keyboard focus only (#304 F5): a touch user sees none, even
 // where a rule moves focus after an action, which it does for keyboard
-// and screen-reader users.
+// and screen-reader users. A press on a control clears it in its
+// `TapArea`; a text field takes the press itself, and no element around
+// it sees one, so on the desktop the window's own event clears it at
+// every press (`press_ends_keyboard_mode` in lib.rs). Android has no such
+// event: there a press on a text field after a Tab leaves the ring.
 export global FocusMode {
     in-out property <bool> keyboard;
     // How far a focus ring reaches outside its control: each use places

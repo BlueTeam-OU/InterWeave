@@ -19,7 +19,7 @@ The desktop app turns `desktop` on. `i-slint-backend-testing` is pinned to the s
 - `invoke_on_window` hands a turn over from another thread;
 - `defer` schedules a turn after the current event;
 - `quit_event_loop` ends the loop;
-- `View::on_window_focus` reports winit's focus, which drives `set_window_focused`.
+- `View::on_window_focus` installs the window's one winit filter: it reports winit's focus, which drives `set_window_focused`, closes the address show when the window is minimised, and ends keyboard mode at any press, a text field's included (`end_keyboard_mode_at_press`; the refusal screen installs its own). A host that skips it keeps a clicked field's focus ring after a Tab.
 
 **Rendering.** `View::render(&UiModel)` updates the lists by key: a changed row is replaced in place, and rows are inserted and removed where they changed. It never replaces a whole model, because that moves keyboard focus and a screen reader's place back to the start.
 
