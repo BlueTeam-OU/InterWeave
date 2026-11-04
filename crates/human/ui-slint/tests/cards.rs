@@ -619,6 +619,78 @@ fn every_received_name_is_drawn_isolated() {
     );
 }
 
+/// TM-56 (`tests/SECURITY-MATRIX.md`): two contacts of one name, from
+/// two `PeerId`s, are told apart where the person reads them -- each
+/// conversation's header, and its row in the list as the view hands it
+/// over and as a screen reader reads the row's item -- by the short
+/// `PeerId` beside the name, each its own and never the other's. The model's rule is its own test
+/// (`a_contacts_name_titles_its_conversation_told_apart_by_the_short_peer_id_when_shared`);
+/// this one is the window's. Mutations: the header, the row's title or
+/// the row item's accessible label cut to the contact's name. What the
+/// row's text draws is not read here.
+#[test]
+fn two_same_name_contacts_are_drawn_told_apart_by_their_short_peer_ids() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", P), contact("c2", "Ada", Q)]);
+    for (n, p) in [(1, P), (2, Q)] {
+        model.received(interweave_human_client_api::Received {
+            origin: interweave_human_client_api::Origin::Direct {
+                peer: peer(p),
+                endpoint: human(),
+            },
+            ..message(n, "hello", NOW)
+        });
+    }
+    let _ = intents(&mut view, &mut model);
+    let mut titles = Vec::new();
+    for (p, other) in [(P, Q), (Q, P)] {
+        let title = fill(
+            text(UiText::ContactTitle),
+            &[
+                ("name", &isolated("Ada")),
+                ("peer", &interweave_human_ui_model::short_peer(p)),
+            ],
+        );
+        assert!(
+            !title.contains(&interweave_human_ui_model::short_peer(other)),
+            "the other's short PeerId differs from this one's"
+        );
+        let _ = shown(&mut view, &mut model, p);
+        assert_eq!(view.window().get_header_title(), title, "the header of {p}");
+        let rows = view.window().get_conversations();
+        assert_eq!(
+            (0..rows.row_count())
+                .filter(|&i| rows.row_data(i).is_some_and(|r| r.title == title))
+                .count(),
+            1,
+            "one list row titled {title:?}"
+        );
+        // The list's item, not the header, which carries the same label.
+        assert_eq!(
+            labelled(&view, &title)
+                .iter()
+                .filter(|e| {
+                    e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::ListItem)
+                })
+                .count(),
+            1,
+            "one list item read as {title:?}"
+        );
+        titles.push(title);
+    }
+    assert_ne!(titles[0], titles[1], "the two titles differ");
+    // The control: a name no other contact holds is its title alone.
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", P), contact("c2", "Max", Q)]);
+    let _ = shown(&mut view, &mut model, P);
+    assert_eq!(
+        view.window().get_header_title(),
+        isolated("Ada"),
+        "the control"
+    );
+}
+
 const MINUTE: u64 = 60_000;
 const DAY: u64 = 86_400_000;
 

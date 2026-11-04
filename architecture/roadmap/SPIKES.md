@@ -817,7 +817,8 @@ below). What the evidence establishes:
   held-row ceiling (`conversation_window`; `HELD_ROW_CAP` 1024), by the
   v10 per-conversation indexes and not by the walk's `(received_at,
   row_id)` ones, so the row above bounds a page only loosely and the
-  page's own cost has not been measured by this harness. The row keeps
+  page's own cost is not this harness's figure: it was measured on
+  2026-11-04 by the client's own test (A 2026-11-04 below). The row keeps
   its meaning: one pass over every row of the store through the three
   page reads, which still exist and which the harness still calls. It
   is the rows' read and was never the whole start: at the pin the three
@@ -840,6 +841,34 @@ below). What the evidence establishes:
   0.11 ms (#521, c7c8d0fc, which took `proposals_again` off the walk).
   The spike record's sentence that the store had no per-conversation
   read describes the store at the pin, not today's.
+- **The window's cost on a backlog (A 2026-11-04).** Plan §29's item
+  left open at its close — the walk's cost on a backlog of tens of
+  thousands of rows, not measured on the window's read — was measured
+  by `crates/human/app-core/tests/window_cost.rs` (#556, rust-ui-dev-01),
+  outside this spike's harness: a counting allocator in the test binary
+  gives Rust's heap, `sqlite3_memory_highwater` SQLite's own, which
+  allocates with libc past the counter, each step's peak above where it
+  began, on an on-disk plaintext store holding one conversation of
+  512-byte unread rows. At 20 000 rows (the desktop host above,
+  release, one run; the `#[ignore]` case, run by hand): the windowed
+  start 31.9 ms and 0.02 MiB of Rust heap beside 3.53 MiB of SQLite's;
+  the conversation's first page 2.4 ms and 0.23 + 0.02 MiB; the walk to
+  where the model asks no more pages 34.8 ms and 3.14 + 0.02 MiB over
+  16 pages, ending at 1024 held rows with the oldest not reached —
+  `HELD_ROW_CAP` and not the backlog bounds what an unread conversation
+  pages in. The start's SQLite peak is the one figure that grows with
+  the backlog — 0.10, 0.42 and 3.53 MiB at 200, 2000 and 20 000 rows,
+  the first two in debug — its counts reading every index page into
+  the page cache, which SQLite's default `cache_size` bounds; past
+  20 000 not measured. The case in CI holds the start's and the first
+  page's Rust peak, and the first page's SQLite peak, at 2000 rows
+  within one page's measured slack of 200's, and fails under the
+  mutation that makes the start read a conversation whole; the start's
+  SQLite peak and the walk's figures it prints and does not bound. Not
+  proved there: the phone's figures, the cipher store's (the rows above
+  give the cipher's cost against the plaintext's), OpenSSL's heap,
+  which neither counter sees, the view's drawing, and the command
+  line's second pass down the gaps the ceiling left.
 - **Desktop** (Core Ultra 7 155H, ext4): at 500 and 2000 kept every
   operation within x1.21 of the plaintext, at v7 and at v8, across the
   desktop and index runs; no single round above x1.93; a cold open of

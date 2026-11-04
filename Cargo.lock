@@ -3426,6 +3426,7 @@ version = "0.2.0"
 dependencies = [
  "atspi",
  "base64 0.23.1",
+ "ed25519-dalek",
  "futures-util",
  "image",
  "interweave-human-app-core",

@@ -5828,6 +5828,14 @@ none is the status value's, which stays on this stage.
   (`apps/human-desktop`, `apps/human-android`), the one `owed` item
   outside S12 and C-04; the clients are rust-ui-dev's, so the cases are
   theirs to land or to record as a limit, the row's step naming them.
+  Landed on #556 (rust-ui-dev-01, 2026-11-04): the desktop case
+  `tests/desktop-e2e/tests/human_app/content_free_logs.rs::no_body_name_or_card_field_reaches_the_clients_log`,
+  the shipped client over two real daemons, no planted word in its one
+  log and no platform notification (by construction, not asserted:
+  the desktop has no notification code); the Android client recorded as the
+  row's limit (no host test reaches its Android-only modules, and its
+  notification text is built from a count by type), so the step cell
+  moved to `—`.
 - **S21-06's and TM-04's step cells** still name S6 (01) while
   S21-06's limit cell holds decided (2)'s figures and clause (c) is met
   by them. Nothing is owed on either (p2p-network-dev-01, 2026-10-25,
@@ -5878,6 +5886,13 @@ none is the status value's, which stays on this stage.
   apart by the short PeerId, Stage 21's carried work and not a Stage 18
   step. The four cells moved in one commit, a3c92915 on #451 (REPLY
   01a1754a-7708), which lands them when that pull request merges.
+  TM-56's carry landed on #556 (rust-ui-dev-01, 2026-11-04): the
+  rendered test
+  `crates/human/ui-slint/tests/cards.rs::two_same_name_contacts_are_drawn_told_apart_by_their_short_peer_ids`
+  hands the view two same-name contacts and reads each one's header
+  title, list-row title and row item's accessible label with its own
+  short PeerId (the drawn text is not read, and today is bound directly
+  to those titles), and the row's step cell moved to `—` with it.
 - **Clause (f)**: the ledger `tools/checks/domain_fn_exempt.txt` holds
   no `stage-18` entry (read 2026-10-25); the close re-reads it. Apart
   from the clause, `error_contract_matrix.rs` holds no `Proof::Stage(18)`
@@ -7015,10 +7030,21 @@ owner:
   `conversations` count the store's unread rows, cards included, the
   undisplayable rows apart); and #520, `list_all`, `Listing` and
   `Update::Listed` removed, so no client lists the store at start.
-  Closed 2026-10-31: the window as seen is the build's. Left open by
-  name: the walk's cost on a backlog of tens of thousands of rows, not
-  measured on the window's read (SPIKE-011's entry, A 2026-10-31, says
-  what was); the Android chat case not rerun on a phone after the
+  Closed 2026-10-31: the window as seen is the build's. The walk's cost
+  on a backlog of tens of thousands of rows, left open by name at the
+  close as not measured on the window's read, was measured on
+  2026-11-04 (#556, rust-ui-dev-01,
+  `crates/human/app-core/tests/window_cost.rs`; SPIKE-011's entry,
+  A 2026-11-04): at 20 000 unread rows of 512 bytes in one
+  conversation, release, one desktop run, the start 31.9 ms and
+  0.02 MiB of Rust heap beside 3.53 MiB of SQLite's, the first page
+  2.4 ms and 0.23 + 0.02 MiB, the walk 34.8 ms and 3.14 + 0.02 MiB
+  over 16 pages, ending at the model's 1024 held rows with the oldest
+  not reached, so the held-row ceiling and not the backlog bounds what
+  a conversation pages in; the case in CI holds the start's and the
+  first page's Rust peak, and the first page's SQLite peak, at 2000
+  rows within one page's slack of 200's. Left open by name: the
+  Android chat case not rerun on a phone after the
   removal, and the A40's pane still on "Select a conversation" 3 s
   after a tap and its rows shown by the next screenshot some 10 s later
   (the device record, one try), not re-measured since #521's draw fix; and a reply whose target lies
