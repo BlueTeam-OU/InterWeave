@@ -975,7 +975,7 @@ fn tab_each_draws_one_ring(view: &View, stops: usize) -> std::collections::BTree
         slint::platform::update_timers_and_animations();
         assert!(!on.is_empty(), "Tab lands on a reported element");
         assert_eq!(rings_shown(view), 1, "one focus ring at {on:?}");
-        let over = common::ring_overdraws(view.window());
+        let over = common::ring_overdraws(view.window()).expect("the ring counted above");
         assert!(over.is_empty(), "the ring at {on:?} covers {over:#?}");
         reached.insert(on);
     }

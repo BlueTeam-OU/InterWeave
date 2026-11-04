@@ -2,21 +2,27 @@
 // Copyright 2026 Andrea Benetton
 //! What more than one of these test binaries reads of a drawn window.
 
+// Each test binary compiles this module whole and uses its own part.
+#![allow(dead_code)]
+
 use i_slint_backend_testing::{ElementHandle, ElementQuery, ElementRoot};
 
-/// The ring's stroke (`FocusRing`'s `border-width` in app.slint).
-const STROKE: f32 = 3.0;
+/// How far a focus ring reaches outside its control, as app.slint's
+/// `FocusMode.ring-reach` says and each `FocusRing` is placed;
+/// `ring_reach_is_where_the_ring_is_drawn` in cards.rs holds all three
+/// equal.
+pub(crate) const REACH: f32 = 5.0;
 
 /// An element's box in the window: left, top, right, bottom.
-struct Edges {
-    left: f32,
-    top: f32,
-    right: f32,
-    bottom: f32,
+pub(crate) struct Edges {
+    pub(crate) left: f32,
+    pub(crate) top: f32,
+    pub(crate) right: f32,
+    pub(crate) bottom: f32,
 }
 
 impl Edges {
-    fn of(e: &ElementHandle) -> Self {
+    pub(crate) fn of(e: &ElementHandle) -> Self {
         let (at, size) = (e.absolute_position(), e.size());
         Self {
             left: at.x,
@@ -38,20 +44,22 @@ impl Edges {
     }
 }
 
-/// The drawn text the shown focus ring partly covers: a 3 px stroke 2 to
-/// 5 px outside its control lands on a neighbour laid out nearer than
-/// that (the own card's fingerprint under its label at 2 px, A40
-/// 2026-11-03). Text wholly inside the ring is the control's own; with no
-/// ring shown, nothing.
-pub(crate) fn ring_overdraws(window: &impl ElementRoot) -> Vec<String> {
-    let elements = ElementQuery::from_root(window).find_all();
-    let Some(ring) = elements
-        .iter()
+/// The one focus ring drawn, if any: it shows only for keyboard focus.
+pub(crate) fn shown_ring(window: &impl ElementRoot) -> Option<ElementHandle> {
+    ElementQuery::from_root(window)
+        .find_all()
+        .into_iter()
         .find(|e| e.type_name().as_deref() == Some("FocusRing") && e.computed_opacity() > 0.0)
-    else {
-        return Vec::new();
-    };
-    let ring = Edges::of(ring);
+}
+
+/// The drawn text within the shown focus ring's reach of its control: a
+/// ring 5 px outside the control draws over a neighbour laid out nearer
+/// than that (the own card's fingerprint under its label at 2 px, A40
+/// 2026-11-03). Text inside the control's box is its own. `None` when no
+/// ring is shown, so a walk cannot pass a stop it never checked.
+pub(crate) fn ring_overdraws(window: &impl ElementRoot) -> Option<Vec<String>> {
+    let ring = Edges::of(&shown_ring(window)?);
+    let elements = ElementQuery::from_root(window).find_all();
     // A text for a screen reader only is clipped to a 1 px point, which
     // centres it there (app.slint's announcement slots, the Messages
     // heading): it is said and never seen.
@@ -60,7 +68,7 @@ pub(crate) fn ring_overdraws(window: &impl ElementRoot) -> Vec<String> {
         .filter(|e| Edges::near((e.size().width, e.size().height), (1.0, 1.0)))
         .map(|e| Edges::of(e).centre())
         .collect();
-    elements
+    let over = elements
         .iter()
         .filter(|e| e.type_name().as_deref() == Some("Text") && e.computed_opacity() > 0.0)
         .filter_map(|e| {
@@ -71,11 +79,11 @@ pub(crate) fn ring_overdraws(window: &impl ElementRoot) -> Vec<String> {
                 && text.right > ring.left
                 && text.top < ring.bottom
                 && text.bottom > ring.top;
-            let inside = text.left >= ring.left + STROKE
-                && text.right <= ring.right - STROKE
-                && text.top >= ring.top + STROKE
-                && text.bottom <= ring.bottom - STROKE;
-            (!said_only && drawn && touches && !inside).then(|| {
+            let own = text.left >= ring.left + REACH
+                && text.right <= ring.right - REACH
+                && text.top >= ring.top + REACH
+                && text.bottom <= ring.bottom - REACH;
+            (!said_only && drawn && touches && !own).then(|| {
                 format!(
                     "{:?} at ({}, {})-({}, {}) under the ring ({}, {})-({}, {})",
                     e.accessible_label().or_else(|| e.id()),
@@ -90,5 +98,6 @@ pub(crate) fn ring_overdraws(window: &impl ElementRoot) -> Vec<String> {
                 )
             })
         })
-        .collect()
+        .collect();
+    Some(over)
 }

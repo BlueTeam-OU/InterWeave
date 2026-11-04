@@ -4480,26 +4480,39 @@ fn the_card_page_scrolls_to_its_last_line_at_a_phones_sizes() {
     }
 }
 
-/// Tab `stops` times; at each stop the shown focus ring covers no
-/// neighbour (`common::ring_overdraws`). Returns the stops reached.
+/// Tab `stops` times; at each stop that draws a focus ring, it covers
+/// no neighbour (`common::ring_overdraws`). Returns the stops checked so,
+/// which a test asserts holds the stops it is about: a stop reached
+/// before keyboard mode draws no ring and checks nothing.
 fn tab_each_ring_covers_nothing(view: &View, stops: usize) -> std::collections::BTreeSet<String> {
-    let mut reached = std::collections::BTreeSet::new();
+    let mut checked = std::collections::BTreeSet::new();
     for _ in 0..stops {
         key(view, slint::platform::Key::Tab);
         slint::platform::update_timers_and_animations();
         let on = view.window().get_focus_id().to_string();
-        let over = common::ring_overdraws(view.window());
-        assert!(over.is_empty(), "the ring at {on:?} covers {over:#?}");
-        reached.insert(on);
+        if let Some(over) = common::ring_overdraws(view.window()) {
+            assert!(over.is_empty(), "the ring at {on:?} covers {over:#?}");
+            checked.insert(on);
+        }
     }
-    reached
+    checked
+}
+
+/// The own card page, opened from the app's options.
+fn own_card(view: &mut View, model: &mut UiModel) {
+    view.render(model);
+    press(view, text(UiText::AppOptions));
+    press(view, text(UiText::OwnCardTitle));
+    let _ = intents(view, model);
+    settle();
 }
 
 /// A focus ring draws over no neighbour on the own card page, in each
-/// state of its key -- the fingerprint under its label, the key folder's
-/// path under its, the making line, the failure line -- and the name
-/// fields under their labels (A40 2026-11-03: the ring over the
-/// fingerprint's label). Mutation: the fingerprint's 2 px spacing back.
+/// state of its key -- the fingerprint under its label, the line and
+/// the share-again rows a new key adds, the key folder's path under its
+/// label, the making line, the failure line -- and the name fields under
+/// their labels (A40 2026-11-03: the ring over the fingerprint's label).
+/// Mutations: the fingerprint's 2 px spacing back; the name field's 4 px.
 #[test]
 fn no_focus_ring_on_the_own_card_page_covers_a_neighbour() {
     use interweave_human_ui_model::{KeyProblem, OwnKey};
@@ -4514,13 +4527,11 @@ fn no_focus_ring_on_the_own_card_page_covers_a_neighbour() {
         },
         ..keyless(KeyProblem::Damaged)
     });
-    view.render(&model);
-    press(&view, text(UiText::AppOptions));
-    press(&view, text(UiText::OwnCardTitle));
-    let _ = intents(&mut view, &mut model);
-    settle();
+    own_card(&mut view, &mut model);
     let ready = tab_each_ring_covers_nothing(&view, 20);
-    assert!(ready.contains("own-key-fingerprint"), "{ready:?}");
+    for stop in ["own-key-fingerprint", "own-given", "own-surname"] {
+        assert!(ready.contains(stop), "{stop}: {ready:?}");
+    }
 
     model.identity_shown(keyless(KeyProblem::Damaged));
     view.render(&model);
@@ -4538,6 +4549,28 @@ fn no_focus_ring_on_the_own_card_page_covers_a_neighbour() {
     let making = tab_each_ring_covers_nothing(&view, 20);
     assert!(making.contains("own-key-making"), "{making:?}");
 
+    model.key_made(
+        Some(IdentityView {
+            key: OwnKey::Ready {
+                fingerprint: "fedcba9876543210".to_owned(),
+            },
+            ..keyless(KeyProblem::Damaged)
+        }),
+        "fedcba9876543210".to_owned(),
+        vec![direct(P), direct(Q)],
+    );
+    view.render(&model);
+    settle();
+    let made = tab_each_ring_covers_nothing(&view, 20);
+    assert!(made.contains("own-key-fingerprint"), "{made:?}");
+    assert!(
+        made.iter()
+            .filter(|on| on.starts_with("share-again:"))
+            .count()
+            == 2,
+        "{made:?}"
+    );
+
     model.key_not_made(None, KeyProblem::Damaged, false);
     view.render(&model);
     settle();
@@ -4552,9 +4585,72 @@ fn no_focus_ring_on_the_own_card_page_covers_a_neighbour() {
     settle();
     let folder = tab_each_ring_covers_nothing(&view, 20);
     assert!(folder.contains("own-key-path"), "{folder:?}");
-    for field in ["own-given", "own-surname"] {
-        assert!(folder.contains(field), "{field}: {folder:?}");
+}
+
+/// `FocusMode.ring-reach`, the tests' `common::REACH` and where a ring is
+/// drawn are one distance: the ring on the fingerprint's line stands that
+/// far outside the line on every side. Mutation: a `FocusLine`'s ring
+/// placed at 4 px.
+#[test]
+fn ring_reach_is_where_the_ring_is_drawn() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::PhysicalSize::new(900, 1400));
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        key: OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        ..keyless(KeyProblem::Damaged)
+    });
+    own_card(&mut view, &mut model);
+    let mut on = String::new();
+    for _ in 0..20 {
+        key(&view, slint::platform::Key::Tab);
+        slint::platform::update_timers_and_animations();
+        on = view.window().get_focus_id().to_string();
+        if on == "own-key-fingerprint" {
+            break;
+        }
     }
+    assert_eq!(on, "own-key-fingerprint", "Tab reaches the fingerprint");
+    let reach = view
+        .window()
+        .global::<interweave_human_ui_slint::FocusMode<'_>>()
+        .get_ring_reach();
+    assert!((reach - common::REACH).abs() < 0.01, "{reach}");
+    let ring = common::Edges::of(&common::shown_ring(view.window()).expect("a ring"));
+    let line = common::Edges::of(
+        &ElementHandle::find_by_element_type_name(view.window(), "FocusLine")
+            .find(|e| e.accessible_label().as_deref() == Some("0123456789abcdef"))
+            .expect("the fingerprint's line"),
+    );
+    for (side, by) in [
+        ("left", line.left - ring.left),
+        ("top", line.top - ring.top),
+        ("right", ring.right - line.right),
+        ("bottom", ring.bottom - line.bottom),
+    ] {
+        assert!((by - reach).abs() < 0.01, "{side}: {by} against {reach}");
+    }
+}
+
+/// A focus ring draws over no neighbour on a proposal: Copy `PeerId`
+/// under the `PeerId`, the notes, Decline and Accept. Mutation: the
+/// `PeerId`'s 2 px spacing back.
+#[test]
+fn no_focus_ring_on_a_proposal_covers_a_neighbour() {
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", Q)]);
+    model.card_received(proposal(1, P, card("Ada", false), context()));
+    let view = conversation(&mut model);
+    let checked = tab_each_ring_covers_nothing(&view, 20);
+    assert!(
+        checked.iter().any(|on| on.starts_with("proposal-copy:")),
+        "{checked:?}"
+    );
 }
 
 /// A focus ring draws over no neighbour on an answered card: its line,
@@ -4582,5 +4678,31 @@ fn no_focus_ring_on_an_answered_card_covers_a_neighbour() {
     assert!(
         answered.iter().any(|on| on.starts_with("answer:")),
         "{answered:?}"
+    );
+}
+
+/// A focus ring draws over no neighbour on the Contacts list: each row
+/// against the next. Mutation: the list's 4 px spacing back.
+#[test]
+fn no_focus_ring_on_the_contacts_list_covers_a_neighbour() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::PhysicalSize::new(900, 1400));
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![
+        contact("c1", "Ada", P),
+        contact("c2", "Bob", Q),
+        contact("c3", "Cy", R),
+    ]);
+    open_contacts(&mut view, &mut model);
+    let checked = tab_each_ring_covers_nothing(&view, 20);
+    assert!(
+        checked
+            .iter()
+            .filter(|on| on.starts_with("contact:"))
+            .count()
+            == 3,
+        "{checked:?}"
     );
 }
