@@ -24,12 +24,48 @@
 //! the control to run beside any case that asserts them false.
 
 use std::process::Command;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use interweave_profile_config::ProfileConfig;
 use interweave_profile_config::runtime::{AvailabilityMode, KeyUnlockPolicy};
 
 use crate::adb::PACKAGE;
+
+/// The phone's serial once a case has followed it to a new one; until
+/// then `None`, and `adb` picks the phone from `ANDROID_SERIAL`.
+static MOVED: Mutex<Option<String>> = Mutex::new(None);
+
+/// `adb`, aimed at the phone where it is now: at the serial
+/// [`moved_to`] set, else as `ANDROID_SERIAL` says. Every call this
+/// module makes goes through it, the profile's restore among them, so a
+/// phone whose wireless-debugging port changed under a case is still
+/// the one put back.
+#[must_use]
+pub fn adb() -> Command {
+    let mut command = Command::new("adb");
+    if let Some(serial) = moved() {
+        command.args(["-s", &serial]);
+    }
+    command
+}
+
+/// The serial [`moved_to`] set, if any.
+#[must_use]
+pub fn moved() -> Option<String> {
+    MOVED
+        .lock()
+        .map_or_else(|e| e.into_inner().clone(), |s| s.clone())
+}
+
+/// The phone answers at `serial` from now on: wireless debugging came
+/// back on a new port.
+pub fn moved_to(serial: &str) {
+    let mut moved = MOVED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *moved = Some(serial.to_owned());
+}
 
 /// The app's network service, as the activity manager names it.
 pub const NETWORK_SERVICE: &str = "org.interweave.human/.NetworkService";
@@ -318,11 +354,7 @@ pub fn told(line: &str) -> Option<Told> {
     reason = "a command is also run for its effect, its output unread"
 )]
 pub fn shell(args: &[&str]) -> String {
-    let out = Command::new("adb")
-        .arg("shell")
-        .args(args)
-        .output()
-        .expect("adb");
+    let out = adb().arg("shell").args(args).output().expect("adb");
     assert!(
         out.status.success(),
         "adb shell {}: {}",
@@ -418,7 +450,7 @@ pub fn windows() -> Vec<(String, bool)> {
 /// If `adb` cannot run.
 #[must_use]
 pub fn app_pid() -> Option<u32> {
-    let out = Command::new("adb")
+    let out = adb()
         .args(["shell", "pidof", PACKAGE])
         .output()
         .expect("adb");
@@ -535,7 +567,7 @@ pub struct ProfileKept {
 fn shell_status(args: &[&str], input: Option<&[u8]>) -> std::io::Result<(bool, Vec<u8>)> {
     use std::io::Write as _;
     use std::process::Stdio;
-    let mut child = Command::new("adb")
+    let mut child = adb()
         .arg("shell")
         .args(args)
         .stdin(if input.is_some() {
