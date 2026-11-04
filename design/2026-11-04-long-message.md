@@ -107,8 +107,10 @@ under the text.
   word boundary inside the limit, and then an ellipsis (`…`) follows the
   preview's last word. The cut never falls inside a grapheme cluster. A
   table cut between rows keeps its header row.
-- A link whose text is cut is not in the preview, and its control
-  (the one after the text) is not drawn; the link is in the reader.
+- A link's control (the one after the text) is in the preview only
+  when its text is and the whole of its label, as shown, fits inside
+  the preview's figures with the rest of the preview (§6's count);
+  otherwise it is not drawn there, and the link is in the reader.
 - In source mode (Show source, as today) the preview is the source's
   start, cut by the same rule over its lines.
 
@@ -254,21 +256,27 @@ at most **1 600 characters** and **32 lines**. A character is a
 grapheme cluster; a line is one of the model's lines (a paragraph, a
 list item, a table row, a code line, a heading, a rule), however it
 wraps, and each link's control, drawn as a line of its own (§4.1),
-counts as one. What the characters are counted over is the contract's:
-architect-cto's HUMAN-CHAT.md amendment on #562, not yet on `main`,
-counts them over the source text as sent, markup and link destinations
-included. **That does not yet count everything drawn** (§11 Q4): an
-autolink's address is drawn twice, in the text and on its control;
-every control adds its label's prefix and spells a hidden character as
-a code; a reference link's destination is drawn once per use; an image
-with no description draws a placeholder longer than its source. A body
-under the figures can then still draw past the ceiling. What the person
-needs, and what this note asks of the count: it covers everything
-drawn, each time it is drawn — each control's label as shown, once per
-use, and each placeholder's text — and no single control's label is
-drawn past the ceiling, however long its destination. Until Q4 is
-answered the build waits; every other figure in this note counts the
-way the answer does. The gap between the two figures is there so that a body just
+counts as one. **What is counted is what the app draws**, each time it
+draws it (architect-cto's ruling of Q4, §11, in HUMAN-CHAT.md's Bounds
+on #562, not yet on `main`): the drawn text; every link control's label
+as shown — its own words and the destination made visible, a hidden
+character spelled as a code — once per link in the body, so an
+autolink counts its text and its label, and a reference link used
+many times counts its label each time; every image placeholder as
+shown. Every other figure in this note — the preview's limit, the
+cut line's percentage, A1 and A2 — counts the same way.
+
+**A link whose label would be too long gets no control.** Where one
+control's label as shown would pass 2 000 characters, the link has no
+control at all: its text is drawn as plain, inert text, as a link of a
+scheme outside the allow-list already is, and the whole destination
+stays in the source (Show source, Copy message source). The label is
+never cut: a cut label could show one host and open another, which is
+the spoof the full label is there to prevent (architect-cto, #562's
+review). What the person sees is a link they cannot press, and the way
+to it is the source; nothing explains it on screen, as nothing does for
+a link of a disallowed scheme today. That is accepted for a link no
+honest sender writes; a hint is left out (below, §11). The gap between the two figures is there so that a body just
 over the bound is never cut to hide only its last sentence or two.
 
 Why both: characters bound a body that is one long paragraph, which
@@ -405,14 +413,16 @@ it, those checks are blocked, never passed.
   drawn height instead, which would hold one figure for every shape:
   the cut would then move with the width and the text size, and the
   same message would show a different part after a rotation. That is
-  a judgement, kept for H1's walkthrough to test at 200 % text. For
-  the four link and image shapes, A3's figures come with Q4's answer
-  (§11), since how tall their preview may be depends on how they are
-  counted; until then the build measures and reports them, and A3 is
-  open on them, neither passed nor failed.
+  a judgement, kept for H1's walkthrough to test at 200 % text. The
+  four link and image shapes take the headings figures, 4 and 12:
+  with what is drawn counted (§6), none of their drawn characters is
+  taller than a first-level heading's — a control's label is in body
+  medium, a placeholder in body text — so the headings estimate bounds
+  them. That is an estimate too, measured and reported like the rest.
 - **A4** At 200 % text, on the narrowest layout and at the highest
   scale, a whole body at the bound in each of the shapes above, the
-  four link and image shapes included, draws without a panic,
+  four link and image shapes included, draws without a panic (the
+  padded link drawn as inert text with no control, §6),
   and the build measures and reports the tallest row's height against
   the 32 767 px ceiling.
 - **A5** The reader opens on each shape with its first screen drawn
@@ -487,12 +497,18 @@ miss the cut line, or look for the next message inside the reader.
   bounds it is rust-ui-dev's. A long draft's other questions are not
   designed here.
 - **Q4 — architect-cto** (OBSERVATION 01a1a8d3, #561 review round 9,
-  F23): the contract's count, over the source text, misses what links
-  and images draw (§6). Will the count cover everything drawn, once per
+  F23): the contract's count, over the source text, missed what links
+  and images draw. Will the count cover everything drawn, once per
   drawing, and how is one control's label kept under the ceiling beside
-  the rule that it shows the full destination? Open; the build waits.
+  the rule that it shows the full destination? **Ruled** (REPLY
+  01a1a8dd-a73d; #562 at c0d2778a5, ADR-0050 rule 2 A 2026-11-04 (ii)):
+  the count is of what is drawn, once per drawing; a link whose label
+  would pass the figures gets no control and is drawn inert, its label
+  never cut; the preview carries a control only with its whole label
+  (§4.1, §6). The build waits for #562 on `main`.
 
-Left out on purpose: search within a message; selecting part of a
+Left out on purpose: a hint on screen for a link drawn inert (§6);
+search within a message; selecting part of a
 message; a "show more" in steps inside the conversation (it grows the
 row back to the ceiling); opening the reader at a position other than
 the start.
