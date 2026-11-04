@@ -3,12 +3,12 @@
 Status: proposal, 2026-11-04. Asked by rust-ui-dev (QUESTION 01a1a896,
 their job j92, my job j90), read against `origin/main` ed46059ff. It
 answers their three questions (§4, §5, §6) and declines their
-alternative (§2). Where the bound sits in the contracts is
-architect-cto's to decide, on rust-ui-dev's OBSERVATION of the same
-subject; this note gives what the person needs from it, and its
-figures are proposals that architect-cto's decision may move within
-§6's conditions. Copy of a message (§5.3) is a new action, asked of
-architect-cto in §11.
+alternative (§2). architect-cto ruled on its two product questions
+(REPLY 01a1a89e-9df5, §11): Copy is allowed on every message (§5.3),
+and the bound is the contract's, in HUMAN-CHAT.md's Bounds bullet,
+with §6's figures and conditions. Until that amendment is on `main`,
+§6's figures are this note's and the amendment is a dependency of the
+build; where the two ever differ, the contract governs.
 
 Owner of the design: ux-designer. The words are language-culture's: §8
 names each string and what it must say. Colours are roles of
@@ -155,17 +155,27 @@ switch is on screen after it.
 
 Copy puts the **whole raw source, byte for byte as received**, on the
 clipboard, in one action, whatever part the reader shows and whichever
-mode it is in. It is also an item of the row's menu for a cut message
-(`CopyMessage`). Feedback: on Android 13 and later the system shows
+mode it is in. It is also an item of every text message's row menu,
+cut or whole (`CopyMessage`): after Read the whole message on a cut
+message, after Show source on a whole one; a card has none. Feedback: on Android 13 and later the system shows
 its own clipboard confirmation and the app adds none (the platform's
 guidance); before 13, and on the desktop, a snackbar `MessageCopied`.
 If the platform refuses the copy, a snackbar `MessageNotCopied` says so;
 nothing else changes. Copy is not undoable and needs no undo: it
 changes nothing in the app.
 
-Whether Copy is offered on a whole message too is §11's Q1's; this note
-needs it only where the body is cut, since there the reader is the only
-other way to the whole.
+The conditions architect-cto's ruling carries (§11 Q1), each a check
+of A9: Copy acts on the person's press only, never on receipt, read or
+open; the clipboard gets the received source and nothing else — no
+sender, time, id, route or formatting of the app's; one write per
+press, always the whole body, never a part.
+
+On Android 13 and later the clip is **not** marked sensitive. The flag
+hides the system's preview of what was copied; the message is on the
+person's screen at the moment they copy it, so the preview shows
+nothing that is not already shown, and without it the person loses the
+one sign of what was copied. (Recovery words, which are marked so, have
+no clipboard path at all: `design/2026-10-19-android-identity.md`.)
 
 ### 5.4 Leaving the reader
 
@@ -224,7 +234,7 @@ every locale's theirs.
 | `LongMessageShown` | the cut line (§4.2) | that the message continues past what is shown, and the share shown as a percentage (one value, `{percent}`, formatted by the locale) |
 | `ReadWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read |
 | `ReaderTitle` | the reader's app bar (§5.1) | the sender's name (`{sender}`) and when it was sent, as the row shows it (`{time}`) |
-| `CopyMessage` | the reader's action and the row's menu (§5.3) | that it copies the whole message, as it was written |
+| `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message, as it was written |
 | `MessageCopied` | snackbar (§5.3) | that the whole message is on the clipboard |
 | `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied |
 
@@ -300,9 +310,13 @@ of 256 rows. Each is checked in formatted and source mode, at 100 % and
 - **A8** TalkBack reads a cut message's reader from its start to its
   last block by swiping forward alone. Precondition: an accessibility
   tree that exposes the unlaid blocks (§9); without it, blocked.
-- **A9** Copy, from the reader in each mode and from the row's menu,
-  puts on the clipboard bytes equal to the received source (compared
-  with the stored source), and the feedback of §5.3 shows.
+- **A9** Copy, from the reader in each mode and from the row's menu of
+  a cut and of a whole message, puts on the clipboard bytes equal to
+  the received source (compared with the stored source) and nothing
+  else, once per press, and the feedback of §5.3 shows; on Android 13
+  and later the system's confirmation shows its preview (the clip not
+  marked sensitive). Receiving, reading and opening a message write
+  nothing to the clipboard.
 - **A10** A cut message is read when its conversation is shown, and
   Keep on it keeps the whole message: after a restart the reader opens
   on all of it.
@@ -317,13 +331,18 @@ miss the cut line, or look for the next message inside the reader.
 ## 11. Questions, and what is left out
 
 - **Q1 — architect-cto**: Copy of a message's raw source (§5.3) is an
-  action the client does not have: a peer's text leaves the app on the
-  person's press. Is it allowed, on a cut message only or on every
-  message? Until it is answered, §5.3 and A9 are not built; the reader
-  is.
-- **Q2 — architect-cto**: whether the bound is a contract's (as
-  HUMAN-CHAT.md's markdown bounds are) or the renderer's, on
-  rust-ui-dev's OBSERVATION. This note needs only §6's conditions kept.
+  action the client did not have. Is it allowed, on a cut message only
+  or on every message? **Ruled** (REPLY 01a1a89e-9df5): on every
+  message, under the conditions §5.3 lists; whether the clip is marked
+  sensitive was left to this note (§5.3: it is not).
+- **Q2 — architect-cto**: whether the bound is a contract's or the
+  renderer's. **Ruled** (same reply): the contract's, in HUMAN-CHAT.md's
+  Bounds bullet beside nesting and tables, with §6's figures and
+  conditions, the plain-text fallback and Show source cut by §4.1's
+  rule over source lines; architect-cto writes the amendment on their
+  branch, and it corrects their earlier DECISION 01a1a899 to
+  rust-ui-dev (a line-box cap with paged source), so both read this
+  rule.
 - **Q3 — rust-ui-dev**: does the composer draw a draft at the ceiling
   without the same panic? A long draft is not designed here.
 
