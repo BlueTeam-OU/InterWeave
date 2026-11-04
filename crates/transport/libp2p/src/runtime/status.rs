@@ -42,6 +42,11 @@ pub struct RuntimeStatus {
     /// session): a session that ended without leaving shows here as a
     /// reference nothing will release.
     pub broadcast_join_references: usize,
+    /// Broadcast copies the local session queues dropped or could not
+    /// queue since the runtime started, for any session, joined or not,
+    /// the ended ones included: monotonic (`admin.status`'s
+    /// `ipc.events_dropped_total`, `LOCAL-IPC.md` A 2026-11-04).
+    pub broadcast_queue_overflow_total: u64,
     /// The pre-authentication funnel's counts (`admin.status`'s
     /// `pre_auth`).
     pub pre_auth: PreAuthStatus,

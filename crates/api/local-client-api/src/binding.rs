@@ -749,6 +749,12 @@ pub struct AdminStatus {
     /// The post-authentication ingress limiters' state, when the
     /// binding's runtime has them to read.
     pub ingress: Option<IngressCounts>,
+    /// Broadcast copies the binding's session queues dropped or could not
+    /// queue, every session's since the runtime started, the ended ones
+    /// included: monotonic (`ipc.events_dropped_total`, `LOCAL-IPC.md`
+    /// A 2026-11-04). `None` for a binding that keeps no such count,
+    /// which is absent on the wire, never `0`.
+    pub events_dropped: Option<u64>,
 }
 
 /// The pre-authentication funnel at one instant (`resource-limits.md`

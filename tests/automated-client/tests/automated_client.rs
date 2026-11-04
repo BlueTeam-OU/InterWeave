@@ -488,9 +488,11 @@ const BURST: u32 = 200;
 /// bounded by B's broadcast-ingress bucket for A (ADR-0026: a burst of
 /// `DEFAULT_PER_PEER_BURST`, refilled at `DEFAULT_PER_PEER_PER_MINUTE`),
 /// not by the client queue of 256: the rest is dropped before local
-/// delivery, silently -- no refusal reaches A, and the daemon keeps no
-/// drop count to read (`ipc.events_dropped_total` is omitted while no
-/// binding keeps one). What arrives is A's, once each.
+/// delivery, silently -- no refusal reaches A, and
+/// `ipc.events_dropped_total` does not count it, since it counts copies
+/// a session queue dropped, not what the ingress gate refused
+/// (`LOCAL-IPC.md` A 2026-11-04; `session.losses`' `ingress_refused` is
+/// that signal). What arrives is A's, once each.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket() {
     use interweave_transport_runtime::ingress::{

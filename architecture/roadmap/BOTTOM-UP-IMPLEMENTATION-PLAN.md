@@ -3263,8 +3263,11 @@ while the event lane has room — up to 20 ms added latency per event and
 about fifty empty drains a second per idle connection; an awaitable
 `events()` is a neutral-API change (both bindings, the conformance
 suite), decided as its own batch after Stage 13, the constant retired
-then. And `ipc.events_dropped_total` is omitted from `admin.status`
-until a per-client drop count exists: the composition runtime's
+then. And `ipc.events_dropped_total` was omitted from `admin.status`
+until a per-client drop count existed (its shape ruled 2026-11-04,
+below; the per-session `session.losses` of 2.11 is not it, since a
+session's ledger ends with the session and counts only a session that
+joined): the composition runtime's
 `Diagnostics.events_dropped` counts neutral events the runtime→consumer
 channel refused, not a client queue's drops; a full session broadcast
 queue drops its oldest copy to take the new one and reports
@@ -3273,7 +3276,14 @@ queue drops its oldest copy to take the new one and reports
 B2 — summing that notification's `sessions` in the composition runtime
 and carrying it through `RuntimeStatus` to `InProcessAdmin` and a new
 `AdminStatus` field, unless the notification's own drop makes the sum
-unreliable, in which case the counter moves to the fan-out. Carried
+unreliable, in which case the counter moves to the fan-out. Ruled
+2026-11-04 (LOCAL-IPC.md `admin.status`, A 2026-11-04; p2p-network-dev's
+batch, #554): the counter is kept at the
+session queues' one push path, one for the profile, every copy any
+session queue drops or cannot take, closed and unjoined sessions
+included, monotonic since the daemon started; carried through the
+runtime's diagnostics to `admin.status`, no minor, since the member has
+been optional in `admin-status` 1.1.0 since 2026-10-01. Carried
 with them: `close.schema.json`'s description lists the close reasons
 without the limits refusal LOCAL-IPC §Close now names; it follows on
 the next change that touches that schema.
@@ -3617,7 +3627,9 @@ settled attempt (ADR-0011 A 2026-10-01). `peer.disconnected` had no
 producer until #162, measured on 60a1b977 as no frame in 30 s with a
 peer's daemon terminated. Carried from (8): an awaitable `events()` (the
 20 ms poll ships); the per-client drop count behind
-`ipc.events_dropped_total` (omitted meanwhile); `close.schema.json`'s
+`ipc.events_dropped_total` (omitted meanwhile; ruled 2026-11-04 as one
+counter at the session queues, §16's Stage 13 passage above, built by
+p2p-network-dev's batch); `close.schema.json`'s
 description listing the limits refusal. From ADR-0053 A 2026-09-30: the
 mDNS rebuild's two rule-4 excesses and their closers. From #162's review
 (0 P1, 0 P2, 5 P3, posted there), fixed before the close on the owner's
@@ -6250,7 +6262,14 @@ appears in any of the four.
    held by a plain socket without `SO_REUSEPORT` refusing the start
    (exit 1 on `EADDRINUSE`, a free-port start as the control); the
    cross-account refusal is carried as unverified until CI has a second
-   account. (Built on p2p-network-dev's branch: nine cases at 4db37607
+   account — measured on the host since, between two accounts: the
+   cross-uid `SO_REUSEPORT` rule itself in one direction, uid 1022
+   against a port uid 1016 holds with a daemon known to listen with it
+   (the 2026-10-27 record under `packaging/linux/evidence/`, ADR-0055 A
+   2026-10-27), and a held port refused in the other, uid 1016 against
+   uid 1022's, whose holder's build was not read, so that record shows
+   the refusal and not the rule (the 2026-11-04 record) — the CI case
+   still owed. (Built on p2p-network-dev's branch: nine cases at 4db37607
    before this record landed, the tenth, the held port, added on #305's
    review; the suite reads the ingress bucket's constants
    from `interweave-transport-runtime` as a dev-dependency rather than
@@ -6276,7 +6295,19 @@ appears in any of the four.
    the client starting with the daemon, both back 5 s after a SIGKILL,
    a taken port retried under the start limit; the client unit runs
    the deployment's program from the account's `libexec`, or a
-   drop-in's `ExecStart`, and InterWeave ships none.)
+   drop-in's `ExecStart`, and InterWeave ships none. Measured again
+   2026-11-04 on the fleet deployment's live units in one account's own
+   user manager, p2p-network-dev-01's run
+   `packaging/linux/evidence/2026-11-04-gzcoord-units-and-cross-uid-port.md`,
+   #554: a clean stop in 0.49 s, the client stopped first in 0.39 s and
+   the daemon in 0.10 s after it; from the daemon's `Starting` line the
+   daemon started in 0.025 s, the client in 0.050 s and the daemon was
+   serving at 0.149 s; both units back 5.3 s after a SIGKILL, the daemon
+   serving at 5.274 s, each figure from a quoted journal line;
+   and a port another account held refused — exit 1 on `EADDRINUSE`,
+   the unit retrying every 5 s, no socket of the asking account ever
+   appearing — with the same profile on a free port listening as the
+   control; single samples on a loaded host, no CI case, as before.)
 5. The stale clause in `CLAUDE.md` §1 about mDNS (the multicast backend
    was built after Stage 9; this record corrects it) — done in the
    series that lands this section.
@@ -6368,8 +6399,14 @@ merge named above.
 **Measured, and carried as limits.** Every case ran on one host's
 loopback under one uid. Carried by name, from `AUTOMATED-CLIENT.md` §5
 and decision 2: the cross-account port refusal rests on the kernel's
-documented `SO_REUSEPORT` rule and is not measured (one uid in the
-suite, as decision 5 says, until CI has a second account); a second
+documented `SO_REUSEPORT` rule and was measured on the host, not in
+the suite — between two accounts: the rule itself in one direction on
+2026-10-27, with a holder known to listen with `SO_REUSEPORT` (ADR-0055
+A 2026-10-27), and a held port refused in the other on 2026-11-04
+(step 4's second record), whose holder's build was not read, so that
+run shows the refusal and not the rule — the suite staying one uid as
+decision 5 says, so the CI case is still owed
+until CI has a second account; a second
 host is ADR-0034 §7's and SPIKE-004's limit; the second delivery of a
 retry after the dedup WINDOW is by decision (ADR-0019) and measured
 here only across the receiving daemon's restart; ordering across
@@ -6378,7 +6415,9 @@ among profiles and protection from same-uid code are outside the
 transport's threat model as stated there. Step 4's figures — a clean
 stop in 0.19 s with the client stopping with it, both units back 5 s
 after a SIGKILL, a taken port retried under the start limit — were
-measured on the host's user manager by hand (f68b7b56's record) and no
+measured on the host's user manager by hand (f68b7b56's record, and
+again on the deployment's live units on 2026-11-04: 0.49 s, 5.3 s, the
+held port refused) and no
 CI case holds them: a unit is proved by a deployment's own run, and the
 first deployment's record is where that lands. The refusal counts and
 the durations of the two burst cases are samples that depend on the
