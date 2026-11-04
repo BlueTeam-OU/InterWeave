@@ -3,7 +3,8 @@
 //! The shipped client's window as a screen reader is handed it: its tree
 //! read over AT-SPI from the platform adapter, and its controls pressed
 //! through their accessible actions -- the way a person who cannot use a
-//! pointer reaches them, and the only way these cases press anything.
+//! pointer reaches them, and how these cases press anything, but for the
+//! focus ring's, whose key and click are the display's (`ring.rs`).
 //!
 //! Needs the AT-SPI bus a screen reader would use, with accessibility
 //! switched on and the registry answering, which `tools/ci/with_display.sh`
@@ -17,7 +18,9 @@ use std::time::Duration;
 use atspi::ObjectRefOwned;
 use atspi::proxy::accessible::{AccessibleProxy, ObjectRefExt as _};
 use atspi::proxy::action::ActionProxy;
+use atspi::proxy::component::ComponentProxy;
 use atspi::proxy::text::TextProxy;
+use atspi::{CoordType, State};
 
 use crate::common::PATIENCE;
 
@@ -332,6 +335,38 @@ impl Window<'_> {
             .expect("a text proxy");
         let count = proxy.character_count().await.expect("its length");
         proxy.get_text(0, count).await.expect("its text")
+    }
+
+    /// Where `element` is drawn in its window, as `(x, y, width, height)`:
+    /// what a screen magnifier follows.
+    pub(crate) async fn extents(&self, element: &Element) -> (i32, i32, i32, i32) {
+        let proxy = ComponentProxy::builder(&self.bus.conn)
+            .destination(element.at.name().expect("a bus name").clone())
+            .expect("a destination")
+            .path(element.at.path().clone())
+            .expect("a path")
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await
+            .expect("a component proxy");
+        proxy
+            .get_extents(CoordType::Window)
+            .await
+            .expect("its extents")
+    }
+
+    /// Whether `element` holds the keyboard focus now, as a screen reader
+    /// is told.
+    pub(crate) async fn focused(&self, element: &Element) -> bool {
+        let node = element
+            .at
+            .as_accessible_proxy(&self.bus.conn)
+            .await
+            .expect("an accessible proxy");
+        node.get_state()
+            .await
+            .expect("its states")
+            .contains(State::Focused)
     }
 
     /// Press `element` through its named accessible action, as a screen

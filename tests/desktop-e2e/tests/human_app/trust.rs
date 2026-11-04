@@ -23,6 +23,7 @@ use crate::a11y::{Bus, Element};
 use crate::daemon_link::{Tap, asked};
 use crate::display;
 use crate::harness::{self as app, until_lease};
+use crate::ring;
 use crate::world::two_daemons;
 
 fn text(key: UiText) -> &'static str {
@@ -231,5 +232,44 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
             log,
         )
         .await;
+    assert!(client.terminate().success(), "{}", client.log());
+}
+
+/// #549 in the main window: this profile's own `PeerId` on Trust, a text
+/// field, loses the ring Tab drew when a person clicks it (`ring`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_click_on_the_own_peer_id_after_tab_takes_its_ring_away() {
+    let _focus = display::exclusive().await;
+    let world = two_daemons().await;
+    let bus = Bus::connect().await;
+    let mut client = app::start(&world.a);
+    until_lease(&world.a.binding(), true, &client).await;
+    let pid = client.child.id();
+    let window = bus.window_of(pid, || client.log()).await;
+    display::focus(pid, || client.log()).await;
+    let log = || client.log();
+    let button = |name: &'static str| {
+        move |e: &Element| e.role == "button" && e.name == name && e.actions == ["click"]
+    };
+    let options = window
+        .until("the app's options", button(text(UiText::AppOptions)), log)
+        .await;
+    window.activate(&options, "click").await;
+    let open = window
+        .until(
+            "the app's Trust entry",
+            button(text(UiText::TrustHeading)),
+            log,
+        )
+        .await;
+    window.activate(&open, "click").await;
+    let own = window
+        .until(
+            "this profile's PeerId",
+            |e: &Element| e.role == "entry" && e.name == text(UiText::OwnPeerId),
+            log,
+        )
+        .await;
+    ring::tab_then_click(&window, &own, pid, log).await;
     assert!(client.terminate().success(), "{}", client.log());
 }

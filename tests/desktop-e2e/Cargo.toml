@@ -71,9 +71,10 @@ serde_json = { workspace = true }
 tempfile = { workspace = true }
 zbus = { version = "5.19", default-features = false, features = ["async-io"] }
 # human_app/display.rs: the input focus given to the client's window, as a
-# window manager would; the pure-Rust connection, already compiled for
-# winit.
-x11rb = { version = "0.13", default-features = false }
+# window manager would, and a key and a click as a person makes them
+# (XTEST, which Xvfb serves); the pure-Rust connection, already compiled
+# for winit.
+x11rb = { version = "0.13", default-features = false, features = ["xtest"] }
 # claude_channel.rs runs the shipped claude-channel binary as Claude Code
 # does: a child process on its stdio.
 tokio = { workspace = true, features = ["macros", "net", "io-util", "process", "rt-multi-thread", "time"] }
