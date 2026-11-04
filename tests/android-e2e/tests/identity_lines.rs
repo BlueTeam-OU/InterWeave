@@ -211,8 +211,9 @@ fn passed(step: &Step, s: &Screens) {
     assert_eq!(
         step.get(keys::RESULT).and_then(|v| v.as_str()),
         Some(keys::PASS),
-        "{step:?}\nthe trace: {:#?}",
-        s.trace()
+        "{step:?}\nthe trace: {:#?}\nthe app's other lines: {:#?}",
+        s.trace(),
+        s.app_log()
     );
 }
 

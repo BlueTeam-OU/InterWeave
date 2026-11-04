@@ -65,6 +65,9 @@ pub struct Screens {
     read: usize,
     /// The focus key the trace last named.
     focus: String,
+    /// The app's other lines on its tag (the runtime's start among
+    /// them), as last read: what a failed step cannot be judged without.
+    app: Vec<String>,
 }
 
 impl Screens {
@@ -76,6 +79,7 @@ impl Screens {
             seen: Vec::new(),
             read: 0,
             focus: String::new(),
+            app: Vec::new(),
         }
     }
 
@@ -97,7 +101,7 @@ impl Screens {
         if let Err(why) = self.adb_ok(&["logcat", "-c"]) {
             return step(name, false, why);
         }
-        (self.seen, self.read, self.focus) = (Vec::new(), 0, String::new());
+        (self.seen, self.read, self.focus, self.app) = (Vec::new(), 0, String::new(), Vec::new());
         let launched = self
             .adb_ok(&[
                 "shell",
@@ -246,7 +250,7 @@ impl Screens {
         if let Err(why) = self.adb_ok(&["logcat", "-c"]) {
             return step(name, false, why);
         }
-        (self.seen, self.read, self.focus) = (Vec::new(), 0, String::new());
+        (self.seen, self.read, self.focus, self.app) = (Vec::new(), 0, String::new(), Vec::new());
         let launched = self.front().and_then(|()| {
             self.wait_all(
                 0,
@@ -358,6 +362,14 @@ impl Screens {
     #[must_use]
     pub fn trace(&self) -> &[String] {
         &self.seen
+    }
+
+    /// The app's lines on its tag that are not the trace, as last read
+    /// since the launch cleared the log: a step that failed on a page
+    /// waiting for the runtime (`notice=no-daemon`) is judged by them.
+    #[must_use]
+    pub fn app_log(&self) -> &[String] {
+        &self.app
     }
 
     fn answer(&self, name: &str, done: Result<(), String>) -> Step {
@@ -568,6 +580,7 @@ impl Screens {
             ));
         }
         self.seen = lines;
+        self.app = app_lines(&log);
         Ok(())
     }
 
@@ -635,6 +648,16 @@ pub fn trace_lines(log: &str) -> Vec<String> {
     log.lines()
         .map(str::trim_end)
         .filter(|l| l.starts_with(TRACE))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The lines of a `raw` logcat that are not the trace's, in order.
+#[must_use]
+pub fn app_lines(log: &str) -> Vec<String> {
+    log.lines()
+        .map(str::trim_end)
+        .filter(|l| !l.is_empty() && !l.starts_with(TRACE))
         .map(str::to_owned)
         .collect()
 }
@@ -724,6 +747,19 @@ mod tests {
         assert_eq!(keyboard_shown(api30), Some(true));
         assert_eq!(keyboard_shown("mImeWindowVis=0\n"), None);
         assert_eq!(keyboard_shown("mInputShown=maybe\n"), None);
+    }
+
+    #[test]
+    fn the_apps_other_lines_are_every_line_the_trace_is_not() {
+        let log = "the runtime started\nui-trace page=conversations\r\n\n  ui-trace not at the start\nstart answered 0\r\n";
+        assert_eq!(
+            app_lines(log),
+            [
+                "the runtime started",
+                "  ui-trace not at the start",
+                "start answered 0"
+            ]
+        );
     }
 
     #[test]
