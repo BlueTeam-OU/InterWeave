@@ -70,10 +70,13 @@ daemon. The client came up after it, through its `WantedBy=`:
 14:28:59.500605 transport-daemon[4126605]: INFO transport_daemon::daemon: serving data=/run/user/1016/interweave/gzcoord.sock
 ```
 
-The daemon was active 0.057 s and the client 0.082 s after the start
-was asked. The daemon was serving 0.15 s after it.
+From the daemon's `Starting` line, the daemon was `Started` 0.025 s
+later, the client 0.050 s, and the daemon was serving at 0.149 s. The
+script's own clock, read just before it called `systemctl`, is 0.032 s
+earlier than that `Starting` line; every figure here is from the
+journal lines quoted.
 
-## 2. SIGKILL: both back in 5.4 s
+## 2. SIGKILL: both back in 5.3 s
 
 `systemctl --user kill -s SIGKILL --kill-whom=main
 interweave-daemon@gzcoord`:
@@ -93,9 +96,11 @@ interweave-daemon@gzcoord`:
 14:29:08.765814 transport-daemon[4129010]: INFO transport_daemon::daemon: serving data=/run/user/1016/interweave/gzcoord.sock
 ```
 
-- The daemon was active again 5.391 s after the kill, with
-  `NRestarts=1`. The client was active again after 5.426 s, and the
-  daemon was serving 5.27 s after the kill.
+- From the `Sent signal SIGKILL` line, the daemon was `Started` again
+  5.225 s later, with `NRestarts=1`, the client 5.260 s, and the daemon
+  was serving at 5.274 s. The script's clock, read just before it
+  called `systemctl kill`, is 0.166 s earlier than that line; every
+  figure here is from the journal lines quoted.
 - `BindsTo=` stopped the client 0.22 s after the daemon died.
   `Restart=on-failure` restarted the daemon `RestartSec=5` later. The
   client came back with it, both with new PIDs.
