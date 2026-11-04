@@ -341,8 +341,8 @@ mod tests {
 
     /// The profile's total moves on each copy a push drops or cannot
     /// queue, whichever session it was: one that joined, one that never
-    /// did (the ledger keeps nothing for it), and one since ended. A push
-    /// with room is the control, and moves nothing.
+    /// did (the ledger keeps nothing for it), one never opened, and one
+    /// since ended. A push with room is the control, and moves nothing.
     #[test]
     fn every_dropped_copy_moves_the_profile_total() {
         let general = ChannelId::parse("general").expect("valid channel");
@@ -367,6 +367,8 @@ mod tests {
         q.losses_mut().released("joined");
         q.close("joined");
         assert_eq!(q.dropped_total(), 3, "a session's end lowers nothing");
+        assert_eq!(q.push("joined", event(b"y")), Err(SessionDrop::NotOpen));
+        assert_eq!(q.dropped_total(), 4, "a copy for a session since ended");
     }
 
     #[test]
