@@ -59,13 +59,19 @@ class E2eCase : Instrumentation() {
      * key's ([DROP_STORE_KEY]) makes the next start show the store's
      * recovery screen, whose discard a person runs (j138's device rows);
      * the seed's ([DROP_SEED_KEY]) makes it open on K1 (TM-48's case).
-     * Destroys what the key opened on the phone it runs on; runs only when
-     * asked by name.
+     * Destroys what the key opened on the phone it runs on; `onStart`
+     * dispatches it by its exact case name. A phone with no key at [alias]
+     * (another unlock policy's seed, a key already dropped) fails here,
+     * since `retire` answers OK for an absent alias and the case after it
+     * would otherwise fail later, somewhere else.
      */
     private fun dropKey(case: String, alias: String): JSONObject {
+        val out = JSONObject().put("case", case)
+        if (!KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.containsAlias(alias)) {
+            return out.put("result", "fail").put("detail", "no key at $alias")
+        }
         val answer = org.interweave.human.KeystoreCipher.retire(alias)
-        return JSONObject()
-            .put("case", case)
+        return out
             .put("result", if (answer.firstOrNull() == 0.toByte()) "pass" else "fail")
             .put("detail", "retire $alias answered ${answer.firstOrNull()}")
     }
