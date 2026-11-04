@@ -55,8 +55,13 @@ pub struct ServiceRecord {
 
 /// The record of `component` in a `dumpsys activity services` dump:
 /// `Ok(None)` when the dump says the service is not running -- AOSP's
-/// `(nothing)`, or other records with none of `component` -- and an
-/// error when it says neither, or the record is there and incomplete.
+/// `(nothing)`, or other records with none of `component` among the
+/// running ones -- and an error when it says neither, or the record is
+/// there and incomplete. A record AOSP lists under a section of its own
+/// (`* Destroy ServiceRecord{..}` under "Destroying services:", as the
+/// A40 printed one 5 s into a stay-reachable start) is a service on its
+/// way in or out, not a running one: it answers "not running", never
+/// "no answer".
 ///
 /// # Errors
 /// A dump with no record and no `(nothing)`; a record with no
@@ -64,16 +69,15 @@ pub struct ServiceRecord {
 /// `isForeground`, `startRequested` or `types` that is not a value.
 pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecord>, String> {
     let header = format!(" {component}}}");
-    let is_record = |l: &str| l.contains("* ServiceRecord{");
     let Some(start) = dump
         .lines()
-        .position(|l| is_record(l) && l.ends_with(&header))
+        .position(|l| record_header(l) == Some(true) && l.ends_with(&header))
     else {
         // A "not running" read off a dump this does not recognise would
         // pass a negative for free.
         return if dump
             .lines()
-            .any(|l| l.trim() == "(nothing)" || is_record(l))
+            .any(|l| l.trim() == "(nothing)" || record_header(l).is_some())
         {
             Ok(None)
         } else {
@@ -86,7 +90,7 @@ pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecor
     let body: Vec<&str> = dump
         .lines()
         .skip(start + 1)
-        .take_while(|l| !is_record(l))
+        .take_while(|l| record_header(l).is_none())
         .collect();
     let field = |name: &str| -> Option<&str> {
         body.iter().find_map(|l| {
@@ -127,6 +131,21 @@ pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecor
         channel,
         start_requested: flag("startRequested")?,
     }))
+}
+
+/// Whether `line` opens a service record: `Some(true)` for a running
+/// one (`* ServiceRecord{`), `Some(false)` for one a section lists under
+/// a word of its own (`* Destroy ServiceRecord{`), `None` for any other
+/// line. Read by shape rather than by the words AOSP uses, so a section
+/// the fixtures do not name still bounds the record before it.
+fn record_header(line: &str) -> Option<bool> {
+    let rest = line.trim_start().strip_prefix("* ")?;
+    let (before, _) = rest.split_once("ServiceRecord{")?;
+    match before {
+        "" => Some(true),
+        word if word.ends_with(' ') && !word.trim().contains(' ') => Some(false),
+        _ => None,
+    }
 }
 
 /// What one package's backup pass ended as.
@@ -588,6 +607,26 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
     // `ServiceRecord.dump` then prints no `isForeground=` line (only when
     // `isForeground || foregroundId != 0`) and no `startRequested=` line
     // (only when `startRequested || delayedStop || lastStartId != 0`).
+    /// The A40's (API 30) dump of 2026-11-04, the record's paths and
+    /// handles as printed.
+    const DESTROYING: &str = "\
+ACTIVITY MANAGER SERVICES (dumpsys activity services)
+  Destroying services:
+  * Destroy ServiceRecord{5c5073d u0 org.interweave.human/.NetworkService}
+    intent={cmp=org.interweave.human/.NetworkService}
+    packageName=org.interweave.human
+    processName=org.interweave.human
+    dataDir=/data/user/0/org.interweave.human
+    app=ProcessRecord{4815798 14224:org.interweave.human/u0a400}
+    allowWhileInUsePermissionInFgs=false
+    startForegroundCount=0
+    recentCallingPackage=org.interweave.human
+    createTime=-5s799ms startingBgTimeout=--
+    lastActivity=-5s799ms restartTime=-- createdFromFg=true
+    executeNesting=1 executeFg=false executingStart=-23ms
+    destroying=true destroyTime=-23ms
+";
+
     const BOUND: &str = "\
 ACTIVITY MANAGER SERVICES (dumpsys activity services)
   User 0 active services:
@@ -649,6 +688,37 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
             service_record(&others, NETWORK_SERVICE).expect("parsed"),
             None
         );
+        // A record only under "Destroying services:", as the A40 printed
+        // it: not running, and not read as the running record.
+        assert_eq!(
+            service_record(DESTROYING, NETWORK_SERVICE).expect("parsed"),
+            None
+        );
+        // Control: the same record in the running list is read.
+        let live = DESTROYING
+            .replace("  Destroying services:", "  User 0 active services:")
+            .replace("* Destroy ServiceRecord{", "* ServiceRecord{");
+        assert!(
+            service_record(&live, NETWORK_SERVICE)
+                .expect("parsed")
+                .is_some()
+        );
+        // A running record ends where a sectioned one begins.
+        // A running record ends where a sectioned one begins: the
+        // destroying record's isForeground is not the bound record's.
+        let foreground_after = DESTROYING.replace("startForegroundCount=0", "isForeground=true");
+        let both = format!(
+            "{BOUND}{}",
+            foreground_after
+                .lines()
+                .skip(1)
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        let r = service_record(&both, NETWORK_SERVICE)
+            .expect("parsed")
+            .expect("running");
+        assert!(!r.foreground, "{r:?}");
         // Control: neither a record nor (nothing) is no answer at all.
         assert!(service_record("ACTIVITY MANAGER SERVICES\n", NETWORK_SERVICE).is_err());
         assert!(service_record("", NETWORK_SERVICE).is_err());
