@@ -471,11 +471,6 @@ miss the cut line, or look for the next message inside the reader.
   rule. The ruling took the first figures, 2 400 and 48; §6 lowered
   them to 2 000 and 40 after it, and architect-cto was told (INFO
   01a1a8a6-fc67). The build waits for the amendment carrying them.
-- **Q4 — architect-cto** (OBSERVATION 01a1a8d3, #561 review round 9,
-  F23): the contract's count, over the source text, misses what links
-  and images draw (§6). Will the count cover everything drawn, once per
-  drawing, and how is one control's label kept under the ceiling beside
-  the rule that it shows the full destination? Open; the build waits.
 - **Q3 — rust-ui-dev**: does the composer draw a draft at the ceiling
   without the same panic? **Answered** (#561, rust-ui-dev's j92 note):
   no, a draft of many lines panics the desktop at scale 1 and 2. What
@@ -487,6 +482,11 @@ miss the cut line, or look for the next message inside the reader.
   dropped for its length below the envelope's ceiling. How the build
   bounds it is rust-ui-dev's. A long draft's other questions are not
   designed here.
+- **Q4 — architect-cto** (OBSERVATION 01a1a8d3, #561 review round 9,
+  F23): the contract's count, over the source text, misses what links
+  and images draw (§6). Will the count cover everything drawn, once per
+  drawing, and how is one control's label kept under the ceiling beside
+  the rule that it shows the full destination? Open; the build waits.
 
 Left out on purpose: search within a message; selecting part of a
 message; a "show more" in steps inside the conversation (it grows the
