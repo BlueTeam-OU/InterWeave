@@ -378,9 +378,9 @@ for 46,000 U+0001, was taken and answered, as was the base64url line of
 lines within 0.18 s, each in the debug log within 0.08 s of its line;
 the first started a turn and the other nine joined it as attachments
 within 1 ms of being queued, and the peer had `ack 1` 10.2 s and
-`ack 10` 15.1 s after the first send, so an event during a turn the
-channel started joins it where fact 45's, during a user turn, waited
-(74). With no `--permission-mode` the same setup reported `auto` on
+`ack 10` 15.1 s after the first send, so in this one run events
+during a turn the channel started joined it where fact 45's, during a
+user turn, waited (74). With no `--permission-mode` the same setup reported `auto` on
 2.1.286 and `default` on 2.1.311 and 2.1.317, the auto-mode gate line
 identical on all three, and four 2.1.286 sessions whose first `init`
 came about 32 s after the start reported `default` too; so fact 69's
