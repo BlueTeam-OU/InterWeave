@@ -3,10 +3,11 @@
 Status: proposal, 2026-11-04. Asked by rust-ui-dev (QUESTION 01a1a896,
 their job j92, my job j90), read against `origin/main` ed46059ff. It
 answers their three questions (§4, §5, §6) and declines their
-alternative (§2). architect-cto ruled on its two product questions
-(REPLY 01a1a89e-9df5, §11): Copy is allowed on every message (§5.3),
-and the bound is the contract's, in HUMAN-CHAT.md's Bounds bullet,
-with §6's figures and conditions. Until that amendment is on `main`,
+alternative (§2). architect-cto ruled on its three product questions
+(§11): Copy is allowed on every message (Q1, REPLY 01a1a89e-9df5,
+§5.3); the bound is the contract's, in HUMAN-CHAT.md's Bounds bullet,
+with §6's figures and conditions (Q2, same reply); and what is counted
+is what is drawn (Q4, REPLY 01a1a8dd-a73d, §6), written on #562. Until that amendment is on `main`,
 the build waits for it, and it must carry §6's current figures (2 000
 and 40, lowered after the ruling: §11 Q2). Where the two ever differ,
 the contract governs only with figures that keep §6's ceiling
@@ -76,12 +77,21 @@ hypothesis this note makes, and how it is checked, is §10's H1.
 
 ## 3. What the person sees — the states
 
-A message's body is **cut** when it passes §6's bound, **whole**
-otherwise. Nothing changes for a whole body.
+A message's body is **cut** when what the row draws passes §6's
+bound, **whole** otherwise, decided **in each mode** by what that mode
+draws (§6): formatted mode by the formatted body, source mode by the
+source. So one message can be whole in one mode and cut in the other —
+a body of many long link addresses, for one, is short formatted and
+long as source. The row always shows the state of the mode it is in,
+and switching mode (Show source, Show formatted) switches it: the
+preview, the cut line and the button appear or go with the mode that
+needs them; focus stays on the bubble, which the menu returns it to
+(message-swipe §7). Nothing changes for a body that is whole in the
+mode shown.
 
 | state | in the conversation | in the reader (§5) |
 |---|---|---|
-| whole | the body, as today | not offered |
+| whole in the mode shown | the body in that mode, as today | not offered from this mode |
 | cut, formatted | the preview (§4.1), the cut line (§4.2), Read the whole message (§4.3) | the whole body, formatted |
 | cut, source | the source's preview, the cut line, Read the whole message | the whole source |
 | reader opening | — | its first screen within A5's figure (§10); nothing below 0.5 s, then an indeterminate progress bar under the app bar, labelled `ReaderOpening` (§8), until the first screen is drawn |
@@ -111,8 +121,8 @@ under the text.
   when its text is and the whole of its label, as shown, fits inside
   the preview's figures with the rest of the preview (§6's count);
   otherwise it is not drawn there, and the link is in the reader.
-- In source mode (Show source, as today) the preview is the source's
-  start, cut by the same rule over its lines.
+- In source mode (Show source, as today), when the source is cut, the
+  preview is the source's start, cut by the same rule over its lines.
 
 ### 4.2 The cut line
 
@@ -266,6 +276,17 @@ many times counts its label each time; every image placeholder as
 shown. Every other figure in this note — the preview's limit, the
 cut line's percentage, A1 and A2 — counts the same way.
 
+**In source mode what is drawn is the source** (HUMAN-CHAT.md on #562:
+"the plain-text fallback and Show source are cut by the same rule over
+the source's lines"): its characters are the source's, markup and
+destinations included, and its lines the source's lines, blank lines
+included. The plain-text fallback, for a body whose markdown is past a
+nesting or table bound, counts the same way. The cut line in source
+mode gives the share of the source shown.
+
+The gap between the two figures is there so that a body just over the
+bound is never cut to hide only its last sentence or two.
+
 **A link whose label would be too long gets no control.** Where one
 control's label as shown would pass 2 000 characters, the link has no
 control at all: its text is drawn as plain, inert text, as a link of a
@@ -273,11 +294,11 @@ scheme outside the allow-list already is, and the whole destination
 stays in the source (Show source, Copy message source). The label is
 never cut: a cut label could show one host and open another, which is
 the spoof the full label is there to prevent (architect-cto, #562's
-review). What the person sees is a link they cannot press, and the way
-to it is the source; nothing explains it on screen, as nothing does for
-a link of a disallowed scheme today. That is accepted for a link no
-honest sender writes; a hint is left out (below, §11). The gap between the two figures is there so that a body just
-over the bound is never cut to hide only its last sentence or two.
+review). What the person sees is the link's text, which they cannot
+press (nothing, if the link has no text), and the way to it is the
+source; nothing explains it on screen, as nothing does for a link of a
+disallowed scheme today. That is accepted for a link no honest sender
+writes; a hint is left out (below, §11).
 
 Why both: characters bound a body that is one long paragraph, which
 wraps into many drawn lines without a line of the model; lines bound a
@@ -395,7 +416,13 @@ the app. The Android build has none today
 it, those checks are blocked, never passed.
 
 - **A1** A body of 2 000 characters and 40 lines is whole; one more
-  character, or one more line, and it is cut (§6).
+  character, or one more line, and it is cut (§6), in each mode by what
+  that mode draws. A body whole formatted and past the bound as source
+  (many long link addresses; a body of reference definitions; about
+  2 000 blank lines) is whole formatted, and in source mode shows the
+  source's preview, the cut line with the source's share and Read the
+  whole message, which opens the reader in source mode; Show formatted
+  takes them away again.
 - **A2** A cut row shows the preview, the cut line with a percentage
   equal to the preview's characters over the body's, rounded down and
   at least 1, and Read the whole message; its preview ends as §4.1
@@ -422,7 +449,9 @@ it, those checks are blocked, never passed.
 - **A4** At 200 % text, on the narrowest layout and at the highest
   scale, a whole body at the bound in each of the shapes above, the
   four link and image shapes included, draws without a panic (the
-  padded link drawn as inert text with no control, §6),
+  padded link drawn as inert text with no control, §6), in formatted
+  and in source mode, and so do A1's whole-formatted, cut-as-source
+  bodies in source mode,
   and the build measures and reports the tallest row's height against
   the 32 767 px ceiling.
 - **A5** The reader opens on each shape with its first screen drawn
