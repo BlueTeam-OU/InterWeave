@@ -22,6 +22,7 @@ mod accessibility;
 mod chat;
 mod clipboard;
 mod codes;
+mod content_free_logs;
 mod daemon_link;
 mod display;
 mod endpoints;
