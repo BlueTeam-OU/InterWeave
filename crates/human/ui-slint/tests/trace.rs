@@ -1095,6 +1095,34 @@ fn a_row_whose_word_no_letter_continues_focuses_delete() {
     assert_eq!(page.take(), [IdentityInput::Chip("oak".to_owned())]);
 }
 
+/// Back from R2 that K1 opened puts focus on K1's "Enter my phrase"
+/// (section 7).
+#[test]
+fn back_from_r2_to_k1_focuses_its_primary() {
+    use interweave_human_ui_model::{IdentityFlow, RecoveryReason, ScreenId, Start};
+    use interweave_transport_api::TransportIdentity;
+    use slint::platform::Key;
+    let peer = TransportIdentity::parse("12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e")
+        .expect("a PeerId");
+    let flow = IdentityFlow::new(
+        WORDS,
+        Start::Recovery {
+            reason: RecoveryReason::Key,
+            expected: Some(peer),
+            new_keys: false,
+        },
+    );
+    let mut page = Identity::new(flow);
+    assert_eq!(page.flow.screen(), ScreenId::K1, "control");
+    tab_to(&mut page, "ui-trace focus=identity-primary");
+    page.enter();
+    assert_eq!(page.flow.screen(), ScreenId::R2, "control: opened");
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.key(Key::Escape);
+    assert_eq!(page.flow.screen(), ScreenId::K1);
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+}
+
 /// TAB until focus is on `line`, a bounded number of times.
 fn tab_to(page: &mut Identity, line: &str) {
     for _ in 0..64 {

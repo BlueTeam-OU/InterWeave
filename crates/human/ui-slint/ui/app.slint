@@ -2043,10 +2043,12 @@ component IdentityScreen inherits FocusScope {
             if (root.page.picker) {
                 root.opened();
             } else if ((from == IdScreen.c3 && root.page.screen == IdScreen.c2)
-                || (from == IdScreen.r2 && root.page.screen == IdScreen.r1)) {
+                || (from == IdScreen.r2
+                    && (root.page.screen == IdScreen.r1 || root.page.screen == IdScreen.k1))) {
                 // Back from C3 or R2, by Delete words or with nothing
-                // entered: focus on the primary that opened the screen
-                // just left (section 7).
+                // entered, to the screen that opened it (C2, R1 or K1):
+                // focus on the primary that opened the screen just left
+                // (section 7). R3 and C4 are forward, not Back.
                 root.go(6, 0);
             } else if (notice-new) {
                 root.go(0, root.banner-idx());
