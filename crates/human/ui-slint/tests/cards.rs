@@ -4638,19 +4638,28 @@ fn ring_reach_is_where_the_ring_is_drawn() {
 }
 
 /// A focus ring draws over no neighbour on a proposal: Copy `PeerId`
-/// under the `PeerId`, the notes, Decline and Accept. Mutation: the
-/// `PeerId`'s 2 px spacing back.
+/// under the `PeerId`, and a same-name note's link to its contact under
+/// the note. Mutations: the `PeerId`'s 2 px spacing back; the note's 4 px.
 #[test]
 fn no_focus_ring_on_a_proposal_covers_a_neighbour() {
     let mut model = UiModel::new();
     model.contacts_listed(vec![contact("c1", "Ada", Q)]);
-    model.card_received(proposal(1, P, card("Ada", false), context()));
+    let same_name = ProposalContext {
+        same_name: vec![interweave_human_ui_model::ContactRef {
+            contact_id: "c1".to_owned(),
+            name: "Ada".to_owned(),
+        }],
+        ..context()
+    };
+    model.card_received(proposal(1, P, card("Ada", false), same_name));
     let view = conversation(&mut model);
     let checked = tab_each_ring_covers_nothing(&view, 20);
-    assert!(
-        checked.iter().any(|on| on.starts_with("proposal-copy:")),
-        "{checked:?}"
-    );
+    for stop in ["proposal-copy:", "proposal-contact:"] {
+        assert!(
+            checked.iter().any(|on| on.starts_with(stop)),
+            "{stop}: {checked:?}"
+        );
+    }
 }
 
 /// A focus ring draws over no neighbour on an answered card: its line,

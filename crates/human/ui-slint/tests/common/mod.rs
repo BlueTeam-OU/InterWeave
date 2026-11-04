@@ -9,8 +9,8 @@ use i_slint_backend_testing::{ElementHandle, ElementQuery, ElementRoot};
 
 /// How far a focus ring reaches outside its control, as app.slint's
 /// `FocusMode.ring-reach` says and each `FocusRing` is placed;
-/// `ring_reach_is_where_the_ring_is_drawn` in cards.rs holds all three
-/// equal.
+/// `ring_reach_is_where_the_ring_is_drawn` in cards.rs holds this, the
+/// global and one drawn ring (a `FocusLine`'s) equal.
 pub(crate) const REACH: f32 = 5.0;
 
 /// An element's box in the window: left, top, right, bottom.
