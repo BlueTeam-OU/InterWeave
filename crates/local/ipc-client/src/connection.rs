@@ -254,16 +254,36 @@ pub(crate) async fn open(
     let stream = UnixStream::connect(socket)
         .await
         .map_err(|_| TransportError::BackendUnavailable)?;
+    greet(stream, hello, event_queue).await
+}
+
+/// [`open`] past the connect: send `hello` on `stream` and read its
+/// answer.
+async fn greet(
+    stream: UnixStream,
+    hello: Hello,
+    event_queue: fn(&HelloResponse) -> Option<usize>,
+) -> Result<Opened, TransportError> {
     let (read, mut write) = stream.into_split();
     let offered = hello.ipc_version;
     let hello = Frame::Hello(hello)
         .encode()
         .map_err(|_| TransportError::InvalidArgument)?;
-    write
-        .write_all(&hello)
-        .await
-        .map_err(|_| TransportError::BackendUnavailable)?;
     let mut reader = Reader::new(read);
+    // A server refusing a connection it has no slot for writes its
+    // `close` and shuts without reading the hello, so the write can fail
+    // against a refusal already sent: the code is read from what has
+    // arrived, as a session's is after a failed write, or a retryable
+    // `Overloaded` would read as `BackendUnavailable`
+    // (`a_hello_write_failing_after_a_close_keeps_its_code`). Only what
+    // has arrived is read, never waited for: a server that stopped
+    // reading may never write (`a_failed_hello_write_does_not_wait`).
+    if write.write_all(&hello).await.is_err() {
+        return Err(match reader.next_now() {
+            Ok(Some(Frame::Close(close))) => close.code,
+            _ => TransportError::BackendUnavailable,
+        });
+    }
     // The server's own hello deadline bounds its answer too.
     let first = tokio::time::timeout(HELLO_TIMEOUT * 2, reader.next())
         .await
@@ -812,7 +832,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use interweave_ipc_protocol::{
-        ChannelParams, MAX_BODY_BYTES, RequestedCapability, encode_frame,
+        ChannelParams, Close, MAX_BODY_BYTES, RequestedCapability, encode_frame,
     };
     use interweave_transport_api::ChannelId;
     use serde::de::IgnoredAny;
@@ -918,6 +938,66 @@ mod tests {
             "stopped at the budget: {}",
             flood.served
         );
+    }
+
+    /// A hello whose write fails because the server already closed --
+    /// its `close` sent, the hello never read, as the accept loop refuses
+    /// a connection past its slots -- is answered with the `close`'s code.
+    /// The peer is gone before the hello is written, so the write fails
+    /// every run. The control is the same with no `close` sent:
+    /// `BackendUnavailable`.
+    #[tokio::test]
+    async fn a_hello_write_failing_after_a_close_keeps_its_code() {
+        for (close, expected) in [
+            (true, TransportError::Overloaded),
+            (false, TransportError::BackendUnavailable),
+        ] {
+            let (client, mut server) = UnixStream::pair().expect("a pair");
+            if close {
+                let refusal = Frame::Close(Close::new(TransportError::Overloaded))
+                    .encode()
+                    .expect("a frame");
+                server.write_all(&refusal).await.expect("written");
+            }
+            server.shutdown().await.expect("shut");
+            drop(server);
+            let hello = crate::session::hello(
+                "k",
+                None,
+                BTreeSet::from([RequestedCapability::Commands]),
+                BTreeSet::new(),
+            );
+            let answer = greet(client, hello, |_| None).await;
+            assert_eq!(answer.map(|_| ()), Err(expected), "close sent: {close}");
+        }
+    }
+
+    /// A server that stops reading and stays silent, its connection open,
+    /// fails the hello write and answers nothing: `BackendUnavailable` at
+    /// once. A wait would end `Timeout` at twice `HELLO_TIMEOUT`, past
+    /// this test's patience.
+    #[tokio::test]
+    async fn a_failed_hello_write_does_not_wait() {
+        assert!(
+            HELLO_TIMEOUT * 2 > PATIENCE,
+            "a wait would outlast the patience"
+        );
+        let (client, server) = UnixStream::pair().expect("a pair");
+        let server = server.into_std().expect("a std stream");
+        server
+            .shutdown(std::net::Shutdown::Read)
+            .expect("the server stops reading");
+        let hello = crate::session::hello(
+            "k",
+            None,
+            BTreeSet::from([RequestedCapability::Commands]),
+            BTreeSet::new(),
+        );
+        let answer = tokio::time::timeout(PATIENCE, greet(client, hello, |_| None))
+            .await
+            .expect("answered without waiting");
+        assert_eq!(answer.map(|_| ()), Err(TransportError::BackendUnavailable));
+        drop(server);
     }
 
     async fn next(reader: &mut Reader) -> Frame {
