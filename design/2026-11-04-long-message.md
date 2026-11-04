@@ -123,7 +123,8 @@ one measure that does not depend on how the text wraps, which script it
 is in or how the person counts: drawn lines change with the width and
 text size, a script written without spaces does not mark where words
 end, and characters mean nothing to most people. It is the share of the
-body's characters in the preview, rounded down, at least 1 %.
+body's characters, counted as §6 counts them, that the preview holds,
+rounded down, at least 1 %.
 
 ### 4.3 Read the whole message
 
@@ -250,9 +251,15 @@ item, so the text cannot go from under the person while they read it.
 **Both, characters and lines.** A body is cut when it has more than
 **2 000 characters** or more than **40 lines**, and the preview is then
 at most **1 600 characters** and **32 lines**. A character is a
-grapheme cluster; a line is one of the model's lines (a paragraph, a
+grapheme cluster, counted over the message's source text as sent —
+markup and link destinations included, so that nothing drawn is
+outside the count; a line is one of the model's lines (a paragraph, a
 list item, a table row, a code line, a heading, a rule), however it
-wraps. The gap between the two figures is there so that a body just
+wraps, and each link's control, drawn as a line of its own (§4.1),
+counts as one. This is HUMAN-CHAT.md's counting (architect-cto's
+amendment on #562 at 30e5731ef, which found a body of empty-label links
+that the drawn text alone did not count); every other figure in this
+note counts the same way. The gap between the two figures is there so that a body just
 over the bound is never cut to hide only its last sentence or two.
 
 Why both: characters bound a body that is one long paragraph, which
