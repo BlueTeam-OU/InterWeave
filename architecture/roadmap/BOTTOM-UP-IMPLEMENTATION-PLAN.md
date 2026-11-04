@@ -5375,9 +5375,10 @@ laid out wider than the phone at that scale, fixed by a2aa9802's
 wrapping on #560 with
 `crates/human/ui-slint/tests/look.rs::trust_at_200_percent_text_stays_inside_a_phone_wide_window`
 as the guard, and met on the fixed build in light theme, the same
-record), F10's retry state on a phone (met there: one status over
-300 s, its age moving, the last problem named, the written time
-unchanged), F6's truncation at 200 % (met there) and acceptance 23's
+record), F10's retry state on a phone (met there in five frames over
+300 s: one status in each, its age moving, the last problem named,
+the written time unchanged; a flicker between frames not ruled out),
+F6's truncation at 200 % (met there) and acceptance 23's
 network-denied state (the release gate; not reachable on the A40, a
 platform limit: Android 11 refuses `pm revoke` of INTERNET as not a
 changeable permission, so the state needs a build or a platform that
@@ -5913,9 +5914,10 @@ none is the status value's, which stays on this stage.
   alias retirement and invalidation had no device run then (the cipher
   and the alias retirement ran on the A40 on 2026-11-03,
   `apps/human-android/device-runs/2026-11-03-samsung-a40.md`, #542, and
-  the invalidation on 2026-11-04,
-  `apps/human-android/device-runs/2026-11-04-samsung-a40.md`, #560, after
-  which the row reads `—`) and were S12's item in rust-ui-dev's
+  the lock-screen change and the biometric enrolment on 2026-11-04,
+  `apps/human-android/device-runs/2026-11-04-samsung-a40.md`, #560, which
+  invalidated no key, the invalidated-key case staying §20's carry; the
+  row reads `—` since) and were S12's item in rust-ui-dev's
   lane, run with the store key's device rows in the owner's phone
   window; TM-56 moves to a §29 carry
   (rust-ui-dev): the same-name three-key rule and a rendered title told
@@ -7113,11 +7115,13 @@ owner:
   cases passing three times on a build carrying #520; and the A40's
   pane, left on "Select a conversation" 3 s after a tap in the first
   record, re-measured by the phone's own clock on a debug build (the
-  cargo dev profile, unoptimised): the page switches within half a
-  second and the UI thread then stays busy 7.7 to 12.3 s before it
-  takes the next input, two such opens ending in an ANR with
-  `android_main` at 11.7 s of CPU, so the cost is the first draw after
-  a page and not the network; the release build's figure is not
+  cargo dev profile, unoptimised): the page switched 0.49 s after the
+  Enter on the one open traced, and the UI thread stayed busy 12.3 s
+  and 7.7 s on the two opens measured before it took the next input;
+  two opens, one host-timed and the 12.3 s one, ended in an ANR with
+  `android_main` at 11.6 and 11.7 s of CPU, and the 7.7 s one raised
+  none, so the cost is the first draw after a page and not the
+  network; the release build's figure is not
   measured (rust-ui-dev-02's j90). Still open: a reply whose target lies
   beyond the held rows read as `unavailable` on the command line, the
   store lookup by message id architect-cto's to decide (j462).
@@ -7163,8 +7167,9 @@ owner:
   from which source, is not told apart (the peer cache was on):
   p2p-network-dev-02's (j69).
 - SPIKE-011's items not established and carried to step 3 (SPIKES.md):
-  the Keystore sealing of the store key on a real Keystore, and the
-  rewrite and the key file on a device, have no device record — the
+  the rewrite of the store key on a device has no device record, and
+  its Keystore sealing on a real Keystore and its key file on a device
+  had none until 2026-11-04 — the
   invalidated-key case runs against a fake Keystore, and the phone rows
   open the encrypted store under the real Keystore on both phones (#377
   is in each build they ran) without asserting it, and the identity
@@ -7176,8 +7181,9 @@ owner:
   #560): `interweave.store.human-android` is sealed on the real
   Keystore, inside secure hardware (the TEE) by `KeyInfo`, and the
   store key file kept its digest across a PIN change, a fingerprint
-  enrolment and the cold starts between, so the sealing is shown and
-  the rewrite on a device is not — rust-ui-dev's, a device row; the
+  enrolment and the cold starts between, so the sealing and the key
+  file are shown and the rewrite on a device is not — rust-ui-dev's, a
+  device row; the
   system-libcrypto build is not pinned, the workspace selecting
   `bundled-sqlcipher-vendored-openssl` — rust-ui-dev's, when a build
   needs it.
