@@ -31,8 +31,9 @@ its §11 item 23 that checks that list: every text row, cut or whole,
 gains Copy message source, and a cut row Read the whole message too,
 both before Show source, which stays last (§4.3, §5.3). A card row,
 which has no Copy, is unchanged. And it revises the look spec's §6
-Composer, whose field grows without a limit: it grows to six lines,
-then scrolls inside itself (§11 Q3, A11).
+Composer, a 48 dp field (the build grows it without a limit): it
+grows from 48 dp up to six lines, then scrolls inside itself (§11 Q3,
+A11).
 
 ## 1. What is already decided
 
