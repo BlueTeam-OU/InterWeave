@@ -3263,8 +3263,11 @@ while the event lane has room — up to 20 ms added latency per event and
 about fifty empty drains a second per idle connection; an awaitable
 `events()` is a neutral-API change (both bindings, the conformance
 suite), decided as its own batch after Stage 13, the constant retired
-then. And `ipc.events_dropped_total` is omitted from `admin.status`
-until a per-client drop count exists: the composition runtime's
+then. And `ipc.events_dropped_total` was omitted from `admin.status`
+until a per-client drop count existed (its shape ruled 2026-11-04,
+below; the per-session `session.losses` of 2.11 is not it, since a
+session's ledger ends with the session and counts only a session that
+joined): the composition runtime's
 `Diagnostics.events_dropped` counts neutral events the runtime→consumer
 channel refused, not a client queue's drops; a full session broadcast
 queue drops its oldest copy to take the new one and reports
@@ -3273,7 +3276,14 @@ queue drops its oldest copy to take the new one and reports
 B2 — summing that notification's `sessions` in the composition runtime
 and carrying it through `RuntimeStatus` to `InProcessAdmin` and a new
 `AdminStatus` field, unless the notification's own drop makes the sum
-unreliable, in which case the counter moves to the fan-out. Carried
+unreliable, in which case the counter moves to the fan-out. Ruled
+2026-11-04 (LOCAL-IPC.md `admin.status`, A 2026-11-04; p2p-network-dev's
+batch, the PR named here when it lands): the counter is kept at the
+session queues' one push path, one for the profile, every copy any
+session queue drops or cannot take, closed and unjoined sessions
+included, monotonic since the daemon started; carried through the
+runtime's diagnostics to `admin.status`, no minor, since the member has
+been optional in `admin-status` 1.1.0 since 2026-10-01. Carried
 with them: `close.schema.json`'s description lists the close reasons
 without the limits refusal LOCAL-IPC §Close now names; it follows on
 the next change that touches that schema.
@@ -3617,7 +3627,9 @@ settled attempt (ADR-0011 A 2026-10-01). `peer.disconnected` had no
 producer until #162, measured on 60a1b977 as no frame in 30 s with a
 peer's daemon terminated. Carried from (8): an awaitable `events()` (the
 20 ms poll ships); the per-client drop count behind
-`ipc.events_dropped_total` (omitted meanwhile); `close.schema.json`'s
+`ipc.events_dropped_total` (omitted meanwhile; ruled 2026-11-04 as one
+counter at the session queues, §16's Stage 13 passage above, built by
+p2p-network-dev's batch); `close.schema.json`'s
 description listing the limits refusal. From ADR-0053 A 2026-09-30: the
 mDNS rebuild's two rule-4 excesses and their closers. From #162's review
 (0 P1, 0 P2, 5 P3, posted there), fixed before the close on the owner's
