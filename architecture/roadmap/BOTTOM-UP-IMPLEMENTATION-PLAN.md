@@ -7219,11 +7219,17 @@ may-have-reached row named), its contacts and its card, has no undo, and
 is absent on the first identity and on the default; turning the first
 identity off is allowed once another is enabled, the composed-profile
 check passing with the authored entry disabled; the lock
-screen's redacted notification names no identity and the switch follows
-the unlock; the
+screen's redacted notification names no identity, is one entry whatever
+the number of identities with news, and opening it after the unlock
+switches to the one identity with news or opens the switcher naming
+the identities with news and switches nothing (ADR-0061 decision 9 A
+2026-11-04); the
 identity settings and the contact page state what identities of one node
 share (ADR-0061 decision 5); a notification names the identity it arrived
-on and opening it switches to that identity visibly first; with two
+on and opening it switches to that identity visibly first, one with no
+one identity (the desktop's redacted form, a group's summary) switching
+to the one identity with news or opening the switcher and switching
+nothing until the person picks; with two
 identities held, no screen in front of one shows the other's
 conversations, contacts or card, and a share, an Accept and a new
 conversation run under the identity in front and no other (the

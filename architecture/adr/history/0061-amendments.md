@@ -71,3 +71,23 @@ identities design's §16 Q6, ruled by architect-cto; PR #553's review,
 F2). Propagation: `human-client-ui.md` §10 and its preview bullet,
 its §13 precedence sentence over the contact-cards design's §5.7.5,
 this note, the log row, the digest entry.
+
+### Amendment 2026-11-04 — Opening a notification that has no one identity
+
+Decision 9 said a notification names its identity and opening it
+switches to that identity; the lock screen's redacted form named none
+and the switch followed the unlock. The Stage 22 identities design
+(#552 §9, §16 Q7 (a)) showed the lock screen one entry for every
+identity — one group per identity would tell someone holding the
+locked phone how many identities have news — and found that such an
+entry, the desktop's redacted form (the amendment of the same day) and
+a group's summary have no one identity to switch to. Decision 9 now
+says: with news in one identity, the switch to it, visibly; with news
+in two or more, the switcher over the identity in front's
+conversations, naming the identities with news, nothing switched until
+the person picks — the alternative, switching to the identity with the
+newest message, is an action whose identity is implied by state the
+person cannot see, which the decision forbids. Ruled by architect-cto
+as the design proposed. Propagation: `human-client-ui.md` §10 and
+§13's notification and lock-screen bullets, the plan's §30 exit gate,
+this note, the log row, the digest entry.
