@@ -1261,6 +1261,38 @@ fn your_card_while_its_editor_is_open_leaves_nothing() {
     assert_eq!(view.window().get_focus_id().as_str(), "cards-title");
 }
 
+/// A Tab from one text field to the next draws the ring on the second
+/// when the first took focus by a call: a text field is told no focus
+/// reason, so only the window's `KeyboardScope` sees that Tab (#546 F1).
+/// Mutation: the scope's capture setting no keyboard mode.
+#[test]
+fn tab_between_name_fields_after_a_focus_call_draws_the_ring() {
+    let (view, _model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    let window = view.window();
+    window.set_focus_target("own-given".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "own-given", "control");
+    assert!(
+        common::shown_ring(view.window()).is_none(),
+        "control: focus by a call draws no ring"
+    );
+    for (k, to) in [
+        (slint::platform::Key::Tab, "own-surname"),
+        (slint::platform::Key::Backtab, "own-given"),
+    ] {
+        key(&view, k);
+        settle();
+        assert_eq!(view.window().get_focus_id(), to, "{k:?}");
+        assert!(common::shown_ring(view.window()).is_some(), "ring at {to}");
+    }
+}
+
 /// On the desktop, Escape on a card page is its Back (contact-cards
 /// design section 4): from an editor field with a change it asks, the
 /// dialog's own Escape is Continue editing, and with nothing to lose it
