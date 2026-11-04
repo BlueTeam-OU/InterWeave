@@ -83,9 +83,8 @@ draws (§6): formatted mode by the formatted body, source mode by the
 source. So one message can be whole in one mode and cut in the other —
 a body of reference definitions, which draw nothing formatted, or of
 links whose labels pass 2 000 characters and so are drawn inert (§6),
-is short formatted and long as source. (Ordinary links are not: each
-control's label shows its whole destination, so they count at least as
-much formatted as they do as source.) The row always shows the state of the mode it is in,
+is short formatted and long as source; §6's count decides every other
+body. The row always shows the state of the mode it is in,
 and switching mode (Show source, Show formatted) switches it: the
 preview, the cut line and the button appear or go with the mode that
 needs them; focus stays on the bubble, which the menu returns it to
@@ -471,7 +470,10 @@ it, those checks are blocked, never passed.
 - **A6** Every row of §9's focus table whose check is A6, by keyboard
   on the desktop and TalkBack on the Pixel.
 - **A7** The reader's row removed while it is open, the app sent to
-  the background and back, and the window resized, as §9 says; and with
+  the background and back, and the window resized, as §9 says; a reader
+  opened from a row cut in one mode only, switched to the other mode,
+  then closed, leaves the row in the mode it was opened from, with
+  focus on its Read the whole message (§5.4); and with
   more than the session's item ceiling of read, unkept messages, a new
   one arriving leaves the reader open on its message (§5.4).
 - **A8** TalkBack reads a cut message's reader from its start to its
