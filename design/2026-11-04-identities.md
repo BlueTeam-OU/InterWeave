@@ -1037,4 +1037,6 @@ Answered by language-culture-en (REPLY 01a1a71c, their j242): the
 strings are §13's, and "identity" stays the person's word for a user
 identity, the device's being "this device's PeerId" (contact-cards §12
 L1); the build's recovery strings that still call the device's key an
-identity, and `IdR1NewKeys`, are §15's.
+identity, and `IdR1NewKeys`, are §15's. `TrustPeerAs` ("Trust as
+{identity}", added after that reply) was accepted as final in REPLY
+01a1a72b-9f52.
