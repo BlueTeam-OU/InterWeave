@@ -5831,7 +5831,8 @@ none is the status value's, which stays on this stage.
   Landed on #556 (rust-ui-dev-01, 2026-11-04): the desktop case
   `tests/desktop-e2e/tests/human_app/content_free_logs.rs::no_body_name_or_card_field_reaches_the_clients_log`,
   the shipped client over two real daemons, no planted word in its one
-  log and no platform notification; the Android client recorded as the
+  log and no platform notification (by construction, not asserted:
+  the desktop has no notification code); the Android client recorded as the
   row's limit (no host test reaches its Android-only modules, and its
   notification text is built from a count by type), so the step cell
   moved to `—`.
@@ -5888,8 +5889,10 @@ none is the status value's, which stays on this stage.
   TM-56's carry landed on #556 (rust-ui-dev-01, 2026-11-04): the
   rendered test
   `crates/human/ui-slint/tests/cards.rs::two_same_name_contacts_are_drawn_told_apart_by_their_short_peer_ids`
-  draws two same-name contacts' headers and list rows each with its own
-  short PeerId, and the row's step cell moved to `—` with it.
+  hands the view two same-name contacts and reads each one's header
+  title, list-row title and row item's accessible label with its own
+  short PeerId (the drawn text is not read, and today is bound directly
+  to those titles), and the row's step cell moved to `—` with it.
 - **Clause (f)**: the ledger `tools/checks/domain_fn_exempt.txt` holds
   no `stage-18` entry (read 2026-10-25); the close re-reads it. Apart
   from the clause, `error_contract_matrix.rs` holds no `Proof::Stage(18)`
