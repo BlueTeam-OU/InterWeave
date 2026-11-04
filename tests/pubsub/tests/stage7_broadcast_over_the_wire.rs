@@ -2002,7 +2002,9 @@ async fn a_republished_envelope_reaches_a_local_sibling_once() {
 /// The wake-up and the overload drop are what a consumer waiting on
 /// `next_event()` has; a local fan-out that reported neither left a
 /// message sitting in a queue nobody was told about, and lost one
-/// silently.
+/// silently. The drop is counted too, in the status's profile total
+/// (`admin.status`'s `ipc.events_dropped_total`): zero while the queue
+/// had room, one after it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_local_publish_announces_delivery_and_overflow() {
     let (a_id, _) = who();
@@ -2025,6 +2027,7 @@ async fn a_local_publish_announces_delivery_and_overflow() {
         |e| matches!(e, SwarmEvent::BroadcastDelivered { session, .. } if session == "claude"),
     )
     .await;
+    assert_eq!(dropped(&a).await, 0, "the queue had room");
 
     a.publish(channel("general"), "human", envelope(12, b"second"))
         .await
@@ -2036,8 +2039,18 @@ async fn a_local_publish_announces_delivery_and_overflow() {
         |e| matches!(e, SwarmEvent::BroadcastDropped { sessions, .. } if *sessions == 1),
     )
     .await;
+    assert_eq!(dropped(&a).await, 1, "claude's oldest copy, counted");
 
     a.shutdown().await.expect("a stops");
+}
+
+/// The status's profile-wide count of copies the session queues dropped.
+async fn dropped(runtime: &SwarmRuntime) -> u64 {
+    runtime
+        .status(None)
+        .await
+        .expect("answered")
+        .broadcast_queue_overflow_total
 }
 
 /// Publishing into an empty channel cannot grow the outbox without bound.
