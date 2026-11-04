@@ -135,7 +135,8 @@ for i in "${!labels[@]}"; do
     git -C "$ROOT" worktree add --quiet --detach "$src" "$sha" \
         || die "$label: could not check $sha out into a worktree"
     if command -v rustup >/dev/null 2>&1; then
-        ( cd "$src" && { rustup show active-toolchain >/dev/null 2>&1 || rustup toolchain install; } ) \
+        # A no-op when the commit's toolchain is there (ci.yml's rust job).
+        ( cd "$src" && rustup toolchain install --no-self-update ) \
             || die "$label: could not install the toolchain $sha pins"
     fi
     partial="$out.partial"
