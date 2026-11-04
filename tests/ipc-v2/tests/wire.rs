@@ -930,15 +930,15 @@ async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
         .await;
     publisher.send(&join("join")).await;
     assert!(publisher.response().await.contains(r#""ok":true"#));
-    let mut published = 0_u16;
+    let mut copies = 0_u16;
     let mut publish = async || {
-        published += 1;
-        let [hi, lo] = published.to_be_bytes();
+        copies += 1;
+        let [hi, lo] = copies.to_be_bytes();
         let mut id = [0_u8; 16];
         id[..2].copy_from_slice(&[hi, lo]);
         publisher
             .send(&request_body(
-                &format!("publish-{published}"),
+                &format!("publish-{copies}"),
                 Request::BroadcastPublish(PublishParams {
                     channel: general.clone(),
                     message_id: MessageId::from_bytes(id),
@@ -961,7 +961,7 @@ async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
     }
     assert!(
         first > 0,
-        "a stalled client's queue overflowed after {published} copies"
+        "a stalled client's queue overflowed after {copies} copies"
     );
     // Everything is full now, so each copy drops exactly one more.
     for _ in 0..5 {
