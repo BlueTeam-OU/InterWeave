@@ -94,7 +94,16 @@ listOf("Debug", "Release").forEach { variant ->
         workingDir = workspace
         val sdk = androidComponents.sdkComponents
         doFirst {
-            environment("ANDROID_NDK_HOME", sdk.ndkDirectory.get().asFile.path)
+            // Every name cargo-ndk 4.1.2 reads an NDK from, all set to the
+            // NDK AGP resolved (the pin): cargo-ndk takes the first one set
+            // and only warns about the rest, and a CI runner's image exports
+            // some of these names at an NDK of its own (ANDROID_NDK_ROOT
+            // at 27.3 beside the pin, CI 2026-11-04), which would otherwise
+            // reach the build beside the pin.
+            val ndk = sdk.ndkDirectory.get().asFile.path
+            listOf("ANDROID_NDK_HOME", "ANDROID_NDK_ROOT", "ANDROID_NDK_PATH", "NDK_HOME").forEach {
+                environment(it, ndk)
+            }
             // Slint's Android backend compiles a Java helper against this
             // (it needs API 33's classes; left to itself it takes the
             // lowest platform installed).
