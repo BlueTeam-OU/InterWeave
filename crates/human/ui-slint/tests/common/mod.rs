@@ -101,3 +101,90 @@ pub(crate) fn ring_overdraws(window: &impl ElementRoot) -> Option<Vec<String>> {
         .collect();
     Some(over)
 }
+
+/// Each scroll area holding the shown ring's control that cuts the ring:
+/// a `Flickable` clips, so a control in one keeps a ring's reach of room
+/// inside it, or its ring is drawn without the sides that fall outside
+/// (the refusal screen's path, seen rendered in j83). A scroll area holds
+/// the control when the ring is among its descendants (each `FocusRing`
+/// sits beside its control), so an overlay drawn over another view's list
+/// is not judged by that list (#547 F2). `None` when no ring is shown, as
+/// for [`ring_overdraws`].
+pub(crate) fn ring_cut(window: &impl ElementRoot) -> Option<Vec<String>> {
+    let ring = Edges::of(&shown_ring(window)?);
+    let shown = |e: &ElementHandle| {
+        e.type_name().as_deref() == Some("FocusRing") && e.computed_opacity() > 0.0
+    };
+    let cut = ElementQuery::from_root(window)
+        .find_all()
+        .into_iter()
+        .filter(|e| e.type_name().as_deref() == Some("Flickable"))
+        .filter(|e| {
+            e.query_descendants()
+                .match_predicate(shown)
+                .find_first()
+                .is_some()
+        })
+        .filter_map(|e| {
+            let area = Edges::of(&e);
+            let inside = ring.left >= area.left
+                && ring.right <= area.right
+                && ring.top >= area.top
+                && ring.bottom <= area.bottom;
+            (!inside).then(|| {
+                format!(
+                    "{:?} ({}, {})-({}, {}) cuts the ring ({}, {})-({}, {})",
+                    e.id(),
+                    area.left,
+                    area.top,
+                    area.right,
+                    area.bottom,
+                    ring.left,
+                    ring.top,
+                    ring.right,
+                    ring.bottom,
+                )
+            })
+        })
+        .collect();
+    Some(cut)
+}
+
+/// Ctrl+Tab, pressed and released: a Tab that moves no focus, in Slint's
+/// navigation and in every modal's own (`FocusMode.navigates`).
+pub(crate) fn ctrl_tab(window: &slint::Window) {
+    use slint::platform::{Key, WindowEvent};
+    let (ctrl, tab): (slint::SharedString, slint::SharedString) =
+        (Key::Control.into(), Key::Tab.into());
+    window.dispatch_event(WindowEvent::KeyPressed { text: ctrl.clone() });
+    window.dispatch_event(WindowEvent::KeyPressed { text: tab.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text: tab });
+    window.dispatch_event(WindowEvent::KeyReleased { text: ctrl });
+    slint::platform::update_timers_and_animations();
+}
+
+/// In a modal that took focus by a call (no ring yet), Ctrl+Tab moves no
+/// focus and draws no ring, and Tab moves focus and draws it: the modal's
+/// own Tab handler and the window's `KeyboardScope` ask one rule
+/// (`FocusMode.navigates`, #547 F1). Returns where Tab moved focus.
+pub(crate) fn modal_tab(
+    root: &impl ElementRoot,
+    window: &slint::Window,
+    focus: impl Fn() -> String,
+    settle: impl Fn(),
+) -> String {
+    let at = focus();
+    assert!(shown_ring(root).is_none(), "control: no ring at {at:?} yet");
+    ctrl_tab(window);
+    settle();
+    assert_eq!(focus(), at, "Ctrl+Tab moves no focus");
+    assert!(shown_ring(root).is_none(), "Ctrl+Tab draws no ring");
+    let tab: slint::SharedString = slint::platform::Key::Tab.into();
+    window.dispatch_event(slint::platform::WindowEvent::KeyPressed { text: tab.clone() });
+    window.dispatch_event(slint::platform::WindowEvent::KeyReleased { text: tab });
+    settle();
+    let to = focus();
+    assert_ne!(to, at, "Tab moves focus");
+    assert!(shown_ring(root).is_some(), "Tab draws the ring at {to:?}");
+    to
+}
