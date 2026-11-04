@@ -153,10 +153,10 @@ title: the sender's name as the conversation shows it (`You` for one's
 own), one line cut with an ellipsis as every app bar title is (look
 spec §8), and two actions — Show source / Show
 formatted (the same labels as the row's), and Copy (§5.3). Below the
-bar, the first line of the content says when the message was sent,
-`ReaderSent` (§8): the day and the time, wrapping like the text, so
-neither is ever cut off; the day is shown as the conversation's rows
-show it and spoken as their accessible label says it (look spec §5.2).
+bar, the first line of the content, `ReaderSent`, gives the day and the
+time the message reached this app, as the row's time does (`local_at`,
+look spec §5.2), wrapping like the text, so neither is ever cut off;
+its forms on screen and spoken are §8's.
 Under it, the whole body in one continuous scroll, drawn as the person
 scrolls so that only what is near the screen is laid out. Its look is
 the bubble's text on `surface`, without the bubble.
@@ -285,7 +285,7 @@ are that locale's holder's.
 |---|---|---|---|
 | `LongMessageShown` | the cut line (§4.2) | that the message continues past what is shown, and the share shown (`{percent}`, the whole locale-formatted value, sign included) | The first {percent} of the message is shown. |
 | `ReadWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Read the whole message |
-| `ReaderSent` | the reader's first content line (§5.1) | when the message was sent: the day (`{day}`) and the time as the row shows it (`{time}`). On screen `{day}` is `Today`, `Yesterday`, else the rows' short date (`DateRowThisYear`, `DateRowOtherYear`); in its accessible label it is `Today`, `Yesterday`, else `DateFull`, never the short form (look spec §5.2, §9) | {day}, {time} |
+| `ReaderSent` | the reader's first content line (§5.1) | when the message reached this app, as the row's time does (`local_at`): the day (`{day}`) and the time as the row shows it (`{time}`). On screen `{day}` is `Today`, `Yesterday`, else the Chats list rows' short date (`DateRowThisYear`, `DateRowOtherYear`); in its accessible label it is `Today`, `Yesterday`, else `DateFull`, never the short form (look spec §5.2, §9) | {day}, {time} |
 | `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | Opening the whole message |
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
@@ -388,7 +388,8 @@ it, those checks are blocked, never passed.
   more than the session's item ceiling of read, unkept messages, a new
   one arriving leaves the reader open on its message (§5.4).
 - **A8** TalkBack reads a cut message's reader from its start to its
-  last block by swiping forward alone. Precondition: an accessibility
+  last block by swiping forward alone, `ReaderSent` first, with the
+  full date for a message from before yesterday (§8). Precondition: an accessibility
   tree that exposes the blocks that are not laid out (§9); without it,
   blocked.
 - **A9** Copy, from the reader in each mode and from the row's menu of
