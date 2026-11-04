@@ -97,6 +97,9 @@ impl Screens {
     /// step starts from Chats, and leaving Connect writes the profile.
     pub fn launch(&mut self, patience: Duration) -> Step {
         let name = "launch";
+        if let Err(why) = self.unlocked() {
+            return step(name, false, why);
+        }
         let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
         if let Err(why) = self.adb_ok(&["logcat", "-c"]) {
             return step(name, false, why);
@@ -246,6 +249,9 @@ impl Screens {
     /// the runtime, which the locked key holds back.
     pub fn launch_locked(&mut self, patience: Duration) -> Step {
         let name = "launch_locked";
+        if let Err(why) = self.unlocked() {
+            return step(name, false, why);
+        }
         let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
         if let Err(why) = self.adb_ok(&["logcat", "-c"]) {
             return step(name, false, why);
@@ -593,6 +599,32 @@ impl Screens {
             "page {page}, focus {:?}; last trace lines {tail:?}",
             self.focus
         )
+    }
+
+    /// The phone awake and unlocked, as [`crate::platform::until_unlocked`]
+    /// says and on this serial: a launch behind a secure keyguard never
+    /// ends, so a locked phone asks the person and is waited out, and
+    /// one still locked after the patience fails the launch naming it.
+    fn unlocked(&self) -> Result<(), String> {
+        let patience = crate::platform::UNLOCK_PATIENCE;
+        self.key("KEYCODE_WAKEUP")?;
+        let locked =
+            || crate::platform::keyguard_showing(&self.adb_ok(&["shell", "dumpsys", "window"])?);
+        if !locked()? {
+            return Ok(());
+        }
+        eprintln!(
+            "PERSON: on the phone {}, unlock it (within {patience:?})",
+            self.serial
+        );
+        let deadline = Instant::now() + patience;
+        while locked()? {
+            if Instant::now() >= deadline {
+                return Err(format!("the phone stayed locked for {patience:?}"));
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        Ok(())
     }
 
     /// `am start` of the main activity: launches it, or brings its task

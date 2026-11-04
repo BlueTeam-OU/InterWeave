@@ -214,6 +214,7 @@ fn reachable(r: &ServiceRecord, api: u32) {
 }
 
 fn launch() {
+    platform::until_unlocked();
     shell(&[
         "am",
         "start",

@@ -24,6 +24,7 @@
 //! the control to run beside any case that asserts them false.
 
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use interweave_profile_config::ProfileConfig;
 use interweave_profile_config::runtime::{AvailabilityMode, KeyUnlockPolicy};
@@ -329,6 +330,55 @@ pub fn shell(args: &[&str]) -> String {
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// Whether the keyguard is up, from `dumpsys window`'s
+/// `isKeyguardShowing=` (the A40, API 30, prints it in its policy
+/// line).
+///
+/// # Errors
+/// A dump with no such value: a level that prints it elsewhere is
+/// added from its own dump, never read as unlocked.
+pub fn keyguard_showing(dump: &str) -> Result<bool, String> {
+    let said = dump
+        .split_whitespace()
+        .find_map(|w| w.strip_prefix("isKeyguardShowing="));
+    match said {
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        other => Err(format!(
+            "no isKeyguardShowing= value in dumpsys window ({other:?})"
+        )),
+    }
+}
+
+/// How long a person is given to unlock the phone.
+pub const UNLOCK_PATIENCE: Duration = Duration::from_secs(300);
+
+/// The phone awake and unlocked before a case brings the app to the
+/// front: an `am start -W` behind a secure keyguard waits with no end
+/// (the A40, 2026-11-04, 51 minutes). The screen is woken; a keyguard
+/// still up asks the person on stderr and is waited out.
+///
+/// # Panics
+/// As [`shell`]; on a dump [`keyguard_showing`] cannot read; or on a
+/// phone still locked after [`UNLOCK_PATIENCE`].
+pub fn until_unlocked() {
+    shell(&["input", "keyevent", "KEYCODE_WAKEUP"]);
+    let locked =
+        || keyguard_showing(&shell(&["dumpsys", "window"])).unwrap_or_else(|e| panic!("{e}"));
+    if !locked() {
+        return;
+    }
+    eprintln!("PERSON: on the phone, unlock it (within {UNLOCK_PATIENCE:?})");
+    let deadline = Instant::now() + UNLOCK_PATIENCE;
+    while locked() {
+        assert!(
+            Instant::now() < deadline,
+            "the phone stayed locked for {UNLOCK_PATIENCE:?}: the case needs it unlocked"
+        );
+        std::thread::sleep(Duration::from_secs(1));
+    }
 }
 
 /// The device's API level.
@@ -722,6 +772,21 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
         // Control: neither a record nor (nothing) is no answer at all.
         assert!(service_record("ACTIVITY MANAGER SERVICES\n", NETWORK_SERVICE).is_err());
         assert!(service_record("", NETWORK_SERVICE).is_err());
+    }
+
+    #[test]
+    fn the_keyguard_is_read_where_the_a40_prints_it_and_nowhere_else() {
+        // The A40's policy line, as printed on 2026-11-04.
+        let line = |v: &str| {
+            format!(
+                "    mShowingDream=false mDreamingLockscreen=true    mStatusBar=Window{{587b901 u0 StatusBar}}    isKeyguardShowing={v}\n"
+            )
+        };
+        assert_eq!(keyguard_showing(&line("true")), Ok(true));
+        assert_eq!(keyguard_showing(&line("false")), Ok(false));
+        // Control: a dump without the value is no answer, never unlocked.
+        assert!(keyguard_showing("WINDOW MANAGER POLICY STATE\n").is_err());
+        assert!(keyguard_showing(&line("maybe")).is_err());
     }
 
     #[test]
