@@ -1251,13 +1251,22 @@ impl View {
     /// [`set_window_focused`](Self::set_window_focused) is driven from on
     /// the desktop. A read is gated on it, and until the first event the
     /// view counts as unfocused, so nothing is read before then.
+    ///
+    /// The same hook, the window's only one, ends keyboard mode at any
+    /// press (`press_ends_keyboard_mode`).
     #[cfg(feature = "desktop")]
     pub fn on_window_focus(&self, focused: impl Fn(bool) + 'static) {
         use slint::winit_030::{
             EventResult, WinitWindowAccessor as _, winit, winit::event::WindowEvent,
         };
         let shared = Rc::clone(&self.shared);
+        let view = slint::ComponentHandle::as_weak(&self.window);
         slint::ComponentHandle::window(&self.window).on_winit_window_event(move |window, event| {
+            if press_ends_keyboard_mode(event)
+                && let Some(view) = view.upgrade()
+            {
+                slint::ComponentHandle::global::<FocusMode<'_>>(&view).set_keyboard(false);
+            }
             if let WindowEvent::Focused(now) = event {
                 focused(*now);
             }
@@ -4032,6 +4041,25 @@ fn minimised_closes_show(
     ) && minimised() == Some(true)
 }
 
+/// Whether `event` is a press, of any button or a finger, which ends
+/// keyboard mode (`FocusMode.keyboard`, #304 F5): the person is using the
+/// pointer, and a focused control draws no ring. A control's `TapArea`
+/// clears it too, but a text field takes the press itself and Slint 1.18
+/// shows it to no element around the field, so a field clicked after a
+/// Tab kept its ring. The window's own event sees every press first.
+/// `only_a_press_ends_keyboard_mode`.
+#[cfg(feature = "desktop")]
+pub(crate) fn press_ends_keyboard_mode(
+    event: &slint::winit_030::winit::event::WindowEvent,
+) -> bool {
+    use slint::winit_030::winit::event::{ElementState, TouchPhase, WindowEvent};
+    match event {
+        WindowEvent::MouseInput { state, .. } => *state == ElementState::Pressed,
+        WindowEvent::Touch(touch) => touch.phase == TouchPhase::Started,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -4174,5 +4202,63 @@ mod tests {
             &WindowEvent::CloseRequested,
             || Some(true)
         ));
+    }
+
+    /// A press of any button, or a finger going down, ends keyboard mode;
+    /// a release, a move, a wheel, a finger lifted or moved, and a key do
+    /// not, or the person's own Tab would be undone by the pointer resting
+    /// over the window.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn only_a_press_ends_keyboard_mode() {
+        use slint::winit_030::winit::dpi::{PhysicalPosition, PhysicalSize};
+        use slint::winit_030::winit::event::{
+            DeviceId, ElementState, MouseButton, MouseScrollDelta, Touch, TouchPhase, WindowEvent,
+        };
+        let device_id = DeviceId::dummy();
+        let mouse = |state, button| WindowEvent::MouseInput {
+            device_id,
+            state,
+            button,
+        };
+        let touch = |phase| {
+            WindowEvent::Touch(Touch {
+                device_id,
+                phase,
+                location: PhysicalPosition::new(1.0, 1.0),
+                force: None,
+                id: 0,
+            })
+        };
+        for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
+            assert!(
+                super::press_ends_keyboard_mode(&mouse(ElementState::Pressed, button)),
+                "{button:?} pressed"
+            );
+            assert!(
+                !super::press_ends_keyboard_mode(&mouse(ElementState::Released, button)),
+                "{button:?} released"
+            );
+        }
+        assert!(super::press_ends_keyboard_mode(&touch(TouchPhase::Started)));
+        for phase in [TouchPhase::Moved, TouchPhase::Ended, TouchPhase::Cancelled] {
+            assert!(!super::press_ends_keyboard_mode(&touch(phase)), "{phase:?}");
+        }
+        let others = [
+            WindowEvent::CursorMoved {
+                device_id,
+                position: PhysicalPosition::new(1.0, 1.0),
+            },
+            WindowEvent::MouseWheel {
+                device_id,
+                delta: MouseScrollDelta::LineDelta(0.0, 1.0),
+                phase: TouchPhase::Moved,
+            },
+            WindowEvent::Focused(true),
+            WindowEvent::Resized(PhysicalSize::new(1, 1)),
+        ];
+        for event in &others {
+            assert!(!super::press_ends_keyboard_mode(event), "{event:?}");
+        }
     }
 }

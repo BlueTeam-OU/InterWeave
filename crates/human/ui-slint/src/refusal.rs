@@ -56,6 +56,21 @@ impl RefusalView {
         window.set_discard_label(text(UiText::DiscardStore));
         window.set_cancel_label(text(UiText::Cancel));
         window.set_code_font(code_font());
+        // The path is a text field, which a press ends keyboard mode on
+        // only here (`press_ends_keyboard_mode`).
+        #[cfg(feature = "desktop")]
+        {
+            use slint::winit_030::{EventResult, WinitWindowAccessor as _};
+            let screen = window.as_weak();
+            window.window().on_winit_window_event(move |_, event| {
+                if crate::press_ends_keyboard_mode(event)
+                    && let Some(screen) = screen.upgrade()
+                {
+                    screen.global::<crate::FocusMode<'_>>().set_keyboard(false);
+                }
+                EventResult::Propagate
+            });
+        }
         let weak = window.as_weak();
         window.on_close_screen(move || {
             if let Some(window) = weak.upgrade() {
