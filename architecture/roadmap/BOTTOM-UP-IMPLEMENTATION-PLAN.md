@@ -5878,6 +5878,11 @@ none is the status value's, which stays on this stage.
   apart by the short PeerId, Stage 21's carried work and not a Stage 18
   step. The four cells moved in one commit, a3c92915 on #451 (REPLY
   01a1754a-7708), which lands them when that pull request merges.
+  TM-56's carry landed on #556 (rust-ui-dev-01, 2026-11-04): the
+  rendered test
+  `crates/human/ui-slint/tests/cards.rs::two_same_name_contacts_are_drawn_told_apart_by_their_short_peer_ids`
+  draws two same-name contacts' headers and list rows each with its own
+  short PeerId, and the row's step cell moved to `—` with it.
 - **Clause (f)**: the ledger `tools/checks/domain_fn_exempt.txt` holds
   no `stage-18` entry (read 2026-10-25); the close re-reads it. Apart
   from the clause, `error_contract_matrix.rs` holds no `Proof::Stage(18)`
