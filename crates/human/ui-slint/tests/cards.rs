@@ -2198,6 +2198,13 @@ fn a_key_that_cannot_be_used_is_said_and_a_new_key_is_confirmed_then_made() {
         "new-key-cancel",
         "Cancel first"
     );
+    let to = common::modal_tab(
+        view.window(),
+        view.window().window(),
+        || view.window().get_focus_id().to_string(),
+        settle,
+    );
+    assert_eq!(to, "new-key-confirm");
 
     press_last(&view, text(UiText::Cancel));
     assert_eq!(intents(&mut view, &mut model), vec![Intent::CloseKeyStep]);
@@ -3429,9 +3436,13 @@ fn the_unsaved_changes_dialog_answers_escape_the_scrim_and_tab() {
     view.window().set_own_given("Grace".into());
 
     ask(&mut view, &mut model);
-    key(&view, slint::platform::Key::Tab);
-    settle();
-    assert_eq!(view.window().get_focus_id(), "discard-confirm", "Tab");
+    let to = common::modal_tab(
+        view.window(),
+        view.window().window(),
+        || view.window().get_focus_id().to_string(),
+        settle,
+    );
+    assert_eq!(to, "discard-confirm", "Tab");
     key(&view, slint::platform::Key::Tab);
     settle();
     assert_eq!(view.window().get_focus_id(), "discard-keep", "Tab again");

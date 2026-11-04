@@ -446,6 +446,14 @@ export global FocusMode {
     // holds focus, so this is the space beside one; the tests walk the
     // screens they reach for it (`common::ring_overdraws`), not all.
     out property <length> ring-reach: 5px;
+    // A Tab that moves focus: Tab or Shift+Tab with no Ctrl, Alt or Meta,
+    // as Slint's own navigation takes it. The scope that sets keyboard
+    // mode and every handler that moves focus on Tab ask this one rule, so
+    // a key that moves focus also draws the ring (#547 F1).
+    public pure function navigates(event: KeyEvent) -> bool {
+        (event.text == Key.Tab || event.text == Key.Backtab)
+            && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta
+    }
 }
 
 export global Touch {
@@ -577,8 +585,7 @@ component FocusRing inherits Rectangle {
 component KeyboardScope inherits FocusScope {
     focus-on-tab-navigation: false;
     capture-key-pressed(event) => {
-        if ((event.text == Key.Tab || event.text == Key.Backtab)
-            && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta) {
+        if (FocusMode.navigates(event)) {
             FocusMode.keyboard = true;
         }
         reject
@@ -1767,14 +1774,16 @@ component IdentityScreen inherits FocusScope {
             root.back();
             return accept;
         }
-        if ((event.text == Key.Tab || event.text == Key.Backtab) && root.page.dialog) {
+        if (FocusMode.navigates(event) && root.page.dialog) {
             // Focus stood behind the scrim: into the dialog, on its
             // default.
             root.dialog-seq += 1;
             return accept;
         }
-        if (event.text == Key.Tab || event.text == Key.Backtab) {
-            root.focus-target = root.next(event.text == Key.Tab ? 1 : 4);
+        if (FocusMode.navigates(event)) {
+            // Shift+Tab can come as Tab with Shift, as Slint's own
+            // navigation takes it: backwards either way.
+            root.focus-target = root.next(event.text == Key.Tab && !event.modifiers.shift ? 1 : 4);
             root.focus-seq += 1;
             return accept;
         }
@@ -2131,7 +2140,7 @@ component IdentityScreen inherits FocusScope {
             focus-on-click: false;
             focus-on-tab-navigation: false;
             key-pressed(event) => {
-                if (event.text == Key.Tab || event.text == Key.Backtab) {
+                if (FocusMode.navigates(event)) {
                     if (dialog-delete.has-focus) {
                         dialog-keep.focus();
                     } else {
@@ -7788,7 +7797,7 @@ export component AppWindow inherits Window {
                     return accept;
                 }
                 // A modal dialog keeps focus on its two buttons.
-                if (event.text == Key.Tab || event.text == Key.Backtab) {
+                if (FocusMode.navigates(event)) {
                     root.focus-target = root.focus-id == "trust-cancel" ? "trust-confirm" : "trust-cancel";
                     root.focus-seq += 1;
                     return accept;
@@ -7896,7 +7905,7 @@ export component AppWindow inherits Window {
                 }
                 // A modal dialog keeps focus: Tab either way moves between its
                 // two actions, never to the controls behind the scrim.
-                if (event.text == Key.Tab || event.text == Key.Backtab) {
+                if (FocusMode.navigates(event)) {
                     if (details-copy.has-focus) {
                         details-close.focus();
                     } else {
@@ -8043,7 +8052,7 @@ export component AppWindow inherits Window {
                     root.keep-editing();
                     return accept;
                 }
-                if (event.text == Key.Tab || event.text == Key.Backtab) {
+                if (FocusMode.navigates(event)) {
                     if (discard-keep.has-focus) {
                         discard-confirm.focus();
                     } else {
@@ -8140,7 +8149,7 @@ export component AppWindow inherits Window {
                     root.new-key-cancel();
                     return accept;
                 }
-                if (event.text == Key.Tab || event.text == Key.Backtab) {
+                if (FocusMode.navigates(event)) {
                     if (new-key-cancel.has-focus) {
                         new-key-confirm.focus();
                     } else {
@@ -8429,7 +8438,7 @@ export component AppWindow inherits Window {
                 }
                 // A modal surface keeps focus: Close is its one stop, so Tab
                 // never reaches the add page under it (#418 F5).
-                if (event.text == Key.Tab || event.text == Key.Backtab) {
+                if (FocusMode.navigates(event)) {
                     close-scanner.focus();
                     return accept;
                 }
@@ -8824,7 +8833,7 @@ export component RefusalWindow inherits Window {
                     return accept;
                 }
                 // A modal dialog keeps focus on its two buttons.
-                if (event.text == Key.Tab || event.text == Key.Backtab) {
+                if (FocusMode.navigates(event)) {
                     root.dialog-focus = root.focus-id == "dialog-cancel" ? "dialog-confirm" : "dialog-cancel";
                     root.dialog-focus-seq += 1;
                     return accept;

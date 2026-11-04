@@ -3758,6 +3758,13 @@ fn the_trust_dialog_names_its_act_and_hands_focus_back() {
         Some(text(UiText::RemoveTrust)),
         "the act is named"
     );
+    let to = common::modal_tab(
+        view.window(),
+        view.window().window(),
+        || focus(&view),
+        slint::platform::update_timers_and_animations,
+    );
+    assert_eq!(to, "trust-confirm", "Tab");
     assert!(view.back(), "Back is the dialog's");
     let _ = intents(&mut view, &mut model);
     view.render(&model);

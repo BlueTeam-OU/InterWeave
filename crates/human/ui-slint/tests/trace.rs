@@ -8,6 +8,8 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -436,9 +438,21 @@ fn the_identity_page_keeps_tab_on_its_own_stops() {
     view.show_identity(Some(identity_page(&flow)));
     slint::platform::update_timers_and_animations();
     let first = said.borrow().len();
+    // Ctrl+Tab is no Tab of the page's (`FocusMode.navigates`), and draws
+    // no ring; Tab draws it, the page having taken focus by a call.
+    common::ctrl_tab(view.window().window());
+    assert_eq!(said.borrow().len(), first, "Ctrl+Tab moves no focus");
+    assert!(
+        common::shown_ring(view.window()).is_none(),
+        "control: no ring yet"
+    );
     for _ in 0..3 {
         tab(&view);
     }
+    assert!(
+        common::shown_ring(view.window()).is_some(),
+        "Tab draws the ring"
+    );
     let key: slint::SharedString = Key::Backtab.into();
     let window = view.window().window();
     window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
@@ -494,6 +508,21 @@ fn the_identity_page_steps_back_in_reverse_order() {
             "ui-trace focus=identity-delete",
         ]
     );
+    // Shift+Tab can come as Tab with Shift held, as Slint's own
+    // navigation takes it: back, from the first stop to the last.
+    let (shift, tab): (slint::SharedString, slint::SharedString) =
+        (Key::Shift.into(), Key::Tab.into());
+    window.dispatch_event(WindowEvent::KeyPressed {
+        text: shift.clone(),
+    });
+    window.dispatch_event(WindowEvent::KeyPressed { text: tab.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text: tab });
+    window.dispatch_event(WindowEvent::KeyReleased { text: shift });
+    assert_eq!(
+        said.borrow().last().map(String::as_str),
+        Some("ui-trace focus=identity-primary"),
+        "Tab with Shift steps back"
+    );
 }
 
 /// The discard dialog is modal over R2: TAB and Shift+TAB stay on its
@@ -530,6 +559,14 @@ fn the_identity_dialog_keeps_tab_on_its_two_buttons() {
         window.dispatch_event(WindowEvent::KeyReleased { text });
         said.borrow().last().cloned().unwrap_or_default()
     };
+    // Ctrl+Tab moves no focus, in or into the dialog, and draws no ring.
+    let before = said.borrow().len();
+    common::ctrl_tab(window);
+    assert_eq!(said.borrow().len(), before, "Ctrl+Tab moves no focus");
+    assert!(
+        common::shown_ring(view.window()).is_none(),
+        "control: no ring yet"
+    );
     // The dialog's opening focus is a deferred change, so the first key
     // still finds the focus behind the scrim: it enters the dialog on its
     // default, "Continue entering".
@@ -552,6 +589,14 @@ fn the_identity_dialog_keeps_tab_on_its_two_buttons() {
             "ui-trace focus=identity-dialog-delete",
         ]
     );
+    assert!(
+        common::shown_ring(view.window()).is_some(),
+        "Tab draws the ring"
+    );
+    // In the dialog too, Ctrl+Tab moves no focus.
+    let before = said.borrow().len();
+    common::ctrl_tab(window);
+    assert_eq!(said.borrow().len(), before, "Ctrl+Tab in the dialog");
     press(Key::Return);
     assert_eq!(*inputs.borrow(), [IdentityInput::Dialog(true)]);
 }

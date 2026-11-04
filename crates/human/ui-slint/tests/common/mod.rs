@@ -142,3 +142,42 @@ pub(crate) fn ring_cut(window: &impl ElementRoot) -> Option<Vec<String>> {
         .collect();
     Some(cut)
 }
+
+/// Ctrl+Tab, pressed and released: a Tab that moves no focus, in Slint's
+/// navigation and in every modal's own (`FocusMode.navigates`).
+pub(crate) fn ctrl_tab(window: &slint::Window) {
+    use slint::platform::{Key, WindowEvent};
+    let (ctrl, tab): (slint::SharedString, slint::SharedString) =
+        (Key::Control.into(), Key::Tab.into());
+    window.dispatch_event(WindowEvent::KeyPressed { text: ctrl.clone() });
+    window.dispatch_event(WindowEvent::KeyPressed { text: tab.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text: tab });
+    window.dispatch_event(WindowEvent::KeyReleased { text: ctrl });
+    slint::platform::update_timers_and_animations();
+}
+
+/// In a modal that took focus by a call (no ring yet), Ctrl+Tab moves no
+/// focus and draws no ring, and Tab moves focus and draws it: the modal's
+/// own Tab handler and the window's `KeyboardScope` ask one rule
+/// (`FocusMode.navigates`, #547 F1). Returns where Tab moved focus.
+pub(crate) fn modal_tab(
+    root: &impl ElementRoot,
+    window: &slint::Window,
+    focus: impl Fn() -> String,
+    settle: impl Fn(),
+) -> String {
+    let at = focus();
+    assert!(shown_ring(root).is_none(), "control: no ring at {at:?} yet");
+    ctrl_tab(window);
+    settle();
+    assert_eq!(focus(), at, "Ctrl+Tab moves no focus");
+    assert!(shown_ring(root).is_none(), "Ctrl+Tab draws no ring");
+    let tab: slint::SharedString = slint::platform::Key::Tab.into();
+    window.dispatch_event(slint::platform::WindowEvent::KeyPressed { text: tab.clone() });
+    window.dispatch_event(slint::platform::WindowEvent::KeyReleased { text: tab });
+    settle();
+    let to = focus();
+    assert_ne!(to, at, "Tab moves focus");
+    assert!(shown_ring(root).is_some(), "Tab draws the ring at {to:?}");
+    to
+}

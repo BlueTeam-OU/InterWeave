@@ -411,17 +411,14 @@ fn the_full_confirmation_lists_every_loss_and_cancel_has_focus() {
         (1, 0),
         "Enter alone cancels"
     );
-    assert!(
-        common::shown_ring(view.window()).is_none(),
-        "control: no ring yet"
-    );
-    key(&view, Key::Tab);
-    assert_eq!(focus(&view), "dialog-confirm");
     // The dialog moves focus by a call; the Tab still draws the ring.
-    assert!(
-        common::shown_ring(view.window()).is_some(),
-        "ring at confirm"
+    let to = common::modal_tab(
+        view.window(),
+        view.window().window(),
+        || focus(&view),
+        slint::platform::update_timers_and_animations,
     );
+    assert_eq!(to, "dialog-confirm");
     key(&view, Key::Tab);
     assert_eq!(focus(&view), "dialog-cancel", "Tab stays in the dialog");
     key(&view, Key::Escape);
