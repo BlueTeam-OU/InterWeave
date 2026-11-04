@@ -27,7 +27,12 @@ those sections differ, this note governs, and each of them (§4, §5.1,
 carries a line pointing here. Wherever those sections say "route
 label" of one of the person's own identities, read §6.1's rule: the
 card's name, else the alias, as the name, and `ShortEndpoint` where a
-second line shows the route. What this note does not mention there
+second line shows the route. And wherever they say trust is the
+device's — cards §5.1's shared-device statement, §5.7.2's Trust row,
+`IdentitiesShareDevice`'s last sentence and `TrustAllIdentities` —
+read §5.1 and §6.1: since ADR-0067 d. 6 trust is the identity's (and
+`human-client-ui.md` names these four as overridden until this note
+lands, #553). What this note does not mention there
 stands as written: the editor's photo step and unsaved-changes dialog
 (cards §5.2), the switch and its switcher (cards §5.7.1) but for that
 rule, what changes the identity in front (cards §5.7.3) but for §5.3
@@ -250,13 +255,13 @@ front, and only that identity admits the peer at the route. So:
   effective set, never the device's admission set). The second form,
   `NoReachIdentity` ("{identity} trusts no one yet. To write as
   {identity}, trust a peer while you use it."), its action opening
-  Trust, shows as ruled: when that set is empty while the address list
-  or another identity's set is not; otherwise the notice is add-a-peer
-  §5.6's. The clause "or another identity's set" makes which form shows
-  depend on another identity's trusted set, which §4 allows nowhere;
-  §16 Q8 proposes instead that with two or more identities held the
-  form depend on the identity in front's set and the address list
-  alone, and until it is answered the ruled condition stands. The notice promises nothing
+  Trust, shows from the second identity on when that set is empty and
+  the address list is not; with the address list empty too, the notice
+  is add-a-peer §5.6's. Ruled (§16 Q8): the form is decided by the
+  identity in front's set and the address list alone, never by what
+  another identity trusts. This per-identity reading is the Stage 22
+  release's; before it, the one identity's set is the node's (ADR-0062
+  d. 8). The notice promises nothing
   about channels, whose publishers the device admits (above). With one
   identity held, `NoReachIdentity` is never shown, and the notice shows
   as add-a-peer §5.6 says, unchanged.
@@ -345,12 +350,10 @@ The person writes a card; the client makes everything else.
 does not exist yet: title `AddIdentityTitle` ("New identity"), Photo,
 Name (required), Family name, then `IdentityNewNote`: "A new identity
 starts with nobody: it trusts no one, and no one has its card until you
-share it." Then `IdentityNewOldContacts`: "Someone who saved an
-identity you removed keeps its name and photo. This one is new to
-them." ADR-0061 d. 7 asks the client to say this before the add; the
-client keeps no record of removed identities, so the line is always on
-the form, and Remove's dialog says it too (§7). §16 Q7 asks whether
-the dialog alone would do. Then **Create** (`CreateIdentity`), filled. No id field, no
+share it." The form says nothing of removed identities: ruled
+(§16 Q7 b), what counterparties keep of a removed identity is said in
+Remove's dialog alone (§7), since a new identity never takes a removed
+one's route. Then **Create** (`CreateIdentity`), filled. No id field, no
 label field, no advertise control (§8).
 
 **The alias.** The client makes the alias from the name, under D3's
@@ -515,10 +518,10 @@ identity.
   to two or more, it opens Chats of the identity in front with the
   switcher open over it, switching nothing, and the person picks, since
   no one identity is the notification's (`human-client-ui.md` §13: a
-  switch is one explicit act). ADR-0061 d. 9, §13 and the exit gate
-  say opening a notification switches to its identity; this case,
-  which one entry for every identity creates, has none, and §16 Q7
-  asks architect-cto to rule it.
+  switch is one explicit act). Ruled (§16 Q7 a): this is ADR-0061 d. 9
+  as amended 2026-11-04, for every notification with no one identity
+  (the lock screen's entry, a group's summary, the desktop's redacted
+  form); the switcher names the identities with news.
 
 **On the lock screen**, whatever the person's preview setting
 (`human-client-ui.md` §10):
@@ -550,7 +553,11 @@ identity exists.
 §10 makes one optional). This note specifies none. Ruled (§16 Q6): a
 desktop notification has one form and cannot tell a locked screen from
 an unlocked one, so a later one is always the redacted form — the
-count, no name, no content — and the identity is shown after the open.
+count, no name, no content — and the identity is shown after the open,
+by the summary's rule above. This replaces contact-cards §5.7.5's
+desktop title that led with the identity's name, and its rule that
+notifications of different identities are never folded into one
+summary.
 
 ## 10. The contact page: a route's actions
 
@@ -643,7 +650,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | Chats (two or more identities) | back or app title, the switch, the app options ⋮, then the list as today |
 | switcher (sheet or dialog) | its title (a focus stop, so the reading starts there), the identity rows, Your identities |
 | Your identities | back arrow, title, the shared-device statement, `IdentitiesUnlisted`, the rows in order (a row is one stop; its Try again, when shown, the next), Add an identity or `IdentityLimit` |
-| add form | back arrow, title, photo buttons, Name, Family name, `IdentityNewNote`, `IdentityNewOldContacts`, the line above Create when one shows, Create |
+| add form | back arrow, title, photo buttons, Name, Family name, `IdentityNewNote`, the line above Create when one shows, Create |
 | an identity's page | as cards §5.2, then `IdentityAlias` and its Copy, then the overflow |
 | Trust | back arrow, title and subtitle, `TrustScope`, then as today |
 | Peers | back arrow, title and subtitle, Show my address, Add an address, `PeersShared`, `PeersNoTrust`, the rows as today |
@@ -726,7 +733,6 @@ a proposal for language-culture-en.
 | `CreateIdentity` | the add form's primary | create |
 | `IdentityAlias` | an identity's page | the name used in commands, with the alias |
 | `ConfirmIdentityAdded` | snackbar | {name} added; it trusts no one yet |
-| `IdentityNewOldContacts` | the add form, after `IdentityNewNote` | someone who saved an identity the person removed keeps its name and photo; this one is new to them |
 | `IdentityAddUnknown` | the add form | could not tell whether it was created; Create tries again and cannot make it twice |
 | `IdentityCardNotSaved` | a row | name and photo not saved; open it to try again |
 | `IdentityRemoveKey` | Remove dialog | its key, so it can never be used again |
@@ -771,12 +777,11 @@ pass before it lands.
    #553 (§16 Q5).
 6. In front of an identity whose set is empty while the address list is
    not, Chats shows `NoReachIdentity` with an action opening Trust. Two
-   more runs, with the address list empty: (b) B trusting a peer: Chats
-   in front of A shows `NoReachIdentity` under the ruling, or
-   add-a-peer §5.6's notice if §16 Q8's proposal is accepted; (c) B's
-   set empty too: §5.6's notice, either way.
-   With one identity held, the notice is add-a-peer §5.6's, unchanged.
-   Needs D2 and #553 (§16 Q2).
+   more runs, with the address list empty: (b) B trusting a peer and
+   (c) B's set empty too: in both, Chats in front of A shows add-a-peer
+   §5.6's notice, the same screen whatever B holds. With one identity
+   held, the notice is add-a-peer §5.6's, unchanged. Needs D2 and #553
+   (§16 Q2, Q8).
 7. Add: the form has no id, label or advertise field; Create makes an
    identity whose endpoint has advertise off and an empty trusted set,
    observed from the daemon (`admin.endpoints.list`, trust list for
@@ -828,7 +833,8 @@ pass before it lands.
     no name and no count, and the same entry with news in one identity
     or both. Opening it after the unlock: with news in B only, the
     transition names B, then B's Chats; with news in both, the switcher
-    over A's Chats, nothing switched (pending §16 Q7). Device row (Pixel
+    over A's Chats, naming the identities with news, nothing switched
+    (#553, §16 Q7 a). Device row (Pixel
     9a). *(§13 bullets 13, 16; exit gate.)*
 17. With one identity held, the notification after the unlock is as on
     `main`, and the lock-screen entry is the same `MessagesWaitingLocked`
@@ -894,26 +900,17 @@ section above states the ruling where it applies:
 - **Q5** an origin on an identity's trust rows: none (§5.1).
 - **Q6** a desktop notification: always the redacted form (§9).
 
-Open, asked after rounds 1 and 2 of #552's review:
+Asked after rounds 1 and 2 of #552's review (QUESTIONs 01a1a6a8 and
+01a1a6b0) and ruled the same day (REPLYs 01a1a6bf-fd48 and
+01a1a6bf-ff3f), on #553:
 
-- **Q7** (a) Opening the lock-screen entry or the summary with news in
-  two or more identities opens the switcher and switches nothing (§9),
-  where ADR-0061 d. 9, §13 bullet 16 and the exit gate say opening
-  switches to the notification's identity; one entry for every identity
-  is what makes a notification with no one identity. Rule it as §9
-  does? (b) ADR-0061 d. 7 asks the client to say before the add that
-  counterparties may still hold a removed identity's contact; the
-  client keeps no record of removals, so the add form says it always
-  (`IdentityNewOldContacts`) and Remove's dialog says it too. Is the
-  dialog alone enough?
-- **Q8** The Q2 ruling shows `NoReachIdentity` when the front set is
-  empty "while the address list or another identity's set is not". In
-  front of A with no address, whether A sees that form or add-a-peer
-  §5.6's then tells A whether B trusts anyone, which §4 and §13 bullet
-  14 (no screen shows another identity's data) forbid. Proposed: with
-  two or more identities held, an empty front set shows
-  `NoReachIdentity` when the address list is not empty and §5.6's
-  notice when it is, whatever another identity holds (§5.1).
+- **Q7** (a) a notification with no one identity opens the switcher
+  when two or more identities have news, and switches to the one when
+  one has (§9); (b) what counterparties keep of a removed identity is
+  said in Remove's dialog alone (§6.2, §7).
+- **Q8** the no-reach notice's form depends on the identity in front's
+  set and the address list alone; the Q2 ruling's "or another
+  identity's set" is withdrawn (§5.1).
 
 To language-culture-en: the strings of §13, and whether "identity" can
 stay the person's word for one of these now that the recovery screens
