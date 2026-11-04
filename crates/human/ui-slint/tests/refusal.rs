@@ -8,6 +8,8 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -129,12 +131,20 @@ fn without_try_again_it_is_neither_shown_nor_reached_and_close_has_focus() {
     }
 }
 
+/// Tab runs path, Close, Try again, and the ring at each covers no
+/// neighbour: the path's label stands above its field.
 #[test]
 fn tab_runs_through_the_path_close_and_try_again() {
     let view = screen(&store_page());
     let mut seen = Vec::new();
     for _ in 0..3 {
         key(&view, Key::Tab);
+        let over = common::ring_overdraws(view.window());
+        assert!(
+            over.is_empty(),
+            "the ring at {:?} covers {over:#?}",
+            focus(&view)
+        );
         seen.push(focus(&view));
     }
     assert_eq!(seen, ["path", "close", "retry"]);

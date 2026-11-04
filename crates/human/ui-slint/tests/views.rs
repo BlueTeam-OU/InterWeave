@@ -15,6 +15,8 @@
 
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+mod common;
+
 use i_slint_backend_testing::ElementHandle;
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{
@@ -964,7 +966,8 @@ fn rings_shown(view: &View) -> usize {
 /// Tab `stops` times and, at every element focus lands on, one focus ring
 /// is drawn: N2 of ux-designer's review of 761d72b3 (a conversation row,
 /// a message and the peer-id field drew none), and the android-look
-/// spec's section 7. Returns the stops reached.
+/// spec's section 7; and it covers no neighbour (`common::ring_overdraws`).
+/// Returns the stops reached.
 fn tab_each_draws_one_ring(view: &View, stops: usize) -> std::collections::BTreeSet<String> {
     let mut reached = std::collections::BTreeSet::new();
     for _ in 0..stops {
@@ -972,6 +975,8 @@ fn tab_each_draws_one_ring(view: &View, stops: usize) -> std::collections::BTree
         slint::platform::update_timers_and_animations();
         assert!(!on.is_empty(), "Tab lands on a reported element");
         assert_eq!(rings_shown(view), 1, "one focus ring at {on:?}");
+        let over = common::ring_overdraws(view.window());
+        assert!(over.is_empty(), "the ring at {on:?} covers {over:#?}");
         reached.insert(on);
     }
     reached

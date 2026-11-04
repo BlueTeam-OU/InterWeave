@@ -12,6 +12,8 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use i_slint_backend_testing::ElementHandle;
 use interweave_human_chat_protocol::{Card, CardPhoto, CardRoute, Classified, classify};
 use interweave_human_core::RowId;
@@ -4476,4 +4478,109 @@ fn the_card_page_scrolls_to_its_last_line_at_a_phones_sizes() {
             }
         }
     }
+}
+
+/// Tab `stops` times; at each stop the shown focus ring covers no
+/// neighbour (`common::ring_overdraws`). Returns the stops reached.
+fn tab_each_ring_covers_nothing(view: &View, stops: usize) -> std::collections::BTreeSet<String> {
+    let mut reached = std::collections::BTreeSet::new();
+    for _ in 0..stops {
+        key(view, slint::platform::Key::Tab);
+        slint::platform::update_timers_and_animations();
+        let on = view.window().get_focus_id().to_string();
+        let over = common::ring_overdraws(view.window());
+        assert!(over.is_empty(), "the ring at {on:?} covers {over:#?}");
+        reached.insert(on);
+    }
+    reached
+}
+
+/// A focus ring draws over no neighbour on the own card page, in each
+/// state of its key -- the fingerprint under its label, the key folder's
+/// path under its, the making line, the failure line -- and the name
+/// fields under their labels (A40 2026-11-03: the ring over the
+/// fingerprint's label). Mutation: the fingerprint's 2 px spacing back.
+#[test]
+fn no_focus_ring_on_the_own_card_page_covers_a_neighbour() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::PhysicalSize::new(900, 1400));
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        key: OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        ..keyless(KeyProblem::Damaged)
+    });
+    view.render(&model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::OwnCardTitle));
+    let _ = intents(&mut view, &mut model);
+    settle();
+    let ready = tab_each_ring_covers_nothing(&view, 20);
+    assert!(ready.contains("own-key-fingerprint"), "{ready:?}");
+
+    model.identity_shown(keyless(KeyProblem::Damaged));
+    view.render(&model);
+    press(&view, text(UiText::KeyMakeNew));
+    let _ = intents(&mut view, &mut model);
+    let _ = model.ask_new_key();
+    model.new_key_asked(false);
+    view.render(&model);
+    settle();
+    press_last(&view, text(UiText::KeyNewConfirm));
+    let _ = intents(&mut view, &mut model);
+    let _ = model.confirm_new_key();
+    view.render(&model);
+    settle();
+    let making = tab_each_ring_covers_nothing(&view, 20);
+    assert!(making.contains("own-key-making"), "{making:?}");
+
+    model.key_not_made(None, KeyProblem::Damaged, false);
+    view.render(&model);
+    settle();
+    let failed = tab_each_ring_covers_nothing(&view, 20);
+    assert!(failed.contains("own-key-failure"), "{failed:?}");
+
+    model.key_step_closed();
+    model.identity_shown(keyless(KeyProblem::DirUnsafe {
+        folder: "/home/ada/.local/state/interweave/default/identity-keys".to_owned(),
+    }));
+    view.render(&model);
+    settle();
+    let folder = tab_each_ring_covers_nothing(&view, 20);
+    assert!(folder.contains("own-key-path"), "{folder:?}");
+    for field in ["own-given", "own-surname"] {
+        assert!(folder.contains(field), "{field}: {folder:?}");
+    }
+}
+
+/// A focus ring draws over no neighbour on an answered card: its line,
+/// a `FocusLine` like the own card's.
+#[test]
+fn no_focus_ring_on_an_answered_card_covers_a_neighbour() {
+    let mut model = UiModel::new();
+    model.card_received(proposal(1, P, card("Ada", false), context()));
+    let mut view = conversation(&mut model);
+    press(&view, text(UiText::CardAccept));
+    let _ = intents(&mut view, &mut model);
+    model.card_resolved(
+        row(1),
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: true,
+            photo_dropped: false,
+            photo_removed: false,
+        },
+    );
+    model.contacts_listed(vec![contact("c1", "Ada", P)]);
+    view.render(&model);
+    settle();
+    let answered = tab_each_ring_covers_nothing(&view, 20);
+    assert!(
+        answered.iter().any(|on| on.starts_with("answer:")),
+        "{answered:?}"
+    );
 }

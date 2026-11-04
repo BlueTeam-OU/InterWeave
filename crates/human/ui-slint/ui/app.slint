@@ -439,6 +439,11 @@ export struct IdentityPage {
 // and screen-reader users.
 export global FocusMode {
     in-out property <bool> keyboard;
+    // How far a focus ring reaches outside its control: `FocusRing`'s
+    // 2 px gap and 3 px stroke. Text laid out nearer a focusable control
+    // than this is drawn over when it holds focus, so this is the least
+    // space beside one (`common::ring_overdraws` in the tests).
+    out property <length> ring-reach: 5px;
 }
 
 export global Touch {
@@ -549,6 +554,8 @@ component FocusRing inherits Rectangle {
     in property <bool> on-inverse;
     // The control's own corner radius; the ring follows its shape.
     in property <length> radius: 4px;
+    // With the 2 px gap each use places it at, `FocusMode.ring-reach`:
+    // a change here changes that.
     border-width: 3px;
     border-color: root.on-notice ? Palette.focus-ring-on-notice
         : root.on-inverse ? Palette.focus-ring-on-inverse
@@ -2079,7 +2086,7 @@ component NameField inherits VerticalLayout {
     changed focus-seq => {
         if (root.focus-wanted) { input.focus(); }
     }
-    spacing: 4px;
+    spacing: FocusMode.ring-reach;
     Text {
         text: root.label;
         font-size: Type.body-small;
@@ -2238,7 +2245,7 @@ component PathField {
     }
     callback focused(string);
     VerticalLayout {
-        spacing: 2px;
+        spacing: FocusMode.ring-reach;
         Text {
             text: root.label;
             font-size: Type.body-small;
@@ -3910,6 +3917,7 @@ export component AppWindow inherits Window {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     alignment: center;
+                    spacing: FocusMode.ring-reach;
                     FocusHeading {
                         text: root.conversations-heading;
                         font-size: Type.title-large;
@@ -5837,7 +5845,7 @@ export component AppWindow inherits Window {
                         // PeerId (ADR-0063 decision 1), focusable so a new
                         // key or Try again can put focus on it.
                         if !root.own-key-problem: VerticalLayout {
-                            spacing: 2px;
+                            spacing: FocusMode.ring-reach;
                             Text {
                                 text: root.fingerprint-label;
                                 font-size: Type.body-small;
@@ -5994,8 +6002,9 @@ export component AppWindow inherits Window {
                                 focused(k) => { root.focus-id = k; }
                             }
                         }
+                        // Spaced as the fingerprint above it, a pair alike.
                         if root.own-peer != "": VerticalLayout {
-                            spacing: 2px;
+                            spacing: FocusMode.ring-reach;
                             Text {
                                 text: root.peer-id-label;
                                 font-size: Type.body-small;
@@ -6407,7 +6416,7 @@ export component AppWindow inherits Window {
                 // row leaving before it ran closed in one frame.
                 max-height: !row.leaving ? 100000px
                     : !self.collapsing ? row-content.preferred-height
-                    : row.hand-over ? row.gap + day-measure.preferred-height + 4px
+                    : row.hand-over ? row.gap + day-measure.preferred-height + FocusMode.ring-reach
                     : 0px;
                 animate max-height {
                     duration: self.collapsing && !root.reduced-motion ? 150ms : 0ms;
@@ -6428,9 +6437,10 @@ export component AppWindow inherits Window {
                     visible: false;
                     accessible-role: none;
                 }
+            // Spaced so a focused bubble's ring clears its day separator.
             row-content := VerticalLayout {
                 padding-top: row.gap;
-                spacing: 4px;
+                spacing: FocusMode.ring-reach;
                 // The window's marks that stand above it, before its day
                 // separator: a line or an edge's row reads before the run
                 // it heads.
@@ -6656,7 +6666,9 @@ export component AppWindow inherits Window {
                                     padding-right: 12px;
                                     padding-top: 8px;
                                     padding-bottom: 6px;
-                                    spacing: 4px;
+                                    // A focused link's ring clears the text
+                                    // above it and the status under it.
+                                    spacing: FocusMode.ring-reach;
                                     // In a channel only: received bubbles come
                                     // from several peers (section 6). The full
                                     // PeerId is its description (U5a).
@@ -8482,7 +8494,7 @@ export component RefusalWindow inherits Window {
                         accessible-label: self.text;
                     }
                     if root.path != "": VerticalLayout {
-                        spacing: 4px;
+                        spacing: FocusMode.ring-reach;
                         Text {
                             text: root.path-label;
                             font-size: Type.body-small;
