@@ -81,8 +81,11 @@ A message's body is **cut** when what the row draws passes §6's
 bound, **whole** otherwise, decided **in each mode** by what that mode
 draws (§6): formatted mode by the formatted body, source mode by the
 source. So one message can be whole in one mode and cut in the other —
-a body of many long link addresses, for one, is short formatted and
-long as source. The row always shows the state of the mode it is in,
+a body of reference definitions, which draw nothing formatted, or of
+links whose labels pass 2 000 characters and so are drawn inert (§6),
+is short formatted and long as source. (Ordinary links are not: each
+control's label shows its whole destination, so they count at least as
+much formatted as they do as source.) The row always shows the state of the mode it is in,
 and switching mode (Show source, Show formatted) switches it: the
 preview, the cut line and the button appear or go with the mode that
 needs them; focus stays on the bubble, which the menu returns it to
@@ -248,7 +251,10 @@ no clipboard path at all: `design/2026-10-19-android-identity.md`.)
 ### 5.4 Leaving the reader
 
 Back (Android's system Back or the app bar's) or, on the desktop,
-Escape closes the reader, and the conversation is where it was.
+Escape closes the reader, and the conversation is where it was: the
+row in the mode it was in when the reader opened, whatever mode the
+reader was switched to, so its Read the whole message is there for
+focus to return to (§9).
 
 The reader also closes, with no message of its own, when its row
 leaves the conversation. Only the person's own act can cause it: on a
@@ -418,8 +424,8 @@ it, those checks are blocked, never passed.
 - **A1** A body of 2 000 characters and 40 lines is whole; one more
   character, or one more line, and it is cut (§6), in each mode by what
   that mode draws. A body whole formatted and past the bound as source
-  (many long link addresses; a body of reference definitions; about
-  2 000 blank lines) is whole formatted, and in source mode shows the
+  (links whose labels pass 2 000 characters, drawn inert; a body of
+  reference definitions; about 2 000 blank lines) is whole formatted, and in source mode shows the
   source's preview, the cut line with the source's share and Read the
   whole message, which opens the reader in source mode; Show formatted
   takes them away again.
