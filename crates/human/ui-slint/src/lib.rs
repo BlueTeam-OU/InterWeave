@@ -4064,7 +4064,9 @@ pub(crate) fn press_ends_keyboard_mode(
 /// End `window`'s keyboard mode if `event` is a press
 /// (`press_ends_keyboard_mode`): the first thing each desktop window's
 /// winit filter does. Before Slint routes the press, so the control it
-/// focuses draws no ring. `a_press_ends_each_windows_keyboard_mode`.
+/// focuses draws no ring. `a_press_ends_each_windows_keyboard_mode`;
+/// that each window's filter calls it, through a display's click, is the
+/// desktop end-to-end suite's (`human_app/ring.rs`).
 #[cfg(feature = "desktop")]
 pub(crate) fn end_keyboard_mode_at_press<W>(
     window: &W,

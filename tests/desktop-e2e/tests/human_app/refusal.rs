@@ -25,6 +25,7 @@ use crate::a11y::{Bus, Element};
 use crate::common::{Home, PATIENCE, example, free_port, stranger};
 use crate::display;
 use crate::harness::{self as app, human_lease, until_lease};
+use crate::ring;
 use crate::world::app_store;
 
 fn text(t: UiText) -> &'static str {
@@ -386,5 +387,42 @@ async fn a_store_whose_key_is_lost_is_discarded_and_recreated_on_the_persons_wor
         "the identity, its key, the profile and the trust are as they were"
     );
     assert!(client.terminate().success(), "{}", client.log());
+    assert!(daemon.terminate().await.success(), "{}", daemon.log());
+}
+
+/// #549 on the refusal screen: the store's path, a text field, loses
+/// the ring Tab drew when a person clicks it (`ring`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_click_on_the_path_after_tab_takes_its_ring_away() {
+    let _focus = display::exclusive().await;
+    let home = home();
+    let mut daemon = home.start(&[]);
+    daemon.serving(&home).await;
+    let bus = Bus::connect().await;
+    let mut client = app::start(&home);
+    until_lease(&home.binding(), true, &client).await;
+    assert!(client.terminate().success(), "{}", client.log());
+    set_store_version(&home, SCHEMA_VERSION + 1);
+
+    let mut client = app::start(&home);
+    let pid = client.child.id();
+    let screen = bus.window_of(pid, || client.log()).await;
+    let path = screen
+        .until("the file", named(text(UiText::RefusalPath)), || {
+            client.log()
+        })
+        .await;
+    display::focus(pid, || client.log()).await;
+    ring::tab_then_click(&screen, &path, pid, || client.log()).await;
+    let close = screen
+        .until("Close", button(text(UiText::Close)), || client.log())
+        .await;
+    screen.activate(&close, "click").await;
+    assert_eq!(
+        client.exit_within(PATIENCE).code(),
+        Some(65),
+        "EX_DATAERR: {}",
+        client.log()
+    );
     assert!(daemon.terminate().await.success(), "{}", daemon.log());
 }

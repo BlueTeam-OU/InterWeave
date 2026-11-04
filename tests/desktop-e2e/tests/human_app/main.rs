@@ -6,7 +6,8 @@
 //! `human-desktop` binary on a real display. Where a case needs a person
 //! -- to read, keep, or hear the window -- it reads and presses the
 //! window over AT-SPI as a screen reader does (`a11y.rs`), the display's
-//! focus given as a window manager would (`display.rs`).
+//! focus given as a window manager would and a key and a click as a
+//! person makes them (`display.rs`).
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -21,6 +22,7 @@ mod accessibility;
 mod chat;
 mod clipboard;
 mod codes;
+mod content_free_logs;
 mod daemon_link;
 mod display;
 mod endpoints;
@@ -32,6 +34,7 @@ mod reading;
 mod refusal;
 mod release;
 mod retention;
+mod ring;
 mod storage;
 mod trust;
 mod window;
