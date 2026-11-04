@@ -31,8 +31,8 @@ second line shows the route. And wherever they say trust is the
 device's — cards §5.1's shared-device statement, §5.7.2's Trust row,
 `IdentitiesShareDevice`'s last sentence and `TrustAllIdentities` —
 read §5.1 and §6.1: since ADR-0067 d. 6 trust is the identity's (and
-`human-client-ui.md` names these four as overridden until this note
-lands, #553). What this note does not mention there
+#553 has `human-client-ui.md` name these four as overridden until this
+proposal is revised: a dependency until #553 is on `main`). What this note does not mention there
 stands as written: the editor's photo step and unsaved-changes dialog
 (cards §5.2), the switch and its switcher (cards §5.7.1) but for that
 rule, what changes the identity in front (cards §5.7.3) but for §5.3
@@ -42,7 +42,8 @@ other sections point to it.
 
 Owner of the design: ux-designer. The words are language-culture's:
 §13 names each string, where it shows and what it must say, and its
-text here is a proposal for language-culture-en. Colours are roles of
+text is language-culture-en's (§16); a key §13 marks as proposed waits
+for their words. Colours are roles of
 `design/2026-10-16-android-look.md` §3. Both clients render the same
 Slint UI (`crates/human/ui-slint`) from the same `ui-model`; "narrow"
 and "wide" are the layouts `app.slint` already has (one pane, two
@@ -106,7 +107,8 @@ acceptance case in §14 that needs one says so:
 
 **architect-cto's rulings of 2026-11-04** (REPLY 01a1a69f, answering
 §16) are cited below as "ruled"; they land as amendments dated A
-2026-11-04 in `human-client-ui.md` and `ENDPOINTS.md` on PR #553.
+2026-11-04 in ADR-0061 (decisions 7 and 9), ADR-0067 (decision 3),
+`human-client-ui.md` and `ENDPOINTS.md` on PR #553.
 Until it is on `main` they are a dependency of the
 same kind as D1–D3, and the cases that rest on them say so.
 
@@ -702,9 +704,15 @@ can, and the TalkBack rows of §14 are blocked until it does.
 
 - **Names in words.** Every "as" line, subtitle and scope line is text
   in the accessibility tree, read with its control: the send control's
-  name is `SendAs`, Trust's buttons `TrustAs` ("Trust as {identity}:
-  {peer}") with two or more identities held.
-- **Announcements**: `ConfirmIdentityAdded`, `ConfirmRouteRemoved` and
+  name is `SendAs`, and with two or more identities held each Trust
+  control's `TrustAs` ("Trust as {identity}: {peer}"): on the Trust
+  page and in its confirmation, whose visible label is then
+  `TrustPeerAs` ("Trust as {identity}") in place of `TrustPeer`; and a
+  Peers row's Trust (N8), whose visible label `TrustThisPeer` ("Trust")
+  it already begins with.
+- **Announcements**: `ConfirmIdentityAdded`, the route-removed snackbar
+  in each of its forms (`ConfirmRouteRemoved`,
+  `ConfirmRouteRemovedTrusted`, `ConfirmRouteRemovedTrustedAs`) and
   the switch's snackbar are announced once through the live region
   (WCAG 4.1.3); the transition's `SwitchingTo` too.
 - **Targets**: the switch, each switcher row, the route menu button and
@@ -744,7 +752,8 @@ front.
 | `ProposalAs` | If you accept, the card is saved in the contacts of {identity}. | Accept's context, its last sentence, in every case but S (N4) | the contact is saved to the identity in front |
 | `TrustStepAs` | Trust as {identity} | add-a-peer trust step's button (N9) | "Trust as {identity}" |
 | `TrustScope` | The peers listed here can exchange messages with {identity}. Each of your other identities trusts its own peers. | Trust, under the title | peers trusted here write to this identity; the other identities trust their own |
-| `TrustAs` | Trust as {identity}: {peer} | each Trust button's accessible name | trust {peer} as {identity}; begins with the button's visible label |
+| `TrustPeerAs` | Trust as {identity} *(proposed: the text of `TrustStepAs`)* | the Trust page's trust control and its confirmation's primary, in place of `TrustPeer` ("Trust this peer") | "Trust as {identity}" |
+| `TrustAs` | Trust as {identity}: {peer} | the accessible name of the Trust page's trust controls (`TrustPeerAs`) and of a Peers row's Trust (`TrustThisPeer`) | trust {peer} as {identity}; begins with the button's visible label |
 | `RemoveTrustAs` | Remove trust as {identity}: {peer} | each Remove trust button's accessible name, Trust | untrust {peer} as {identity}; begins with the visible label |
 | `PeersShared` | These addresses are saved on this device, for all your identities. | Peers, under Add | addresses are the device's, for every identity |
 | `PeerStateTrustedAs` | Trusted by {identity}: this device tries to connect to this address | a Peers row, in place of `PeerStateTrusted` | trusted by {identity}; the device dials it |
@@ -774,7 +783,13 @@ front.
 
 **Existing trust strings, their form with two or more identities.**
 Each is shown in place of the key it names, with two or more
-identities held; with one, that key's text stands.
+identities held; with one, that key's text stands. Each As form fills
+its placeholders as the key it replaces does: in `ConfirmAllowAs`,
+`ConfirmRevokeAs`, `PeerTrustedAs` and `PeerUntrustedAs`, `{peer}` is
+the exact PeerId, whole, as in `ConfirmAllow`, `ConfirmRevoke`,
+`PeerTrusted` and `PeerUntrusted` (`labels.rs`), never the short
+PeerId of cards §10, since the confirmation is where the person checks
+every character before trusting.
 
 | key | in place of | text |
 |---|---|---|
@@ -963,13 +978,16 @@ pass before it lands.
   trusts as itself; a "trust for all" control would be the cross-
   identity act the owner's rule forbids.
 - **Turning off an added identity** (cards §11).
-- **The recovery screens' word for the device's key**
-  (`design/2026-10-19-android-identity.md`): `IdCreate`, `IdRestore`,
-  `IdC1Point1`, `IdCreatedTitle`, `IdRestoredTitle`, `IdQReasonKey`,
-  `IdQLost` and `IdStorageFailed` call it "identity", which with two
-  identities reads as one of them, and `IdR1NewKeys` contradicts
-  ADR-0067 d. 5. They are that note's, revised with the identity-key
-  revision above, the words language-culture's.
+- **The recovery screens' word for the device's key.** The build's
+  `IdCreate`, `IdRestore`, `IdC1Point1`, `IdCreatedTitle`,
+  `IdRestoredTitle`, `IdQReasonKey`, `IdQLost` and `IdStorageFailed`
+  (`labels.rs`) still call it "identity", which with two identities
+  reads as one of them; `design/2026-10-19-android-identity.md` already
+  says PeerId in all eight, so that gap is the build's, rust-ui-dev's.
+  `IdR1NewKeys` ("each identity gets a new key") contradicts ADR-0067
+  d. 5 in that note and in the build alike; it is that note's to
+  revise, with the identity-key revision above, the words
+  language-culture's.
 
 ## 16. Questions
 
@@ -1018,5 +1036,5 @@ Open, asked of architect-cto after language-culture-en's pass (j242):
 Answered by language-culture-en (REPLY 01a1a71c, their j242): the
 strings are §13's, and "identity" stays the person's word for a user
 identity, the device's being "this device's PeerId" (contact-cards §12
-L1); the Android recovery screens that still call the device's key an
-identity are §15's.
+L1); the build's recovery strings that still call the device's key an
+identity, and `IdR1NewKeys`, are §15's.

@@ -1330,7 +1330,7 @@ switches.
 
 #### 5.7.5 Notifications
 
-**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs the grouping and the lock screen (§9) where the two differ.
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs the grouping, the lock screen and the desktop form, the identity's name no longer leading its title and the summary naming the identities (§9), where the two differ.
 
 A notification names the identity it arrived on, in its visible text
 and not only by an icon: on Android the identity's name is the
