@@ -1087,5 +1087,6 @@ identity, the device's being "this device's PeerId" (contact-cards §12
 L1); the build's recovery strings that still call the device's key an
 identity, and `IdR1NewKeys`, are §15's. `TrustPeerAs` ("Trust as
 {identity}", added after that reply) was accepted as final in REPLY
-01a1a72b-9f52, and the one-identity `TrustExplanation` and
-`ConfirmRevoke` of §16 Q9 were worded in REPLY 01a1a730-ee4c.
+01a1a72b-9f52; the one-identity `TrustExplanation` of §16 Q9 was
+worded in REPLY 01a1a730-ee4c, and `ConfirmRevoke`, first worded
+there, was replaced under Q10 (REPLY 01a1a73b).
