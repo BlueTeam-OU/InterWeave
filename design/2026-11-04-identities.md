@@ -82,7 +82,12 @@ acceptance case in §14 that needs one says so:
   the same three on Android. §6.2 relies on one behaviour of the add
   that D1 must name: an add whose key derives an EndpointId the profile
   already holds answers that the id exists, distinguishable from a
-  refusal, and creates nothing new.
+  refusal, and creates nothing new. And one property the key's cleanup
+  relies on (§6.2): an add the client stopped waiting for is either
+  committed before the daemon answers any later call, or never commits;
+  and a refusal means no add of that key will commit. Without it, a key
+  deleted on a list that answered could belong to an endpoint created
+  afterwards.
 - **D2** the endpoint dimension of `admin.trust.set` and
   `admin.trust.list` (p2p-network-dev's IPC minor, contract text
   architect-cto's; ADR-0067 d. 6).
@@ -765,9 +770,11 @@ pass before it lands.
 5. An identity's trust rows carry no configuration origin. Needs D2 and
    #553 (§16 Q5).
 6. In front of an identity whose set is empty while the address list is
-   not, Chats shows `NoReachIdentity` with an action opening Trust; a
-   second run with the address list empty checks the ruled condition's
-   other branch (pending §16 Q8).
+   not, Chats shows `NoReachIdentity` with an action opening Trust. Two
+   more runs, with the address list empty: (b) B trusting a peer: Chats
+   in front of A shows `NoReachIdentity` under the ruling, or
+   add-a-peer §5.6's notice if §16 Q8's proposal is accepted; (c) B's
+   set empty too: §5.6's notice, either way.
    With one identity held, the notice is add-a-peer §5.6's, unchanged.
    Needs D2 and #553 (§16 Q2).
 7. Add: the form has no id, label or advertise field; Create makes an
