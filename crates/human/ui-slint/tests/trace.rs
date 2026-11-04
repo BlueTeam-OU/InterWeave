@@ -1020,10 +1020,6 @@ fn the_discard_dialog_takes_focus_holds_it_and_gives_it_back() {
     page.settle();
     assert_eq!(page.said.borrow().len(), first, "Ctrl+Tab moves no focus");
     page.tab();
-    assert!(
-        common::shown_ring(page.view.window()).is_some(),
-        "Tab draws the ring"
-    );
     page.tab();
     page.backtab();
     assert_eq!(
@@ -1172,6 +1168,38 @@ fn back_from_r2_to_k1_focuses_its_primary() {
     page.key(Key::Escape);
     assert_eq!(page.flow.screen(), ScreenId::K1);
     assert_eq!(page.last(), "ui-trace focus=identity-primary");
+}
+
+/// The dialog reached with no Tab before it: it opens on Continue
+/// entering with no ring, Ctrl+Tab moves no focus and draws none, and
+/// Tab moves to delete and draws it (#547's `FocusMode.navigates`).
+#[test]
+fn the_discard_dialog_draws_its_ring_on_tab_and_not_on_ctrl_tab() {
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    page.key("o");
+    page.enter();
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-keep");
+    assert!(
+        common::shown_ring(page.view.window()).is_none(),
+        "control: no ring yet"
+    );
+    let before = page.said.borrow().len();
+    common::ctrl_tab(page.view.window().window());
+    page.settle();
+    assert_eq!(page.said.borrow().len(), before, "Ctrl+Tab moves no focus");
+    assert!(
+        common::shown_ring(page.view.window()).is_none(),
+        "Ctrl+Tab draws no ring"
+    );
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-delete");
+    assert!(
+        common::shown_ring(page.view.window()).is_some(),
+        "Tab draws the ring"
+    );
 }
 
 /// TAB until focus is on `line`, a bounded number of times.
