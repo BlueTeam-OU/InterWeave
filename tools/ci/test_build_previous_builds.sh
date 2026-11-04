@@ -241,8 +241,8 @@ else fail "rustup installs the toolchain in the commit's own tree, before cargo"
 reset
 run_rustup "stage13-45ba3928 $SHA_A" "$SANDBOX/out"
 if [[ $rc -eq 0 && "$(grep -c '^rustup ' "$SANDBOX/log")" -eq 1 ]] && ! grep -q '^rustup show' "$SANDBOX/log"; then
-    pass "rustup runs once, never as show's deprecated auto-install"
-else fail "rustup runs once, never as show's deprecated auto-install" "rc=$rc $(cat "$SANDBOX/log")"; fi
+    pass "rustup runs once, as toolchain install, never as show"
+else fail "rustup runs once, as toolchain install, never as show" "rc=$rc $(cat "$SANDBOX/log")"; fi
 reset
 touch "$SANDBOX/rustup-install-fails"
 run_rustup "stage13-45ba3928 $SHA_A" "$SANDBOX/out"
