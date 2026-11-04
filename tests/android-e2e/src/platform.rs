@@ -416,12 +416,22 @@ pub fn with_availability(config: &str, mode: AvailabilityMode) -> Result<String,
                     !t.is_empty() && !t.starts_with('#') && indent(&lines[i]) == 0
                 })
                 .unwrap_or(lines.len());
+            // The document's own indent, at each level: a key indented
+            // otherwise would land under the wrong parent.
+            let child = |parent: usize, end: usize| {
+                (parent + 1..end)
+                    .map(|i| lines[i].as_str())
+                    .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+                    .map(indent)
+                    .filter(|&n| n > indent(&lines[parent]))
+            };
+            let step = child(runtime, block_end).unwrap_or(2);
             if let Some(i) = (runtime + 1..block_end).find(|&i| lines[i].trim() == "android:") {
-                let pad = " ".repeat(indent(&lines[i]) + 2);
-                lines.insert(i + 1, format!("{pad}{set}"));
+                let at = child(i, block_end).unwrap_or(indent(&lines[i]) + step);
+                lines.insert(i + 1, format!("{}{set}", " ".repeat(at)));
             } else {
-                lines.insert(runtime + 1, format!("    {set}"));
-                lines.insert(runtime + 1, "  android:".to_owned());
+                lines.insert(runtime + 1, format!("{}{set}", " ".repeat(2 * step)));
+                lines.insert(runtime + 1, format!("{}android:", " ".repeat(step)));
             }
         }
         _ => return Err(format!("more than one availability_mode in:\n{config}")),
@@ -798,14 +808,25 @@ channels:
 
     /// Every first-run shape a phone may hold: the example as provisioned,
     /// the debug app's stand-in, and profile-config's (`android:` with no
-    /// mode).
-    fn shapes() -> [(&'static str, String); 3] {
+    /// mode); and both as a person might indent them, four spaces a level.
+    fn shapes() -> [(&'static str, String); 5] {
         [
             ("example", concrete_example()),
             ("stand-in", STAND_IN.to_owned()),
             (
                 "first-run",
                 interweave_profile_config::provision::embedded_document("human-android"),
+            ),
+            (
+                "stand-in, four spaces",
+                STAND_IN.replace("\n  deployment:", "\n    deployment:"),
+            ),
+            (
+                "first-run, four spaces",
+                interweave_profile_config::provision::embedded_document("human-android")
+                    .replace("\n  deployment:", "\n    deployment:")
+                    .replace("\n  android:", "\n    android:")
+                    .replace("\n    endpoint: human", "\n        endpoint: human"),
             ),
         ]
     }
