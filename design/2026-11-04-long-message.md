@@ -17,15 +17,21 @@ Slint UI (`crates/human/ui-slint`) from the same `ui-model`; "narrow"
 and "wide" are the layouts `app.slint` already has. Built by
 rust-ui-dev.
 
-This note replaces the look spec's edge case "A very long message"
-(`design/2026-10-16-android-look.md` §8) for a body past §6's bound;
-below it that line stands as written.
+**What this note revises.** For a body past §6's bound, it replaces
+the look spec's edge case "A very long message"
+(`design/2026-10-16-android-look.md` §8); for a body within the bound,
+that line stands as written. It revises one rule of
+`design/2026-10-16-message-swipe.md` §7: a cut row has a second focus
+stop besides its bubble and its links, Read the whole message (§4.3,
+§9). The menu rule of message-swipe §7, Show source last, stands: the
+two new menu items come before it (§4.3).
 
 ## 1. What is already decided
 
-- **HUMAN-CHAT.md §Text is markdown**: a body is up to 196 608 bytes
-  decompressed; render cost must stay linear in its size; the raw
-  source is always available to the receiver, however it rendered.
+- **HUMAN-CHAT.md**: an envelope is at most 196 608 bytes decompressed,
+  so a body is somewhat less; render cost must stay linear in its size;
+  the raw source is always available to the receiver, however it
+  rendered.
 - **RETENTION.md §3**: read is a local UI state; a read message not
   kept is gone when the process exits; Keep is offered only after read.
 - **`ui-model` `conversation_viewed`**: every unread row of a
@@ -46,16 +52,16 @@ the conversation past it; to read any part of it, start to end; and to
 take all of it elsewhere (into a file, an editor, a ticket).
 
 **Why not draw it whole** (rust-ui-dev's alternative: the whole body
-drawn in bounded pieces, which fixes the panic alone). The panic is
+drawn in bounded pieces, which fixes only the panic). The panic is
 one cost; the person's is another. At the ceiling, a body is some
 49 000 drawn lines. In place, the messages after it are reachable only
-by scrolling through all of it, on a phone tens of thousands of
-flings, and the conversation's own position is lost in it. That fails
-user control and freedom and flexibility and efficiency of use
-(Nielsen's heuristics 3 and 7): the person cannot step past content
-they did not ask for. Messaging apps on both platforms cut a long
-message in the conversation and open the whole in a view of its own
-(the Android Signal client's "Read more", Gmail's "Message clipped —
+by scrolling through all of it, on a phone more than a thousand
+screens, and the conversation's own position is lost in it. That fails
+two of Nielsen's heuristics, 3 (user control and freedom) and 7
+(flexibility and efficiency of use): the person cannot step past
+content they did not ask for. Messaging apps on both platforms cut a
+long message in the conversation and open the whole in a view of its
+own (the Android Signal client's "Read more", Gmail's "Message clipped —
 View entire message"). That is platform habit, not proof; the
 hypothesis this note makes, and how it is checked, is §10's H1.
 
@@ -69,12 +75,13 @@ otherwise. Nothing changes for a whole body.
 | whole | the body, as today | not offered |
 | cut, formatted | the preview (§4.1), the cut line (§4.2), Read the whole message (§4.3) | the whole body, formatted |
 | cut, source | the source's preview, the cut line, Read the whole message | the whole source |
-| reader opening | — | its first screen within §9's figure; no spinner below 0.5 s, then an indeterminate progress bar under the app bar until the first screen is drawn |
+| reader opening | — | its first screen within A5's figure (§10); nothing below 0.5 s, then an indeterminate progress bar under the app bar, labelled `ReaderOpening` (§8), until the first screen is drawn |
 | row gone while the reader is open | — | the reader closes (§5.4) |
 
 A sent message is treated as a received one: the person may have
-pasted something long themselves. Its delivery state stays under the
-bubble, after the cut line and the button.
+pasted something long themselves. Its delivery state stays inside the
+bubble, under the cut line and the button, as the look spec puts it
+under the text.
 
 ## 4. Where the body stops (question 1)
 
@@ -85,38 +92,47 @@ bubble, after the cut line and the button.
   numbering or a code block that runs past the cut look in the preview
   as they do in the reader.
 - It ends at the last block boundary (a paragraph, a list item, a table
-  row, a code line, a heading) inside the bound when that boundary is in
-  the bound's last quarter; otherwise at the last word boundary inside
-  it, then an ellipsis (`…`) at the end of the cut line. Never inside a
-  grapheme cluster. A table cut between rows keeps its header row.
+  row, a code line, a heading) inside the preview's limit (§6) when
+  that boundary is in the limit's last quarter; otherwise at the last
+  word boundary inside the limit, and then an ellipsis (`…`) follows the
+  preview's last word. The cut never falls inside a grapheme cluster. A
+  table cut between rows keeps its header row.
 - A link whose text is cut is not in the preview, and its control
-  (the one after the text) is not drawn; it is in the reader.
+  (the one after the text) is not drawn; the link is in the reader.
 - In source mode (Show source, as today) the preview is the source's
   start, cut by the same rule over its lines.
 
 ### 4.2 The cut line
 
 Under the preview, inside the bubble, in `on-surface-variant` on the
-bubble's colour (contrast §9): one line saying the message continues
-and **how much of it is shown**, as a whole percentage —
-`LongMessageShown` (§8). A percentage, not lines or words, because
-it is the one measure that does not depend on how the text wraps, which
-script it is in or how the person counts: drawn lines change with the
-width and text size, words do not exist in a script written without
-spaces, and characters mean nothing to most people. It is the share of
-the body's characters in the preview, rounded down, at least 1 %.
+bubble's colour (contrast §9): a short sentence saying the message
+continues and **how much of it is shown**, as a whole percentage —
+`LongMessageShown` (§8). It wraps like the text: at 200 % text it takes
+two or three lines. A percentage, not lines or words, because it is the
+one measure that does not depend on how the text wraps, which script it
+is in or how the person counts: drawn lines change with the width and
+text size, a script written without spaces does not mark where words
+end, and characters mean nothing to most people. It is the share of the
+body's characters in the preview, rounded down, at least 1 %.
 
 ### 4.3 Read the whole message
 
 A text button, `ReadWholeMessage` (§8), under the cut line at the
 bubble's start edge, with the 48 dp target every control keeps. It
 opens the reader (§5) at the start of the body, in the mode the row
-is in (formatted or source). It is also an item in the row's menu,
-after Show source, and an accessibility action of the row, so it is
-reachable from the menu, the keyboard and TalkBack's actions as well
-as by a press. No gesture opens it.
+is in (formatted or source). It is a control at rest on purpose,
+unlike the row's actions, which are in its menu (message-swipe §7):
+the cut line says there is more, and the way to it must be in sight
+beside it (visibility of system status, Nielsen's heuristic 1).
 
-Keep, Hide and Show source stay on the row and act on the whole
+It is also an item of the row's menu. A cut row's menu, in order: the
+row's actions as message-swipe §7 gives them (Keep and Dismiss, or
+Unkeep, or Retry and Cancel), then Read the whole message, then
+`CopyMessage` (§5.3), then Show source last. Where the toolkit offers
+custom accessibility actions (message-swipe §7: optional, not there
+today), it is one of the bubble's as well. No gesture opens it.
+
+Keep, Dismiss and Show source stay on the row and act on the whole
 message, as today.
 
 ## 5. The reader, and the source past the bound (question 2)
@@ -126,20 +142,26 @@ message, as today.
 A page of its own: on a narrow layout it covers the app, on a wide one
 it takes the conversation's pane with the list beside it, as the
 contact page does. Its top app bar: Back (the navigation icon), the
-title `ReaderTitle` (§8, naming the sender, and the time as the row
-shows it), and two actions — Show source / Show formatted (the same
-labels as the row's), and Copy (§5.3). Below the bar, the whole body
-in one continuous scroll, drawn as the person scrolls so that only
-what is near the screen is laid out. Its look is the bubble's text
-on `surface`, without the bubble.
+title `ReaderTitle` (§8: the sender, the day as the conversation's day
+separator says it, and the time), and two actions — Show source / Show
+formatted (the same labels as the row's), and Copy (§5.3). Below the
+bar, the whole body in one continuous scroll, drawn as the person
+scrolls so that only what is near the screen is laid out. Its look is
+the bubble's text on `surface`, without the bubble.
 
 **Not pages.** The whole body is one scroll, not pages of N lines:
 paging breaks a log's line or a paragraph at an edge the content did
 not choose, puts a control between the person and the next line, and
-no app on either platform reads text that way. Scrolling is the
+no app on either platform shows text that way. Scrolling is the
 platform's convention; the scroll bar (desktop) and the fast-scroll
-thumb (Android, shown once the body is taller than four screens) give
-the position and a way to cross it.
+thumb (Android, shown once the body is taller than four screens) show
+where the person is in the body and let them move through it quickly.
+Whether the toolkit offers both is a precondition of A5 (§10).
+
+**Across a resize.** A window that changes between narrow and wide
+(a rotation, a fold, a desktop resize) keeps the reader open, at the
+same place in the body, with focus where it was: on narrow it covers
+the app, on wide it takes the conversation's pane.
 
 ### 5.2 Source in the reader
 
@@ -153,47 +175,54 @@ switch is on screen after it.
 
 ### 5.3 Copy
 
-Copy puts the **whole raw source, byte for byte as received**, on the
-clipboard, in one action, whatever part the reader shows and whichever
-mode it is in. It is also an item of every text message's row menu,
-cut or whole (`CopyMessage`): after Read the whole message on a cut
-message, after Show source on a whole one; a card has none. Feedback: on Android 13 and later the system shows
-its own clipboard confirmation and the app adds none (the platform's
-guidance); before 13, and on the desktop, a snackbar `MessageCopied`.
-If the platform refuses the copy, a snackbar `MessageNotCopied` says so;
-nothing else changes. Copy is not undoable and needs no undo: it
-changes nothing in the app.
+Copy puts the **message's whole markdown source** — the envelope's
+`text` as the sender wrote it, byte for byte — on the clipboard, in one
+action, whatever part the reader shows and whichever mode it is in.
+It is also an item of every text message's row menu, cut or whole
+(`CopyMessage`): on a cut row as §4.3 orders it, on a whole one just
+before Show source; a card has none. Feedback: on Android 13 and later
+the system shows its own clipboard confirmation and the app adds none
+(the platform's guidance); on Android 12 and earlier, and on the
+desktop, a snackbar `MessageCopied`. If the platform refuses the copy,
+a snackbar `MessageNotCopied` says so; nothing else changes. Copy is
+not undoable and needs no undo: it changes nothing in the app.
 
 The conditions architect-cto's ruling carries (§11 Q1), each a check
 of A9: Copy acts on the person's press only, never on receipt, read or
-open; the clipboard gets the received source and nothing else — no
-sender, time, id, route or formatting of the app's; one write per
-press, always the whole body, never a part.
+open; the clipboard gets the source and nothing else — no sender,
+time, id, route or formatting of the app's; one write per press,
+always the whole body, never a part. Because the source carries the
+markdown, the label says so: Copy message source (§8).
 
-On Android 13 and later the clip is **not** marked sensitive. The flag
-hides the system's preview of what was copied; the message is on the
-person's screen at the moment they copy it, so the preview shows
+On Android 13 and later the clip is **not** marked sensitive. Marking
+a clip sensitive hides the system's preview of it; the message is on
+the person's screen at the moment they copy it, so the preview shows
 nothing that is not already shown, and without it the person loses the
 one sign of what was copied. (Recovery words, which are marked so, have
 no clipboard path at all: `design/2026-10-19-android-identity.md`.)
 
 ### 5.4 Leaving the reader
 
-Back (Android's system Back and the app bar's), Escape on the desktop:
-the reader closes and the conversation is where it was. The reader also
-closes, with no message of its own, when its row leaves the
-conversation (the conversation hidden from the list beside it, on a
-wide layout) — the person did that themselves.
+Back (Android's system Back or the app bar's) or, on the desktop,
+Escape closes the reader, and the conversation is where it was.
+
+The reader also closes, with no message of its own, when its row
+leaves the conversation. Only the person's own act can cause it: on a
+wide layout, hiding the conversation from the list beside the reader.
+Nothing else removes the row while the reader is open: the session's
+item ceiling (`ui-model`'s eviction of read, unkept items) never
+evicts the item open in the reader, as it never evicts the focused
+item, so the text cannot go from under the person while they read it.
 
 ## 6. The bound (question 3)
 
 **Both, characters and lines.** A body is cut when it has more than
-**2 400 characters** or more than **48 lines**, and the preview is then
+**2 000 characters** or more than **40 lines**, and the preview is then
 at most **1 600 characters** and **32 lines**. A character is a
 grapheme cluster; a line is one of the model's lines (a paragraph, a
 list item, a table row, a code line, a heading, a rule), however it
-wraps. The gap between the two figures is so that a body just over the
-bound is not cut by a sentence.
+wraps. The gap between the two figures is there so that a body just
+over the bound is never cut to hide only its last sentence or two.
 
 Why both: characters bound a body that is one long paragraph, which
 wraps into many drawn lines without a line of the model; lines bound a
@@ -201,23 +230,33 @@ list of one-letter items, which has many lines and few characters.
 
 Why these figures, and the conditions any other figures must keep:
 
-- **The person's**: at 100 % text on a phone the preview is about one
-  and a half screens — enough to tell what the message is, never so
-  much that the next message is far.
+- **For the person**: at 100 % text on a phone the preview is about
+  one and a half screens — enough to tell what the message is, never
+  so much that the next message is far.
 - **At 200 % text**: the preview is taller but bounded, and every
-  whole body at the bound, on the narrowest layout, at the highest
-  display scale either client supports, draws under the renderer's
-  ceiling. My estimate on the Pixel 9a (2.625 dp per px, a 32 sp line
-  about 126 px, about 17 characters per line in a narrow bubble):
-  2 400 / 17 + 48 ≈ 190 drawn lines, about 24 000 px. That is an
-  estimate, not a measurement; §10's A4 is the measurement, and if it
-  does not hold the figures go down, not the text size.
+  whole body at the bound, in its tallest shape, on the narrowest
+  layout, at the highest display scale either client supports, draws
+  under the renderer's ceiling. My estimate on the Pixel 9a (2.625 px
+  per dp; body text 32 sp on a 48 sp line, about 126 px, about 17
+  characters per line in a narrow bubble; a first-level heading 40 sp
+  on a 56 sp line, about 147 px, about 13.6 characters per line): a
+  paragraph body, 2 000 / 17 + 40 ≈ 158 drawn lines, about 19 900 px;
+  a body of 40 headings, 2 000 / 13.6 + 40 ≈ 187 lines, about
+  27 500 px. That is an estimate, not a measurement; §10's A4 is the
+  measurement, and if it does not hold the figures go down, not the
+  text size. (The first figures, 2 400 and 48, gave about 33 000 px for
+  the heading body, over the ceiling: review round 1, F9.)
 
-## 7. Read, Keep and what a cut changes nothing of
+## 7. Read, Keep and what a cut does not change
 
 - A cut message is read when its conversation is shown, as any message
-  is (§1): opening the reader does not read it, and not opening it
-  does not keep it unread.
+  is (§1): opening the reader does not make it read, and not opening
+  it does not keep it unread.
+- While the reader is open, its conversation is not shown, as with the
+  trust settings that cover it (`crates/human/ui-slint/README.md`): a
+  message that arrives in that conversation meanwhile stays unread,
+  keeps its stored copy, and is read when the reader closes and the
+  conversation is shown again.
 - Keep is on the row and keeps the whole message. A person who wants
   to come back to a long message after the app closes keeps it; the
   cut line is what tells them there is more to come back to.
@@ -226,17 +265,19 @@ Why these figures, and the conditions any other figures must keep:
 
 ## 8. Strings
 
-Names and what each must say; the words are language-culture-en's, and
-every locale's theirs.
+Names, where each shows and what it must say; the words are
+language-culture-en's (proposed on #561), and each other locale's words
+are that locale's holder's.
 
-| key | where | must say |
-|---|---|---|
-| `LongMessageShown` | the cut line (§4.2) | that the message continues past what is shown, and the share shown as a percentage (one value, `{percent}`, formatted by the locale) |
-| `ReadWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read |
-| `ReaderTitle` | the reader's app bar (§5.1) | the sender's name (`{sender}`) and when it was sent, as the row shows it (`{time}`) |
-| `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message, as it was written |
-| `MessageCopied` | snackbar (§5.3) | that the whole message is on the clipboard |
-| `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied |
+| key | where | must say | en (proposed) |
+|---|---|---|---|
+| `LongMessageShown` | the cut line (§4.2) | that the message continues past what is shown, and the share shown (`{percent}`, the whole locale-formatted value, sign included) | The first {percent} of the message is shown. |
+| `ReadWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Read the whole message |
+| `ReaderTitle` | the reader's app bar (§5.1) | the sender (`{sender}`, `You` for one's own), the day as the day separator says it (`{day}`) and the time as the row shows it (`{time}`) | {sender}, {day}, {time} |
+| `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | (to be worded) |
+| `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
+| `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
+| `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied | Could not copy the message |
 
 Show source and Show formatted reuse the row's existing labels.
 
@@ -246,26 +287,29 @@ Show source and Show formatted reuse the row's existing labels.
 
 | case | focus goes to | check |
 |---|---|---|
-| Read the whole message pressed (button, menu or action) | the reader's first content element: on Android, TalkBack's focus on the app bar's title; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
+| Read the whole message pressed (button or menu) | the reader's first content element: on Android, TalkBack's focus on the app bar's title; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
 | Reader closed (Back, Escape) | the row's Read the whole message button | A6 |
-| Reader closed because its row left | the conversation's composer; on a wide layout with the conversation gone too, the list | A7 |
+| Reader closed because its row left (§5.4) | stays where the person's act in the list left it | A7 |
 | Show source / Show formatted in the reader | stays on the action pressed | A6 |
 | Copy pressed | stays on Copy | A6 |
 | The app sent to the background and back with the reader open | the reader, at its position, focus where it was | A7 |
+| The window resized between narrow and wide with the reader open | where it was in the reader (§5.1) | A7 |
 
-- **Reading order** in a cut row: the preview, the cut line, Read the
-  whole message, then the preview's link controls, then the row's
-  delivery state. TalkBack reads the cut line as text, never as part
-  of the button's label; the button's label is its own string.
+- **What is read, and in what order**, in a cut row: the bubble is read
+  as one item, as the look spec's `Item` label gives it, with `{body}`
+  the preview's text followed by the cut line's sentence — never the
+  whole body. Then, as their own stops, Read the whole message, the
+  preview's link controls, and the row's next element. The button's
+  label is its own string.
 - **Keyboard** (desktop): Tab reaches Read the whole message after the
-  row's text; in the reader, Tab goes Back, Show source, Copy, the
-  scroll area; Up, Down, Page Up, Page Down, Home and End scroll;
-  Escape closes.
+  row's bubble and before its links; in the reader, Tab goes to Back,
+  then Show source (or Show formatted), Copy and the scroll area; Up,
+  Down, Page Up, Page Down, Home and End scroll; Escape closes.
 - **TalkBack in the reader**: swiping forward reads the body block by
   block, scrolling as it goes, to the end of the body, though only
-  what is near the screen is laid out. If the build's accessibility
-  tree cannot expose blocks that are not laid out, that is a
-  precondition A8 states: blocked, never passed.
+  what is near the screen is laid out. A8 states this as a
+  precondition: if the build's accessibility tree cannot expose blocks
+  that are not laid out, A8 is blocked, never passed.
 - **Contrast**: the cut line's `on-surface-variant` holds 4.5:1 on
   both bubble colours (received, sent) in both schemes, and the button's
   `primary` 4.5:1 on both; the focus ring 3:1 on both bubbles and on
@@ -273,53 +317,69 @@ Show source and Show formatted reuse the row's existing labels.
 - **Motion**: the reader's arrival is the platform's page transition;
   under Remove animations it appears without one. Nothing else moves.
 - **RTL**: the cut line and the button sit at the bubble's start edge,
-  on the right; the ellipsis ends the cut line on its left; the
-  percentage is the locale's (`٪` and Arabic-Indic digits where the
+  on the right; the ellipsis ends the preview's last line on its left;
+  the percentage is the locale's (`٪` and Arabic-Indic digits where the
   locale writes them). The reader mirrors as every page does.
 
 ## 10. Acceptance
 
 Run on the Pixel 9a and the A40 for Android, the desktop build at
-scale 1 and 2, with a body at the 196 608-byte ceiling of each shape:
-one long paragraph, a list of one-letter items, a code block, a table
-of 256 rows. Each is checked in formatted and source mode, at 100 % and
+scale 1 and 2, with a body of each of these shapes, the largest whose
+envelope fits the 196 608-byte ceiling: one long paragraph, a list of
+one-letter items, a code block, a table of 256 rows, first-level
+headings. Each is checked in formatted and source mode, at 100 % and
 200 % text, left to right and right to left.
 
-- **A1** A body of 2 400 characters and 48 lines is whole; one more
+**Precondition on Android** for every TalkBack check below (A6's
+Android half, A8): an accessibility adapter that lets TalkBack reach
+the app. The Android build has none today
+(`apps/human-android/device-runs/2026-11-04-samsung-a40.md`); without
+it, those checks are blocked, never passed.
+
+- **A1** A body of 2 000 characters and 40 lines is whole; one more
   character, or one more line, and it is cut (§6).
 - **A2** A cut row shows the preview, the cut line with a percentage
   equal to the preview's characters over the body's, rounded down and
   at least 1, and Read the whole message; its preview ends as §4.1
-  says, and a table cut keeps its header.
+  says, and a table cut keeps its header. Its menu is in §4.3's order.
 - **A3** With a cut message in the middle of a conversation, the next
-  message is on screen after at most two screens' scrolling past its
-  start.
-- **A4** At 200 % text, the narrowest layout and the highest scale, no
-  row is taller than the renderer's ceiling: the build measures the
-  tallest row of A1's whole body and reports it, and nothing panics
-  for any shape.
+  message is on screen after scrolling at most two screens past the cut
+  message's start at 100 % text, and at most five at 200 % (the same
+  preview takes more screens at the larger size: §6's figures give
+  about 4.9 on the Pixel 9a).
+- **A4** At 200 % text, on the narrowest layout and at the highest
+  scale, a whole body at the bound in each shape — A1's body, as
+  paragraph, list, code, table and headings — draws without a panic,
+  and the build measures and reports the tallest row's height against
+  the 32 767 px ceiling.
 - **A5** The reader opens on each shape with its first screen drawn
   within 0.5 s on the A40, optimised build; End reaches the body's last
   line within 1 s; scrolling shows no blank screen and no seam (§5.2).
   The build measures and reports both times; a figure it cannot reach
-  comes back to ux-designer, not changed quietly.
-- **A6** Every row of §9's focus table but the last two, by keyboard on
-  the desktop and TalkBack on the Pixel.
-- **A7** The reader's row removed while it is open, and the app sent to
-  the background and back, as §9 says.
+  comes back to ux-designer, not changed quietly. Precondition: the
+  toolkit offers the scroll bar and the fast-scroll thumb of §5.1; a
+  missing one is reported, not built around.
+- **A6** Every row of §9's focus table whose check is A6, by keyboard
+  on the desktop and TalkBack on the Pixel.
+- **A7** The reader's row removed while it is open, the app sent to
+  the background and back, and the window resized, as §9 says; and with
+  more than the session's item ceiling of read, unkept messages, a new
+  one arriving leaves the reader open on its message (§5.4).
 - **A8** TalkBack reads a cut message's reader from its start to its
   last block by swiping forward alone. Precondition: an accessibility
-  tree that exposes the unlaid blocks (§9); without it, blocked.
+  tree that exposes the blocks that are not laid out (§9); without it,
+  blocked.
 - **A9** Copy, from the reader in each mode and from the row's menu of
   a cut and of a whole message, puts on the clipboard bytes equal to
-  the received source (compared with the stored source) and nothing
-  else, once per press, and the feedback of §5.3 shows; on Android 13
-  and later the system's confirmation shows its preview (the clip not
-  marked sensitive). Receiving, reading and opening a message write
-  nothing to the clipboard.
+  the message's `text` as the build holds it (the source Show source
+  shows) and nothing else, once per press, and the feedback of §5.3
+  shows; on Android 13 and later the system's confirmation shows its
+  preview (the clip not marked sensitive). Receiving, reading and
+  opening a message write nothing to the clipboard.
 - **A10** A cut message is read when its conversation is shown, and
   Keep on it keeps the whole message: after a restart the reader opens
-  on all of it.
+  on all of it. A message arriving in the conversation while the reader
+  is open stays unread until the reader closes (§7).
 
 **H1** (the hypothesis of §2, unvalidated): a person given a
 conversation with a long pasted log in its middle, asked to find the
@@ -342,7 +402,8 @@ miss the cut line, or look for the next message inside the reader.
   rule over source lines; architect-cto writes the amendment on their
   branch, and it corrects their earlier DECISION 01a1a899 to
   rust-ui-dev (a line-box cap with paged source), so both read this
-  rule.
+  rule. The ruling took the first figures, 2 400 and 48; §6 lowered
+  them to 2 000 and 40 after it, and architect-cto was told.
 - **Q3 — rust-ui-dev**: does the composer draw a draft at the ceiling
   without the same panic? A long draft is not designed here.
 
