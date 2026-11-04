@@ -281,7 +281,7 @@ are that locale's holder's.
 |---|---|---|---|
 | `LongMessageShown` | the cut line (§4.2) | that the message continues past what is shown, and the share shown (`{percent}`, the whole locale-formatted value, sign included) | The first {percent} of the message is shown. |
 | `ReadWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Read the whole message |
-| `ReaderTitle` | the reader's app bar (§5.1) | the sender (`{sender}`, `You` for one's own), the day (`{day}`: `Today` or `Yesterday`, else the list rows' short date, `DateRowThisYear` or its older-year form) and the time as the row shows it (`{time}`) | {sender}, {day}, {time} |
+| `ReaderTitle` | the reader's app bar (§5.1) | the sender (`{sender}`, `You` for one's own), the day (`{day}`: `Today` or `Yesterday`, else the list rows' short date, `DateRowThisYear` or `DateRowOtherYear` of the look spec §9) and the time as the row shows it (`{time}`) | {sender}, {day}, {time} |
 | `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | Opening the whole message |
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
