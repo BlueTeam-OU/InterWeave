@@ -81,7 +81,7 @@ cat > "$S/rustup" <<'R'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE_DIR/rustup.args"
 case "${1:-}" in
-    show) [ -z "${FAKE_NO_ACTIVE:-}" ] ;;
+    toolchain) [ -z "${FAKE_INSTALL_FAIL:-}" ] ;;
     target) [ -z "${FAKE_TARGET_FAIL:-}" ] ;;
 esac
 R
@@ -195,9 +195,13 @@ out="$(run -- rust cargo-ndk)"; rc=$?
 grep -qx "target add aarch64-linux-android" "$S/rustup.args" 2>/dev/null && ok "rustup adds RUST_ANDROID_TARGET" || bad "rustup argv" "$(cat "$S/rustup.args" 2>/dev/null)"
 [[ "$(cat "$S/cargo.args" 2>/dev/null)" == "install cargo-ndk --version =4.1.2 --locked" ]] \
     && ok "cargo installs cargo-ndk at exactly CARGO_NDK_VERSION, --locked" || bad "cargo argv" "$(cat "$S/cargo.args" 2>/dev/null)"
-out="$(run FAKE_NO_ACTIVE=1 -- rust)"; rc=$?
-[[ $rc -eq 0 ]] && grep -qx "toolchain install" "$S/rustup.args" 2>/dev/null \
-    && ok "no active toolchain: rust-toolchain.toml's is installed explicitly" || bad "rc $rc" "$(cat "$S/rustup.args" 2>/dev/null; echo "$out")"
+rm -f "$S/rustup.args"
+out="$(run -- rust)"; rc=$?
+[[ $rc -eq 0 && "$(head -1 "$S/rustup.args" 2>/dev/null)" == "toolchain install --no-self-update" ]] \
+    && ! grep -q '^show' "$S/rustup.args" \
+    && ok "rust-toolchain.toml's toolchain is installed explicitly, never by show's auto-install" || bad "rc $rc" "$(cat "$S/rustup.args" 2>/dev/null; echo "$out")"
+out="$(run FAKE_INSTALL_FAIL=1 -- rust)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"could not install the rust-toolchain.toml toolchain"* ]] && ok "a toolchain rustup cannot install: exit 1" || bad "rc $rc" "$out"
 out="$(run FAKE_TARGET_FAIL=1 -- rust)"; rc=$?
 [[ $rc -eq 1 && "$out" == *"could not add the target aarch64-linux-android"* ]] && ok "a target rustup cannot add: exit 1" || bad "rc $rc" "$out"
 

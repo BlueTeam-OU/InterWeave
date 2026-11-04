@@ -136,9 +136,12 @@ jobs:
       # Installs exactly what rust-toolchain.toml pins, rustfmt and
       # clippy included. The runner's preinstalled toolchain is whatever
       # the image was built with, which is the floating compiler the pin
-      # exists to avoid.
+      # exists to avoid. With no name, `rustup toolchain install` installs
+      # the file's toolchain and is a no-op when it is there; a `rustup
+      # show` that installs a missing one is rustup 1.29's deprecated
+      # auto-install. --no-self-update keeps the image's rustup.
       - name: Install the pinned toolchain
-        run: rustup show active-toolchain || rustup toolchain install
+        run: rustup toolchain install --no-self-update && rustup show active-toolchain
 
       # The compiler cargo will use, and the clippy and rustfmt it runs,
       # are the pinned toolchain, and Cargo.toml's rust-version states it.
