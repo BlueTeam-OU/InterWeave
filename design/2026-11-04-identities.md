@@ -848,8 +848,8 @@ the same text, and so do `ContactRouteTrustedAs` and
 | `IdentityRemoveLoses` | This deletes from this device: / The conversations of {identity}, with their unread and kept messages and the messages waiting to be sent / The contacts of {identity} / The list of peers that {identity} trusts / The card of {identity}, with its name and photo / `IdentityRemoveKey` / People who write to {identity} will no longer reach you. This cannot be undone. | its items are §7's, in its order, the trusted peers and the key added; one item a line, each "/" a line break |
 | `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button |
 | `PeerStateNeedsTrust` | unchanged | kept only with one identity held |
-| `TrustExplanation` | *(proposed)* The peers listed here are the peers you trust. They can exchange messages with you. A change made here stays until you change it again. | from the Stage 22 release: no "Only", no claim about this profile (§5.1, §16 Q9) |
-| `ConfirmRevoke` | *(proposed)* Do you want to stop trusting {peer}? This peer can then no longer exchange messages with you, until you trust it again. | from the Stage 22 release: no claim that connections close (§5.1, §16 Q9); `{peer}` the exact PeerId, whole, as today |
+| `TrustExplanation` | The peers listed here can exchange messages with you. A change made here stays until you change it again. | from the Stage 22 release: no "Only", no claim about this profile (§5.1, §16 Q9) |
+| `ConfirmRevoke` | Do you want to stop trusting {peer}? This peer can then no longer exchange messages with you, until you trust it again. | from the Stage 22 release: no claim that connections close (§5.1, §16 Q9); `{peer}` the exact PeerId, whole, as today |
 
 **Retired**, since nothing shows them any more: `IdentityRemoveLabel`
 (§7); `TrustAllIdentities` (cards §5.7.2's "trust is the device's",
@@ -1061,4 +1061,5 @@ identity, the device's being "this device's PeerId" (contact-cards §12
 L1); the build's recovery strings that still call the device's key an
 identity, and `IdR1NewKeys`, are §15's. `TrustPeerAs` ("Trust as
 {identity}", added after that reply) was accepted as final in REPLY
-01a1a72b-9f52.
+01a1a72b-9f52, and the one-identity `TrustExplanation` and
+`ConfirmRevoke` of §16 Q9 were worded in REPLY 01a1a730-ee4c.
