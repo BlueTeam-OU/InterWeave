@@ -98,10 +98,14 @@ concurrency:
   group: release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
+# The jobs name their image, ubuntu-26.04, rather than ubuntu-latest:
+# that label moves to a new image on GitHub's date, not on a commit here
+# (it moved to 26.04 from 2026-10-19, announced by a notice on every job),
+# so with the name an image change is an edit to the runs-on lines.
 jobs:
   tag:
     name: release tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # The pinned toolchain's install, for cargo metadata, is most of it.
     timeout-minutes: 10
     outputs:
@@ -165,7 +169,7 @@ jobs:
     needs: tag
     # Never on a dry run: it builds only what a host install reads.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 90
     env:
       CARGO_INCREMENTAL: "0"
@@ -248,7 +252,7 @@ jobs:
     needs: [tag, apk, linux, linux-run]
     # Never on a dry run: the job that reads the key runs only for a tag.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: release
     timeout-minutes: 20
     steps:
@@ -375,7 +379,7 @@ jobs:
   linux:
     name: release archive (x86_64-unknown-linux-gnu, glibc 2.35)
     needs: tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # The archive's glibc floor, 2.35 on x86_64 (ADR-0065 A 2026-10-25):
     # built in that glibc's own image, so what the programs link against
     # is what the floor has, never the runner's newer one (v0.1.0's
@@ -462,7 +466,7 @@ jobs:
   linux-run:
     name: release archive runs at glibc 2.35
     needs: [tag, linux]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # The floor image again, clean: nothing installed, so a program that
     # starts here needs no more than the floor and the base image give.
     container:
@@ -491,7 +495,7 @@ jobs:
     needs: [tag, apk, sign, linux, linux-run]
     # Never on a dry run, which publishes nothing.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: write

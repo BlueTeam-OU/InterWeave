@@ -21,7 +21,7 @@
 #
 # Needs the Android SDK build tools (aapt2, zipalign, apksigner), an
 # android.jar, keytool and python3. Without them it SKIPS, except under
-# CI, where ubuntu-latest carries the SDK and a skip would mean the job
+# CI, where the ubuntu-26.04 runner carries the SDK and a skip would mean the job
 # stopped exercising the script.
 #
 # Exit codes:
