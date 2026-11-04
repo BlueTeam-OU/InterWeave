@@ -52,6 +52,8 @@ mod store_screen;
 mod swipe;
 #[cfg(feature = "ui-trace")]
 mod trace;
+#[cfg(feature = "ui-trace")]
+pub use trace::{Prompt as TracedPrompt, prompt_line};
 mod window_marks;
 
 pub use cards::{PhotoPick, PhotoRequest};
@@ -83,6 +85,9 @@ mod generated {
 pub use generated::AppWindow;
 /// Which card page the pane shows, for a test that reads it.
 pub use generated::CardsPage;
+/// How far a focus ring reaches outside its control, for a test that
+/// measures a ring against it.
+pub use generated::FocusMode;
 /// The icons the views draw; a test reads which one a status takes.
 pub use generated::Glyph;
 pub use generated::IdentityPage;
@@ -1162,8 +1167,9 @@ impl View {
     }
 
     /// Write what the window shows to `sink` from now on, a line per
-    /// change: the page a render drew, where focus is, and the Peers
-    /// steps' outcomes,
+    /// change: the page a render drew, where focus is, the Peers steps'
+    /// outcomes, the connectivity and session notice, and the identity
+    /// screen the root says ([`trace_identity`](Self::trace_identity)),
     /// in kinds only (`trace.rs`). For a driver that steps the app by key
     /// events; the debug APK turns it on, the release build has none.
     #[cfg(feature = "ui-trace")]
@@ -1173,6 +1179,17 @@ impl View {
         self.window
             .on_focus_traced(move |id| to(&trace::focus_line(&id)));
         self.trace = Some(trace::Tracer::new(sink));
+    }
+
+    /// The identity flow's `screen` is over the window, or, `None`, its
+    /// page has left it: to the trace if one is on. The root says it as
+    /// it calls [`show_identity`](Self::show_identity), which is handed
+    /// a page and not the flow.
+    #[cfg(feature = "ui-trace")]
+    pub fn trace_identity(&mut self, screen: Option<interweave_human_ui_model::ScreenId>) {
+        if let Some(tracer) = self.trace.as_mut() {
+            tracer.identity(screen);
+        }
     }
 
     /// What this render showed, to the trace if one is on.
@@ -1204,6 +1221,8 @@ impl View {
         let now = trace::shown(
             page,
             model.connect_phase(),
+            model.connectivity(),
+            model.session_notice(),
             model.peers(),
             model.trust_settings(),
             |p| handles.of(p),
@@ -1232,13 +1251,21 @@ impl View {
     /// [`set_window_focused`](Self::set_window_focused) is driven from on
     /// the desktop. A read is gated on it, and until the first event the
     /// view counts as unfocused, so nothing is read before then.
+    ///
+    /// The same hook, the window's only one, ends keyboard mode at any
+    /// press (`end_keyboard_mode_at_press`), so a host that skips this
+    /// keeps a clicked text field's ring after a Tab.
     #[cfg(feature = "desktop")]
     pub fn on_window_focus(&self, focused: impl Fn(bool) + 'static) {
         use slint::winit_030::{
             EventResult, WinitWindowAccessor as _, winit, winit::event::WindowEvent,
         };
         let shared = Rc::clone(&self.shared);
+        let view = slint::ComponentHandle::as_weak(&self.window);
         slint::ComponentHandle::window(&self.window).on_winit_window_event(move |window, event| {
+            if let Some(view) = view.upgrade() {
+                end_keyboard_mode_at_press(&view, event);
+            }
             if let WindowEvent::Focused(now) = event {
                 focused(*now);
             }
@@ -1446,6 +1473,8 @@ impl View {
                 i(IdentityInput::Slot(slot));
             }
         });
+        let i = Rc::clone(&input);
+        w.on_identity_review(move |open| i(IdentityInput::Review(open)));
         w.on_identity_dialog(move |delete| input(IdentityInput::Dialog(delete)));
     }
 
@@ -4013,6 +4042,42 @@ fn minimised_closes_show(
     ) && minimised() == Some(true)
 }
 
+/// Whether `event` is a press, of any button or a finger, which ends
+/// keyboard mode (`FocusMode.keyboard`, #304 F5): the person is using the
+/// pointer, and a focused control draws no ring. A control's `TapArea`
+/// clears it too, but a text field takes the press itself and Slint 1.18
+/// shows it to no element around the field, so a field clicked after a
+/// Tab kept its ring. The window's own event sees every press first.
+/// `only_a_press_ends_keyboard_mode`.
+#[cfg(feature = "desktop")]
+pub(crate) fn press_ends_keyboard_mode(
+    event: &slint::winit_030::winit::event::WindowEvent,
+) -> bool {
+    use slint::winit_030::winit::event::{ElementState, TouchPhase, WindowEvent};
+    match event {
+        WindowEvent::MouseInput { state, .. } => *state == ElementState::Pressed,
+        WindowEvent::Touch(touch) => touch.phase == TouchPhase::Started,
+        _ => false,
+    }
+}
+
+/// End `window`'s keyboard mode if `event` is a press
+/// (`press_ends_keyboard_mode`): the first thing each desktop window's
+/// winit filter does. Before Slint routes the press, so the control it
+/// focuses draws no ring. `a_press_ends_each_windows_keyboard_mode`.
+#[cfg(feature = "desktop")]
+pub(crate) fn end_keyboard_mode_at_press<W>(
+    window: &W,
+    event: &slint::winit_030::winit::event::WindowEvent,
+) where
+    W: slint::ComponentHandle,
+    for<'a> FocusMode<'a>: slint::Global<'a, W>,
+{
+    if press_ends_keyboard_mode(event) {
+        window.global::<FocusMode<'_>>().set_keyboard(false);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -4155,5 +4220,107 @@ mod tests {
             &WindowEvent::CloseRequested,
             || Some(true)
         ));
+    }
+
+    /// A press of any button, or a finger going down, ends keyboard mode;
+    /// a release, a move, a wheel, a finger lifted or moved, and a key do
+    /// not, or the person's own Tab would be undone by the pointer resting
+    /// over the window.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn only_a_press_ends_keyboard_mode() {
+        use slint::winit_030::winit::dpi::{PhysicalPosition, PhysicalSize};
+        use slint::winit_030::winit::event::{
+            DeviceId, ElementState, MouseButton, MouseScrollDelta, Touch, TouchPhase, WindowEvent,
+        };
+        let device_id = DeviceId::dummy();
+        let mouse = |state, button| WindowEvent::MouseInput {
+            device_id,
+            state,
+            button,
+        };
+        let touch = |phase| {
+            WindowEvent::Touch(Touch {
+                device_id,
+                phase,
+                location: PhysicalPosition::new(1.0, 1.0),
+                force: None,
+                id: 0,
+            })
+        };
+        for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
+            assert!(
+                super::press_ends_keyboard_mode(&mouse(ElementState::Pressed, button)),
+                "{button:?} pressed"
+            );
+            assert!(
+                !super::press_ends_keyboard_mode(&mouse(ElementState::Released, button)),
+                "{button:?} released"
+            );
+        }
+        assert!(super::press_ends_keyboard_mode(&touch(TouchPhase::Started)));
+        for phase in [TouchPhase::Moved, TouchPhase::Ended, TouchPhase::Cancelled] {
+            assert!(!super::press_ends_keyboard_mode(&touch(phase)), "{phase:?}");
+        }
+        let others = [
+            WindowEvent::CursorMoved {
+                device_id,
+                position: PhysicalPosition::new(1.0, 1.0),
+            },
+            WindowEvent::MouseWheel {
+                device_id,
+                delta: MouseScrollDelta::LineDelta(0.0, 1.0),
+                phase: TouchPhase::Moved,
+            },
+            WindowEvent::Focused(true),
+            WindowEvent::Resized(PhysicalSize::new(1, 1)),
+        ];
+        for event in &others {
+            assert!(!super::press_ends_keyboard_mode(event), "{event:?}");
+        }
+    }
+
+    /// Each desktop window's filter ends its own keyboard mode at a press
+    /// and leaves it at a release: the app window's and the refusal
+    /// screen's, whose path is a text field.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn a_press_ends_each_windows_keyboard_mode() {
+        use slint::ComponentHandle as _;
+        use slint::winit_030::winit::event::{DeviceId, ElementState, MouseButton, WindowEvent};
+        let mouse = |state| WindowEvent::MouseInput {
+            device_id: DeviceId::dummy(),
+            state,
+            button: MouseButton::Left,
+        };
+        i_slint_backend_testing::init_no_event_loop();
+        let app = super::AppWindow::new().expect("the app window");
+        let refusal = super::RefusalWindow::new().expect("the refusal window");
+        app.global::<super::FocusMode<'_>>().set_keyboard(true);
+        refusal.global::<super::FocusMode<'_>>().set_keyboard(true);
+        super::end_keyboard_mode_at_press(&app, &mouse(ElementState::Released));
+        super::end_keyboard_mode_at_press(&refusal, &mouse(ElementState::Released));
+        assert!(
+            app.global::<super::FocusMode<'_>>().get_keyboard(),
+            "a release"
+        );
+        assert!(
+            refusal.global::<super::FocusMode<'_>>().get_keyboard(),
+            "a release"
+        );
+        super::end_keyboard_mode_at_press(&app, &mouse(ElementState::Pressed));
+        assert!(
+            !app.global::<super::FocusMode<'_>>().get_keyboard(),
+            "the app window"
+        );
+        assert!(
+            refusal.global::<super::FocusMode<'_>>().get_keyboard(),
+            "the other window's mode is its own"
+        );
+        super::end_keyboard_mode_at_press(&refusal, &mouse(ElementState::Pressed));
+        assert!(
+            !refusal.global::<super::FocusMode<'_>>().get_keyboard(),
+            "the refusal screen"
+        );
     }
 }

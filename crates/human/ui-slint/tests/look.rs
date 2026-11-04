@@ -12,6 +12,8 @@
 
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+mod common;
+
 use i_slint_backend_testing::ElementHandle;
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{Destination, Origin, Received};
@@ -978,10 +980,20 @@ fn tab_stays_in_details_and_escape_closes_it() {
         "details-copy",
         "on Copy, the dialog's act (#304 F11)"
     );
+    let settle = || {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    };
+    let to = common::modal_tab(
+        view.window(),
+        view.window().window(),
+        || view.window().get_focus_id().to_string(),
+        settle,
+    );
+    assert_eq!(to, "details-close", "Tab");
     // Tab either way moves between the dialog's two actions, never out.
     for (key, to) in [
-        (Key::Backtab, "details-close"),
-        (Key::Tab, "details-copy"),
+        (Key::Backtab, "details-copy"),
         (Key::Tab, "details-close"),
         (Key::Backtab, "details-copy"),
     ] {

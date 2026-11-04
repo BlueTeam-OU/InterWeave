@@ -321,6 +321,34 @@ not measured, read on Linux only under WSL, through the Windows registry
 tool (61). Not established: a Team or Enterprise subscription, a valid
 Console key, a served policy, and MDM.
 
+**Carried measurement, S28 (2026-11-03, Claude Code 2.1.317,
+rust-services-dev, plan §19): the revision is still not registered and
+the bridge's legacy answer still is; an event after stdin has closed and
+the last turn has ended is not delivered; an event starts a turn of its
+own whatever the first turn said.** Read off `spikes/spike-001/README.md`
+§S28 (facts 65–69, runs `s28-a` to `s28-e`), on the newest build
+`claude install latest` gave that day, in a scratch `HOME` beside the
+fleet's pin. a and b were S23's a and b: the server offering the
+2026-07-28 revision was negotiated modern and skipped, with the same
+debug line as on 2.1.286, and the legacy control registered and
+delivered (65); the bridge itself connected legacy and registered (66).
+c to e were S25's setup on this build. c, the control, delivered after
+the first turn and the peer had `ack` 5 s after its send. In d, stdin
+closed as soon as the first turn's result was out and the peer sent
+once: the bridge's stderr said "ended: a signal" within 0.1 s of the
+close, the session exited within a second, no `notifications/claude/
+channel` line reached the debug log, and the peer had nothing in three
+runs of three, its send answered `RemoteEndpointUnavailable` in two and
+accepted in one (67). In e the first turn said nothing about events: a
+greeting started a turn of its own 0.1 s after the send, and the model
+answered in text and called no tool, three of three (68). Every print
+session on this build reported `permissionMode` `default` where
+S24's h and S25's runs on 2.1.286 without `--permission-mode`
+reported `auto`; what changed it is not established (69).
+Not established: a message that asks for an answer after such a first
+turn, and the rule behind d, read from four runs and not from the
+binary.
+
 ---
 
 ## SPIKE-002 — transport wire/race and GossipSub cache behavior

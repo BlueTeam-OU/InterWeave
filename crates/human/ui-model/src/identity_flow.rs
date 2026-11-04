@@ -173,6 +173,14 @@ struct Check {
     done: usize,
     picker: WordPicker,
     wrong: Option<usize>,
+    discard_asked: bool,
+}
+
+impl Check {
+    /// A right word was taken, or letters are typed: Back asks first.
+    fn entered(&self) -> bool {
+        self.done > 0 || !self.picker.typed().is_empty()
+    }
 }
 
 /// The screen showing.
@@ -193,6 +201,10 @@ enum Screen {
         notice: Option<Notice>,
         checking: bool,
         discard_asked: bool,
+        /// "Show all my words" opened the grid as a full list (section
+        /// 4.4, over 130 % font): flow state, so a rotation or a return
+        /// from Home finds it open.
+        reviewing: bool,
     },
     R3 {
         origin: Origin,
@@ -429,7 +441,29 @@ impl IdentityFlow {
         )
     }
 
-    /// R2's Back with words entered asks first (`IdDiscardTitle`).
+    /// The app bar shows a back arrow (design section 3): on every screen
+    /// whose Back stays in the flow or returns to Settings. W and K1 are
+    /// first screens, whose Back leaves the app, which an arrow would
+    /// not say; C4 and R4 have no Back. The arrow is [`Self::back`], as
+    /// the platform's Back is. `the_back_arrow_shows_where_back_stays_in_the_app`
+    /// holds the list.
+    #[must_use]
+    pub fn back_arrow(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::C1
+                | Screen::C2
+                | Screen::C3(_)
+                | Screen::R1
+                | Screen::R2 { .. }
+                | Screen::R3 { .. }
+                | Screen::S1 { .. }
+                | Screen::S2
+        )
+    }
+
+    /// R2's or C3's Back with words entered asks first
+    /// (`IdDiscardTitle`).
     #[must_use]
     pub fn discard_asked(&self) -> bool {
         matches!(
@@ -437,7 +471,10 @@ impl IdentityFlow {
             Screen::R2 {
                 discard_asked: true,
                 ..
-            }
+            } | Screen::C3(Check {
+                discard_asked: true,
+                ..
+            })
         )
     }
 
@@ -459,6 +496,18 @@ impl IdentityFlow {
             Screen::R2 { entry, .. } => Some(entry.picker()),
             _ => None,
         }
+    }
+
+    /// R2's words show as a full list (`IdReviewWords` opened it).
+    #[must_use]
+    pub fn reviewing(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::R2 {
+                reviewing: true,
+                ..
+            }
+        )
     }
 
     /// R2's phrase entry, for its grid.
@@ -504,6 +553,7 @@ impl IdentityFlow {
                     done: 0,
                     picker: WordPicker::new(self.list),
                     wrong: None,
+                    discard_asked: false,
                 });
                 Vec::new()
             }
@@ -586,8 +636,17 @@ impl IdentityFlow {
                 self.screen = Screen::C1;
                 Vec::new()
             }
-            Screen::C3(_) => {
-                self.screen = Screen::C2;
+            Screen::C3(check) => {
+                // As on R2 below: the open dialog's Back is Continue
+                // entering, and with nothing entered Back goes straight
+                // back (section 7).
+                if check.discard_asked {
+                    check.discard_asked = false;
+                } else if check.entered() {
+                    check.discard_asked = true;
+                } else {
+                    self.screen = Screen::C2;
+                }
                 Vec::new()
             }
             // The identity is about to be sealed: there is no way back.
@@ -600,14 +659,27 @@ impl IdentityFlow {
                 entry,
                 discard_asked,
                 checking,
+                reviewing,
                 ..
             } => {
+                // The list's Back closes it, nothing changed: the
+                // discard dialog is for Back on R2 itself.
+                if *reviewing {
+                    *reviewing = false;
+                    return Vec::new();
+                }
                 if *checking {
                     return Vec::new();
                 }
                 let entered = (0..PHRASE_WORDS).any(|p| entry.word(p).is_some())
                     || !entry.picker().typed().is_empty();
-                if entered && !*discard_asked {
+                if *discard_asked {
+                    // Back on the open dialog is its default, Continue
+                    // entering: a second Back never drops the words
+                    // unasked (section 7).
+                    *discard_asked = false;
+                    Vec::new()
+                } else if entered {
                     *discard_asked = true;
                     Vec::new()
                 } else {
@@ -631,13 +703,24 @@ impl IdentityFlow {
         }
     }
 
-    /// R2's discard dialog: delete the words (`true`) or keep entering.
+    /// R2's or C3's discard dialog: delete the words (`true`) or keep
+    /// entering. C3's delete returns to C2, and C3 asks both positions
+    /// again on return.
     pub fn discard(&mut self, delete: bool) {
-        if let Screen::R2 { discard_asked, .. } = &mut self.screen {
-            *discard_asked = false;
-            if delete {
-                self.leave_r2();
+        match &mut self.screen {
+            Screen::R2 { discard_asked, .. } if *discard_asked => {
+                *discard_asked = false;
+                if delete {
+                    self.leave_r2();
+                }
             }
+            Screen::C3(check) if check.discard_asked => {
+                check.discard_asked = false;
+                if delete {
+                    self.screen = Screen::C2;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -684,11 +767,34 @@ impl IdentityFlow {
         }
     }
 
-    /// R2: edit a grid position.
+    /// R2: edit a grid position; chosen from the full list, the list
+    /// closes onto the picker.
     pub fn edit(&mut self, position: usize) {
-        if let Screen::R2 { entry, notice, .. } = &mut self.screen {
+        if let Screen::R2 {
+            entry,
+            notice,
+            reviewing,
+            ..
+        } = &mut self.screen
+        {
             entry.edit(position);
             *notice = None;
+            *reviewing = false;
+        }
+    }
+
+    /// R2: open (`true`) or close the words as a full list. It opens only
+    /// while neither the discard dialog nor a check is pending: either
+    /// holds R2's words where they are.
+    pub fn review_words(&mut self, open: bool) {
+        if let Screen::R2 {
+            reviewing,
+            discard_asked,
+            checking,
+            ..
+        } = &mut self.screen
+        {
+            *reviewing = open && !*discard_asked && !*checking;
         }
     }
 
@@ -930,6 +1036,7 @@ impl IdentityFlow {
             notice: None,
             checking: false,
             discard_asked: false,
+            reviewing: false,
         }
     }
 
@@ -959,6 +1066,7 @@ impl IdentityFlow {
             notice: None,
             checking: false,
             discard_asked: false,
+            reviewing: false,
         };
     }
 
@@ -1372,6 +1480,122 @@ mod tests {
         assert_eq!(seen, [C1, C2, C3, C4, R2, R3, R4, S1, S2], "control");
     }
 
+    /// Section 3's app bar: the back arrow shows on every screen whose
+    /// Back goes somewhere in the app, and on no other. Each screen is
+    /// built fresh and its Back pressed, so the arrow's answer is checked
+    /// against what Back does there: never `Finish` behind an arrow, and
+    /// on a screen without one, `Finish` (W, K1) or nothing (C4, R4).
+    /// Mutation: dropping any arm of `back_arrow`, or adding W, K1, C4 or
+    /// R4, fails here.
+    #[test]
+    fn the_back_arrow_shows_where_back_stays_in_the_app() {
+        use ScreenId::{C1, C2, C3, C4, K1, R1, R2, R3, R4, S1, S2, W};
+
+        let create = |steps: usize| {
+            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+            if steps > 0 {
+                flow.primary();
+            }
+            if steps > 1 {
+                flow.created(words(), mine(), [6, 18]);
+                flow.primary();
+            }
+            if steps > 2 {
+                flow.primary();
+            }
+            if steps > 3 {
+                enter(&mut flow, "galaxy");
+                enter(&mut flow, "saddle");
+            }
+            flow
+        };
+        let restore = |steps: usize| {
+            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+            flow.restore();
+            if steps > 0 {
+                flow.primary();
+            }
+            if steps > 1 {
+                fill(&mut flow);
+                flow.primary();
+                flow.checked(Some(mine()));
+            }
+            if steps > 2 {
+                flow.primary();
+                flow.restored(Ok(()));
+            }
+            flow
+        };
+        let show = |steps: usize| {
+            let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+            if steps > 0 {
+                flow.primary();
+                flow.prompted(true);
+                flow.offline(Ok((words(), mine())));
+            }
+            flow
+        };
+        let k1 = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+                new_keys: false,
+            },
+        );
+
+        let mut seen = Vec::new();
+        for mut flow in [
+            create(0),
+            create(1),
+            create(2),
+            create(3),
+            create(4),
+            restore(0),
+            restore(1),
+            restore(2),
+            restore(3),
+            k1,
+            show(0),
+            show(1),
+        ] {
+            let screen = flow.screen();
+            let arrow = flow.back_arrow();
+            let effects = flow.back();
+            let moved = flow.screen() != screen || flow.discard_asked();
+            if arrow {
+                assert!(
+                    !effects.contains(&Effect::Finish),
+                    "{screen:?}: {effects:?}"
+                );
+                assert!(moved, "{screen:?}: the arrow goes somewhere");
+            } else {
+                assert!(
+                    effects == [Effect::Finish] || (effects.is_empty() && !moved),
+                    "{screen:?}: {effects:?}"
+                );
+            }
+            seen.push((screen, arrow));
+        }
+        assert_eq!(
+            seen,
+            [
+                (W, false),
+                (C1, true),
+                (C2, true),
+                (C3, true),
+                (C4, false),
+                (R1, true),
+                (R2, true),
+                (R3, true),
+                (R4, false),
+                (K1, false),
+                (S1, true),
+                (S2, true),
+            ]
+        );
+    }
+
     /// Item 12 on R1: every fresh-install path into R2 is told that the
     /// identities get new keys, after the ADR-0043 warning and before R2,
     /// as a statement. Mutation: without `matches!(self.screen,
@@ -1508,10 +1732,94 @@ mod tests {
         assert_eq!(flow.screen(), ScreenId::R2);
         assert_eq!(flow.entry().and_then(|e| e.word(0)), Some("acid"));
         flow.back();
+        flow.back();
+        assert!(
+            !flow.discard_asked(),
+            "Back on the dialog continues entering"
+        );
+        assert_eq!(flow.screen(), ScreenId::R2);
+        assert_eq!(flow.entry().and_then(|e| e.word(0)), Some("acid"));
+        flow.back();
         flow.discard(true);
         assert_eq!(flow.screen(), ScreenId::R1);
         flow.primary();
         assert_eq!(flow.entry().and_then(|e| e.word(0)), None, "words dropped");
+    }
+
+    /// Section 4.4's full list over 130 % font: Back closes it with every
+    /// word kept and no dialog; a position chosen there closes it onto
+    /// that position; it never opens over the dialog or a check.
+    #[test]
+    fn r2s_full_list_closes_on_back_or_a_position_and_waits_for_the_dialog() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        enter(&mut flow, "acid");
+        flow.review_words(true);
+        assert!(flow.reviewing());
+        assert_eq!(flow.back(), []);
+        assert!(!flow.reviewing(), "Back closes the list");
+        assert!(!flow.discard_asked(), "the list's Back asks nothing");
+        assert_eq!(flow.entry().and_then(|e| e.word(0)), Some("acid"));
+        flow.review_words(true);
+        flow.edit(0);
+        assert!(!flow.reviewing(), "a position chosen closes the list");
+        assert_eq!(flow.picker().map(WordPicker::typed), Some("acid"));
+        flow.back();
+        assert!(flow.discard_asked());
+        flow.review_words(true);
+        assert!(!flow.reviewing(), "never over the discard dialog");
+        flow.discard(false);
+        flow.review_words(true);
+        flow.review_words(false);
+        assert!(!flow.reviewing());
+
+        // A check pending: the list waits for it.
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        fill(&mut flow);
+        flow.primary();
+        assert!(flow.waiting(), "control: the check is pending");
+        flow.review_words(true);
+        assert!(!flow.reviewing(), "never over a check");
+    }
+
+    #[test]
+    fn back_from_c3_with_words_asks_first_and_delete_asks_both_again() {
+        let mut flow = created_at_c2();
+        flow.primary();
+        assert_eq!(flow.back(), []);
+        assert_eq!(
+            flow.screen(),
+            ScreenId::C2,
+            "nothing entered: straight back"
+        );
+        flow.primary();
+        assert!(flow.press('g'));
+        flow.back();
+        assert!(flow.discard_asked(), "letters typed are words entered");
+        flow.discard(false);
+        assert_eq!(flow.screen(), ScreenId::C3);
+        assert_eq!(flow.picker().map(WordPicker::typed), Some("g"));
+        flow.clear_letters();
+        enter(&mut flow, "galaxy");
+        flow.back();
+        assert!(flow.discard_asked(), "a right word taken is a word entered");
+        flow.back();
+        assert!(
+            !flow.discard_asked(),
+            "Back on the dialog continues entering"
+        );
+        assert_eq!(flow.check(), Some((18, None)), "the right word kept");
+        flow.back();
+        flow.discard(true);
+        assert_eq!(flow.screen(), ScreenId::C2);
+        assert_eq!(flow.words(), Some(&words()), "the identity is kept");
+        flow.primary();
+        assert_eq!(flow.check(), Some((6, None)), "both positions asked again");
+        flow.discard(true);
+        assert_eq!(flow.screen(), ScreenId::C3, "no dialog, no discard");
     }
 
     #[test]

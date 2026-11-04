@@ -12,6 +12,8 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use i_slint_backend_testing::ElementHandle;
 use interweave_human_chat_protocol::{Card, CardPhoto, CardRoute, Classified, classify};
 use interweave_human_core::RowId;
@@ -1259,6 +1261,38 @@ fn your_card_while_its_editor_is_open_leaves_nothing() {
     assert_eq!(view.window().get_focus_id().as_str(), "cards-title");
 }
 
+/// A Tab from one text field to the next draws the ring on the second
+/// when the first took focus by a call: a text field is told no focus
+/// reason, so only the window's `KeyboardScope` sees that Tab (#546 F1).
+/// Mutation: the scope's capture setting no keyboard mode.
+#[test]
+fn tab_between_name_fields_after_a_focus_call_draws_the_ring() {
+    let (view, _model) = own_editor(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    let window = view.window();
+    window.set_focus_target("own-given".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "own-given", "control");
+    assert!(
+        common::shown_ring(view.window()).is_none(),
+        "control: focus by a call draws no ring"
+    );
+    for (k, to) in [
+        (slint::platform::Key::Tab, "own-surname"),
+        (slint::platform::Key::Backtab, "own-given"),
+    ] {
+        key(&view, k);
+        settle();
+        assert_eq!(view.window().get_focus_id(), to, "{k:?}");
+        assert!(common::shown_ring(view.window()).is_some(), "ring at {to}");
+    }
+}
+
 /// On the desktop, Escape on a card page is its Back (contact-cards
 /// design section 4): from an editor field with a change it asks, the
 /// dialog's own Escape is Continue editing, and with nothing to lose it
@@ -2164,6 +2198,13 @@ fn a_key_that_cannot_be_used_is_said_and_a_new_key_is_confirmed_then_made() {
         "new-key-cancel",
         "Cancel first"
     );
+    let to = common::modal_tab(
+        view.window(),
+        view.window().window(),
+        || view.window().get_focus_id().to_string(),
+        settle,
+    );
+    assert_eq!(to, "new-key-confirm");
 
     press_last(&view, text(UiText::Cancel));
     assert_eq!(intents(&mut view, &mut model), vec![Intent::CloseKeyStep]);
@@ -3395,9 +3436,13 @@ fn the_unsaved_changes_dialog_answers_escape_the_scrim_and_tab() {
     view.window().set_own_given("Grace".into());
 
     ask(&mut view, &mut model);
-    key(&view, slint::platform::Key::Tab);
-    settle();
-    assert_eq!(view.window().get_focus_id(), "discard-confirm", "Tab");
+    let to = common::modal_tab(
+        view.window(),
+        view.window().window(),
+        || view.window().get_focus_id().to_string(),
+        settle,
+    );
+    assert_eq!(to, "discard-confirm", "Tab");
     key(&view, slint::platform::Key::Tab);
     settle();
     assert_eq!(view.window().get_focus_id(), "discard-keep", "Tab again");
@@ -4414,4 +4459,304 @@ fn a_render_that_changes_nothing_leaves_every_contact_row_equal() {
     for (index, (was, is)) in before.iter().zip(&after).enumerate() {
         assert!(was == is, "row {index} made again differs");
     }
+}
+
+/// The card page scrolls to its last line at a phone's sizes. On the
+/// Galaxy A40 (about 411 x 891 logical pixels, either way up) a damaged
+/// key's Make a new key lay below the page's scroll extent and could not be
+/// reached by touch or by Tab, and in landscape the fingerprint was cut in
+/// half (j54's device run, 2026-11-03): the page took its height from its
+/// column's measured height, and a wrapped Text under a conditional layout
+/// is measured a line short. The other tests here open the page in a window
+/// tall enough for all of it, which is why none saw it. Both cases check
+/// the page's last line, the `PeerId`, and the damaged case also its last
+/// control. Mutation: the height taken off a wrapped Text these two states
+/// draw (the key-problem block, the `PeerId`); a Text drawn only after a key
+/// is made is the compile test's to hold.
+#[test]
+fn the_card_page_scrolls_to_its_last_line_at_a_phones_sizes() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    let ready = || OwnKey::Ready {
+        fingerprint: "0123456789abcdef".to_owned(),
+    };
+    // One view, as the platform is set up once per test.
+    let (mut view, mut model) = own_editor(keyless(KeyProblem::Damaged));
+    // The phone's fonts measure taller than these: the default size, then
+    // large text, so the line is not met by a few pixels' luck.
+    for font in [None, Some(28.0)] {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(font.map(i_slint_core::lengths::LogicalLength::new));
+        for (width, height) in [(411.0, 891.0), (891.0, 411.0), (320.0, 568.0)] {
+            for (case, identity, lasts) in [
+                (
+                    "damaged",
+                    keyless(KeyProblem::Damaged),
+                    vec![text(UiText::KeyMakeNew), Q],
+                ),
+                ("ready", ada(true, ready()), vec![Q]),
+            ] {
+                model.identity_shown(identity);
+                view.window()
+                    .window()
+                    .set_size(slint::LogicalSize::new(width, height));
+                view.render(&model);
+                settle();
+                view.window().window().dispatch_event(
+                    slint::platform::WindowEvent::PointerScrolled {
+                        position: slint::LogicalPosition::new(width / 2.0, height / 2.0),
+                        delta_x: 0.0,
+                        delta_y: -100_000.0,
+                    },
+                );
+                settle();
+                for last in &lasts {
+                    let (_, top, _, bottom) = bounds(&view, last);
+                    assert!(
+                        top >= 0.0 && bottom <= height,
+                        "{case} at {width}x{height}, font {font:?}: {last:?} spans \
+                     {top}..{bottom}, the window ends at {height}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Tab `stops` times; at each stop that draws a focus ring, it covers
+/// no neighbour (`common::ring_overdraws`). Returns the stops checked so,
+/// which a test asserts holds the stops it is about: a stop reached
+/// before keyboard mode draws no ring and checks nothing.
+fn tab_each_ring_covers_nothing(view: &View, stops: usize) -> std::collections::BTreeSet<String> {
+    let mut checked = std::collections::BTreeSet::new();
+    for _ in 0..stops {
+        key(view, slint::platform::Key::Tab);
+        slint::platform::update_timers_and_animations();
+        let on = view.window().get_focus_id().to_string();
+        if let Some(over) = common::ring_overdraws(view.window()) {
+            assert!(over.is_empty(), "the ring at {on:?} covers {over:#?}");
+            let cut = common::ring_cut(view.window()).expect("the ring above");
+            assert!(cut.is_empty(), "at {on:?}: {cut:#?}");
+            checked.insert(on);
+        }
+    }
+    checked
+}
+
+/// The own card page, opened from the app's options.
+fn own_card(view: &mut View, model: &mut UiModel) {
+    view.render(model);
+    press(view, text(UiText::AppOptions));
+    press(view, text(UiText::OwnCardTitle));
+    let _ = intents(view, model);
+    settle();
+}
+
+/// A focus ring draws over no neighbour on the own card page, in each
+/// state of its key -- the fingerprint under its label, the line and
+/// the share-again rows a new key adds, the key folder's path under its
+/// label, the making line, the failure line -- and the name fields under
+/// their labels (A40 2026-11-03: the ring over the fingerprint's label).
+/// Mutations: the fingerprint's 2 px spacing back; the name field's 4 px.
+#[test]
+fn no_focus_ring_on_the_own_card_page_covers_a_neighbour() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::PhysicalSize::new(900, 1400));
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        key: OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        ..keyless(KeyProblem::Damaged)
+    });
+    own_card(&mut view, &mut model);
+    let ready = tab_each_ring_covers_nothing(&view, 20);
+    for stop in ["own-key-fingerprint", "own-given", "own-surname"] {
+        assert!(ready.contains(stop), "{stop}: {ready:?}");
+    }
+
+    model.identity_shown(keyless(KeyProblem::Damaged));
+    view.render(&model);
+    press(&view, text(UiText::KeyMakeNew));
+    let _ = intents(&mut view, &mut model);
+    let _ = model.ask_new_key();
+    model.new_key_asked(false);
+    view.render(&model);
+    settle();
+    press_last(&view, text(UiText::KeyNewConfirm));
+    let _ = intents(&mut view, &mut model);
+    let _ = model.confirm_new_key();
+    view.render(&model);
+    settle();
+    let making = tab_each_ring_covers_nothing(&view, 20);
+    assert!(making.contains("own-key-making"), "{making:?}");
+
+    model.key_made(
+        Some(IdentityView {
+            key: OwnKey::Ready {
+                fingerprint: "fedcba9876543210".to_owned(),
+            },
+            ..keyless(KeyProblem::Damaged)
+        }),
+        "fedcba9876543210".to_owned(),
+        vec![direct(P), direct(Q)],
+    );
+    view.render(&model);
+    settle();
+    let made = tab_each_ring_covers_nothing(&view, 20);
+    assert!(made.contains("own-key-fingerprint"), "{made:?}");
+    assert!(
+        made.iter()
+            .filter(|on| on.starts_with("share-again:"))
+            .count()
+            == 2,
+        "{made:?}"
+    );
+
+    model.key_not_made(None, KeyProblem::Damaged, false);
+    view.render(&model);
+    settle();
+    let failed = tab_each_ring_covers_nothing(&view, 20);
+    assert!(failed.contains("own-key-failure"), "{failed:?}");
+
+    model.key_step_closed();
+    model.identity_shown(keyless(KeyProblem::DirUnsafe {
+        folder: "/home/ada/.local/state/interweave/default/identity-keys".to_owned(),
+    }));
+    view.render(&model);
+    settle();
+    let folder = tab_each_ring_covers_nothing(&view, 20);
+    assert!(folder.contains("own-key-path"), "{folder:?}");
+}
+
+/// `FocusMode.ring-reach`, the tests' `common::REACH` and where a ring is
+/// drawn are one distance: the ring on the fingerprint's line stands that
+/// far outside the line on every side. Mutation: a `FocusLine`'s ring
+/// placed at 4 px.
+#[test]
+fn ring_reach_is_where_the_ring_is_drawn() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::PhysicalSize::new(900, 1400));
+    let mut model = UiModel::new();
+    model.identity_shown(IdentityView {
+        key: OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+        ..keyless(KeyProblem::Damaged)
+    });
+    own_card(&mut view, &mut model);
+    let mut on = String::new();
+    for _ in 0..20 {
+        key(&view, slint::platform::Key::Tab);
+        slint::platform::update_timers_and_animations();
+        on = view.window().get_focus_id().to_string();
+        if on == "own-key-fingerprint" {
+            break;
+        }
+    }
+    assert_eq!(on, "own-key-fingerprint", "Tab reaches the fingerprint");
+    let reach = view
+        .window()
+        .global::<interweave_human_ui_slint::FocusMode<'_>>()
+        .get_ring_reach();
+    assert!((reach - common::REACH).abs() < 0.01, "{reach}");
+    let ring = common::Edges::of(&common::shown_ring(view.window()).expect("a ring"));
+    let line = common::Edges::of(
+        &ElementHandle::find_by_element_type_name(view.window(), "FocusLine")
+            .find(|e| e.accessible_label().as_deref() == Some("0123456789abcdef"))
+            .expect("the fingerprint's line"),
+    );
+    for (side, by) in [
+        ("left", line.left - ring.left),
+        ("top", line.top - ring.top),
+        ("right", ring.right - line.right),
+        ("bottom", ring.bottom - line.bottom),
+    ] {
+        assert!((by - reach).abs() < 0.01, "{side}: {by} against {reach}");
+    }
+}
+
+/// A focus ring draws over no neighbour on a proposal: Copy `PeerId`
+/// under the `PeerId`, and a same-name note's link to its contact under
+/// the note. Mutations: the `PeerId`'s 2 px spacing back; the note's 4 px.
+#[test]
+fn no_focus_ring_on_a_proposal_covers_a_neighbour() {
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", Q)]);
+    let same_name = ProposalContext {
+        same_name: vec![interweave_human_ui_model::ContactRef {
+            contact_id: "c1".to_owned(),
+            name: "Ada".to_owned(),
+        }],
+        ..context()
+    };
+    model.card_received(proposal(1, P, card("Ada", false), same_name));
+    let view = conversation(&mut model);
+    let checked = tab_each_ring_covers_nothing(&view, 20);
+    for stop in ["proposal-copy:", "proposal-contact:"] {
+        assert!(
+            checked.iter().any(|on| on.starts_with(stop)),
+            "{stop}: {checked:?}"
+        );
+    }
+}
+
+/// A focus ring draws over no neighbour on an answered card: its line,
+/// a `FocusLine` like the own card's.
+#[test]
+fn no_focus_ring_on_an_answered_card_covers_a_neighbour() {
+    let mut model = UiModel::new();
+    model.card_received(proposal(1, P, card("Ada", false), context()));
+    let mut view = conversation(&mut model);
+    press(&view, text(UiText::CardAccept));
+    let _ = intents(&mut view, &mut model);
+    model.card_resolved(
+        row(1),
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: true,
+            photo_dropped: false,
+            photo_removed: false,
+        },
+    );
+    model.contacts_listed(vec![contact("c1", "Ada", P)]);
+    view.render(&model);
+    settle();
+    let answered = tab_each_ring_covers_nothing(&view, 20);
+    assert!(
+        answered.iter().any(|on| on.starts_with("answer:")),
+        "{answered:?}"
+    );
+}
+
+/// A focus ring draws over no neighbour on the Contacts list: each row
+/// against the next. Mutation: the list's 4 px spacing back.
+#[test]
+fn no_focus_ring_on_the_contacts_list_covers_a_neighbour() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::PhysicalSize::new(900, 1400));
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![
+        contact("c1", "Ada", P),
+        contact("c2", "Bob", Q),
+        contact("c3", "Cy", R),
+    ]);
+    open_contacts(&mut view, &mut model);
+    let checked = tab_each_ring_covers_nothing(&view, 20);
+    assert!(
+        checked
+            .iter()
+            .filter(|on| on.starts_with("contact:"))
+            .count()
+            == 3,
+        "{checked:?}"
+    );
 }

@@ -9,6 +9,8 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use i_slint_backend_testing::ElementHandle;
 use interweave_human_client_api::{
     AddressAnswer, AddressList, AddressOrigin, AddressOutcome, AddressRefused, PeerAddress,
@@ -3177,8 +3179,9 @@ fn the_camera_stopping_closes_the_viewfinder() {
 }
 
 /// The viewfinder is modal: Tab and Backtab keep focus on its Close,
-/// never the add page under it; and when it closes, its last frame goes
-/// with it, no picture kept (#418 F3, F5).
+/// never the add page under it, and draw its ring though the press that
+/// opened it left keyboard mode; and when it closes, its last frame goes
+/// with it, no picture kept (#418 F3, F5; #546 F1).
 #[test]
 fn the_viewfinder_keeps_focus_and_keeps_no_frame() {
     use slint::platform::{Key, WindowEvent};
@@ -3208,6 +3211,10 @@ fn the_viewfinder_keeps_focus_and_keeps_no_frame() {
     slint::platform::update_timers_and_animations();
     assert_eq!(view.window().get_focus_target().as_str(), "close-scanner");
     assert_eq!(view.window().get_focus_id().as_str(), "close-scanner");
+    assert!(
+        common::shown_ring(view.window()).is_none(),
+        "control: no ring before a key"
+    );
     for k in [Key::Tab, Key::Backtab, Key::Tab] {
         key(&view, k);
         assert_eq!(
@@ -3215,6 +3222,7 @@ fn the_viewfinder_keeps_focus_and_keeps_no_frame() {
             "close-scanner",
             "{k:?}"
         );
+        assert!(common::shown_ring(view.window()).is_some(), "{k:?}");
     }
     view.camera_frame(4, 4, &[128; 16]);
     view.render(&model);

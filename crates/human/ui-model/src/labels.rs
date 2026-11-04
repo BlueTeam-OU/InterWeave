@@ -620,7 +620,8 @@ ui_texts! {
     /// ANDROID, identity screens: The keypad's clear key (its accessible
     /// label).
     IdKeyClear => "Clear this word",
-    /// ANDROID, identity screens: The grid's button at large font (§4).
+    /// ANDROID, identity screens: The grid's button at large font, and
+    /// the title of the full list it opens (§4.4).
     IdReviewWords => "Show all my words",
     /// How long a waiting message has waited, from when it was written,
     /// rounded down (#304 F10): under a minute.
@@ -1084,10 +1085,12 @@ ui_texts! {
     AddAddress => "Add an address",
     /// Peers and Connect: opens the show page.
     ShowMyAddress => "Show my address",
-    /// The back arrow of the add page and of Show, its accessible label:
-    /// one text for both pages and both openers, since each leaves for
-    /// whichever of Peers or Connect opened it, and never names
-    /// conversations. Named for the add page, as the design names it.
+    /// The back arrow's accessible label on the add page, on Show and
+    /// on the identity screens' app bar: one text for every arrow that
+    /// does what Back does. The add page and Show each leave for
+    /// whichever of Peers or Connect opened them, and the label never
+    /// names conversations. Named for the add page, as the design
+    /// names it.
     AddClose => "Back",
     /// Under Peers' two actions: an address is not trust.
     PeersNoTrust => "An address lets this device reach a peer. Adding an address does not mean that you trust the peer. Trust is a separate step.",
