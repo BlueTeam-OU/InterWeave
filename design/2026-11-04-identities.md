@@ -14,7 +14,7 @@ contact page's route-delete control beside Move (§10); and what the
 keyboard reaches on each new screen (§11). It is written against plan
 §30's steps and `human-client-ui.md` §3, §4, §10 and §13 as they stand.
 Where a step's wording leaves a choice open, this note decides it and
-names the alternative. The plan, §13 and the ADRs are architect-cto's;
+names the alternative. The plan, `human-client-ui.md` §13 and the ADRs are architect-cto's;
 what the design needs changed in them is asked in §16, not changed
 here.
 
@@ -195,8 +195,8 @@ Trust for every new peer.
 ADR-0067 d. 6: what the person trusts, they trust as the identity in
 front, and only that identity admits the peer at the route. So:
 
-- **Trust** (the page): its list is the identity in front's trusted
-  set (D2), its subtitle names the identity, and `TrustScope` under the
+- **Trust** (the page): its list is the trusted set of the identity
+  in front (D2), its subtitle names the identity, and `TrustScope` under the
   title says, with two or more identities held: "Peers you trust here
   can write to {identity}. Your other identities trust their own." With
   one identity, `TrustExplanation` stays as it is.
@@ -212,8 +212,8 @@ front, and only that identity admits the peer at the route. So:
   for that reason. Ruled (§16 Q5): the list reports every row of an
   identity's set, the seed's included, as the client's own write, with
   no configuration origin.
-- **Peers rows** (add-a-peer §5.2): the trust state is the identity in
-  front's. `PeerStateTrusted` stays ("this device tries to connect to
+- **Peers rows** (add-a-peer §5.2): the trust state is that of the identity
+  in front. `PeerStateTrusted` stays ("this device tries to connect to
   this address": true, since the device dials every peer any identity
   trusts). `PeerStateNeedsTrust` today adds "this device does not
   connect to this address", which is false when another identity trusts
@@ -223,7 +223,7 @@ front, and only that identity admits the peer at the route. So:
   of your identities trusts this peer". Rejected: it shows another
   identity's trust, which §4 forbids.
 - **The contact page's route rows** show `ContactRouteTrusted` or
-  `ContactRouteNotTrusted` from the identity in front's set (cards §6.3).
+  `ContactRouteNotTrusted` from the set of the identity in front (cards §6.3).
 - **The trust step after adding an address** (N9) trusts as the
   identity in front, and its button's label says so (`TrustStepAs`).
 - **Channels**: a channel's publishers are admitted by the device, for
@@ -237,12 +237,12 @@ front, and only that identity admits the peer at the route. So:
 - **The no-reach notice** (add-a-peer §5.6), shown when the device knows
   no address and trusts no peer: in front of an identity that trusts no
   peer, that identity can write to no one even when another identity
-  trusts many. This note reads "trusts no peer" as **the identity in
-  front's set is empty** and shows the notice then, with a second form
+  trusts many. This note reads "trusts no peer" as **the set of the identity
+  in front is empty** and shows the notice then, with a second form
   `NoReachIdentity` when the address list is not empty ("{identity}
   trusts no one yet. To write as {identity}, trust a peer while you use
   it."), its action opening Trust. Ruled (§16 Q2): the set is the
-  identity in front's effective set, never the device's admission set,
+  effective set of the identity in front, never the device's admission set,
   and the second form shows when that set is empty while the address
   list or another identity's set is not. The notice promises nothing
   about channels, whose publishers the device admits (above). With one
@@ -316,7 +316,7 @@ Cards §5.1 stands, with these changes:
   identities trusts can connect to this device, and reaches only the
   identities that trust it. A channel is the exception: anyone this
   device trusts can post in a channel, whichever identity reads it."
-  Ruled (§16 Q1): §13's criterion is amended to this
+  Ruled (§16 Q1): `human-client-ui.md` §13's criterion is amended to this
   sentence, its channel clause included (ADR-0067 d. 6, broadcast
   stays node-wide); its "anyone this device trusts" covers the device's
   own list too, as `ChannelTrustNode` says (§5.1).
@@ -335,7 +335,7 @@ share it." Then `IdentityNewOldContacts`: "Someone who saved an
 identity you removed keeps its name and photo. This one is new to
 them." ADR-0061 d. 7 asks the client to say this before the add; the
 client keeps no record of removed identities, so the line is always on
-the form, and Remove's dialog says it too (§7). §16 Q7 asks whether
+the form, and Remove's dialog says it too (§7). §16 Q7 (b) asks whether
 the dialog alone would do. Then **Create** (`CreateIdentity`), filled. No id field, no
 label field, no advertise control (§8).
 
@@ -488,9 +488,9 @@ identity.
   to two or more, it opens Chats of the identity in front with the
   switcher open over it, switching nothing, and the person picks, since
   no one identity is the notification's (`human-client-ui.md` §13: a
-  switch is one explicit act). ADR-0061 d. 9, §13 and the exit gate
+  switch is one explicit act). ADR-0061 d. 9, `human-client-ui.md` §13 and the exit gate
   say opening a notification switches to its identity; this case,
-  which one entry for every identity creates, has none, and §16 Q7
+  which one entry for every identity creates, has none, and §16 Q7 (a)
   asks architect-cto to rule it.
 
 **On the lock screen**, whatever the person's preview setting
@@ -670,8 +670,8 @@ can, and the TalkBack rows of §14 are blocked until it does.
 - **Reduced motion**: the transition and the list's cross-fade keep
   their duration and lose their movement (cards §5.7.3, §5.7.5).
 - **Long names and other scripts**: a name is isolated plain text
-  (cards §3); the switch ellipsises at the end, never below the avatar
-  and three graphemes; every "as" line wraps rather than truncates, so
+  (cards §3); the switch ellipsises at the end, never to less than the
+  avatar and three graphemes; every "as" line wraps rather than truncates, so
   the whole name is always read; at 200 % text each line still fits
   the 360 dp width by wrapping.
 
@@ -734,10 +734,10 @@ pass before it lands.
 
 1. With one identity held, no switch, no "as" line, no identity subtitle,
    no `TrustScope`, `PeersShared`'s identity form or `ChannelTrustNode`
-   appears on any screen of §5's table. *(§13 bullet 13.)*
+   appears on any screen of §5's table. *(`human-client-ui.md` §13 bullet 13.)*
 2. With two identities held, each screen N1–N12 names the identity in
    front as its row says, in words; switching changes every one of them
-   at once. *(§13 bullet 13; exit gate.)*
+   at once. *(`human-client-ui.md` §13 bullet 13; exit gate.)*
 3. With two identities, Trust in front of A lists A's trusted peers
    only; trusting P there makes P appear in A's list and not in B's;
    a message from P to B's endpoint is refused at the route while one to
@@ -754,7 +754,7 @@ pass before it lands.
    identity whose endpoint has advertise off and an empty trusted set,
    observed from the daemon (`admin.endpoints.list`, trust list for
    that endpoint); the new row is focused and the identity in front is
-   unchanged. Needs D1, D2. *(§13 bullet 18; exit gate.)*
+   unchanged. Needs D1, D2. *(`human-client-ui.md` §13 bullet 18; exit gate.)*
 8. Add's alias follows §6.2's rule for each of its four examples and
    for a name of only punctuation (`identity`); renaming the card
    leaves the alias. Needs D3 (#553).
@@ -774,14 +774,14 @@ pass before it lands.
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
-    agent's), and lists none as an identity. *(§13 bullet 18.)*
+    agent's), and lists none as an identity. *(`human-client-ui.md` §13 bullet 18.)*
 13. Remove: the dialog lists §7's items in order, with the key and
     `IdentityRemoveOthersKeep`; first focus on Cancel; after Remove the
     endpoint is gone from the overlay, the key file and alias are gone,
     its conversations, pending outbound (tried no further), contacts,
     trusted set and card are gone, and a may-have-reached count was
     shown when one existed. Not offered on the first identity or the
-    default. Needs D1. *(§13 bullets 17, 36; exit gate.)*
+    default. Needs D1. *(`human-client-ui.md` §13 bullets 17, 36; exit gate.)*
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*
@@ -791,7 +791,7 @@ pass before it lands.
     block, it shows `IdentityStarting` and no lease is granted until it
     returns; after a daemon restart with the delta removed, the re-lease
     asserts again with the same two results; a trusted peer's directory
-    query lists no identity of this device. Needs D1. *(§13 bullet 19;
+    query lists no identity of this device. Needs D1. *(`human-client-ui.md` §13 bullet 19;
     exit gate.)*
 16. Notifications, Android, two identities with new messages in both:
     after the unlock, one notification per identity, each naming it in
@@ -802,7 +802,7 @@ pass before it lands.
     or both. Opening it after the unlock: with news in B only, the
     transition names B, then B's Chats; with news in both, the switcher
     over A's Chats, nothing switched (pending §16 Q7). Device row (Pixel
-    9a). *(§13 bullets 13, 16; exit gate.)*
+    9a). *(`human-client-ui.md` §13 bullets 13, 16; exit gate.)*
 17. With one identity held, the notification after the unlock is as on
     `main`, and the lock-screen entry is the same `MessagesWaitingLocked`
     entry as with two: compared side by side on the device, the two
@@ -822,16 +822,16 @@ pass before it lands.
     Pixel; Escape and Back close each menu, sheet and dialog with
     focus on the opener; no key switches identity without the switcher.
 21. Focus table: each row F1–F21 holds, checked as its row says.
-24. With two identities, a direct message reaching B from a route only A
-    holds as a contact is titled by the short PeerId in B's Chats, never
-    by A's name; B's Accept of a card on that route creates B's own
-    contact and leaves A's unchanged. *(§13 bullet 15; exit gate.)*
 22. Contrast: one row per mark and surface named in §12, each measured
     at or above its ratio, light and dark.
 23. TalkBack: each "as" line is read with its control, and each
     announcement of §12 is spoken once. **Blocked** until the app's
     accessibility tree reaches TalkBack (plan §21); a precondition, not
     a pass.
+24. With two identities, a direct message reaching B from a route only A
+    holds as a contact is titled by the short PeerId in B's Chats, never
+    by A's name; B's Accept of a card on that route creates B's own
+    contact and leaves A's unchanged. *(`human-client-ui.md` §13 bullet 15; exit gate.)*
 
 ## 15. Deliberately left out
 
@@ -856,7 +856,7 @@ Asked of architect-cto (QUESTION 01a1a69a) and ruled the same day
 (REPLY 01a1a69f); the text is PR #553. Each
 section above states the ruling where it applies:
 
-- **Q1** §13's identity-settings criterion against ADR-0067 d. 6:
+- **Q1** `human-client-ui.md` §13's identity-settings criterion against ADR-0067 d. 6:
   amended to §6.1's sentence with a channel clause.
 - **Q2** the no-reach rule's trust set: the identity in front's
   effective set (§5.1).
@@ -871,7 +871,7 @@ Open, asked after round 1 of #552's review:
 
 - **Q7** (a) Opening the lock-screen entry or the summary with news in
   two or more identities opens the switcher and switches nothing (§9),
-  where ADR-0061 d. 9, §13 bullet 16 and the exit gate say opening
+  where ADR-0061 d. 9, `human-client-ui.md` §13 bullet 16 and the exit gate say opening
   switches to the notification's identity; one entry for every identity
   is what makes a notification with no one identity. Rule it as §9
   does? (b) ADR-0061 d. 7 asks the client to say before the add that
