@@ -70,16 +70,16 @@ base64 = { workspace = true }
 interweave-transport-api = { path = "../../crates/api/transport-api" }
 
 [features]
-# The first-run profile of crates/human/android-platform's stand_in, and
-# a first run's identity created and Keystore-provisioned without asking
-# (jni.rs passes FirstRun::Create under it), which the Gradle build turns
-# on for the debug APK: without it a profile with no identity starts
-# nothing.
+# A first run's identity created and Keystore-provisioned by the Service
+# without asking (jni.rs passes FirstRun::Create under it), and the
+# android-e2e cases' replacement of the profile (android-platform's
+# stand_in), which the Gradle build turns on for the debug APK. The
+# first-run profile is written in every build (provision_profile).
 dev-stand-ins = ["interweave-human-android-platform/dev-stand-ins"]
 # TEST-ONLY: the instrumentation's case entry (src/e2e.rs,
 # org.interweave.human.test.E2eCase.run). The Gradle build turns it on
-# for the debug APK beside dev-stand-ins, whose first-run profile and
-# identity a case starts on; the release build turns on neither.
+# for the debug APK beside dev-stand-ins, whose first-run identity a
+# case starts on; the release build turns on neither.
 e2e-cases = [
     "dev-stand-ins",
     "dep:interweave-android-e2e-cases",

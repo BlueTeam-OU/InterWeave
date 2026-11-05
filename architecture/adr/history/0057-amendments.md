@@ -80,3 +80,25 @@ unchanged: the Android key's custody, and the environment's required
 reviewer as the guard of the secrets. Propagation: Security
 implications; this note; the log row; the digest entry's Security
 line.
+
+### Amendment 2026-11-05 — The android check job reads the pin since #566
+
+**Trigger.** Decision 4 (Amendment 2026-10-20) said the committed Skia pin
+"is to be read by the android check job in CI ... once its workflow calls
+the script", devex-tooling's wiring owed after the pin landed. devex-tooling's
+#566 (merged 2026-11-05, f03454a1) landed it: the `android check` job
+fetches the one archive `tools/ci/skia-binaries.pin` names through
+`tools/ci/skia_prebuilt.sh`, hands it to the build as the `file://` URL the
+script prints, and fails the run on the bindings' silent fallback, with a
+self-test of those steps as the runner runs them.
+
+**Changed.** Decision 4's sentence is written in the past tense citing #566;
+nothing of its wiring is owed. The rule is unchanged: one committed pin
+governs the release run and the check job, and a stale pin after a
+`skia-bindings` bump or a feature change fails both.
+
+**Propagation.** Decision 4; this note; the log row; the 2026-10-20 log
+row's Effect, dated in place ("once devex-tooling wired its workflow to the
+script (#566, A 2026-11-05)"); the digest entry's amendment line; plan
+§22's Android release paragraph, which said the wiring was "still owed at
+this writing".

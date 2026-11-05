@@ -21,10 +21,28 @@
 //! `stay-reachable`, its key policy and peers unchanged, and puts the
 //! profile back as found when it ends (`platform::ProfileKept`); it
 //! needs a `background-compatible` key, which a start does not wait on a
-//! person for. Over wireless adb the link drops with the
-//! Wi-Fi; the host waits for it, and on a phone that does not re-enable
-//! wireless debugging on its own a person turns it back on (the wait
-//! says so). Over USB nothing drops but the radio.
+//! person for. Over USB the link stays up, but the Wi-Fi cycle can still
+//! take wireless debugging's listener with it (below). Over wireless adb
+//! the link drops with the Wi-Fi, and two things follow, both measured
+//! on the A40 (API 30) on 2026-11-04:
+//! - With USB debugging off, losing the Wi-Fi turns adb off entirely,
+//!   and adbd's stop ends every process it started, the detached script
+//!   too: its log ended a second after the switch and the Wi-Fi stayed
+//!   off. So a wireless run refuses to start unless USB debugging is on
+//!   (`adb_enabled`), before anything is changed; with it on, the
+//!   script outlives the link (a detached heartbeat survived an
+//!   `adb disconnect` on the same phone).
+//! - Wireless debugging comes back off, and on a new port when it is
+//!   switched on. The host reads `adb_wifi_enabled` before anything is
+//!   changed, the script writes that value back after the Wi-Fi returns
+//!   (so a USB run on a phone with wireless debugging off leaves it off),
+//!   and the host puts it back again however the case ends
+//!   (`AdbWifiKept`). The host finds the new port among the phone's
+//!   ephemeral ports (`32768..=60999`, the phone's
+//!   `ip_local_port_range`), connects there, and follows the phone to it
+//!   (`platform::moved_to`), the profile's restore included. On the A40
+//!   the write did not bring the port back (the 2026-11-05 run record):
+//!   a person switches it on (the wait says so), with no port to type.
 //!
 //! What this does NOT prove: the loss callback's own line (the app
 //! writes none, as the 10-31 record says); the status line a person sees
@@ -34,6 +52,7 @@
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]
 
+use std::net::{SocketAddr, TcpStream};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -56,6 +75,13 @@ const DONE: &str = "net-drop done";
 const OFF_FOR: u32 = 30;
 const ON_FOR: u32 = 60;
 
+/// How long the script waits for the app's process after starting it.
+const START_FOR: u32 = 30;
+
+/// Where a wireless-debugging port is taken from: the phone's
+/// `ip_local_port_range` (the A40's, read 2026-11-04; Linux's default).
+const PORTS: std::ops::RangeInclusive<u16> = 32768..=60999;
+
 /// How long the host waits for adb and the script's end: the script's
 /// own run, and a person re-enabling wireless debugging.
 const BACK_PATIENCE: Duration = Duration::from_secs(600);
@@ -63,6 +89,17 @@ const BACK_PATIENCE: Duration = Duration::from_secs(600);
 #[test]
 #[ignore = "needs a device with the app's androidTest build: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); its Wi-Fi is switched off for 30 s"]
 fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
+    let serial = std::env::var("ANDROID_SERIAL").ok();
+    let wireless = serial.as_deref().and_then(|s| s.rsplit_once(':'));
+    if wireless.is_some() {
+        let usb = platform::shell(&["settings", "get", "global", "adb_enabled"]);
+        assert_eq!(
+            usb.trim(),
+            "1",
+            "over wireless adb this case needs USB debugging on (Developer options): without it the Wi-Fi drop turns adb off and ends the script that turns the Wi-Fi back on"
+        );
+    }
+    let adb_wifi = AdbWifiKept::take(wireless.is_some());
     let kept = ProfileKept::take();
     assert_eq!(
         kept.unlock_policy(),
@@ -74,13 +111,14 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
         &platform::with_availability(kept.found(), AvailabilityMode::StayReachable)
             .unwrap_or_else(|e| panic!("{e}")),
     );
-    let serial = std::env::var("ANDROID_SERIAL").ok();
-
+    // The activity is brought to the front over an unlocked screen, so
+    // the run starts from the state a person leaves the app in.
+    platform::until_unlocked();
     platform::shell(&["rm", "-rf", DIR]);
     platform::shell(&["mkdir", "-p", DIR]);
     let script = format!("{DIR}/run.sh");
     let local = tempfile::NamedTempFile::new().expect("a scratch file");
-    std::fs::write(local.path(), script_text()).expect("the script");
+    std::fs::write(local.path(), script_text(adb_wifi.found())).expect("the script");
     adb_ok(&["push", local.path().to_str().expect("a path"), &script]);
     // Detached: the shell adb runs it in ends with the link.
     platform::shell(&[
@@ -104,12 +142,18 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
             Instant::now() < deadline,
             "the script's end not read in {BACK_PATIENCE:?}: adb not back, or the script stopped"
         );
-        if let Some(s) = serial.as_deref().filter(|s| s.contains(':')) {
-            // Wireless: ask adb to reach the phone again.
-            let _ = Command::new("adb").args(["connect", s]).output();
+        if let Some((host, _)) = wireless {
+            // Wireless: the phone where it answers now, its old port first.
+            let now = platform::moved().or(serial.clone());
+            if !now.as_deref().is_some_and(connected)
+                && let Some(found) = find_adb(host)
+            {
+                eprintln!("network_callback: the phone answers at {found} now");
+                platform::moved_to(&found);
+            }
             if !asked {
                 eprintln!(
-                    "network_callback: if wireless debugging does not come back on its own after the Wi-Fi returns, turn it on (the same port)"
+                    "PERSON: if wireless debugging is still off a minute after the Wi-Fi returns, turn it on (Developer options); no port to tell"
                 );
                 asked = true;
             }
@@ -151,15 +195,24 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
 /// The phone's script: the app in front, then the Wi-Fi off and on with
 /// a marker before each switch, the app's process read at each step,
 /// and the log kept throughout. It turns the Wi-Fi back on whatever the
-/// host does meanwhile.
-fn script_text() -> String {
+/// host does meanwhile. Nothing in it waits on the screen: an
+/// `am start -W` behind a keyguard that came back after the host's
+/// unlock check never returns (the A40, 2026-11-04: the Wi-Fi went off
+/// 38 minutes late, after the host had given up), so the start is not
+/// waited on and the process is polled for, at most `START_FOR`
+/// seconds; a process that never came is an empty `pid-before`, which
+/// the host refuses.
+fn script_text(adb_wifi: &str) -> String {
+    let adb_wifi = put_back(ADB_WIFI, adb_wifi);
     format!(
         "\
 out={DIR}
 logcat -c
 logcat -v time > $out/logcat.txt &
 lp=$!
-am start -W -n {PACKAGE}/.MainActivity >/dev/null
+am start -n {PACKAGE}/.MainActivity >/dev/null
+n=0
+until pidof {PACKAGE} >/dev/null || [ $n -ge {START_FOR} ]; do sleep 1; n=$((n+1)); done
 sleep 5
 pidof {PACKAGE} > $out/pid-before
 log -t {TAG} '{OFF}'
@@ -169,6 +222,7 @@ pidof {PACKAGE} > $out/pid-during
 log -t {TAG} '{ON}'
 cmd wifi set-wifi-enabled enabled || svc wifi enable
 sleep {ON_FOR}
+{adb_wifi}
 pidof {PACKAGE} > $out/pid-after
 log -t {TAG} '{DONE}'
 sleep 1
@@ -176,6 +230,68 @@ kill $lp
 echo done > $out/done
 "
     )
+}
+
+/// The global setting that switches wireless debugging.
+const ADB_WIFI: &str = "adb_wifi_enabled";
+
+/// The shell command that puts a global setting back to `found`, as
+/// `settings get` printed it: `null` was no value, so it is deleted.
+fn put_back(name: &str, found: &str) -> String {
+    if found == "null" {
+        format!("settings delete global {name}")
+    } else {
+        format!("settings put global {name} {found}")
+    }
+}
+
+/// `adb_wifi_enabled` as found before the case, written back when this
+/// drops, the read-back said on stderr when it differs (as
+/// `ProfileKept`). The setting is not the listener: on the A40 it read 1
+/// with no port open (the 2026-11-05 run record). A wireless run reaches
+/// the phone again or fails, so a listener that did not return shows;
+/// a USB run never looks, so when it found wireless debugging on, the
+/// drop asks a person to check it.
+struct AdbWifiKept {
+    found: String,
+    wireless: bool,
+}
+
+impl AdbWifiKept {
+    fn take(wireless: bool) -> Self {
+        let found = platform::shell(&["settings", "get", "global", ADB_WIFI])
+            .trim()
+            .to_owned();
+        Self { found, wireless }
+    }
+
+    fn found(&self) -> &str {
+        &self.found
+    }
+}
+
+impl Drop for AdbWifiKept {
+    fn drop(&mut self) {
+        let wrote = platform::adb()
+            .args(["shell", &put_back(ADB_WIFI, &self.found)])
+            .output();
+        let now = platform::adb()
+            .args(["shell", "settings", "get", "global", ADB_WIFI])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned());
+        if now.as_deref().ok() != Some(self.found.as_str()) {
+            eprintln!(
+                "the phone's {ADB_WIFI} was NOT put back (write: {:?}, now {now:?}); it was {}",
+                wrote.map(|o| o.status),
+                self.found
+            );
+        }
+        if self.found == "1" && !self.wireless {
+            eprintln!(
+                "PERSON: wireless debugging was on before the Wi-Fi drop; check it is still on (Developer options): the setting reads back, the listener may not have"
+            );
+        }
+    }
 }
 
 /// The reports between the off marker and the on marker, and between the
@@ -198,15 +314,55 @@ fn phases(log: &str) -> Result<(Vec<Told>, Vec<Told>), String> {
     Ok((between(off, on), between(on, end)))
 }
 
-fn done() -> bool {
+/// Whether adb reaches the phone at `serial`: connected, and a device.
+fn connected(serial: &str) -> bool {
+    let _ = Command::new("adb").args(["connect", serial]).output();
     Command::new("adb")
+        .args(["-s", serial, "get-state"])
+        .output()
+        .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "device")
+}
+
+/// The serial wireless debugging answers at on `host` now: each port of
+/// [`PORTS`] that accepts a connection, tried with `adb connect`. The
+/// ports are tried 512 at a time; a closed one refuses at once.
+fn find_adb(host: &str) -> Option<String> {
+    let ports: Vec<u16> = PORTS.collect();
+    let open: Vec<u16> = ports
+        .chunks(512)
+        .flat_map(|chunk| {
+            let probes: Vec<_> = chunk
+                .iter()
+                .map(|&port| {
+                    let host = host.to_owned();
+                    std::thread::spawn(move || {
+                        let addr: SocketAddr = format!("{host}:{port}").parse().ok()?;
+                        TcpStream::connect_timeout(&addr, Duration::from_millis(800))
+                            .ok()
+                            .map(|_| port)
+                    })
+                })
+                .collect();
+            probes
+                .into_iter()
+                .filter_map(|p| p.join().ok().flatten())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    open.into_iter()
+        .map(|port| format!("{host}:{port}"))
+        .find(|s| connected(s))
+}
+
+fn done() -> bool {
+    platform::adb()
         .args(["shell", "cat", &format!("{DIR}/done")])
         .output()
         .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "done")
 }
 
 fn pull(path: &str) -> Vec<u8> {
-    let out = Command::new("adb")
+    let out = platform::adb()
         .args(["exec-out", "cat", path])
         .output()
         .expect("adb");
@@ -215,7 +371,7 @@ fn pull(path: &str) -> Vec<u8> {
 }
 
 fn adb_ok(args: &[&str]) {
-    let out = Command::new("adb").args(args).output().expect("adb");
+    let out = platform::adb().args(args).output().expect("adb");
     assert!(
         out.status.success(),
         "adb {}: {}",
@@ -258,4 +414,44 @@ fn the_phases_are_read_between_the_markers_and_a_missing_one_is_an_error() {
     );
     let cut = log.replace(DONE, "cut");
     assert!(phases(&cut).is_err(), "a log cut short is no reading");
+}
+
+#[test]
+fn the_script_waits_on_no_screen_and_polls_for_the_process() {
+    let script = script_text("1");
+    let start = script
+        .lines()
+        .find(|l| l.starts_with("am start"))
+        .expect("the script starts the app");
+    assert!(
+        !start.split_whitespace().any(|w| w == "-W"),
+        "an `am start -W` behind a keyguard never returns: {start}"
+    );
+    // Control: the start is followed by the bounded poll for the process.
+    let poll = format!("until pidof {PACKAGE} >/dev/null || [ $n -ge {START_FOR} ]");
+    assert!(script.contains(&poll), "no bounded poll in:\n{script}");
+    assert!(script.find(start) < script.find(&poll));
+}
+
+#[test]
+fn the_script_writes_back_the_adb_wifi_value_the_host_found() {
+    // A USB run on a phone with wireless debugging off leaves it off.
+    let off = script_text("0");
+    assert!(
+        off.contains("settings put global adb_wifi_enabled 0\n"),
+        "{off}"
+    );
+    assert!(!off.contains("adb_wifi_enabled 1"), "{off}");
+    // Control: a phone that had it on gets it back on.
+    assert!(script_text("1").contains("settings put global adb_wifi_enabled 1\n"));
+    // No value found is no value left.
+    let none = script_text("null");
+    assert!(
+        none.contains("settings delete global adb_wifi_enabled\n"),
+        "{none}"
+    );
+    assert!(
+        !none.contains("settings put global adb_wifi_enabled"),
+        "{none}"
+    );
 }
