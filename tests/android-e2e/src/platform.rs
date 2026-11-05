@@ -254,9 +254,10 @@ const SECURE_BIT: u32 = 0x2000;
 /// a mask: no flag's name is spelt in the letters A to F only.
 ///
 /// # Errors
-/// A value with no word before the next `key=` (a line cut at `fl=`),
-/// and a mask with no digits or more than a `u32` holds: a "not secure"
-/// read off them would pass the negative for free.
+/// A value with no word before the next `key=` (a line cut at `fl=`), a
+/// mask with no digits or more than a `u32` holds, and a word that is
+/// neither a mask nor spelt as a flag's name (capitals, digits, `_`): a
+/// "not secure" read off them would pass the negative for free.
 fn secure_flag(value: &str) -> Result<bool, String> {
     let words: Vec<&str> = value
         .split_whitespace()
@@ -374,7 +375,7 @@ pub fn has_window(dump: &str, title: &str) -> bool {
 /// Whether the credential prompt shows now.
 ///
 /// # Panics
-/// As [`shell`]; on a dump [`prompt_in`] refuses.
+/// As [`shell`]; on a dump [`dump_ended`] or [`prompt_in`] refuses.
 #[must_use]
 pub fn prompt_shown() -> bool {
     prompt_in(&dump(&["window", "windows"])).unwrap_or_else(|e| panic!("{e}"))
@@ -472,8 +473,8 @@ pub const UNLOCK_PATIENCE: Duration = Duration::from_secs(300);
 /// still up asks the person on stderr and is waited out.
 ///
 /// # Panics
-/// As [`shell`]; on a dump [`keyguard_showing`] cannot read; or on a
-/// phone still locked after [`UNLOCK_PATIENCE`].
+/// As [`shell`]; on a dump [`dump_ended`] refuses or [`keyguard_showing`]
+/// cannot read; or on a phone still locked after [`UNLOCK_PATIENCE`].
 pub fn until_unlocked() {
     shell(&["input", "keyevent", "KEYCODE_WAKEUP"]);
     let locked = || keyguard_showing(&dump(&["window"])).unwrap_or_else(|e| panic!("{e}"));
@@ -552,7 +553,8 @@ pub fn dump(args: &[&str]) -> String {
 /// The app's `NetworkService` record as the platform holds it now.
 ///
 /// # Panics
-/// As [`shell`], or on a record [`service_record`] cannot read.
+/// As [`shell`], or on a dump [`dump_ended`] refuses or a record
+/// [`service_record`] cannot read.
 #[must_use]
 pub fn network_service() -> Option<ServiceRecord> {
     service_record(&dump(&["activity", "services", PACKAGE]), NETWORK_SERVICE)
@@ -562,7 +564,8 @@ pub fn network_service() -> Option<ServiceRecord> {
 /// The app's windows now, with their `SECURE` bit.
 ///
 /// # Panics
-/// As [`shell`], or on a dump [`app_windows`] cannot read.
+/// As [`shell`], or on a dump [`dump_ended`] refuses or [`app_windows`]
+/// cannot read.
 #[must_use]
 pub fn windows() -> Vec<(String, bool)> {
     app_windows(&dump(&["window", "windows"])).unwrap_or_else(|e| panic!("{e}"))
