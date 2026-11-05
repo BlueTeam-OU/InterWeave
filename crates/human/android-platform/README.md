@@ -17,7 +17,8 @@ host:
   record is created or refused as the caller says (`FirstRun`).
 - `provision_profile`: the first-run profile, profile-config's
   embedded-android document, written in every build where there is none
-  and never rewritten.
+  and never rewritten
+  (`the_first_run_profile_is_written_once_and_never_rewritten`).
 - `stand_in` (feature `dev-stand-ins`, the debug APK's): the android-e2e
   cases' replacement of the profile.
 

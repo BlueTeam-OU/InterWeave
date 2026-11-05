@@ -405,7 +405,7 @@ fn the_log_level_is_the_profiles_and_none_without_one() {
     assert_eq!(
         interweave_human_android_platform::profile_log_level(&app.dir, PROFILE),
         Some(interweave_human_android_platform::LogLevel::Info),
-        "the stand-in names none: the default"
+        "the first-run profile names none: the default"
     );
     std::fs::write(
         paths.config_file(),
@@ -605,6 +605,24 @@ fn the_persons_choice_changes_the_availability_and_says_so() {
         service.set_availability(None).is_err(),
         "nothing to record a choice against while nothing runs"
     );
+}
+
+/// A provisioned profile is kept without writing anything: every start
+/// provisions, and a data directory the app cannot write to -- full, or
+/// read-only -- must not refuse a phone that already has its profile.
+#[test]
+fn a_provisioned_profile_is_kept_without_a_write() {
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    let dir = paths.config_dir().to_owned();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).expect("chmod");
+    let probe = std::fs::File::create(dir.join("probe"));
+    let kept = provision_profile(&app.dir, PROFILE);
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod back");
+    assert!(probe.is_err(), "the control: the directory takes no write");
+    kept.expect("a provisioned profile is kept");
 }
 
 #[test]

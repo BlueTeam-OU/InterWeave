@@ -18,14 +18,23 @@ use interweave_profile_config::{PersistError, ProfilePaths, TrustBoundary};
 
 /// Write `profile`'s configuration under `app_data_dir` if there is none.
 /// A profile once written is never rewritten, so what a person or the
-/// admin overlay changed survives: the write is exclusive, and a document
-/// already there is success.
+/// admin overlay changed survives
+/// (`the_first_run_profile_is_written_once_and_never_rewritten`).
+///
+/// A document already there is success before anything is written: every
+/// start asks, and a full or read-only data directory must not refuse a
+/// phone that is already provisioned
+/// (`a_provisioned_profile_is_kept_without_a_write`). The write itself is
+/// exclusive, for the first runs the check cannot tell apart.
 ///
 /// # Errors
 /// The paths are refused by the app's trust boundary, or the directory
 /// or the file could not be made.
 pub fn provision_profile(app_data_dir: &Path, profile: &str) -> Result<(), PersistError> {
     let paths = ProfilePaths::resolve_embedded(profile, TrustBoundary::new(app_data_dir)?)?;
+    if paths.config_file().exists() {
+        return Ok(());
+    }
     match provision_embedded(&paths) {
         Ok(()) | Err(PersistError::AlreadyExists) => Ok(()),
         Err(e) => Err(e),

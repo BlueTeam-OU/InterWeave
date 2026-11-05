@@ -539,7 +539,7 @@ mod onboarding {
         assert!(
             matches!(
                 onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
-                Err(WriteRefused::Storage(_))
+                Err(WriteRefused::Storage(why)) if why.starts_with("the profile:")
             ),
             "the control: with no document the seal is refused"
         );

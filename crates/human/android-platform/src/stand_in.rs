@@ -22,7 +22,8 @@ use interweave_profile_config::{
 /// directories (the seam agreed with p2p-network-dev-02, 01a127b3).
 /// The app's instrumentation calls it as the cases' `provision`
 /// (apps/human-android/src/e2e.rs). The app's own start keeps
-/// [`crate::provision_profile`]'s never-rewrite rule.
+/// [`crate::provision_profile`]'s never-rewrite rule
+/// (`the_cases_provisioning_replaces_the_profile_where_the_apps_keeps_it`).
 ///
 /// # Errors
 /// The directory or the file could not be made, or is refused by the
