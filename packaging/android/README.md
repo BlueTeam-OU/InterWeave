@@ -275,8 +275,8 @@ still waits on.
   the same as `v0.1.0`'s, and the Slint badge. `tools/ci/test_release_android_apk.sh`, in CI's `tool
   self-tests` job, holds the signing step to the release key: an APK
   signed by another key, or of another package, is refused.
-- **Android update/reinstall behavior.** No test on `main`; owed, and a
-  limit until it lands. The release page says an update keeps the
+- **Android update/reinstall behavior.** No automated test; device
+  records, below, with one half a named limit. The release page says an update keeps the
   identity and the messages, Android refuses an older release over a
   newer one, and an uninstall deletes the app's data. What `main` shows
   is the precondition of an update in place, one signing key for every
@@ -291,6 +291,18 @@ still waits on.
   same phone window as S12's rows when it allows, else the next one,
   and the host-side halves (upgrade, PeerId preservation against a
   packaged build) stay rust-ui-dev's as §22 splits them.
+  Both ran with the published APKs on 2026-11-05, on the Pixel 9a at
+  API 37 ([`evidence/2026-11-05-pixel-9a-update-and-downgrade.md`](evidence/2026-11-05-pixel-9a-update-and-downgrade.md))
+  and on the A40 at API 30 ([`evidence/2026-11-05-samsung-a40-update-and-downgrade.md`](evidence/2026-11-05-samsung-a40-update-and-downgrade.md)):
+  on both, v0.1.0 over v0.2.0 is refused
+  (`INSTALL_FAILED_VERSION_DOWNGRADE`, with and without `-r`), and
+  v0.2.0 updates v0.1.0 in place as a package. The same PeerId from
+  the same store was not run: neither release can make an identity on
+  a fresh install, since a release build writes no first-run profile
+  (plan §22, "The published Android releases cannot onboard a new
+  user"). By §22's baseline rule that half runs from the first
+  published release that onboards a new user to the release after it,
+  and is a limit of this row until then.
 
 ## What this does not prove
 
