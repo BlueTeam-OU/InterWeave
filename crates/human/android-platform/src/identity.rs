@@ -327,8 +327,9 @@ fn reseal(
         // An unsynced write is in place, under the configured policy, with
         // the old policy's key not retired: what `OldKeyRemains` says, and
         // what the status shows (design 2026-11-05-unlock-policy-pending.md
-        // section 3). Asked of the record rather than assumed, so a
-        // `Storage` refusal always means nothing was written.
+        // section 3). Asked of the record rather than assumed: a `Storage`
+        // refusal means nothing was written, but for an unsynced write
+        // whose record could not be read back, which stays `Storage`.
         CustodyRefused::Storage(PersistError::Unsynced(_)) if matches!(custody::recorded_policy(paths), Ok(Some(p)) if p == policy) => {
             ResealFailure::OldKeyRemains
         }
