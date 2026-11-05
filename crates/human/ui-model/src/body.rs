@@ -62,9 +62,11 @@ pub enum Kind {
     TableRow,
 }
 
-/// The most characters (grapheme clusters) a body draws whole, and so the
-/// most any one drawn item holds (HUMAN-CHAT.md, Bounds, A 2026-11-04).
-pub const BODY_GRAPHEMES: usize = 2000;
+/// The most characters (grapheme clusters) a link control's label holds
+/// as shown: the whole-body figure, which HUMAN-CHAT.md's Bounds give every
+/// drawn item (A 2026-11-04 (ii)). A label is never cut, so past it a link
+/// has no control.
+pub const LABEL_GRAPHEMES: usize = 2000;
 
 /// A link's control's label as a view shows it: its words and the
 /// destination with every hidden code point spelled out
@@ -78,14 +80,14 @@ pub fn link_label(destination: &str) -> String {
 }
 
 /// Whether a link gets a control: only when its label, as shown, is within
-/// [`BODY_GRAPHEMES`] and holds no character past the cluster bound. A
+/// [`LABEL_GRAPHEMES`] and holds no character past the cluster bound. A
 /// label is never cut or replaced in part -- either could show one host
 /// and open another -- so a link past either has its text drawn inert, as
 /// a link of a scheme outside the allow-list does (HUMAN-CHAT.md, Bounds,
 /// A 2026-11-04 (ii)).
 fn has_control(destination: &str) -> bool {
     let label = link_label(destination);
-    label.graphemes(true).nth(BODY_GRAPHEMES).is_none() && crate::cluster::fits(&label)
+    label.graphemes(true).nth(LABEL_GRAPHEMES).is_none() && crate::cluster::fits(&label)
 }
 
 /// Whether a line is a piece of the line before it, and where it was cut.
@@ -784,13 +786,13 @@ mod tests {
 
     #[test]
     fn a_link_whose_label_would_pass_the_figures_gets_no_control_its_text_kept() {
-        use super::{BODY_GRAPHEMES, link_label};
+        use super::{LABEL_GRAPHEMES, link_label};
 
         let words = link_label("").chars().count();
-        let at = format!("https://e.org/{}", "a".repeat(BODY_GRAPHEMES - words - 14));
+        let at = format!("https://e.org/{}", "a".repeat(LABEL_GRAPHEMES - words - 14));
         assert_eq!(
             link_label(&at).chars().count(),
-            BODY_GRAPHEMES,
+            LABEL_GRAPHEMES,
             "the case at the bound"
         );
         let past = format!("{at}a");
@@ -800,8 +802,8 @@ mod tests {
 
         // Short in the source, long as shown: each hidden code point is
         // spelled out on the label.
-        let hidden = format!("https://e.org/a{}", "\u{FE0F}".repeat(BODY_GRAPHEMES / 8));
-        assert!(hidden.chars().count() < BODY_GRAPHEMES);
+        let hidden = format!("https://e.org/a{}", "\u{FE0F}".repeat(LABEL_GRAPHEMES / 8));
+        assert!(hidden.chars().count() < LABEL_GRAPHEMES);
         let got = body(&format!("[padded]({hidden})"));
         assert_eq!(got.lines, [line(Kind::Text, 0, false, "", "padded")]);
         assert!(got.links.is_empty(), "counted as shown, not as sent");
