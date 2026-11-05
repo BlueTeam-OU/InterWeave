@@ -21,7 +21,7 @@ use interweave_human_android_platform::KeyUnlockPolicy;
 use interweave_human_android_platform::custody::{self, RecordName, RecoveryCause};
 use interweave_human_android_platform::onboarding::{self, Creation, WriteRefused, english};
 use interweave_human_android_platform::{
-    Expected, IdentityRefused, opening_needs_presence, reseal_needs_presence,
+    Expected, IdentityRefused, locked_status, opening_needs_presence, reseal_needs_presence,
 };
 use interweave_human_ui_model::{
     Admit, Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start,
@@ -208,6 +208,7 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         // user-presence needs the person: prompt before the start, as for
         // a key that needs them to open (ADR-0042 A 2026-11-05).
         Ok(_) if reseal_needs_presence(&app_data_dir, PROFILE) => {
+            locked_before_start(&app_data_dir);
             await_authentication(ask::BIND);
             return_code = state::AUTHENTICATION_NEEDED;
             None
@@ -246,6 +247,7 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         Err(IdentityRefused::UserNotAuthenticated) => {
             // Nothing runs until the person authenticates: the window
             // says so, offline, and the grant binds the service.
+            locked_before_start(&app_data_dir);
             await_authentication(ask::BIND);
             return_code = state::AUTHENTICATION_NEEDED;
             None
@@ -471,6 +473,15 @@ fn input_later(input: IdentityInput) {
 /// cancelled restart after Show my phrase left stopped (ONLINE). `None`
 /// when nothing waits for the person.
 static AFTER_PROMPT: Mutex<Option<jni::sys::jint>> = Mutex::new(None);
+
+/// The unlock status of a locked check, for the locked view: the record
+/// header's policy and the last start's pending reason, as a start
+/// refused for the person would have left it -- here no start runs before
+/// the prompt.
+fn locked_before_start(app_data_dir: &Path) {
+    let host = interweave_human_android_platform::ServiceHost::global();
+    host.locked_before_start(locked_status(app_data_dir, PROFILE, host.unlock_status()));
+}
 
 /// Nothing runs until the person authenticates: the window shows it,
 /// offline with the notice whose action raises the prompt, and a grant
