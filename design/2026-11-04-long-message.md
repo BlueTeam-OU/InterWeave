@@ -130,12 +130,21 @@ under the text.
   renders it — never a parse of a cut source, so emphasis, a list's
   numbering or a code block that runs past the cut look in the preview
   as they do in the reader.
-- It ends at the last block boundary (a paragraph, a list item, a table
-  row, a code line, a heading) inside the preview's limit (§6) when
-  that boundary is in the last quarter of whichever limit cuts
-  (characters or lines); otherwise at the last
-  word boundary inside the limit, and then an ellipsis (`…`) follows the
-  preview's last word. The cut never falls inside a grapheme cluster. A
+- It ends at the first of these that holds, each inside the preview's
+  limit (§6), where "the last quarter" is the last quarter of whichever
+  limit cuts (characters or lines):
+  1. the last block boundary (a paragraph, a list item, a table row, a
+     code line, a heading), when it is in the last quarter;
+  2. otherwise the last word boundary, when it is in the last quarter,
+     and then an ellipsis (`…`) follows the preview's last word;
+  3. otherwise between the last two whole characters inside the limit,
+     and then an ellipsis.
+
+  So a body whose only early break is a space — a label and then a long
+  unbroken run (`key: ` and a 3 000-character base64 value), or a
+  replacement mark and then 2 399 letters (A12's C2) — still previews
+  most of the limit, never the few characters before that space (rust-ui-dev's
+  QUESTION 01a1aabf). The cut never falls inside a grapheme cluster. A
   table cut between rows keeps its header row.
 - A link's control (the one after the text) is in the preview only
   when its text is and the whole of its label, as shown, fits inside
@@ -540,7 +549,10 @@ it, those checks are blocked, never passed.
 - **A2** A cut row shows the preview, the cut line with a percentage
   equal to the preview's characters over the body's, rounded down and
   at least 1, and Read the whole message; its preview ends as §4.1
-  says, and a table cut keeps its header. Its menu is in §4.3's order.
+  says, and a table cut keeps its header. `key: ` followed by a
+  3 000-character base64 value previews 1 600 characters and an
+  ellipsis (§4.1 step 3), and A12's C2 previews its mark and 1 599
+  letters, 66 %. Its menu is in §4.3's order.
 - **A3** With a cut message in the middle of a conversation, the cut
   row — preview, cut line, button and status — is at most as tall as
   the figures below, counted in the conversation's viewport (the space
