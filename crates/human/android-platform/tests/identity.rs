@@ -21,7 +21,8 @@ use std::sync::Mutex;
 use interweave_human_android_platform::{
     AvailabilityMode, Expected, FirstRun, IdentityRefused, KeyUnlockPolicy, ResealFailure,
     Resealed, RestoreRefused, UnlockStatus, locked_status, phrase_peer, provision_profile,
-    reseal_identity, restore_identity, stand_in, start_identity, start_resealed,
+    reseal_identity, restart_requires_user_authentication_at_rest, restore_identity, stand_in,
+    start_identity, start_resealed,
 };
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
@@ -625,7 +626,8 @@ fn the_unlock_status_is_the_record_in_force_and_the_diagnostic_follows_it() {
 /// force is the record header's (ADR-0041 A 2026-11-05), configured beside
 /// it; a profile with no record has none. What is pending is the last
 /// start's while the record is still under the policy it left in force,
-/// and nothing once it is not.
+/// and nothing once it is not; the restart diagnostic reads the mode from
+/// disk.
 #[test]
 fn a_locked_start_takes_the_record_headers_policy() {
     let app = app();
@@ -661,6 +663,12 @@ fn a_locked_start_takes_the_record_headers_policy() {
         locked_status(&app.dir, PROFILE, Some(other)),
         Some(header),
         "a record under another policy than the last start left"
+    );
+
+    assert_eq!(
+        restart_requires_user_authentication_at_rest(&app.dir, PROFILE, &other),
+        Some(false),
+        "the first-run document's mode is foreground-only"
     );
 }
 

@@ -170,14 +170,19 @@ const PENDING: UnlockStatus = UnlockStatus {
 /// running client -- whose reseal found the profile held -- replaces
 /// nothing, and a refused start says what it learnt only while nothing
 /// runs. The restart diagnostic is the policy in force under the running
-/// host's effective availability.
+/// host's effective availability, and with no host the mode on disk: a
+/// locked start's diagnostic (ADR-0041 A 2026-11-05).
 #[test]
 fn the_unlock_status_is_the_last_start_that_ran() {
     let app = app();
     provision_profile(&app.dir, PROFILE).expect("provisioned");
     let service = ServiceHost::new();
     assert_eq!(service.unlock_status(), None);
-    assert_eq!(service.restart_requires_user_authentication(), None);
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        None,
+        "no start learnt the policy"
+    );
     service
         .start(ServiceLaunch {
             unlock: Some(PENDING),
@@ -186,9 +191,9 @@ fn the_unlock_status_is_the_last_start_that_ran() {
         .expect("started");
     assert_eq!(service.unlock_status(), Some(PENDING));
     assert_eq!(
-        service.restart_requires_user_authentication(),
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
         Some(false),
-        "foreground-only, the stand-in's mode"
+        "foreground-only, the first-run document's mode"
     );
 
     let held = UnlockStatus {
@@ -209,10 +214,26 @@ fn the_unlock_status_is_the_last_start_that_ran() {
     );
 
     service.set_availability(Some(StayReachable)).expect("on");
-    assert_eq!(service.restart_requires_user_authentication(), Some(true));
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        Some(true)
+    );
     let _ = service.stop(GRACE);
     assert_eq!(service.unlock_status(), Some(PENDING), "kept past a stop");
-    assert_eq!(service.restart_requires_user_authentication(), None);
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        Some(true),
+        "with no host, the overlay the choice wrote, read from disk"
+    );
+    service.refused_before_start_with(Some(UnlockStatus {
+        in_force: KeyUnlockPolicy::BackgroundCompatible,
+        ..PENDING
+    }));
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        Some(false),
+        "the policy in force, never the configured one"
+    );
 
     service.refused_before_start_with(Some(held));
     assert_eq!(service.unlock_status(), Some(held), "a refused start's");

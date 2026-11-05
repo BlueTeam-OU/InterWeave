@@ -377,15 +377,27 @@ impl ServiceHost {
         *self.unlock_slot()
     }
 
-    /// `background_restart_requires_user_authentication` while the client
-    /// runs: the effective availability and the policy in force
-    /// ([`UnlockStatus::restart_requires_user_authentication`]). `None`
-    /// while no runtime runs or no start learnt the policy.
+    /// `background_restart_requires_user_authentication` for `profile`
+    /// under `app_data_dir`: the policy in force by the last start's status,
+    /// under the running host's effective availability -- or, while no
+    /// runtime runs (locked, network denied, stopped), the mode read from
+    /// disk ([`crate::identity::restart_requires_user_authentication_at_rest`]).
+    /// `None` while no start learnt the policy, or the mode cannot be read.
     #[must_use]
-    pub fn restart_requires_user_authentication(&self) -> Option<bool> {
-        let mode = self.availability()?;
-        self.unlock_status()
-            .map(|unlock| unlock.restart_requires_user_authentication(mode))
+    pub fn restart_requires_user_authentication(
+        &self,
+        app_data_dir: &std::path::Path,
+        profile: &str,
+    ) -> Option<bool> {
+        let unlock = self.unlock_status()?;
+        match self.availability() {
+            Some(mode) => Some(unlock.restart_requires_user_authentication(mode)),
+            None => crate::identity::restart_requires_user_authentication_at_rest(
+                app_data_dir,
+                profile,
+                &unlock,
+            ),
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<Running>> {

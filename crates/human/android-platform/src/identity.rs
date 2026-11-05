@@ -32,7 +32,7 @@
 
 use std::path::Path;
 
-use interweave_profile_config::runtime::{AvailabilityMode, KeyUnlockPolicy};
+use interweave_profile_config::runtime::{self, AvailabilityMode, KeyUnlockPolicy};
 
 use interweave_profile_config::{PersistError, ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
@@ -202,14 +202,12 @@ impl UnlockStatus {
     }
 
     /// `background_restart_requires_user_authentication` (human-client-ui.md
-    /// section 14): a node kept reachable whose key IN FORCE needs the
-    /// person cannot come back on its own after a restart. Judged on the
-    /// effective mode and the policy in force; the configured policy is
-    /// never an input (ADR-0041 A 2026-11-05).
+    /// section 14) under the `effective` mode: profile-config's rule, given
+    /// the policy in force and never the configured one (ADR-0041 A
+    /// 2026-11-05).
     #[must_use]
     pub fn restart_requires_user_authentication(&self, effective: AvailabilityMode) -> bool {
-        effective == AvailabilityMode::StayReachable
-            && self.in_force == KeyUnlockPolicy::UserPresence
+        runtime::background_restart_requires_user_authentication(effective, self.in_force)
     }
 }
 
@@ -272,6 +270,23 @@ pub fn locked_status(
             .filter(|last| last.in_force == in_force)
             .and_then(|last| last.pending),
     })
+}
+
+/// [`UnlockStatus::restart_requires_user_authentication`] with no host
+/// running: the effective mode read from disk
+/// (`availability_overlay::effective_availability_mode`), as a locked
+/// start's diagnostic needs it (ADR-0041 A 2026-11-05). `None` when the
+/// mode cannot be read.
+#[must_use]
+pub fn restart_requires_user_authentication_at_rest(
+    app_data_dir: &Path,
+    profile: &str,
+    unlock: &UnlockStatus,
+) -> Option<bool> {
+    let paths = embedded(app_data_dir, profile).ok()?;
+    let mode = interweave_profile_config::availability_overlay::effective_availability_mode(&paths)
+        .ok()?;
+    Some(unlock.restart_requires_user_authentication(mode))
 }
 
 /// Bring `profile`'s record to its configured `key_unlock_policy` after
