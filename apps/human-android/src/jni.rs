@@ -148,13 +148,10 @@ extern "system" fn JNI_OnLoad(
 /// what the refused start learnt of the policy in force. A first run is
 /// provisioned here in the debug build alone (android-platform's
 /// `identity`); a release first run is onboarding's.
-fn identity(
-    env: &mut Env<'_>,
-    app_data_dir: &str,
-) -> Result<Started, (jint, Option<UnlockStatus>)> {
+fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<Started, (jint, Learnt)> {
     let cipher = KeystoreCipher::new(env).map_err(|e| {
         log(&format!("the Keystore cipher could not be reached: {e}"));
-        (refused::IDENTITY_UNAVAILABLE, None)
+        (refused::IDENTITY_UNAVAILABLE, Learnt::Nothing)
     })?;
     // A first run creates its identity in the debug build alone, so an
     // instrumentation case starts with no person; the release build's
@@ -172,7 +169,12 @@ fn identity(
         let unlock = (why == IdentityRefused::UserNotAuthenticated)
             .then(|| locked_status(dir, PROFILE, ServiceHost::global().unlock_status()))
             .flatten();
-        (refused_identity(&why), unlock)
+        let learnt = if why.custody_ran() {
+            Learnt::Status(unlock)
+        } else {
+            Learnt::Nothing
+        };
+        (refused_identity(&why), learnt)
     })?;
     match &started.resealed {
         Resealed::Unchanged | Resealed::Held => {}
@@ -184,6 +186,14 @@ fn identity(
         )),
     }
     Ok(started)
+}
+
+/// What a start refused before its host learnt of the unlock policy.
+enum Learnt {
+    /// The custody step did not run: the last start's status stands.
+    Nothing,
+    /// The custody step ran: its status, `None` where the record gave none.
+    Status(Option<UnlockStatus>),
 }
 
 /// The code a start with no identity answers Java with, after logging
@@ -294,8 +304,11 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     }
     let started = match identity(env, app_data_dir) {
         Ok(started) => started,
-        Err((code, unlock)) => {
-            ServiceHost::global().refused_before_start_with(unlock);
+        Err((code, learnt)) => {
+            match learnt {
+                Learnt::Status(unlock) => ServiceHost::global().refused_before_start_with(unlock),
+                Learnt::Nothing => ServiceHost::global().refused_before_start(),
+            }
             return code;
         }
     };
