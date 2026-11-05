@@ -79,15 +79,17 @@ The view reads four facts from the status member (Q3):
     profile's lock. That covers three outcomes:
     - the reseal succeeded;
     - it answered `OldKeyRemains`;
-    - it failed with custody's `Unsynced` (`Storage`), which arrives
+    - it failed with custody's `Storage(Unsynced)`, which arrives
       only after the new record has replaced the old one, with the old
       policy's key not retired (`custody::reseal`'s documentation).
   - Otherwise (`Keystore`, `Storage` before the write, `Other`,
     `Held`), it is the policy byte of the record the start opened
     (ADR-0041 A 2026-11-05).
-  - Read strictly, "the record the start opened" would show a start
-    whose reseal succeeded as still pending; this note does not mean
-    that (rust-ui-dev's reading, REPLY 01a1ac9e-52ad).
+  - This is ADR-0041 A 2026-11-05 as architect-cto ruled it on #571
+    (089b8554f): the policy byte of the record on disk when the start's
+    custody step ends. That is the record the reseal wrote when it
+    wrote one, `Storage(Unsynced)` included, and otherwise the record
+    the start opened.
 - **configured**: the configured policy, or unknown when the profile
   could not be read at the reseal.
 - the reseal's pending class, if any.
@@ -103,10 +105,13 @@ or D, decided by the policy in force alone.
 
 `Unsynced` is shown as K: the record is under the configured policy and
 the other policy's key remains, which are K's facts. **The status member
-reports `Unsynced` as the class `OldKeyRemains`**, never as `Storage`
-(rust-ui-dev, REPLY 01a1aca2-ea97, with a test pinning it). So the view
-needs no fifth fact, and a `Storage` class always means a failure
-before the write. One limit remains.
+is to report `Unsynced` as the class `OldKeyRemains`**, never as
+`Storage`. rust-ui-dev accepted this in REPLY 01a1aca2-ea97, with a test
+promised. It is not on their branch yet: at 76ac4a188, `reseal_identity`
+still classes every `Storage` refusal as `Storage` (identity.rs:188).
+Once it lands, the view needs no fifth fact, and a `Storage` class
+always means a failure before the write. It is a precondition of §8
+beside the member. One limit remains.
 If a power cut loses the unsynced write, the next start opens the old
 record again, and the line shows P for that start.
 
@@ -261,7 +266,8 @@ The P and K states cannot be produced on a device on demand (a
 Keystore fault, a full disk at the start). They are checked by view
 tests (`crates/human/ui-slint/tests/views.rs`) with the status member
 set. **Precondition for all of them: the status member carries the four
-facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
+facts of §3 (Q3), with `Unsynced` reported as `OldKeyRemains` (§3).**
+Without both, A1–A10 and A12 are blocked, not passed.
 
 - **A1** For each row of §3's table, the Trust page shows exactly the
   line(s) named, in that order, between the PeerId and "Show recovery
@@ -373,4 +379,5 @@ facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
   - "pending" from the comparison, `Held` included (same reply);
   - `Unsynced` reported as `OldKeyRemains` (REPLY 01a1aca2-ea97).
 
-  Until the member is built, A1–A10 and A12 stay blocked, as §8 says.
+  Until the member is built and the `Unsynced` classing is on the
+  branch, A1–A10 and A12 stay blocked, as §8 says.
