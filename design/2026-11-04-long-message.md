@@ -603,11 +603,17 @@ it, those checks are blocked, never passed.
   them. That is an estimate too, measured and reported like the rest.
   The table first took the paragraph figures and measured over them
   (rust-ui-dev's OBSERVATION 01a1ab0f, desktop at the Pixel's 412 dp:
-  2.2 viewports at 100 %, 7.8 at 200 %, rows of two 21-letter cells):
-  a row wraps per cell, to two lines at 100 % and about four at 200 %,
-  and carries the cells' padding, which the paragraph estimate left
-  out. Its characters are body text, so the headings' figures bound it,
-  as they bound the link and image shapes; cutting a table at fewer
+  2.2 viewports at 100 %, 7.8 at 200 %, rows of two 21-letter cells,
+  against the paragraph's 1.75 and 6.5): a table row is one model line,
+  its cells joined by ` | ` in one text and wrapped as a paragraph's
+  line is, with no padding of its own. A 45-character row breaks at the
+  spaces around the `|` into two partly filled lines at 100 %, and into
+  about four at 200 %, where each 21-letter cell is itself longer than
+  a line; each row also sits 4 px below the one above. So some 1 440
+  characters in 32 rows draw more lines than a 1 600-character
+  paragraph that fills its lines. The headings' estimate already allows
+  one ragged line per model line, at a larger font, so the headings'
+  figures bound the table, as they bound the link and image shapes; cutting a table at fewer
   rows instead would make its preview the one shape cut short of §6's
   figures. The device run measures it again.
 - **A4** At 200 % text, on the narrowest layout and at the highest
