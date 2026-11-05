@@ -101,9 +101,11 @@ pub struct ServiceRecord {
 /// "no answer".
 ///
 /// # Errors
-/// A dump with no record and no `(nothing)`; a record with no
-/// `packageName=` (which AOSP always prints, so the record was cut); an
-/// `isForeground`, `startRequested` or `types` that is not a value.
+/// A dump with a record header that is not whole (`<hex> u<user>
+/// <name>` closed by `}`), wherever it stands; a dump with no record
+/// and no `(nothing)`; a record with no `packageName=` (which AOSP
+/// always prints, so the record was cut); an `isForeground`,
+/// `startRequested` or `types` that is not a value.
 pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecord>, String> {
     // Every header must name its record whole before any of them counts
     // as evidence: one cut short or otherwise misshapen leaves what it
@@ -1533,6 +1535,15 @@ channels:
         assert!(
             service_record(
                 "x\n  * Destroy ServiceRecord{5c5073d u0}\n",
+                NETWORK_SERVICE
+            )
+            .is_err()
+        );
+        // A first word that is not hex is not AOSP's identity hash.
+        assert!(prompt_in("WINDOW MANAGER WINDOWS\n  Window #0 Window{zz u0 X}:\n").is_err());
+        assert!(
+            service_record(
+                &format!("x\n  * Destroy ServiceRecord{{zz u0 {NETWORK_SERVICE}}}\n"),
                 NETWORK_SERVICE
             )
             .is_err()
