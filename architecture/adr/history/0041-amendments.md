@@ -72,7 +72,8 @@ space can retry, is wanted.
 
 **Ruled, Q1.** The diagnostic reads the policy IN FORCE: its inputs are
 the effective availability mode and the authenticated policy byte of the
-record the start opened, the policy ADR-0042 makes authoritative for
+record the start opened (as first worded; the record on disk when the
+start's custody step ends, below), the policy ADR-0042 makes authoritative for
 opening; the configured `key_unlock_policy` is never its input. This is
 the rule the 2026-10-10 amendment already applied to the diagnostic's
 other input — one effective value, never the authored field — and the
@@ -110,8 +111,11 @@ literal status model would show a pending change after every successful
 policy change until the next start, and in the user-presence direction
 would hide the diagnostic. The input is the record on disk when the
 start's custody step ends: the record the reseal wrote when it wrote
-one, else the one the start opened; `Unsynced` counts as written, the
-old key kept. Where the predicate is computed is the
+one, else the one the start opened; `Unsynced` counts as written, and
+like `OldKeyRemains` it leaves the other policy's key after the write,
+so ADR-0042's second clause keeps the pending change shown by name
+while the diagnostic reads the new record (#571 round 4, F5: a first
+wording called it "not a pending change"). Where the predicate is computed is the
 owning roles' (`profile-config`'s pure function may keep the configured
 form for validation and take the policy as an argument for the status
 model, or the embedded host may derive it beside the record it opened);
