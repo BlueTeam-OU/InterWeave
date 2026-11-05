@@ -1209,9 +1209,9 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
     // names user-presence, its key says otherwise.
     const EXAMPLE: &str = include_str!("../../../architecture/config/examples/human-android.yaml");
 
-    // What the debug app writes on first run, `stand_in::document`
-    // (crates/human/android-platform/src/stand_in.rs) verbatim: behind a
-    // feature this crate does not turn on, so copied. No `android:`.
+    // What the debug app wrote on first run before every build wrote
+    // profile-config's (`stand_in::document`, removed by j96), verbatim: a
+    // phone that ran such a build still holds it. No `android:`.
     const STAND_IN: &str = "schema_version: 2
 profile:
   name: human-android

@@ -22,6 +22,7 @@ pub mod network;
 pub mod notice;
 pub mod offline;
 pub mod onboarding;
+mod profile;
 pub mod service;
 #[cfg(feature = "dev-stand-ins")]
 pub mod stand_in;
@@ -39,6 +40,7 @@ pub use interweave_transport_embedded::custody;
 pub use interweave_transport_embedded::{EmbeddedRefused, StayReachable, log_admits};
 pub use network::{Link, NetworkReport, Told, Transports, addresses_from_wire};
 pub use notice::Notices;
+pub use profile::provision_profile;
 pub use service::{
     AvailabilityMode, CLIENT_KIND, Ended, LogLevel, ServiceHost, ServiceLaunch, StartRefused,
     Stopped, StoreActionRefused, StoreDiscarded, profile_log_level,
