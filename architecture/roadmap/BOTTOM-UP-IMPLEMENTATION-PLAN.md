@@ -4368,7 +4368,7 @@ the `deny.toml` edits land in batch 4 citing this paragraph. ADR-0054
 reads accepted on the owner's arming of the pull request that lands this
 record.**
 
-(15) Added 2026-10-04 (architect-cto's ruling to rust-ui-dev on the body-drawing batch): the drawn body is rendered from `chat-protocol`'s own block tree; no second markdown parser enters the graph (Slint's `StyledText::from_markdown` refused); each link is a separate focusable control naming its full destination; a show-source toggle shows the body as received; inline styling is carried until Slint offers a styled-text constructor that takes a tree, not markdown — the styling the parser already carries stays in the tree, drawn plain until then.
+(15) Added 2026-10-04 (architect-cto's ruling to rust-ui-dev on the body-drawing batch): the drawn body is rendered from `chat-protocol`'s own block tree; no second markdown parser enters the graph (Slint's `StyledText::from_markdown` refused); each link is a separate focusable control naming its full destination, never cut (since HUMAN-CHAT.md's Bounds amendment of 2026-11-04 (ii), a link whose control's label as shown would pass the drawn-body cluster figure has no control at all and is drawn inert, the whole in the source); a show-source toggle shows the body as received (since HUMAN-CHAT.md's Bounds amendment of 2026-11-04, cut past its figures like the drawn body, the whole read in the reader); inline styling is carried until Slint offers a styled-text constructor that takes a tree, not markdown — the styling the parser already carries stays in the tree, drawn plain until then.
 
 ### Preconditions
 
