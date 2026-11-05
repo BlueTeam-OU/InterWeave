@@ -20,7 +20,7 @@ use std::time::Duration;
 use interweave_human_android_platform::KeyUnlockPolicy;
 use interweave_human_android_platform::custody::{self, RecordName, RecoveryCause};
 use interweave_human_android_platform::onboarding::{self, Creation, WriteRefused, english};
-use interweave_human_android_platform::{Expected, IdentityRefused};
+use interweave_human_android_platform::{Expected, IdentityRefused, opening_needs_presence};
 use interweave_human_ui_model::{
     Admit, Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start,
     StepFailed,
@@ -163,8 +163,10 @@ struct Platform {
     app_data_dir: PathBuf,
     cipher: Arc<KeystoreCipher>,
     start: Option<Start>,
-    /// The profile's key needs the person: key operations wait on the
-    /// presence window (design section 6, acceptance 10).
+    /// The profile's configured key needs the person: a first run's and a
+    /// restore's seal wait on the presence window (design section 6,
+    /// acceptance 10). Show my phrase opens the record instead, and asks
+    /// its own policy ([`opening_needs_presence`]).
     user_presence: bool,
 }
 
@@ -402,20 +404,22 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
     let Some(Platform {
         app_data_dir,
         cipher,
-        user_presence,
         ..
     }) = platform.as_ref()
     else {
         log("Show my phrase: no identity state was read");
         return;
     };
+    // The phrase is read by opening the record, under the record's policy:
+    // while a change is pending that is not the configured one.
+    let user_presence = opening_needs_presence(app_data_dir, PROFILE);
     let onboarding = Onboarding {
         view: Rc::clone(view),
         flow: IdentityFlow::new(english(), Start::ShowPhrase),
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
-        gate: PresenceGate::new(*user_presence),
+        gate: PresenceGate::new(user_presence),
         from_settings: true,
         // Taken once the service has stopped (`offline`).
         lock: None,
