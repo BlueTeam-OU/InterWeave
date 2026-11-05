@@ -369,7 +369,8 @@ fn stop_after(units: &[Unit<'_>], last: usize, at: Counts) -> Preview {
 type Stop = Option<(usize, Counts)>;
 
 /// Inside `unit`, after `taken`: where the last word boundary inside the
-/// preview's figures is, a character kept for the ellipsis, with what is
+/// preview's figures is -- the ellipsis counts in neither figure nor the
+/// share, as the Chats preview's does (section 4.1) -- with what is
 /// shown up to it; the same for the last character boundary; and whether
 /// the figure that cuts is the lines'.
 fn inside(
@@ -389,7 +390,7 @@ fn inside(
     let mut at_bound: Vec<(usize, Counts)> = vec![(0, Counts { graphemes, lines })];
     for (at, grapheme) in unit.text.grapheme_indices(true) {
         let breaks = body::is_line_break(grapheme);
-        if !breaks && graphemes + 1 > PREVIEW_GRAPHEMES - ELLIPSIS.chars().count() {
+        if !breaks && graphemes + 1 > PREVIEW_GRAPHEMES {
             cap = at;
             beyond = at + grapheme.len();
             break;
@@ -515,8 +516,20 @@ mod tests {
         let cut = drawn(&format!("short\n\n{words}"));
         let shown = text(&cut);
         assert!(shown.ends_with(&format!("word{ELLIPSIS}")), "{shown:?}");
-        assert!(graphemes(&shown.replace('\n', "")) <= PREVIEW_GRAPHEMES);
+        let kept = shown.replace('\n', "");
+        assert!(graphemes(kept.trim_end_matches(ELLIPSIS)) <= PREVIEW_GRAPHEMES);
         assert!(cut.shown_percent.is_some_and(|p| (1..=99).contains(&p)));
+    }
+
+    #[test]
+    fn a_long_run_after_an_early_space_is_cut_between_characters() {
+        // A2: "key: " and a 3,000-character value with no word boundary.
+        let value = "QUJD".repeat(750);
+        let cut = drawn(&format!("key: {value}"));
+        let shown = text(&cut);
+        let kept = shown.strip_suffix(ELLIPSIS).expect("an ellipsis ends it");
+        assert_eq!(graphemes(kept), PREVIEW_GRAPHEMES, "{shown:.40}");
+        assert_eq!(cut.shown_percent, Some(53));
     }
 
     #[test]
@@ -562,7 +575,7 @@ mod tests {
         let shown = text(&cut);
         let kept = shown.trim_end_matches(ELLIPSIS);
         assert!(kept.graphemes(true).all(|g| g == "e\u{301}"));
-        assert!(graphemes(&shown) <= PREVIEW_GRAPHEMES);
+        assert_eq!(graphemes(kept), PREVIEW_GRAPHEMES);
     }
 
     #[test]
@@ -575,9 +588,10 @@ mod tests {
         assert!(text(&whole).starts_with('\u{FFFD}'));
         let c2 = format!("{cluster}{}", "b".repeat(2399));
         let cut = drawn(&c2);
-        // The mark and 1,598 b's, then the ellipsis: 1,599 / 2,400 -- not
+        // The mark and 1,599 b's, then the ellipsis: 1,600 / 2,400 -- not
         // the word boundary after the mark, 1 / 2,400.
         assert_eq!(cut.shown_percent, Some(66));
+        assert_eq!(graphemes(text(&cut).trim_end_matches(ELLIPSIS)), PREVIEW_GRAPHEMES);
     }
 
     #[test]
