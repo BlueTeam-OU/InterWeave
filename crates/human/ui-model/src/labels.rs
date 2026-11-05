@@ -265,6 +265,35 @@ ui_texts! {
     ShowSource => "Show source",
     /// Return from the source to the drawn body.
     ShowFormatted => "Show formatted",
+    /// A cut message's line under its preview
+    /// (design/2026-11-04-long-message.md section 4.2): it continues, and
+    /// how much is shown. `{percent}` is the whole percentage, formatted,
+    /// its sign included.
+    // PLACEHOLDER (en)
+    LongMessageShown => "The first {percent} of the message is shown.",
+    /// The button under a cut message's line, and its menu item: opens
+    /// the whole message in the reader (section 4.3).
+    // PLACEHOLDER (en)
+    ReadWholeMessage => "Read the whole message",
+    /// The reader's first line: when the message reached this app, as the
+    /// row's time does. `{day}` is Today, Yesterday or a date, `{time}`
+    /// the time as the row shows it (section 5.1, 8).
+    // PLACEHOLDER (en)
+    ReaderSent => "{day}, {time}",
+    /// The reader's progress bar while its first screen is drawn.
+    // PLACEHOLDER (en)
+    ReaderOpening => "Opening the whole message",
+    /// The reader's action and every text message's menu item: the whole
+    /// message's markdown source to the clipboard (section 5.3).
+    // PLACEHOLDER (en)
+    CopyMessage => "Copy message source",
+    /// The snackbar after Copy message source where the platform
+    /// confirms nothing itself (below Android 13, and the desktop).
+    // PLACEHOLDER (en)
+    MessageCopied => "Message source copied",
+    /// The snackbar when the platform refused the copy.
+    // PLACEHOLDER (en)
+    MessageNotCopied => "Could not copy the message",
     /// The window's one announcement, read by a screen reader as it
     /// changes: a message arrived in the open conversation. `{author}`
     /// is the short `PeerId`; never the text, which is read by moving to
@@ -2143,6 +2172,7 @@ mod tests {
             ("new", "fedcba9876543210"),
             ("max", "64"),
             ("count", "2"),
+            ("percent", "53%"),
             ("line", "/ip4/192.168.1.20/tcp/4001/p2p/x"),
             ("identity", "Ada"),
             (
