@@ -419,7 +419,12 @@ fn inside(
             .find(|(at, _)| *at == end)
             .map(|&(_, counts)| (end, counts))
     };
-    let word = end.and_then(counts_at);
+    // The white space before the word is neither drawn nor counted: the
+    // ellipsis follows the last word directly (section 4.1).
+    let word = end.and_then(|end| {
+        let last_word = unit.text[..end].trim_end().len();
+        counts_at(last_word).map(|(_, counts)| (end, counts))
+    });
     let cap = (cap > 0).then(|| counts_at(cap)).flatten();
     (word, cap, lines_cut)
 }
@@ -516,6 +521,11 @@ mod tests {
         let cut = drawn(&format!("short\n\n{words}"));
         let shown = text(&cut);
         assert!(shown.ends_with(&format!("word{ELLIPSIS}")), "{shown:?}");
+        // What is counted ends at the last word, not the space after it.
+        let share = cut.shown_percent.expect("cut");
+        let counted = graphemes(shown.replace('\n', "").trim_end_matches(ELLIPSIS));
+        let all = graphemes(&format!("short{words}"));
+        assert_eq!(usize::from(share), counted * 100 / all);
         let kept = shown.replace('\n', "");
         assert!(graphemes(kept.trim_end_matches(ELLIPSIS)) <= PREVIEW_GRAPHEMES);
         assert!(cut.shown_percent.is_some_and(|p| (1..=99).contains(&p)));
@@ -523,8 +533,8 @@ mod tests {
 
     #[test]
     fn a_long_run_after_an_early_space_is_cut_between_characters() {
-        // A2: "key: " and a 3,000-character value with no word boundary.
-        let value = "QUJD".repeat(750);
+        // A2: "key: " and 3,000 hexadecimal digits, one word.
+        let value = "0123456789abcdef".repeat(188)[..3000].to_owned();
         let cut = drawn(&format!("key: {value}"));
         let shown = text(&cut);
         let kept = shown.strip_suffix(ELLIPSIS).expect("an ellipsis ends it");
