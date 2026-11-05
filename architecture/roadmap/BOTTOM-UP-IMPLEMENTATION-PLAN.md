@@ -5257,7 +5257,38 @@ four instrumented cases rust-ui-dev named for lines 2, 3, 7 and 8 in
 their clause (b) mapping of 2026-10-22 (`secure_span`, `fgs_lifecycle`,
 `backup_exclusion`, `presence_prompt_and_cancel`; the gate-b record
 names none, this record is where they are named), not built, their
-lines met by record;
+lines met by record. Built since, with the two cases above, in
+`tests/android-e2e` (#544, p2p-network-dev-02, merged 363f4798 on
+2026-11-04: `platform_lines.rs`, `identity_lines.rs`,
+`network_callback.rs`), and run on the Samsung A40 at API 30 (One UI)
+on 2026-11-05 with the owner at the phone, each case reported against
+its carried item by name
+(`tests/android-e2e/runs/2026-11-05-samsung-a40-stage-17-carried-cases.md`,
+#568, merged 3b94fcf3, stamped 2026-11-05T16:00Z; the app at 5d84c6b0,
+the host side at 78947f4b and then 04e2b7b3): `backup_exclusion`, both
+`fgs_lifecycle` cases (foreground-only; stay-reachable with process
+death and restart), both `secure_span` cases (Show my address; the
+recovery words, with a person), `presence_prompt_and_cancel` and
+`keystore_user_presence_unlock` (the owner granting the prompt) passed,
+so the Keystore user-presence case and the four of (b) leave this list,
+with the record's own bounds — one phone; the two user-presence cases
+on an identity the owner made under `key_unlock_policy: user-presence`
+after the app's data was cleared on their word, since nothing in that
+build called `custody::reseal` (ADR-0042 A 2026-10-10 (ii)'s call after
+an unlock whose record policy differs from the profile's; rust-ui-dev's
+j213, OBSERVATION 01a1abab), so a changed policy on an existing
+identity is not shown; no cellular handover. The network-callback case
+STAYS carried:
+`network_callback::a_wifi_drop_and_return_reach_the_runtime_in_one_process`
+failed both runs, wireless adb not back within 600 s of the Wi-Fi's
+return (`adb_wifi_enabled` read 1 afterwards and no port opened until
+the owner switched wireless debugging on by hand), so its assertions
+were never reached; the phone's own log, pulled once adb was back,
+shows the drop and the return told to the runtime in one process
+(0 addresses, then 2, one pid throughout) — a reading beside the
+owner's of 2026-10-31, not the case passing — and the item needs a run
+where adb returns on its own, or a USB link, which the owner said is
+awkward on this host;
 the TalkBack items travel with the release gate's TalkBack carry
 (Decided 2026-10-18); (c) `tests/android-e2e` proves the exchange both
 directions over a direct and a relayed path, plain and `;ce=br`, every
@@ -5353,17 +5384,22 @@ accessibility reach, with TalkBack); the identity screens of ADR-0061 are Stage 
 and were not in this review's scope. No contract flipped
 at this gate.
 
-**What this stage did not prove, carried by name:** the Keystore
-user-presence and network-callback instrumented cases (the A40 run of
+**What this stage did not prove, carried by name:** the
+network-callback instrumented case (failed on the A40 on 2026-11-05 for
+want of adb, clause (b) above; the Keystore user-presence case stood
+beside it here until it passed in that run), the `user-presence`
+profile's invalidated-key case (the A40 run of
 2026-11-04, `device-runs/2026-11-04-samsung-a40.md`, showed a PIN change
 and a fingerprint enrolment invalidate none of the app's keys, none
-being bound to authentication; the `user-presence` profile's
-invalidated-key case stays carried); the Recents
+being bound to authentication, and the six cases of 2026-11-05 do not
+reach it); the Recents
 thumbnail's content; notification arrival at API 33+ (measured since,
 2026-10-31, `device-runs/2026-10-31-pixel-9a.md`, 3 runs of 3 under
 the person's grant, with that record's bounds); device transfer
 under `dataExtractionRules` at API 31+ with a GMS transport (the
-targetSdk 36 doubt); the four unbuilt instrumented cases of (b); the
+targetSdk 36 doubt); the four instrumented cases of (b), unbuilt at the close, built in #544
+and passed on the A40 on 2026-11-05 (clause (b) above), leave this
+list; the
 Android half of render parity; the desktop ↔ Android platform matrix
 comparing decoded fields and the relayed route indicator live on the
 Android path (both Stage 18's); the accessibility reach and TalkBack
@@ -5408,10 +5444,15 @@ after a `stay-reachable` service restart, the case SPIKE-009 named, was
 not read before the phone was handed back (gate-b's own words); its
 predicate is unit-tested in `profile-config`'s `runtime.rs`, but
 nothing emits the diagnostic yet and no device read exists, so it is
-carried to the release gate with the user-presence case; the picker's host tests are step 8's above and its
+carried to the release gate (beside the user-presence case until that
+case passed on 2026-11-05; the stay-reachable `fgs_lifecycle` case that
+passed with it restarts the service after a crash and reads no
+diagnostic, so this stays); the picker's host tests are step 8's above and its
 instrumented tests, `FLAG_SECURE` around it, the IME-free path and the
-clipboard refusal on a device are carried to the release gate with the
-user-presence case; StrongBox reporting and API 34+ behaviour on another
+clipboard refusal on a device are carried to the release gate the same
+way (`secure_span_recovery_words` of 2026-11-05 reads the recovery
+words' window secure, mapped by its run to line 2 and not to these
+picker items, which stay); StrongBox reporting and API 34+ behaviour on another
 device, Samsung Keyboard's input flags, the IME window outside
 `FLAG_SECURE`, system_server's saved-state and crash artifacts, and the
 D6b re-run stay carried, unmeasured. Found after the close, from the
