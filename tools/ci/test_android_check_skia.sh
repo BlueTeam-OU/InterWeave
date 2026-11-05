@@ -48,6 +48,21 @@ for s in job["steps"]:
         open(out + "/checked.sh", "w").write(s["run"])
 key = job["steps"][[s.get("id") for s in job["steps"]].index("cargo-cache")]["with"]
 open(out + "/cachekey", "w").write(key["key"] + "\n" + key["restore-keys"])
+# What runs a step's text other than as written: an `if`, a
+# continue-on-error or an env of its own on one of the three steps (a
+# step's env beats GITHUB_ENV), the same on the job, or a Skia variable
+# in the job's or the workflow's env.
+shape = []
+for s in job["steps"]:
+    if s.get("name") in ("Skia, pinned", "cargo check for aarch64-linux-android", "Skia, checked") \
+            and set(s) != {"name", "run"}:
+        shape.append(f"step {s['name']!r} carries {sorted(set(s) - {'name', 'run'})}")
+for k in ("if", "continue-on-error"):
+    if k in job:
+        shape.append(f"the job carries {k}")
+for where, env in (("the job", job.get("env") or {}), ("the workflow", wf.get("env") or {})):
+    shape += [f"{where}'s env sets {k}" for k in env if k.startswith(("SKIA_", "FORCE_SKIA"))]
+open(out + "/shape", "w").write("".join(line + "\n" for line in shape))
 PYEOF
 
 echo "the android check job's steps:"
@@ -58,6 +73,13 @@ else
     fail "the Skia steps are not pinned, cargo check, checked, once each" "$(cat "$SANDBOX/names")"
 fi
 [[ -f "$SANDBOX/pinned.sh" && -f "$SANDBOX/checked.sh" ]] || { echo "test: a Skia step has no run block" >&2; exit 1; }
+# The runs below exercise each step's text; this is what would run that
+# text otherwise, or not at all, in the job.
+if [[ ! -s "$SANDBOX/shape" ]]; then
+    pass "the three steps are name and run only; no if, continue-on-error or Skia env on the job or workflow"
+else
+    fail "something besides the run text decides the Skia steps" "$(cat "$SANDBOX/shape")"
+fi
 # Three hashFiles: the key and both restore keys, so a restore never
 # brings back a skia-bindings output made under another pin.
 n="$(grep -o "'tools/ci/skia-binaries.pin'" "$SANDBOX/cachekey" | wc -l)"
