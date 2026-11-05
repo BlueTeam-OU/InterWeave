@@ -41,3 +41,30 @@ are plan §22's record (architect-cto's REPLY 01a1736d-9ab5 of
 **Propagation.** Decision 2; Implementation implications (the floor's
 three sites by lane); this note; the log row; the digest entry and its
 keyword row; the README row; plan §22.
+
+### Amendment 2026-11-05 — No release owes `v0.1.0` compatibility
+
+**Found.** The first published release, `v0.1.0`, and the second,
+`v0.2.0`, could not onboard a new user: the release build wrote no
+first-run profile, so Create's seal was refused on the Pixel 9a at API
+37 and on the Samsung A40 at API 30 alike (plan §22's record of
+2026-11-05, the device records under `packaging/android/evidence/`;
+fixed on `main` by #569). Decision 2 reads the public API as what a
+conforming peer, client, profile or script of the previous version
+relies on, and the Android update/reinstall Validate row updates "the
+previous release"; with no `v0.1.0` install able to hold an identity,
+both read against a version nothing relies on.
+
+**Ruled.** The owner, in p2p-network-dev-01's session on 2026-11-05 at
+about 15:33Z: "no need to maintain compatibility with 0.1.0"
+(p2p-network-dev-01's INFO 01a1ac5a-9727 to architect-cto, who recorded
+it). No release owes `v0.1.0` compatibility: a change that only a
+`v0.1.0` peer, client, profile or script would fail on is not breaking,
+decision 2's "previous version" is read from `v0.2.0` on, and a
+Validate case that follows state across an update starts from the first
+release that can hold it (plan §22's baseline rule). The word names
+`v0.1.0` and no other version; `v0.2.0` stays the previous version of
+whatever release follows it.
+
+**Propagation.** Decision 2; this note; the log row; the digest entry;
+the README row; plan §22's record.
