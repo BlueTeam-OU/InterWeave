@@ -684,7 +684,6 @@ impl CardScreens {
 }
 
 impl View {
-    /// Take one card input: an intent for the model, or a page change.
     /// The contact's name as the person saved it, or nothing to write.
     fn save_name(&mut self, model: &UiModel, id: String, typed: &str) -> Vec<Intent> {
         let Some(stored) = model.contact(&id).map(|c| c.name.clone()) else {
@@ -713,6 +712,7 @@ impl View {
         }]
     }
 
+    /// Take one card input: an intent for the model, or a page change.
     pub(crate) fn take_cards(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
         let window = self.window.clone_strong();
         let by_button = matches!(input, CardsInput::Answer(_));

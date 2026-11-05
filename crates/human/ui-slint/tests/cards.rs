@@ -556,10 +556,6 @@ fn the_contact_page_says_where_each_value_came_from_and_a_local_edit_stands() {
     );
 }
 
-/// Section 13 bullet 10: every received name is drawn inside an isolate
-/// wherever it sits in other text -- the proposal's claim and notes, the
-/// Contacts list, a contact's page and the conversation's title.
-/// Mutation: the isolate dropped from one of them.
 /// A received name holding a character past the cluster bound is shown in
 /// the name field in its drawn form, one U+FFFD; Save with nothing typed
 /// writes nothing, so the name received stays, and stays the card's
@@ -592,6 +588,10 @@ fn saving_a_drawn_name_unedited_writes_nothing() {
     );
 }
 
+/// Section 13 bullet 10: every received name is drawn inside an isolate
+/// wherever it sits in other text -- the proposal's claim and notes, the
+/// Contacts list, a contact's page and the conversation's title.
+/// Mutation: the isolate dropped from one of them.
 #[test]
 fn every_received_name_is_drawn_isolated() {
     let rtl = "\u{5d0}\u{5d3}\u{5d4}";
