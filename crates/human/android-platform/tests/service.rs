@@ -13,8 +13,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use interweave_human_android_platform::{
-    AvailabilityMode, Ended, Link, NetworkReport, ServiceHost, ServiceLaunch, StartRefused,
-    StayReachable, StoreAnswer, ToView, ViewLink,
+    AvailabilityMode, Ended, KeyUnlockPolicy, Link, NetworkReport, ResealFailure, ServiceHost,
+    ServiceLaunch, StartRefused, StayReachable, StoreAnswer, ToView, UnlockStatus, ViewLink,
 };
 use interweave_human_android_platform::{provision_profile, stand_in};
 use interweave_human_app_core::{Command, Update};
@@ -53,6 +53,7 @@ fn launch(app: &App) -> ServiceLaunch {
         profile: PROFILE.to_owned(),
         identity: interweave_profile_identity::ProfileIdentity::generate(),
         store_cipher: Box::new(interweave_human_store::key_custody::FilesystemCustody),
+        unlock: None,
     }
 }
 
@@ -157,6 +158,91 @@ fn a_start_while_the_client_runs_changes_nothing() {
         "the facade was not restarted under the view: {again:?}"
     );
     let _ = service.stop(GRACE);
+}
+
+const PENDING: UnlockStatus = UnlockStatus {
+    in_force: KeyUnlockPolicy::UserPresence,
+    configured: Some(KeyUnlockPolicy::BackgroundCompatible),
+    pending: Some(ResealFailure::Keystore),
+};
+
+/// The status member is the start's that ran: a start redelivered to a
+/// running client -- whose reseal found the profile held -- replaces
+/// nothing, and a refused start says what it learnt only while nothing
+/// runs. The restart diagnostic is the policy in force under the running
+/// host's effective availability, and with no host the mode on disk: a
+/// locked start's diagnostic (ADR-0041 A 2026-11-05).
+#[test]
+fn the_unlock_status_is_the_last_start_that_ran() {
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let service = ServiceHost::new();
+    assert_eq!(service.unlock_status(), None);
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        None,
+        "no start learnt the policy"
+    );
+    service
+        .start(ServiceLaunch {
+            unlock: Some(PENDING),
+            ..launch(&app)
+        })
+        .expect("started");
+    assert_eq!(service.unlock_status(), Some(PENDING));
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        Some(false),
+        "foreground-only, the first-run document's mode"
+    );
+
+    let held = UnlockStatus {
+        pending: None,
+        ..PENDING
+    };
+    service
+        .start(ServiceLaunch {
+            unlock: Some(held),
+            ..launch(&app)
+        })
+        .expect("a second start succeeds");
+    service.refused_before_start_with(None);
+    assert_eq!(
+        service.unlock_status(),
+        Some(PENDING),
+        "neither replaced it"
+    );
+
+    service.set_availability(Some(StayReachable)).expect("on");
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        Some(true)
+    );
+    let _ = service.stop(GRACE);
+    assert_eq!(service.unlock_status(), Some(PENDING), "kept past a stop");
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        Some(true),
+        "with no host, the overlay the choice wrote, read from disk"
+    );
+    service.refused_before_start_with(Some(UnlockStatus {
+        in_force: KeyUnlockPolicy::BackgroundCompatible,
+        ..PENDING
+    }));
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        Some(false),
+        "the policy in force, never the configured one"
+    );
+
+    service.refused_before_start_with(Some(held));
+    assert_eq!(service.unlock_status(), Some(held), "a refused start's");
+    service.refused_before_start();
+    assert_eq!(
+        service.unlock_status(),
+        Some(held),
+        "a refusal before custody keeps it"
+    );
 }
 
 #[test]

@@ -153,18 +153,22 @@ internal object Native {
     @JvmStatic external fun text(key: Int, count: Int): String
 
     /**
-     * Whether the profile's identity opens ([IDENTITY_READY]), or where
-     * the identity screens start: no record, or one the phone lost. Makes
-     * the Keystore cipher the screens use. Call before binding the
-     * service.
+     * Whether the profile's identity opens and its start can run
+     * ([IDENTITY_READY]), whether the person must authenticate first
+     * ([IDENTITY_AUTHENTICATION_NEEDED]), or where the identity screens
+     * start: no record, or one the phone lost. Makes the Keystore cipher
+     * the screens use. Call before binding the service.
      */
     @JvmStatic external fun identityState(appDataDir: String): Int
 
     const val IDENTITY_READY = 0
 
     /**
-     * The key needs the person and their last authentication is too old:
-     * raise the prompt before binding; its answer goes to [prompted].
+     * The key needs the person and their last authentication is too old,
+     * or the record opens but the start's reseal to a configured
+     * user-presence will need the person -- asked whether or not their
+     * last authentication is still in its window: raise the prompt before
+     * binding; its answer goes to [prompted].
      */
     const val IDENTITY_AUTHENTICATION_NEEDED = 3
 
