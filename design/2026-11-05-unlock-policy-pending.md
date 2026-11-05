@@ -560,9 +560,13 @@ Trust page (A13).
   granted. §11 treats them as the person's own action (L1). Is that the
   rule's reading? The network-access grant arrives as the Activity
   resumes, so it could also be read as a return (L2).
-  **Open.** Until it is answered, L1 is built as written for R's Try
-  again and the discard. For the network grant, A14 to A16 apply only
-  once the question is answered.
+  **Answered: L1 for all three** (REPLY 01a1adae-487d, 2026-11-05).
+  A case is sorted by what started the restart, never by the lifecycle
+  callback that carries it. A network grant is the person's answer to a
+  dialog over the Activity, not a switch back into it; a denied grant
+  restarts nothing. No ADR changes: ADR-0042 A 2026-10-20 takes out only
+  the start retried when a live Activity continues. architect-cto names
+  the three in the custody doc's list on their PR #575.
 
 ## 11. A restart refused for the screen lock while the app runs
 
@@ -591,7 +595,7 @@ that rule, sorted by what started the restart. They are not a new rule.
 
 | Case | What started the restart | Prompt | After a cancel, or with no prompt |
 |---|---|---|---|
-| L1 | The person, by an action on a screen in front: R's Try again, a discard's restart, S2's Done, a network grant (Q5) | Rises by itself, before anything else changes | R: stays on R, focus on Try again, nothing else changes. S2's Done: as `design/2026-10-19-android-identity.md` §10 item 10 says (Settings, focus on "Show recovery phrase"). A discard's restart and a network grant: Chats, offline, with the locked notice focused |
+| L1 | The person, by an action on a screen in front: R's Try again, a discard's restart, S2's Done, a network grant (Q5, answered) | Rises by itself, before anything else changes | R: stays on R, focus on Try again, nothing else changes. S2's Done: as `design/2026-10-19-android-identity.md` §10 item 10 says (Settings, focus on "Show recovery phrase"). A discard's restart and a network grant: Chats, offline, with the locked notice focused |
 | L2 | A return to a live Activity (Home or Recents, then back; a recreation for a configuration change) whose bind starts a Service, and the start is refused | Never by itself: that is ADR-0042 A 2026-10-20's one exception | The locked notice and Unlock, on the screen the person returns to, focused (F12) |
 | L3 | A launch: the Activity created anew in a process that is still running (after Back finished it, or from a notification) | Rises before the Service binds, as at a cold launch: a launch is the Activity's creation, whatever the process | Chats, offline, with the locked notice focused |
 | L4 | Nothing the person did: a Stay-reachable restart while the window is in front, or no window at all | Never: the Service never prompts | Window in front: the notice appears without taking focus (F13), unless a focused control goes (F14). No window: nothing is shown until the next return (L2) or launch (L3) |
