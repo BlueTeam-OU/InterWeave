@@ -225,7 +225,9 @@ Contacts, cards and the store's discard (A 2026-10-21, ADR-0059, ADR-0060; A 202
 
 ## 14. Android availability-policy diagnostic
 
-When Android is configured with both `availability_mode=stay-reachable` and `key_unlock_policy=user-presence`, the configuration is valid but the UI/status model must expose `background_restart_requires_user_authentication=true`. User-facing copy must explain that the endpoint can stay reachable while the currently unlocked service remains alive, but it cannot automatically recover reachability after process/service restart until the user authenticates.
+When Android runs with the effective `availability_mode=stay-reachable` and `user-presence` as the unlock policy **in force** — the authenticated policy byte of the record the start opened (ADR-0042), not the configured `key_unlock_policy` — the configuration is valid but the UI/status model must expose `background_restart_requires_user_authentication=true`. User-facing copy must explain that the endpoint can stay reachable while the currently unlocked service remains alive, but it cannot automatically recover reachability after process/service restart until the user authenticates.
+
+The diagnostic's inputs are the effective availability mode and the policy in force; the configured policy is never one of them (ADR-0041 A 2026-11-05). While a reseal is pending (ADR-0042 A 2026-11-05) the two policies differ, and the diagnostic says what a restart does NOW; the configured policy appears only as the pending change, shown by name with the refusal's reason where this diagnostic belongs (ux-designer's `design/2026-11-05-unlock-policy-pending.md` places both on the Trust page's identity section, the pending line standing in for the diagnostic's line while a change is pending). No Try again is offered for a pending reseal: every start retries it, and a retry while the service runs would be a restart; when a control to change the unlock policy exists in the app, its apply is the retry.
 
 ## 15. HumanChat reply rendering
 
