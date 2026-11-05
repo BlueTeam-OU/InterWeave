@@ -26,7 +26,7 @@ use interweave_local_client_api::{
     SessionRequest, TrustChange,
 };
 use interweave_profile_config::provision::provision_embedded;
-use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
+use interweave_profile_config::{ClientKind, ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::{ENTROPY_BYTES, ProfileIdentity, RecoveryPhrase};
 use interweave_transport_embedded::{EmbeddedHost, EmbeddedLaunch, EmbeddedRefused};
 
@@ -48,7 +48,9 @@ fn launch(app: &Path) -> EmbeddedLaunch {
     }
 }
 
-/// The provisioned profile's own endpoint, read back from it.
+/// The provisioned profile's own endpoint, leased under a client kind
+/// it admits -- both read back from the document, so the lease follows
+/// what the first run writes rather than restating it.
 fn lease(host: &EmbeddedHost) -> Result<(), String> {
     let endpoint = ProfileConfig::load(host.paths())
         .expect("the provisioned profile")
@@ -56,11 +58,15 @@ fn lease(host: &EmbeddedHost) -> Result<(), String> {
         .entries
         .into_iter()
         .next()
-        .expect("one endpoint")
-        .id;
+        .expect("one endpoint");
+    let kind = endpoint
+        .allowed_client_kinds
+        .first()
+        .map_or("process-death", ClientKind::as_str)
+        .to_owned();
     let request = SessionRequest::new(
-        "process-death",
-        Some(endpoint),
+        kind,
+        Some(endpoint.id),
         [DataCapability::Commands, DataCapability::Events],
     )
     .expect("in bounds");
