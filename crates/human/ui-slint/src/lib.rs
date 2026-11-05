@@ -3651,7 +3651,6 @@ fn message_row(
         time: placed.time.into(),
         gap: placed.gap,
         day: placed.day.into(),
-        source: item.source.as_str().into(),
         source_pieces: drawn.source_pieces.clone(),
         lines: drawn.lines.clone(),
         links: drawn.link_rows.clone(),

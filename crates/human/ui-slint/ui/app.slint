@@ -272,10 +272,9 @@ export struct MessageRow {
     // drawn below its item (contact-cards design 5.4, at its place in
     // time).
     cards-after: int,
-    // The source as received, shown on the person's request: always
-    // viewable, however it rendered (HUMAN-CHAT.md). Drawn from its
-    // pieces, as a body's lines are.
-    source: string,
+    // The source, shown on the person's request: always viewable, however
+    // it rendered, under the same bounds as the body (HUMAN-CHAT.md): in
+    // pieces, each character past the cluster bound one U+FFFD.
     source-pieces: [string],
     // The body drawn from the block tree, and its links.
     lines: [BodyLine],
