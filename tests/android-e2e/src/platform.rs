@@ -105,13 +105,16 @@ pub struct ServiceRecord {
 /// `packageName=` (which AOSP always prints, so the record was cut); an
 /// `isForeground`, `startRequested` or `types` that is not a value.
 pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecord>, String> {
-    // A header cut before its closing brace is a dump cut short: what it
-    // names, and whatever followed it, is unknown.
-    if let Some(cut) = dump
+    // Every header must name its record whole before any of them counts
+    // as evidence: one cut short or otherwise misshapen leaves what it
+    // names, and whatever followed it, unknown.
+    if let Some(bad) = dump
         .lines()
-        .find(|l| record_header(l).is_some() && !l.trim_end().ends_with('}'))
+        .find(|l| record_header(l).is_some() && !whole_brace(l, "ServiceRecord{", "}"))
     {
-        return Err(format!("a record header is cut: {cut:?}\n{dump}"));
+        return Err(format!(
+            "a record header that is not whole: {bad:?}\n{dump}"
+        ));
     }
     let header = format!(" {component}}}");
     let Some(start) = dump
@@ -302,16 +305,46 @@ fn is_flag_name(word: &str) -> bool {
 }
 
 /// Whether `dump` is a `dumpsys window windows` dump with a window in
-/// it: an empty answer, or one cut before its first window, is not a
-/// dump with no prompt and no secure window in it.
+/// it, every window's header whole: an empty answer, one cut before its
+/// first window, or one with a header that does not parse is not a dump
+/// with no prompt and no secure window in it.
 fn window_dump(dump: &str) -> Result<(), String> {
     let headed = dump.contains("WINDOW MANAGER WINDOWS");
-    let windowed = dump.lines().any(|l| l.trim_start().starts_with("Window #"));
-    if headed && windowed {
-        Ok(())
-    } else {
-        Err(format!("not a window dump with a window in it:\n{dump}"))
+    let headers: Vec<&str> = dump
+        .lines()
+        .filter(|l| l.trim_start().starts_with("Window #"))
+        .collect();
+    if !headed || headers.is_empty() {
+        return Err(format!("not a window dump with a window in it:\n{dump}"));
     }
+    match headers.iter().find(|l| !whole_brace(l, "Window{", "}:")) {
+        Some(bad) => Err(format!(
+            "a window header that is not whole: {bad:?}\n{dump}"
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Whether `line` holds `<open><hex> u<user> <name…><close>` and ends
+/// there: the layout AOSP's `ServiceRecord.toString` and
+/// `WindowState.toString` print as one string, so a header without it is
+/// a cut or a shape this reader does not know.
+fn whole_brace(line: &str, open: &str, close: &str) -> bool {
+    let Some((_, rest)) = line.split_once(open) else {
+        return false;
+    };
+    let Some(inner) = rest.trim_end().strip_suffix(close) else {
+        return false;
+    };
+    let mut words = inner.split_whitespace();
+    let hex = words
+        .next()
+        .is_some_and(|w| w.bytes().all(|b| b.is_ascii_hexdigit()));
+    let user = words
+        .next()
+        .and_then(|w| w.strip_prefix('u'))
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    hex && user && words.next().is_some()
 }
 
 /// The titles of the app's windows in a `dumpsys window windows` dump,
@@ -526,7 +559,8 @@ pub fn dump_command<'a>(args: &[&'a str]) -> Vec<&'a str> {
 /// one place that refuses it, whatever the parser after it.
 ///
 /// # Errors
-/// A last line other than `IW_END=0`, or a `DUMP TIMEOUT` line.
+/// A last line other than `IW_END=0`, a `DUMP TIMEOUT` line, or a
+/// service's `Exception occurred while dumping`.
 pub fn dump_ended(out: &str) -> Result<String, String> {
     let body = out.trim_end_matches(['\n', '\r']);
     let (rest, last) = body.rsplit_once('\n').unwrap_or(("", body));
@@ -537,6 +571,11 @@ pub fn dump_ended(out: &str) -> Result<String, String> {
     }
     if rest.contains("DUMP TIMEOUT") {
         return Err(format!("dumpsys timed out inside the dump:\n{rest}"));
+    }
+    // A service that throws while dumping is caught by Binder, which
+    // prints this and lets dumpsys exit 0 with the dump ended early.
+    if rest.contains("Exception occurred while dumping") {
+        return Err(format!("the service threw inside the dump:\n{rest}"));
     }
     Ok(rest.to_owned())
 }
@@ -1477,5 +1516,41 @@ channels:
         // A word that is neither is an error, not "not secure".
         assert!(secure_flag("81812Z00").is_err());
         assert!(secure_flag("LAYOUT_IN_SCREEN sec").is_err());
+    }
+
+    #[test]
+    fn a_header_that_does_not_parse_whole_is_an_error_not_evidence() {
+        // Codex's two inputs on #568.
+        let empty = "ACTIVITY MANAGER SERVICES\n * Destroy ServiceRecord{}\n";
+        assert!(service_record(empty, NETWORK_SERVICE).is_err());
+        let cut = "WINDOW MANAGER WINDOWS\n  Window #4 Window{fee1ccf u0 BiometricPrompt3P\n";
+        assert!(prompt_in(cut).is_err());
+        // No user, or no name, is not whole either.
+        assert!(
+            prompt_in("WINDOW MANAGER WINDOWS\n  Window #0 Window{fee1ccf BiometricPrompt3P}:\n")
+                .is_err()
+        );
+        assert!(
+            service_record(
+                "x\n  * Destroy ServiceRecord{5c5073d u0}\n",
+                NETWORK_SERVICE
+            )
+            .is_err()
+        );
+        // Controls: the A40's own headers, whole, read.
+        assert_eq!(
+            prompt_in(
+                "WINDOW MANAGER WINDOWS\n  Window #4 Window{fee1ccf u0 BiometricPrompt3P}:\n"
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            service_record(
+                &format!("x\n  * Destroy ServiceRecord{{5c5073d u0 {NETWORK_SERVICE}}}\n"),
+                NETWORK_SERVICE
+            ),
+            Ok(None)
+        );
+        assert!(dump_ended("x\nException occurred while dumping:\nIW_END=0").is_err());
     }
 }
