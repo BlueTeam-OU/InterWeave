@@ -316,7 +316,11 @@ fn preview(units: &[Unit<'_>]) -> Preview {
         }
         // The cut is in this unit. The figure that cuts is the one the
         // text reaches first, walking it.
-        let (word, cap, lines_cut) = inside(unit, taken);
+        let (word, cap, text_lines_cut) = inside(unit, taken);
+        // The text alone may fit and the line's controls not: then the
+        // figure that cuts is the one the controls pass, the lines when
+        // the characters still fit with them.
+        let lines_cut = text_lines_cut || with.graphemes <= PREVIEW_GRAPHEMES;
         if let Some((last, at)) = boundary.filter(|(_, at)| at.late(lines_cut)) {
             return stop_after(units, last, at);
         }
@@ -493,6 +497,10 @@ mod tests {
         assert!(drawn(&lines).shown_percent.is_some());
         let at = vec!["a"; BODY_LINES].join("\\\n");
         assert_eq!(drawn(&at).shown_percent, None);
+        // Every break the text draws, not CommonMark's alone: U+2028 is
+        // paragraph text to the parser and a line to the layout (j533).
+        let separated = vec!["a"; BODY_LINES + 1].join("\u{2028}");
+        assert!(drawn(&separated).shown_percent.is_some());
     }
 
     #[test]
@@ -561,6 +569,20 @@ mod tests {
         let cut = drawn(&body);
         assert_eq!(cut.body.lines.len(), PREVIEW_LINES);
         assert_eq!(cut.body.lines.last().map(|l| l.text.as_str()), Some("32"));
+    }
+
+    #[test]
+    fn lines_passed_by_controls_alone_end_at_the_late_block() {
+        // A heading, then items of one control each: two lines an item,
+        // so the 16th item's control would take the preview to 33.
+        let items = (1..=20)
+            .map(|n| format!("- [n{n}](https://e.org/{n})"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let cut = drawn(&format!("# Head\n\n{items}"));
+        assert_eq!(cut.body.lines.len(), 16, "the heading and 15 items");
+        assert!(!text(&cut).ends_with(ELLIPSIS), "{:?}", text(&cut));
+        assert_eq!(cut.body.links.len(), 15);
     }
 
     #[test]
