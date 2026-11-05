@@ -733,6 +733,9 @@ impl ScreenAwake {
         let found = shell(&["settings", "get", "system", "screen_off_timeout"])
             .trim()
             .to_owned();
+        // The guard exists before the write: a write that lands on the
+        // phone while adb fails to say so still has a drop to undo it.
+        let held = Self { found };
         shell(&[
             "settings",
             "put",
@@ -740,7 +743,7 @@ impl ScreenAwake {
             "screen_off_timeout",
             Self::HELD_MS,
         ]);
-        Self { found }
+        held
     }
 }
 
