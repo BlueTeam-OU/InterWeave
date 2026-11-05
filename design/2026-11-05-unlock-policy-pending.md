@@ -269,12 +269,11 @@ faults.
 | F7 | a line clears while the Trust page is open, and none takes its place | if it had focus: this device's PeerId field; otherwise unchanged | politely, once: `UnlockApplied` when a P line clears or when D clears because the policy in force changed, `UnlockOldKeyRemoved` when the K line clears; nothing when D clears because the availability mode changed | A9 |
 | F8 | rotation, or the window resized, with focus on a line | the same line | nothing | A10 |
 | F9 | at one start, a line is replaced by another or its text changes: P → D, P → K, K with D → D, reason r → r′, D's locked text → D's running text at the unlock | if a line had focus: the first line now in that place; otherwise unchanged | when a P line ended, `UnlockApplied` first, or when the K line ended, `UnlockOldKeyRemoved` first; then the text of each line that is new or changed, politely, once each | A12 |
-| F10 | §11, L1: the system prompt rises for a restart the person started | the system prompt (the platform's) | the prompt's title, `UnlockPromptTitle` | A14 |
-| F11 | §11, L1: that prompt cancelled | by the restart: on R, its Try again; for S2's Done, "Show recovery phrase" (identity note §10 item 10); otherwise the locked notice on Chats | the focused control, as TalkBack reads it | A15, A16 |
-| F12 | §11, L2 and L3: the locked notice appears at a return, or after a launch's prompt is cancelled | the locked notice, on whichever screen the person is (Chats, or a conversation's app bar) | the notice's text, as focus reads it | A17, A18 |
-| F13 | §11, L4: the locked notice appears while the window is in front and the person started no restart | stays where it was, unless the focused control goes (F14) | the notice's text, politely, once | A19 |
-| F14 | §11: the composer goes while it has focus, because the locked notice shows | the locked notice | the notice's text, as focus reads it | A19 |
-| F15 | §11: Unlock granted and the client runs again, while the notice has focus | on Chats, the list heading (as F4); in a conversation, the composer, offered again | nothing for the notice's leaving | A20 |
+| F10 | §11, L1 and L3: the system prompt rises | the system prompt (the platform's) | the prompt's title, `UnlockPromptTitle` | A14, A17, A18, A19 |
+| F11 | §11, L1: that prompt cancelled | by the restart: on R, its Try again; for S2's Done, "Show recovery phrase"; for a discard's restart, the locked notice on Chats; for a network grant, the locked notice on the screen the grant was made on (Chats, or a conversation's app bar) | the focused control, as TalkBack reads it | A15, A16, identity note §10 item 10 |
+| F12 | §11, L2, and L3's prompt cancelled: the locked notice shows at a return after a cancel, or after the prompt of a launch or of another return is cancelled | the locked notice, on whichever screen the person is (Chats, or a conversation's app bar) | the notice's text, as focus reads it | A17, A18, A19 |
+| F13 | §11, L4: the start refused while no window shows | nothing is shown then; at the next return or launch, F10 (L3) | — | A19 |
+| F14 | §11: Unlock granted and the client runs again, while the notice has focus | on Chats, the list heading (as F4); in a conversation, its composer | nothing for the notice's leaving | A20 |
 
 Keyboard: every line is a Tab stop in the order of §5, and Details is
 the notice's action button as on every other notice. Each line, and the
@@ -436,31 +435,35 @@ Trust page (A13).
 - **A15** L1, R's Try again with the prompt cancelled: R stays, with focus
   on Try again and no other change. No prompt rises again until Try
   again is pressed again. Pressing it raises the prompt once.
-- **A16** L1, a discard's restart with the prompt cancelled: Chats,
-  offline, with the locked notice focused and no `StoreDiscarded`
-  notice. Unlock, granted: the notice goes, and `StoreDiscarded` shows
-  once.
-- **A17** L2, a return: open a conversation, press Home, wait past the
-  window, and return from Recents. No prompt rises. The conversation is
-  still open with its messages. The locked notice is under its app bar,
-  with focus on it. The composer is not offered. Unlock, granted, offers
-  the composer again with the draft typed before Home, and focus is on
-  it. The same return within 60 s of unlocking the phone shows no notice
-  and binds.
+- **A16** L1, the prompt cancelled after:
+  - a discard's restart: Chats, offline, with the locked notice focused,
+    and neither `StoreDiscarded` nor `StoreRestored` shows. Unlock,
+    granted: the locked notice goes, and the discard's notice shows once;
+  - a network grant made on Chats: Chats, offline, with the locked
+    notice focused in place of the `NetworkDenied` notice. The same grant
+    made in an open conversation: the conversation stays open, with the
+    locked notice focused under its app bar.
+- **A17** L2 and L3, a return: open a conversation and type a draft.
+  Press Home, wait past the window, and return from Recents. The prompt
+  rises (no prompt was cancelled since the last start that ran). Cancel
+  it: the conversation is still open with its messages, the draft and
+  its composer, and the locked notice is under its app bar, with focus
+  on it. Press Home and return again past the window: no prompt rises,
+  and the notice keeps focus. Unlock, granted: the client runs, and
+  focus is on the composer with the draft (F14). A return within 60 s
+  of unlocking the phone shows no notice and no prompt, and binds.
 - **A18** L3, a launch in a live process: press Back on Chats, so that
   the Activity finishes and the process stays (`adb shell pidof` shows
   the same pid). Wait past the window, then open InterWeave from the
   launcher. The prompt rises before Chats is online. Cancelled: Chats,
   offline, with the locked notice focused.
-- **A19** L4, under Stay reachable, by a hook: the background restart is
-  refused while a conversation is open and its composer is focused. No
-  prompt rises. The locked notice appears and takes focus, because the
-  composer went (F14). Repeat with focus on a message row: focus stays
-  on the row, and the notice's text is announced once, politely. Repeat
-  with the window not shown: no prompt and no notification is added. At
-  the return, the locked notice shows, focused, as in A17.
-- **A20** After A15 to A19, Unlock, granted, runs the refused restart
-  again, once. The notice goes, and focus follows F15.
+- **A19** L4 and L3, under Stay reachable, by a hook:
+  - The restart is refused with the window in front: the prompt rises
+    (L3). Cancelled: the locked notice on the screen in front, focused.
+  - The restart is refused with no window shown: no prompt rises and
+    no notification is added. At the next return the prompt rises (L3).
+- **A20** After A16 to A19, Unlock, granted, runs the refused restart
+  again, once. The notice goes, and focus follows F14.
 
 ## 9. Deliberately left out
 
@@ -491,11 +494,11 @@ Trust page (A13).
   nothing across a restart.
 - **A notification when a background restart is locked** (§11, L4). A
   person away from the window learns of it only at their next return or
-  launch. Telling them sooner would add a notification to the product,
+  launch, from the prompt. Telling them sooner would add a notification to the product,
   which is architect-cto's to decide. Until it is asked for, Stay
   reachable's limit is the one `human-client-ui.md` §14 already states.
-- **`StoreDiscarded` lost with the process** (§11, L1). If the process
-  ends before Unlock, the notice that the stored data was deleted never
+- **The discard's notice lost with the process** (§11, L1). If the
+  process ends before Unlock, `StoreDiscarded` or `StoreRestored` never
   shows. The person confirmed the deletion in its dialog, and the notice
   is not stored, by `design/2026-10-21-contact-cards.md` §7.3.
 
@@ -553,13 +556,15 @@ Trust page (A13).
 - **Q5 — architect-cto.** §11 sorts each refused restart in a running
   process by the rule `android-key-custody.md` (failure list) and
   ADR-0042 A 2026-10-20 already state: the prompt answers a refusal,
-  except a start refused at a return to a live Activity, which the notice
-  and Unlock answer, and the Service never prompts. The rule's list of
+  except the start retried when a live Activity continues after a
+  cancelled or denied prompt, which the notice and Unlock answer, and
+  the Service never prompts. The rule's list of
   refusals that the prompt answers does not name three restarts: R's Try
   again, a discard's restart, and a restart after network access is
   granted. §11 treats them as the person's own action (L1). Is that the
   rule's reading? The network-access grant arrives as the Activity
-  resumes, so it could also be read as a return (L2).
+  resumes, so it could also be read as a return (L2 in this note's
+  first revision, which answered every return with the notice).
   **Answered: L1 for all three** (REPLY 01a1adae-487d, 2026-11-05).
   A case is sorted by what started the restart, never by the lifecycle
   callback that carries it. A network grant is the person's answer to a
@@ -589,57 +594,65 @@ it:
 
 **The rule.** A process that keeps running changes nothing the person
 sees. Every refusal is answered as `android-key-custody.md` (failure
-list) and `design/2026-10-19-android-identity.md` §6 ("Authentication
-needed") answer it in a fresh process. The four cases below come from
-that rule, sorted by what started the restart. They are not a new rule.
+list) and ADR-0042 A 2026-10-20 answer it in a fresh process:
+- **The prompt answers a refusal** (the Activity raises it; the Service
+  never prompts).
+- **The one exception**: the start retried when a live Activity
+  continues (a return from Home or Recents, or a recreation for a
+  configuration change) **after a cancelled or denied prompt**. The
+  locked notice and Unlock answer that, so a person who declined is not
+  asked again each time they switch back in.
+
+The four cases below apply that rule, sorted by what started the
+restart (Q5). They add no rule of their own.
 
 | Case | What started the restart | Prompt | After a cancel, or with no prompt |
 |---|---|---|---|
-| L1 | The person, by an action on a screen in front: R's Try again, a discard's restart, S2's Done, a network grant (Q5, answered) | Rises by itself, before anything else changes | R: stays on R, focus on Try again, nothing else changes. S2's Done: as `design/2026-10-19-android-identity.md` §10 item 10 says (Settings, focus on "Show recovery phrase"). A discard's restart and a network grant: Chats, offline, with the locked notice focused |
-| L2 | A return to a live Activity (Home or Recents, then back; a recreation for a configuration change) whose bind starts a Service, and the start is refused | Never by itself: that is ADR-0042 A 2026-10-20's one exception | The locked notice and Unlock, on the screen the person returns to, focused (F12) |
-| L3 | A launch: the Activity created anew in a process that is still running (after Back finished it, or from a notification) | Rises before the Service binds, as at a cold launch: a launch is the Activity's creation, whatever the process | Chats, offline, with the locked notice focused |
-| L4 | Nothing the person did: a Stay-reachable restart while the window is in front, or no window at all | Never: the Service never prompts | Window in front: the notice appears without taking focus (F13), unless a focused control goes (F14). No window: nothing is shown until the next return (L2) or launch (L3) |
+| L1 | The person, by an action on a screen in front: R's Try again, a discard's restart, S2's Done, a network grant (Q5) | Rises by itself, before anything else changes | R: stays on R, focus on Try again, nothing else changes. S2's Done: as `design/2026-10-19-android-identity.md` §10 item 10 says (Settings, focus on "Show recovery phrase"). A discard's restart: Chats, offline, with the locked notice focused. A network grant: the screen the grant was made on (Chats, or the open conversation), offline, with the locked notice focused |
+| L2 | A return to a live Activity (Home or Recents, then back; a recreation for a configuration change) after a prompt was cancelled or denied, with no start run since | Never by itself: ADR-0042 A 2026-10-20's exception | The locked notice and Unlock on the screen the person returns to, focused (F12). The bind runs silently if the window has opened meanwhile |
+| L3 | Any other start the Activity makes or retries while its window is in front: a launch (the Activity created anew in a process still running, after Back finished it or from a notification); a return with no prompt cancelled or denied since the last start that ran; a Stay-reachable restart refused while the window is in front | Rises by itself: at a launch before the Service binds, as at a cold launch (a launch is the Activity's creation, whatever the process) | The screen in front (Chats at a launch), offline, with the locked notice focused (F12) |
+| L4 | A Stay-reachable restart while no window shows | Never: the Service never prompts | Nothing is shown then. At the next return or launch the Activity's start is refused again, and L3 answers it, or L2 if a prompt was cancelled since |
 
 In every case, a grant runs the refused restart again, once. Leaving
 while the prompt shows counts as a cancel. After a cancel, nothing
 raises the prompt again by itself: the person's next action does, or
-Unlock does. Both rules are the identity note's §6.
+Unlock does. Both rules are the identity note's (§6, and §10 item 10).
 
 **What Chats and a conversation show while locked, in a running
 process.**
 - **Connectivity** reads offline.
 - **The locked notice** (`AuthenticationNeeded`, with Unlock) shows in
-  its slot, under the app bar of Chats and of an open conversation. It
-  replaces any lower notice, as §4 says.
+  the session notices' slot, under the app bar of Chats and of an open
+  conversation. It is the first of the session notices; P-up's notice
+  is the last (§4).
 - **The conversation list, and an open conversation, stay** as they
   were. A refused restart neither empties them nor closes them, so the
   person keeps what they were reading. Nothing new arrives until the
-  client runs again. The notice's "your conversations … appear again
-  after you unlock" stays true: this is all a locked launch would show,
-  and more.
-- **No composer is offered while the notice shows**, as when network
-  access is withheld. A send could reach nothing, and a composer that
-  accepts text it cannot send would mislead. The draft is kept and comes
-  back with the composer once the client runs. If the composer had
-  focus, focus goes to the notice (F14).
-- **`StoreDiscarded`** (after a discard's restart) waits for the start
-  that opens the store, so it shows after Unlock (A16). It never shows
-  beside the locked notice: a "deleted" notice next to "locked" would
-  say the opposite of what the person can now do.
+  client runs again. A locked launch shows no conversations only
+  because none has been read yet. The notice's "your conversations …
+  appear again after you unlock" is then a promise; here it describes
+  the list that stays.
+- **The composer stays**, with its draft, as it does offline
+  (`design/2026-10-16-android-look.md` §6: it is absent only while
+  network access is withheld; "what is written waits"). A send while
+  locked is a send while offline. This note adds nothing to it.
+- **The discard's notice** (`StoreDiscarded`, or `StoreRestored` after the
+  partial discard) waits for the start that opens the store, so it shows
+  after Unlock (A16). It never shows beside the locked notice: a
+  "deleted" or "restored" notice next to "locked" would say the opposite
+  of what the person can now do.
 - **The Trust page** follows §3's locked rules, unchanged.
-- **The P-up notice** stays below the locked notice, as §4 says.
 
-**Evidence.** These are heuristic readings, not tests with people. The
-first is Nielsen's visibility of system status. Today the person is
-told nothing while the app is offline and cannot recover, and that is
-the defect. The second is consistency: one rule in every process, so
-the same state always looks the same. The third is user control: no
-prompt the person did not cause, and the custody failure list's rule
-that a person who declined is not asked again each time they switch
-back in. The composer is withdrawn on the principle of error
-prevention.
+**Evidence.** These are heuristic readings, not tests with people:
+- Nielsen's visibility of system status. Today the person is told
+  nothing while the app is offline and cannot recover, and that is the
+  defect.
+- Consistency. The rule is the same in every process: the prompt or
+  the notice comes at the same moments as at a fresh start.
+- User control. The custody failure list's rule that a person who
+  declined is not asked again each time they switch back in (L2).
 
 **Built by** rust-ui-dev. They route `UserNotAuthenticated` to the locked
 notice, and make a grant restart the bound Service (their REPLY). They
 also choose how the Activity tells a launch from a return, which is
-theirs as long as A17 and A18 pass.
+theirs as long as A17 to A19 pass.
