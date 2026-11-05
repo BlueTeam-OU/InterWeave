@@ -1613,32 +1613,41 @@ fn the_composer_grows_to_six_lines_then_scrolls() {
         let send = labelled(&view, text(UiText::Send));
         assert_eq!(send.len(), 1, "Send");
         let middle = send[0].absolute_position().y + send[0].size().height / 2.0;
-        (-2.0 * middle, view.window().get_draft().to_string())
+        -2.0 * middle
     };
     let lines = |n: usize| vec!["a line of a draft"; n].join("\n");
     // A line's height from two lines to three: one line sits inside the
     // row's 48 px floor.
-    let (two, _) = field(&lines(2));
-    let (three, _) = field(&lines(3));
+    let two = field(&lines(2));
+    let three = field(&lines(3));
     let line = three - two;
     assert!(line > 10.0, "a third line grows the row: {two} to {three}");
-    let (six, _) = field(&lines(6));
+    let six = field(&lines(6));
     assert!(
         (six - (three + 3.0 * line)).abs() <= 2.0,
         "six lines, all shown: {six}"
     );
-    let (seven, _) = field(&lines(7));
+    let seven = field(&lines(7));
     assert!(
         (seven - six).abs() <= 2.0 && seven - six < line / 2.0,
         "no taller past six: {six} then {seven}"
     );
     let ceiling = "a line of a draft\n".repeat(196_608 / 18);
-    let (at_ceiling, kept) = field(&ceiling);
+    let at_ceiling = field(&ceiling);
     assert!(
         (at_ceiling - seven).abs() <= 2.0,
         "a draft at the ceiling too: {at_ceiling}"
     );
-    assert_eq!(kept.len(), ceiling.len(), "every character kept");
+    // Through the field's own edit path, where a field replaces what it may
+    // not draw: a draft at the ceiling with nothing to replace is kept whole.
+    let field = labelled(&view, text(UiText::Composer));
+    field[0].set_accessible_value(ceiling.as_str());
+    slint::platform::update_timers_and_animations();
+    assert_eq!(
+        view.window().get_draft().len(),
+        ceiling.len(),
+        "every character kept"
+    );
 }
 
 /// #304 F9: a landscape phone with the keyboard up. The list beside the
