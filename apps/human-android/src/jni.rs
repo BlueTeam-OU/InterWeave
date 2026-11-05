@@ -11,12 +11,12 @@ use std::time::Duration;
 
 use interweave_human_android_platform::AvailabilityMode;
 use interweave_human_android_platform::{
-    EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, ServiceHost,
-    ServiceLaunch, StartRefused, Told, Transports, addresses_from_wire, start_identity,
+    EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, Resealed, ServiceHost,
+    ServiceLaunch, StartRefused, Started, Told, Transports, UnlockStatus, addresses_from_wire,
+    locked_status, start_resealed,
 };
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_human_ui_slint::{TouchSettings, snackbar_ms};
-use interweave_profile_identity::ProfileIdentity;
 use jni::{Env, EnvUnowned};
 
 use crate::keystore::{KeystoreCipher, StoreKeystore};
@@ -142,14 +142,16 @@ extern "system" fn JNI_OnLoad(
 }
 
 /// The identity the runtime starts with: the profile's record, unwrapped
-/// by the Keystore through the embedded custody path (step 6) -- or the
-/// refusal code of why there is none, after logging it. A first run is
+/// by the Keystore through the embedded custody path (step 6) and resealed
+/// to the configured unlock policy, with the unlock status the start leaves
+/// -- or the refusal code of why there is none, after logging it, with
+/// what the refused start learnt of the policy in force. A first run is
 /// provisioned here in the debug build alone (android-platform's
 /// `identity`); a release first run is onboarding's.
-fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, jint> {
+fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<Started, (jint, Learnt)> {
     let cipher = KeystoreCipher::new(env).map_err(|e| {
         log(&format!("the Keystore cipher could not be reached: {e}"));
-        refused::IDENTITY_UNAVAILABLE
+        (refused::IDENTITY_UNAVAILABLE, Learnt::Nothing)
     })?;
     // A first run creates its identity in the debug build alone, so an
     // instrumentation case starts with no person; the release build's
@@ -159,23 +161,56 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, ji
     } else {
         FirstRun::Refuse
     };
-    start_identity(
-        std::path::Path::new(app_data_dir),
-        PROFILE,
-        &cipher,
-        first_run,
-    )
-    .map_err(|why| {
-        log(&format!("no identity: {why:?}"));
-        match why {
-            IdentityRefused::Unprovisioned => refused::NO_IDENTITY,
-            IdentityRefused::RecoveryRequired(_) => refused::RECOVERY_REQUIRED,
-            IdentityRefused::UserNotAuthenticated => refused::USER_NOT_AUTHENTICATED,
-            IdentityRefused::Paths(_)
-            | IdentityRefused::Unavailable(_)
-            | IdentityRefused::Provisioning(_) => refused::IDENTITY_UNAVAILABLE,
+    let dir = std::path::Path::new(app_data_dir);
+    // The reseal runs before the host takes the profile's lock: one log
+    // line when it did something or could not, never a word to the
+    // person but the status.
+    let started = start_resealed(dir, PROFILE, &cipher, first_run).map_err(|why| {
+        let unlock = (why == IdentityRefused::UserNotAuthenticated)
+            .then(|| locked_status(dir, PROFILE, ServiceHost::global().unlock_status()))
+            .flatten();
+        let learnt = if why.custody_ran() {
+            Learnt::Status(unlock)
+        } else {
+            Learnt::Nothing
+        };
+        (refused_identity(&why), learnt)
+    })?;
+    match &started.resealed {
+        Resealed::Unchanged | Resealed::Held => {}
+        Resealed::Changed => {
+            log("the identity was sealed again under the configured unlock policy");
         }
-    })
+        Resealed::Pending { detail, .. } => log(&format!(
+            "the identity's reseal is left for the next start: {detail}"
+        )),
+    }
+    Ok(started)
+}
+
+/// What a start refused before its host learnt of the unlock policy.
+enum Learnt {
+    /// The custody step did not run: the last start's status stands.
+    Nothing,
+    /// The custody step ran: its status, `None` where the record gave none.
+    Status(Option<UnlockStatus>),
+}
+
+/// The code a start with no identity answers Java with, after logging
+/// why -- except a key that needs the person, which leaves no line
+/// (ADR-0042 A 2026-10-20): it is retried at each continuation.
+fn refused_identity(why: &IdentityRefused) -> jint {
+    if *why != IdentityRefused::UserNotAuthenticated {
+        log(&format!("no identity: {why:?}"));
+    }
+    match why {
+        IdentityRefused::Unprovisioned => refused::NO_IDENTITY,
+        IdentityRefused::RecoveryRequired(_) => refused::RECOVERY_REQUIRED,
+        IdentityRefused::UserNotAuthenticated => refused::USER_NOT_AUTHENTICATED,
+        IdentityRefused::Paths(_)
+        | IdentityRefused::Unavailable(_)
+        | IdentityRefused::Provisioning(_) => refused::IDENTITY_UNAVAILABLE,
+    }
 }
 
 /// `Native.startWithoutNetwork`'s answer when the posture runs: neither
@@ -267,13 +302,22 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     if let Err(code) = provision(app_data_dir) {
         return refused_early(code);
     }
-    let identity = match identity(env, app_data_dir) {
-        Ok(identity) => identity,
-        Err(code) => return refused_early(code),
+    let started = match identity(env, app_data_dir) {
+        Ok(started) => started,
+        Err((code, learnt)) => {
+            match learnt {
+                Learnt::Status(unlock) => ServiceHost::global().refused_before_start_with(unlock),
+                Learnt::Nothing => ServiceHost::global().refused_before_start(),
+            }
+            return code;
+        }
     };
     let store_cipher = match store_cipher(env) {
         Ok(cipher) => cipher,
-        Err(code) => return refused_early(code),
+        Err(code) => {
+            ServiceHost::global().refused_before_start_with(Some(started.unlock));
+            return code;
+        }
     };
     let host = ServiceHost::global();
     let dir = std::path::PathBuf::from(app_data_dir);
@@ -281,8 +325,9 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
         host.start(ServiceLaunch {
             app_data_dir: dir.clone(),
             profile: PROFILE.to_owned(),
-            identity,
+            identity: started.identity,
             store_cipher: Box::new(store_cipher),
+            unlock: Some(started.unlock),
         })
     });
     match started {

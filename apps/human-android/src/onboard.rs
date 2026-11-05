@@ -20,7 +20,9 @@ use std::time::Duration;
 use interweave_human_android_platform::KeyUnlockPolicy;
 use interweave_human_android_platform::custody::{self, RecordName, RecoveryCause};
 use interweave_human_android_platform::onboarding::{self, Creation, WriteRefused, english};
-use interweave_human_android_platform::{Expected, IdentityRefused};
+use interweave_human_android_platform::{
+    Expected, IdentityRefused, opening_needs_presence, reseal_needs_presence,
+};
 use interweave_human_ui_model::{
     Admit, Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start,
     StepFailed,
@@ -45,8 +47,11 @@ pub(crate) mod state {
     /// The record does not open: recovery required.
     pub(crate) const RECOVERY: jint = 2;
     /// The key needs the person, and their last authentication is too
-    /// old: the Activity raises the prompt before it binds anything
-    /// (android-key-custody.md's failure list, 80594810).
+    /// old -- or the record opens but the start's reseal to a configured
+    /// user-presence will need the person (`reseal_needs_presence`), asked
+    /// whether or not a window is open: the Activity raises the prompt
+    /// before it binds anything (android-key-custody.md's failure list,
+    /// 80594810; ADR-0042 A 2026-11-05).
     pub(crate) const AUTHENTICATION_NEEDED: jint = 3;
 }
 
@@ -163,8 +168,10 @@ struct Platform {
     app_data_dir: PathBuf,
     cipher: Arc<KeystoreCipher>,
     start: Option<Start>,
-    /// The profile's key needs the person: key operations wait on the
-    /// presence window (design section 6, acceptance 10).
+    /// The profile's configured key needs the person: a first run's and a
+    /// restore's seal wait on the presence window (design section 6,
+    /// acceptance 10). Show my phrase opens the record instead, and asks
+    /// its own policy ([`opening_needs_presence`]).
     user_presence: bool,
 }
 
@@ -181,9 +188,10 @@ static ANSWERED: AtomicBool = AtomicBool::new(false);
 /// chats and lets the service report what it finds.
 const PLATFORM_WAIT: Duration = Duration::from_secs(10);
 
-/// `Native.identityState`: whether the identity opens, and if not, where
-/// the flow starts. Any other refusal is the service's to report, as it
-/// does today, so it reads as ready.
+/// `Native.identityState`: whether the identity opens and its start can
+/// run without the person, and if not, the prompt or where the flow
+/// starts. Any other refusal is the service's to report, as it does
+/// today, so it reads as ready.
 pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> jni::sys::jint {
     // Called by onStart before its relay thread starts: whatever an
     // earlier instance left in the queue is no longer anyone's.
@@ -196,6 +204,14 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
     );
     let mut return_code = state::READY;
     let start = match found {
+        // The record opens, but this start's reseal to a configured
+        // user-presence needs the person: prompt before the start, as for
+        // a key that needs them to open (ADR-0042 A 2026-11-05).
+        Ok(_) if reseal_needs_presence(&app_data_dir, PROFILE) => {
+            await_authentication(ask::BIND);
+            return_code = state::AUTHENTICATION_NEEDED;
+            None
+        }
         Ok(_) => None,
         Err(IdentityRefused::Unprovisioned) => Some(Start::FirstRun {
             void_paper: onboarding::void_paper(&app_data_dir, PROFILE),
@@ -402,20 +418,22 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
     let Some(Platform {
         app_data_dir,
         cipher,
-        user_presence,
         ..
     }) = platform.as_ref()
     else {
         log("Show my phrase: no identity state was read");
         return;
     };
+    // The phrase is read by opening the record, under the record's policy:
+    // while a change is pending that is not the configured one.
+    let user_presence = opening_needs_presence(app_data_dir, PROFILE);
     let onboarding = Onboarding {
         view: Rc::clone(view),
         flow: IdentityFlow::new(english(), Start::ShowPhrase),
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
-        gate: PresenceGate::new(*user_presence),
+        gate: PresenceGate::new(user_presence),
         from_settings: true,
         // Taken once the service has stopped (`offline`).
         lock: None,

@@ -19,8 +19,11 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::sync::Mutex;
 
 use interweave_human_android_platform::{
-    Expected, FirstRun, IdentityRefused, RestoreRefused, phrase_peer, provision_profile,
-    restore_identity, start_identity,
+    AvailabilityMode, Expected, FirstRun, IdentityRefused, KeyUnlockPolicy, ResealFailure,
+    Resealed, RestoreRefused, UnlockStatus, locked_status, opening_needs_presence, phrase_peer,
+    provision_profile, reseal_identity, reseal_needs_presence,
+    restart_requires_user_authentication_at_rest, restore_identity, stand_in, start_identity,
+    start_resealed,
 };
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
@@ -34,12 +37,14 @@ const PROFILE: &str = "human";
 /// A stand-in for the Keystore: one key per alias, a keystream XOR for
 /// the seed and a keyed check over the associated data and ciphertext
 /// for the tag -- enough for custody to tell a right key and AAD from a
-/// wrong one. `fail` makes the next open fail as the platform would.
+/// wrong one. `fail` makes the next open fail as the platform would, and
+/// `seal_fails` the next seal.
 #[derive(Default)]
 struct FakeKeystore {
     keys: Mutex<HashMap<String, [u8; 32]>>,
     generated: Mutex<Vec<String>>,
     fail: Mutex<Option<CipherFailure>>,
+    seal_fails: Mutex<Option<CipherFailure>>,
     retire_fails: Mutex<bool>,
 }
 
@@ -53,6 +58,9 @@ fn tag(key: &[u8; 32], aad: &[u8], ct: &[u8]) -> [u8; 16] {
 
 impl SeedCipher for FakeKeystore {
     fn seal(&self, key: &KeyRef, aad: &[u8], seed: &Seed) -> Result<Sealed, CipherFailure> {
+        if let Some(failure) = self.seal_fails.lock().unwrap().take() {
+            return Err(failure);
+        }
         let alias = key.alias();
         let mut fresh = [0u8; 32];
         for (i, b) in fresh.iter_mut().enumerate() {
@@ -269,6 +277,482 @@ fn a_first_run_whose_old_key_could_not_be_retired_is_provisioned_and_starts() {
     *keystore.retire_fails.lock().unwrap() = false;
     let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("unlocks");
     assert_eq!(again.transport_identity().expect("a PeerId"), peer);
+}
+
+/// The profile's configuration rewritten to name `policy`, as an operator
+/// changing `key_unlock_policy` does: the key in the first-run document's
+/// `runtime.android` block, set again where an earlier call set it.
+fn configure_policy(app: &App, policy: &str) {
+    let file = paths(app).config_file();
+    let text = std::fs::read_to_string(&file).expect("the profile");
+    let line = format!("    key_unlock_policy: {policy}\n");
+    let rewritten = match text.find("    key_unlock_policy: ") {
+        Some(at) => {
+            let end = at + text[at..].find('\n').expect("a line") + 1;
+            format!("{}{line}{}", &text[..at], &text[end..])
+        }
+        None => text.replacen("  android:\n", &format!("  android:\n{line}"), 1),
+    };
+    assert_ne!(rewritten, text, "the document has a runtime.android block");
+    stand_in::provision_replacing(&app.dir, PROFILE, &rewritten).expect("rewritten");
+}
+
+fn holds_key(keystore: &FakeKeystore, app: &App, policy: KeyUnlockPolicy) -> bool {
+    keystore
+        .keys
+        .lock()
+        .unwrap()
+        .contains_key(&KeyRef::new(&paths(app), policy).alias())
+}
+
+/// ADR-0042 A 2026-10-10 (ii): a record sealed under the policy the
+/// profile named then still opens after the operator changes it, and the
+/// start's reseal seals it again under the new one and deletes the old
+/// key -- after which only the new key opens it, and a later start
+/// changes nothing.
+#[test]
+fn a_changed_unlock_policy_is_applied_by_the_next_starts_reseal() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    let peer = first.transport_identity().expect("a PeerId");
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Unchanged),
+        "the default policy is the record's"
+    );
+    let before = record(&app);
+
+    configure_policy(&app, "user-presence");
+    let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
+        .expect("the record's own policy opens it");
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &started),
+        Ok(Resealed::Changed)
+    );
+    assert_ne!(record(&app), before, "sealed again");
+    assert!(holds_key(&keystore, &app, KeyUnlockPolicy::UserPresence));
+    assert!(
+        !holds_key(&keystore, &app, KeyUnlockPolicy::BackgroundCompatible),
+        "the old policy's key is deleted"
+    );
+    let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("opens");
+    assert_eq!(again.transport_identity().expect("a PeerId"), peer);
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &again),
+        Ok(Resealed::Unchanged)
+    );
+}
+
+/// An `OldKeyRemains` left by a provision is retried at the next start
+/// (design 2026-10-19-android-identity.md section 6): the record is
+/// already under the configured policy, and the other policy's key is
+/// deleted all the same.
+#[test]
+fn a_key_a_first_run_could_not_retire_is_retired_by_the_next_starts_reseal() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let stale = KeyRef::new(&paths(&app), KeyUnlockPolicy::UserPresence).alias();
+    keystore.keys.lock().unwrap().insert(stale, [9; 32]);
+    *keystore.retire_fails.lock().unwrap() = true;
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    assert!(
+        holds_key(&keystore, &app, KeyUnlockPolicy::UserPresence),
+        "left"
+    );
+
+    *keystore.retire_fails.lock().unwrap() = false;
+    let before = record(&app);
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Unchanged)
+    );
+    assert!(
+        !holds_key(&keystore, &app, KeyUnlockPolicy::UserPresence),
+        "retired"
+    );
+    assert_eq!(record(&app), before, "nothing sealed");
+}
+
+/// The new policy's key needs the person: the start is refused as
+/// `UserNotAuthenticated`, which the app answers with the prompt and a
+/// retried start (ADR-0042 A 2026-10-20), and the record is untouched.
+#[test]
+fn a_reseal_that_needs_the_person_refuses_the_start_and_leaves_the_record() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    configure_policy(&app, "user-presence");
+    let before = record(&app);
+    let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("opens");
+    *keystore.seal_fails.lock().unwrap() = Some(CipherFailure::UserNotAuthenticated);
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &started),
+        Err(IdentityRefused::UserNotAuthenticated)
+    );
+    assert_eq!(record(&app), before);
+    assert!(holds_key(
+        &keystore,
+        &app,
+        KeyUnlockPolicy::BackgroundCompatible
+    ));
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &started),
+        Ok(Resealed::Changed),
+        "the retry after the prompt applies it"
+    );
+}
+
+/// Any other refusal leaves the record opening to the identity, so the
+/// start goes on: a seal the platform could not make writes nothing, and
+/// a retire that failed after the write leaves the new record opening.
+#[test]
+fn a_reseal_that_cannot_finish_is_pending_and_the_record_still_opens() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    let peer = first.transport_identity().expect("a PeerId");
+    configure_policy(&app, "user-presence");
+    let before = record(&app);
+
+    *keystore.seal_fails.lock().unwrap() = Some(CipherFailure::Unavailable("busy".to_owned()));
+    assert!(matches!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Pending {
+            why: ResealFailure::Keystore,
+            ..
+        })
+    ));
+    assert_eq!(record(&app), before, "nothing written");
+
+    *keystore.retire_fails.lock().unwrap() = true;
+    assert!(matches!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Pending {
+            why: ResealFailure::OldKeyRemains,
+            ..
+        })
+    ));
+    assert_ne!(record(&app), before, "the new record is written");
+    let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("opens");
+    assert_eq!(again.transport_identity().expect("a PeerId"), peer);
+}
+
+/// A profile another holder has is not a reseal's outcome (ADR-0042 A
+/// 2026-11-05): nothing is tried, the record is untouched, and the start's
+/// own take of the lock answers it.
+#[test]
+fn a_held_profile_is_not_resealed_and_the_record_is_left() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    configure_policy(&app, "user-presence");
+    let before = record(&app);
+    let held = ProfileLock::acquire(&paths(&app), std::time::Duration::ZERO).expect("held");
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Held)
+    );
+    assert_eq!(record(&app), before);
+    drop(held);
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Changed)
+    );
+}
+
+/// Sets the identity directory's mode for as long as it lives, and puts
+/// it back after, so the tempdir can be removed.
+struct DirMode(std::path::PathBuf);
+
+impl DirMode {
+    fn set(app: &App, mode: u32) -> Self {
+        let dir = custody::custody_file(&paths(app))
+            .parent()
+            .expect("the identity directory")
+            .to_path_buf();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).expect("chmod");
+        Self(dir)
+    }
+}
+
+impl Drop for DirMode {
+    fn drop(&mut self) {
+        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+    }
+}
+
+/// A reseal whose write landed but whose directory could not be synced has
+/// the record under the configured policy and the old key not retired:
+/// `OldKeyRemains`, never `Storage`, which means nothing was written
+/// (design 2026-11-05-unlock-policy-pending.md section 3). The control: a
+/// directory the write cannot create in is `Storage`, the record as it
+/// was.
+#[test]
+fn an_unsynced_reseal_is_old_key_remains_and_a_failed_write_is_storage() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    configure_policy(&app, "user-presence");
+    let before = record(&app);
+
+    let unwritable = DirMode::set(&app, 0o500);
+    let refused = reseal_identity(&app.dir, PROFILE, &keystore, &first);
+    drop(unwritable);
+    assert!(
+        matches!(
+            refused,
+            Ok(Resealed::Pending {
+                why: ResealFailure::Storage,
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(record(&app), before, "nothing written");
+
+    let unsyncable = DirMode::set(&app, 0o300);
+    if std::fs::File::open(&unsyncable.0).is_ok() {
+        println!("skipped: 0o300 did not block opening the directory here");
+        return;
+    }
+    let unsynced = reseal_identity(&app.dir, PROFILE, &keystore, &first);
+    drop(unsyncable);
+    assert!(
+        matches!(
+            unsynced,
+            Ok(Resealed::Pending {
+                why: ResealFailure::OldKeyRemains,
+                ref detail,
+            }) if detail.contains("Unsynced")
+        ),
+        "{unsynced:?}"
+    );
+    assert_ne!(record(&app), before, "the new record is in place");
+    assert_eq!(
+        custody::recorded_policy(&paths(&app)),
+        Ok(Some(KeyUnlockPolicy::UserPresence))
+    );
+    assert!(
+        holds_key(&keystore, &app, KeyUnlockPolicy::BackgroundCompatible),
+        "the old key is not retired"
+    );
+}
+
+/// The policy in force after each kind of start (ADR-0041 A 2026-11-05):
+/// the configured one where the reseal wrote the record, the opened
+/// record's where it did not -- so a change left pending keeps the old
+/// policy in force, and the restart diagnostic follows it, never the
+/// configuration.
+#[test]
+fn the_unlock_status_is_the_record_in_force_and_the_diagnostic_follows_it() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let first = start_resealed(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    assert_eq!(first.resealed, Resealed::Unchanged);
+    let background = UnlockStatus {
+        in_force: KeyUnlockPolicy::BackgroundCompatible,
+        configured: Some(KeyUnlockPolicy::BackgroundCompatible),
+        pending: None,
+    };
+    assert_eq!(first.unlock, background);
+
+    // A seal the Keystore refused: the old policy stays in force.
+    configure_policy(&app, "user-presence");
+    *keystore.seal_fails.lock().unwrap() = Some(CipherFailure::Unavailable("busy".to_owned()));
+    let pending = start_resealed(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("starts");
+    let left = UnlockStatus {
+        in_force: KeyUnlockPolicy::BackgroundCompatible,
+        configured: Some(KeyUnlockPolicy::UserPresence),
+        pending: Some(ResealFailure::Keystore),
+    };
+    assert_eq!(pending.unlock, left);
+    assert!(
+        !left.restart_requires_user_authentication(AvailabilityMode::StayReachable),
+        "the record in force needs nobody, whatever is configured"
+    );
+
+    // Held: nothing tried, so the opened record's policy, nothing pending
+    // by class -- the mismatch says it.
+    let held = ProfileLock::acquire(&paths(&app), std::time::Duration::ZERO).expect("held");
+    let by_another = start_resealed(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("ok");
+    drop(held);
+    assert_eq!(by_another.resealed, Resealed::Held);
+    assert_eq!(
+        by_another.unlock,
+        UnlockStatus {
+            pending: None,
+            ..left
+        }
+    );
+
+    // A retire that failed after the write: the new policy is in force.
+    *keystore.retire_fails.lock().unwrap() = true;
+    let written = start_resealed(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("ok");
+    let in_force = UnlockStatus {
+        in_force: KeyUnlockPolicy::UserPresence,
+        configured: Some(KeyUnlockPolicy::UserPresence),
+        pending: Some(ResealFailure::OldKeyRemains),
+    };
+    assert_eq!(written.unlock, in_force);
+    assert!(in_force.restart_requires_user_authentication(AvailabilityMode::StayReachable));
+    assert!(!in_force.restart_requires_user_authentication(AvailabilityMode::ForegroundOnly));
+
+    // Applied: nothing pending.
+    *keystore.retire_fails.lock().unwrap() = false;
+    let applied = start_resealed(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("ok");
+    assert_eq!(
+        applied.unlock,
+        UnlockStatus {
+            pending: None,
+            ..in_force
+        }
+    );
+
+    // Back the other way, the configuration unreadable: in force is the
+    // opened record's, configured unknown.
+    std::fs::write(paths(&app).config_file(), b"not: [valid").expect("broken");
+    let unknown = start_resealed(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("ok");
+    assert_eq!(
+        unknown.unlock,
+        UnlockStatus {
+            in_force: KeyUnlockPolicy::UserPresence,
+            configured: None,
+            pending: Some(ResealFailure::Other),
+        }
+    );
+}
+
+/// A start refused `UserNotAuthenticated` opened nothing: its policy in
+/// force is the record header's (ADR-0041 A 2026-11-05), configured beside
+/// it; a profile with no record has none. What is pending is the last
+/// start's while the record is still under the policy it left in force,
+/// and nothing once it is not; the restart diagnostic reads the mode from
+/// disk.
+#[test]
+fn a_locked_start_takes_the_record_headers_policy() {
+    let app = app();
+    assert_eq!(
+        locked_status(&app.dir, PROFILE, None),
+        None,
+        "no record yet"
+    );
+    let keystore = FakeKeystore::default();
+    start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    configure_policy(&app, "user-presence");
+    let header = UnlockStatus {
+        in_force: KeyUnlockPolicy::BackgroundCompatible,
+        configured: Some(KeyUnlockPolicy::UserPresence),
+        pending: None,
+    };
+    assert_eq!(locked_status(&app.dir, PROFILE, None), Some(header));
+
+    let last = UnlockStatus {
+        pending: Some(ResealFailure::Keystore),
+        ..header
+    };
+    assert_eq!(
+        locked_status(&app.dir, PROFILE, Some(last)),
+        Some(last),
+        "the record unchanged since, so is why"
+    );
+    let other = UnlockStatus {
+        in_force: KeyUnlockPolicy::UserPresence,
+        ..last
+    };
+    assert_eq!(
+        locked_status(&app.dir, PROFILE, Some(other)),
+        Some(header),
+        "a record under another policy than the last start left"
+    );
+
+    assert_eq!(
+        restart_requires_user_authentication_at_rest(&app.dir, PROFILE, &other),
+        Some(false),
+        "the first-run document's mode is foreground-only"
+    );
+}
+
+/// Opening the record needs the person by the record's own policy, not
+/// the configured one: a pending change in either direction answers by the
+/// record; with no record, the configured policy a first run seals under.
+#[test]
+fn opening_the_record_needs_the_person_by_its_own_policy() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    configure_policy(&app, "user-presence");
+    assert!(
+        opening_needs_presence(&app.dir, PROFILE),
+        "no record: the configured policy"
+    );
+    configure_policy(&app, "background-compatible");
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    configure_policy(&app, "user-presence");
+    assert!(
+        !opening_needs_presence(&app.dir, PROFILE),
+        "pending toward user-presence: the record needs nobody yet"
+    );
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Changed)
+    );
+    configure_policy(&app, "background-compatible");
+    assert!(
+        opening_needs_presence(&app.dir, PROFILE),
+        "pending away from user-presence: the record still needs the person"
+    );
+}
+
+/// The Activity's check asks whether the start's reseal will need the
+/// person, so the prompt comes before the start rather than leaving it
+/// refused with nothing to answer (#577 review F1): only a configured
+/// user-presence over a record not yet under it does.
+#[test]
+fn a_reseal_toward_user_presence_is_known_to_need_the_person_before_the_start() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    configure_policy(&app, "user-presence");
+    assert!(
+        !reseal_needs_presence(&app.dir, PROFILE),
+        "no record: a first run, not a reseal"
+    );
+    configure_policy(&app, "background-compatible");
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    assert!(
+        !reseal_needs_presence(&app.dir, PROFILE),
+        "nothing to change"
+    );
+    configure_policy(&app, "user-presence");
+    assert!(
+        reseal_needs_presence(&app.dir, PROFILE),
+        "toward user-presence"
+    );
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Changed)
+    );
+    assert!(!reseal_needs_presence(&app.dir, PROFILE), "applied");
+    configure_policy(&app, "background-compatible");
+    assert!(
+        !reseal_needs_presence(&app.dir, PROFILE),
+        "away from user-presence: the open already needs the person"
+    );
+}
+
+/// Only a refusal before the record is read leaves the custody step
+/// unrun, so the last start's unlock status stands (#577 review F2).
+#[test]
+fn only_a_paths_refusal_comes_before_the_custody_step() {
+    assert!(!IdentityRefused::Paths("x".to_owned()).custody_ran());
+    for ran in [
+        IdentityRefused::Unprovisioned,
+        IdentityRefused::RecoveryRequired(RecoveryCause::KeyMissing),
+        IdentityRefused::UserNotAuthenticated,
+        IdentityRefused::Unavailable("x".to_owned()),
+        IdentityRefused::Provisioning("x".to_owned()),
+    ] {
+        assert!(ran.custody_ran(), "{ran:?}");
+    }
 }
 
 /// Plan section 20 gate (a), the client clauses: a key the platform lost
