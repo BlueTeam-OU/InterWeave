@@ -75,16 +75,20 @@ The view reads four facts (Q3). The status member (`UnlockStatus`)
 carries the first three. The host gives the fourth, or, while no host
 runs, the profile on disk does:
 - **in force**: the policy of the record that is authenticated for this
-  start. It is never a claim read from the file without opening it, and
-  after any start that ran it is known.
+  start. It is never a claim read from the file without opening it,
+  except while locked (below), where ADR-0041 A 2026-11-05 takes the
+  header's byte. After any start that ran it is known.
   - When the start's reseal wrote the new record, it is the configured
     policy: the record now on disk was sealed under it, under the
     profile's lock. That covers three outcomes:
     - the reseal succeeded;
     - it answered `OldKeyRemains`;
-    - it failed with custody's `Storage(Unsynced)`, which arrives
-      only after the new record has replaced the old one, with the old
-      policy's key not retired (`custody::reseal`'s documentation).
+    - it failed with custody's `Storage(Unsynced)` and the record reads
+      back under the configured policy (so it is classed
+      `OldKeyRemains`). `Unsynced` arrives only after the new record has
+      replaced the old one, with the old policy's key not retired
+      (`custody::reseal`'s documentation). An `Unsynced` that does not
+      read back that way is the exception below.
   - Otherwise (`Keystore`, `Storage` before the write, `Other`,
     `Held`), it is the policy byte of the record the start opened
     (ADR-0041 A 2026-11-05).
@@ -92,7 +96,9 @@ runs, the profile on disk does:
     (089b8554f): the policy byte of the record on disk when the start's
     custody step ends. That is the record the reseal wrote when it
     wrote one, `Storage(Unsynced)` included, and otherwise the record
-    the start opened.
+    the start opened. The ruling does not say which record is on disk
+    when the written one cannot be read back (the exception below); the
+    note shows the opened policy there, as rust-ui-dev's code does.
 - **configured**: the configured policy, or unknown when the profile
   could not be read at the reseal.
 - the reseal's pending class, if any.
@@ -132,8 +138,7 @@ record again, and the line shows P for that start.
 | State | Condition | Trust page line (§5) | Chats notice (§4) |
 |---|---|---|---|
 | N | nothing pending; not (stay-reachable and user-presence) | none | none |
-| D | nothing pending; effective stay-reachable and user-presence in force | `UnlockRestartNeedsUnlock` | none |
-| `UnlockRestartNeedsUnlockLocked` | (D while locked) After every restart of the phone or the app, InterWeave stays offline until you unlock it with your screen lock. Without "while it keeps running". Never claims it comes back by itself. |
+| D | nothing pending; effective stay-reachable and user-presence in force | `UnlockRestartNeedsUnlock` (`UnlockRestartNeedsUnlockLocked` while locked, below) | none |
 | P-up(r) | configured user-presence, in force background-compatible, reason r | `UnlockPendingNeedsLock` + reason r | `UnlockPendingNotice`, per §4 |
 | P-down(r) | configured background-compatible, in force user-presence, reason r | `UnlockPendingNoLock` + reason r | none |
 | P-unknown | a reason r pending and either the configured policy unknown (the profile could not be read), or in force = configured (the reseal failed otherwise than `OldKeyRemains` with the record already under the configured policy, as `Other` can; never `Unsynced`, which arrives as `OldKeyRemains`), so no direction can be named | `UnlockPendingUnknown` + reason r, and D's line under it when D's condition holds (below) | none |
@@ -164,7 +169,9 @@ because the P-unknown line does not say what a restart does.
 `UserNotAuthenticated`, and the locked notice shows), this section
 applies unchanged:
 - In force is the policy byte the record's header carries (ADR-0041
-  A 2026-11-05: the start opened nothing).
+  A 2026-11-05). Either the start opened nothing, or it opened the
+  record and the reseal was refused; then the header byte is the
+  opened policy.
 - The availability mode is read from disk, as above.
 - So D's line shows when its condition holds, as `human-client-ui.md`
   §14 requires for `stay-reachable` with `user-presence` after a
@@ -257,7 +264,7 @@ faults.
 | F6 | a line appears while the Trust page is open (a start under Stay reachable) | stays where it was | its text, politely, once | A8 |
 | F7 | a line clears while the Trust page is open, and none takes its place | if it had focus: this device's PeerId field; otherwise unchanged | politely, once: `UnlockApplied` when a P line clears or when D clears because the policy in force changed, `UnlockOldKeyRemoved` when the K line clears; nothing when D clears because the availability mode changed | A9 |
 | F8 | rotation, or the window resized, with focus on a line | the same line | nothing | A10 |
-| F9 | at one start, a line is replaced by another or its text changes: P → D, P → K, K with D → D, reason r → r′ | if a line had focus: the first line now in that place; otherwise unchanged | when a P line ended, `UnlockApplied` first, or when the K line ended, `UnlockOldKeyRemoved` first; then the text of each line that is new or changed, politely, once each | A12 |
+| F9 | at one start, a line is replaced by another or its text changes: P → D, P → K, K with D → D, reason r → r′, D's locked text → D's running text at the unlock | if a line had focus: the first line now in that place; otherwise unchanged | when a P line ended, `UnlockApplied` first, or when the K line ended, `UnlockOldKeyRemoved` first; then the text of each line that is new or changed, politely, once each | A12 |
 
 Keyboard: every line is a Tab stop in the order of §5, and Details is
 the notice's action button as on every other notice. Each line, and the
@@ -275,6 +282,7 @@ fact.
 | Key | Must say |
 |---|---|
 | `UnlockRestartNeedsUnlock` | (D) While InterWeave keeps running it can stay reachable; after the phone or the app restarts, it stays offline until you unlock it with your screen lock. Never claims it comes back by itself. |
+| `UnlockRestartNeedsUnlockLocked` | (D while locked) After every restart of the phone or the app, InterWeave stays offline until you unlock it with your screen lock. Without "while it keeps running". Never claims it comes back by itself. |
 | `UnlockPendingNeedsLock` | (P-up) InterWeave's setting was changed to need your screen lock after a restart, and the change is not in force yet: until it is, InterWeave opens after a restart without your screen lock, as before. |
 | `UnlockPendingNoLock` | (P-down) The setting was changed so that InterWeave no longer needs your screen lock after a restart, and the change is not in force yet: until it is, after a restart it stays offline until you unlock it, as before. |
 | `UnlockPendingUnknown` | (P-unknown) InterWeave could not apply or check a change to its screen-lock setting; it works as before. |
@@ -338,7 +346,7 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
   because the availability mode changed announces nothing.
 - **A10** Rotation with focus on a line keeps it there.
 - **A11** On the Pixel 9a, by me, at the largest font scale and with
-  TalkBack: D, the only state with a line that a device can reach.
+  TalkBack: D, and D's locked text, the only lines a device can reach.
   - **Precondition:** a debuggable build, since no in-app control writes
     either setting (§1). The profile's `config.yaml` is authored with
     `key_unlock_policy: user-presence` through `run-as`, as
@@ -351,15 +359,21 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
     Installing it over a differently signed build wipes the app's data,
     which the phone's runs keep, so A11 never installs one for this.
   - Without such a build, A11 is blocked, not passed.
-  - Check: the line wraps whole, is
-  read in the order of A7, and nothing on the page is elided. For a P
-  line's layout, a view test at the same scale stands in.
+  - Check: the line wraps whole, is read in the order of A7, and nothing
+    on the page is elided.
+  - Then restart the phone and, before unlocking, open Trust (as
+    `failure-model.md`'s restart-without-authentication case): D's
+    locked text (`UnlockRestartNeedsUnlockLocked`) shows, and passes
+    the same check. This step depends on Q4. If the Trust page does not
+    open while locked, it is blocked, not passed.
+  - For a P line's layout, a view test at the same scale stands in.
 - **A12** F9's transitions, each by a view test with the status member
   changed while the Trust page is open and a line focused:
   - P-up → D;
   - P-down → K;
   - K with D → D;
-  - Storage → Keystore.
+  - Storage → Keystore;
+  - locked D → D (the person unlocks with the Trust page open).
 
   Check each against F9's focus target and its announcements in order.
 - **A13** Locked: the locked notice is shown (the start stopped at
@@ -415,9 +429,10 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
   carry: the policy in force (the record's), the configured policy or
   "unknown", the pending class (`Keystore`, `Storage`, `Other`) or
   `OldKeyRemains`, and the effective availability mode. Can it?
-  **Answered yes** (REPLY 01a1ac85-a1ee, 2026-11-05): the member carries all
-  four, read again at each start. What the member carries is §3's
-  definition of the four facts, not restated here. rust-ui-dev accepted
+  **Answered yes** (REPLY 01a1ac85-a1ee, 2026-11-05), and since built
+  otherwise: the member (`UnlockStatus`) carries three of §3's facts,
+  read again at each start, and the mode comes from the host or from
+  disk (§3). §3 defines all four; they are not restated here. rust-ui-dev accepted
   each change §3 made after their first reply:
   - in force from the opened record, or from the record the reseal
     wrote when it wrote one (REPLY 01a1ac9e-52ad);
@@ -426,8 +441,14 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
 
   Both are built on rust-ui-dev's j213 branch: `UnlockStatus` and
   `ServiceHost::unlock_status()` at 77d337267, and the classing at
-  15632b734. `UnlockStatus` carries three of the facts. The mode comes
-  from the host, or from disk while no host runs. At 77d337267,
-  `restart_requires_user_authentication()` answers `None` while no
-  runtime runs; §3 asks that it read the mode from disk then. Until they reach `main`, A1–A10, A12 and A13 stay blocked,
-  as §8 says.
+  15632b734. At 77d337267, `ServiceHost::restart_requires_user_authentication()`
+  answers `None` while no runtime runs, so the view cannot take the mode
+  from it then. It reads §3's fourth fact from disk instead. Until they
+  reach `main`, A1–A10, A12 and A13 stay blocked, as §8 says.
+- **Q4 — rust-ui-dev.** Does the Trust page open, with its identity
+  section, while InterWeave is locked (no runtime, the locked notice
+  showing)? The App options button has no locked condition in
+  `app.slint`, but what the page can read without the runtime is your
+  code's. If it does not open, the locked text of D has no surface on
+  Android today. Then this note needs a place for it, and A11's locked
+  step and A13(a) are blocked until it has one.
