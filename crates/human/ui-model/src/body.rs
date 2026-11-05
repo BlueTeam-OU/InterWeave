@@ -28,7 +28,7 @@
 use interweave_human_chat_protocol::{Block, Inline, Rendered};
 use unicode_segmentation::UnicodeSegmentation as _;
 
-use crate::labels::{UiText, fill, placeholder_en};
+use crate::labels::{UiText, fill, placeholder_en, visible_destination};
 
 /// How an image is named in text, from its alt text, in the interface's
 /// words: what a body or a preview shows in an image's place, the same for
@@ -58,6 +58,33 @@ pub enum Kind {
     TableHeader,
     /// A table body row, its cells joined.
     TableRow,
+}
+
+/// The most characters (grapheme clusters) a body draws whole, and so the
+/// most any one drawn item holds (HUMAN-CHAT.md, Bounds, A 2026-11-04).
+pub const BODY_GRAPHEMES: usize = 2000;
+
+/// A link's control's label as a view shows it: its words and the
+/// destination with every hidden code point spelled out
+/// (`visible_destination`), whole, never cut.
+#[must_use]
+pub fn link_label(destination: &str) -> String {
+    fill(
+        placeholder_en::text(UiText::OpenLink),
+        &[("destination", &visible_destination(destination))],
+    )
+}
+
+/// Whether a link gets a control: only when its label, as shown, is within
+/// [`BODY_GRAPHEMES`]. A label is never cut -- cut, it could show one host
+/// and open another -- so a link past it has its text drawn inert, as a
+/// link of a scheme outside the allow-list does (HUMAN-CHAT.md, Bounds,
+/// A 2026-11-04 (ii)).
+fn has_control(destination: &str) -> bool {
+    link_label(destination)
+        .graphemes(true)
+        .nth(BODY_GRAPHEMES)
+        .is_none()
 }
 
 /// Whether a line is a piece of the line before it, and where it was cut.
@@ -105,7 +132,8 @@ pub struct Line {
 
 /// A body: its lines, and its links' destinations in the order they
 /// appear. Every destination is one the tree kept, so an allowlisted
-/// scheme; the view checks again on activation.
+/// scheme, and one whose control's label is within the figures
+/// ([`link_label`]); the view checks the scheme again on activation.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Body {
     /// The lines, in the order they are drawn.
@@ -365,7 +393,9 @@ impl Walk<'_> {
                     content,
                 } => {
                     self.push_inlines(content, out);
-                    self.body.links.push(destination.clone());
+                    if has_control(destination) {
+                        self.body.links.push(destination.clone());
+                    }
                 }
                 Inline::Image { alt, .. } => {
                     let alt = self.inlines(alt);
@@ -700,5 +730,30 @@ mod tests {
                     .all(|l| l.marker.is_empty() && l.join == Join::MidLine)
             );
         }
+    }
+
+    #[test]
+    fn a_link_whose_label_would_pass_the_figures_gets_no_control_its_text_kept() {
+        use super::{BODY_GRAPHEMES, link_label};
+
+        let words = link_label("").chars().count();
+        let at = format!("https://e.org/{}", "a".repeat(BODY_GRAPHEMES - words - 14));
+        assert_eq!(
+            link_label(&at).chars().count(),
+            BODY_GRAPHEMES,
+            "the case at the bound"
+        );
+        let past = format!("{at}a");
+        let got = body(&format!("[at]({at}) and [past]({past})"));
+        assert_eq!(got.lines, [line(Kind::Text, 0, false, "", "at and past")]);
+        assert_eq!(got.links, [at], "a label of 2,000 is drawn, of 2,001 not");
+
+        // Short in the source, long as shown: each hidden code point is
+        // spelled out on the label.
+        let hidden = format!("https://e.org/a{}", "\u{FE0F}".repeat(BODY_GRAPHEMES / 8));
+        assert!(hidden.chars().count() < BODY_GRAPHEMES);
+        let got = body(&format!("[padded]({hidden})"));
+        assert_eq!(got.lines, [line(Kind::Text, 0, false, "", "padded")]);
+        assert!(got.links.is_empty(), "counted as shown, not as sent");
     }
 }
