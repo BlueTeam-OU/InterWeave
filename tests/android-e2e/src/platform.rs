@@ -24,11 +24,48 @@
 //! the control to run beside any case that asserts them false.
 
 use std::process::Command;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use interweave_profile_config::ProfileConfig;
 use interweave_profile_config::runtime::{AvailabilityMode, KeyUnlockPolicy};
 
 use crate::adb::PACKAGE;
+
+/// The phone's serial once a case has followed it to a new one; until
+/// then `None`, and `adb` picks the phone from `ANDROID_SERIAL`.
+static MOVED: Mutex<Option<String>> = Mutex::new(None);
+
+/// `adb`, aimed at the phone where it is now: at the serial
+/// [`moved_to`] set, else as `ANDROID_SERIAL` says. Every call this
+/// module makes goes through it, the profile's restore among them, so a
+/// phone whose wireless-debugging port changed under a case is still
+/// the one put back.
+#[must_use]
+pub fn adb() -> Command {
+    let mut command = Command::new("adb");
+    if let Some(serial) = moved() {
+        command.args(["-s", &serial]);
+    }
+    command
+}
+
+/// The serial [`moved_to`] set, if any.
+#[must_use]
+pub fn moved() -> Option<String> {
+    MOVED
+        .lock()
+        .map_or_else(|e| e.into_inner().clone(), |s| s.clone())
+}
+
+/// The phone answers at `serial` from now on: wireless debugging came
+/// back on a new port.
+pub fn moved_to(serial: &str) {
+    let mut moved = MOVED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *moved = Some(serial.to_owned());
+}
 
 /// The app's network service, as the activity manager names it.
 pub const NETWORK_SERVICE: &str = "org.interweave.human/.NetworkService";
@@ -55,25 +92,40 @@ pub struct ServiceRecord {
 
 /// The record of `component` in a `dumpsys activity services` dump:
 /// `Ok(None)` when the dump says the service is not running -- AOSP's
-/// `(nothing)`, or other records with none of `component` -- and an
-/// error when it says neither, or the record is there and incomplete.
+/// `(nothing)`, or other records with none of `component` among the
+/// running ones -- and an error when it says neither, or the record is
+/// there and incomplete. A record AOSP lists under a section of its own
+/// (`* Destroy ServiceRecord{..}` under "Destroying services:", as the
+/// A40 printed one 5 s into a stay-reachable start) is a service on its
+/// way in or out, not a running one: it answers "not running", never
+/// "no answer".
 ///
 /// # Errors
 /// A dump with no record and no `(nothing)`; a record with no
 /// `packageName=` (which AOSP always prints, so the record was cut); an
 /// `isForeground`, `startRequested` or `types` that is not a value.
 pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecord>, String> {
+    // Every header must name its record whole before any of them counts
+    // as evidence: one cut short or otherwise misshapen leaves what it
+    // names, and whatever followed it, unknown.
+    if let Some(bad) = dump
+        .lines()
+        .find(|l| record_header(l).is_some() && !whole_brace(l, "ServiceRecord{", "}"))
+    {
+        return Err(format!(
+            "a record header that is not whole: {bad:?}\n{dump}"
+        ));
+    }
     let header = format!(" {component}}}");
-    let is_record = |l: &str| l.contains("* ServiceRecord{");
     let Some(start) = dump
         .lines()
-        .position(|l| is_record(l) && l.ends_with(&header))
+        .position(|l| record_header(l) == Some(true) && l.ends_with(&header))
     else {
         // A "not running" read off a dump this does not recognise would
         // pass a negative for free.
         return if dump
             .lines()
-            .any(|l| l.trim() == "(nothing)" || is_record(l))
+            .any(|l| l.trim() == "(nothing)" || record_header(l).is_some())
         {
             Ok(None)
         } else {
@@ -86,7 +138,7 @@ pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecor
     let body: Vec<&str> = dump
         .lines()
         .skip(start + 1)
-        .take_while(|l| !is_record(l))
+        .take_while(|l| record_header(l).is_none())
         .collect();
     let field = |name: &str| -> Option<&str> {
         body.iter().find_map(|l| {
@@ -127,6 +179,21 @@ pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecor
         channel,
         start_requested: flag("startRequested")?,
     }))
+}
+
+/// Whether `line` opens a service record: `Some(true)` for a running
+/// one (`* ServiceRecord{`), `Some(false)` for one a section lists under
+/// a word of its own (`* Destroy ServiceRecord{`), `None` for any other
+/// line. Read by shape rather than by the words AOSP uses, so a section
+/// the fixtures do not name still bounds the record before it.
+fn record_header(line: &str) -> Option<bool> {
+    let rest = line.trim_start().strip_prefix("* ")?;
+    let (before, _) = rest.split_once("ServiceRecord{")?;
+    match before {
+        "" => Some(true),
+        word if word.ends_with(' ') && !word.trim().contains(' ') => Some(false),
+        _ => None,
+    }
 }
 
 /// What one package's backup pass ended as.
@@ -184,19 +251,100 @@ const SECURE_BIT: u32 = 0x2000;
 
 /// Whether an `fl=` value names `SECURE`: AOSP prints the flags'
 /// names apart by spaces (`ViewDebug.flagsToString`), up to the next
-/// `key=`; a `|`-joined value and a hex mask are read too.
-fn secure_flag(value: &str) -> bool {
-    value
+/// `key=`; a `|`-joined value and a hex mask are read too. The A40
+/// (Samsung, API 30) prints the mask as bare hex (`fl=1800518`, every
+/// window of its dump of 2026-11-04), so a word of hex digits alone is
+/// a mask: no flag's name is spelt in the letters A to F only.
+///
+/// # Errors
+/// A value with no word before the next `key=` (a line cut at `fl=`), a
+/// mask with no digits or more than a `u32` holds, and a word that is
+/// neither a mask nor spelt as a flag's name (capitals, digits, `_`): a
+/// "not secure" read off them would pass the negative for free.
+fn secure_flag(value: &str) -> Result<bool, String> {
+    let words: Vec<&str> = value
         .split_whitespace()
         .take_while(|w| !w.contains('='))
         .flat_map(|w| w.trim_end_matches('}').split('|'))
-        .any(|f| {
-            f == "SECURE"
-                || f.strip_prefix('#')
-                    .or_else(|| f.strip_prefix("0x"))
-                    .and_then(|h| u32::from_str_radix(h, 16).ok())
-                    .is_some_and(|m| m & SECURE_BIT != 0)
-        })
+        .filter(|f| !f.is_empty())
+        .collect();
+    if words.is_empty() {
+        return Err(format!("an fl= value with no flags: {value:?}"));
+    }
+    let mut secure = false;
+    for f in words {
+        let mask = f
+            .strip_prefix('#')
+            .or_else(|| f.strip_prefix("0x"))
+            .or_else(|| f.bytes().all(|b| b.is_ascii_hexdigit()).then_some(f));
+        secure |= match mask {
+            Some(hex) => {
+                u32::from_str_radix(hex, 16)
+                    .map_err(|e| format!("an fl= mask {f:?} that is not a u32: {e}"))?
+                    & SECURE_BIT
+                    != 0
+            }
+            None if is_flag_name(f) => f == "SECURE",
+            None => {
+                return Err(format!(
+                    "an fl= word that is neither a mask nor a flag's name: {f:?}"
+                ));
+            }
+        };
+    }
+    Ok(secure)
+}
+
+/// Whether `word` is spelt as AOSP spells a flag's name: capitals,
+/// digits and underscores, from a capital.
+fn is_flag_name(word: &str) -> bool {
+    word.starts_with(|c: char| c.is_ascii_uppercase())
+        && word
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+}
+
+/// Whether `dump` is a `dumpsys window windows` dump with a window in
+/// it, every window's header whole: an empty answer, one cut before its
+/// first window, or one with a header that does not parse is not a dump
+/// with no prompt and no secure window in it.
+fn window_dump(dump: &str) -> Result<(), String> {
+    let headed = dump.contains("WINDOW MANAGER WINDOWS");
+    let headers: Vec<&str> = dump
+        .lines()
+        .filter(|l| l.trim_start().starts_with("Window #"))
+        .collect();
+    if !headed || headers.is_empty() {
+        return Err(format!("not a window dump with a window in it:\n{dump}"));
+    }
+    match headers.iter().find(|l| !whole_brace(l, "Window{", "}:")) {
+        Some(bad) => Err(format!(
+            "a window header that is not whole: {bad:?}\n{dump}"
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Whether `line` holds `<open><hex> u<user> <name…><close>` and ends
+/// there: the layout AOSP's `ServiceRecord.toString` and
+/// `WindowState.toString` print as one string, so a header without it is
+/// a cut or a shape this reader does not know.
+fn whole_brace(line: &str, open: &str, close: &str) -> bool {
+    let Some((_, rest)) = line.split_once(open) else {
+        return false;
+    };
+    let Some(inner) = rest.trim_end().strip_suffix(close) else {
+        return false;
+    };
+    let mut words = inner.split_whitespace();
+    let hex = words
+        .next()
+        .is_some_and(|w| w.bytes().all(|b| b.is_ascii_hexdigit()));
+    let user = words
+        .next()
+        .and_then(|w| w.strip_prefix('u'))
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    hex && user && words.next().is_some()
 }
 
 /// The titles of the app's windows in a `dumpsys window windows` dump,
@@ -205,8 +353,11 @@ fn secure_flag(value: &str) -> bool {
 /// off a missing line would pass the negative for free.
 ///
 /// # Errors
-/// A window of the app with no `fl=` attributes line.
+/// A dump that is not a window dump with a window ([`window_dump`]); a
+/// window of the app with no `fl=` attributes line, or one
+/// [`secure_flag`] cannot read.
 pub fn app_windows(dump: &str) -> Result<Vec<(String, bool)>, String> {
+    window_dump(dump)?;
     let mut out = Vec::new();
     let lines: Vec<&str> = dump.lines().collect();
     for (i, l) in lines.iter().enumerate() {
@@ -229,7 +380,7 @@ pub fn app_windows(dump: &str) -> Result<Vec<(String, bool)>, String> {
                 Some(rest)
             })
             .ok_or_else(|| format!("no fl= line for the window {title}:\n{dump}"))?;
-        out.push((title, secure_flag(fl)));
+        out.push((title, secure_flag(fl)?));
     }
     Ok(out)
 }
@@ -237,6 +388,11 @@ pub fn app_windows(dump: &str) -> Result<Vec<(String, bool)>, String> {
 /// The system's credential prompt's window title (`SystemUI`'s
 /// `AuthContainerView` sets it on every level this runs on).
 pub const BIOMETRIC_PROMPT: &str = "BiometricPrompt";
+
+/// Samsung's title for the same prompt: the A40 (One UI, API 30) draws
+/// it as `BiometricPrompt3P` (its dump of 2026-11-05), so a check for
+/// AOSP's title alone never sees the prompt there.
+pub const SAMSUNG_BIOMETRIC_PROMPT: &str = "BiometricPrompt3P";
 
 /// Whether a `dumpsys window windows` dump lists a window whose title is
 /// exactly `title`.
@@ -252,10 +408,23 @@ pub fn has_window(dump: &str, title: &str) -> bool {
 /// Whether the credential prompt shows now.
 ///
 /// # Panics
-/// As [`shell`].
+/// As [`shell`]; on a dump [`dump_ended`] or [`prompt_in`] refuses.
 #[must_use]
 pub fn prompt_shown() -> bool {
-    has_window(&shell(&["dumpsys", "window", "windows"]), BIOMETRIC_PROMPT)
+    prompt_in(&dump(&["window", "windows"])).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Whether a `dumpsys window windows` dump lists the credential prompt,
+/// under AOSP's title or Samsung's.
+///
+/// # Errors
+/// A dump that is not a window dump with a window ([`window_dump`]):
+/// "no prompt" read off it would pass the negative for free.
+pub fn prompt_in(dump: &str) -> Result<bool, String> {
+    window_dump(dump)?;
+    Ok([BIOMETRIC_PROMPT, SAMSUNG_BIOMETRIC_PROMPT]
+        .iter()
+        .any(|title| has_window(dump, title)))
 }
 
 /// What the runtime was told by the app's network callback, from the
@@ -298,11 +467,7 @@ pub fn told(line: &str) -> Option<Told> {
     reason = "a command is also run for its effect, its output unread"
 )]
 pub fn shell(args: &[&str]) -> String {
-    let out = Command::new("adb")
-        .arg("shell")
-        .args(args)
-        .output()
-        .expect("adb");
+    let out = adb().arg("shell").args(args).output().expect("adb");
     assert!(
         out.status.success(),
         "adb shell {}: {}",
@@ -310,6 +475,54 @@ pub fn shell(args: &[&str]) -> String {
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// Whether the keyguard is up, from `dumpsys window`'s
+/// `isKeyguardShowing=` (the A40, API 30, prints it in its policy
+/// line).
+///
+/// # Errors
+/// A dump with no such value: a level that prints it elsewhere is
+/// added from its own dump, never read as unlocked.
+pub fn keyguard_showing(dump: &str) -> Result<bool, String> {
+    let said = dump
+        .split_whitespace()
+        .find_map(|w| w.strip_prefix("isKeyguardShowing="));
+    match said {
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        other => Err(format!(
+            "no isKeyguardShowing= value in dumpsys window ({other:?})"
+        )),
+    }
+}
+
+/// How long a person is given to unlock the phone.
+pub const UNLOCK_PATIENCE: Duration = Duration::from_secs(300);
+
+/// The phone awake and unlocked before a case brings the app to the
+/// front: an `am start -W` behind a secure keyguard waits with no end
+/// (the A40, 2026-11-04, 51 minutes). The screen is woken; a keyguard
+/// still up asks the person on stderr and is waited out.
+///
+/// # Panics
+/// As [`shell`]; on a dump [`dump_ended`] refuses or [`keyguard_showing`]
+/// cannot read; or on a phone still locked after [`UNLOCK_PATIENCE`].
+pub fn until_unlocked() {
+    shell(&["input", "keyevent", "KEYCODE_WAKEUP"]);
+    let locked = || keyguard_showing(&dump(&["window"])).unwrap_or_else(|e| panic!("{e}"));
+    if !locked() {
+        return;
+    }
+    eprintln!("PERSON: on the phone, unlock it (within {UNLOCK_PATIENCE:?})");
+    let deadline = Instant::now() + UNLOCK_PATIENCE;
+    while locked() {
+        assert!(
+            Instant::now() < deadline,
+            "the phone stayed locked for {UNLOCK_PATIENCE:?}: the case needs it unlocked"
+        );
+        std::thread::sleep(Duration::from_secs(1));
+    }
 }
 
 /// The device's API level.
@@ -324,23 +537,77 @@ pub fn sdk() -> u32 {
         .expect("an API level")
 }
 
+/// What a dump read prints last: `IW_END=` and `dumpsys`'s exit status.
+const DUMP_END: &str = "IW_END=";
+
+/// The `adb shell` words that run `dumpsys <args>` and then print
+/// [`DUMP_END`] with its exit status, so the reader can tell a whole dump
+/// from one cut short.
+#[must_use]
+pub fn dump_command<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    let mut words = vec!["dumpsys"];
+    words.extend_from_slice(args);
+    words.extend_from_slice(&[";", "echo", "IW_END=$?"]);
+    words
+}
+
+/// The dump in `out` without its end marker, when `dumpsys` ran to its
+/// end and exited 0. Every parser here reads a negative ("no prompt",
+/// "not secure", "not running") off what a dump does not contain, so a
+/// dump that stopped early (a lost link, `dumpsys`'s own timeout, which
+/// cuts a service's output at any byte) would read as one; this is the
+/// one place that refuses it, whatever the parser after it.
+///
+/// # Errors
+/// A last line other than `IW_END=0`, a `DUMP TIMEOUT` line, or a
+/// service's `Exception occurred while dumping`.
+pub fn dump_ended(out: &str) -> Result<String, String> {
+    let body = out.trim_end_matches(['\n', '\r']);
+    let (rest, last) = body.rsplit_once('\n').unwrap_or(("", body));
+    if last.trim_end_matches('\r') != format!("{DUMP_END}0") {
+        return Err(format!(
+            "the dump did not reach its end (last line {last:?}):\n{out}"
+        ));
+    }
+    if rest.contains("DUMP TIMEOUT") {
+        return Err(format!("dumpsys timed out inside the dump:\n{rest}"));
+    }
+    // A service that throws while dumping is caught by Binder, which
+    // prints this and lets dumpsys exit 0 with the dump ended early.
+    if rest.contains("Exception occurred while dumping") {
+        return Err(format!("the service threw inside the dump:\n{rest}"));
+    }
+    Ok(rest.to_owned())
+}
+
+/// `dumpsys <args>` on the phone, whole.
+///
+/// # Panics
+/// As [`shell`]; on a dump [`dump_ended`] refuses.
+#[must_use]
+pub fn dump(args: &[&str]) -> String {
+    dump_ended(&shell(&dump_command(args))).unwrap_or_else(|e| panic!("{e}"))
+}
+
 /// The app's `NetworkService` record as the platform holds it now.
 ///
 /// # Panics
-/// As [`shell`], or on a record [`service_record`] cannot read.
+/// As [`shell`], or on a dump [`dump_ended`] refuses or a record
+/// [`service_record`] cannot read.
 #[must_use]
 pub fn network_service() -> Option<ServiceRecord> {
-    let dump = shell(&["dumpsys", "activity", "services", PACKAGE]);
-    service_record(&dump, NETWORK_SERVICE).unwrap_or_else(|e| panic!("{e}"))
+    service_record(&dump(&["activity", "services", PACKAGE]), NETWORK_SERVICE)
+        .unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// The app's windows now, with their `SECURE` bit.
 ///
 /// # Panics
-/// As [`shell`], or on a dump [`app_windows`] cannot read.
+/// As [`shell`], or on a dump [`dump_ended`] refuses or [`app_windows`]
+/// cannot read.
 #[must_use]
 pub fn windows() -> Vec<(String, bool)> {
-    app_windows(&shell(&["dumpsys", "window", "windows"])).unwrap_or_else(|e| panic!("{e}"))
+    app_windows(&dump(&["window", "windows"])).unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// The app's process id, or `None` when it has none.
@@ -349,7 +616,7 @@ pub fn windows() -> Vec<(String, bool)> {
 /// If `adb` cannot run.
 #[must_use]
 pub fn app_pid() -> Option<u32> {
-    let out = Command::new("adb")
+    let out = adb()
         .args(["shell", "pidof", PACKAGE])
         .output()
         .expect("adb");
@@ -466,7 +733,7 @@ pub struct ProfileKept {
 fn shell_status(args: &[&str], input: Option<&[u8]>) -> std::io::Result<(bool, Vec<u8>)> {
     use std::io::Write as _;
     use std::process::Stdio;
-    let mut child = Command::new("adb")
+    let mut child = adb()
         .arg("shell")
         .args(args)
         .stdin(if input.is_some() {
@@ -542,6 +809,77 @@ impl ProfileKept {
     }
 }
 
+/// The phone's screen timeout raised while this lives, and the value
+/// found put back when it drops. A screen that times out raises a secure
+/// keyguard, and a case whose subject is a key a person's unlock would
+/// open (the user-presence key: SPIKE-009 opened its window with a
+/// keyguard unlock on the A40) cannot ask for that unlock mid-case, so
+/// it holds this over its waits instead.
+#[must_use = "the timeout is put back when this drops"]
+pub struct ScreenAwake {
+    /// `settings get system screen_off_timeout` before the hold; `null`
+    /// when the phone had no value, which the drop deletes again.
+    found: String,
+}
+
+impl ScreenAwake {
+    /// Ten minutes: longer than any case's own waits.
+    pub const HELD_MS: &str = "600000";
+
+    /// Reads the timeout, then raises it.
+    ///
+    /// # Panics
+    /// As [`shell`].
+    pub fn hold() -> Self {
+        let found = shell(&["settings", "get", "system", "screen_off_timeout"])
+            .trim()
+            .to_owned();
+        // The guard exists before the write: a write that lands on the
+        // phone while adb fails to say so still has a drop to undo it.
+        let held = Self { found };
+        shell(&[
+            "settings",
+            "put",
+            "system",
+            "screen_off_timeout",
+            Self::HELD_MS,
+        ]);
+        held
+    }
+}
+
+impl Drop for ScreenAwake {
+    fn drop(&mut self) {
+        // Reported, not asserted, as ProfileKept's: no second panic while
+        // unwinding; the read-back is what proves the restore.
+        let wrote = if self.found == "null" {
+            shell_status(
+                &["settings", "delete", "system", "screen_off_timeout"],
+                None,
+            )
+        } else {
+            shell_status(
+                &[
+                    "settings",
+                    "put",
+                    "system",
+                    "screen_off_timeout",
+                    &self.found,
+                ],
+                None,
+            )
+        };
+        let now = shell_status(&["settings", "get", "system", "screen_off_timeout"], None)
+            .map(|(_, out)| String::from_utf8_lossy(&out).trim().to_owned());
+        if now.as_deref().ok() != Some(self.found.as_str()) {
+            eprintln!(
+                "the phone's screen timeout was NOT put back (write: {wrote:?}, now {now:?}); it was {}",
+                self.found
+            );
+        }
+    }
+}
+
 impl Drop for ProfileKept {
     fn drop(&mut self) {
         // Never a second panic while unwinding: reported, not asserted.
@@ -588,6 +926,26 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
     // `ServiceRecord.dump` then prints no `isForeground=` line (only when
     // `isForeground || foregroundId != 0`) and no `startRequested=` line
     // (only when `startRequested || delayedStop || lastStartId != 0`).
+    /// The A40's (API 30) dump of 2026-11-04, the record's paths and
+    /// handles as printed.
+    const DESTROYING: &str = "\
+ACTIVITY MANAGER SERVICES (dumpsys activity services)
+  Destroying services:
+  * Destroy ServiceRecord{5c5073d u0 org.interweave.human/.NetworkService}
+    intent={cmp=org.interweave.human/.NetworkService}
+    packageName=org.interweave.human
+    processName=org.interweave.human
+    dataDir=/data/user/0/org.interweave.human
+    app=ProcessRecord{4815798 14224:org.interweave.human/u0a400}
+    allowWhileInUsePermissionInFgs=false
+    startForegroundCount=0
+    recentCallingPackage=org.interweave.human
+    createTime=-5s799ms startingBgTimeout=--
+    lastActivity=-5s799ms restartTime=-- createdFromFg=true
+    executeNesting=1 executeFg=false executingStart=-23ms
+    destroying=true destroyTime=-23ms
+";
+
     const BOUND: &str = "\
 ACTIVITY MANAGER SERVICES (dumpsys activity services)
   User 0 active services:
@@ -649,9 +1007,54 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
             service_record(&others, NETWORK_SERVICE).expect("parsed"),
             None
         );
+        // A record only under "Destroying services:", as the A40 printed
+        // it: not running, and not read as the running record.
+        assert_eq!(
+            service_record(DESTROYING, NETWORK_SERVICE).expect("parsed"),
+            None
+        );
+        // Control: the same record in the running list is read.
+        let live = DESTROYING
+            .replace("  Destroying services:", "  User 0 active services:")
+            .replace("* Destroy ServiceRecord{", "* ServiceRecord{");
+        assert!(
+            service_record(&live, NETWORK_SERVICE)
+                .expect("parsed")
+                .is_some()
+        );
+        // A running record ends where a sectioned one begins: the
+        // destroying record's isForeground is not the bound record's.
+        let foreground_after = DESTROYING.replace("startForegroundCount=0", "isForeground=true");
+        let both = format!(
+            "{BOUND}{}",
+            foreground_after
+                .lines()
+                .skip(1)
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        let r = service_record(&both, NETWORK_SERVICE)
+            .expect("parsed")
+            .expect("running");
+        assert!(!r.foreground, "{r:?}");
         // Control: neither a record nor (nothing) is no answer at all.
         assert!(service_record("ACTIVITY MANAGER SERVICES\n", NETWORK_SERVICE).is_err());
         assert!(service_record("", NETWORK_SERVICE).is_err());
+    }
+
+    #[test]
+    fn the_keyguard_is_read_where_the_a40_prints_it_and_nowhere_else() {
+        // The A40's policy line, as printed on 2026-11-04.
+        let line = |v: &str| {
+            format!(
+                "    mShowingDream=false mDreamingLockscreen=true    mStatusBar=Window{{587b901 u0 StatusBar}}    isKeyguardShowing={v}\n"
+            )
+        };
+        assert_eq!(keyguard_showing(&line("true")), Ok(true));
+        assert_eq!(keyguard_showing(&line("false")), Ok(false));
+        // Control: a dump without the value is no answer, never unlocked.
+        assert!(keyguard_showing("WINDOW MANAGER POLICY STATE\n").is_err());
+        assert!(keyguard_showing(&line("maybe")).is_err());
     }
 
     #[test]
@@ -726,6 +1129,44 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
       bhv=DEFAULT}
 ";
 
+    // The A40's layout (Samsung, API 30), its lines as dumped on
+    // 2026-11-04: `fl=` is a bare hex mask. Window #0 is that dump's,
+    // verbatim; the app's two are its layout with the masks set by hand,
+    // one carrying `FLAG_SECURE` (0x2000) and one not, since the dump was
+    // taken with no app window up.
+    const A40_WINDOWS: &str = "\
+WINDOW MANAGER WINDOWS (dumpsys window windows)
+  Window #0 Window{c5413db u0 EdgeLightingWindow}:
+    mAttrs={(0,0)(fillxfill) gr=CENTER sim={forwardNavigation} layoutInDisplayCutoutMode=shortEdges ty=2228 fmt=TRANSLUCENT
+      fl=1800518
+      pfl=12020010
+      vsysui=600
+      sfl=20000}
+  Window #1 Window{d4 u0 org.interweave.human/org.interweave.human.MainActivity}:
+    mAttrs={(0,0)(fillxfill) sim={adjust=resize forwardNavigation} ty=1 fmt=TRANSLUCENT
+      fl=81812100
+      pfl=12020040
+      sfl=20000}
+  Window #2 Window{e5 u0 org.interweave.human/org.interweave.human.MainActivity}:
+    mAttrs={(0,0)(fillxfill) sim={adjust=resize forwardNavigation} ty=1 fmt=TRANSLUCENT
+      fl=81810100
+      pfl=12020040
+      sfl=20000}
+";
+
+    #[test]
+    fn a_bare_hex_mask_is_read_for_its_secure_bit_as_the_a40_prints_it() {
+        let w = app_windows(A40_WINDOWS).expect("parsed");
+        let secure: Vec<bool> = w.iter().map(|(_, s)| *s).collect();
+        // The positive: 0x81812100 carries 0x2000. The control beside it:
+        // 0x81810100, the A40's own value for an ordinary activity, does not.
+        assert_eq!(secure, [true, false], "{w:?}");
+        assert!(!secure_flag("1800518").expect("read"));
+        // A name is still a name, and `key=` still ends the value.
+        assert!(secure_flag("NOT_FOCUSABLE SECURE").expect("read"));
+        assert!(!secure_flag("81810100 pfl=2000").expect("read"));
+    }
+
     #[test]
     fn only_the_apps_windows_are_read_each_with_its_secure_bit() {
         let w = app_windows(WINDOWS).expect("parsed");
@@ -749,14 +1190,17 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
 
     #[test]
     fn secure_is_read_anywhere_in_the_flags_and_nowhere_after_them() {
-        assert!(secure_flag("LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SECURE"));
-        assert!(!secure_flag("LAYOUT_IN_SCREEN HARDWARE_ACCELERATED"));
+        assert!(secure_flag("LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SECURE").expect("read"));
+        assert!(!secure_flag("LAYOUT_IN_SCREEN HARDWARE_ACCELERATED").expect("read"));
         // On one line, the next key ends the flags.
-        assert!(!secure_flag("LAYOUT_IN_SCREEN pfl=SECURE"));
-        assert!(secure_flag("LAYOUT_IN_SCREEN|SECURE|HARDWARE_ACCELERATED"));
-        assert!(secure_flag("SECURE}"));
-        assert!(secure_flag("#81812100"), "a hex mask with the bit");
-        assert!(!secure_flag("#81810100"), "and without it");
+        assert!(!secure_flag("LAYOUT_IN_SCREEN pfl=SECURE").expect("read"));
+        assert!(secure_flag("LAYOUT_IN_SCREEN|SECURE|HARDWARE_ACCELERATED").expect("read"));
+        assert!(secure_flag("SECURE}").expect("read"));
+        assert!(
+            secure_flag("#81812100").expect("read"),
+            "a hex mask with the bit"
+        );
+        assert!(!secure_flag("#81810100").expect("read"), "and without it");
     }
 
     // The example the cases' profiles come from, as shipped: its comment
@@ -928,5 +1372,185 @@ channels:
             !has_window(&other, BIOMETRIC_PROMPT),
             "a title is matched whole"
         );
+    }
+
+    #[test]
+    fn samsungs_prompt_title_is_its_own_whole_title() {
+        // The A40's header line for the prompt, verbatim.
+        let a40 = format!(
+            "{WINDOWS}  Window #4 Window{{fee1ccf u0 BiometricPrompt3P}}:\n    mAttrs={{fl=SECURE}}\n"
+        );
+        assert!(has_window(&a40, SAMSUNG_BIOMETRIC_PROMPT));
+        // AOSP's title does not match Samsung's: the reason both are asked.
+        assert!(!has_window(&a40, BIOMETRIC_PROMPT));
+        assert!(
+            !has_window(WINDOWS, SAMSUNG_BIOMETRIC_PROMPT),
+            "control: absent"
+        );
+        // The check a case asks sees either title, and neither when absent.
+        assert!(prompt_in(&a40).expect("read"));
+        let aosp = a40.replace("u0 BiometricPrompt3P}", "u0 BiometricPrompt}");
+        assert!(prompt_in(&aosp).expect("read"));
+        assert!(!prompt_in(WINDOWS).expect("read"), "control: no prompt");
+    }
+
+    #[test]
+    fn a_cut_or_empty_window_dump_is_an_error_not_a_no() {
+        for bad in ["", "WINDOW MANAGER WINDOWS (dumpsys window windows)\n"] {
+            assert!(prompt_in(bad).is_err(), "{bad:?}");
+            assert!(app_windows(bad).is_err(), "{bad:?}");
+        }
+        // Control: a whole dump with no prompt and no secure window reads.
+        assert_eq!(prompt_in(A40_WINDOWS), Ok(false));
+        assert!(app_windows(A40_WINDOWS).is_ok());
+    }
+
+    #[test]
+    fn an_fl_value_cut_empty_or_overflowing_is_an_error() {
+        assert!(secure_flag("").is_err(), "a line cut at fl=");
+        assert!(
+            secure_flag(" pfl=12020040").is_err(),
+            "no word before the next key"
+        );
+        assert!(secure_flag("181812100").is_err(), "nine hex digits");
+        assert!(secure_flag("#").is_err(), "a prefix with no digits");
+        // Control: the A40's own values read.
+        assert_eq!(secure_flag("81812100"), Ok(true));
+        assert_eq!(secure_flag("81810100"), Ok(false));
+        let cut = A40_WINDOWS.replace("fl=81812100", "fl=");
+        assert!(app_windows(&cut).is_err(), "{cut}");
+    }
+
+    #[test]
+    fn a_cut_record_header_is_an_error_in_either_form() {
+        let running = format!("  * ServiceRecord{{5c5073d u0 {PACKAGE}/.Net");
+        let sectioned = "  * Destroy ServiceRecord{";
+        for cut in [running.as_str(), sectioned] {
+            let dump = format!("ACTIVITY MANAGER SERVICES (dumpsys activity services)\n{cut}\n");
+            assert!(
+                service_record(&dump, &format!("{PACKAGE}/.Net")).is_err(),
+                "{dump}"
+            );
+        }
+        // Control: the closed sectioned header reads as not running.
+        let closed = format!(
+            "ACTIVITY MANAGER SERVICES (dumpsys activity services)\n  * Destroy ServiceRecord{{1 u0 {PACKAGE}/.Net}}\n    packageName={PACKAGE}\n"
+        );
+        assert_eq!(
+            service_record(&closed, &format!("{PACKAGE}/.Net")),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn a_dump_counts_only_when_it_reached_its_end() {
+        let whole = "WINDOW MANAGER WINDOWS (dumpsys window windows)\n  Window #0 Window{a u0 X}:\nIW_END=0\n";
+        assert_eq!(
+            dump_ended(whole).as_deref(),
+            Ok("WINDOW MANAGER WINDOWS (dumpsys window windows)\n  Window #0 Window{a u0 X}:")
+        );
+        // Cut anywhere, the marker is missing: inside a header, inside a
+        // mask, at a line boundary.
+        for cut in [
+            "WINDOW MANAGER WINDOWS\n  Window #1 Window{fee1ccf u0 BiometricPrompt3",
+            "    mAttrs={(0,0)\n      fl=81812",
+            "WINDOW MANAGER WINDOWS\n  Window #0 Window{a u0 X}:\n",
+            "",
+        ] {
+            assert!(dump_ended(cut).is_err(), "{cut:?}");
+        }
+        assert!(dump_ended("x\nIW_END=1\n").is_err(), "dumpsys failed");
+        assert!(
+            dump_ended("x\n*** SERVICE 'window' DUMP TIMEOUT (10000ms) EXPIRED ***\nIW_END=0")
+                .is_err(),
+            "dumpsys's own timeout"
+        );
+        assert_eq!(
+            dump_command(&["window"]),
+            ["dumpsys", "window", ";", "echo", "IW_END=$?"]
+        );
+    }
+
+    #[test]
+    fn every_window_flag_name_reads_as_a_name_not_a_mask() {
+        // WindowManager.LayoutParams' flag names as ViewDebug prints them
+        // (API 30): none is spelt in hex digits alone, so none is taken
+        // for a mask, and only SECURE reads as secure.
+        for name in [
+            "ALLOW_LOCK_WHILE_SCREEN_ON",
+            "DIM_BEHIND",
+            "BLUR_BEHIND",
+            "NOT_FOCUSABLE",
+            "NOT_TOUCHABLE",
+            "NOT_TOUCH_MODAL",
+            "TOUCHABLE_WHEN_WAKING",
+            "KEEP_SCREEN_ON",
+            "LAYOUT_IN_SCREEN",
+            "LAYOUT_NO_LIMITS",
+            "FULLSCREEN",
+            "FORCE_NOT_FULLSCREEN",
+            "DITHER",
+            "SECURE",
+            "SCALED",
+            "IGNORE_CHEEK_PRESSES",
+            "LAYOUT_INSET_DECOR",
+            "ALT_FOCUSABLE_IM",
+            "WATCH_OUTSIDE_TOUCH",
+            "SHOW_WHEN_LOCKED",
+            "SHOW_WALLPAPER",
+            "TURN_SCREEN_ON",
+            "DISMISS_KEYGUARD",
+            "SPLIT_TOUCH",
+            "HARDWARE_ACCELERATED",
+            "LAYOUT_IN_OVERSCAN",
+            "TRANSLUCENT_STATUS",
+            "TRANSLUCENT_NAVIGATION",
+            "LOCAL_FOCUS_MODE",
+            "SLIPPERY",
+            "LAYOUT_ATTACHED_IN_DECOR",
+            "DRAWS_SYSTEM_BAR_BACKGROUNDS",
+        ] {
+            assert!(!name.bytes().all(|b| b.is_ascii_hexdigit()), "{name}");
+            assert_eq!(secure_flag(name), Ok(name == "SECURE"), "{name}");
+        }
+        // A word that is neither is an error, not "not secure".
+        assert!(secure_flag("81812Z00").is_err());
+        assert!(secure_flag("LAYOUT_IN_SCREEN sec").is_err());
+    }
+
+    #[test]
+    fn a_header_that_does_not_parse_whole_is_an_error_not_evidence() {
+        // Codex's two inputs on #568.
+        let empty = "ACTIVITY MANAGER SERVICES\n * Destroy ServiceRecord{}\n";
+        assert!(service_record(empty, NETWORK_SERVICE).is_err());
+        let cut = "WINDOW MANAGER WINDOWS\n  Window #4 Window{fee1ccf u0 BiometricPrompt3P\n";
+        assert!(prompt_in(cut).is_err());
+        // No user, or no name, is not whole either.
+        assert!(
+            prompt_in("WINDOW MANAGER WINDOWS\n  Window #0 Window{fee1ccf BiometricPrompt3P}:\n")
+                .is_err()
+        );
+        assert!(
+            service_record(
+                "x\n  * Destroy ServiceRecord{5c5073d u0}\n",
+                NETWORK_SERVICE
+            )
+            .is_err()
+        );
+        // Controls: the A40's own headers, whole, read.
+        assert_eq!(
+            prompt_in(
+                "WINDOW MANAGER WINDOWS\n  Window #4 Window{fee1ccf u0 BiometricPrompt3P}:\n"
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            service_record(
+                &format!("x\n  * Destroy ServiceRecord{{5c5073d u0 {NETWORK_SERVICE}}}\n"),
+                NETWORK_SERVICE
+            ),
+            Ok(None)
+        );
+        assert!(dump_ended("x\nException occurred while dumping:\nIW_END=0").is_err());
     }
 }

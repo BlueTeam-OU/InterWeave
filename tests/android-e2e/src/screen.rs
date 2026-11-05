@@ -65,6 +65,9 @@ pub struct Screens {
     read: usize,
     /// The focus key the trace last named.
     focus: String,
+    /// The app's other lines on its tag (the runtime's start among
+    /// them), as last read: what a failed step cannot be judged without.
+    app: Vec<String>,
 }
 
 impl Screens {
@@ -76,6 +79,7 @@ impl Screens {
             seen: Vec::new(),
             read: 0,
             focus: String::new(),
+            app: Vec::new(),
         }
     }
 
@@ -93,11 +97,14 @@ impl Screens {
     /// step starts from Chats, and leaving Connect writes the profile.
     pub fn launch(&mut self, patience: Duration) -> Step {
         let name = "launch";
+        if let Err(why) = self.unlocked() {
+            return step(name, false, why);
+        }
         let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
         if let Err(why) = self.adb_ok(&["logcat", "-c"]) {
             return step(name, false, why);
         }
-        (self.seen, self.read, self.focus) = (Vec::new(), 0, String::new());
+        (self.seen, self.read, self.focus, self.app) = (Vec::new(), 0, String::new(), Vec::new());
         let launched = self
             .adb_ok(&[
                 "shell",
@@ -240,13 +247,21 @@ impl Screens {
     /// the window offline and the notice that asks for authentication,
     /// from the first render. Connect is not waited for: its reads need
     /// the runtime, which the locked key holds back.
+    ///
+    /// A keyguard up here fails the step rather than asking for an
+    /// unlock: the unlock would open the key's window again, the very
+    /// state this launch must not be in, so the person is asked before
+    /// the validity wait (`identity_lines`'s `locked_launch`), not after.
     pub fn launch_locked(&mut self, patience: Duration) -> Step {
         let name = "launch_locked";
+        if let Err(why) = self.awake_unasked() {
+            return step(name, false, why);
+        }
         let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
         if let Err(why) = self.adb_ok(&["logcat", "-c"]) {
             return step(name, false, why);
         }
-        (self.seen, self.read, self.focus) = (Vec::new(), 0, String::new());
+        (self.seen, self.read, self.focus, self.app) = (Vec::new(), 0, String::new(), Vec::new());
         let launched = self.front().and_then(|()| {
             self.wait_all(
                 0,
@@ -395,6 +410,14 @@ impl Screens {
         &self.seen
     }
 
+    /// The app's lines on its tag that are not the trace, as last read
+    /// since the launch cleared the log: a step that failed on a page
+    /// waiting for the runtime (`notice=no-daemon`) is judged by them.
+    #[must_use]
+    pub fn app_log(&self) -> &[String] {
+        &self.app
+    }
+
     fn answer(&self, name: &str, done: Result<(), String>) -> Step {
         match done {
             Ok(()) => step(name, true, self.where_now()),
@@ -452,7 +475,7 @@ impl Screens {
     /// `mInputShown`, which API 30 and API 36 both print, at different
     /// places on a line ([`keyboard_shown`]).
     fn keyboard_up(&self) -> Result<bool, String> {
-        let out = self.adb_ok(&["shell", "dumpsys", "input_method"])?;
+        let out = self.dump(&["input_method"])?;
         keyboard_shown(&out).ok_or_else(|| "dumpsys input_method printed no mInputShown".to_owned())
     }
 
@@ -603,6 +626,7 @@ impl Screens {
             ));
         }
         self.seen = lines;
+        self.app = app_lines(&log);
         Ok(())
     }
 
@@ -615,6 +639,48 @@ impl Screens {
             "page {page}, focus {:?}; last trace lines {tail:?}",
             self.focus
         )
+    }
+
+    /// The phone awake and unlocked, as [`crate::platform::until_unlocked`]
+    /// says and on this serial: a launch behind a secure keyguard never
+    /// ends, so a locked phone asks the person and is waited out, and
+    /// one still locked after the patience fails the launch naming it.
+    fn unlocked(&self) -> Result<(), String> {
+        let patience = crate::platform::UNLOCK_PATIENCE;
+        self.key("KEYCODE_WAKEUP")?;
+        let locked = || crate::platform::keyguard_showing(&self.dump(&["window"])?);
+        if !locked()? {
+            return Ok(());
+        }
+        eprintln!(
+            "PERSON: on the phone {}, unlock it (within {patience:?})",
+            self.serial
+        );
+        let deadline = Instant::now() + patience;
+        while locked()? {
+            if Instant::now() >= deadline {
+                return Err(format!("the phone stayed locked for {patience:?}"));
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        Ok(())
+    }
+
+    /// `dumpsys <args>` on this serial, whole ([`crate::platform::dump_ended`]).
+    fn dump(&self, args: &[&str]) -> Result<String, String> {
+        let mut words = vec!["shell"];
+        words.extend(crate::platform::dump_command(args));
+        crate::platform::dump_ended(&self.adb_ok(&words)?)
+    }
+
+    /// The phone woken and found unlocked, asking no one: a keyguard up
+    /// is an error naming why it cannot be asked for.
+    fn awake_unasked(&self) -> Result<(), String> {
+        self.key("KEYCODE_WAKEUP")?;
+        if crate::platform::keyguard_showing(&self.dump(&["window"])?)? {
+            return Err("the phone locked during the validity wait: an unlock now would open the user-presence key's window, so the launch cannot ask for one".to_owned());
+        }
+        Ok(())
     }
 
     /// `am start` of the main activity: launches it, or brings its task
@@ -670,6 +736,16 @@ pub fn trace_lines(log: &str) -> Vec<String> {
     log.lines()
         .map(str::trim_end)
         .filter(|l| l.starts_with(TRACE))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The lines of a `raw` logcat that are not the trace's, in order.
+#[must_use]
+pub fn app_lines(log: &str) -> Vec<String> {
+    log.lines()
+        .map(str::trim_end)
+        .filter(|l| !l.is_empty() && !l.starts_with(TRACE))
         .map(str::to_owned)
         .collect()
 }
@@ -759,6 +835,19 @@ mod tests {
         assert_eq!(keyboard_shown(api30), Some(true));
         assert_eq!(keyboard_shown("mImeWindowVis=0\n"), None);
         assert_eq!(keyboard_shown("mInputShown=maybe\n"), None);
+    }
+
+    #[test]
+    fn the_apps_other_lines_are_every_line_the_trace_is_not() {
+        let log = "the runtime started\nui-trace page=conversations\r\n\n  ui-trace not at the start\nstart answered 0\r\n";
+        assert_eq!(
+            app_lines(log),
+            [
+                "the runtime started",
+                "  ui-trace not at the start",
+                "start answered 0"
+            ]
+        );
     }
 
     #[test]
