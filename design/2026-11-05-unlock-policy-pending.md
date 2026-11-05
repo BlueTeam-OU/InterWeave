@@ -305,7 +305,8 @@ combinations (three P lines, three reasons) instead. language-culture decides.
 ## 8. Acceptance
 
 The P and K states cannot be produced on a device on demand (a
-Keystore fault, a full disk at the start). They are checked by view
+Keystore fault, a full disk at the start). The exception is a locked
+P-up (A13(b)), which A11's configuration can reach. They are checked by view
 tests (`crates/human/ui-slint/tests/views.rs`) with the status member
 set. **Precondition for all of them: the four facts of §3 reach the
 view (the member's three and the mode, Q3), with `Unsynced` reported as
@@ -346,7 +347,11 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
   because the availability mode changed announces nothing.
 - **A10** Rotation with focus on a line keeps it there.
 - **A11** On the Pixel 9a, by me, at the largest font scale and with
-  TalkBack: D, and D's locked text, the only lines a device can reach.
+  TalkBack: D, and D's locked text. A locked P-up is reachable on a
+  device too (A13(b)'s case: user-presence authored over a
+  background-compatible record, then the locked steps below). Its line
+  is a P line, laid out as every P line is, so A13(b)'s view test
+  stands in for it here.
   - **Precondition:** a debuggable build, since no in-app control writes
     either setting (§1). The profile's `config.yaml` is authored with
     `key_unlock_policy: user-presence` through `run-as`, as
@@ -361,10 +366,16 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
   - Without such a build, A11 is blocked, not passed.
   - Check: the line wraps whole, is read in the order of A7, and nothing
     on the page is elided.
-  - Then restart the phone and, before unlocking, open Trust (as
-    `failure-model.md`'s restart-without-authentication case): D's
-    locked text (`UnlockRestartNeedsUnlockLocked`) shows, and passes
-    the same check. This step depends on Q4. If the Trust page does not
+  - Then reach the locked state (`failure-model.md`'s
+    restart-without-authentication case):
+    1. Restart the phone, and unlock it to reach the launcher.
+    2. Wait more than 60 s. Unlocking the phone opens the key's
+       user-presence window (ADR-0042), and inside it the start
+       unwraps without a prompt and is not locked.
+    3. Open InterWeave, and cancel the screen-lock prompt, so the
+       locked notice shows.
+    4. Open Trust: D's locked text (`UnlockRestartNeedsUnlockLocked`)
+       shows, and passes the same check. This step depends on Q4. If the Trust page does not
     open while locked, it is blocked, not passed.
   - For a P line's layout, a view test at the same scale stands in.
 - **A12** F9's transitions, each by a view test with the status member
