@@ -75,9 +75,10 @@ record opens under (**in force**), the **configured** policy, the
 reseal's pending class if any, and the effective availability mode.
 The policy in force is the record's claim, read from the record
 without opening the record, and may be unknown. With nothing pending,
-or in K, the record is under the configured policy, so an unknown policy in force is taken to be the
-configured one when D's condition is checked. With a reason pending,
-an unknown policy in force makes the state P-unknown.
+or in K, the record is under the configured policy, so an unknown
+policy in force is taken to be the configured one when D's condition
+is checked. With a reason pending, an unknown policy in force makes
+the state P-unknown.
 
 | State | Condition | Trust page line (§5) | Chats notice (§4) |
 |---|---|---|---|
@@ -140,8 +141,8 @@ faults.
   Trust from App options while P-up holds), or until P-up clears. That the
   person has seen it is remembered in the view only, not stored. If
   P-up still holds, it shows again after the next start, because that
-  start retried and failed again. This puts it in front of the person once per failed retry,
-  not forever.
+  start retried and failed again. This puts it in front of the person
+  once per failed retry, not forever.
 - **H1** (hypothesis): once per failed start is often enough for the
   person to learn of the weaker state and rare enough not to be
   dismissed unread. What would show H1 wrong: in a walkthrough or
@@ -244,8 +245,8 @@ facts of §3 (Q3).** Without it, A1–A10 are blocked, not passed.
 - **A10** Rotation with focus on a line keeps it there.
 - **A11** On the Pixel 9a, by me, at the largest font scale and with
   TalkBack: D, the only state with a line that a device can reach (Stay
-  reachable and user-presence authored in the profile). The line wraps whole, is
-  read in the order of A7, and nothing on the page is elided. For a P
+  reachable and user-presence authored in the profile). The line wraps
+  whole, is read in the order of A7, and nothing on the page is elided. For a P
   line's layout, a view test at the same scale stands in.
 
 ## 9. Deliberately left out
@@ -271,8 +272,8 @@ facts of §3 (Q3).** Without it, A1–A10 are blocked, not passed.
 ## 10. Questions
 
 - **Q1 — architect-cto.** `human-client-ui.md` §14's predicate reads the
-  *configured* policy. While a change is pending, that tells the person the opposite
-  of what happens. This note suppresses D's line in P-\* and lets the P
+  *configured* policy. While a change is pending, that tells the person
+  the opposite of what happens. This note suppresses D's line in P-\* and lets the P
   line say what happens now (§3). Should §14 (and `android-key-custody.md`)
   say that the diagnostic follows the policy **in force** while a change
   is pending, so that the status model and the UI agree by rule rather
