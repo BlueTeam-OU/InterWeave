@@ -8,8 +8,11 @@ at 76ac4a188. It answers where a person sees that a changed
 and puts `human-client-ui.md` §14's
 `background_restart_requires_user_authentication` diagnostic on the
 same surface, since both say what happens to InterWeave after a
-restart. Two product questions are architect-cto's (§10, Q1 and Q2);
-one input is rust-ui-dev's (Q3).
+restart. Its two product questions are answered by architect-cto
+(REPLY 01a1ac8d-ea64, §10). Q1: the diagnostic follows the policy in
+force. Q2: no Try again. Both are recorded in ADR-0041 A 2026-11-05 on
+#571, which is not yet merged. Its one input from rust-ui-dev is
+answered too (Q3).
 
 Owner of the design: ux-designer. The words are language-culture's: §7
 names each string and what it must say. No new colour: the line is body
@@ -81,7 +84,7 @@ force is P-unknown.
 | D | nothing pending; effective stay-reachable and user-presence in force | `UnlockRestartNeedsUnlock` | none |
 | P-up(r) | configured user-presence, in force background-compatible, reason r | `UnlockPendingNeedsLock` + reason r | `UnlockPendingNotice`, per §4 |
 | P-down(r) | configured background-compatible, in force user-presence, reason r | `UnlockPendingNoLock` + reason r | none |
-| P-unknown | pending with a reason r, and the configured policy or the policy in force unknown (the profile or the record could not be read), so the direction is unknown | `UnlockPendingUnknown` | none |
+| P-unknown | pending with a reason r, and the configured policy or the policy in force unknown (the profile or the record could not be read), so the direction is unknown | `UnlockPendingUnknown`, and D's line under it when D's condition holds with a known policy in force (below) | none |
 | K | in force = configured; the other policy's key remains (`OldKeyRemains`) | `UnlockOldKeyRemains`, and D's line under it when D's condition holds | none |
 
 Reasons r: `Storage`, `Keystore` and `Other`. These are rust-ui-dev's
@@ -97,13 +100,13 @@ classes, and the person is told about each one differently:
 `OldKeyRemains` is a state (K), not a reason r: the record is already
 under the configured policy.
 
-**While a change is pending (P-\*), D's line is not shown.** D's
-predicate reads the configured policy, so in P-up it would say a
-restart needs the screen lock when it does not. In P-down it would stay
-silent when a restart does need it. Each P line says what happens after
-a restart **now**, which covers what D would have said. Whether §14's
-predicate itself should follow the policy in force is architect-cto's
-question, Q1.
+**D follows the policy in force, never the configured one** (ADR-0041
+A 2026-11-05, Q1). In P-up the diagnostic is therefore false. In P-down
+it is true, and the P-down line already says that a restart needs the
+screen lock, so **in P-up and P-down D's line is not shown**: the P
+line stands in for it. In P-unknown, D's line shows under the P-unknown
+line when D's condition holds with a known policy in force, because
+that line does not say what a restart does.
 
 Shown and cleared: the state is read again whenever the status member
 changes. A start whose reseal succeeds leaves N or D. Nothing is
@@ -211,7 +214,9 @@ facts of §3 (Q3).** Without it, A1–A10 are blocked, not passed.
 
 - **A1** For each row of §3's table, the Trust page shows exactly the
   line(s) named, in that order, between the PeerId and "Show recovery
-  phrase". D's line is absent in every P row.
+  phrase". D's line is absent in P-up and P-down whatever the status
+  member says. In P-unknown it shows only when D's condition holds
+  with a known policy in force.
 - **A2** For each reason r, the P line carries that reason's sentence
   and no other.
 - **A3** P-up with no other session notice: the notice shows and focus
@@ -242,9 +247,13 @@ facts of §3 (Q3).** Without it, A1–A10 are blocked, not passed.
 
 - **A control to change the unlock policy or Stay reachable.** Neither
   exists. When one is designed, its confirmation is where a pending
-  change is first shown, and D's sentence goes beside the Stay-reachable
-  switch. This note's surfaces stay as they are.
-- **A Try again** on the line or the notice (Q2).
+  change is first shown, and its apply is the retry (ADR-0041
+  A 2026-11-05's revisit condition). D's sentence goes beside the
+  Stay-reachable switch. This note's surfaces stay as they are.
+- **A Try again** on the line or the notice. Ruled out by ADR-0041
+  A 2026-11-05 (Q2): every start retries, and a retry while the service
+  runs would be a restart that, under user-presence, costs an Unlock
+  prompt.
 - **The desktop**: it has no unlock policy.
 - **The locked notice in P-down**: it keeps its text. The person who
   wonders why they were asked to unlock finds the reason on the Trust
@@ -263,10 +272,15 @@ facts of §3 (Q3).** Without it, A1–A10 are blocked, not passed.
   say that the diagnostic follows the policy **in force** while a change
   is pending, so that the status model and the UI agree by rule rather
   than by this note?
+  **Answered yes** (REPLY 01a1ac8d-ea64, ADR-0041 A 2026-11-05, #571):
+  the diagnostic is derived from the effective availability mode and
+  the record's policy in force. The configured policy reaches the
+  status model only as the pending change. §3 is written to it.
 - **Q2 — architect-cto.** A Try again that restarts the service, so the
   person can retry once they have freed space, is not specified here:
   it would add a product action. Is one wanted? If it is, it belongs on
   the Storage line only.
+  **Answered no**, for now (same reply and amendment): see §9.
 - **Q3 — rust-ui-dev.** The status member on `ServiceHost` needs to
   carry: the policy in force (the record's), the configured policy or
   "unknown", the pending class (`Keystore`, `Storage`, `Other`) or
