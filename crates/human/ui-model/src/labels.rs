@@ -1685,7 +1685,7 @@ pub fn short_peer(id: &str) -> String {
 /// inside can close the isolate early.
 #[must_use]
 pub fn isolated(name: &str) -> String {
-    format!("\u{2068}{name}\u{2069}")
+    format!("\u{2068}{}\u{2069}", crate::cluster::drawable(name))
 }
 
 /// A link's destination as a view shows it on the link's control: every
@@ -2357,5 +2357,15 @@ mod tests {
         for count in [0, 2, u64::MAX] {
             assert_eq!(pick(count), UiText::ReadNotShown, "{count}");
         }
+    }
+
+    #[test]
+    fn a_name_is_isolated_with_a_character_past_the_cluster_bound_replaced() {
+        let past = format!("a{}", "\u{301}".repeat(40));
+        assert_eq!(
+            super::isolated(&format!("Ann {past}")),
+            "\u{2068}Ann \u{FFFD}\u{2069}"
+        );
+        assert_eq!(super::isolated("Ann"), "\u{2068}Ann\u{2069}");
     }
 }

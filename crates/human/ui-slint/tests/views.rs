@@ -1281,6 +1281,76 @@ fn the_source_is_one_activation_away() {
     assert_eq!(labelled(&view, "Hello").len(), 1, "and back");
 }
 
+/// A character past the cluster bound -- here a letter and 255 combining
+/// marks, one character of 256 code points -- is drawn as one U+FFFD in
+/// its place wherever it would be drawn: the body, the Chats line, the
+/// source, a link's control (none) and the composer, where a pasted one
+/// is replaced in the draft itself (HUMAN-CHAT.md, Bounds). Nothing in the
+/// tree holds the character as sent. The rule is the client's, so a text
+/// shaper's counters never see such a character (j92).
+#[test]
+fn a_character_past_the_cluster_bound_is_drawn_as_one_replacement_everywhere() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let past = format!("a{}", "\u{301}".repeat(255));
+    let source = format!("x {past} y [see](https://example.org/{past})");
+    model.received(received(1, &alice, &source));
+    let key = direct(&alice);
+    open(&mut view, &mut model, &key);
+    let never_sent_as_is = |view: &View| {
+        for e in all(view) {
+            for said in [e.accessible_label(), e.accessible_description()]
+                .into_iter()
+                .flatten()
+            {
+                assert!(
+                    !said.contains(&past),
+                    "drawn as sent: {:?}",
+                    &said[..said.len().min(40)]
+                );
+            }
+        }
+    };
+
+    assert_eq!(labelled(&view, "x \u{FFFD} y see").len(), 1, "the body");
+    assert!(
+        all(&view)
+            .iter()
+            .filter_map(ElementHandle::accessible_description)
+            .any(|d| d.contains("x \u{FFFD} y see")),
+        "the Chats line"
+    );
+    assert!(
+        !buttons(&view).iter().any(|c| c.contains("example.org")),
+        "no control for a link whose label would hold it"
+    );
+    never_sent_as_is(&view);
+
+    choose(&view, text(UiText::ShowSource));
+    assert_eq!(
+        labelled(&view, &source.replace(&past, "\u{FFFD}")).len(),
+        1,
+        "the source, drawn the same way"
+    );
+    never_sent_as_is(&view);
+
+    the(&view, text(UiText::Composer)).set_accessible_value(format!("hi {past}"));
+    assert_eq!(
+        view.window().get_draft(),
+        "hi \u{FFFD}",
+        "the composer's own text"
+    );
+    assert_eq!(
+        view.take_events(&model),
+        vec![ViewEvent::DraftChanged {
+            key,
+            draft: "hi \u{FFFD}".to_owned()
+        }],
+        "and what is sent is what was shown"
+    );
+}
+
 /// Past a bound the body is its source as plain text, and its links are
 /// not controls: nothing in it was parsed into anything.
 #[test]
@@ -2682,6 +2752,122 @@ fn long_content_wraps_inside_the_window() {
             element.accessible_label()
         );
     }
+}
+
+/// A line past a piece's bound is drawn in pieces, each its own text item
+/// (j92: one item taller than 32,767 physical px panics the desktop's
+/// renderer), and the pieces meet with no gap: a code block's pieces are
+/// one surface, its text continuing on the next row of pixels, and a
+/// paragraph's run its own line height apart. The item's label reads the
+/// paragraph whole, as it was written.
+#[test]
+fn a_long_line_is_drawn_in_pieces_that_meet_with_no_gap() {
+    use interweave_human_ui_model::body::{PIECE_GRAPHEMES, PIECE_LINES};
+
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let code = (0..=PIECE_LINES)
+        .map(|n| format!("let x{n} = {n};"))
+        .collect::<Vec<_>>();
+    let run = "word ".repeat(PIECE_GRAPHEMES / 4);
+    model.received(received(
+        1,
+        &alice,
+        &format!("```\n{}\n```\n\n{}", code.join("\n"), run.trim_end()),
+    ));
+    open(&mut view, &mut model, &direct(&alice));
+    // Tall enough to hold the whole message: an item the list clips out
+    // of view is not in the tree the testing backend reads.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 8000.0));
+    slint::platform::update_timers_and_animations();
+
+    let bottom = |e: &ElementHandle| e.absolute_position().y + e.size().height;
+    let head = the(&view, &code[..PIECE_LINES].join("\n"));
+    let tail = the(&view, &code[PIECE_LINES]);
+    assert!(
+        (tail.absolute_position().y - bottom(&head)).abs() < 0.5,
+        "the code's second piece starts where the first ends: {} against {}",
+        tail.absolute_position().y,
+        bottom(&head)
+    );
+
+    let cut = interweave_human_ui_model::body::pieces(run.trim_end());
+    assert!(cut.len() > 1, "the run is longer than a piece");
+    let first = the(&view, cut[0].0);
+    let second = the(&view, cut[1].0);
+    assert!(
+        (second.absolute_position().y - bottom(&first)).abs() < 0.5,
+        "the run's second piece starts where the first ends: {} against {}",
+        second.absolute_position().y,
+        bottom(&first)
+    );
+    assert!(
+        all(&view).iter().any(|e| e
+            .accessible_label()
+            .is_some_and(|label| label.contains(run.trim_end()))),
+        "the item's label reads the run whole"
+    );
+}
+
+/// A character past the cluster bound put into a field the way a person
+/// does -- through the field itself, not its property -- is replaced in the
+/// field before anything draws it (HUMAN-CHAT.md, Clusters): the composer
+/// holds one U+FFFD, and the draft it reports is that.
+#[test]
+fn a_field_replaces_a_character_past_the_cluster_bound_as_it_is_edited() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    let key = direct(&alice);
+    open(&mut view, &mut model, &key);
+    let past = format!("a{}", "\u{301}".repeat(255));
+    the(&view, text(UiText::Composer)).set_accessible_value(format!("hi {past}"));
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_draft(), "hi \u{FFFD}");
+    assert_eq!(
+        view.take_events(&model),
+        vec![ViewEvent::DraftChanged {
+            key,
+            draft: "hi \u{FFFD}".to_owned()
+        }]
+    );
+}
+
+/// A list item's line cut in pieces keeps its hanging indent: each piece's
+/// text starts where the first's does, after the marker's room, and only
+/// the first says the marker.
+#[test]
+fn a_list_items_pieces_stay_in_line_after_its_marker() {
+    use interweave_human_ui_model::body::{PIECE_GRAPHEMES, pieces};
+
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let run = "word ".repeat(PIECE_GRAPHEMES / 4);
+    let run = run.trim_end();
+    model.received(received(1, &alice, &format!("3. {run}")));
+    open(&mut view, &mut model, &direct(&alice));
+    // Tall enough to hold the whole message: an item the list clips out
+    // of view is not in the tree the testing backend reads.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 8000.0));
+    slint::platform::update_timers_and_animations();
+
+    let cut = pieces(run);
+    assert!(cut.len() > 1, "the run is longer than a piece");
+    let first = the(&view, &format!("3. {}", cut[0].0));
+    let second = the(&view, cut[1].0);
+    assert!(
+        (second.absolute_position().x - first.absolute_position().x).abs() < 0.5,
+        "the second piece starts in line with the first: {} against {}",
+        second.absolute_position().x,
+        first.absolute_position().x
+    );
 }
 
 /// A conversation pressed is shown by the take that resolves the press,

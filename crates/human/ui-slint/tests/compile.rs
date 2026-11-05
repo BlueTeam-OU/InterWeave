@@ -128,6 +128,76 @@ fn the_wrap_scan_refuses_a_wrap_it_cannot_place() {
     assert_eq!(wrap_scan(&placed), (1, Vec::new()));
 }
 
+/// Every field a person edits draws its own text, so each one replaces a
+/// character past the cluster bound as its text changes, through the
+/// `Drawn` global (HUMAN-CHAT.md, Clusters; j92): a `TextInput` that is not
+/// read-only has `Drawn.drawable(self.text)` in its own block. A field added
+/// without it would draw a pasted character of 256 code points and stop
+/// the desktop. Mutation: the line taken out of any one.
+#[test]
+fn every_edited_field_draws_its_text_within_the_cluster_bound() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/app.slint");
+    let source = std::fs::read_to_string(&path).expect("app.slint");
+    let lines: Vec<&str> = source.lines().collect();
+    let (checked, missing) = field_scan(&lines);
+    // Four when this was written: a floor, so a scan that stops finding
+    // them fails rather than checks nothing.
+    assert!(checked >= 4, "the scan found only {checked} edited fields");
+    assert!(
+        missing.is_empty(),
+        "an edited field without Drawn.drawable:\n{}",
+        missing.join("\n")
+    );
+}
+
+/// The edited `TextInput`s the scan checked, and each one it refuses.
+fn field_scan(lines: &[&str]) -> (usize, Vec<String>) {
+    let mut checked = 0_usize;
+    let mut missing = Vec::new();
+    for (open, line) in lines.iter().enumerate() {
+        if element_name(&code_of(line)) != Some("TextInput") {
+            continue;
+        }
+        let mut depth = 0_i32;
+        let mut block = String::new();
+        for line in &lines[open..] {
+            depth += braces(line, '{') - braces(line, '}');
+            block.push_str(&code_of(line));
+            block.push('\n');
+            if depth <= 0 {
+                break;
+            }
+        }
+        if block.contains("read-only: true") {
+            continue;
+        }
+        checked += 1;
+        if !block.contains("Drawn.drawable(self.text)") {
+            missing.push(format!("{}: {}", open + 1, line.trim()));
+        }
+    }
+    (checked, missing)
+}
+
+/// The field scan refuses an edited field without the replacement and
+/// passes a read-only one and one with it.
+#[test]
+fn the_field_scan_refuses_a_field_without_the_replacement() {
+    let bare = ["input := TextInput {", "    text <=> root.x;", "}"];
+    assert_eq!(
+        field_scan(&bare),
+        (1, vec!["1: input := TextInput {".to_owned()])
+    );
+    let read_only = ["TextInput {", "    read-only: true;", "}"];
+    assert_eq!(field_scan(&read_only), (0, Vec::new()));
+    let kept = [
+        "TextInput {",
+        "    edited => { self.text = Drawn.drawable(self.text); }",
+        "}",
+    ];
+    assert_eq!(field_scan(&kept), (1, Vec::new()));
+}
+
 /// The line that opens the element holding line `at`: walking up, the
 /// first `{` not closed in between.
 fn element_start(lines: &[&str], at: usize) -> Option<usize> {
