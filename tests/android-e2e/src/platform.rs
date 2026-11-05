@@ -1163,7 +1163,10 @@ channels:
         assert!(has_window(&a40, SAMSUNG_BIOMETRIC_PROMPT));
         // AOSP's title does not match Samsung's: the reason both are asked.
         assert!(!has_window(&a40, BIOMETRIC_PROMPT));
-        assert!(!has_window(WINDOWS, SAMSUNG_BIOMETRIC_PROMPT), "control: absent");
+        assert!(
+            !has_window(WINDOWS, SAMSUNG_BIOMETRIC_PROMPT),
+            "control: absent"
+        );
         // The check a case asks sees either title, and neither when absent.
         assert!(prompt_in(&a40));
         let aosp = a40.replace("u0 BiometricPrompt3P}", "u0 BiometricPrompt}");
