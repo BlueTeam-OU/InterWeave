@@ -29,8 +29,8 @@ pub mod view_side;
 
 pub use hub::{Hub, StoreAnswer, StoreGeneration, StoreRefusal, TO_VIEW, ToView, ViewLink};
 pub use identity::{
-    Expected, FirstRun, IdentityRefused, RestoreRefused, phrase_peer, restore_identity,
-    start_identity,
+    Expected, FirstRun, IdentityRefused, Resealed, RestoreRefused, phrase_peer, reseal_identity,
+    restore_identity, start_identity,
 };
 pub use interweave_profile_config::runtime::KeyUnlockPolicy;
 /// The embedded custody path, for the app's Keystore adapter of its

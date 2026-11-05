@@ -100,10 +100,67 @@ pub fn start_identity(
     }
 }
 
+/// What a start's reseal came to ([`reseal_identity`]): for the log
+/// only, never a word to the person.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resealed {
+    /// The record was already under the configured policy, and no key of
+    /// the other policy remains.
+    Unchanged,
+    /// The record was sealed again under the configured policy, and the
+    /// old policy's key deleted.
+    Changed,
+    /// The reseal did not finish, and why. The record still opens to the
+    /// identity the start unlocked -- the old one, or the new one written
+    /// with the old policy's key left -- and the next start tries again.
+    Pending(String),
+}
+
+/// Bring `profile`'s record to its configured `key_unlock_policy` after
+/// [`start_identity`] unlocked `identity`, and delete the key of the
+/// other policy if it is still there (ADR-0042 A 2026-10-10 (ii); an
+/// `OldKeyRemains` of a provision or restore is retried here, design
+/// 2026-10-19-android-identity.md section 6). Called by the service's
+/// start before the host takes the profile's lock, never by a reading of
+/// whether the identity opens: it writes.
+///
+/// Only a refusal the person can answer stops the start: the new
+/// policy's key needs them present
+/// ([`IdentityRefused::UserNotAuthenticated`], answered by the prompt and
+/// a retried start, ADR-0042 A 2026-10-20). Every other refusal leaves
+/// the record opening to `identity`, so the start goes on with it and
+/// the next start retries ([`Resealed::Pending`]).
+///
+/// # Errors
+/// [`IdentityRefused::Paths`] and [`IdentityRefused::UserNotAuthenticated`].
+pub fn reseal_identity(
+    app_data_dir: &Path,
+    profile: &str,
+    cipher: &dyn SeedCipher,
+    identity: &ProfileIdentity,
+) -> Result<Resealed, IdentityRefused> {
+    let paths = TrustBoundary::new(app_data_dir)
+        .and_then(|boundary| ProfilePaths::resolve_embedded(profile, boundary))
+        .map_err(|e| IdentityRefused::Paths(e.to_string()))?;
+    let policy = match interweave_profile_config::ProfileConfig::load(&paths) {
+        Ok(config) => config.runtime.android.key_unlock_policy,
+        Err(e) => return Ok(Resealed::Pending(format!("the profile: {e}"))),
+    };
+    match custody::reseal(&paths, cipher, identity, policy) {
+        Ok(false) => Ok(Resealed::Unchanged),
+        Ok(true) => Ok(Resealed::Changed),
+        Err(CustodyRefused::Cipher(custody::CipherFailure::UserNotAuthenticated)) => {
+            Err(IdentityRefused::UserNotAuthenticated)
+        }
+        Err(other) => Ok(Resealed::Pending(format!("{other:?}"))),
+    }
+}
+
 /// A first run's identity, created and provisioned. Custody's
 /// `OldKeyRemains` comes AFTER the record is written: the profile is
 /// provisioned and unlocks, and only a stale key of the other policy
-/// remains for `reseal` to retire -- so it is this start's identity, not
+/// remains for the next start's [`reseal_identity`] to retire -- so it is
+/// this start's identity, not
 /// a refusal. `Unsynced` comes after the write too, so the record is read
 /// back: this identity if it opens to it.
 fn create(
@@ -237,7 +294,8 @@ pub fn restore_identity(
     match restored {
         Ok(identity) => Ok(identity),
         // As for a first run: the record is written and opens, and only a
-        // stale key of the other policy is left for `reseal` to retire.
+        // stale key of the other policy is left for the next start's
+        // `reseal_identity` to retire.
         // The identity is the phrase's, which `restore` verified.
         Err(CustodyRefused::OldKeyRemains(_)) => ProfileIdentity::from_phrase(phrase)
             .map_err(|e| RestoreRefused::Unavailable(e.to_string())),

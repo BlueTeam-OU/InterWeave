@@ -19,8 +19,8 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::sync::Mutex;
 
 use interweave_human_android_platform::{
-    Expected, FirstRun, IdentityRefused, RestoreRefused, phrase_peer, restore_identity, stand_in,
-    start_identity,
+    Expected, FirstRun, IdentityRefused, KeyUnlockPolicy, Resealed, RestoreRefused, phrase_peer,
+    reseal_identity, restore_identity, stand_in, start_identity,
 };
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
@@ -34,12 +34,14 @@ const PROFILE: &str = "human";
 /// A stand-in for the Keystore: one key per alias, a keystream XOR for
 /// the seed and a keyed check over the associated data and ciphertext
 /// for the tag -- enough for custody to tell a right key and AAD from a
-/// wrong one. `fail` makes the next open fail as the platform would.
+/// wrong one. `fail` makes the next open fail as the platform would, and
+/// `seal_fails` the next seal.
 #[derive(Default)]
 struct FakeKeystore {
     keys: Mutex<HashMap<String, [u8; 32]>>,
     generated: Mutex<Vec<String>>,
     fail: Mutex<Option<CipherFailure>>,
+    seal_fails: Mutex<Option<CipherFailure>>,
     retire_fails: Mutex<bool>,
 }
 
@@ -53,6 +55,9 @@ fn tag(key: &[u8; 32], aad: &[u8], ct: &[u8]) -> [u8; 16] {
 
 impl SeedCipher for FakeKeystore {
     fn seal(&self, key: &KeyRef, aad: &[u8], seed: &Seed) -> Result<Sealed, CipherFailure> {
+        if let Some(failure) = self.seal_fails.lock().unwrap().take() {
+            return Err(failure);
+        }
         let alias = key.alias();
         let mut fresh = [0u8; 32];
         for (i, b) in fresh.iter_mut().enumerate() {
@@ -262,6 +267,153 @@ fn a_first_run_whose_old_key_could_not_be_retired_is_provisioned_and_starts() {
     let peer = first.transport_identity().expect("a PeerId");
     *keystore.retire_fails.lock().unwrap() = false;
     let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("unlocks");
+    assert_eq!(again.transport_identity().expect("a PeerId"), peer);
+}
+
+/// The profile's configuration rewritten to name `policy`, as an operator
+/// changing `key_unlock_policy` does.
+fn configure_policy(app: &App, policy: &str) {
+    let file = paths(app).config_file();
+    let text = std::fs::read_to_string(&file).expect("the profile");
+    let text = text.replace(
+        "deployment: embedded-android\n",
+        &format!("deployment: embedded-android\n  android:\n    key_unlock_policy: {policy}\n"),
+    );
+    stand_in::provision_replacing(&app.dir, PROFILE, &text).expect("rewritten");
+}
+
+fn holds_key(keystore: &FakeKeystore, app: &App, policy: KeyUnlockPolicy) -> bool {
+    keystore
+        .keys
+        .lock()
+        .unwrap()
+        .contains_key(&KeyRef::new(&paths(app), policy).alias())
+}
+
+/// ADR-0042 A 2026-10-10 (ii): a record sealed under the policy the
+/// profile named then still opens after the operator changes it, and the
+/// start's reseal seals it again under the new one and deletes the old
+/// key -- after which only the new key opens it, and a later start
+/// changes nothing.
+#[test]
+fn a_changed_unlock_policy_is_applied_by_the_next_starts_reseal() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    let peer = first.transport_identity().expect("a PeerId");
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Unchanged),
+        "the default policy is the record's"
+    );
+    let before = record(&app);
+
+    configure_policy(&app, "user-presence");
+    let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
+        .expect("the record's own policy opens it");
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &started),
+        Ok(Resealed::Changed)
+    );
+    assert_ne!(record(&app), before, "sealed again");
+    assert!(holds_key(&keystore, &app, KeyUnlockPolicy::UserPresence));
+    assert!(
+        !holds_key(&keystore, &app, KeyUnlockPolicy::BackgroundCompatible),
+        "the old policy's key is deleted"
+    );
+    let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("opens");
+    assert_eq!(again.transport_identity().expect("a PeerId"), peer);
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &again),
+        Ok(Resealed::Unchanged)
+    );
+}
+
+/// An `OldKeyRemains` left by a provision is retried at the next start
+/// (design 2026-10-19-android-identity.md section 6): the record is
+/// already under the configured policy, and the other policy's key is
+/// deleted all the same.
+#[test]
+fn a_key_a_first_run_could_not_retire_is_retired_by_the_next_starts_reseal() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let stale = KeyRef::new(&paths(&app), KeyUnlockPolicy::UserPresence).alias();
+    keystore.keys.lock().unwrap().insert(stale, [9; 32]);
+    *keystore.retire_fails.lock().unwrap() = true;
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    assert!(
+        holds_key(&keystore, &app, KeyUnlockPolicy::UserPresence),
+        "left"
+    );
+
+    *keystore.retire_fails.lock().unwrap() = false;
+    let before = record(&app);
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Unchanged)
+    );
+    assert!(
+        !holds_key(&keystore, &app, KeyUnlockPolicy::UserPresence),
+        "retired"
+    );
+    assert_eq!(record(&app), before, "nothing sealed");
+}
+
+/// The new policy's key needs the person: the start is refused as
+/// `UserNotAuthenticated`, which the app answers with the prompt and a
+/// retried start (ADR-0042 A 2026-10-20), and the record is untouched.
+#[test]
+fn a_reseal_that_needs_the_person_refuses_the_start_and_leaves_the_record() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    configure_policy(&app, "user-presence");
+    let before = record(&app);
+    let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("opens");
+    *keystore.seal_fails.lock().unwrap() = Some(CipherFailure::UserNotAuthenticated);
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &started),
+        Err(IdentityRefused::UserNotAuthenticated)
+    );
+    assert_eq!(record(&app), before);
+    assert!(holds_key(
+        &keystore,
+        &app,
+        KeyUnlockPolicy::BackgroundCompatible
+    ));
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &started),
+        Ok(Resealed::Changed),
+        "the retry after the prompt applies it"
+    );
+}
+
+/// Any other refusal leaves the record opening to the identity, so the
+/// start goes on: a seal the platform could not make writes nothing, and
+/// a retire that failed after the write leaves the new record opening.
+#[test]
+fn a_reseal_that_cannot_finish_is_pending_and_the_record_still_opens() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    let peer = first.transport_identity().expect("a PeerId");
+    configure_policy(&app, "user-presence");
+    let before = record(&app);
+
+    *keystore.seal_fails.lock().unwrap() = Some(CipherFailure::Unavailable("busy".to_owned()));
+    assert!(matches!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Pending(_))
+    ));
+    assert_eq!(record(&app), before, "nothing written");
+
+    *keystore.retire_fails.lock().unwrap() = true;
+    assert!(matches!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Pending(why)) if why.contains("OldKeyRemains")
+    ));
+    assert_ne!(record(&app), before, "the new record is written");
+    let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("opens");
     assert_eq!(again.transport_identity().expect("a PeerId"), peer);
 }
 
