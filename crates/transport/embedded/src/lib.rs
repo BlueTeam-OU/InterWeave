@@ -455,7 +455,7 @@ impl EmbeddedHost {
 
     /// The effective availability mode now: the person's choice when
     /// there is one, else `config.yaml`'s authored mode. What
-    /// `AndroidRuntimeConfig::background_restart_requires_user_authentication`
+    /// `interweave_profile_config::runtime::background_restart_requires_user_authentication`
     /// and the diagnostic take. Before a host starts, the same reading is
     /// `availability_overlay::effective_availability_mode`.
     #[must_use]
