@@ -297,9 +297,9 @@ still waits on.
   (`INSTALL_FAILED_VERSION_DOWNGRADE`, with and without `-r`), and
   v0.2.0 updates v0.1.0 in place as a package. The same PeerId from
   the same store was not run: neither release can make an identity on
-  a fresh install, since a release build writes no first-run profile
-  (plan §22, "The published Android releases cannot onboard a new
-  user"). By §22's baseline rule that half runs from the first
+  a fresh install, since the v0.1.0 and v0.2.0 release builds write no
+  first-run profile (plan §22, "The published Android releases cannot
+  onboard a new user"; every build writes it since #569). By §22's baseline rule that half runs from the first
   published release that onboards a new user to the release after it,
   and is a limit of this row until then.
 
@@ -310,9 +310,9 @@ still waits on.
 - Nothing here installs the APK on a phone: a release's update and
   reinstall behaviour is plan §22's Validate row, read from a device
   run (§21's S12 and the two cases above).
-- The same PeerId from the same store across an update in place: no
-  published release can make an identity on a fresh install, so the
-  two device records above could not run it.
+- The same PeerId from the same store across an update in place:
+  neither v0.1.0 nor v0.2.0 can make an identity on a fresh install,
+  so the two device records above could not run it.
 - The self-tests sign minimal APKs with throwaway keys made at test
   time; the release key and a real `assembleRelease` APK meet the
   scripts only in the run itself. The tag and archive checks are tested
