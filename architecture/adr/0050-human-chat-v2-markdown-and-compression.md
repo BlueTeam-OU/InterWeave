@@ -23,7 +23,8 @@ Assumption stated per template: the compression measurements above are from this
    - link schemes are allowlisted (`https`, `mailto`); a link in any other scheme renders inert as plain text;
    - referenced remote images are **never fetched automatically** — a human client renders an explicit user-triggered placeholder, an agent-facing consumer treats the reference as inert data;
    - nesting depth and table dimensions are bounded (values in the v2 specification), and render cost must stay linear in input size;
-   - the raw markdown source is always available to the receiving user, so what was sent is always inspectable independently of how it rendered.
+   - no drawn grapheme cluster has more than 32 code points (A 2026-11-05): a cluster past the figure is drawn as one U+FFFD in its place, never cut inside, in every drawn piece of text, received or sent — a link whose control's label as shown would contain one gets no control — and a draft's is replaced in the draft, so what is sent is what was shown; the figure is what conforming text needs (UAX #15 stream-safe text, 31 code points; the longest RGI emoji sequence, 10), and the bound is the contract's because the desktop shaper counts a cluster in eight bits and one cluster of 256 code points was measured to stop the client; Copy and the bridge carry the bytes untouched;
+   - the raw markdown source is always available to the receiving user, shown under the bounds above and copied out whole (A 2026-11-05), so what was sent is always inspectable independently of how it rendered.
 
 3. **Plain rendering is legal degradation.** A minimal client may present the markdown source as plain text. This is markdown's design property and requires no capability negotiation, version handshake, or fallback field.
 
@@ -83,6 +84,7 @@ Full notes: [`history/0050-amendments.md`](./history/0050-amendments.md).
 
 | Date | Amendment | Effect |
 |---|---|---|
+| 2026-11-05 | A drawn grapheme cluster has at most 32 code points | Rule 2 bounds the cluster beside nesting and tables: past 32 code points a cluster is drawn as one U+FFFD in its place, in every drawn piece, received or sent, a link with such a label drawn inert, a draft's replaced in the draft; one cluster of 256 code points, 511 bytes from a trusted peer, stopped the desktop client |
 | 2026-10-03 | The envelope schema is `active` | The acceptance paragraph's `approved` reads as the status the schema had until the Stage 14 close flipped it on the live two-daemon proof (ADR-0049) |
 | 2026-10-01 | Subset validation is the human clients'; the bridge decodes only | Rule 6 had the shared library validate the subset for the bridge too, against `CHANNEL-EVENT.md`'s rule that the bridge never parses the envelope; the validator becomes a build feature the bridge leaves off (plan §17 (3)) |
 | 2026-08-21 | Decoding aborts when the output would exceed the ceiling, not when it reaches it | Rule 5 matches rule 4's inclusive `<= 196,608`, so exactly the ceiling is decodable |
