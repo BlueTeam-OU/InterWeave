@@ -98,12 +98,15 @@ ignore = [
     # replaced it. The crate is three declarative macros and no functions; the graph
     # names it once, through `spin_on` 0.1.1, which calls `pin_mut!` once
     # and which Slint 1.18.1 depends on from i-slint-renderer-skia,
-    # i-slint-backend-winit and slint-macros -- so it is on the desktop and
-    # the Android graphs alike (`cargo tree -i pin-utils --target all`).
-    # Slint 1.18.1 is the latest, so no update removes it today. Revisit at
-    # the next Slint bump, and delete this entry the moment the graph no
+    # slint-macros and slint-build -- so it is on the desktop and the
+    # Android graphs alike (`cargo tree -i pin-utils --target all`) -- and
+    # which crates/human/ui-slint takes itself as a dev-dependency
+    # (tests/compile.rs). Slint 1.18.1 is the latest, so no update removes
+    # it today. Revisit at the next Slint bump together with ui-slint's
+    # `spin_on` dev-dependency -- a Slint bump alone leaves the crate in the
+    # graph through it -- and delete this entry the moment the graph no
     # longer names the crate.
-    { id = "RUSTSEC-2026-0441", reason = "pin-utils is three declarative macros, reached only through spin_on 0.1.1 from Slint 1.18.1 (renderer-skia, backend-winit, slint-macros); unmaintained, not vulnerable, no safe upgrade; revisit at the next Slint bump" },
+    { id = "RUSTSEC-2026-0441", reason = "pin-utils is three declarative macros, reached only through spin_on 0.1.1, from Slint 1.18.1 (renderer-skia, slint-macros, slint-build) and crates/human/ui-slint's own dev-dependency; unmaintained, not vulnerable, no safe upgrade; revisit at the next Slint bump, together with ui-slint's spin_on dev-dependency" },
 ]
 
 [licenses]
