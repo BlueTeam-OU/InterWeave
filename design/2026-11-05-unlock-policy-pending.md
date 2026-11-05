@@ -305,8 +305,10 @@ combinations (three P lines, three reasons) instead. language-culture decides.
 ## 8. Acceptance
 
 The P and K states cannot be produced on a device on demand (a
-Keystore fault, a full disk at the start). The exception is a locked
-P-up (A13(b)), which A11's configuration can reach. They are checked by view
+Keystore fault, a full disk at the start). The exception is a locked P
+line, P-up or P-down (A13(b), A13(d)): A11's configuration reaches it by
+authoring one policy through `run-as` over a record of the other, then
+A11's locked steps. They are checked by view
 tests (`crates/human/ui-slint/tests/views.rs`) with the status member
 set. **Precondition for all of them: the four facts of §3 reach the
 view (the member's three and the mode, Q3), with `Unsynced` reported as
@@ -347,11 +349,9 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
   because the availability mode changed announces nothing.
 - **A10** Rotation with focus on a line keeps it there.
 - **A11** On the Pixel 9a, by me, at the largest font scale and with
-  TalkBack: D, and D's locked text. A locked P-up is reachable on a
-  device too (A13(b)'s case: user-presence authored over a
-  background-compatible record, then the locked steps below). Its line
-  is a P line, laid out as every P line is, so A13(b)'s view test
-  stands in for it here.
+  TalkBack: D, and D's locked text. A locked P line, either direction,
+  is reachable on a device too (§8's exception). It is laid out as every
+  P line is, so A13(b)'s and A13(d)'s view tests stand in for it here.
   - **Precondition:** a debuggable build, since no in-app control writes
     either setting (§1). The profile's `config.yaml` is authored with
     `key_unlock_policy: user-presence` through `run-as`, as
@@ -397,6 +397,11 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
     reseal refused `UserNotAuthenticated`): the Trust page shows the
     P-up line, and Chats shows only the locked notice.
   - (c) The profile unreadable, so the mode is unknown: no D line.
+  - (d) Header user-presence, configured background-compatible, the
+    effective mode on disk stay-reachable: the Trust page shows the
+    P-down line and no D line (the P line stands in for it, as when
+    running), and Chats shows only
+    the locked notice.
 
 ## 9. Deliberately left out
 
@@ -410,6 +415,14 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
   runs would be a restart that, under user-presence, costs an Unlock
   prompt.
 - **The desktop**: it has no unlock policy.
+- **The Trust page itself while locked.** Its PeerId field is blank
+  and its trust list may not finish reading, because both come from the
+  runtime (Q4's answer). That gap belongs to the Trust page, not to this
+  note. Showing the record's PeerId without opening the record would
+  put an unverified identity in front of a person who compares it by
+  eye; whether that is allowed is architect-cto's to rule. This note's
+  lines keep their place after the PeerId field whether it is filled
+  or blank.
 - **The locked notice in P-down**: it keeps its text. The person who
   wonders why they were asked to unlock finds the reason on the Trust
   page.
@@ -463,3 +476,9 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
   code's. If it does not open, the locked text of D has no surface on
   Android today. Then this note needs a place for it, and A11's locked
   step and A13(a) are blocked until it has one.
+  **Answered yes** (REPLY 01a1ace2-1ffe, read from the code at
+  6464c3cf0, not run): the page opens while locked, but its PeerId field
+  is blank and its list may stay reading (§9). rust-ui-dev is also
+  making `restart_requires_user_authentication()` read the mode from
+  disk while no host runs, and keeping the last start's pending class
+  while locked if the record's policy is unchanged.
