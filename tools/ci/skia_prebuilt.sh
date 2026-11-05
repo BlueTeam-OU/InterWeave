@@ -31,12 +31,13 @@
 #       SUCCEEDED -- and none started a full build. Every output, not the
 #       newest: cargo does not rerun a build script whose inputs are
 #       unchanged, so an older output in a reused target may be the one
-#       the build linked; a stale one fails the run, and the release run
-#       builds in a clean target.
+#       the build linked; a stale one fails the run, so the release run
+#       builds in a clean target and the android check job's cargo cache
+#       is keyed on the pin.
 #
-# The release run runs fetch before the build and check after it. The
-# android check job is to read the same pin once its workflow calls
-# this (devex-tooling's j182), so one pin line will govern both.
+# The release run runs fetch before the build and check after it, and
+# so does CI's android check job (check ... debug, for its `cargo
+# check`), so one pin line governs both.
 #
 # Environment, for the self-test: SKIA_PIN_FILE (the pin),
 # SKIA_PIN_LOCK (Cargo.lock), SKIA_PIN_SOURCE (a directory holding the

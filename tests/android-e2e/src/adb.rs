@@ -331,10 +331,16 @@ impl Drop for AdbDevice {
 }
 
 fn adb(serial: Option<&str>, args: &[&str]) -> std::io::Result<Output> {
-    let mut command = Command::new("adb");
-    if let Some(serial) = serial {
-        command.args(["-s", serial]);
-    }
+    // No serial of its own: where the phone is now, as the platform
+    // module follows it (`platform::moved_to`).
+    let mut command = match serial {
+        Some(serial) => {
+            let mut c = Command::new("adb");
+            c.args(["-s", serial]);
+            c
+        }
+        None => crate::platform::adb(),
+    };
     command.args(args).output()
 }
 
