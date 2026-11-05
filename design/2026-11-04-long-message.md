@@ -13,9 +13,10 @@ and a cluster past 32 code points is drawn as one replacement mark
 both on `main` in HUMAN-CHAT.md (the Bounds with §6's figures, 2 000
 and 40, written on #562; the Clusters bullet, with "raw source
 viewable" aligned to it). Where this note and the contract ever differ,
-the contract governs only with figures that keep §6's ceiling
-condition; a contract figure that does not is raised with architect-cto
-before anything is built to it.
+the contract governs. Since architect-cto's DECISION 01a1ab12-5459
+(§6), the renderer's ceiling is held by a bound on each drawn item,
+not by the figures; that amendment lands in HUMAN-CHAT.md's Bounds
+with rust-ui-dev's j95 pull request.
 
 Owner of the design: ux-designer. The words are language-culture's: §8
 names each string and what it must say. Colours are roles of
@@ -33,7 +34,9 @@ checked (A12), and A7, added to §9's "Reader closed" row. And for
 rust-ui-dev's QUESTION 01a1aabf: where the preview ends when no block
 or word boundary is in the last quarter, and how its ellipsis counts
 (§4.1, A2); and for their OBSERVATION 01a1ab0f, the table's height
-figure in A3.
+figure in A3; and for architect-cto's DECISION 01a1ab12-5459: a line
+is a drawn line, and the renderer's ceiling is held per drawn item
+(§5.1, §6, A4).
 
 **What this note revises.** For a body past §6's bound, it replaces
 the look spec's edge case "A very long message"
@@ -228,8 +231,8 @@ thumb (Android, shown once the body is taller than four screens) show
 where the person is in the body and let them move through it quickly.
 Whether the toolkit offers both is a precondition of A5 (§10).
 
-**Drawn in pieces**, in both modes, because the toolkit cannot draw
-one block taller than its ceiling. A piece ends where the text is drawn
+**Drawn in pieces**, in both modes, because no drawn item may pass
+8 000 logical px in either dimension (§6). A piece ends where the text is drawn
 broken anyway, and there nothing shows: in source mode at a newline;
 in formatted mode at a block boundary (a paragraph, a list item, a
 table row, a code line, a heading), since a single newline inside a
@@ -310,9 +313,12 @@ item, so the text cannot go from under the person while they read it.
 **Both, characters and lines.** A body is cut when it has more than
 **2 000 characters** or more than **40 lines**, and the preview is then
 at most **1 600 characters** and **32 lines**. A character is a
-grapheme cluster; a line is one of the model's lines (a paragraph, a
-list item, a table row, a code line, a heading, a rule), however it
-wraps, and each link's control, drawn as a line of its own (§4.1),
+grapheme cluster; a line is a **drawn** line: one of the model's lines
+(a paragraph, a list item, a table row, a code line, a heading, a
+rule), plus one for each hard line break inside it, however it wraps —
+soft wrapping counts nothing (architect-cto's DECISION 01a1ab12-5459:
+a paragraph of 1 000 hard breaks is one model line and draws 1 000) —
+and each link's control, drawn as a line of its own (§4.1),
 counts as one. **What is counted is what the app draws**, each time it
 draws it (architect-cto's ruling of Q4, §11, in HUMAN-CHAT.md's Bounds
 on `main`): the drawn text; every link control's label
@@ -442,19 +448,27 @@ Why these figures, and the conditions any other figures must keep:
 - **For the person**: at 100 % text on a phone the preview is about
   one and a half screens — enough to tell what the message is, never
   so much that the next message is far.
-- **At 200 % text**: the preview is taller but bounded, and every
-  whole body at the bound, in its tallest shape, on the narrowest
-  layout, at the highest display scale either client supports, draws
-  under the renderer's ceiling. My estimate on the Pixel 9a (2.625 px
+- **At 200 % text**: the preview is taller but bounded. The renderer's
+  ceiling is not carried by these figures: no drawn item — a text run,
+  a bubble's fill, a row's surface, a swipe reveal, a focus ring, a
+  selection — spans more than **8 000 logical px** in width or height,
+  so any display scale up to 4 stays under the renderer's 32 767
+  physical px, and the client never clamps the platform's scale
+  (architect-cto's DECISION 01a1ab12-5459, in HUMAN-CHAT.md's Bounds
+  with rust-ui-dev's j95 pull request). A whole body taller than that is
+  drawn in pieces (§5.1); a failure makes the pieces smaller, never the
+  text and never the figures. The figures are for the person (above)
+  and for the cost of the first draw. My estimate on the Pixel 9a (2.625 px
   per dp; body text 32 sp on a 48 sp line, about 126 px, about 17
   characters per line in a narrow bubble; a first-level heading 40 sp
   on a 56 sp line, about 147 px, about 13.6 characters per line): a
   paragraph body, 2 000 / 17 + 40 ≈ 158 drawn lines, about 19 900 px;
   a body of 40 headings, 2 000 / 13.6 + 40 ≈ 187 lines, about
-  27 500 px. That is an estimate, not a measurement; §10's A4 is the
-  measurement, and if it does not hold the figures go down, not the
-  text size. (The first figures, 2 400 and 48, gave about 33 000 px for
-  the heading body, over the ceiling: review round 1, F9.)
+  27 500 px. That was an estimate; rust-ui-dev measured the heading body
+  at 33 429 physical px at desktop scale 3, 360 dp wide, over the
+  ceiling, which is why the ceiling moved from the figures to each
+  drawn item. (The first figures, 2 400 and 48, gave about 33 000 px
+  for the heading body by the same estimate: review round 1, F9.)
 
 ## 7. Read, Keep and what a cut does not change
 
@@ -597,14 +611,17 @@ it, those checks are blocked, never passed.
   rows instead would make its preview the one shape cut short of §6's
   figures. The device run measures it again.
 - **A4** At 200 % text, on the narrowest layout and at the highest
-  scale, a whole body at the bound in each of the shapes above, the
+  scale the probe can set, a whole body at the bound in each of the shapes above, the
   four link and image shapes and A12's C1 included, draws without a
   panic (the
   padded link drawn as inert text with no control, §6), in formatted
   and in source mode, and so do A1's whole-formatted, cut-as-source
-  bodies in source mode,
-  and the build measures and reports the tallest row's height against
-  the 32 767 px ceiling.
+  bodies in source mode; a paragraph of 1 000 hard line breaks is past
+  40 drawn lines and is cut (§6); and every drawn item (§6's list) is
+  within 8 000 logical px in width and in height, an unwrapped
+  2 000-character code line included. The build measures and reports
+  the largest item in each dimension; a failure makes the pieces
+  smaller, never the text and never the figures.
 - **A5** The reader opens on each shape with its first screen drawn
   within 0.5 s on the A40, optimised build; End reaches the body's last
   line within 1 s; scrolling shows no blank screen, and no seam but §5.1's ragged line at
