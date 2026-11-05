@@ -648,6 +648,79 @@ component FocusRing inherits Rectangle {
     opacity: root.shown && FocusMode.keyboard ? 1 : 0;
 }
 
+// The most a drawn item spans, in logical px, either way (HUMAN-CHAT.md,
+// Bounds: architect-cto's DECISION 01a1ab12). The desktop's software
+// renderer keeps an item's geometry in 16 bits of physical px, so four
+// times this is under its ceiling and the bound holds to scale 4 by
+// construction; an item that may grow with a body is drawn in pieces.
+export global Tile {
+    out property <length> extent: 8000px;
+}
+
+// A fill drawn as slices no taller than `Tile.extent`, stacked to cover
+// the element, its corners on the first and last slice
+// (`no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent`).
+component Tiled {
+    in property <brush> fill;
+    in property <length> top-left-radius;
+    in property <length> top-right-radius;
+    in property <length> bottom-left-radius;
+    in property <length> bottom-right-radius;
+    property <int> count: max(1, ceil(root.height / Tile.extent));
+    for i in root.count: Rectangle {
+        x: 0px;
+        y: i * Tile.extent;
+        width: root.width;
+        height: min(Tile.extent, root.height - i * Tile.extent);
+        background: root.fill;
+        border-top-left-radius: i == 0 ? root.top-left-radius : 0px;
+        border-top-right-radius: i == 0 ? root.top-right-radius : 0px;
+        border-bottom-left-radius: i == root.count - 1 ? root.bottom-left-radius : 0px;
+        border-bottom-right-radius: i == root.count - 1 ? root.bottom-right-radius : 0px;
+    }
+}
+
+// A container that draws nothing itself: where a Rectangle would hold a
+// row's content, which is as tall as its body. A Rectangle for its
+// geometry (its children fill it, as a Rectangle's do) with no fill, no
+// border and no radius: the software renderer draws such a rectangle by
+// no cast of its geometry (i-slint-renderer-software 1.18.1's
+// `color.alpha > 0` guard), so its extent is no drawn item's. Never give
+// it one: a drawing property belongs on a `Tiled` inside it.
+component Plain inherits Rectangle {
+}
+
+// A message row's focus ring once the row is taller than `Tile.extent`:
+// its four sides as strips, the long two tiled, square-cornered. Shown by
+// its colour, not its opacity, which would lay out a layer as tall as the
+// row.
+component TallRing inherits Plain {
+    in property <bool> shown;
+    property <brush> ink: root.shown && FocusMode.keyboard ? Palette.primary : transparent;
+    Tiled {
+        x: 0px;
+        width: 3px;
+        height: root.height;
+        fill: root.ink;
+    }
+    Tiled {
+        x: root.width - 3px;
+        width: 3px;
+        height: root.height;
+        fill: root.ink;
+    }
+    Rectangle {
+        y: 0px;
+        height: 3px;
+        background: root.ink;
+    }
+    Rectangle {
+        y: root.height - 3px;
+        height: 3px;
+        background: root.ink;
+    }
+}
+
 // Each window's content sits in one: a Tab or Shift+Tab pressed while
 // anything in it holds focus puts the window in keyboard mode before
 // focus moves. A control's own `focus-gained(reason)` cannot do this for
@@ -1410,35 +1483,52 @@ component Avatar inherits Rectangle {
 // armed -- with the icon scaled up, so colour is never the only sign
 // (swipe spec section 7). For sight only: the row's buttons are what a
 // screen reader reaches.
-component SwipeReveal inherits Rectangle {
+component SwipeReveal inherits Plain {
     in property <SwipeKind> kind;
     in property <string> label;
     in property <bool> armed;
     // The uncovered side is the left (the row moved right).
     in property <bool> at-left;
     in property <bool> reduced-motion;
+    // Its corners, the shape it uncovers: not the Rectangle's own radius,
+    // which `Plain` never takes.
+    in property <length> corner-radius;
     accessible-role: none;
-    background: !root.armed ? Palette.swipe-neutral
-        : root.kind == SwipeKind.keep || root.kind == SwipeKind.accept ? Palette.swipe-keep
-        : root.kind == SwipeKind.retry ? Palette.swipe-retry
-        : Palette.swipe-remove;
+    // As tall as the bubble, which may pass `Tile.extent`: its fill tiled,
+    // and its icon and label at their own height, centred.
+    Tiled {
+        width: root.width;
+        height: root.height;
+        fill: !root.armed ? Palette.swipe-neutral
+            : root.kind == SwipeKind.keep || root.kind == SwipeKind.accept ? Palette.swipe-keep
+            : root.kind == SwipeKind.retry ? Palette.swipe-retry
+            : Palette.swipe-remove;
+        top-left-radius: root.corner-radius;
+        top-right-radius: root.corner-radius;
+        bottom-left-radius: root.corner-radius;
+        bottom-right-radius: root.corner-radius;
+    }
     HorizontalLayout {
         padding-left: 16px;
         padding-right: 16px;
         spacing: 8px;
         alignment: root.at-left ? start : end;
-        icon := SwipeIcon {
-            kind: root.kind;
-            ink: root.armed ? Palette.swipe-on-fill : Palette.swipe-on-neutral;
-            y: (parent.height - self.height) / 2;
-            transform-scale: root.armed ? 1.2 : 1.0;
-            animate transform-scale { duration: root.reduced-motion ? 0ms : 100ms; }
+        VerticalLayout {
+            alignment: center;
+            icon := SwipeIcon {
+                kind: root.kind;
+                ink: root.armed ? Palette.swipe-on-fill : Palette.swipe-on-neutral;
+                transform-scale: root.armed ? 1.2 : 1.0;
+                animate transform-scale { duration: root.reduced-motion ? 0ms : 100ms; }
+            }
         }
-        Text {
-            text: root.label;
-            color: root.armed ? Palette.swipe-on-fill : Palette.swipe-on-neutral;
-            vertical-alignment: center;
-            accessible-role: none;
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: root.label;
+                color: root.armed ? Palette.swipe-on-fill : Palette.swipe-on-neutral;
+                accessible-role: none;
+            }
         }
     }
 }
@@ -3751,7 +3841,7 @@ component ProposalEntry inherits Rectangle {
                         armed: root.swipe-armed;
                         at-left: proposal-row.offset > 0px;
                         reduced-motion: root.reduced-motion;
-                        border-radius: 12px;
+                        corner-radius: 12px;
                     }
                     // Moved by its padding, as a message row is, so the
                     // card keeps its width.
@@ -7559,7 +7649,9 @@ export component AppWindow inherits Window {
                             duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
                             easing: ease-out;
                         }
-                        Rectangle {
+                        // As tall as the body: a container that draws nothing
+                        // (the item bound, `Tile`).
+                        Plain {
                         // The toolkit's handler takes a drag away from the controls
                         // inside it once it moves in a direction this row offers;
                         // what the drag MEANS is decided in Rust (gesture.rs), by
@@ -7591,7 +7683,7 @@ export component AppWindow inherits Window {
                                 // follows the bubble.
                                 y: bubble-column.absolute-position.y - swipe-area.absolute-position.y;
                                 height: bubble-column.height;
-                                border-radius: 18px;
+                                corner-radius: 18px;
                             }
                             // Moved by its padding rather than its x, which would
                             // take it out of the layout that sizes the row: the
@@ -7599,8 +7691,14 @@ export component AppWindow inherits Window {
                             HorizontalLayout {
                                 padding-left: item.offset;
                                 padding-right: -item.offset;
-                            Rectangle {
-                                background: Palette.surface;
+                            // The row's surface, hiding the reveal behind it: tiled,
+                            // as tall as the body (the item bound, `Tile`).
+                            Plain {
+                            Tiled {
+                                width: parent.width;
+                                height: parent.height;
+                                fill: Palette.surface;
+                            }
                         // Under the row's controls, the part of the row that is no
                         // control takes the press. Left to the handler, which grabs
                         // it, a drag the row does not offer ends with no callback,
@@ -7646,27 +7744,32 @@ export component AppWindow inherits Window {
                         // The bubble's fill (section 6), drawn under its content and
                         // placed on the content's own geometry, so it covers exactly
                         // what the bubble draws.
-                        Rectangle {
+                        // Tiled: a bubble is as tall as its body (the item bound).
+                        Tiled {
                             x: bubble-column.absolute-position.x - content.absolute-position.x;
                             y: bubble-column.absolute-position.y - content.absolute-position.y;
                             width: bubble-column.width;
                             height: bubble-column.height;
-                            background: row.outbound ? Palette.primary-container : Palette.surface-container-high;
+                            fill: row.outbound ? Palette.primary-container : Palette.surface-container-high;
                             // 18 px corners, the one nearest the sender 6 px.
-                            border-top-left-radius: 18px;
-                            border-top-right-radius: 18px;
-                            border-bottom-left-radius: item.at-left ? 6px : 18px;
-                            border-bottom-right-radius: item.at-left ? 18px : 6px;
-                            // While its menu is open, the bubble keeps a pressed
-                            // state layer, so the person sees which message it is
-                            // about (look spec section 6).
-                            if root.row-menu == row.handle: Rectangle {
-                                background: Palette.on-surface.with-alpha(0.1);
-                                border-top-left-radius: 18px;
-                                border-top-right-radius: 18px;
-                                border-bottom-left-radius: item.at-left ? 6px : 18px;
-                                border-bottom-right-radius: item.at-left ? 18px : 6px;
-                            }
+                            top-left-radius: 18px;
+                            top-right-radius: 18px;
+                            bottom-left-radius: item.at-left ? 6px : 18px;
+                            bottom-right-radius: item.at-left ? 18px : 6px;
+                        }
+                        // While its menu is open, the bubble keeps a pressed
+                        // state layer, so the person sees which message it is
+                        // about (look spec section 6).
+                        if root.row-menu == row.handle: Tiled {
+                            x: bubble-column.absolute-position.x - content.absolute-position.x;
+                            y: bubble-column.absolute-position.y - content.absolute-position.y;
+                            width: bubble-column.width;
+                            height: bubble-column.height;
+                            fill: Palette.on-surface.with-alpha(0.1);
+                            top-left-radius: 18px;
+                            top-right-radius: 18px;
+                            bottom-left-radius: item.at-left ? 6px : 18px;
+                            bottom-right-radius: item.at-left ? 18px : 6px;
                         }
                         content := VerticalLayout {
                             // Room for a control's focus ring, which the list clips
@@ -8011,7 +8114,15 @@ export component AppWindow inherits Window {
                             }
                         }
                         }
-                        FocusRing {
+                        // A row past the item bound takes a ring in strips.
+                        if item.height + 10px <= Tile.extent: FocusRing {
+                            x: -5px;
+                            y: -5px;
+                            width: item.width + 10px;
+                            height: item.height + 10px;
+                            shown: item.has-focus;
+                        }
+                        if item.height + 10px > Tile.extent: TallRing {
                             x: -5px;
                             y: -5px;
                             width: item.width + 10px;

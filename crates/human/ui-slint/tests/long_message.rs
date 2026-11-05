@@ -461,6 +461,164 @@ fn the_reader_closes_when_its_row_leaves() {
     assert!(!view.window().get_reader_open());
 }
 
+/// The most a drawn item spans, in logical px, in either dimension
+/// (HUMAN-CHAT.md, Bounds, architect-cto's DECISION 01a1ab12): four
+/// times it is under the desktop renderer's 16-bit ceiling, so it holds
+/// to scale 4.
+const ITEM_EXTENT: f32 = 8_000.0;
+
+/// A4's shapes at the bound: whole bodies, each in its tallest form.
+fn a4_shapes() -> Vec<(&'static str, String)> {
+    let w50 = "abcdefghij".repeat(5);
+    vec![
+        ("paragraph", "word ".repeat(400).trim_end().to_owned()),
+        ("list", vec!["- a"; 40].join("\n")),
+        (
+            "code",
+            format!("```\n{}\n```", vec![w50.as_str(); 38].join("\n")),
+        ),
+        ("table", {
+            let mut t = String::from("| h | i |\n|---|---|\n");
+            for _ in 0..39 {
+                t.push_str("| abcdefghijklmnopqrstu | abcdefghijklmnopqrstu |\n");
+            }
+            t
+        }),
+        (
+            "headings",
+            (0..40)
+                .map(|_| format!("# {w50}"))
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+        ),
+        (
+            "heading autolinks",
+            (0..20)
+                .map(|i| format!("# <https://example.org/{i:02}/{}>", "p".repeat(20)))
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+        ),
+        ("images", vec!["![](x)"; 110].join(" ")),
+        (
+            "cluster C1",
+            format!("a{}{}", "\u{301}".repeat(255), "b".repeat(1999)),
+        ),
+        ("unbroken", "x".repeat(2000)),
+    ]
+}
+
+/// What draws: an element that is, or inherits, one of the toolkit's
+/// drawing items.
+fn draws(e: &ElementHandle) -> bool {
+    const DRAWING: [&str; 5] = ["Rectangle", "Text", "TextInput", "Path", "Image"];
+    let mut names: Vec<String> = e.type_name().map(|t| t.to_string()).into_iter().collect();
+    names.extend(e.bases().into_iter().flatten().map(|b| b.to_string()));
+    // `Plain`, and what is built on it, is a Rectangle with no fill,
+    // border or radius, which the renderer draws by no cast of its
+    // geometry (app.slint's `Plain`).
+    e.layout_kind().is_none()
+        && !names.iter().any(|n| n == "Plain")
+        && names.iter().any(|n| DRAWING.contains(&n.as_str()))
+}
+
+/// Every drawn item past the bound, named for the failure message: of
+/// every kind, or text alone.
+fn past_the_bound(view: &View) -> Vec<String> {
+    past(view, &draws)
+}
+
+fn text_past_the_bound(view: &View) -> Vec<String> {
+    past(view, &|e: &ElementHandle| {
+        draws(e)
+            && e.type_name()
+                .is_some_and(|t| t.as_str() == "Text" || t.as_str() == "TextInput")
+    })
+}
+
+/// The one Rectangle as tall as a row that is let be: the row's box,
+/// which has no fill and is a Rectangle only to clip a closing row; a
+/// clip is intersected with the window's in the software renderer
+/// (`combine_clip`) before any geometry is cast, and the desktop probe at
+/// scale 3 draws such a row.
+const UNFILLED: &str = "AppWindow::row-box";
+
+fn past(view: &View, kind: &dyn Fn(&ElementHandle) -> bool) -> Vec<String> {
+    ElementQuery::from_root(view.window())
+        .find_all()
+        .into_iter()
+        .filter(|e| kind(e))
+        .filter(|e| e.id().as_deref() != Some(UNFILLED))
+        .filter(|e| e.size().height > ITEM_EXTENT || e.size().width > ITEM_EXTENT)
+        .map(|e| {
+            format!(
+                "{} {:?} {}x{}",
+                e.type_name().unwrap_or_default(),
+                e.id(),
+                e.size().width,
+                e.size().height
+            )
+        })
+        .collect()
+}
+
+/// No drawn item spans more than 8,000 logical px, for every A4 shape at
+/// the bound, at 200 % text on the narrowest layout, in the conversation
+/// and in the reader, formatted and as source (design A4; the item
+/// bound of HUMAN-CHAT.md Bounds).
+#[test]
+fn no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent() {
+    // One window, a conversation per shape: the platform is set once a
+    // thread.
+    let mut view = view();
+    let mut model = UiModel::new();
+    for (n, (name, body)) in a4_shapes().into_iter().enumerate() {
+        view.window()
+            .window()
+            // As tall as a window may be under the bound: the panes the
+            // window sizes are within it, and every row is in the tree with
+            // the fills it spans; a body's own pieces, which the list clips
+            // out of the tree below the window, are held by the cut's tests.
+            .set_size(slint::LogicalSize::new(360.0, 7_900.0));
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+        let alice = peer();
+        model.received(received(i64::try_from(n).expect("few") + 1, &alice, &body));
+        open(&mut view, &mut model, &direct(&alice));
+        let row = rows(&view)[0].clone();
+        // Every item, then, in a window tall enough that the list clips no
+        // piece of the body out of the tree, every text item: there the
+        // panes the window sizes are past the bound, and no text is.
+        let tall = |view: &View, tall: bool| {
+            view.window().window().set_size(slint::LogicalSize::new(
+                360.0,
+                if tall { 20_000.0 } else { 7_900.0 },
+            ));
+            slint::platform::update_timers_and_animations();
+        };
+        let check = |view: &View, at: &str| {
+            assert_eq!(past_the_bound(view), Vec::<String>::new(), "{name}, {at}");
+            tall(view, true);
+            assert_eq!(
+                text_past_the_bound(view),
+                Vec::<String>::new(),
+                "{name}, {at}, text"
+            );
+            tall(view, false);
+        };
+        check(&view, "row");
+        choose(&view, &row.label, text(UiText::ShowSource));
+        check(&view, "source");
+        if let Some(read) = labelled(&view, text(UiText::ReadWholeMessage)).first() {
+            read.invoke_accessible_default_action();
+            let _ = intents(&mut view, &mut model);
+            check(&view, "reader");
+            key(&view, Key::Escape);
+            let _ = intents(&mut view, &mut model);
+        }
+    }
+}
+
 /// The bubble says the cut line the mode shown draws, and only then: a
 /// body whole formatted and cut as source says none formatted and the
 /// source's once Show source is chosen (section 9; review F2 of #565).
