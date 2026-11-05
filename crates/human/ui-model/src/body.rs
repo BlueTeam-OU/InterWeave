@@ -136,7 +136,9 @@ pub struct Line {
     pub depth: usize,
     /// Whether any enclosing block is a quote.
     pub quoted: bool,
-    /// A list item's marker on its first line: `•`, or `3.`.
+    /// A list item's marker on its first line: `•`, or `3.`. Each piece of
+    /// that line carries it too, so a view keeps its room before the text
+    /// and the pieces stay in line; only the first draws and says it.
     pub marker: String,
     /// Its text, plain: no markup is left in it.
     pub text: String,
@@ -203,23 +205,18 @@ impl Line {
         self
     }
 
-    /// This line in pieces within the bounds; the first keeps the marker.
+    /// This line in pieces within the bounds, each with its marker.
     fn into_pieces(self) -> Vec<Self> {
         let cuts = pieces(&self.text);
         if cuts.len() == 1 {
             return vec![self];
         }
         cuts.iter()
-            .enumerate()
-            .map(|(i, &(text, join))| Self {
+            .map(|&(text, join)| Self {
                 kind: self.kind,
                 depth: self.depth,
                 quoted: self.quoted,
-                marker: if i == 0 {
-                    self.marker.clone()
-                } else {
-                    String::new()
-                },
+                marker: self.marker.clone(),
                 text: text.to_owned(),
                 join,
             })
@@ -779,7 +776,7 @@ mod tests {
             assert!(
                 got.lines[1..]
                     .iter()
-                    .all(|l| l.marker.is_empty() && l.join == Join::MidLine)
+                    .all(|l| l.marker == "3." && l.join == Join::MidLine)
             );
         }
     }
