@@ -86,12 +86,20 @@ is pending now holds by rule rather than by the note: in the one direction
 the diagnostic is false, in the other the pending line says the same thing
 it would. A record whose configured policy could not be read at the reseal
 still has a policy in force, so the diagnostic is still derivable there.
-Prior wording, in this record's Decision and in `human-client-ui.md` §14,
-`android-key-custody.md`, `human-client-android.md` and
-`failure-model.md`: "When Android is CONFIGURED with both
+Prior wording, §14's: "When Android is configured with both
 `availability_mode=stay-reachable` and `key_unlock_policy=user-presence`
 … must expose `background_restart_requires_user_authentication=true`";
-each now names the policy in force. Where the predicate is computed is the
+this record's Decision, `android-key-custody.md`,
+`human-client-android.md`, `failure-model.md`'s row,
+`configuration.md`, `config.schema.yaml`'s field comment and cross-field
+rule and the `human-android.yaml` example each said the same in their
+own words, the configured field as the input; each now names the policy
+in force. When the start has not opened the record (`UserNotAuthenticated`,
+the locked state), the policy in force is the header's policy byte, read
+before any cipher call and authenticated only by the open; the refusal is
+the user-presence key's alone, so the two readings agree there, and a
+forged byte misreports a restart the record would then refuse to open
+(#571 round 1, F3). Where the predicate is computed is the
 owning roles' (`profile-config`'s pure function may keep the configured
 form for validation and take the policy as an argument for the status
 model, or the embedded host may derive it beside the record it opened);
