@@ -36,6 +36,10 @@ proposal (§5, §5.1, §7.1, §10, §11). And for its QUESTION 01a18cfc
 window's lines and rows after a card's confirmation row are in the
 Accept snackbar's span (contact-cards §5.4.2). And for its QUESTION
 01a18ecc (B4c): the reply line of a target not held (§5.2, §10).
+Revised again for the cluster bound (HUMAN-CHAT.md Clusters,
+`design/2026-11-04-long-message.md` §6): a first character past 32
+code points previews as one replacement mark, no longer as the
+ellipsis alone (§3, §10 item 11a).
 
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
@@ -137,9 +141,14 @@ Evidence and hypotheses behind the choices below:
   only between two whole characters. A cut text ends in an ellipsis
   at its logical end, even when the row has room for more, so it never
   passes for the whole first line. The ellipsis is added after the cut
-  and counts in neither bound. A first character larger than 1 KiB on
-  its own (a base with hundreds of combining marks) leaves nothing
-  that fits: the preview is the ellipsis alone. Rows the window holds and rows it
+  and counts in neither bound. The text is counted as it is drawn: a
+  character of more than 32 code points (a base with hundreds of
+  combining marks) is drawn as one replacement mark and counts as one
+  (`design/2026-11-04-long-message.md` §6), so no drawn character is
+  near 1 KiB on its own and the preview is never the ellipsis alone. A
+  body drawn as the plain-text fallback (past a nesting or table bound)
+  previews its first non-blank source line as written, its markdown
+  marks included, as the fallback draws them. Rows the window holds and rows it
   does not are cut the same way, so a preview does not change when its
   row loads. The row's accessible description (look §9,
   `ConversationDescription`) carries the same cut text. 160 is the
@@ -802,7 +811,8 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     across the 160th character shows the link's text, never its
     syntax. A first line of combining marks or emoji sequences is cut
     between whole characters, within 1 KiB; one whose first character
-    alone exceeds 1 KiB previews as the ellipsis alone. A first line
+    is a base with 600 combining marks previews as one replacement mark
+    followed by the rest of the line, never as the ellipsis alone. A first line
     under 160 characters and under 1 KiB shows whole, with no ellipsis;
     100 emoji sequences of about 25 bytes each are cut at 1 KiB, with
     the ellipsis. A 300-character
