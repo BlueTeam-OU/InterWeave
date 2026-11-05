@@ -114,6 +114,17 @@ pub const PIECE_GRAPHEMES: usize = 1600;
 /// preview's line bound, for the same reason.
 pub const PIECE_LINES: usize = 32;
 
+/// Whether `grapheme` ends a line wherever it stands: a mandatory break of
+/// UAX #14 -- LF, CR or CRLF, VT, FF, NEL, U+2028 and U+2029. The desktop's
+/// text layout starts a new line at every one, not at LF alone, so a piece
+/// that counted LF alone could hold a line for every character.
+#[must_use]
+pub fn is_line_break(grapheme: &str) -> bool {
+    grapheme.ends_with([
+        '\n', '\r', '\u{B}', '\u{C}', '\u{85}', '\u{2028}', '\u{2029}',
+    ])
+}
+
 /// One drawn line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
@@ -240,7 +251,7 @@ pub fn pieces(text: &str) -> Vec<(&str, Join)> {
                 beyond = at + grapheme.len();
                 break;
             }
-            if grapheme.ends_with('\n') {
+            if is_line_break(grapheme) {
                 breaks += 1;
                 last_break = Some((at, grapheme.len()));
                 if breaks == PIECE_LINES {
@@ -579,6 +590,34 @@ mod tests {
             text
         }
 
+        /// A piece's lines as the layout breaks them.
+        fn lines(piece: &str) -> usize {
+            1 + piece
+                .graphemes(true)
+                .filter(|g| super::super::is_line_break(g))
+                .count()
+        }
+
+        #[test]
+        fn every_mandatory_break_counts_as_a_line() {
+            for brk in ["\r", "\u{B}", "\u{C}", "\u{85}", "\u{2028}", "\u{2029}"] {
+                let text = format!("a{brk}").repeat(PIECE_GRAPHEMES / 2);
+                let cut = pieces(&text);
+                within_bounds(&cut);
+                assert!(cut.len() > 1, "{brk:?} breaks a line");
+                assert_eq!(
+                    lines(cut[0].0),
+                    PIECE_LINES,
+                    "{brk:?}: a piece takes all it may"
+                );
+                assert_eq!(
+                    cut[1].1,
+                    Join::AfterBreak,
+                    "{brk:?} is cut at, not inside a run"
+                );
+            }
+        }
+
         fn within_bounds(cut: &[(&str, Join)]) {
             for &(piece, _) in cut {
                 assert!(
@@ -586,11 +625,7 @@ mod tests {
                     "{} characters",
                     graphemes(piece)
                 );
-                assert!(
-                    piece.lines().count() <= PIECE_LINES,
-                    "{} lines",
-                    piece.lines().count()
-                );
+                assert!(lines(piece) <= PIECE_LINES, "{} lines", lines(piece));
             }
         }
 
