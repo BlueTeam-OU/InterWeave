@@ -31,7 +31,7 @@ pub mod view_side;
 pub use hub::{Hub, StoreAnswer, StoreGeneration, StoreRefusal, TO_VIEW, ToView, ViewLink};
 pub use identity::{
     Expected, FirstRun, IdentityRefused, ResealFailure, Resealed, RestoreRefused, Started,
-    UnlockStatus, locked_status, phrase_peer, reseal_identity,
+    UnlockStatus, locked_status, opening_needs_presence, phrase_peer, reseal_identity,
     restart_requires_user_authentication_at_rest, restore_identity, start_identity, start_resealed,
 };
 pub use interweave_profile_config::runtime::KeyUnlockPolicy;

@@ -20,9 +20,9 @@ use std::sync::Mutex;
 
 use interweave_human_android_platform::{
     AvailabilityMode, Expected, FirstRun, IdentityRefused, KeyUnlockPolicy, ResealFailure,
-    Resealed, RestoreRefused, UnlockStatus, locked_status, phrase_peer, provision_profile,
-    reseal_identity, restart_requires_user_authentication_at_rest, restore_identity, stand_in,
-    start_identity, start_resealed,
+    Resealed, RestoreRefused, UnlockStatus, locked_status, opening_needs_presence, phrase_peer,
+    provision_profile, reseal_identity, restart_requires_user_authentication_at_rest,
+    restore_identity, stand_in, start_identity, start_resealed,
 };
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
@@ -669,6 +669,36 @@ fn a_locked_start_takes_the_record_headers_policy() {
         restart_requires_user_authentication_at_rest(&app.dir, PROFILE, &other),
         Some(false),
         "the first-run document's mode is foreground-only"
+    );
+}
+
+/// Opening the record needs the person by the record's own policy, not
+/// the configured one: a pending change in either direction answers by the
+/// record; with no record, the configured policy a first run seals under.
+#[test]
+fn opening_the_record_needs_the_person_by_its_own_policy() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    configure_policy(&app, "user-presence");
+    assert!(
+        opening_needs_presence(&app.dir, PROFILE),
+        "no record: the configured policy"
+    );
+    configure_policy(&app, "background-compatible");
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    configure_policy(&app, "user-presence");
+    assert!(
+        !opening_needs_presence(&app.dir, PROFILE),
+        "pending toward user-presence: the record needs nobody yet"
+    );
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Changed)
+    );
+    configure_policy(&app, "background-compatible");
+    assert!(
+        opening_needs_presence(&app.dir, PROFILE),
+        "pending away from user-presence: the record still needs the person"
     );
 }
 

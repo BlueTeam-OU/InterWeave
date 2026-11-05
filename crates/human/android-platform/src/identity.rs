@@ -272,6 +272,24 @@ pub fn locked_status(
     })
 }
 
+/// Whether opening `profile`'s record needs the person: the policy the
+/// record is under, its header's byte, since the open uses that policy's
+/// key whatever is configured (ADR-0042 A 2026-10-10 (ii)) -- so while a
+/// change is pending the configured policy would prompt for nothing, or
+/// let an open through that the key then refuses. With no record to read,
+/// the configured policy, which a first run seals under.
+#[must_use]
+pub fn opening_needs_presence(app_data_dir: &Path, profile: &str) -> bool {
+    let Ok(paths) = embedded(app_data_dir, profile) else {
+        return false;
+    };
+    let policy = match custody::recorded_policy(&paths) {
+        Ok(Some(recorded)) => Some(recorded),
+        Ok(None) | Err(_) => configured(&paths).ok(),
+    };
+    policy == Some(KeyUnlockPolicy::UserPresence)
+}
+
 /// [`UnlockStatus::restart_requires_user_authentication`] with no host
 /// running: the effective mode read from disk
 /// (`availability_overlay::effective_availability_mode`), as a locked
