@@ -137,8 +137,9 @@ pub struct Line {
     /// Whether any enclosing block is a quote.
     pub quoted: bool,
     /// A list item's marker on its first line: `•`, or `3.`. Each piece of
-    /// that line carries it too, so a view keeps its room before the text
-    /// and the pieces stay in line; only the first draws and says it.
+    /// that line carries it too, so a view can keep its room before the
+    /// text and the pieces stay in line; the view draws and says it on the
+    /// first piece.
     pub marker: String,
     /// Its text, plain: no markup is left in it.
     pub text: String,
