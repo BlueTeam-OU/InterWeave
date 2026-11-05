@@ -11,7 +11,9 @@
 
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
-use interweave_profile_config::provision::{embedded_document, provision_embedded};
+use interweave_profile_config::provision::{
+    EMBEDDED_DOCUMENT_MARKER, embedded_document, provision_embedded,
+};
 use interweave_profile_config::runtime::Deployment;
 use interweave_profile_config::{
     ClientKind, PersistError, ProfileConfig, ProfilePaths, TrustBoundary,
@@ -73,7 +75,7 @@ fn the_document_advertises_no_endpoint() {
 }
 
 /// The `human` endpoint is leased by the human client's kind and no
-/// other, as the Android debug build's stand-in profile always wrote it.
+/// other, as the Android debug build's stand-in profile leased it.
 /// The list is hygiene, not authority, and empty means unrestricted, so
 /// the test pins the exact list rather than its presence.
 #[test]
@@ -92,6 +94,18 @@ fn the_human_endpoint_admits_the_human_client_kind_only() {
         .map(ClientKind::as_str)
         .collect();
     assert_eq!(kinds, ["human-client"]);
+}
+
+/// The release build's check reads the marker in the native library, so
+/// the document opens with exactly it.
+#[test]
+fn the_document_opens_with_the_marker_the_release_check_reads() {
+    let document = embedded_document("work");
+    assert!(document.starts_with(EMBEDDED_DOCUMENT_MARKER), "{document}");
+    assert_eq!(
+        EMBEDDED_DOCUMENT_MARKER,
+        "# Written on first run by the Android client"
+    );
 }
 
 #[test]
