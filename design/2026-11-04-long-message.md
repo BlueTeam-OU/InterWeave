@@ -3,7 +3,7 @@
 Status: proposal, 2026-11-04. Asked by rust-ui-dev (QUESTION 01a1a896,
 their job j92, my job j90), read against `origin/main` ed46059ff. It
 answers their three questions (§4, §5, §6) and declines their
-alternative (§2). architect-cto ruled on its three product questions
+alternative (§2). architect-cto ruled on its four product questions
 (§11): Copy is allowed on every message (Q1, REPLY 01a1a89e-9df5,
 §5.3); the bound is the contract's, in HUMAN-CHAT.md's Bounds bullet,
 with §6's figures and conditions (Q2, same reply); and what is counted
