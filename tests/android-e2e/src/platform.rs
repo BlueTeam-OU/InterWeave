@@ -872,7 +872,6 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
                 .expect("parsed")
                 .is_some()
         );
-        // A running record ends where a sectioned one begins.
         // A running record ends where a sectioned one begins: the
         // destroying record's isForeground is not the bound record's.
         let foreground_after = DESTROYING.replace("startForegroundCount=0", "isForeground=true");
