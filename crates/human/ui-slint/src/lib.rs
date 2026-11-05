@@ -682,8 +682,6 @@ impl Shared {
     }
 }
 
-/// The callbacks of the screens with their own modules, and the trust
-/// settings'.
 /// The composer's edits, each one queued as the draft it leaves.
 fn wire_draft(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     let (s, w) = (Rc::clone(shared), swipe::weak(window));
@@ -707,6 +705,8 @@ fn wire_draft(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     });
 }
 
+/// The callbacks of the screens with their own modules, and the trust
+/// settings'.
 fn wire_screens(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     wire_trust(window, shared);
     window_marks::wire(window, shared);
