@@ -9,8 +9,10 @@ alternative (§2). architect-cto ruled on its four product questions
 with §6's figures and conditions (Q2, same reply); and what is counted
 is what is drawn (Q4, REPLY 01a1a8dd-a73d, §6), written on #562;
 and a cluster past 32 code points is drawn as one replacement mark
-(Q5, DECISION 01a1a928-0d26, §6). Until that amendment is on `main`,
-the build waits for it, and it must carry §6's current figures (2 000
+(Q5, DECISION 01a1a928-0d26, §6). Until #562's amendment is on
+`main`, the build waits for it (Q5's rule lands with rust-ui-dev's fix
+and does not hold the build; aligning the contract's "raw source
+viewable" to it is architect-cto's), and it must carry §6's current figures (2 000
 and 40, lowered after the ruling: §11 Q2). Where the two ever differ,
 the contract governs only with figures that keep §6's ceiling
 condition; a contract figure that does not is raised with architect-cto
@@ -325,7 +327,7 @@ control's label as shown would pass 2 000 characters, the link has no
 control at all: its text is drawn as plain, inert text, as a link of a
 scheme outside the allow-list already is, and the whole destination
 stays in the source (Show source, Copy message source; Copy alone for
-a cluster past 32 code points, below). The label is
+a cluster past 32 code points, above). The label is
 never cut: a cut label could show one host and open another, which is
 the spoof the full label is there to prevent (architect-cto, #562's
 review). What the person sees is the link's text, which they cannot
@@ -440,8 +442,10 @@ envelope fits the 196 608-byte ceiling: one long paragraph, a list of
 one-letter items, a code block, a table of 256 rows, first-level
 headings, headings of autolinks, one reference link used many times,
 images with no description, one link whose destination is padded
-with hidden characters, and a paragraph of 2 000 characters one of
-which is a cluster of 256 code points (§6). Each is checked in formatted and source mode, at 100 % and
+with hidden characters, a paragraph of 2 000 characters one of which
+is a cluster of 256 code points, the same paragraph at 2 400
+characters with the cluster inside the preview, and a link whose text
+holds such a cluster (§6). Each is checked in formatted and source mode, at 100 % and
 200 % text, left to right and right to left.
 
 **Precondition on Android** for every TalkBack check below (A6's
@@ -476,7 +480,8 @@ it, those checks are blocked, never passed.
   the cut would then move with the width and the text size, and the
   same message would show a different part after a rotation. That is
   a judgement, kept for H1's walkthrough to test at 200 % text. The
-  paragraph holding a long cluster takes the paragraph figures, the
+  2 400-character paragraph holding a long cluster takes the paragraph
+  figures, the
   mark being one character of body text. The
   four link and image shapes take the headings figures, 4 and 12:
   with what is drawn counted (§6), none of their drawn characters is
@@ -516,7 +521,7 @@ it, those checks are blocked, never passed.
 - **A9** Copy, from the reader in each mode and from the row's menu of
   a cut and of a whole message, puts on the clipboard bytes equal to
   the message's `text` as the build holds it (the source Show source
-  shows) and nothing else, once per press, and the feedback of §5.3
+  shows, but for §6's replacement mark) and nothing else, once per press, and the feedback of §5.3
   shows — a cluster drawn as one replacement mark (§6) arrives on the
   clipboard whole; on Android 13 and later the system's confirmation shows its
   preview (the clip not marked sensitive). Receiving, reading and
@@ -530,12 +535,14 @@ it, those checks are blocked, never passed.
   lines at 100 % and at 200 % text, then keeps that height and scrolls
   inside itself with the caret in view; nothing panics; the message
   sent carries every character of the draft (§11 Q3).
-- **A12** The paragraph holding a cluster of 256 code points draws one
-  replacement mark in its place in the row, the preview, the Chats
-  list's subtitle, Show source and the reader, never part of the
-  cluster; the mark counts as one character in the cut line's
-  percentage and in A1's figures; a link whose label as shown would
-  hold such a cluster has no control; Copy message source carries the
+- **A12** A cluster of 256 code points is drawn as one replacement
+  mark, never part of the cluster, in the row, the Chats list's
+  subtitle, Show source, the plain-text fallback and the reader, and
+  in the preview. The mark counts as one character: the 2 000-character
+  paragraph holding it is whole (A1), and the 2 400-character one is
+  cut, its cut line's percentage counting the mark as one. The link
+  whose text holds such a cluster has no control, its text drawn inert
+  with the mark; Copy message source carries the
   cluster whole (A9). TalkBack's reading of the mark is reported, under
   §10's Android precondition.
 
