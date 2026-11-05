@@ -29,7 +29,10 @@ contract settled after it: what a screen reader says for a replacement
 mark and how a draft's replaced cluster reaches the person (§6, §8,
 A12), the notification's text, which the contract now names as drawn
 by the client (§6, §7), C4's layout so that its Chats subtitle is
-checked (A12), and A7, added to §9's "Reader closed" row.
+checked (A12), and A7, added to §9's "Reader closed" row. And for
+rust-ui-dev's QUESTION 01a1aabf: where the preview ends when no block
+or word boundary is in the last quarter, and how its ellipsis counts
+(§4.1, A2).
 
 **What this note revises.** For a body past §6's bound, it replaces
 the look spec's edge case "A very long message"
@@ -136,15 +139,21 @@ under the text.
   1. the last block boundary (a paragraph, a list item, a table row, a
      code line, a heading), when it is in the last quarter;
   2. otherwise the last word boundary, when it is in the last quarter,
-     and then an ellipsis (`…`) follows the preview's last word;
-  3. otherwise between the last two whole characters inside the limit,
-     and then an ellipsis.
+     and then an ellipsis (`…`) follows the preview's last word, the
+     white space before the cut neither drawn nor counted;
+  3. otherwise at the limit itself, after the last whole character (or
+     line) inside it, and then an ellipsis.
 
-  So a body whose only early break is a space — a label and then a long
-  unbroken run (`key: ` and a 3 000-character base64 value), or a
+  A **word boundary**, here and in §5.1, is one of UAX #29: a place
+  where a segment that is not white space begins, as `ui-model`'s
+  `word_cut` finds it. So a path or a base64 value breaks at its `/`
+  and `+`, and a script written without spaces at almost every
+  character. A body whose only boundary is near its start — a label and
+  then a long unbroken run (`key: ` and 3 000 hexadecimal digits), or a
   replacement mark and then 2 399 letters (A12's C2) — still previews
-  most of the limit, never the few characters before that space (rust-ui-dev's
-  QUESTION 01a1aabf). The cut never falls inside a grapheme cluster.
+  the whole limit, never the few characters before that boundary
+  (rust-ui-dev's QUESTION 01a1aabf). The cut never falls inside a
+  grapheme cluster.
   The ellipsis is added after the cut and counts neither in the
   preview's figures nor in the cut line's share, as the Chats list's
   ellipsis does (start-window §3). A table cut between rows keeps its
@@ -226,7 +235,7 @@ table row, a code line, a heading), since a single newline inside a
 paragraph is not drawn as a break. Only a stretch with no such
 boundary that is longer than a piece — one long source line, or one
 long paragraph, hard-wrapped or not — is split elsewhere: at a word
-boundary, or at a grapheme where there is none, so that no character
+boundary (§4.1), or at a grapheme where there is none, so that no character
 is lost, repeated or cut, and no gap opens. The one thing that shows is
 a short, ragged line at that split, where the text itself does not
 break. That is accepted (rust-ui-dev's j92 note on #561: the toolkit
@@ -552,8 +561,8 @@ it, those checks are blocked, never passed.
 - **A2** A cut row shows the preview, the cut line with a percentage
   equal to the preview's characters over the body's, rounded down and
   at least 1, and Read the whole message; its preview ends as §4.1
-  says, and a table cut keeps its header. `key: ` followed by a
-  3 000-character base64 value previews 1 600 characters and an
+  says, and a table cut keeps its header. `key: ` followed by 3 000
+  hexadecimal digits (0–9, a–f) previews 1 600 characters and an
   ellipsis (§4.1 step 3), and A12's C2 previews its mark and 1 599
   letters, 66 %. Its menu is in §4.3's order.
 - **A3** With a cut message in the middle of a conversation, the cut
@@ -628,8 +637,9 @@ it, those checks are blocked, never passed.
 - **A12** Four bodies, each holding one cluster of 256 code points, a
   base letter followed by 255 combining marks (U+0301), none of them a
   hidden code point a label spells as a code: **C1**, a paragraph of
-  2 000 characters whose first character is the cluster; **C2**, the
-  same paragraph at 2 400 characters; **C3**, a message that is one
+  2 000 characters, the cluster followed by 1 999 basic Latin letters
+  with no space or punctuation; **C2**, the same paragraph at 2 400
+  characters (2 399 letters); **C3**, a message that is one
   link with a 20-character text to an `https` destination of 30
   characters whose last character is the cluster, so that its label as
   shown holds the cluster, is far under 2 000, and only the cluster
