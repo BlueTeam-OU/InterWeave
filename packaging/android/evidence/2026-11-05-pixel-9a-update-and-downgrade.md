@@ -18,12 +18,14 @@ Device: **Pixel 9a**, Android 17, **API 37** (build CP3A.261005.005),
 over wireless debugging at 192.168.1.31, on this login's own adb
 server, under the `pixel-9a` lease (taken 12:05:16Z, released after the
 last step; no adb process of this login remained). The phone's clock
-read UTC at 12:05:36Z (`adb shell date -u`), and `dumpsys` prints local
-time, UTC+1: `13:05:41` below is 12:05:41Z.
+read UTC at 12:05:36Z (`adb shell date -u`), and `dumpsys` and logcat
+print local time, UTC+1: `13:05:41` below is 12:05:41Z.
 
 Before the run the phone carried a debuggable `org.interweave.human`
 0.2.0 (versionCode 2, first installed 2026-10-10 09:40:05 local,
-signer digest shown as `f8b1b43e`) and `org.interweave.human.test`.
+signer digest shown as `f8b1b43e`) and `org.interweave.human.test`:
+read from `dumpsys package` before the uninstall and not kept, so not
+quoted below.
 A release APK cannot be installed over another signer, so both were
 uninstalled, with their profile.
 
@@ -35,7 +37,9 @@ The APKs are the published release assets, downloaded with
 | v0.1.0 | `interweave-0.1.0-arm64-v8a.apk` | `f08e101fc7892719…` | `a7f38b5e32aec4b8…` | 1 |
 | v0.2.0 | `interweave-0.2.0-arm64-v8a.apk` | `5aadbfca9cc80a5d…` | `a7f38b5e32aec4b8…` | 2 |
 
-The certificate is the release key's (the README's run above); the
+The certificate column was read with `apksigner verify --print-certs`
+and its output not kept; the value is the release key's (the README's
+run above), and the
 package manager's own signature id for both, `520af074`, is the same
 before and after the update.
 

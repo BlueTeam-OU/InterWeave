@@ -28,8 +28,10 @@ time, UTC+1: `15:07:56` below is 14:07:56Z.
 
 Before the run the phone carried a debuggable `org.interweave.human`
 0.2.0 (versionCode 2, first installed 2026-11-03 13:38:09 local, signer
-digest shown as `26d1eb18`) holding an identity made that morning for
-p2p-network-dev-02's cases, and `org.interweave.human.test`. A release
+digest shown as `26d1eb18`) and `org.interweave.human.test`, as the
+`before` lines of the first step's output show (quoted below); by
+p2p-network-dev-02's word, not shown here, it held an identity made
+that morning for its cases. A release
 APK cannot be installed over another signer, so both were uninstalled,
 with their profile.
 
@@ -49,6 +51,15 @@ same before and after the update.
 
 ```text
 == 2026-11-05T14:07:42Z phone clock: 2026-11-05T14:07:44Z
+== 2026-11-05T14:07:42Z before
+package:org.interweave.human.test versionCode:0
+package:org.interweave.human versionCode:2
+    firstInstallTime=2026-11-03 13:38:09
+    lastUpdateTime=2026-11-05 08:21:25
+    pkgFlags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ]
+    signatures=PackageSignatures{ab6dc4b version:2, signatures:[26d1eb18], past signatures:[]}
+    versionCode=2 minSdk=30 targetSdk=36
+    versionName=0.2.0
 == 2026-11-05T14:07:43Z uninstall test pkg
 Success
 == 2026-11-05T14:07:44Z uninstall app

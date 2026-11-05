@@ -287,9 +287,8 @@ still waits on.
   two cases those rows do not name: the previous release's APK updated
   in place by this one, serving the same PeerId from the same store,
   and an older APK refused over a newer one. Those two are rows of this
-  Validate row, so p2p-network-dev-01's, not S12's; they run in the
-  same phone window as S12's rows when it allows, else the next one,
-  and the host-side halves (upgrade, PeerId preservation against a
+  Validate row, so p2p-network-dev-01's, not S12's; the
+  host-side halves (upgrade, PeerId preservation against a
   packaged build) stay rust-ui-dev's as §22 splits them.
   Both ran with the published APKs on 2026-11-05, on the Pixel 9a at
   API 37 ([`evidence/2026-11-05-pixel-9a-update-and-downgrade.md`](evidence/2026-11-05-pixel-9a-update-and-downgrade.md))
@@ -311,6 +310,9 @@ still waits on.
 - Nothing here installs the APK on a phone: a release's update and
   reinstall behaviour is plan §22's Validate row, read from a device
   run (§21's S12 and the two cases above).
+- The same PeerId from the same store across an update in place: no
+  published release can make an identity on a fresh install, so the
+  two device records above could not run it.
 - The self-tests sign minimal APKs with throwaway keys made at test
   time; the release key and a real `assembleRelease` APK meet the
   scripts only in the run itself. The tag and archive checks are tested
