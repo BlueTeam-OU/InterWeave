@@ -3,7 +3,8 @@
 Status: proposal, 2026-11-05. Asked by rust-ui-dev (REQUEST 01a1abf3,
 their job j213, my job j93), read against `origin/main` 8859f6366 and
 their branch `develop-qzapp/rust-ui-dev-01/feat/j213-android-start-never-calls-custody-reseal`
-at 76ac4a188. This note answers where a person sees that a changed
+at 76ac4a188. The locked-state revision (#573) was read against that
+branch at 6464c3cf0. This note answers where a person sees that a changed
 `key_unlock_policy` is not yet in force and why (ADR-0042 A 2026-11-05),
 and puts `human-client-ui.md` §14's
 `background_restart_requires_user_authentication` diagnostic on the
@@ -70,7 +71,9 @@ with what would show it wrong, is in §4.
 
 ## 3. States
 
-The view reads four facts from the status member (Q3):
+The view reads four facts (Q3). The status member (`UnlockStatus`)
+carries the first three. The host gives the fourth, or, while no host
+runs, the profile on disk does:
 - **in force**: the policy of the record that is authenticated for this
   start. It is never a claim read from the file without opening it, and
   after any start that ran it is known.
@@ -93,8 +96,12 @@ The view reads four facts from the status member (Q3):
 - **configured**: the configured policy, or unknown when the profile
   could not be read at the reseal.
 - the reseal's pending class, if any.
-- the effective availability mode. It is known only while the host
-  runs, so it is unknown while InterWeave is locked (below).
+- the effective availability mode: the host's while it runs, and
+  otherwise profile-config's `effective_availability_mode`, which
+  reads it from disk with no host running (ADR-0041 A 2026-10-10: one
+  effective mode, overlay else config, for everything derived from
+  it). It is unknown only when the profile cannot be read, and then D's
+  line is not shown, since D cannot be claimed.
 
 **A change is pending whenever in force and configured differ**, whatever
 the start's reseal answered, `Held` included (ADR-0042 A 2026-11-05 asks
@@ -112,8 +119,12 @@ promised. It is on their j213 branch at 15632b734, not yet on `main`.
 There, `Unsynced` is classed `OldKeyRemains` only when the record on
 disk is under the configured policy, and the test
 `an_unsynced_reseal_is_old_key_remains_and_a_failed_write_is_storage`
-pins both cases. So the view needs no fifth fact, and a `Storage` class
-always means a failure before the write. It is a precondition of §8
+pins two cases: an unsynced write is `OldKeyRemains`, and an unwritable
+directory is `Storage`. So the view needs no fifth fact, and a `Storage`
+class means a failure before the write, with one exception. When an
+`Unsynced` record cannot be read back, or names another policy, it
+stays `Storage`; in force is then the opened policy, and the line shows
+P. It is a precondition of §8
 beside the member until it reaches `main`. One limit remains.
 If a power cut loses the unsynced write, the next start opens the old
 record again, and the line shows P for that start.
@@ -122,6 +133,7 @@ record again, and the line shows P for that start.
 |---|---|---|---|
 | N | nothing pending; not (stay-reachable and user-presence) | none | none |
 | D | nothing pending; effective stay-reachable and user-presence in force | `UnlockRestartNeedsUnlock` | none |
+| `UnlockRestartNeedsUnlockLocked` | (D while locked) After every restart of the phone or the app, InterWeave stays offline until you unlock it with your screen lock. Without "while it keeps running". Never claims it comes back by itself. |
 | P-up(r) | configured user-presence, in force background-compatible, reason r | `UnlockPendingNeedsLock` + reason r | `UnlockPendingNotice`, per §4 |
 | P-down(r) | configured background-compatible, in force user-presence, reason r | `UnlockPendingNoLock` + reason r | none |
 | P-unknown | a reason r pending and either the configured policy unknown (the profile could not be read), or in force = configured (the reseal failed otherwise than `OldKeyRemains` with the record already under the configured policy, as `Other` can; never `Unsynced`, which arrives as `OldKeyRemains`), so no direction can be named | `UnlockPendingUnknown` + reason r, and D's line under it when D's condition holds (below) | none |
@@ -149,14 +161,23 @@ line when D's condition holds (the policy in force is always known),
 because the P-unknown line does not say what a restart does.
 
 **While InterWeave is locked** (the start stopped at
-`UserNotAuthenticated`, and the locked notice shows), D's line is not
-shown: D's condition cannot be read without the availability mode, and
-D's "while InterWeave keeps running" is not true then. The locked
-notice already tells the person that InterWeave stays offline until
-they unlock. The P and K lines follow the rest of this section from
-whatever the status member holds, since a locked start changes no
-record. P-up's Chats notice is below the locked notice in priority
-(§4), so it does not show while locked.
+`UserNotAuthenticated`, and the locked notice shows), this section
+applies unchanged:
+- In force is the policy byte the record's header carries (ADR-0041
+  A 2026-11-05: the start opened nothing).
+- The availability mode is read from disk, as above.
+- So D's line shows when its condition holds, as `human-client-ui.md`
+  §14 requires for `stay-reachable` with `user-presence` after a
+  restart. While locked it is `UnlockRestartNeedsUnlockLocked` (§7), since
+  "while InterWeave keeps running" is not true then. The locked notice
+  says InterWeave is offline now; D says this will happen after every
+  restart. The two do not repeat each other.
+- P and K lines show as the member holds them, since a locked start
+  changes no record.
+- P-up's Chats notice is below the locked notice in priority (§4), so
+  it does not show while locked. A locked P-up arises when a
+  background-compatible record's reseal toward user-presence is
+  refused `UserNotAuthenticated`.
 
 Shown and cleared: the state is read again whenever the status member
 changes. A start whose reseal succeeds results in N or D. Nothing is
@@ -278,8 +299,9 @@ combinations (three P lines, three reasons) instead. language-culture decides.
 The P and K states cannot be produced on a device on demand (a
 Keystore fault, a full disk at the start). They are checked by view
 tests (`crates/human/ui-slint/tests/views.rs`) with the status member
-set. **Precondition for all of them: the status member carries the four
-facts of §3 (Q3), with `Unsynced` reported as `OldKeyRemains` (§3).**
+set. **Precondition for all of them: the four facts of §3 reach the
+view (the member's three and the mode, Q3), with `Unsynced` reported as
+`OldKeyRemains` (§3).**
 Without both, A1–A10, A12 and A13 are blocked, not passed.
 
 - **A1** For each row of §3's table, the Trust page shows exactly the
@@ -340,10 +362,16 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
   - Storage → Keystore.
 
   Check each against F9's focus target and its announcements in order.
-- **A13** Locked (the status member's availability mode unknown, with
-  the policy in force user-presence): the Trust page shows no D line.
-  With the member also holding a pending change, its P line shows. On
-  Chats only the locked notice shows.
+- **A13** Locked: the locked notice is shown (the start stopped at
+  `UserNotAuthenticated`), each case by a view test.
+  - (a) Header user-presence, with the effective mode on disk
+    stay-reachable: the Trust page shows D's line, in its locked text
+    `UnlockRestartNeedsUnlockLocked`. With the mode
+    foreground-only, it shows none.
+  - (b) Header background-compatible, configured user-presence (a
+    reseal refused `UserNotAuthenticated`): the Trust page shows the
+    P-up line, and Chats shows only the locked notice.
+  - (c) The profile unreadable, so the mode is unknown: no D line.
 
 ## 9. Deliberately left out
 
@@ -398,5 +426,8 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
 
   Both are built on rust-ui-dev's j213 branch: `UnlockStatus` and
   `ServiceHost::unlock_status()` at 77d337267, and the classing at
-  15632b734. Until they reach `main`, A1–A10, A12 and A13 stay blocked,
+  15632b734. `UnlockStatus` carries three of the facts. The mode comes
+  from the host, or from disk while no host runs. At 77d337267,
+  `restart_requires_user_authentication()` answers `None` while no
+  runtime runs; §3 asks that it read the mode from disk then. Until they reach `main`, A1–A10, A12 and A13 stay blocked,
   as §8 says.
