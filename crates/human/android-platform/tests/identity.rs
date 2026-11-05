@@ -623,21 +623,44 @@ fn the_unlock_status_is_the_record_in_force_and_the_diagnostic_follows_it() {
 
 /// A start refused `UserNotAuthenticated` opened nothing: its policy in
 /// force is the record header's (ADR-0041 A 2026-11-05), configured beside
-/// it, nothing pending; a profile with no record has none.
+/// it; a profile with no record has none. What is pending is the last
+/// start's while the record is still under the policy it left in force,
+/// and nothing once it is not.
 #[test]
 fn a_locked_start_takes_the_record_headers_policy() {
     let app = app();
-    assert_eq!(locked_status(&app.dir, PROFILE), None, "no record yet");
+    assert_eq!(
+        locked_status(&app.dir, PROFILE, None),
+        None,
+        "no record yet"
+    );
     let keystore = FakeKeystore::default();
     start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
     configure_policy(&app, "user-presence");
+    let header = UnlockStatus {
+        in_force: KeyUnlockPolicy::BackgroundCompatible,
+        configured: Some(KeyUnlockPolicy::UserPresence),
+        pending: None,
+    };
+    assert_eq!(locked_status(&app.dir, PROFILE, None), Some(header));
+
+    let last = UnlockStatus {
+        pending: Some(ResealFailure::Keystore),
+        ..header
+    };
     assert_eq!(
-        locked_status(&app.dir, PROFILE),
-        Some(UnlockStatus {
-            in_force: KeyUnlockPolicy::BackgroundCompatible,
-            configured: Some(KeyUnlockPolicy::UserPresence),
-            pending: None,
-        })
+        locked_status(&app.dir, PROFILE, Some(last)),
+        Some(last),
+        "the record unchanged since, so is why"
+    );
+    let other = UnlockStatus {
+        in_force: KeyUnlockPolicy::UserPresence,
+        ..last
+    };
+    assert_eq!(
+        locked_status(&app.dir, PROFILE, Some(other)),
+        Some(header),
+        "a record under another policy than the last start left"
     );
 }
 

@@ -252,15 +252,25 @@ pub fn start_resealed(
 /// nothing opened, so the policy in force is the record header's byte,
 /// read before any cipher call (ADR-0041 A 2026-11-05) -- a claim the open
 /// would authenticate, and the user-presence key's alone refuses so.
-/// `None` when the record cannot be read or names no policy.
+/// Nothing was tried, so what is pending is `last`'s, the last start that
+/// ran, while the record is still under the policy it left in force: the
+/// record has not changed since, so neither has why (design
+/// 2026-11-05-unlock-policy-pending.md section 3). `None` when the record
+/// cannot be read or names no policy.
 #[must_use]
-pub fn locked_status(app_data_dir: &Path, profile: &str) -> Option<UnlockStatus> {
+pub fn locked_status(
+    app_data_dir: &Path,
+    profile: &str,
+    last: Option<UnlockStatus>,
+) -> Option<UnlockStatus> {
     let paths = embedded(app_data_dir, profile).ok()?;
     let in_force = custody::recorded_policy(&paths).ok()??;
     Some(UnlockStatus {
         in_force,
         configured: configured(&paths).ok(),
-        pending: None,
+        pending: last
+            .filter(|last| last.in_force == in_force)
+            .and_then(|last| last.pending),
     })
 }
 

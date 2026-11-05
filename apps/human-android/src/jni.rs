@@ -170,7 +170,7 @@ fn identity(
     // person but the status.
     let started = start_resealed(dir, PROFILE, &cipher, first_run).map_err(|why| {
         let unlock = (why == IdentityRefused::UserNotAuthenticated)
-            .then(|| locked_status(dir, PROFILE))
+            .then(|| locked_status(dir, PROFILE, ServiceHost::global().unlock_status()))
             .flatten();
         (refused_identity(&why), unlock)
     })?;
