@@ -608,6 +608,18 @@ fn identity_of(seed: &Seed) -> Option<(ProfileIdentity, TransportIdentity)> {
     Some((identity, peer))
 }
 
+/// The profile's record read and framed, before any cipher: the one place
+/// [`unlock`] and the cipher-free readers refuse a record, so a reader
+/// answers what `unlock` would. `None` when there is no record.
+fn opened_record(paths: &ProfilePaths) -> Result<Option<Parsed>, UnlockRefused> {
+    private_bytes(paths)?
+        .map(|bytes| {
+            parse(&bytes)
+                .map_err(|refused| UnlockRefused::RecoveryRequired(RecoveryCause::Record(refused)))
+        })
+        .transpose()
+}
+
 /// The `PeerId` the profile's record names, read without the cipher: the
 /// `expected` a recovery flow passes to [`restore`] when the person has
 /// not typed one. `None` when there is no record; a record refused for
@@ -617,12 +629,20 @@ fn identity_of(seed: &Seed) -> Option<(ProfileIdentity, TransportIdentity)> {
 /// # Errors
 /// [`UnlockRefused`], as [`unlock`] would answer before the cipher.
 pub fn recorded_identity(paths: &ProfilePaths) -> Result<Option<TransportIdentity>, UnlockRefused> {
-    match private_bytes(paths)? {
-        None => Ok(None),
-        Some(bytes) => parse(&bytes)
-            .map(|parsed| Some(parsed.peer))
-            .map_err(|refused| UnlockRefused::RecoveryRequired(RecoveryCause::Record(refused))),
-    }
+    Ok(opened_record(paths)?.map(|parsed| parsed.peer))
+}
+
+/// The unlock policy the profile's record is sealed under, read without
+/// the cipher: what a start compares with the configured
+/// `key_unlock_policy` to say a change is still pending. `None` when
+/// there is no record. The byte is authenticated only when the record is
+/// opened, so this is the record's claim: a tampered byte reads here as
+/// the other policy and is refused by [`unlock`]. Reads only.
+///
+/// # Errors
+/// [`UnlockRefused`], as [`unlock`] would answer before the cipher.
+pub fn recorded_policy(paths: &ProfilePaths) -> Result<Option<KeyUnlockPolicy>, UnlockRefused> {
+    Ok(opened_record(paths)?.map(|parsed| parsed.policy))
 }
 
 /// The profile's stored identity, unwrapped by `cipher` and checked to
@@ -635,11 +655,9 @@ pub fn unlock(
     paths: &ProfilePaths,
     cipher: &dyn SeedCipher,
 ) -> Result<ProfileIdentity, UnlockRefused> {
-    let Some(record) = private_bytes(paths)? else {
+    let Some(parsed) = opened_record(paths)? else {
         return Err(UnlockRefused::Unprovisioned);
     };
-    let parsed = parse(&record)
-        .map_err(|refused| UnlockRefused::RecoveryRequired(RecoveryCause::Record(refused)))?;
     let seed = cipher
         .open(
             &KeyRef::new(paths, parsed.policy),

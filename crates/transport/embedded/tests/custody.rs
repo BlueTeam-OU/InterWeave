@@ -335,6 +335,44 @@ fn an_unprovisioned_profile_is_answered_as_one_and_nothing_is_made() {
     assert_eq!(custody::recorded_identity(&app.paths).expect("read"), None);
 }
 
+/// The record's policy reads back as sealed, for each policy, without
+/// the cipher and with the record unchanged; no record reads `None`, and
+/// a record of the wrong shape answers what `unlock` answers before the
+/// cipher.
+#[test]
+fn the_recorded_policy_is_read_without_the_cipher() {
+    let (mnemonic, _) = vectors().remove(0);
+    for policy in [
+        KeyUnlockPolicy::BackgroundCompatible,
+        KeyUnlockPolicy::UserPresence,
+    ] {
+        let app = new_app();
+        assert_eq!(custody::recorded_policy(&app.paths).expect("read"), None);
+        let cipher = SoftCipher::default();
+        custody::provision(&app.paths, &cipher, &identity(&mnemonic), policy).expect("stored");
+        let before = record(&app);
+        // The cipher answers every call with a failure from here: a read
+        // that asked it could not return the policy.
+        cipher.fail_with(Some(CipherFailure::Unavailable(
+            "the cipher was asked".to_owned(),
+        )));
+        assert_eq!(
+            custody::recorded_policy(&app.paths).expect("read"),
+            Some(policy)
+        );
+        assert_eq!(record(&app), before, "the record is unchanged");
+        assert_eq!(cipher.seals(), 1, "only the provisioning sealed");
+
+        put(&app, &before[..ENVELOPE_LEN - 1]);
+        assert_eq!(
+            custody::recorded_policy(&app.paths).err(),
+            Some(UnlockRefused::RecoveryRequired(RecoveryCause::Record(
+                RecordRefused::Length
+            )))
+        );
+    }
+}
+
 /// Every single-bit flip of the stored envelope gives no identity back
 /// and leaves the record as it was; the unflipped record unlocks before
 /// and after (the control).
