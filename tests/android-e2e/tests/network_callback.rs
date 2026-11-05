@@ -52,7 +52,7 @@
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]
 
-use std::net::{SocketAddr, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -325,8 +325,11 @@ fn connected(serial: &str) -> bool {
 
 /// The serial wireless debugging answers at on `host` now: each port of
 /// [`PORTS`] that accepts a connection, tried with `adb connect`. The
-/// ports are tried 512 at a time; a closed one refuses at once.
+/// ports are tried 512 at a time; a closed one refuses at once. `host`
+/// is resolved once, so a serial naming the phone by hostname is
+/// followed too: a `SocketAddr` parses an IP literal only.
 fn find_adb(host: &str) -> Option<String> {
+    let ip = resolve(host)?;
     let ports: Vec<u16> = PORTS.collect();
     let open: Vec<u16> = ports
         .chunks(512)
@@ -334,9 +337,8 @@ fn find_adb(host: &str) -> Option<String> {
             let probes: Vec<_> = chunk
                 .iter()
                 .map(|&port| {
-                    let host = host.to_owned();
                     std::thread::spawn(move || {
-                        let addr: SocketAddr = format!("{host}:{port}").parse().ok()?;
+                        let addr = SocketAddr::new(ip, port);
                         TcpStream::connect_timeout(&addr, Duration::from_millis(800))
                             .ok()
                             .map(|_| port)
@@ -352,6 +354,36 @@ fn find_adb(host: &str) -> Option<String> {
     open.into_iter()
         .map(|port| format!("{host}:{port}"))
         .find(|s| connected(s))
+}
+
+/// The address `host` -- an IP literal, bracketed for IPv6 as adb
+/// prints it, or a name -- resolves to now; `None`, said on stderr,
+/// when it does not.
+fn resolve(host: &str) -> Option<IpAddr> {
+    match format!("{host}:0").to_socket_addrs() {
+        Ok(mut addrs) => addrs.next().map(|a| a.ip()),
+        Err(e) => {
+            eprintln!("network_callback: {host} does not resolve now: {e}");
+            None
+        }
+    }
+}
+
+#[test]
+fn a_serials_host_resolves_by_name_as_well_as_by_literal() {
+    // The case this exists for: a name, which a SocketAddr does not parse.
+    assert!("localhost:5555".parse::<SocketAddr>().is_err());
+    assert!(resolve("localhost").is_some_and(|ip| ip.is_loopback()));
+    // Controls: the literals adb prints keep working.
+    assert_eq!(
+        resolve("192.168.1.11"),
+        Some(IpAddr::from([192, 168, 1, 11]))
+    );
+    assert_eq!(
+        resolve("[::1]"),
+        Some(IpAddr::from(std::net::Ipv6Addr::LOCALHOST))
+    );
+    assert_eq!(resolve("no such host.invalid"), None);
 }
 
 fn done() -> bool {
