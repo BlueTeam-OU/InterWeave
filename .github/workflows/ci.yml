@@ -532,7 +532,11 @@ jobs:
 
       # THE DEPENDENCIES' BUILDS ARE CACHED, as the rust job's are: its
       # comment has the key's reasoning and the save's rule. This key adds
-      # the pins file, whose NDK clang and API level build the graph's C.
+      # the pins file, whose NDK clang and API level build the graph's C,
+      # and the Skia pin: the check below reads EVERY skia-bindings output
+      # in the target, and one restored from a cache made under another pin
+      # (an older skia-bindings, another archive key) would fail the run
+      # for a build this run never made.
       # Measured on the host for the same packages, 2026-10-18: 65 s cold,
       # 13 s with only the workspace's own crates to rebuild.
       - name: The cargo cache's week
@@ -544,13 +548,34 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.CARGO_CACHE_PATHS }}
-          key: android-check-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins') }}-${{ steps.cargo-week.outputs.week }}-${{ hashFiles('Cargo.lock') }}
+          key: android-check-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins', 'tools/ci/skia-binaries.pin') }}-${{ steps.cargo-week.outputs.week }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            android-check-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins') }}-${{ steps.cargo-week.outputs.week }}-
-            ${{ github.event_name != 'push' && format('android-check-cargo-{0}-{1}-', runner.os, hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins')) || '' }}
+            android-check-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins', 'tools/ci/skia-binaries.pin') }}-${{ steps.cargo-week.outputs.week }}-
+            ${{ github.event_name != 'push' && format('android-check-cargo-{0}-{1}-', runner.os, hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins', 'tools/ci/skia-binaries.pin')) || '' }}
+
+      # The one Skia archive tools/ci/skia-binaries.pin names, its SHA-256
+      # checked, handed to the build as a local file: the release run's pin
+      # and its two verbs, so one line governs both builds (ADR-0057
+      # decision 4, A 2026-10-20). skia-bindings verifies nothing it
+      # downloads. Its build script reruns when SKIA_BINARIES_URL changes,
+      # so a restored target cannot keep an earlier, unpinned download.
+      - name: Skia, pinned
+        run: |
+          out=$(bash tools/ci/skia_prebuilt.sh fetch "$RUNNER_TEMP/skia") || exit 1
+          printf '%s\n' "$out"
+          line=$(printf '%s\n' "$out" | grep '^SKIA_BINARIES_URL=file://') || true
+          [ "$(printf '%s' "$line" | grep -c .)" = 1 ] \
+            || { echo "::error::skia_prebuilt.sh fetch printed no single SKIA_BINARIES_URL line"; exit 1; }
+          printf '%s\n' "$line" >> "$GITHUB_ENV"
 
       - name: cargo check for aarch64-linux-android
         run: bash tools/ci/check_android_target.sh
+
+      # The bindings' silent fall-back to a source build, or an archive other
+      # than the pin's, is a red run. `cargo check` builds the dev profile,
+      # and Skia's key is the same there: only SKIA_DEBUG moves it.
+      - name: Skia, checked
+        run: bash tools/ci/skia_prebuilt.sh check target debug
 
       - name: Prune the workspace's own builds from the cargo cache (main only)
         if: success() && github.event_name == 'push' && steps.cargo-cache.outputs.cache-hit != 'true'

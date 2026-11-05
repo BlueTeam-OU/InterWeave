@@ -190,4 +190,4 @@ Human message backup/synchronization is disabled in standard v1 system backup. A
 
 ## Availability-policy interaction
 
-`stay-reachable + user-presence` is intentionally allowed but self-limiting. While the unlocked foreground service remains alive it may stay online. After service/process restart it cannot unwrap the identity until the user authenticates; local status must expose `background_restart_requires_user_authentication=true`, and UI/notifications must not claim automatic post-restart reachability.
+`stay-reachable + user-presence` is intentionally allowed but self-limiting. While the unlocked foreground service remains alive it may stay online. After service/process restart it cannot unwrap the identity until the user authenticates; local status must expose `background_restart_requires_user_authentication=true`, and UI/notifications must not claim automatic post-restart reachability. The diagnostic reads the policy in force — the record's policy byte — beside the effective mode, never the configured `key_unlock_policy` (ADR-0041 A 2026-11-05); while a reseal is pending the configured policy is shown only as the pending change.

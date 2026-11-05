@@ -13,11 +13,12 @@
 //!
 //! A profile with no record at all is a first run. Creating its identity
 //! or restoring one from a phrase is the person's choice in step 7's
-//! onboarding, which does not exist yet. Until it does the caller says
-//! which ([`FirstRun`]): the app's debug build (`dev-stand-ins`) creates
-//! one and provisions it under the profile's configured unlock policy, so
-//! the debug app keeps one `PeerId` across restarts, and its release build
-//! answers [`IdentityRefused::Unprovisioned`].
+//! onboarding ([`crate::onboarding`]), which the Activity enters on
+//! [`IdentityRefused::Unprovisioned`]. The caller says what a start meets
+//! with ([`FirstRun`]): the app's release build refuses, and its debug
+//! build's Service (`dev-stand-ins`) creates one and provisions it under
+//! the profile's configured unlock policy, so the instrumentation's cases
+//! start with no person and keep one `PeerId` across restarts.
 //!
 //! Recovery ([`restore_identity`], step 7's host side) restores from the
 //! person's phrase only the `PeerId` it was told to expect, because
@@ -64,8 +65,8 @@ pub enum IdentityRefused {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FirstRun {
     /// Create its identity and provision it under the profile's
-    /// configured unlock policy: the debug build's stand-in for step 7's
-    /// onboarding.
+    /// configured unlock policy: the debug build's Service, so a case
+    /// starts with no person at the onboarding screens.
     Create,
     /// Answer [`IdentityRefused::Unprovisioned`]: creating or restoring
     /// is the person's choice, which step 7 asks for.

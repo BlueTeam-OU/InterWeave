@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The stand-in profile's configuration file is owner-only, as the app's
+//! The profile's configuration file is owner-only, as the app's
 //! start requires, however it was written: the first provisioning, and a
 //! case's replacement over a file another account could change.
 
@@ -9,7 +9,7 @@
 
 use std::os::unix::fs::PermissionsExt as _;
 
-use interweave_human_android_platform::stand_in;
+use interweave_human_android_platform::{provision_profile, stand_in};
 use interweave_profile_config::{ProfilePaths, TrustBoundary};
 
 const PROFILE: &str = "human";
@@ -39,7 +39,7 @@ fn a_provisioned_profile_is_owner_only_and_stays_so() {
             .expect("paths")
             .config_file();
 
-    stand_in::provision(&dir, PROFILE).expect("provisioned");
+    provision_profile(&dir, PROFILE).expect("provisioned");
     assert_eq!(mode(&config), 0o600, "the first write");
     let document = std::fs::read_to_string(&config).expect("read");
 
