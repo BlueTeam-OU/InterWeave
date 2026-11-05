@@ -83,7 +83,9 @@ The view reads four facts from the status member (Q3):
 the start's reseal answered, `Held` included (ADR-0042 A 2026-11-05 asks
 for the pending change to be shown "while the record's policy differs").
 A pending change with no class from the reseal is shown with reason
-`Other`.
+`Other`. When the configured policy is unknown, no comparison can be
+made. With a reason class, the state is P-unknown. With none, it is N
+or D, decided by the policy in force alone.
 
 A known limit: when the reseal wrote the new record but could not sync
 it (`Storage`, custody's `Unsynced`), the next start may already open
@@ -97,7 +99,7 @@ more (P-down). The next start then reads it again.
 | D | nothing pending; effective stay-reachable and user-presence in force | `UnlockRestartNeedsUnlock` | none |
 | P-up(r) | configured user-presence, in force background-compatible, reason r | `UnlockPendingNeedsLock` + reason r | `UnlockPendingNotice`, per §4 |
 | P-down(r) | configured background-compatible, in force user-presence, reason r | `UnlockPendingNoLock` + reason r | none |
-| P-unknown | a reason r pending and either the configured policy unknown (the profile could not be read), or in force = configured (the reseal failed otherwise than `OldKeyRemains` with the record already under the configured policy, as `Other` can), so no direction can be named | `UnlockPendingUnknown`, and D's line under it when D's condition holds (below) | none |
+| P-unknown | a reason r pending and either the configured policy unknown (the profile could not be read), or in force = configured (the reseal failed otherwise than `OldKeyRemains` with the record already under the configured policy, as `Other` can), so no direction can be named | `UnlockPendingUnknown` + reason r, and D's line under it when D's condition holds (below) | none |
 | K | in force = configured; the other policy's key remains (`OldKeyRemains`) | `UnlockOldKeyRemains`, and D's line under it when D's condition holds | none |
 
 Reasons r: `Storage`, `Keystore` and `Other`. These are rust-ui-dev's
@@ -174,13 +176,18 @@ faults.
   before "Show recovery phrase"**, in reading and focus order. One
   block of body text (`FocusNote`): it wraps over as many lines as it
   needs, never elided, at every font scale.
-- In K with D there are two blocks, K first, and each is its own focus
-  stop.
+- Where §3 names two lines (K with D, P-unknown with D), there are
+  two blocks, in the order §3's table lists them, and each is its own
+  focus stop.
 - **Weight**: plain body text in `on-surface`, no icon, no colour, no
   action. It describes the state; it is not an alarm. Its contrast is
   the body text's on the page surface, already measured.
-- **No action**. A P line ends by saying InterWeave tries again each
-  time it starts. Only the Storage reason adds what the person may do.
+- **No action**. A P line is three sentences, in this order:
+  1. What is not in force, and what a restart does now.
+  2. The reason.
+  3. That InterWeave tries again each time it starts.
+
+  Only the Storage reason adds what the person may do.
 
 ## 6. Focus and TalkBack — every case in one table
 
@@ -192,9 +199,9 @@ faults.
 | F4 | the notice goes (P-up clears, or another notice replaces it) while it or Details has focus | the list heading | nothing for P-up's leaving; a replacing notice announces itself as it does today | A6 |
 | F5 | Trust page opened from App options | as today (unchanged); the line sits between PeerId and Show recovery phrase | — | A7 |
 | F6 | a line appears while the Trust page is open (a start under Stay reachable) | stays where it was | its text, politely, once | A8 |
-| F7 | a line clears while the Trust page is open, and none takes its place | if it had focus: this device's PeerId field; otherwise unchanged | `UnlockApplied`, politely, once, when a P or K line clears, or when D clears because the policy in force changed; nothing when D clears because the availability mode changed | A9 |
+| F7 | a line clears while the Trust page is open, and none takes its place | if it had focus: this device's PeerId field; otherwise unchanged | politely, once: `UnlockApplied` when a P line clears or when D clears because the policy in force changed, `UnlockOldKeyRemoved` when the K line clears; nothing when D clears because the availability mode changed | A9 |
 | F8 | rotation, or the window resized, with focus on a line | the same line | nothing | A10 |
-| F9 | at one start, a line is replaced by another or its text changes: P → D, P → K, K with D → D, reason r → r′ | if a line had focus: the first line now in that place; otherwise unchanged | when a P or K line ended, `UnlockApplied` first; then the text of each line that is new or changed, politely, once each | A12 |
+| F9 | at one start, a line is replaced by another or its text changes: P → D, P → K, K with D → D, reason r → r′ | if a line had focus: the first line now in that place; otherwise unchanged | when a P line ended, `UnlockApplied` first, or when the K line ended, `UnlockOldKeyRemoved` first; then the text of each line that is new or changed, politely, once each | A12 |
 
 Keyboard: every line is a Tab stop in the order of §5, and Details is
 the notice's action button as on every other notice. Each line, and the
@@ -212,22 +219,24 @@ fact.
 | Key | Must say |
 |---|---|
 | `UnlockRestartNeedsUnlock` | (D) While InterWeave keeps running it can stay reachable; after the phone or the app restarts, it stays offline until you unlock it with your screen lock. Never claims it comes back by itself. |
-| `UnlockPendingNeedsLock` | (P-up) InterWeave's setting was changed to need your screen lock after a restart, and the change is not in force yet: until it is, InterWeave opens after a restart without your screen lock, as before. It tries again each time it starts. |
-| `UnlockPendingNoLock` | (P-down) The setting was changed so that InterWeave no longer needs your screen lock after a restart, and the change is not in force yet: until it is, after a restart it stays offline until you unlock it, as before. It tries again each time it starts. |
-| `UnlockPendingUnknown` | (P-unknown) InterWeave could not check its screen-lock setting after a restart; it works as before and tries again each time it starts. |
+| `UnlockPendingNeedsLock` | (P-up) InterWeave's setting was changed to need your screen lock after a restart, and the change is not in force yet: until it is, InterWeave opens after a restart without your screen lock, as before. |
+| `UnlockPendingNoLock` | (P-down) The setting was changed so that InterWeave no longer needs your screen lock after a restart, and the change is not in force yet: until it is, after a restart it stays offline until you unlock it, as before. |
+| `UnlockPendingUnknown` | (P-unknown) InterWeave could not apply or check a change to its screen-lock setting; it works as before. |
+| `UnlockTriesAgain` | (every P line's last sentence) InterWeave tries again each time it starts. |
 | `UnlockReasonStorage` | This phone's storage could not save the change; freeing some space may help. |
 | `UnlockReasonKeystore` | This phone's secure key storage did not accept the change; there is nothing to do in InterWeave. |
-| `UnlockReasonOther` | none, or a sentence saying only that the change could not be made; no cause. language-culture decides. |
-| `UnlockOldKeyRemains` | (K) The screen-lock setting is in force; the key that the setting before it used could not be removed from this phone yet, and InterWeave tries again each time it starts. Nothing for the person to do. |
+| `UnlockReasonOther` | A sentence saying only that the change could not be made; no cause. |
+| `UnlockOldKeyRemains` | (K) The screen-lock setting is in force; the key used by the previous screen-lock setting could not be removed from this phone yet, and InterWeave tries again each time it starts. Nothing for the person to do. |
 | `UnlockPendingNotice` | (Chats, P-up) One sentence: the screen-lock setting is not in force yet, so InterWeave does not need your screen lock after a restart. |
 | `UnlockPendingDetails` | The notice's action, opening the line: "Details" or the like. |
-| `UnlockApplied` | (announcement) The screen-lock setting is now in force. |
+| `UnlockApplied` | (announcement, a P line ending) The screen-lock setting is now in force. |
+| `UnlockOldKeyRemoved` | (announcement, the K line ending) The key used by the previous screen-lock setting has been removed. |
 
 A reason is its own sentence after the line's first sentence, never a
 fragment inside it, so no locale has to make the reason agree
 grammatically with the line. If a locale needs one whole string for
-each line and reason, language-culture may write the six P × reason
-combinations instead. language-culture decides.
+each line and reason, language-culture may write the nine P × reason
+combinations (three P lines, three reasons) instead. language-culture decides.
 
 ## 8. Acceptance
 
@@ -243,8 +252,9 @@ facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
   member says. In P-unknown it shows exactly when D's condition holds.
   A mismatch of in force and configured with no reseal class (`Held`)
   shows the P line with reason `Other`.
-- **A2** For each reason r, the P line carries that reason's sentence
-  and no other.
+- **A2** For each of the three P lines and each reason r, the line
+  carries that reason's sentence and no other, between its first
+  sentence and `UnlockTriesAgain`.
 - **A3** P-up with no other session notice: the notice shows on Chats,
   focus does not move to it, and its text is announced politely once.
   It never shows in an open conversation on a narrow window. With any
@@ -264,7 +274,8 @@ facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
 - **A8** A line appears while the Trust page is open: one polite
   announcement of its text, and focus unchanged.
 - **A9** A P or K line clears with focus on it: focus is on the PeerId
-  field and `UnlockApplied` is announced once. D clearing because the
+  field, and the line's announcement is made once: `UnlockApplied` for
+  a P line, `UnlockOldKeyRemoved` for K. D clearing because the
   policy in force changed announces `UnlockApplied` once; D clearing
   because the availability mode changed announces nothing.
 - **A10** Rotation with focus on a line keeps it there.
