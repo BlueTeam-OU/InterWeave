@@ -144,8 +144,11 @@ under the text.
   unbroken run (`key: ` and a 3 000-character base64 value), or a
   replacement mark and then 2 399 letters (A12's C2) — still previews
   most of the limit, never the few characters before that space (rust-ui-dev's
-  QUESTION 01a1aabf). The cut never falls inside a grapheme cluster. A
-  table cut between rows keeps its header row.
+  QUESTION 01a1aabf). The cut never falls inside a grapheme cluster.
+  The ellipsis is added after the cut and counts neither in the
+  preview's figures nor in the cut line's share, as the Chats list's
+  ellipsis does (start-window §3). A table cut between rows keeps its
+  header row.
 - A link's control (the one after the text) is in the preview only
   when its text is and the whole of its label, as shown, fits inside
   the preview's figures with the rest of the preview (§6's count);
