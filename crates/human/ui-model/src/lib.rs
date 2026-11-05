@@ -15,6 +15,7 @@
 #![forbid(unsafe_code)]
 
 pub mod body;
+pub mod cluster;
 mod connect;
 mod identity_flow;
 mod labels;

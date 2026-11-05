@@ -56,11 +56,15 @@ pub fn preview(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Preview {
 }
 
 /// `line` cut to [`PREVIEW_GRAPHEMES`] characters and [`PREVIEW_BYTES`]
-/// bytes, whichever comes first, only between whole characters. A first
-/// character larger than the byte bound leaves nothing: the preview is
-/// the ellipsis alone.
+/// bytes, whichever comes first, only between whole characters, each
+/// character counted as drawn: one past the cluster bound is one
+/// replacement ([`crate::cluster`]), so no drawn character is near the
+/// byte bound on its own.
 #[must_use]
 pub fn cut(line: &str) -> Preview {
+    // Counted as drawn: a character past the cluster bound is one
+    // replacement, and counts as one.
+    let line = &*crate::cluster::drawable(line);
     let mut end = 0;
     for (taken, (at, grapheme)) in line.grapheme_indices(true).enumerate() {
         if taken == PREVIEW_GRAPHEMES || at + grapheme.len() > PREVIEW_BYTES {
@@ -133,10 +137,10 @@ mod tests {
     }
 
     /// A first character larger than 1 KiB on its own -- a base with 600
-    /// combining marks -- leaves nothing that fits: the ellipsis alone.
-    /// Mutation: the first character always kept.
+    /// combining marks -- is past the cluster bound, so it is drawn, and
+    /// counted, as one replacement; once it left nothing but the ellipsis.
     #[test]
-    fn a_first_character_over_1_kib_previews_as_the_ellipsis_alone() {
+    fn a_first_character_over_1_kib_previews_as_one_replacement() {
         let heavy = format!("a{}rest", "\u{301}".repeat(600));
         assert_eq!(
             graphemes(&heavy),
@@ -144,9 +148,8 @@ mod tests {
             "the fixture: one heavy character, then four"
         );
         let p = cut(&heavy);
-        assert!(p.cut);
-        assert_eq!(p.text, "");
-        assert_eq!(p.shown(), "\u{2026}");
+        assert!(!p.cut);
+        assert_eq!(p.text, "\u{FFFD}rest");
     }
 
     /// A link across the 160th character shows its text, never its
@@ -172,5 +175,18 @@ mod tests {
         let p = cut(&hebrew);
         assert_eq!(p.text, "\u{5E9}".repeat(PREVIEW_GRAPHEMES));
         assert!(p.shown().ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn a_character_past_the_cluster_bound_is_one_replacement_counted_once() {
+        use crate::cluster::REPLACEMENT;
+
+        let past = format!("a{}", "\u{301}".repeat(255));
+        let p = cut(&format!("{past} hi"));
+        assert_eq!(p.text, format!("{REPLACEMENT} hi"));
+        assert!(!p.cut);
+        let p = cut(&past.repeat(PREVIEW_GRAPHEMES + 1));
+        assert_eq!(p.text, REPLACEMENT.to_string().repeat(PREVIEW_GRAPHEMES));
+        assert!(p.cut);
     }
 }

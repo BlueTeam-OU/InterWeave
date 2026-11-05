@@ -1327,7 +1327,7 @@ impl UiModel {
     ) -> String {
         let name = |n: &str| match isolate {
             Isolate::Yes => crate::labels::isolated(n),
-            Isolate::No => n.to_owned(),
+            Isolate::No => crate::cluster::drawable(n).into_owned(),
         };
         if let ConversationKey::Direct {
             peer,
