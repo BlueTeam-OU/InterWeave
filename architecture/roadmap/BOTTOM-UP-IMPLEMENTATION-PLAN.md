@@ -7121,10 +7121,17 @@ owner:
   two opens, one host-timed and the 12.3 s one, ended in an ANR with
   `android_main` at 11.6 and 11.7 s of CPU, and the 7.7 s one raised
   none, so the cost is the first draw after a page and not the
-  network; the release build's figure is not
-  measured (rust-ui-dev-02's j90). Still open: a reply whose target lies
-  beyond the held rows read as `unavailable` on the command line, the
-  store lookup by message id architect-cto's to decide (j462).
+  network; on an optimised library (the debug APK with its native
+  library built `--release`, a local change on ed46059f's tree) the
+  same kind of open, the conversation whose one long message draws some
+  900 lines, took 1.41 s against a 1.22 s control with no dialog, so
+  the stalls and the ANRs are the unoptimised library's (rust-ui-dev-02's
+  j90, the record's own section). Still open: the pane on a release
+  APK, which was not installed; a body much longer than the chat case's
+  on the phone (a desktop body past the renderer's height panics it,
+  TM-57, j92); and a reply whose target lies beyond the held rows read
+  as `unavailable` on the command line, the store lookup by message id
+  architect-cto's to decide (j462).
 - Found after the close, from the owner's second review of the client
   (2026-10-27, judged by the review class at 1b37e0ef), three of this
   stage's, each P3 and none reaching a screen in a way the review
