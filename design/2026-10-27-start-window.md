@@ -147,8 +147,8 @@ Evidence and hypotheses behind the choices below:
   (`design/2026-11-04-long-message.md` §6), so no drawn character is
   near 1 KiB on its own and the preview is never the ellipsis alone. A
   body drawn as the plain-text fallback (past a nesting or table bound)
-  previews its first non-blank source line as written, its markdown
-  marks included, as the fallback draws them. Rows the window holds and rows it
+  previews its first non-blank source line with the white space
+  before and after it removed, its markdown marks included. Rows the window holds and rows it
   does not are cut the same way, so a preview does not change when its
   row loads. The row's accessible description (look §9,
   `ConversationDescription`) carries the same cut text. 160 is the
