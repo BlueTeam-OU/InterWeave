@@ -86,7 +86,8 @@ android {
 }
 
 // The native library, built by cargo-ndk for every ABI above: the debug
-// variant from cargo's dev profile, the release variant from --release.
+// variant from cargo's dev profile at the release opt-level, the release
+// variant from --release.
 listOf("Debug", "Release").forEach { variant ->
     val cargo = tasks.register<Exec>("cargoNdk$variant") {
         group = "build"
@@ -111,6 +112,14 @@ listOf("Debug", "Release").forEach { variant ->
                 "ANDROID_JAR",
                 sdk.sdkDirectory.get().asFile.resolve("platforms/android-36/android.jar").path,
             )
+            // The debug library is optimised too: unoptimised, opening a
+            // conversation holding one long message stalled the A40's UI
+            // thread 7.7 to 12.3 s, two of them ANRs, where the optimised
+            // library took 1.41 s (device-runs/2026-11-04-samsung-a40.md,
+            // "The pane on an optimised build"). Only the opt-level moves:
+            // the dev profile's debug assertions and overflow checks stay,
+            // and so does everything --release would drop.
+            if (variant == "Debug") environment("CARGO_PROFILE_DEV_OPT_LEVEL", "3")
         }
         // The release build is optimised; the debug build's Service
         // creates a first run's identity without asking (jni.rs's
