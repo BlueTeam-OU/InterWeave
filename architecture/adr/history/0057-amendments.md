@@ -97,6 +97,8 @@ nothing of its wiring is owed. The rule is unchanged: one committed pin
 governs the release run and the check job, and a stale pin after a
 `skia-bindings` bump or a feature change fails both.
 
-**Propagation.** Decision 4; this note; the log row; the digest entry's
-amendment line; plan §22's Android release paragraph, which said the wiring
-was "still owed at this writing".
+**Propagation.** Decision 4; this note; the log row; the 2026-10-20 log
+row's Effect, dated in place ("once devex-tooling wired its workflow to the
+script (#566, A 2026-11-05)"); the digest entry's amendment line; plan
+§22's Android release paragraph, which said the wiring was "still owed at
+this writing".
