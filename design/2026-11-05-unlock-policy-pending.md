@@ -272,7 +272,7 @@ faults.
 | F10 | §11, L1 and L3: the system prompt rises | the system prompt (the platform's) | the prompt's title, `UnlockPromptTitle` | A14, A17, A18, A19 |
 | F11 | §11, L1: that prompt cancelled | depending on the restart: on R, its Try again; for S2's Done, "Show recovery phrase"; for a discard's restart, the locked notice on Chats; for a network grant, the locked notice on the screen the grant was made on (Chats, or a conversation, under its app bar) | the focused control, as TalkBack reads it | A15, A16, identity note §10 item 10 |
 | F12 | §11, L2, and L3's prompt cancelled: the locked notice shows at a return after a cancel, or after the prompt of a launch or of another return is cancelled | the locked notice, on the screen the person is on (Chats, or a conversation, under its app bar) | the notice's text, as focus reads it | A17, A18, A19 |
-| F13 | §11, L4: the start refused while no window shows | nothing is shown then; at the next return or launch, F10 (L3) | — | A19 |
+| F13 | §11, L4: the start refused while no window shows | nothing is shown then; at the next return or launch, F10 (L3), or F12 (L2) after a cancel | — | A19 |
 | F14 | §11: Unlock granted and the client runs again, while the notice has focus | on Chats, the list heading (as F4); in a conversation, its composer | nothing for the notice's leaving | A20 |
 
 Keyboard: every line is a Tab stop in the order of §5, and Details is
@@ -462,6 +462,9 @@ Trust page (A13).
     (L3). Cancelled: the locked notice on the screen in front, focused.
   - The restart is refused with no window shown: no prompt rises and
     no notification is added. At the next return the prompt rises (L3).
+  - A prompt is cancelled, then Home, then the restart is refused with
+    no window shown: at the next return no prompt rises, and the locked
+    notice shows, focused (L2).
 - **A20** After A16 to A19, Unlock, granted, runs the refused restart
   again, once. The notice goes, and focus follows F14.
 
@@ -612,7 +615,7 @@ restart (Q5). They add no rule of their own.
 | L1 | The person, by an action on a screen in front: R's Try again, a discard's restart, S2's Done, a network grant (Q5) | Rises by itself, before anything else changes | R: stays on R, focus on Try again, nothing else changes. S2's Done: as `design/2026-10-19-android-identity.md` §10 item 10 says (Settings, focus on "Show recovery phrase"). A discard's restart: Chats, offline, with the locked notice focused. A network grant: the screen the grant was made on (Chats, or the open conversation), offline, with the locked notice focused |
 | L2 | A return to a live Activity (Home or Recents, then back; a recreation for a configuration change) after a prompt was cancelled or denied, with no start run since | Never by itself: ADR-0042 A 2026-10-20's exception | The locked notice and Unlock on the screen the person returns to, focused (F12). The bind runs silently if the 60 s window has opened meanwhile |
 | L3 | Any other start the Activity makes or retries while its window is in front: a launch (the Activity created anew in a process still running, after Back finished it or from a notification); a return with no prompt cancelled or denied since the last start that ran; a Stay-reachable restart refused while the window is in front | Rises by itself: at a launch before the Service binds, as at a cold launch (a launch is the Activity's creation, whatever the process) | The screen in front (Chats at a launch), offline, with the locked notice focused (F12) |
-| L4 | A Stay-reachable restart while no window shows | Never: the Service never prompts | Nothing is shown then. At the next return or launch the Activity's start is refused again, and L3 answers it. L2 cannot follow: the restart ran after any earlier cancel, and with no window no prompt can be cancelled |
+| L4 | A Stay-reachable restart while no window shows | Never: the Service never prompts | Nothing is shown then. At the next return or launch the Activity's start is refused again, and L3 answers it, or L2 if a prompt was cancelled or denied since the last start that ran. A refused start, this one included, is not a start that ran |
 
 In every case, a grant runs the refused restart again, once. Leaving
 while the prompt shows counts as a cancel. After a cancel, nothing
