@@ -739,6 +739,22 @@ fn a_reseal_toward_user_presence_is_known_to_need_the_person_before_the_start() 
     );
 }
 
+/// Only a refusal before the record is read leaves the custody step
+/// unrun, so the last start's unlock status stands (#577 review F2).
+#[test]
+fn only_a_paths_refusal_comes_before_the_custody_step() {
+    assert!(!IdentityRefused::Paths("x".to_owned()).custody_ran());
+    for ran in [
+        IdentityRefused::Unprovisioned,
+        IdentityRefused::RecoveryRequired(RecoveryCause::KeyMissing),
+        IdentityRefused::UserNotAuthenticated,
+        IdentityRefused::Unavailable("x".to_owned()),
+        IdentityRefused::Provisioning("x".to_owned()),
+    ] {
+        assert!(ran.custody_ran(), "{ran:?}");
+    }
+}
+
 /// Plan section 20 gate (a), the client clauses: a key the platform lost
 /// enters recovery, mints nothing, and the person's phrase restores the
 /// `PeerId` the record names -- which then unlocks at every later start.

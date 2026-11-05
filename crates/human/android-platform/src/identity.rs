@@ -63,6 +63,17 @@ pub enum IdentityRefused {
     Provisioning(String),
 }
 
+impl IdentityRefused {
+    /// Whether the start's custody step ran before this refusal: every
+    /// refusal but [`Paths`](Self::Paths), which comes before the record
+    /// is read. Where it did not run, the last start's unlock status
+    /// stands ([`crate::ServiceHost::refused_before_start_with`]).
+    #[must_use]
+    pub fn custody_ran(&self) -> bool {
+        !matches!(self, Self::Paths(_))
+    }
+}
+
 /// What a start does with a profile that has no record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FirstRun {
