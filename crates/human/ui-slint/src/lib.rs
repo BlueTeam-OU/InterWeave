@@ -3632,8 +3632,10 @@ struct DrawnBody {
     /// The drawn text alone, for the item's label: what a screen reader
     /// reads is the text, not the source's markup. A cut body's is its
     /// preview's, then its cut line (design/2026-11-04-long-message.md
-    /// section 9).
+    /// section 9): the formatted one, and as source the source's, so the
+    /// label says the cut line the mode shown draws.
     plain: String,
+    source_plain: String,
     /// The line under a cut body's preview, drawn formatted and as source;
     /// empty for a body that mode draws whole (section 4.2).
     cut_line: String,
@@ -3717,12 +3719,19 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         plain.push_str(&line.text);
     }
     let shown_line = cut_line(drawn.shown_percent);
-    if !shown_line.is_empty() {
-        plain.push('\n');
-        plain.push_str(&shown_line);
-    }
+    let with_line = |line: &str| {
+        let mut text = plain.clone();
+        if !line.is_empty() {
+            text.push('\n');
+            text.push_str(line);
+        }
+        text
+    };
+    let formatted_plain = with_line(&shown_line);
     let lines = body_lines(&body.lines);
     let (source_pieces, source_shown) = cut::source(&item.source);
+    let source_cut_line = cut_line(source_shown);
+    let source_plain = with_line(&source_cut_line);
     let source_pieces: Vec<SharedString> = source_pieces.into_iter().map(Into::into).collect();
     let link_rows: Vec<LinkRow> = body
         .links
@@ -3740,9 +3749,10 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         source_pieces: ModelRc::new(VecModel::from(source_pieces)),
         link_rows: ModelRc::new(VecModel::from(link_rows)),
         links: body.links,
-        plain,
+        plain: formatted_plain,
+        source_plain,
         cut_line: shown_line,
-        source_cut_line: cut_line(source_shown),
+        source_cut_line,
         card_photo: item
             .card
             .as_ref()
@@ -3802,6 +3812,11 @@ fn message_row(
         }
         None => (author.clone(), drawn.plain.clone()),
     };
+    let source_body = if item.card.is_some() {
+        body.clone()
+    } else {
+        drawn.source_plain.clone()
+    };
     let has_actions = actions.row_count() > 0;
     let mut values = vec![
         ("author", said_author.as_str()),
@@ -3817,9 +3832,17 @@ fn message_row(
         None => UiText::Item,
     };
     let label = fill(placeholder_en::text(template), &values);
+    // The same, with the cut line Show source draws (section 9).
+    for value in &mut values {
+        if value.0 == "body" {
+            value.1 = source_body.as_str();
+        }
+    }
+    let source_label = fill(placeholder_en::text(template), &values);
     MessageRow {
         handle,
         label: label.into(),
+        source_label: source_label.into(),
         author: author.into(),
         author_id: author_id.into(),
         status: status.text.as_str().into(),

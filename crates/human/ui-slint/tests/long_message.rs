@@ -460,3 +460,34 @@ fn the_reader_closes_when_its_row_leaves() {
     view.render(&model);
     assert!(!view.window().get_reader_open());
 }
+
+/// The bubble says the cut line the mode shown draws, and only then: a
+/// body whole formatted and cut as source says none formatted and the
+/// source's once Show source is chosen (section 9; review F2 of #565).
+#[test]
+fn the_cut_line_is_said_in_the_mode_that_draws_it() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let defs = (1..=60)
+        .map(|n| format!("[r{n}]: https://example.org/{n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    model.received(received(1, &alice, &format!("Intro.\n\n{defs}")));
+    open(&mut view, &mut model, &direct(&alice));
+    let row = rows(&view)[0].clone();
+    let line = row.source_cut_line.to_string();
+    assert!(!line.is_empty(), "control: cut as source");
+    let said = |view: &View| -> String {
+        ElementQuery::from_root(view.window())
+            .match_accessible_role(AccessibleRole::ListItem)
+            .find_all()
+            .into_iter()
+            .filter_map(|e| e.accessible_label().map(|l| l.to_string()))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    };
+    assert!(!said(&view).contains(&line), "formatted: no cut line said");
+    choose(&view, &row.label, text(UiText::ShowSource));
+    assert!(said(&view).contains(&line), "as source: {}", said(&view));
+}

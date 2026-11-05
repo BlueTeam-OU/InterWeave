@@ -260,6 +260,9 @@ export struct MessageRow {
     marks-above: int,
     // Short author, then status, then body (U5a).
     label: string,
+    // The same while the row shows its source: its cut line is the
+    // source's (design/2026-11-04-long-message.md section 9).
+    source-label: string,
     author: string,
     // The full PeerId of an inbound author, exact (§11, U5a); empty for
     // this client's own.
@@ -7514,7 +7517,7 @@ export component AppWindow inherits Window {
                         // line and Read the whole message (section 4).
                         property <string> cut-line: item.show-source ? row.source-cut-line : row.cut-line;
                         accessible-role: list-item;
-                        accessible-label: row.label;
+                        accessible-label: self.show-source ? row.source-label : row.label;
                         accessible-item-index: index;
                         accessible-item-count: root.messages.length;
                         changed has-focus => {
@@ -7533,7 +7536,8 @@ export component AppWindow inherits Window {
                         function open-menu() {
                             if (!row.has-menu) { return; }
                             root.open-row-menu(row.handle, row.actions, row.card ? "" : item.source-label,
-                                item.cut-line != "", item.show-source, row.label,
+                                item.cut-line != "", item.show-source,
+                                item.show-source ? row.source-label : row.label,
                                 bubble-column.absolute-position.x, bubble-column.absolute-position.y,
                                 bubble-column.width, bubble-column.height);
                         }
@@ -7886,7 +7890,8 @@ export component AppWindow inherits Window {
                                         // the bubble's start edge: in sight beside the line that
                                         // says there is more (section 4.3). Before the links, so
                                         // Tab reaches it after the bubble (section 9). Its words
-                                        // are in the bubble's label, so said once.
+                                        // are in the bubble's label for the mode shown, so said
+                                        // once (`the_cut_line_is_said_in_the_mode_that_draws_it`).
                                         if item.cut-line != "": Text {
                                             text: item.cut-line;
                                             wrap: word-wrap;
