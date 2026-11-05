@@ -17,7 +17,7 @@ answered too (Q3). §11, added for my job j96, specifies a restart that
 the screen lock refuses while the app process keeps running. rust-ui-dev
 traced that path in REPLY 01a1ada5, from their branch
 `develop-qzapp/rust-ui-dev-01/feat/j216-577-follow-up-the-activity-s`
-at cf55ad5a6. It has not been run on a device.
+at cf55ad5a6. That path has not been run on a device.
 
 Owner of the design: ux-designer. The words are language-culture's: §7
 names each string and what it must say. No new colour: the line is body
@@ -270,8 +270,8 @@ faults.
 | F8 | rotation, or the window resized, with focus on a line | the same line | nothing | A10 |
 | F9 | at one start, a line is replaced by another or its text changes: P → D, P → K, K with D → D, reason r → r′, D's locked text → D's running text at the unlock | if a line had focus: the first line now in that place; otherwise unchanged | when a P line ended, `UnlockApplied` first, or when the K line ended, `UnlockOldKeyRemoved` first; then the text of each line that is new or changed, politely, once each | A12 |
 | F10 | §11, L1 and L3: the system prompt rises | the system prompt (the platform's) | the prompt's title, `UnlockPromptTitle` | A14, A17, A18, A19 |
-| F11 | §11, L1: that prompt cancelled | by the restart: on R, its Try again; for S2's Done, "Show recovery phrase"; for a discard's restart, the locked notice on Chats; for a network grant, the locked notice on the screen the grant was made on (Chats, or a conversation's app bar) | the focused control, as TalkBack reads it | A15, A16, identity note §10 item 10 |
-| F12 | §11, L2, and L3's prompt cancelled: the locked notice shows at a return after a cancel, or after the prompt of a launch or of another return is cancelled | the locked notice, on whichever screen the person is (Chats, or a conversation's app bar) | the notice's text, as focus reads it | A17, A18, A19 |
+| F11 | §11, L1: that prompt cancelled | depending on the restart: on R, its Try again; for S2's Done, "Show recovery phrase"; for a discard's restart, the locked notice on Chats; for a network grant, the locked notice on the screen the grant was made on (Chats, or a conversation, under its app bar) | the focused control, as TalkBack reads it | A15, A16, identity note §10 item 10 |
+| F12 | §11, L2, and L3's prompt cancelled: the locked notice shows at a return after a cancel, or after the prompt of a launch or of another return is cancelled | the locked notice, on the screen the person is on (Chats, or a conversation, under its app bar) | the notice's text, as focus reads it | A17, A18, A19 |
 | F13 | §11, L4: the start refused while no window shows | nothing is shown then; at the next return or launch, F10 (L3) | — | A19 |
 | F14 | §11: Unlock granted and the client runs again, while the notice has focus | on Chats, the list heading (as F4); in a conversation, its composer | nothing for the notice's leaving | A20 |
 
@@ -421,7 +421,7 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
 availability mode foreground-only unless the item says otherwise. Each
 starts with InterWeave running and online in a process that is already
 running. Wait more than 60 s with the phone unlocked and **not**
-authenticating again, so that the window has closed. Where an item
+authenticating again, so that the 60 s window has closed. Where an item
 needs a refusal the phone cannot produce on demand (a store refusal,
 withheld network access, a background restart), a test hook of
 rust-ui-dev's stands in for it, named in the run's record. Without one,
@@ -430,7 +430,7 @@ offline while the locked notice shows, and §3's locked rules hold on the
 Trust page (A13).
 - **A14** L1, R's Try again: the system prompt rises by itself, titled
   `UnlockPromptTitle`, before anything else on the screen changes.
-  Granting it starts again, and R then follows the start's answer as
+  Granting it runs the restart again, and R then follows the start's answer as
   `design/2026-10-21-contact-cards.md` §7 says.
 - **A15** L1, R's Try again with the prompt cancelled: R stays, with focus
   on Try again and no other change. No prompt rises again until Try
@@ -444,17 +444,17 @@ Trust page (A13).
     made in an open conversation: the conversation stays open, with the
     locked notice focused under its app bar.
 - **A17** L2 and L3, a return: open a conversation and type a draft.
-  Press Home, wait past the window, and return from Recents. The prompt
+  Press Home, wait past the 60 s window, and return from Recents. The prompt
   rises (no prompt was cancelled since the last start that ran). Cancel
   it: the conversation is still open with its messages, the draft and
   its composer, and the locked notice is under its app bar, with focus
-  on it. Press Home and return again past the window: no prompt rises,
+  on it. Press Home and return again past the 60 s window: no prompt rises,
   and the notice keeps focus. Unlock, granted: the client runs, and
   focus is on the composer with the draft (F14). A return within 60 s
-  of unlocking the phone shows no notice and no prompt, and binds.
+  of unlocking the phone shows no notice and no prompt, and the bind runs.
 - **A18** L3, a launch in a live process: press Back on Chats, so that
   the Activity finishes and the process stays (`adb shell pidof` shows
-  the same pid). Wait past the window, then open InterWeave from the
+  the same pid). Wait past the 60 s window, then open InterWeave from the
   launcher. The prompt rises before Chats is online. Cancelled: Chats,
   offline, with the locked notice focused.
 - **A19** L4 and L3, under Stay reachable, by a hook:
@@ -499,7 +499,7 @@ Trust page (A13).
   reachable's limit is the one `human-client-ui.md` §14 already states.
 - **The discard's notice lost with the process** (§11, L1). If the
   process ends before Unlock, `StoreDiscarded` or `StoreRestored` never
-  shows. The person confirmed the deletion in its dialog, and the notice
+  shows. The person confirmed the deletion in the discard's dialog, and the notice
   is not stored, by `design/2026-10-21-contact-cards.md` §7.3.
 
 ## 10. Questions
@@ -555,10 +555,10 @@ Trust page (A13).
   while locked if the record's policy is unchanged.
 - **Q5 — architect-cto.** §11 sorts each refused restart in a running
   process by the rule `android-key-custody.md` (failure list) and
-  ADR-0042 A 2026-10-20 already state: the prompt answers a refusal,
-  except the start retried when a live Activity continues after a
-  cancelled or denied prompt, which the notice and Unlock answer, and
-  the Service never prompts. The rule's list of
+  ADR-0042 A 2026-10-20 already state. The prompt answers a refusal,
+  with one exception: the start retried when a live Activity continues
+  after a cancelled or denied prompt, which the notice and Unlock
+  answer. The Service never prompts. The rule's list of
   refusals that the prompt answers does not name three restarts: R's Try
   again, a discard's restart, and a restart after network access is
   granted. §11 treats them as the person's own action (L1). Is that the
@@ -586,14 +586,15 @@ or after the policy changed while the app ran. The restarts that meet
 it:
 - R's Try again (`design/2026-10-21-contact-cards.md` §7.1);
 - the restart after a discard (§7.3 there);
-- the restart after Show my phrase's Done;
+- the restart after S2's Done (Show my phrase,
+  `design/2026-10-19-android-identity.md` §3.5);
 - the restart after network access is granted;
 - a new Service, bound by an Activity that already exists or that is
   created in the same process;
 - a Stay-reachable restart in the background.
 
-**The rule.** A process that keeps running changes nothing the person
-sees. Every refusal is answered as `android-key-custody.md` (failure
+**The rule.** Whether the process keeps running changes nothing the
+person sees. Every refusal is answered as `android-key-custody.md` (failure
 list) and ADR-0042 A 2026-10-20 answer it in a fresh process:
 - **The prompt answers a refusal** (the Activity raises it; the Service
   never prompts).
@@ -609,14 +610,14 @@ restart (Q5). They add no rule of their own.
 | Case | What started the restart | Prompt | After a cancel, or with no prompt |
 |---|---|---|---|
 | L1 | The person, by an action on a screen in front: R's Try again, a discard's restart, S2's Done, a network grant (Q5) | Rises by itself, before anything else changes | R: stays on R, focus on Try again, nothing else changes. S2's Done: as `design/2026-10-19-android-identity.md` §10 item 10 says (Settings, focus on "Show recovery phrase"). A discard's restart: Chats, offline, with the locked notice focused. A network grant: the screen the grant was made on (Chats, or the open conversation), offline, with the locked notice focused |
-| L2 | A return to a live Activity (Home or Recents, then back; a recreation for a configuration change) after a prompt was cancelled or denied, with no start run since | Never by itself: ADR-0042 A 2026-10-20's exception | The locked notice and Unlock on the screen the person returns to, focused (F12). The bind runs silently if the window has opened meanwhile |
+| L2 | A return to a live Activity (Home or Recents, then back; a recreation for a configuration change) after a prompt was cancelled or denied, with no start run since | Never by itself: ADR-0042 A 2026-10-20's exception | The locked notice and Unlock on the screen the person returns to, focused (F12). The bind runs silently if the 60 s window has opened meanwhile |
 | L3 | Any other start the Activity makes or retries while its window is in front: a launch (the Activity created anew in a process still running, after Back finished it or from a notification); a return with no prompt cancelled or denied since the last start that ran; a Stay-reachable restart refused while the window is in front | Rises by itself: at a launch before the Service binds, as at a cold launch (a launch is the Activity's creation, whatever the process) | The screen in front (Chats at a launch), offline, with the locked notice focused (F12) |
 | L4 | A Stay-reachable restart while no window shows | Never: the Service never prompts | Nothing is shown then. At the next return or launch the Activity's start is refused again, and L3 answers it, or L2 if a prompt was cancelled since |
 
 In every case, a grant runs the refused restart again, once. Leaving
 while the prompt shows counts as a cancel. After a cancel, nothing
 raises the prompt again by itself: the person's next action does, or
-Unlock does. Both rules are the identity note's (§6, and §10 item 10).
+Unlock does. Both rules come from the identity note (§6, and §10 item 10).
 
 **What Chats and a conversation show while locked, in a running
 process.**
@@ -649,10 +650,10 @@ process.**
   defect.
 - Consistency. The rule is the same in every process: the prompt or
   the notice comes at the same moments as at a fresh start.
-- User control. The custody failure list's rule that a person who
+- User control: the custody failure list's rule that a person who
   declined is not asked again each time they switch back in (L2).
 
 **Built by** rust-ui-dev. They route `UserNotAuthenticated` to the locked
-notice, and make a grant restart the bound Service (their REPLY). They
+notice, and make a grant restart the bound Service (REPLY 01a1ada5). They
 also choose how the Activity tells a launch from a return, which is
 theirs as long as A17 to A19 pass.
