@@ -446,6 +446,84 @@ fn a_held_profile_is_not_resealed_and_the_record_is_left() {
     );
 }
 
+/// Sets the identity directory's mode for as long as it lives, and puts
+/// it back after, so the tempdir can be removed.
+struct DirMode(std::path::PathBuf);
+
+impl DirMode {
+    fn set(app: &App, mode: u32) -> Self {
+        let dir = custody::custody_file(&paths(app))
+            .parent()
+            .expect("the identity directory")
+            .to_path_buf();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).expect("chmod");
+        Self(dir)
+    }
+}
+
+impl Drop for DirMode {
+    fn drop(&mut self) {
+        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+    }
+}
+
+/// A reseal whose write landed but whose directory could not be synced has
+/// the record under the configured policy and the old key not retired:
+/// `OldKeyRemains`, never `Storage`, which means nothing was written
+/// (design 2026-11-05-unlock-policy-pending.md section 3). The control: a
+/// directory the write cannot create in is `Storage`, the record as it
+/// was.
+#[test]
+fn an_unsynced_reseal_is_old_key_remains_and_a_failed_write_is_storage() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    configure_policy(&app, "user-presence");
+    let before = record(&app);
+
+    let unwritable = DirMode::set(&app, 0o500);
+    let refused = reseal_identity(&app.dir, PROFILE, &keystore, &first);
+    drop(unwritable);
+    assert!(
+        matches!(
+            refused,
+            Ok(Resealed::Pending {
+                why: ResealFailure::Storage,
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(record(&app), before, "nothing written");
+
+    let unsyncable = DirMode::set(&app, 0o300);
+    if std::fs::File::open(&unsyncable.0).is_ok() {
+        println!("skipped: 0o300 did not block opening the directory here");
+        return;
+    }
+    let unsynced = reseal_identity(&app.dir, PROFILE, &keystore, &first);
+    drop(unsyncable);
+    assert!(
+        matches!(
+            unsynced,
+            Ok(Resealed::Pending {
+                why: ResealFailure::OldKeyRemains,
+                ref detail,
+            }) if detail.contains("Unsynced")
+        ),
+        "{unsynced:?}"
+    );
+    assert_ne!(record(&app), before, "the new record is in place");
+    assert_eq!(
+        custody::recorded_policy(&paths(&app)),
+        Ok(Some(KeyUnlockPolicy::UserPresence))
+    );
+    assert!(
+        holds_key(&keystore, &app, KeyUnlockPolicy::BackgroundCompatible),
+        "the old key is not retired"
+    );
+}
+
 /// Plan section 20 gate (a), the client clauses: a key the platform lost
 /// enters recovery, mints nothing, and the person's phrase restores the
 /// `PeerId` the record names -- which then unlocks at every later start.

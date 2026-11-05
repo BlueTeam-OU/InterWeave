@@ -185,6 +185,14 @@ pub fn reseal_identity(
     };
     let why = match refused {
         CustodyRefused::Cipher(_) | CustodyRefused::CipherShape => ResealFailure::Keystore,
+        // An unsynced write is in place, under the configured policy, with
+        // the old policy's key not retired: what `OldKeyRemains` says, and
+        // what the status shows (design 2026-11-05-unlock-policy-pending.md
+        // section 3). Asked of the record rather than assumed, so a
+        // `Storage` refusal always means nothing was written.
+        CustodyRefused::Storage(PersistError::Unsynced(_)) if matches!(custody::recorded_policy(&paths), Ok(Some(p)) if p == policy) => {
+            ResealFailure::OldKeyRemains
+        }
         CustodyRefused::Storage(_) => ResealFailure::Storage,
         CustodyRefused::OldKeyRemains(_) => ResealFailure::OldKeyRemains,
         // The record changed or vanished between the unlock and the
