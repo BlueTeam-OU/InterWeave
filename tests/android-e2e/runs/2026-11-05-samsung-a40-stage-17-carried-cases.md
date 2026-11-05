@@ -22,6 +22,9 @@ An earlier run, 2026-11-04 22:20 UTC, is not counted here: the app on the
 phone then was another branch's build, installed over `5d84c6b0` an hour
 before, which was found only the next morning. That run is the
 evidence for the two harness fixes it prompted (below), nothing more.
+Its `secure_span_recovery_words` attempt at 22:26 UTC, on that other
+build, raised the prompt (`prompt=phrase`) and nobody answered it
+within 180 s; the case was run again on `5d84c6b0` (below).
 
 ## Results
 
@@ -38,14 +41,12 @@ evidence for the two harness fixes it prompted (below), nothing more.
 
 Attempts that failed and were run again, each for a reason stated:
 
-- `secure_span_recovery_words` at 2026-11-04 22:26 UTC: the prompt was
-  raised (`prompt=phrase`) and nobody answered it within 180 s.
 - `presence_prompt_and_cancel` and `keystore_user_presence_unlock` at
   11:58 and 12:00 UTC (host `78947f4b`): the locked launch passed, then
   "the credential prompt raised at the launch: not within 30s". The
   prompt was up; the harness looked for AOSP's window title only (the
   third harness fix below).
-- `keystore_user_presence_unlock` at 12:07 UTC: the Unlock prompt was
+- `keystore_user_presence_unlock` at 12:07 UTC (host `04e2b7b3`): the Unlock prompt was
   raised (`prompt=unlock`) and the owner, by their account, did not see
   it in time.
 
