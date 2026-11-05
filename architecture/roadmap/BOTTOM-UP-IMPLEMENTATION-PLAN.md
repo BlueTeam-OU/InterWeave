@@ -5294,7 +5294,7 @@ shows the drop and the return told to the runtime in one process
 owner's of 2026-10-31, not the case passing — and the item needs a run
 where adb returns on its own (toggling `adb_wifi_enabled` off and on
 again was not tried, the record says), or a USB link, which the owner
-said is awkward on this host (p2p-network-dev-02's INFO 01a1ac83);
+said is awkward on this host (p2p-network-dev-02's INFO 01a1ac83-81ed);
 the TalkBack items travel with the release gate's TalkBack carry
 (Decided 2026-10-18); (c) `tests/android-e2e` proves the exchange both
 directions over a direct and a relayed path, plain and `;ce=br`, every
