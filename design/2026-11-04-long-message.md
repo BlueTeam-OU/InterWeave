@@ -9,11 +9,9 @@ alternative (§2). architect-cto ruled on its four product questions
 with §6's figures and conditions (Q2, same reply); and what is counted
 is what is drawn (Q4, REPLY 01a1a8dd-a73d, §6), written on #562;
 and a cluster past 32 code points is drawn as one replacement mark
-(Q5, DECISION 01a1a928-0d26, §6). Until #562's amendment is on
-`main`, the build waits for it (Q5's rule lands with rust-ui-dev's fix
-and does not hold the build; aligning the contract's "raw source
-viewable" to it is architect-cto's), and it must carry §6's current figures (2 000
-and 40, lowered after the ruling: §11 Q2). Where the two ever differ,
+(Q5, DECISION 01a1a928-0d26, §6). Both are on `main` in HUMAN-CHAT.md
+(#562's Bounds with §6's figures, 2 000 and 40; #563's Clusters bullet,
+with "raw source viewable" aligned to it). Where the two ever differ,
 the contract governs only with figures that keep §6's ceiling
 condition; a contract figure that does not is raised with architect-cto
 before anything is built to it.
@@ -24,6 +22,13 @@ names each string and what it must say. Colours are roles of
 Slint UI (`crates/human/ui-slint`) from the same `ui-model`; "narrow"
 and "wide" are the layouts `app.slint` already has. Built by
 rust-ui-dev.
+
+Revised 2026-11-05 (my job j92) for what #561's review carried and the
+contract settled after it: what a screen reader says for a replacement
+mark and how a draft's replaced cluster reaches the person (§6, §8,
+A12), the notification's text, which the contract now names as drawn
+by the client (§6, §7), C4's layout so that its Chats subtitle is
+checked (A12), and A7 in §9's "Reader closed" row.
 
 **What this note revises.** For a body past §6's bound, it replaces
 the look spec's edge case "A very long message"
@@ -41,7 +46,10 @@ grows from 48 dp up to six lines, then scrolls inside itself (§11 Q3,
 A11). And, for a grapheme cluster of more than 32 code points (§6,
 §11 Q5), it revises what `design/2026-10-27-start-window.md` §3 draws
 in the Chats list's subtitle and what the look spec's Show source
-shows: one replacement mark in place of the cluster.
+shows: one replacement mark in place of the cluster; and its preview
+bound's sentence that such a first character previews as the ellipsis
+alone, now one mark (start-window §3, its item 11a revised with this
+note).
 
 ## 1. What is already decided
 
@@ -282,7 +290,7 @@ list item, a table row, a code line, a heading, a rule), however it
 wraps, and each link's control, drawn as a line of its own (§4.1),
 counts as one. **What is counted is what the app draws**, each time it
 draws it (architect-cto's ruling of Q4, §11, in HUMAN-CHAT.md's Bounds
-on #562, not yet on `main`): the drawn text; every link control's label
+on `main` since #562): the drawn text; every link control's label
 as shown — its own words and the destination made visible, a hidden
 character spelled as a code — once per link in the body, so an
 autolink counts its text and its label, and a reference link used
@@ -306,18 +314,47 @@ it, in every place the client draws the body — the row, the preview,
 the Chats list's subtitle, Show source, the plain-text fallback and the
 reader, and any later view that draws a body (the ruling also names a
 reply quote, which the build does not draw today: its reply line is
-fixed words) — and counted as one character. The notification's text
-is drawn by the platform, not the client, and the ruling does not name
-it; it is unchanged. A link whose control's label, as shown — hidden
+fixed words) — and counted as one character. A notification's text is
+the client's too (HUMAN-CHAT.md Clusters, "the text the client hands
+the platform to show"): it carries the mark, never the cluster. The
+build's notice carries no message text today (its words are fixed), so
+nothing in it changes. A link whose control's label, as shown — hidden
 code points already spelled as codes — would still hold such a cluster
 gets no control, as a label past 2 000 characters does. How it looks is this note's: the font's own
 replacement glyph, as the platform draws U+FFFD everywhere else, with
 no words on screen and nothing added to the cut line. Ordinary writing
 puts a few marks on a character at most; a cluster past 32 is a stack
 of marks, not text a person reads, and the platform's sign for "this
-could not be shown" says that without a sentence. TalkBack reads it as
-the platform reads U+FFFD. Nothing is lost: Copy message source
-carries the cluster byte for byte (§5.3).
+could not be shown" says that without a sentence. Nothing is lost:
+Copy message source carries a received cluster byte for byte (§5.3).
+
+**Spoken, the mark is never silent.** A screen reader that reaches it
+— TalkBack on Android, the desktop's screen reader (Orca on Linux) —
+says something for it, because a sighted person sees that something
+is there and a listener must hear the same. Where the platform's
+reading of U+FFFD says something (its name for the symbol, as for any
+other), that reading is used and nothing is added. Where it says
+nothing, the client's accessible text puts `ReplacedCharacter` (§8) in
+place of each mark: in the bubble's `Item` label, the Chats row's
+description, the reader's blocks and Show source. The composer's draft
+is the platform's own editable text, so it keeps the platform's
+reading whatever it is; that limit is recorded, not built around.
+Which case holds on each platform is A12's measurement; the words on
+screen stay none in either case.
+
+**In the draft, the mark is the only notice.** A cluster past 32 code
+points that the person pastes or types is replaced in the draft at
+once (HUMAN-CHAT.md Clusters: "so what is sent is what was shown"),
+and nothing else announces it: no snackbar, no spoken notice. The mark
+stands in the field where the cluster went, before Send, so nothing
+leaves unseen (error prevention, Nielsen's heuristic 5, met by showing
+the change before the commit); text a conforming producer writes never
+holds such a cluster (the contract's Stream-Safe figure), so what it
+touches is a stack of marks pasted for its look; and a notice of its
+own would say again what the mark says, which a listener hears when
+they review the draft, by the rule above. That is a judgement, not a
+measurement: a report of a person who sent marks they did not see comes
+back to ux-designer, and the notice is designed then.
 
 The gap between the two figures is there so that a body just over the
 bound is never cut to hide only its last sentence or two.
@@ -372,8 +409,8 @@ Why these figures, and the conditions any other figures must keep:
 - Keep is on the row and keeps the whole message. A person who wants
   to come back to a long message after the app closes keeps it; the
   cut line is what tells them there is more to come back to.
-- The chat list's one-line subtitle is unchanged but for §6's
-  replacement mark; the notification's text is unchanged.
+- The chat list's one-line subtitle, and any notification text, are
+  unchanged but for §6's replacement mark.
 
 ## 8. Strings
 
@@ -390,6 +427,7 @@ are that locale's holder's.
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
 | `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied | Could not copy the message |
+| `ReplacedCharacter` | never on screen: a screen reader's text in place of a replacement mark, only where the platform reads U+FFFD as nothing (§6) | that one character is there which the app does not show; a word or two, spoken in the middle of the text around it | (requested of language-culture-en) |
 
 Show source and Show formatted reuse the row's existing labels.
 
@@ -400,7 +438,7 @@ Show source and Show formatted reuse the row's existing labels.
 | case | focus goes to | check |
 |---|---|---|
 | Read the whole message pressed (button or menu) | the reader's first content element: on Android, TalkBack's focus on the app bar's title (the sender), then `ReaderSent` next; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
-| Reader closed (Back, Escape) | the row's Read the whole message button | A6 |
+| Reader closed (Back, Escape) | the row's Read the whole message button | A6; A7 after a mode switch |
 | Reader closed because its row left (§5.4) | stays where the person's act in the list left it | A7 |
 | Show source / Show formatted in the reader | stays on the action pressed | A6 |
 | Copy pressed in the reader's app bar | stays on Copy | A6 |
@@ -413,7 +451,8 @@ Show source and Show formatted reuse the row's existing labels.
   the preview's text followed by the cut line's sentence — never the
   whole body. Then, as their own stops, Read the whole message, the
   preview's link controls, and the row's next element. The button's
-  label is its own string.
+  label is its own string. A replacement mark anywhere is spoken as §6
+  says.
 - **Keyboard** (desktop): Tab reaches Read the whole message after the
   row's bubble and before its links; in the reader, Tab goes to Back,
   then Show source (or Show formatted), Copy and the scroll area; Up,
@@ -447,7 +486,7 @@ size A12 gives it. Each is checked in formatted and source mode, at 100 % and
 200 % text, left to right and right to left.
 
 **Precondition on Android** for every TalkBack check below (A6's
-Android half, A8): an accessibility adapter that lets TalkBack reach
+Android half, A8, A12's spoken marks): an accessibility adapter that lets TalkBack reach
 the app. The Android build has none today
 (`apps/human-android/device-runs/2026-11-04-samsung-a40.md`); without
 it, those checks are blocked, never passed.
@@ -541,18 +580,28 @@ it, those checks are blocked, never passed.
   link with a 20-character text to an `https` destination of 30
   characters whose last character is the cluster, so that its label as
   shown holds the cluster, is far under 2 000, and only the cluster
-  rule can take its control away; **C4**, the cluster inside 17 nested
-  block quotes, past the nesting bound, so that the body is drawn as
-  the plain-text fallback. The cluster is drawn as one replacement
-  mark, never part of it, wherever the body draws it: in the row (C1,
-  C2, C4), the Chats list's subtitle (C1, C2: the cluster opens the
-  line), the preview (C2), Show source (all four), the plain-text
+  rule can take its control away; **C4**, one line: 17 `>` markers, a
+  space and the cluster, so that 17 nested block quotes pass the nesting
+  bound and the body is drawn as the plain-text fallback. The cluster is
+  drawn as one replacement mark, never part of it, wherever the body
+  draws it: in the row (C1, C2, C4), the Chats list's subtitle (C1, C2:
+  the cluster opens the line; C4: the line as written, the 17 markers,
+  the space and one mark, start-window §3), the preview (C2), Show
+  source (all four), the plain-text
   fallback (C4) and the reader (C2). The mark counts as one character:
   C1 is whole (A1), C2 is cut and its cut line's percentage counts the
   mark as one. C3 has no control, its text drawn inert with no mark in
   its row, and is whole, so A3 does not apply to it. Copy message
-  source carries the cluster whole in each (A9). TalkBack's reading of
-  the mark is reported, under §10's Android precondition.
+  source carries the cluster whole in each (A9). A screen reader
+  reaching the mark in C1's row, its Chats row, C2's reader and C1's
+  Show source says something for it (§6): on the desktop by Orca, on
+  the Pixel by TalkBack under §10's Android precondition; the run
+  records what each says, and where it is the platform's silence, the
+  build's `ReplacedCharacter` is what is heard. C1's source pasted into
+  a draft shows one mark in the draft at once, before Send, with no
+  other notice; the message sent carries U+FFFD there and every other
+  character; what each screen reader says for the mark in the draft is
+  recorded, whatever it is (§6's limit).
 
 **H1** (the hypothesis of §2, unvalidated): a person given a
 conversation with a long pasted log in its middle, asked to find the
@@ -577,7 +626,7 @@ miss the cut line, or look for the next message inside the reader.
   rust-ui-dev (a line-box cap with paged source), so both read this
   rule. The ruling took the first figures, 2 400 and 48; §6 lowered
   them to 2 000 and 40 after it, and architect-cto was told (INFO
-  01a1a8a6-fc67). The build waits for the amendment carrying them.
+  01a1a8a6-fc67). The amendment carrying them is on `main` (#562).
 - **Q3 — rust-ui-dev**: does the composer draw a draft at the ceiling
   without the same panic? **Answered** (#561, rust-ui-dev's j92 note):
   no, a draft of many lines panics the desktop at scale 1 and 2. What
@@ -598,7 +647,7 @@ miss the cut line, or look for the next message inside the reader.
   the count is of what is drawn, once per drawing; a link whose label
   would pass the figures gets no control and is drawn inert, its label
   never cut; the preview carries a control only with its whole label
-  (§4.1, §6). The build waits for #562 on `main`.
+  (§4.1, §6). On `main` since #562.
 - **Q5 — architect-cto** (asked of them by rust-ui-dev's measurement,
   OBSERVATION 01a1a923-4ca1): a grapheme cluster of hundreds of code
   points stops the desktop client wherever it is drawn. **Ruled**
@@ -607,7 +656,7 @@ miss the cut line, or look for the next message inside the reader.
   place, Show source included, and counts as one. HUMAN-CHAT.md's "raw
   source viewable" is then met for such a cluster by Copy message
   source, which carries it byte for byte, and not by Show source; the
-  contract's text is architect-cto's to align. How the mark looks is
+  contract's text says so (HUMAN-CHAT.md, on `main` since #563). How the mark looks is
   this note's (§6).
 
 Left out on purpose: a hint on screen for a link drawn inert (§6);
