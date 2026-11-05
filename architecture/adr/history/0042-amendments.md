@@ -1,5 +1,51 @@
 # ADR-0042 — amendment history
 
+### Amendment 2026-11-05 — A reseal that fails otherwise than `UserNotAuthenticated` never refuses the start; the pending policy change is shown by name
+
+**Trigger.** p2p-network-dev-02 found that `custody::reseal` had no
+caller (OBSERVATION 01a1abab), so a changed `key_unlock_policy` was never
+applied on Android; rust-ui-dev-01's j213 branch calls it at the service
+start, after the unlock and before the host takes the profile lock, and
+asked (QUESTION 01a1abeb-f9ea) what a reseal refused for any reason other
+than `UserNotAuthenticated` — the Keystore unavailable, a write that
+failed, `ProfileLocked`, `OldKeyRemains` — does to the start, which the
+2026-10-10 (ii) and 2026-10-20 amendments left unsaid.
+
+**Ruled.** The start goes on. In every such case the record on disk still
+opens to the identity just unlocked, under its own authenticated policy
+byte, so the start takes that identity and retries the reseal at every
+start until one succeeds. The refusal is logged as `Unavailable` is, and
+while the record's policy differs from the configured one, or the other
+policy's key remains (`OldKeyRemains`: the record is written under the
+configured policy, so the policy test alone would show nothing while a
+pre-change copy may still open), the status model exposes the pending
+change by name, where
+`background_restart_requires_user_authentication` belongs (its predicate
+is tested, nothing emits it yet: the plan's §20 carried list), with the
+reason; a
+configured policy is thus neither a dead letter nor a silent one.
+`ProfileLocked` is not a reseal outcome: another holder has the profile,
+and the start's own lock take answers it. `OldKeyRemains` was already a
+written record that opens (the 2026-10-10 "retire after the write" note),
+so it was never a refusal.
+
+**Rejected.** Refusing the start until the reseal succeeds: it keeps the
+person offline for a fault the unlock itself survived (a full disk, a
+Keystore fault), and protects nothing, since the record's weaker policy is
+the one the profile ran under before the change — going on widens nothing
+over the day before. Refusing only when the change is toward
+`user-presence`: the same reasoning, and a configured policy that cannot
+be applied is better shown than enforced by an outage.
+
+**Not changed.** `UserNotAuthenticated` at the reseal keeps the
+2026-10-20 answer (the prompt, then a retried start); the retire-after-
+write order; the closed failure set of the seam; the record's policy byte
+governing opening.
+
+**Propagated.** `android-key-custody.md` §Reseal and the policy byte; the
+digest entry. The diagnostic's name and the status-model member are
+rust-ui-dev's to shape on the j213 branch, under this rule.
+
 ### Amendment 2026-10-10 — The IWK1 v1 envelope is the identity record's format; the platform cipher is a seam with a closed failure set; SPIKE-009's client-side clauses are steps 7–8's tests
 
 **Trigger.** SPIKE-009 closed PASS on 2026-10-09 and its Result 5 adopted the IWK1 v1 envelope as the Android identity envelope format, saying the contract text — this amendment and `android-key-custody.md` — lands with §20 step 6's batch. p2p-network-dev-02 built the custody path on `feat/android-keystore-custody` (61941264: `crates/transport/embedded/src/custody.rs`, fifteen host tests over real files with a software AES-GCM seam) and named the facts the record states (01a1258c).
