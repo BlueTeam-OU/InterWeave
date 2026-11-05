@@ -620,6 +620,10 @@ impl View {
             .strip_prefix("item:")
             .and_then(|h| h.parse::<i32>().ok())
             .and_then(|h| self.item_handles.key_of(h).copied());
+        // The message open in the reader is the person's place while it is
+        // open, which the session's bound passes over as it does a focused
+        // item (design/2026-11-04-long-message.md section 5.4).
+        let focused = self.reader.as_ref().map(|open| open.key).or(focused);
         // Handles of rows no longer drawn are dropped: a row that goes
         // says nothing as it goes.
         let drawn: HashSet<i32> = self

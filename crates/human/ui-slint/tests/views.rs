@@ -2768,10 +2768,12 @@ fn a_long_line_is_drawn_in_pieces_that_meet_with_no_gap() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
+    // Past a piece's bounds, within a whole body's (2,000 characters, 40
+    // lines), so the row draws it whole, in pieces, not cut to a preview.
     let code = (0..=PIECE_LINES)
-        .map(|n| format!("let x{n} = {n};"))
+        .map(|n| format!("x{n}"))
         .collect::<Vec<_>>();
-    let run = "word ".repeat(PIECE_GRAPHEMES / 4);
+    let run = "word ".repeat(PIECE_GRAPHEMES / 5 + 10);
     model.received(received(
         1,
         &alice,
