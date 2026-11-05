@@ -536,18 +536,17 @@ it, those checks are blocked, never passed.
 - **A12** Four bodies, each holding one cluster of 256 code points:
   **C1**, a paragraph of 2 000 characters whose first character is the
   cluster; **C2**, the same paragraph at 2 400 characters; **C3**, a
-  message that is one link whose text is 20 characters, the cluster
-  among them, to a destination of 30 characters, so that its label is
-  far under 2 000 and only the cluster rule can take its control
-  away; **C4**, the cluster inside 17 nested block quotes, past the
+  message that is one link with a 20-character text to an `https`
+  destination of 30 characters whose last character is the cluster,
+  so that its label as shown holds the cluster, is far under 2 000,
+  and only the cluster rule can take its control away; **C4**, the cluster inside 17 nested block quotes, past the
   nesting bound, so that the body is drawn as the plain-text fallback.
   In each, the cluster is drawn as one replacement mark, never part of
   it: in the row, the Chats list's subtitle (C1, C2: the cluster opens
   the line), the preview (C2), Show source, the plain-text fallback
   (C4) and the reader (C2). The mark counts as one character: C1 is
   whole (A1), C2 is cut and its cut line's percentage counts the mark
-  as one. C3 has no control, its text drawn inert with the mark, and
-  is whole, so A3 does not apply to it. Copy message source carries
+  as one. C3 has no control, its text drawn inert, and is whole, so A3 does not apply to it. Copy message source carries
   the cluster whole in each (A9). TalkBack's reading of the mark is
   reported, under §10's Android precondition.
 
