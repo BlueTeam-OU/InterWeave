@@ -171,7 +171,11 @@ pub fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Body {
 /// `whole`'s lines in pieces within the bounds, its links as they are.
 pub(crate) fn pieced(whole: Whole) -> Body {
     Body {
-        lines: whole.lines.into_iter().flat_map(Line::into_pieces).collect(),
+        lines: whole
+            .lines
+            .into_iter()
+            .flat_map(Line::into_pieces)
+            .collect(),
         links: whole.links.into_iter().map(|(_, link)| link).collect(),
     }
 }

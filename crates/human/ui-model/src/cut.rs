@@ -133,7 +133,9 @@ struct Counts {
 
 impl Counts {
     fn of(units: &[Unit<'_>]) -> Self {
-        units.iter().fold(Self::default(), |n, unit| n.plus(unit.cost()))
+        units
+            .iter()
+            .fold(Self::default(), |n, unit| n.plus(unit.cost()))
     }
 
     const fn plus(self, other: Self) -> Self {
@@ -278,8 +280,17 @@ impl Preview {
                 line.text.push_str(ELLIPSIS);
             } else {
                 // A code line's own break, which nothing follows.
-                while line.text.graphemes(true).next_back().is_some_and(body::is_line_break) {
-                    let last = line.text.grapheme_indices(true).next_back().map_or(0, |(at, _)| at);
+                while line
+                    .text
+                    .graphemes(true)
+                    .next_back()
+                    .is_some_and(body::is_line_break)
+                {
+                    let last = line
+                        .text
+                        .grapheme_indices(true)
+                        .next_back()
+                        .map_or(0, |(at, _)| at);
                     line.text.truncate(last);
                 }
             }
@@ -349,7 +360,9 @@ fn preview(units: &[Unit<'_>]) -> Preview {
 /// The preview ending after `units[last]`, at a block boundary.
 fn stop_after(units: &[Unit<'_>], last: usize, at: Counts) -> Preview {
     let unit = &units[last];
-    let ends_line = units.get(last + 1).is_none_or(|next| next.line != unit.line);
+    let ends_line = units
+        .get(last + 1)
+        .is_none_or(|next| next.line != unit.line);
     if ends_line {
         Preview {
             whole_lines: unit.line + 1,
@@ -373,10 +386,7 @@ type Stop = Option<(usize, Counts)>;
 /// share, as the Chats preview's does (section 4.1) -- with what is
 /// shown up to it; the same for the last character boundary; and whether
 /// the figure that cuts is the lines'.
-fn inside(
-    unit: &Unit<'_>,
-    taken: Counts,
-) -> (Stop, Stop, bool) {
+fn inside(unit: &Unit<'_>, taken: Counts) -> (Stop, Stop, bool) {
     let mut graphemes = taken.graphemes;
     let mut lines = taken.lines + 1;
     let mut cap = unit.text.len();
@@ -544,7 +554,10 @@ mod tests {
 
     #[test]
     fn lines_cut_by_the_line_figure_end_at_a_block() {
-        let body = (1..=60).map(|n| format!("- {n}")).collect::<Vec<_>>().join("\n");
+        let body = (1..=60)
+            .map(|n| format!("- {n}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let cut = drawn(&body);
         assert_eq!(cut.body.lines.len(), PREVIEW_LINES);
         assert_eq!(cut.body.lines.last().map(|l| l.text.as_str()), Some("32"));
@@ -552,7 +565,10 @@ mod tests {
 
     #[test]
     fn a_code_block_is_cut_between_its_lines() {
-        let code = (1..=60).map(|n| format!("line {n}")).collect::<Vec<_>>().join("\n");
+        let code = (1..=60)
+            .map(|n| format!("line {n}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let cut = drawn(&format!("```\n{code}\n```"));
         let shown = text(&cut);
         assert!(shown.ends_with("line 32"), "{shown:?}");
@@ -561,7 +577,10 @@ mod tests {
 
     #[test]
     fn a_table_cut_between_rows_keeps_its_header() {
-        let rows = (1..=60).map(|n| format!("| {n} |")).collect::<Vec<_>>().join("\n");
+        let rows = (1..=60)
+            .map(|n| format!("| {n} |"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let cut = drawn(&format!("| head |\n|---|\n{rows}"));
         assert_eq!(cut.body.lines[0].text, "head");
         assert_eq!(cut.body.lines.len(), PREVIEW_LINES);
@@ -570,7 +589,9 @@ mod tests {
     #[test]
     fn a_link_control_is_in_the_preview_only_with_its_text_and_whole_label() {
         let words = vec!["word"; 600].join(" ");
-        let cut = drawn(&format!("[early](https://e.org/a)\n\n{words} [late](https://e.org/b)"));
+        let cut = drawn(&format!(
+            "[early](https://e.org/a)\n\n{words} [late](https://e.org/b)"
+        ));
         assert_eq!(cut.body.links, ["https://e.org/a"]);
         // The share counts the shown label.
         let without = drawn(&format!("early\n\n{words} [late](https://e.org/b)"));
@@ -601,7 +622,10 @@ mod tests {
         // The mark and 1,599 b's, then the ellipsis: 1,600 / 2,400 -- not
         // the word boundary after the mark, 1 / 2,400.
         assert_eq!(cut.shown_percent, Some(66));
-        assert_eq!(graphemes(text(&cut).trim_end_matches(ELLIPSIS)), PREVIEW_GRAPHEMES);
+        assert_eq!(
+            graphemes(text(&cut).trim_end_matches(ELLIPSIS)),
+            PREVIEW_GRAPHEMES
+        );
     }
 
     #[test]
