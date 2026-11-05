@@ -71,9 +71,19 @@ with what would show it wrong, is in §4.
 ## 3. States
 
 The view reads four facts from the status member (Q3):
-- **in force**: the authenticated policy byte of the record this start
-  opened, as ADR-0041 A 2026-11-05 defines it. After any start that ran,
-  it is known. It is not a claim read from the file without opening it.
+- **in force**: the policy of the record that is authenticated for this
+  start. It is never a claim read from the file without opening it, and
+  after any start that ran it is known.
+  - When the start's reseal wrote and confirmed the new record (it
+    succeeded, or answered `OldKeyRemains`), it is the configured
+    policy: the record now on disk was sealed under it, under the
+    profile's lock.
+  - Otherwise (`Keystore`, `Storage` including `Unsynced`, `Other`,
+    `Held`), it is the policy byte of the record the start opened (ADR-0041
+    A 2026-11-05).
+  - Read strictly, "the record the start opened" would show a start
+    whose reseal succeeded as still pending; this note does not mean
+    that (rust-ui-dev's reading, REPLY 01a1ac9e-52ad).
 - **configured**: the configured policy, or unknown when the profile
   could not be read at the reseal.
 - the reseal's pending class, if any.
