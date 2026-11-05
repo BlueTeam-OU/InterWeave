@@ -14,8 +14,10 @@ the Activity attaches to it; unread arrivals raise a count-only
 notification. The person creates an identity or restores one from its
 recovery phrase on first run, and the profile's seed is wrapped by an
 AndroidKeyStore key (`src/keystore.rs`, `KeystoreCipher.kt`), behind a
-user-presence prompt where the profile asks for one. The debug APK
-runs on a stand-in profile. Sessions run on phones: the device runs
+user-presence prompt where the profile asks for one. Every build
+writes the same first-run profile; the release APKs of v0.1.0 and
+v0.2.0 wrote none, so neither can create an identity on a fresh
+install. Sessions run on phones: the device runs
 are recorded under `device-runs/` (a Samsung A40 at API
 30 and the Pixel 9a at API 37, from 2026-10-20) and the android-e2e
 cases' runs under `tests/android-e2e/runs/`. Each record names what it

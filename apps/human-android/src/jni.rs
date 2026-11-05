@@ -36,10 +36,6 @@ const GRACE: Duration = Duration::from_secs(1);
 mod refused {
     use super::jint;
     pub(super) const NO_IDENTITY: jint = -1;
-    #[cfg_attr(
-        not(feature = "dev-stand-ins"),
-        allow(dead_code, reason = "only the stand-in writes a profile today")
-    )]
     pub(super) const PROFILE: jint = -2;
     pub(super) const RUNTIME: jint = -3;
     pub(super) const ENDPOINT: jint = -4;
@@ -148,14 +144,16 @@ extern "system" fn JNI_OnLoad(
 /// The identity the runtime starts with: the profile's record, unwrapped
 /// by the Keystore through the embedded custody path (step 6) -- or the
 /// refusal code of why there is none, after logging it. A first run is
-/// provisioned in the debug build alone (android-platform's `identity`).
+/// provisioned here in the debug build alone (android-platform's
+/// `identity`); a release first run is onboarding's.
 fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, jint> {
     let cipher = KeystoreCipher::new(env).map_err(|e| {
         log(&format!("the Keystore cipher could not be reached: {e}"));
         refused::IDENTITY_UNAVAILABLE
     })?;
-    // A first run creates its identity in the debug build alone, until
-    // step 7's onboarding lets the person choose.
+    // A first run creates its identity in the debug build alone, so an
+    // instrumentation case starts with no person; the release build's
+    // first run is step 7's onboarding, which the Activity enters first.
     let first_run = if cfg!(feature = "dev-stand-ins") {
         FirstRun::Create
     } else {
@@ -184,23 +182,17 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, ji
 /// mode, since no runtime runs to have one (Native.kt's `NETWORK_DENIED`).
 const NETWORK_DENIED: jint = 2;
 
-/// Write the stand-in profile where the debug build needs one.
-#[allow(
-    clippy::unnecessary_wraps,
-    reason = "Ok in a build without dev-stand-ins, which writes no profile"
-)]
+/// Write the first-run profile where there is none, in every build: the
+/// identity's seal reads its unlock policy, and the runtime starts on it.
 fn provision(app_data_dir: &str) -> Result<(), jint> {
-    #[cfg(feature = "dev-stand-ins")]
-    if let Err(e) = interweave_human_android_platform::stand_in::provision(
+    interweave_human_android_platform::provision_profile(
         std::path::Path::new(app_data_dir),
         PROFILE,
-    ) {
-        log(&format!("the stand-in profile could not be written: {e}"));
-        return Err(refused::PROFILE);
-    }
-    #[cfg(not(feature = "dev-stand-ins"))]
-    let _ = app_data_dir;
-    Ok(())
+    )
+    .map_err(|e| {
+        log(&format!("the first-run profile could not be written: {e}"));
+        refused::PROFILE
+    })
 }
 
 /// The code a refusal answers Java with, after logging it.
