@@ -15,8 +15,11 @@ failed, `ProfileLocked`, `OldKeyRemains` — does to the start, which the
 opens to the identity just unlocked, under its own authenticated policy
 byte, so the start takes that identity and retries the reseal at every
 start until one succeeds. The refusal is logged as `Unavailable` is, and
-while the record's policy differs from the configured one the status
-model exposes the pending change by name, where
+while the record's policy differs from the configured one, or the other
+policy's key remains (`OldKeyRemains`: the record is written under the
+configured policy, so the policy test alone would show nothing while a
+pre-change copy may still open), the status model exposes the pending
+change by name, where
 `background_restart_requires_user_authentication` belongs (its predicate
 is tested, nothing emits it yet: the plan's §20 carried list), with the
 reason; a
