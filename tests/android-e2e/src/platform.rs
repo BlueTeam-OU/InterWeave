@@ -280,10 +280,24 @@ fn secure_flag(value: &str) -> Result<bool, String> {
                     & SECURE_BIT
                     != 0
             }
-            None => f == "SECURE",
+            None if is_flag_name(f) => f == "SECURE",
+            None => {
+                return Err(format!(
+                    "an fl= word that is neither a mask nor a flag's name: {f:?}"
+                ));
+            }
         };
     }
     Ok(secure)
+}
+
+/// Whether `word` is spelt as AOSP spells a flag's name: capitals,
+/// digits and underscores, from a capital.
+fn is_flag_name(word: &str) -> bool {
+    word.starts_with(|c: char| c.is_ascii_uppercase())
+        && word
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
 }
 
 /// Whether `dump` is a `dumpsys window windows` dump with a window in
@@ -363,7 +377,7 @@ pub fn has_window(dump: &str, title: &str) -> bool {
 /// As [`shell`]; on a dump [`prompt_in`] refuses.
 #[must_use]
 pub fn prompt_shown() -> bool {
-    prompt_in(&shell(&["dumpsys", "window", "windows"])).unwrap_or_else(|e| panic!("{e}"))
+    prompt_in(&dump(&["window", "windows"])).unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// Whether a `dumpsys window windows` dump lists the credential prompt,
@@ -462,8 +476,7 @@ pub const UNLOCK_PATIENCE: Duration = Duration::from_secs(300);
 /// phone still locked after [`UNLOCK_PATIENCE`].
 pub fn until_unlocked() {
     shell(&["input", "keyevent", "KEYCODE_WAKEUP"]);
-    let locked =
-        || keyguard_showing(&shell(&["dumpsys", "window"])).unwrap_or_else(|e| panic!("{e}"));
+    let locked = || keyguard_showing(&dump(&["window"])).unwrap_or_else(|e| panic!("{e}"));
     if !locked() {
         return;
     }
@@ -490,14 +503,60 @@ pub fn sdk() -> u32 {
         .expect("an API level")
 }
 
+/// What a dump read prints last: `IW_END=` and `dumpsys`'s exit status.
+const DUMP_END: &str = "IW_END=";
+
+/// The `adb shell` words that run `dumpsys <args>` and then print
+/// [`DUMP_END`] with its exit status, so the reader can tell a whole dump
+/// from one cut short.
+#[must_use]
+pub fn dump_command<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    let mut words = vec!["dumpsys"];
+    words.extend_from_slice(args);
+    words.extend_from_slice(&[";", "echo", "IW_END=$?"]);
+    words
+}
+
+/// The dump in `out` without its end marker, when `dumpsys` ran to its
+/// end and exited 0. Every parser here reads a negative ("no prompt",
+/// "not secure", "not running") off what a dump does not contain, so a
+/// dump that stopped early (a lost link, `dumpsys`'s own timeout, which
+/// cuts a service's output at any byte) would read as one; this is the
+/// one place that refuses it, whatever the parser after it.
+///
+/// # Errors
+/// A last line other than `IW_END=0`, or a `DUMP TIMEOUT` line.
+pub fn dump_ended(out: &str) -> Result<String, String> {
+    let body = out.trim_end_matches(['\n', '\r']);
+    let (rest, last) = body.rsplit_once('\n').unwrap_or(("", body));
+    if last.trim_end_matches('\r') != format!("{DUMP_END}0") {
+        return Err(format!(
+            "the dump did not reach its end (last line {last:?}):\n{out}"
+        ));
+    }
+    if rest.contains("DUMP TIMEOUT") {
+        return Err(format!("dumpsys timed out inside the dump:\n{rest}"));
+    }
+    Ok(rest.to_owned())
+}
+
+/// `dumpsys <args>` on the phone, whole.
+///
+/// # Panics
+/// As [`shell`]; on a dump [`dump_ended`] refuses.
+#[must_use]
+pub fn dump(args: &[&str]) -> String {
+    dump_ended(&shell(&dump_command(args))).unwrap_or_else(|e| panic!("{e}"))
+}
+
 /// The app's `NetworkService` record as the platform holds it now.
 ///
 /// # Panics
 /// As [`shell`], or on a record [`service_record`] cannot read.
 #[must_use]
 pub fn network_service() -> Option<ServiceRecord> {
-    let dump = shell(&["dumpsys", "activity", "services", PACKAGE]);
-    service_record(&dump, NETWORK_SERVICE).unwrap_or_else(|e| panic!("{e}"))
+    service_record(&dump(&["activity", "services", PACKAGE]), NETWORK_SERVICE)
+        .unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// The app's windows now, with their `SECURE` bit.
@@ -506,7 +565,7 @@ pub fn network_service() -> Option<ServiceRecord> {
 /// As [`shell`], or on a dump [`app_windows`] cannot read.
 #[must_use]
 pub fn windows() -> Vec<(String, bool)> {
-    app_windows(&shell(&["dumpsys", "window", "windows"])).unwrap_or_else(|e| panic!("{e}"))
+    app_windows(&dump(&["window", "windows"])).unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// The app's process id, or `None` when it has none.
@@ -1339,5 +1398,81 @@ channels:
             service_record(&closed, &format!("{PACKAGE}/.Net")),
             Ok(None)
         );
+    }
+
+    #[test]
+    fn a_dump_counts_only_when_it_reached_its_end() {
+        let whole = "WINDOW MANAGER WINDOWS (dumpsys window windows)\n  Window #0 Window{a u0 X}:\nIW_END=0\n";
+        assert_eq!(
+            dump_ended(whole).as_deref(),
+            Ok("WINDOW MANAGER WINDOWS (dumpsys window windows)\n  Window #0 Window{a u0 X}:")
+        );
+        // Cut anywhere, the marker is missing: inside a header, inside a
+        // mask, at a line boundary.
+        for cut in [
+            "WINDOW MANAGER WINDOWS\n  Window #1 Window{fee1ccf u0 BiometricPrompt3",
+            "    mAttrs={(0,0)\n      fl=81812",
+            "WINDOW MANAGER WINDOWS\n  Window #0 Window{a u0 X}:\n",
+            "",
+        ] {
+            assert!(dump_ended(cut).is_err(), "{cut:?}");
+        }
+        assert!(dump_ended("x\nIW_END=1\n").is_err(), "dumpsys failed");
+        assert!(
+            dump_ended("x\n*** SERVICE 'window' DUMP TIMEOUT (10000ms) EXPIRED ***\nIW_END=0")
+                .is_err(),
+            "dumpsys's own timeout"
+        );
+        assert_eq!(
+            dump_command(&["window"]),
+            ["dumpsys", "window", ";", "echo", "IW_END=$?"]
+        );
+    }
+
+    #[test]
+    fn every_window_flag_name_reads_as_a_name_not_a_mask() {
+        // WindowManager.LayoutParams' flag names as ViewDebug prints them
+        // (API 30): none is spelt in hex digits alone, so none is taken
+        // for a mask, and only SECURE reads as secure.
+        for name in [
+            "ALLOW_LOCK_WHILE_SCREEN_ON",
+            "DIM_BEHIND",
+            "BLUR_BEHIND",
+            "NOT_FOCUSABLE",
+            "NOT_TOUCHABLE",
+            "NOT_TOUCH_MODAL",
+            "TOUCHABLE_WHEN_WAKING",
+            "KEEP_SCREEN_ON",
+            "LAYOUT_IN_SCREEN",
+            "LAYOUT_NO_LIMITS",
+            "FULLSCREEN",
+            "FORCE_NOT_FULLSCREEN",
+            "DITHER",
+            "SECURE",
+            "SCALED",
+            "IGNORE_CHEEK_PRESSES",
+            "LAYOUT_INSET_DECOR",
+            "ALT_FOCUSABLE_IM",
+            "WATCH_OUTSIDE_TOUCH",
+            "SHOW_WHEN_LOCKED",
+            "SHOW_WALLPAPER",
+            "TURN_SCREEN_ON",
+            "DISMISS_KEYGUARD",
+            "SPLIT_TOUCH",
+            "HARDWARE_ACCELERATED",
+            "LAYOUT_IN_OVERSCAN",
+            "TRANSLUCENT_STATUS",
+            "TRANSLUCENT_NAVIGATION",
+            "LOCAL_FOCUS_MODE",
+            "SLIPPERY",
+            "LAYOUT_ATTACHED_IN_DECOR",
+            "DRAWS_SYSTEM_BAR_BACKGROUNDS",
+        ] {
+            assert!(!name.bytes().all(|b| b.is_ascii_hexdigit()), "{name}");
+            assert_eq!(secure_flag(name), Ok(name == "SECURE"), "{name}");
+        }
+        // A word that is neither is an error, not "not secure".
+        assert!(secure_flag("81812Z00").is_err());
+        assert!(secure_flag("LAYOUT_IN_SCREEN sec").is_err());
     }
 }

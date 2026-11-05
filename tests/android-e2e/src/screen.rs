@@ -475,7 +475,7 @@ impl Screens {
     /// `mInputShown`, which API 30 and API 36 both print, at different
     /// places on a line ([`keyboard_shown`]).
     fn keyboard_up(&self) -> Result<bool, String> {
-        let out = self.adb_ok(&["shell", "dumpsys", "input_method"])?;
+        let out = self.dump(&["input_method"])?;
         keyboard_shown(&out).ok_or_else(|| "dumpsys input_method printed no mInputShown".to_owned())
     }
 
@@ -648,8 +648,7 @@ impl Screens {
     fn unlocked(&self) -> Result<(), String> {
         let patience = crate::platform::UNLOCK_PATIENCE;
         self.key("KEYCODE_WAKEUP")?;
-        let locked =
-            || crate::platform::keyguard_showing(&self.adb_ok(&["shell", "dumpsys", "window"])?);
+        let locked = || crate::platform::keyguard_showing(&self.dump(&["window"])?);
         if !locked()? {
             return Ok(());
         }
@@ -667,11 +666,18 @@ impl Screens {
         Ok(())
     }
 
+    /// `dumpsys <args>` on this serial, whole ([`crate::platform::dump_ended`]).
+    fn dump(&self, args: &[&str]) -> Result<String, String> {
+        let mut words = vec!["shell"];
+        words.extend(crate::platform::dump_command(args));
+        crate::platform::dump_ended(&self.adb_ok(&words)?)
+    }
+
     /// The phone woken and found unlocked, asking no one: a keyguard up
     /// is an error naming why it cannot be asked for.
     fn awake_unasked(&self) -> Result<(), String> {
         self.key("KEYCODE_WAKEUP")?;
-        if crate::platform::keyguard_showing(&self.adb_ok(&["shell", "dumpsys", "window"])?)? {
+        if crate::platform::keyguard_showing(&self.dump(&["window"])?)? {
             return Err("the phone locked during the validity wait: an unlock now would open the user-presence key's window, so the launch cannot ask for one".to_owned());
         }
         Ok(())
