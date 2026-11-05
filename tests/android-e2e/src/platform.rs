@@ -662,6 +662,74 @@ impl ProfileKept {
     }
 }
 
+/// The phone's screen timeout raised while this lives, and the value
+/// found put back when it drops. A screen that times out raises a secure
+/// keyguard, and a case whose subject is a key a person's unlock would
+/// open (the user-presence key: SPIKE-009 opened its window with a
+/// keyguard unlock on the A40) cannot ask for that unlock mid-case, so
+/// it holds this over its waits instead.
+#[must_use = "the timeout is put back when this drops"]
+pub struct ScreenAwake {
+    /// `settings get system screen_off_timeout` before the hold; `null`
+    /// when the phone had no value, which the drop deletes again.
+    found: String,
+}
+
+impl ScreenAwake {
+    /// Ten minutes: longer than any case's own waits.
+    pub const HELD_MS: &str = "600000";
+
+    /// Reads the timeout, then raises it.
+    ///
+    /// # Panics
+    /// As [`shell`].
+    pub fn hold() -> Self {
+        let found = shell(&["settings", "get", "system", "screen_off_timeout"])
+            .trim()
+            .to_owned();
+        shell(&[
+            "settings",
+            "put",
+            "system",
+            "screen_off_timeout",
+            Self::HELD_MS,
+        ]);
+        Self { found }
+    }
+}
+
+impl Drop for ScreenAwake {
+    fn drop(&mut self) {
+        // Reported, not asserted, as ProfileKept's: no second panic while
+        // unwinding; the read-back is what proves the restore.
+        let wrote = if self.found == "null" {
+            shell_status(
+                &["settings", "delete", "system", "screen_off_timeout"],
+                None,
+            )
+        } else {
+            shell_status(
+                &[
+                    "settings",
+                    "put",
+                    "system",
+                    "screen_off_timeout",
+                    &self.found,
+                ],
+                None,
+            )
+        };
+        let now = shell_status(&["settings", "get", "system", "screen_off_timeout"], None)
+            .map(|(_, out)| String::from_utf8_lossy(&out).trim().to_owned());
+        if now.as_deref().ok() != Some(self.found.as_str()) {
+            eprintln!(
+                "the phone's screen timeout was NOT put back (write: {wrote:?}, now {now:?}); it was {}",
+                self.found
+            );
+        }
+    }
+}
+
 impl Drop for ProfileKept {
     fn drop(&mut self) {
         // Never a second panic while unwinding: reported, not asserted.

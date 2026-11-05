@@ -247,9 +247,14 @@ impl Screens {
     /// the window offline and the notice that asks for authentication,
     /// from the first render. Connect is not waited for: its reads need
     /// the runtime, which the locked key holds back.
+    ///
+    /// A keyguard up here fails the step rather than asking for an
+    /// unlock: the unlock would open the key's window again, the very
+    /// state this launch must not be in, so the person is asked before
+    /// the validity wait (`identity_lines`'s `locked_launch`), not after.
     pub fn launch_locked(&mut self, patience: Duration) -> Step {
         let name = "launch_locked";
-        if let Err(why) = self.unlocked() {
+        if let Err(why) = self.awake_unasked() {
             return step(name, false, why);
         }
         let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
@@ -623,6 +628,16 @@ impl Screens {
                 return Err(format!("the phone stayed locked for {patience:?}"));
             }
             std::thread::sleep(Duration::from_secs(1));
+        }
+        Ok(())
+    }
+
+    /// The phone woken and found unlocked, asking no one: a keyguard up
+    /// is an error naming why it cannot be asked for.
+    fn awake_unasked(&self) -> Result<(), String> {
+        self.key("KEYCODE_WAKEUP")?;
+        if crate::platform::keyguard_showing(&self.adb_ok(&["shell", "dumpsys", "window"])?)? {
+            return Err("the phone locked during the validity wait: an unlock now would open the user-presence key's window, so the launch cannot ask for one".to_owned());
         }
         Ok(())
     }

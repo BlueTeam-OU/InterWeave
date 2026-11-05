@@ -49,7 +49,9 @@ use std::time::{Duration, Instant};
 
 use interweave_android_e2e_cases::keys;
 use interweave_android_e2e_tests::adb::PACKAGE;
-use interweave_android_e2e_tests::platform::{self, CONFIG, network_service, prompt_shown};
+use interweave_android_e2e_tests::platform::{
+    self, CONFIG, ScreenAwake, network_service, prompt_shown,
+};
 use interweave_android_e2e_tests::screen::{Screens, Step};
 use interweave_profile_config::runtime::KeyUnlockPolicy;
 
@@ -113,7 +115,7 @@ fn secure_span_recovery_words() {
 fn presence_prompt_and_cancel() {
     user_presence();
     let mut s = screens();
-    locked_launch(&mut s);
+    let _awake = locked_launch(&mut s);
     // Each "no service" is read off a dump that says it is not running
     // (`platform::service_record`): one that does not say so fails the
     // read, so these are not passed by a dump this does not recognise.
@@ -143,7 +145,7 @@ fn keystore_user_presence_unlock() {
     person();
     user_presence();
     let mut s = screens();
-    locked_launch(&mut s);
+    let _awake = locked_launch(&mut s);
     // The prompt the launch raised, ended as a cancel, so that the one
     // granted below is Unlock's.
     passed(&s.leave_by_recents(PATIENCE), &s);
@@ -163,13 +165,20 @@ fn keystore_user_presence_unlock() {
 }
 
 /// Past the key's validity, then a cold launch: locked, the prompt up.
-fn locked_launch(s: &mut Screens) {
+/// The person unlocks the phone before the wait starts, since an unlock
+/// after it opens the key's window again; the screen is then held on so
+/// that no keyguard comes up meanwhile, for as long as the returned
+/// hold lives (the case's whole body).
+fn locked_launch(s: &mut Screens) -> ScreenAwake {
+    platform::until_unlocked();
+    let awake = ScreenAwake::hold();
     let _ = Command::new("adb")
         .args(["shell", "am", "force-stop", PACKAGE])
         .output();
     std::thread::sleep(PAST_VALIDITY);
     passed(&s.launch_locked(PATIENCE), s);
     until("the credential prompt raised at the launch", prompt_shown);
+    awake
 }
 
 fn screens() -> Screens {
