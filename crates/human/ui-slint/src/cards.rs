@@ -685,6 +685,34 @@ impl CardScreens {
 
 impl View {
     /// Take one card input: an intent for the model, or a page change.
+    /// The contact's name as the person saved it, or nothing to write.
+    fn save_name(&mut self, model: &UiModel, id: String, typed: &str) -> Vec<Intent> {
+        let Some(stored) = model.contact(&id).map(|c| c.name.clone()) else {
+            return Vec::new();
+        };
+        let name = typed.trim().to_owned();
+        // The field shows a stored name in its drawn form, a character
+        // past the cluster bound one U+FFFD; that form, unedited, is
+        // not a name the person gave, and saving it would replace the
+        // one received (HUMAN-CHAT.md, Clusters: only a draft is
+        // replaced).
+        let drawn = interweave_human_ui_model::cluster::drawable(&stored);
+        if drawn != stored && name == drawn.trim() {
+            self.cards.contact_error.clear();
+            return Vec::new();
+        }
+        if let Some(problem) = name_problem(&name) {
+            text(problem.text()).clone_into(&mut self.cards.contact_error);
+            self.focus_key("contact-name".to_owned());
+            return Vec::new();
+        }
+        self.cards.contact_error.clear();
+        vec![Intent::RenameContact {
+            contact_id: id,
+            name,
+        }]
+    }
+
     pub(crate) fn take_cards(&mut self, model: &UiModel, input: CardsInput) -> Vec<Intent> {
         let window = self.window.clone_strong();
         let by_button = matches!(input, CardsInput::Answer(_));
@@ -824,32 +852,7 @@ impl View {
                     self.open_contact_with_photo(model, &window, id);
                 }
             }
-            CardsInput::SaveName(id, typed) => {
-                let Some(stored) = model.contact(&id).map(|c| c.name.clone()) else {
-                    return Vec::new();
-                };
-                let name = typed.trim().to_owned();
-                // The field shows a stored name in its drawn form, a character
-                // past the cluster bound one U+FFFD; that form, unedited, is
-                // not a name the person gave, and saving it would replace the
-                // one received (HUMAN-CHAT.md, Clusters: only a draft is
-                // replaced).
-                let drawn = interweave_human_ui_model::cluster::drawable(&stored);
-                if drawn != stored && name == drawn.trim() {
-                    self.cards.contact_error.clear();
-                    return Vec::new();
-                }
-                if let Some(problem) = name_problem(&name) {
-                    text(problem.text()).clone_into(&mut self.cards.contact_error);
-                    self.focus_key("contact-name".to_owned());
-                    return Vec::new();
-                }
-                self.cards.contact_error.clear();
-                return vec![Intent::RenameContact {
-                    contact_id: id,
-                    name,
-                }];
-            }
+            CardsInput::SaveName(id, typed) => return self.save_name(model, id, &typed),
             CardsInput::RemoveContactPhoto(id) => {
                 // A stored photo, read or not: one that cannot be read is
                 // still offered for removal (start-window section 11).
