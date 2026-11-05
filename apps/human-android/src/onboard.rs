@@ -47,8 +47,11 @@ pub(crate) mod state {
     /// The record does not open: recovery required.
     pub(crate) const RECOVERY: jint = 2;
     /// The key needs the person, and their last authentication is too
-    /// old: the Activity raises the prompt before it binds anything
-    /// (android-key-custody.md's failure list, 80594810).
+    /// old -- or the record opens but the start's reseal to a configured
+    /// user-presence will need the person (`reseal_needs_presence`), asked
+    /// whether or not a window is open: the Activity raises the prompt
+    /// before it binds anything (android-key-custody.md's failure list,
+    /// 80594810; ADR-0042 A 2026-11-05).
     pub(crate) const AUTHENTICATION_NEEDED: jint = 3;
 }
 
@@ -185,9 +188,10 @@ static ANSWERED: AtomicBool = AtomicBool::new(false);
 /// chats and lets the service report what it finds.
 const PLATFORM_WAIT: Duration = Duration::from_secs(10);
 
-/// `Native.identityState`: whether the identity opens, and if not, where
-/// the flow starts. Any other refusal is the service's to report, as it
-/// does today, so it reads as ready.
+/// `Native.identityState`: whether the identity opens and its start can
+/// run without the person, and if not, the prompt or where the flow
+/// starts. Any other refusal is the service's to report, as it does
+/// today, so it reads as ready.
 pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> jni::sys::jint {
     // Called by onStart before its relay thread starts: whatever an
     // earlier instance left in the queue is no longer anyone's.
