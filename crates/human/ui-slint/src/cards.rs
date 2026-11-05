@@ -1765,7 +1765,11 @@ impl View {
             .as_ref()
             .is_none_or(|d| d.name != contact.name)
         {
-            window.set_contact_name_draft(contact.name.as_str().into());
+            window.set_contact_name_draft(
+                interweave_human_ui_model::cluster::drawable(&contact.name)
+                    .as_ref()
+                    .into(),
+            );
         }
         let name = isolated(&contact.name);
         window.set_contact_title(name.as_str().into());

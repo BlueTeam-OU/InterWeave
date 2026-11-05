@@ -684,23 +684,13 @@ impl Shared {
 
 /// The composer's edits, each one queued as the draft it leaves.
 fn wire_draft(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
-    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    // The field has replaced a character past the cluster bound in its own
+    // text already (`Drawn` in app.slint), so the draft is what was shown.
+    let s = Rc::clone(shared);
     window.on_draft_edited(move |text| {
-        // A field draws its own text, so a character past the cluster
-        // bound -- pasted, say -- is replaced in the draft itself before
-        // the next frame: what is sent is what was shown.
-        let text = match cluster::drawable(&text) {
-            std::borrow::Cow::Borrowed(_) => text.to_string(),
-            std::borrow::Cow::Owned(drawn) => {
-                if let Some(window) = w.upgrade() {
-                    window.set_draft(drawn.as_str().into());
-                }
-                drawn
-            }
-        };
         let selected = s.borrow().selected.clone();
         if let Some(key) = selected {
-            enqueue(&s, Input::Draft(key, text));
+            enqueue(&s, Input::Draft(key, text.to_string()));
         }
     });
 }
@@ -1019,6 +1009,8 @@ impl View {
         window.set_details_label(text(UiText::Details));
         slint::ComponentHandle::global::<generated::Touch<'_>>(&window)
             .set_slop(TouchSettings::default().slop);
+        slint::ComponentHandle::global::<generated::Drawn<'_>>(&window)
+            .on_drawable(|text| cluster::drawable(&text).as_ref().into());
         let shared = Rc::new(RefCell::new(Shared {
             window: slint::ComponentHandle::as_weak(&window),
             ..Shared::default()

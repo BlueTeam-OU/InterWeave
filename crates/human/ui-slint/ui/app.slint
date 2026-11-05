@@ -492,6 +492,14 @@ export global FocusMode {
     }
 }
 
+// What a field may draw of the text typed or pasted into it: each
+// character past the cluster bound one U+FFFD (HUMAN-CHAT.md, Clusters).
+// A field draws its own text, so every field a person edits replaces its
+// text through this as it changes; given by Rust (`cluster::drawable`).
+export global Drawn {
+    pure callback drawable(string) -> string;
+}
+
 export global Touch {
     in property <length> slop: 8px;
     // The platform's long-press time (Android's
@@ -2988,6 +2996,9 @@ component NameField inherits VerticalLayout {
             text <=> root.value;
             accessible-label: root.label;
             accessible-description: root.error;
+            edited => {
+                if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
+            }
             accepted => { root.accepted(); }
             changed has-focus => {
                 if (self.has-focus) { root.focused(root.focus-key); }
@@ -5288,7 +5299,10 @@ export component AppWindow inherits Window {
                             single-line: true;
                             text <=> root.trust-entry;
                             accessible-label: root.entry-label;
-                            edited => { root.trust-entry-edited(self.text); }
+                            edited => {
+                                if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
+                                root.trust-entry-edited(self.text);
+                            }
                             changed has-focus => {
                                 if (self.has-focus) { root.focus-id = "trust-entry"; }
                             }
@@ -5945,7 +5959,10 @@ export component AppWindow inherits Window {
                                 // takes no edit then either).
                                 read-only: root.peers-add-busy;
                                 accessible-label: root.address-field-label;
-                                edited => { root.address-edited(self.text); }
+                                edited => {
+                                    if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
+                                    root.address-edited(self.text);
+                                }
                                 changed has-focus => {
                                     if (self.has-focus) { root.focus-id = "address-field"; }
                                 }
@@ -8050,7 +8067,10 @@ export component AppWindow inherits Window {
                                     // limit carried as #304's F3 residual -- and is the
                                     // suspect in F16, a composer that took no focus on
                                     // a tap.
-                                    edited => { root.draft-edited(self.text); }
+                                    edited => {
+                                        if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
+                                        root.draft-edited(self.text);
+                                    }
                                     changed has-focus => {
                                         if (self.has-focus) { root.focus-id = "composer"; }
                                     }

@@ -1335,8 +1335,7 @@ fn a_character_past_the_cluster_bound_is_drawn_as_one_replacement_everywhere() {
     );
     never_sent_as_is(&view);
 
-    view.window()
-        .invoke_draft_edited(format!("hi {past}").into());
+    the(&view, text(UiText::Composer)).set_accessible_value(format!("hi {past}"));
     assert_eq!(
         view.window().get_draft(),
         "hi \u{FFFD}",
@@ -2810,6 +2809,31 @@ fn a_long_line_is_drawn_in_pieces_that_meet_with_no_gap() {
             .accessible_label()
             .is_some_and(|label| label.contains(run.trim_end()))),
         "the item's label reads the run whole"
+    );
+}
+
+/// A character past the cluster bound put into a field the way a person
+/// does -- through the field itself, not its property -- is replaced in the
+/// field before anything draws it (HUMAN-CHAT.md, Clusters): the composer
+/// holds one U+FFFD, and the draft it reports is that.
+#[test]
+fn a_field_replaces_a_character_past_the_cluster_bound_as_it_is_edited() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    let key = direct(&alice);
+    open(&mut view, &mut model, &key);
+    let past = format!("a{}", "\u{301}".repeat(255));
+    the(&view, text(UiText::Composer)).set_accessible_value(format!("hi {past}"));
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_draft(), "hi \u{FFFD}");
+    assert_eq!(
+        view.take_events(&model),
+        vec![ViewEvent::DraftChanged {
+            key,
+            draft: "hi \u{FFFD}".to_owned()
+        }]
     );
 }
 
