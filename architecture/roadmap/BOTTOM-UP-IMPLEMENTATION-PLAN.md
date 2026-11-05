@@ -5271,7 +5271,12 @@ death and restart), both `secure_span` cases (Show my address; the
 recovery words, with a person), `presence_prompt_and_cancel` and
 `keystore_user_presence_unlock` (the owner granting the prompt) passed,
 so the Keystore user-presence case and the four of (b) leave this list,
-with the record's own bounds — one phone; the two user-presence cases
+with the record's own bounds and the cases' — one phone; the unlock
+granted by a method the case does not distinguish, a biometric or a
+PIN, and the secure flag read after the trace line and not shown on
+before the first frame with a word (`identity_lines.rs`'s own "does
+NOT prove", so the carry's "a person's biometric" is met as a person's
+grant); the two user-presence cases
 on an identity the owner made under `key_unlock_policy: user-presence`
 after the app's data was cleared on their word, since nothing in that
 build called `custody::reseal` (ADR-0042 A 2026-10-10 (ii)'s call after
@@ -5287,8 +5292,9 @@ were never reached; the phone's own log, pulled once adb was back,
 shows the drop and the return told to the runtime in one process
 (0 addresses, then 2, one pid throughout) — a reading beside the
 owner's of 2026-10-31, not the case passing — and the item needs a run
-where adb returns on its own, or a USB link, which the owner said is
-awkward on this host;
+where adb returns on its own (toggling `adb_wifi_enabled` off and on
+again was not tried, the record says), or a USB link, which the owner
+said is awkward on this host (p2p-network-dev-02's INFO 01a1ac83);
 the TalkBack items travel with the release gate's TalkBack carry
 (Decided 2026-10-18); (c) `tests/android-e2e` proves the exchange both
 directions over a direct and a relayed path, plain and `;ce=br`, every
