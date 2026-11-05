@@ -339,23 +339,17 @@ fn find_adb(host: &str) -> Option<String> {
 /// tried, since a name may resolve to an address family adbd does not
 /// listen on. The probes run 512 at a time; a closed port refuses at once.
 fn open_ports(host: &str, ports: std::ops::RangeInclusive<u16>) -> Option<Vec<u16>> {
-    let addrs = resolve(host)?;
-    let probes: Vec<(SocketAddr, u16)> = ports
-        .flat_map(|port| addrs.iter().map(move |&addr| (addr, port)))
-        .collect();
+    let probes = probe_addrs(&resolve(host)?, ports);
     let mut open: Vec<u16> = probes
         .chunks(512)
         .flat_map(|chunk| {
             let threads: Vec<_> = chunk
                 .iter()
-                .map(|&(mut addr, port)| {
+                .map(|&addr| {
                     std::thread::spawn(move || {
-                        // `set_port`, not a rebuilt address: an IPv6
-                        // link-local serial's scope id is kept.
-                        addr.set_port(port);
                         TcpStream::connect_timeout(&addr, Duration::from_millis(800))
                             .ok()
-                            .map(|_| port)
+                            .map(|_| addr.port())
                     })
                 })
                 .collect();
@@ -367,6 +361,22 @@ fn open_ports(host: &str, ports: std::ops::RangeInclusive<u16>) -> Option<Vec<u1
         .collect();
     open.dedup();
     Some(open)
+}
+
+/// Each address of `addrs` at each port of `ports`, port by port, so
+/// that a port open at two addresses is found twice in a row. The port
+/// is set on the resolved address rather than the address rebuilt from
+/// its IP, so an IPv6 link-local serial keeps its scope id.
+fn probe_addrs(addrs: &[SocketAddr], ports: std::ops::RangeInclusive<u16>) -> Vec<SocketAddr> {
+    ports
+        .flat_map(|port| {
+            addrs.iter().map(move |&addr| {
+                let mut addr = addr;
+                addr.set_port(port);
+                addr
+            })
+        })
+        .collect()
 }
 
 /// The addresses `host` -- an IP literal, bracketed for IPv6 as adb
@@ -400,9 +410,12 @@ fn a_port_open_on_a_serials_host_is_found_by_name_as_well_as_by_literal() {
 #[test]
 fn a_link_local_serials_scope_survives_resolution() {
     let addrs = resolve("[fe80::1%3]").expect("a literal resolves");
+    let probes = probe_addrs(&addrs, 5555..=5556);
     assert!(
-        matches!(addrs.as_slice(), [SocketAddr::V6(a)] if a.scope_id() == 3),
-        "{addrs:?}"
+        matches!(probes.as_slice(),
+            [SocketAddr::V6(a), SocketAddr::V6(b)]
+                if a.scope_id() == 3 && b.scope_id() == 3 && a.port() == 5555 && b.port() == 5556),
+        "{probes:?}"
     );
 }
 
