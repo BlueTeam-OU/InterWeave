@@ -272,6 +272,21 @@ pub fn locked_status(
     })
 }
 
+/// Whether this start's reseal will need the person: the configured
+/// policy is user-presence and the record is not yet under it, so sealing
+/// it again takes the user-presence key, which the Keystore refuses
+/// outside the presence window. The Activity's check asks it before the
+/// start, so the prompt comes first and the start runs in the window
+/// (ADR-0042 A 2026-11-05: the prompt, then a retried start). Reads only.
+#[must_use]
+pub fn reseal_needs_presence(app_data_dir: &Path, profile: &str) -> bool {
+    let Ok(paths) = embedded(app_data_dir, profile) else {
+        return false;
+    };
+    configured(&paths) == Ok(KeyUnlockPolicy::UserPresence)
+        && matches!(custody::recorded_policy(&paths), Ok(Some(recorded)) if recorded != KeyUnlockPolicy::UserPresence)
+}
+
 /// Whether opening `profile`'s record needs the person: the policy the
 /// record is under, its header's byte, since the open uses that policy's
 /// key whatever is configured (ADR-0042 A 2026-10-10 (ii)) -- so while a

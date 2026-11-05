@@ -21,8 +21,9 @@ use std::sync::Mutex;
 use interweave_human_android_platform::{
     AvailabilityMode, Expected, FirstRun, IdentityRefused, KeyUnlockPolicy, ResealFailure,
     Resealed, RestoreRefused, UnlockStatus, locked_status, opening_needs_presence, phrase_peer,
-    provision_profile, reseal_identity, restart_requires_user_authentication_at_rest,
-    restore_identity, stand_in, start_identity, start_resealed,
+    provision_profile, reseal_identity, reseal_needs_presence,
+    restart_requires_user_authentication_at_rest, restore_identity, stand_in, start_identity,
+    start_resealed,
 };
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
@@ -699,6 +700,42 @@ fn opening_the_record_needs_the_person_by_its_own_policy() {
     assert!(
         opening_needs_presence(&app.dir, PROFILE),
         "pending away from user-presence: the record still needs the person"
+    );
+}
+
+/// The Activity's check asks whether the start's reseal will need the
+/// person, so the prompt comes before the start rather than leaving it
+/// refused with nothing to answer (#577 review F1): only a configured
+/// user-presence over a record not yet under it does.
+#[test]
+fn a_reseal_toward_user_presence_is_known_to_need_the_person_before_the_start() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    configure_policy(&app, "user-presence");
+    assert!(
+        !reseal_needs_presence(&app.dir, PROFILE),
+        "no record: a first run, not a reseal"
+    );
+    configure_policy(&app, "background-compatible");
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    assert!(
+        !reseal_needs_presence(&app.dir, PROFILE),
+        "nothing to change"
+    );
+    configure_policy(&app, "user-presence");
+    assert!(
+        reseal_needs_presence(&app.dir, PROFILE),
+        "toward user-presence"
+    );
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Changed)
+    );
+    assert!(!reseal_needs_presence(&app.dir, PROFILE), "applied");
+    configure_policy(&app, "background-compatible");
+    assert!(
+        !reseal_needs_presence(&app.dir, PROFILE),
+        "away from user-presence: the open already needs the person"
     );
 }
 
