@@ -236,13 +236,15 @@ Whether the toolkit offers both is a precondition of A5 (§10).
 
 **Drawn in pieces**, in both modes, because no drawn item may pass
 8 000 logical px in either dimension (§6). A piece ends where the text is drawn
-broken anyway, and there nothing shows: in source mode at a line break
-(§6);
-in formatted mode at a block boundary (a paragraph, a list item, a
-table row, a code line, a heading), since a single newline inside a
-paragraph is not drawn as a break. Only a stretch with no such
-boundary that is longer than a piece — one long source line, or one
-long paragraph, hard-wrapped or not — is split elsewhere: at a word
+broken anyway, and there nothing shows, at the last such place inside
+the piece's bound: in source mode at a line break (§6); in formatted
+mode at a block boundary (a paragraph, a list item, a table row, a
+code line, a heading) or at a hard line break inside a block (§6). A
+soft line break, a single newline inside a paragraph's source, is
+drawn as a space and is not one. Only a stretch with no such place
+that is longer than a piece — one long source line, or one long
+paragraph whose source is wrapped with soft breaks only, or not at
+all — is split elsewhere: at a word
 boundary (§4.1), or at a grapheme where there is none, so that no character
 is lost, repeated or cut, and no gap opens. The one thing that shows is
 a short, ragged line at that split, where the text itself does not
