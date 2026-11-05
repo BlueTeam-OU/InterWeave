@@ -51,7 +51,9 @@ base64 = { workspace = true }
 interweave-profile-config = { path = "../../config/profile-config" }
 interweave-local-client-fake = { path = "../../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
-# Corrupts a stored row, in one test, to drive a store failure.
+# Store rows written past the facade: a second route no flow makes yet
+# seeded (cards.rs), a row corrupted to drive a store failure (root.rs);
+# and SQLite's own memory counters (window_cost.rs).
 rusqlite = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }

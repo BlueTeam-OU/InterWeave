@@ -806,6 +806,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
                 direct_tracked_peers: 2,
                 broadcast_tracked_peers: 0,
             }),
+            events_dropped: Some(4),
         },
         ServerCounters::default(),
     );

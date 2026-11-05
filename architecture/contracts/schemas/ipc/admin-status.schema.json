@@ -56,7 +56,8 @@
         },
         "events_dropped_total": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Copies dropped from any client's session queue under the push-events overload rule (item 1, or a copy that could not queue), every session since the daemon started, closed ones included; monotonic. Omitted by a server that does not keep the count, never 0 in its place (LOCAL-IPC.md, admin.status, A 2026-11-04)."
         }
       }
     },

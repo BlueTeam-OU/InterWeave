@@ -349,6 +349,52 @@ Not established: a message that asks for an answer after such a first
 turn, and the rule behind d, read from four runs and not from the
 binary.
 
+**Carried measurement, S29 (2026-11-04, Claude Code 2.1.286 with 2.1.311
+and 2.1.317 for one case, rust-services-dev, plan §19): `--allowedTools`
+lets `reply` out in `acceptEdits` and `dontAsk` and not in `plan`; a
+message asking for an answer is answered through `reply` one run in
+three; the host reads a line whole to 8 MiB and paces nothing, the
+model's prompt bounding an event between 320 KiB and 1 MiB; the
+unflagged permission mode follows the build.** Read off
+`spikes/spike-001/README.md` §S29 (facts 70–75, runs `s29-a` to `s29-h`
+and `s29-s-*`, #555), each build installed into a scratch `HOME` of its
+own, every session under this login's `HOME`. With `--allowedTools`
+naming the bridge's tools, `reply` left a
+print session in `acceptEdits` and in `dontAsk`, three runs of three
+each, the peer's `ack` 3.9 to 10.3 s after its send, and was denied in
+`plan` three of three with S26's text, the model not retrying (70). A
+message asking to be answered with `ack`, after S28's silent first turn,
+started a turn of its own each time and was answered through `reply`
+once in three runs; in the other two the model answered in text, called
+no tool and said the request came from the channel and not from the
+user (71). A stub channel server's line was read whole at 327,680
+bytes, the bridge's bound, at one byte past it, at 1 MiB and at 8 MiB,
+one run at each length;
+at the bound the turn answered, for one letter repeated and for random
+base64url, and at 1 MiB and 8 MiB the turn ended with the error result
+"Prompt is too long", so no line limit of the host's own was found and
+the model's prompt bounds an event between 320 KiB and 1 MiB for that
+content on `claude-sonnet-5-5` (72). The bridge's largest text line, 276,426 bytes
+for 46,000 U+0001, was taken and answered, as was the base64url line of
+65,785 bytes for 49,000 (73). Ten messages sent back to back became ten
+lines within 0.18 s, each in the debug log within 0.08 s of its line;
+the first started a turn and the other nine joined it as attachments
+within 1 ms of being queued, and the peer had `ack 1` 10.2 s and
+`ack 10` 15.1 s after the first send, so in this one run events
+during a turn the channel started joined it where fact 45's, during a
+user turn, waited (74). With no `--permission-mode` the same setup reported `auto` on
+2.1.286 and `default` on 2.1.311 and 2.1.317, one run each, the
+auto-mode gate line
+identical on all three, and four 2.1.286 sessions whose first `init`
+came about 32 s after the start reported `default` too; so fact 69's
+change follows the build on one install location and the mode is
+settled by something at start-up, neither read from the binary (75).
+What this changes in the bridge: nothing; its bound stays the only one
+on the line. Not established: a line past 8 MiB, another model's
+context, a burst past ten, an event at the bound in a conversation
+already holding others, whether the kind of turn decides joining, and
+what in a build sets the unflagged mode.
+
 ---
 
 ## SPIKE-002 — transport wire/race and GossipSub cache behavior
@@ -771,7 +817,8 @@ below). What the evidence establishes:
   held-row ceiling (`conversation_window`; `HELD_ROW_CAP` 1024), by the
   v10 per-conversation indexes and not by the walk's `(received_at,
   row_id)` ones, so the row above bounds a page only loosely and the
-  page's own cost has not been measured by this harness. The row keeps
+  page's own cost is not this harness's figure: it was measured on
+  2026-11-04 by the client's own test (A 2026-11-04 below). The row keeps
   its meaning: one pass over every row of the store through the three
   page reads, which still exist and which the harness still calls. It
   is the rows' read and was never the whole start: at the pin the three
@@ -794,6 +841,34 @@ below). What the evidence establishes:
   0.11 ms (#521, c7c8d0fc, which took `proposals_again` off the walk).
   The spike record's sentence that the store had no per-conversation
   read describes the store at the pin, not today's.
+- **The window's cost on a backlog (A 2026-11-04).** Plan §29's item
+  left open at its close — the walk's cost on a backlog of tens of
+  thousands of rows, not measured on the window's read — was measured
+  by `crates/human/app-core/tests/window_cost.rs` (#556, rust-ui-dev-01),
+  outside this spike's harness: a counting allocator in the test binary
+  gives Rust's heap, `sqlite3_memory_highwater` SQLite's own, which
+  allocates with libc past the counter, each step's peak above where it
+  began, on an on-disk plaintext store holding one conversation of
+  512-byte unread rows. At 20 000 rows (the desktop host above,
+  release, one run; the `#[ignore]` case, run by hand): the windowed
+  start 31.9 ms and 0.02 MiB of Rust heap beside 3.53 MiB of SQLite's;
+  the conversation's first page 2.4 ms and 0.23 + 0.02 MiB; the walk to
+  where the model asks no more pages 34.8 ms and 3.14 + 0.02 MiB over
+  16 pages, ending at 1024 held rows with the oldest not reached —
+  `HELD_ROW_CAP` and not the backlog bounds what an unread conversation
+  pages in. The start's SQLite peak is the one figure that grows with
+  the backlog — 0.10, 0.42 and 3.53 MiB at 200, 2000 and 20 000 rows,
+  the first two in debug — its counts reading every index page into
+  the page cache, which SQLite's default `cache_size` bounds; past
+  20 000 not measured. The case in CI holds the start's and the first
+  page's Rust peak, and the first page's SQLite peak, at 2000 rows
+  within one page's measured slack of 200's, and fails under the
+  mutation that makes the start read a conversation whole; the start's
+  SQLite peak and the walk's figures it prints and does not bound. Not
+  proved there: the phone's figures, the cipher store's (the rows above
+  give the cipher's cost against the plaintext's), OpenSSL's heap,
+  which neither counter sees, the view's drawing, and the command
+  line's second pass down the gaps the ceiling left.
 - **Desktop** (Core Ultra 7 155H, ext4): at 500 and 2000 kept every
   operation within x1.21 of the plaintext, at v7 and at v8, across the
   desktop and index runs; no single round above x1.93; a cold open of
@@ -864,6 +939,13 @@ sealing of the key (decision 3: the harness takes its key from the
 environment); the rewrite and the key file on the device; the
 system-libcrypto build, which the phone cannot link and the desktop
 measured within the same bounds and which this Result does not pin.
+The Keystore sealing was read on a device on 2026-11-04
+(`apps/human-android/device-runs/2026-11-04-samsung-a40.md`, #560): the
+store key under its own alias, inside secure hardware, on the Samsung
+A40, and its key file read by digest across a lock change and the cold
+starts between, which shows the file persists and not its refusals; the
+key file's refusals on a device, the rewrite there and the
+system-libcrypto build stay carried.
 
 ## SPIKE-012 — withdrawn before it opened
 

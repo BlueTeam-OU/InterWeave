@@ -191,6 +191,11 @@ export struct BodyLine {
     // A list item's marker on its first line: a bullet, or "3.".
     marker: string,
     text: string,
+    // A piece of the line before, drawn against it with no gap; and a
+    // line whose next one is such a piece (`body.rs`, j92: no drawn item
+    // may hold a whole long line).
+    joined: bool,
+    continues: bool,
 }
 
 // One link of a body: a separate control, activated only by a person,
@@ -267,9 +272,10 @@ export struct MessageRow {
     // drawn below its item (contact-cards design 5.4, at its place in
     // time).
     cards-after: int,
-    // The source as received, shown on the person's request: always
-    // viewable, however it rendered (HUMAN-CHAT.md).
-    source: string,
+    // The source, shown on the person's request: always viewable, however
+    // it rendered, under the same bounds as the body (HUMAN-CHAT.md): in
+    // pieces, each character past the cluster bound one U+FFFD.
+    source-pieces: [string],
     // The body drawn from the block tree, and its links.
     lines: [BodyLine],
     links: [LinkRow],
@@ -484,6 +490,14 @@ export global FocusMode {
         (event.text == Key.Tab || event.text == Key.Backtab)
             && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta
     }
+}
+
+// What a field may draw of the text typed or pasted into it: each
+// character past the cluster bound one U+FFFD (HUMAN-CHAT.md, Clusters).
+// A field draws its own text, so every field a person edits replaces its
+// text through this as it changes; given by Rust (`cluster::drawable`).
+export global Drawn {
+    pure callback drawable(string) -> string;
 }
 
 export global Touch {
@@ -2982,6 +2996,9 @@ component NameField inherits VerticalLayout {
             text <=> root.value;
             accessible-label: root.label;
             accessible-description: root.error;
+            edited => {
+                if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
+            }
             accepted => { root.accepted(); }
             changed has-focus => {
                 if (self.has-focus) { root.focused(root.focus-key); }
@@ -5158,6 +5175,12 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         text: root.trust-heading;
                         font-size: Type.title-large;
+                        // Wrapped, as every line on this page: an unwrapped
+                        // Text's minimum width is its whole line, which at a
+                        // large font widens the page past the window (the A40
+                        // at 200 %, look.rs's trust_at_200_percent case).
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
                         vertical-alignment: center;
                         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                         accessible-role: text;
@@ -5190,6 +5213,8 @@ export component AppWindow inherits Window {
                     text: root.own-peer-id-label;
                     font-size: Type.body-small;
                     font-weight: 700;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: none;
                 }
                 // This profile's own identity, exact and selectable to copy
@@ -5243,6 +5268,8 @@ export component AppWindow inherits Window {
                     text: root.entry-label;
                     font-size: Type.body-small;
                     font-weight: 700;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: none;
                 }
                 // A Material outlined field, its error under it, and "Trust
@@ -5272,7 +5299,10 @@ export component AppWindow inherits Window {
                             single-line: true;
                             text <=> root.trust-entry;
                             accessible-label: root.entry-label;
-                            edited => { root.trust-entry-edited(self.text); }
+                            edited => {
+                                if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
+                                root.trust-entry-edited(self.text);
+                            }
                             changed has-focus => {
                                 if (self.has-focus) { root.focus-id = "trust-entry"; }
                             }
@@ -5336,6 +5366,8 @@ export component AppWindow inherits Window {
                 if root.trust-placeholder != "": Text {
                     text: root.trust-placeholder;
                     color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
                     accessible-role: text;
                     accessible-label: self.text;
                 }
@@ -5927,7 +5959,10 @@ export component AppWindow inherits Window {
                                 // takes no edit then either).
                                 read-only: root.peers-add-busy;
                                 accessible-label: root.address-field-label;
-                                edited => { root.address-edited(self.text); }
+                                edited => {
+                                    if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
+                                    root.address-edited(self.text);
+                                }
                                 changed has-focus => {
                                     if (self.has-focus) { root.focus-id = "address-field"; }
                                 }
@@ -7638,11 +7673,13 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                         if !item.show-source && !row.card: VerticalLayout {
-                                            spacing: 4px;
                                             // Mirrored right to left (section 7): the
                                             // indent, the quote bar and a list's marker
-                                            // at the line's start, on the right.
-                                            for line in row.lines: HorizontalLayout {
+                                            // at the line's start, on the right. 4 px
+                                            // between lines, none before a piece of
+                                            // the line above.
+                                            for line[line-index] in row.lines: HorizontalLayout {
+                                                padding-top: line-index == 0 || line.joined ? 0px : 4px;
                                                 padding-left: root.rtl ? 0px : line.depth * 16px;
                                                 padding-right: root.rtl ? line.depth * 16px : 0px;
                                                 spacing: 6px;
@@ -7650,10 +7687,13 @@ export component AppWindow inherits Window {
                                                     width: 3px;
                                                     background: item.ink;
                                                 }
+                                                // A piece of the line above keeps the
+                                                // marker's room, unseen, so its text stays
+                                                // in line with the first piece's.
                                                 if line.marker != "" && !root.rtl: Text {
                                                     horizontal-stretch: 0;
                                                     text: line.marker;
-                                                    color: item.ink;
+                                                    color: line.joined ? transparent : item.ink;
                                                     font-size: Type.body-large;
                                                     // Said with the line's own label.
                                                     accessible-role: none;
@@ -7680,17 +7720,24 @@ export component AppWindow inherits Window {
                                                         : Type.body-large;
                                                     horizontal-alignment: item.text-alignment;
                                                     accessible-role: text;
-                                                    accessible-label: line.marker != "" ? line.marker + " " + self.text : self.text;
+                                                    accessible-label: line.marker != "" && !line.joined ? line.marker + " " + self.text : self.text;
                                                 }
                                                 if line.kind == LineKind.code: Rectangle {
+                                                    // A block cut in pieces is one surface:
+                                                    // no corner or padding where they meet.
+                                                    property <length> pad-top: line.joined ? 0px : 6px;
+                                                    property <length> pad-bottom: line.continues ? 0px : 6px;
                                                     horizontal-stretch: 1;
                                                     background: Palette.surface;
-                                                    border-radius: 4px;
+                                                    border-top-left-radius: line.joined ? 0px : 4px;
+                                                    border-top-right-radius: line.joined ? 0px : 4px;
+                                                    border-bottom-left-radius: line.continues ? 0px : 4px;
+                                                    border-bottom-right-radius: line.continues ? 0px : 4px;
                                                     // Its text's height, padded 6 px round.
-                                                    height: code-text.preferred-height + 12px;
+                                                    height: code-text.preferred-height + self.pad-top + self.pad-bottom;
                                                     code-text := Text {
                                                         x: 6px;
-                                                        y: 6px;
+                                                        y: parent.pad-top;
                                                         width: parent.width - 12px;
                                                         text: line.text;
                                                         wrap: word-wrap;
@@ -7699,13 +7746,13 @@ export component AppWindow inherits Window {
                                                         font-family: root.code-font;
                                                         font-size: Type.body-medium;
                                                         accessible-role: text;
-                                                        accessible-label: line.marker != "" ? line.marker + " " + self.text : self.text;
+                                                        accessible-label: line.marker != "" && !line.joined ? line.marker + " " + self.text : self.text;
                                                     }
                                                 }
                                                 if line.marker != "" && root.rtl: Text {
                                                     horizontal-stretch: 0;
                                                     text: line.marker;
-                                                    color: item.ink;
+                                                    color: line.joined ? transparent : item.ink;
                                                     font-size: Type.body-large;
                                                     accessible-role: none;
                                                 }
@@ -7715,18 +7762,20 @@ export component AppWindow inherits Window {
                                                 }
                                             }
                                         }
-                                        if item.show-source: Text {
-                                            text: row.source;
-                                            wrap: word-wrap;
-                                            min-height: self.preferred-height;
-                                            // A word longer than the line breaks inside itself rather
-                                            // than widening the list (seen with a long URL in the body).
-                                            min-width: 0;
-                                            color: item.ink;
-                                            font-family: root.code-font;
-                                            font-size: Type.body-medium;
-                                            accessible-role: text;
-                                            accessible-label: self.text;
+                                        if item.show-source: VerticalLayout {
+                                            for piece in row.source-pieces: Text {
+                                                text: piece;
+                                                wrap: word-wrap;
+                                                min-height: self.preferred-height;
+                                                // A word longer than the line breaks inside itself rather
+                                                // than widening the list (seen with a long URL in the body).
+                                                min-width: 0;
+                                                color: item.ink;
+                                                font-family: root.code-font;
+                                                font-size: Type.body-medium;
+                                                accessible-role: text;
+                                                accessible-label: self.text;
+                                            }
                                         }
                                         // One control per link, after the text it came from, its full
                                         // destination as its label; nothing opens but a person's
@@ -7937,7 +7986,7 @@ export component AppWindow inherits Window {
                     // the messages (#304 F3).
                     if root.composer-enabled: Rectangle {
                         vertical-stretch: 0;
-                        height: max(48px, input.preferred-height + 24px);
+                        height: max(48px, composer-field.height + 24px);
                         init => { root.composer-height = self.height; }
                         changed height => { root.composer-height = self.height; }
                         HorizontalLayout {
@@ -7978,11 +8027,31 @@ export component AppWindow inherits Window {
                                     horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                                     accessible-role: none;
                                 }
-                                input := TextInput {
+                                // One line of the field's type, measured: a line is
+                                // its unit of height. Not drawn, and in no layout.
+                                composer-line := Text {
+                                    visible: false;
+                                    text: "X";
+                                    font-size: Type.body-large;
+                                    accessible-role: none;
+                                }
+                                // The field grows to six lines, then its draft
+                                // scrolls inside it, every character kept
+                                // (design/2026-11-04-long-message.md section 11,
+                                // Q3). A row that grew with the draft grew the
+                                // window past the desktop renderer's 16-bit
+                                // geometry, and a draft of about 10,900 lines
+                                // panicked it (j92).
+                                composer-field := Flickable {
                                     x: 20px;
                                     width: parent.width - 40px;
-                                    height: self.preferred-height;
+                                    height: min(input.preferred-height, 6 * composer-line.preferred-height);
                                     y: (parent.height - self.height) / 2;
+                                    content-width: self.width;
+                                    content-height: input.preferred-height;
+                                input := TextInput {
+                                    width: parent.width;
+                                    height: self.preferred-height;
                                     vertical-alignment: center;
                                     horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                                     font-size: Type.body-large;
@@ -7998,10 +8067,22 @@ export component AppWindow inherits Window {
                                     // limit carried as #304's F3 residual -- and is the
                                     // suspect in F16, a composer that took no focus on
                                     // a tap.
-                                    edited => { root.draft-edited(self.text); }
+                                    edited => {
+                                        if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
+                                        root.draft-edited(self.text);
+                                    }
                                     changed has-focus => {
                                         if (self.has-focus) { root.focus-id = "composer"; }
                                     }
+                                    // The line being written stays in view.
+                                    cursor-position-changed(at) => {
+                                        if (at.y + composer-field.content-y < 0px) {
+                                            composer-field.content-y = -at.y;
+                                        } else if (at.y + composer-line.preferred-height + composer-field.content-y > composer-field.height) {
+                                            composer-field.content-y = composer-field.height - at.y - composer-line.preferred-height;
+                                        }
+                                    }
+                                }
                                 }
                             }
                             if !root.rtl: Rectangle { width: 48px; }

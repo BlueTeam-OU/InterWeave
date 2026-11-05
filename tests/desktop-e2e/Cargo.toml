@@ -31,6 +31,8 @@ workspace = true
 # identity key's record read back to grep for its secret.
 base64 = { workspace = true }
 image = { workspace = true }
+# human_app/content_free_logs.rs: the scripted peer's card, signed.
+ed25519-dalek = { workspace = true }
 # human_chat.rs: the human client's own facade, store, envelope codec and
 # presentation model
 # on each side of the two-daemon proof (plan section 17 (7)).

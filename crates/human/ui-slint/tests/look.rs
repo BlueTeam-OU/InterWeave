@@ -1591,6 +1591,65 @@ fn the_composer_keeps_its_height_whatever_the_free_space() {
     );
 }
 
+/// The composer grows to six lines, then its draft scrolls inside it,
+/// every character kept (design/2026-11-04-long-message.md section 11,
+/// Q3): a draft at the envelope's ceiling, some 10,900 lines, leaves the
+/// row as tall as a seven-line draft does. A row that grew with its draft
+/// grew the window past the desktop renderer's 16-bit geometry and
+/// panicked it (j92); the panic itself is the renderer's, which this
+/// backend does not draw with, so what is held here is the height.
+#[test]
+fn the_composer_grows_to_six_lines_then_scrolls() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let view = opened(&model, false);
+    // The row's height, read off Send, which sits at its middle above a
+    // fixed bottom edge: the row grows upward, its middle by half as much.
+    // A position is a whole pixel, so a height read this way is within 2.
+    let field = |draft: &str| {
+        view.window().set_draft(draft.into());
+        slint::platform::update_timers_and_animations();
+        let send = labelled(&view, text(UiText::Send));
+        assert_eq!(send.len(), 1, "Send");
+        let middle = send[0].absolute_position().y + send[0].size().height / 2.0;
+        -2.0 * middle
+    };
+    let lines = |n: usize| vec!["a line of a draft"; n].join("\n");
+    // A line's height from two lines to three: one line sits inside the
+    // row's 48 px floor.
+    let two = field(&lines(2));
+    let three = field(&lines(3));
+    let line = three - two;
+    assert!(line > 10.0, "a third line grows the row: {two} to {three}");
+    let six = field(&lines(6));
+    assert!(
+        (six - (three + 3.0 * line)).abs() <= 2.0,
+        "six lines, all shown: {six}"
+    );
+    let seven = field(&lines(7));
+    assert!(
+        (seven - six).abs() <= 2.0 && seven - six < line / 2.0,
+        "no taller past six: {six} then {seven}"
+    );
+    let ceiling = "a line of a draft\n".repeat(196_608 / 18);
+    let at_ceiling = field(&ceiling);
+    assert!(
+        (at_ceiling - seven).abs() <= 2.0,
+        "a draft at the ceiling too: {at_ceiling}"
+    );
+    // Through the field's own edit path, where a field replaces what it may
+    // not draw: a draft at the ceiling with nothing to replace is kept whole.
+    let field = labelled(&view, text(UiText::Composer));
+    field[0].set_accessible_value(ceiling.as_str());
+    slint::platform::update_timers_and_animations();
+    assert_eq!(
+        view.window().get_draft().len(),
+        ceiling.len(),
+        "every character kept"
+    );
+}
+
 /// #304 F9: a landscape phone with the keyboard up. The list beside the
 /// conversation, the network notice and the app bar step aside in that
 /// order, as far as the space above the keyboard needs, leaving the
@@ -2141,4 +2200,45 @@ fn a_row_with_no_reason_draws_no_empty_reason_line() {
         (plain_gap - reason_gap).abs() < 0.5,
         "no line between body and status: {plain_gap} against {reason_gap}"
     );
+}
+
+/// Trust at 200 % text in a phone-wide window stays inside it: no line
+/// of the page widens the column past the window's right edge (#304 F4
+/// at 200 %; the A40 at 200 %, `device-runs/2026-11-04-samsung-a40.md`,
+/// where the unwrapped caption over this profile's `PeerId` cut the page
+/// at the edge). Mutation: the caption unwrapped again.
+#[test]
+fn trust_at_200_percent_text_stays_inside_a_phone_wide_window() {
+    use interweave_human_client_api::TrustList;
+    const WIDTH: f32 = 411.0;
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(WIDTH, 800.0));
+    let mut model = UiModel::new();
+    view.render(&model);
+    press(&view, placeholder_en::text(UiText::AppOptions));
+    press(&view, placeholder_en::text(UiText::TrustHeading));
+    let _ = intents(&mut view, &model);
+    let _ = model.trust_settings_mut().opened();
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(alice()),
+        allowed: Vec::new(),
+    }));
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    for label in [UiText::OwnPeerId, UiText::TrustExplanation] {
+        let found = labelled(&view, placeholder_en::text(label));
+        assert!(!found.is_empty(), "{label:?} on Trust");
+        for e in found {
+            let right = e.absolute_position().x + e.size().width;
+            assert!(
+                right <= WIDTH + 0.5,
+                "{label:?} reaches {right} past the window's {WIDTH}"
+            );
+        }
+    }
 }

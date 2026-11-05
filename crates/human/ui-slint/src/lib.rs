@@ -30,12 +30,12 @@ use interweave_human_ui_model::{
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, OutcomeFrom, Reply, Retention,
     RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome,
     TrustSettings, UiModel, UiText, announced_change, attention_class, fill, next_age_change,
-    placeholder_en, short_peer, visible_destination, waiting_text,
+    placeholder_en, short_peer, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
-use interweave_human_ui_model::body;
+use interweave_human_ui_model::{body, cluster};
 mod cards;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod clipboard;
@@ -682,6 +682,19 @@ impl Shared {
     }
 }
 
+/// The composer's edits, each one queued as the draft it leaves.
+fn wire_draft(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    // The field has replaced a character past the cluster bound in its own
+    // text already (`Drawn` in app.slint), so the draft is what was shown.
+    let s = Rc::clone(shared);
+    window.on_draft_edited(move |text| {
+        let selected = s.borrow().selected.clone();
+        if let Some(key) = selected {
+            enqueue(&s, Input::Draft(key, text.to_string()));
+        }
+    });
+}
+
 /// The callbacks of the screens with their own modules, and the trust
 /// settings'.
 fn wire_screens(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
@@ -996,6 +1009,8 @@ impl View {
         window.set_details_label(text(UiText::Details));
         slint::ComponentHandle::global::<generated::Touch<'_>>(&window)
             .set_slop(TouchSettings::default().slop);
+        slint::ComponentHandle::global::<generated::Drawn<'_>>(&window)
+            .on_drawable(|text| cluster::drawable(&text).as_ref().into());
         let shared = Rc::new(RefCell::new(Shared {
             window: slint::ComponentHandle::as_weak(&window),
             ..Shared::default()
@@ -1056,13 +1071,7 @@ impl View {
                 window.set_notice_action(SharedString::new());
             }
         });
-        let s = Rc::clone(&shared);
-        window.on_draft_edited(move |text| {
-            let selected = s.borrow().selected.clone();
-            if let Some(key) = selected {
-                enqueue(&s, Input::Draft(key, text.to_string()));
-            }
-        });
+        wire_draft(&window, &shared);
 
         let s = Rc::clone(&shared);
         window.on_open_trust(move || enqueue(&s, Input::TrustPage(true)));
@@ -1181,14 +1190,21 @@ impl View {
         self.trace = Some(trace::Tracer::new(sink));
     }
 
-    /// The identity flow's `screen` is over the window, or, `None`, its
-    /// page has left it: to the trace if one is on. The root says it as
-    /// it calls [`show_identity`](Self::show_identity), which is handed
-    /// a page and not the flow.
+    /// The identity flow's `screen` is over the window with `page`, or,
+    /// `None`, its page has left it: to the trace if one is on, with
+    /// whether `page` carries ADR-0043's warning, read from its paragraphs
+    /// rather than from the flow so the line says what the window was
+    /// handed. The root says it as it calls
+    /// [`show_identity`](Self::show_identity), which is handed a page and
+    /// not the flow.
     #[cfg(feature = "ui-trace")]
-    pub fn trace_identity(&mut self, screen: Option<interweave_human_ui_model::ScreenId>) {
+    pub fn trace_identity(
+        &mut self,
+        screen: Option<interweave_human_ui_model::ScreenId>,
+        page: Option<&IdentityPage>,
+    ) {
         if let Some(tracer) = self.trace.as_mut() {
-            tracer.identity(screen);
+            tracer.identity(screen, page.is_some_and(identity::warns_active_elsewhere));
         }
     }
 
@@ -3444,6 +3460,8 @@ fn action_model(actions: &[RowAction]) -> ModelRc<ActionRow> {
 /// An item's body as the view draws it, built once per item.
 struct DrawnBody {
     lines: ModelRc<BodyLine>,
+    /// The source in pieces, as the lines are.
+    source_pieces: ModelRc<SharedString>,
     link_rows: ModelRc<LinkRow>,
     /// The destinations, in the order of `link_rows`.
     links: Vec<String>,
@@ -3476,17 +3494,19 @@ fn image_text(alt: &str) -> String {
 
 fn drawn_body(item: &MessageItem) -> DrawnBody {
     let body = body::flatten(&item.body, &image_text);
-    let plain = body
-        .lines
-        .iter()
-        .map(|line| line.text.as_str())
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+    // A piece cut inside a run rejoins the run, with no break between.
+    let mut plain = String::new();
+    for line in body.lines.iter().filter(|line| !line.text.is_empty()) {
+        if !plain.is_empty() && line.join != body::Join::MidLine {
+            plain.push('\n');
+        }
+        plain.push_str(&line.text);
+    }
     let lines: Vec<BodyLine> = body
         .lines
         .iter()
-        .map(|line| {
+        .enumerate()
+        .map(|(index, line)| {
             let (kind, level) = match line.kind {
                 body::Kind::Text => (LineKind::Text, 0),
                 body::Kind::Heading(level) => (LineKind::Heading, i32::from(level)),
@@ -3502,8 +3522,18 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
                 quoted: line.quoted,
                 marker: line.marker.as_str().into(),
                 text: line.text.as_str().into(),
+                joined: line.join != body::Join::Starts,
+                continues: body
+                    .lines
+                    .get(index + 1)
+                    .is_some_and(|next| next.join != body::Join::Starts),
             }
         })
+        .collect();
+    let source = cluster::drawable(&item.source);
+    let source_pieces: Vec<SharedString> = body::pieces(&source)
+        .into_iter()
+        .map(|(piece, _)| piece.into())
         .collect();
     let link_rows: Vec<LinkRow> = body
         .links
@@ -3512,16 +3542,13 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         .filter_map(|(index, destination)| {
             Some(LinkRow {
                 index: i32::try_from(index).ok()?,
-                label: fill(
-                    placeholder_en::text(UiText::OpenLink),
-                    &[("destination", &visible_destination(destination))],
-                )
-                .into(),
+                label: body::link_label(destination).into(),
             })
         })
         .collect();
     DrawnBody {
         lines: ModelRc::new(VecModel::from(lines)),
+        source_pieces: ModelRc::new(VecModel::from(source_pieces)),
         link_rows: ModelRc::new(VecModel::from(link_rows)),
         links: body.links,
         plain,
@@ -3616,7 +3643,7 @@ fn message_row(
         time: placed.time.into(),
         gap: placed.gap,
         day: placed.day.into(),
-        source: item.source.as_str().into(),
+        source_pieces: drawn.source_pieces.clone(),
         lines: drawn.lines.clone(),
         links: drawn.link_rows.clone(),
         reply: reply.into(),
@@ -3638,8 +3665,9 @@ fn message_row(
         card_name: item
             .card
             .as_ref()
-            .map(|c| c.name.as_str())
+            .map(|c| cluster::drawable(&c.name))
             .unwrap_or_default()
+            .as_ref()
             .into(),
         card_letters: item
             .card
