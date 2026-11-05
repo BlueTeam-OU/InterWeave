@@ -69,6 +69,11 @@ falsify it, is in §4.
 The view reads four facts from the status member (Q3): the policy the
 record opens under (**in force**), the **configured** policy, the
 reseal's pending class if any, and the effective availability mode.
+The policy in force is the record's claim, read without opening it, and
+may be unknown. With nothing pending, or in K, the record is under the
+configured policy, so an unknown policy in force reads as the configured
+one for D's condition. With a reason pending, an unknown policy in
+force is P-unknown.
 
 | State | Condition | Trust page line (§5) | Chats notice (§4) |
 |---|---|---|---|
@@ -76,7 +81,7 @@ reseal's pending class if any, and the effective availability mode.
 | D | nothing pending; effective stay-reachable and user-presence in force | `UnlockRestartNeedsUnlock` | none |
 | P-up(r) | configured user-presence, in force background-compatible, reason r | `UnlockPendingNeedsLock` + reason r | `UnlockPendingNotice`, per §4 |
 | P-down(r) | configured background-compatible, in force user-presence, reason r | `UnlockPendingNoLock` + reason r | none |
-| P-unknown | pending, configured policy unknown (the profile could not be read at the reseal) | `UnlockPendingUnknown` | none |
+| P-unknown | pending with a reason r, and the configured policy or the policy in force unknown (the profile or the record could not be read), so the direction is unknown | `UnlockPendingUnknown` | none |
 | K | in force = configured; the other policy's key remains (`OldKeyRemains`) | `UnlockOldKeyRemains`, and D's line under it when D's condition holds | none |
 
 Reasons r: `Storage`, `Keystore` and `Other`. These are rust-ui-dev's
@@ -265,5 +270,8 @@ facts of §3 (Q3).** Without it, A1–A10 are blocked, not passed.
 - **Q3 — rust-ui-dev.** The status member on `ServiceHost` needs to
   carry: the policy in force (the record's), the configured policy or
   "unknown", the pending class (`Keystore`, `Storage`, `Other`) or
-  `OldKeyRemains`, and the effective availability mode. Can it? Your
-  branch at 76ac4a188 has the class but not yet the member.
+  `OldKeyRemains`, and the effective availability mode. Can it?
+  **Answered yes** (REPLY 01a1ac85-a1ee, 2026-11-05): the member carries all
+  four, read again at each start. The policy in force comes from the
+  record's unopened claim and may be unknown, which §3 now covers. Until
+  that member is built, A1–A10 stay blocked as §8 says.
