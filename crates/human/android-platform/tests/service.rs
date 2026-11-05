@@ -1356,6 +1356,44 @@ fn a_start_refused_elsewhere_answers_so_and_never_as_an_opened_store() {
     let _ = service.stop(GRACE);
 }
 
+/// A start refused until the person authenticates answers `Locked`, not
+/// a refusal elsewhere: a discard's notice waits for the start Unlock
+/// runs (unlock note §11, A16). It sets the locked view's status, and a
+/// late one while the client runs changes nothing.
+#[test]
+fn a_start_refused_for_the_person_answers_locked() {
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let service = ServiceHost::new();
+    let mut link = service.hub().attach(Arc::new(|| {}));
+    service.refused_locked(Some(PENDING));
+    assert_eq!(store_answers(&mut link), [(StoreAnswer::Locked, 1)]);
+    assert_eq!(service.unlock_status(), Some(PENDING), "the locked status");
+
+    let held = UnlockStatus {
+        pending: None,
+        ..PENDING
+    };
+    service
+        .start(ServiceLaunch {
+            unlock: Some(held),
+            ..launch(&app)
+        })
+        .expect("started");
+    let _ = store_answers(&mut link);
+    service.refused_locked(Some(PENDING));
+    assert!(
+        store_answers(&mut link).is_empty(),
+        "a late refusal while the client runs answers nothing"
+    );
+    assert_eq!(
+        service.unlock_status(),
+        Some(held),
+        "and keeps the running start's"
+    );
+    let _ = service.stop(GRACE);
+}
+
 /// The identity in front as the first windowed start after a start
 /// reports it.
 fn listed_identity(service: &ServiceHost) -> Option<interweave_human_ui_model::IdentityView> {
