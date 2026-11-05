@@ -25,6 +25,8 @@
 //! not: drawn with a vector font, as the desktop's are, one text item
 //! 80,000 physical pixels tall was measured to draw.
 
+use std::borrow::Cow;
+
 use interweave_human_chat_protocol::{Block, Inline, Rendered};
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -76,15 +78,14 @@ pub fn link_label(destination: &str) -> String {
 }
 
 /// Whether a link gets a control: only when its label, as shown, is within
-/// [`BODY_GRAPHEMES`]. A label is never cut -- cut, it could show one host
-/// and open another -- so a link past it has its text drawn inert, as a
-/// link of a scheme outside the allow-list does (HUMAN-CHAT.md, Bounds,
+/// [`BODY_GRAPHEMES`] and holds no character past the cluster bound. A
+/// label is never cut or replaced in part -- either could show one host
+/// and open another -- so a link past either has its text drawn inert, as
+/// a link of a scheme outside the allow-list does (HUMAN-CHAT.md, Bounds,
 /// A 2026-11-04 (ii)).
 fn has_control(destination: &str) -> bool {
-    link_label(destination)
-        .graphemes(true)
-        .nth(BODY_GRAPHEMES)
-        .is_none()
+    let label = link_label(destination);
+    label.graphemes(true).nth(BODY_GRAPHEMES).is_none() && crate::cluster::fits(&label)
 }
 
 /// Whether a line is a piece of the line before it, and where it was cut.
@@ -170,11 +171,25 @@ pub fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Body {
             }
         }
     }
-    body.lines = body.lines.into_iter().flat_map(Line::into_pieces).collect();
+    body.lines = body
+        .lines
+        .into_iter()
+        .map(Line::drawable)
+        .flat_map(Line::into_pieces)
+        .collect();
     body
 }
 
 impl Line {
+    /// This line with every character past the cluster bound drawn as one
+    /// replacement ([`crate::cluster`]), before it is counted or cut.
+    fn drawable(mut self) -> Self {
+        if let Cow::Owned(text) = crate::cluster::drawable(&self.text) {
+            self.text = text;
+        }
+        self
+    }
+
     /// This line in pieces within the bounds; the first keeps the marker.
     fn into_pieces(self) -> Vec<Self> {
         let cuts = pieces(&self.text);
@@ -755,5 +770,38 @@ mod tests {
         let got = body(&format!("[padded]({hidden})"));
         assert_eq!(got.lines, [line(Kind::Text, 0, false, "", "padded")]);
         assert!(got.links.is_empty(), "counted as shown, not as sent");
+    }
+
+    #[test]
+    fn a_character_past_the_cluster_bound_is_drawn_as_one_replacement() {
+        use crate::cluster::{CLUSTER_CODE_POINTS, REPLACEMENT};
+
+        let marked = |marks: usize| format!("a{}", "\u{301}".repeat(marks));
+        let at = marked(CLUSTER_CODE_POINTS - 1);
+        assert_eq!(
+            body(&format!("x {at} y")).lines[0].text,
+            format!("x {at} y")
+        );
+        for marks in [CLUSTER_CODE_POINTS, 255] {
+            let got = body(&format!(
+                "x {} y\n\n```\n{}\n```",
+                marked(marks),
+                marked(marks)
+            ));
+            assert_eq!(
+                got.lines[0].text,
+                format!("x {REPLACEMENT} y"),
+                "{marks} marks"
+            );
+            assert_eq!(got.lines[1].text, REPLACEMENT.to_string(), "in code too");
+        }
+        // Past a bound, the source as one line: drawn the same way.
+        let deep = format!("{}{}", "> ".repeat(17), marked(255));
+        assert!(body(&deep).lines[0].text.ends_with(REPLACEMENT));
+
+        // A link whose label would hold one gets no control.
+        let got = body(&format!("[see](https://e.org/{})", marked(255)));
+        assert_eq!(got.lines[0].text, "see");
+        assert!(got.links.is_empty(), "a label is never drawn in part");
     }
 }
