@@ -19,7 +19,8 @@ while the record's policy differs from the configured one the status
 model exposes the pending change by name, where
 `background_restart_requires_user_authentication` belongs (its predicate
 is tested, nothing emits it yet: the plan's §20 carried list), with the
-reason; aconfigured policy is thus neither a dead letter nor a silent one.
+reason; a
+configured policy is thus neither a dead letter nor a silent one.
 `ProfileLocked` is not a reseal outcome: another holder has the profile,
 and the start's own lock take answers it. `OldKeyRemains` was already a
 written record that opens (the 2026-10-10 "retire after the write" note),
