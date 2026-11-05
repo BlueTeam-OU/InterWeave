@@ -52,13 +52,20 @@ first-run profile, so Create's seal was refused on the Pixel 9a at API
 fixed on `main` by #569). Decision 2 reads the public API as what a
 conforming peer, client, profile or script of the previous version
 relies on, and the Android update/reinstall Validate row updates "the
-previous release"; with no `v0.1.0` install able to hold an identity,
-both read against a version nothing relies on.
+previous release"; with no `v0.1.0` APK install able to hold an
+identity, the row's baseline read against a release that cannot hold
+the state it follows. The `v0.1.0` Linux programs are installed and
+hold profiles on the fleet's hosts (ADR-0055 decision 5,
+`packaging/linux/evidence/2026-10-27-second-uid-port.md`), so the
+record says nothing of "nothing relies on v0.1.0": the rule rests on
+the owner's word alone.
 
 **Ruled.** The owner, in p2p-network-dev-01's session on 2026-11-05 at
 about 15:33Z: "no need to maintain compatibility with 0.1.0"
 (p2p-network-dev-01's INFO 01a1ac5a-9727 to architect-cto, who recorded
-it). No release owes `v0.1.0` compatibility: a change that only a
+it). No release owes `v0.1.0` compatibility, the word alone carrying
+the rule, the fleet's installed `v0.1.0` Linux programs included: a
+change that only a
 `v0.1.0` peer, client, profile or script would fail on is not breaking,
 decision 2's "previous version" is read from `v0.2.0` on, and a
 Validate case that follows state across an update starts from the first
