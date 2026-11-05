@@ -30,7 +30,7 @@ use interweave_human_ui_model::{
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, OutcomeFrom, Reply, Retention,
     RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome,
     TrustSettings, UiModel, UiText, announced_change, attention_class, fill, next_age_change,
-    placeholder_en, short_peer, visible_destination, waiting_text,
+    placeholder_en, short_peer, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -3532,11 +3532,7 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         .filter_map(|(index, destination)| {
             Some(LinkRow {
                 index: i32::try_from(index).ok()?,
-                label: fill(
-                    placeholder_en::text(UiText::OpenLink),
-                    &[("destination", &visible_destination(destination))],
-                )
-                .into(),
+                label: body::link_label(destination).into(),
             })
         })
         .collect();
