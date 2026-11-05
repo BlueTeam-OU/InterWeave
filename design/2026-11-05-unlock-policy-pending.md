@@ -13,7 +13,11 @@ restart. The note's two product questions are answered by architect-cto
 (REPLY 01a1ac8d-ea64, §10). Q1: the diagnostic follows the policy in
 force. Q2: no Try again. Both are recorded in ADR-0041 A 2026-11-05 on
 #571, which is not yet merged. Its one question to rust-ui-dev is
-answered too (Q3).
+answered too (Q3). §11, added for my job j96, specifies a restart that
+the screen lock refuses while the app process keeps running. rust-ui-dev
+traced that path in REPLY 01a1ada5, from their branch
+`develop-qzapp/rust-ui-dev-01/feat/j216-577-follow-up-the-activity-s`
+at cf55ad5a6. It has not been run on a device.
 
 Owner of the design: ux-designer. The words are language-culture's: §7
 names each string and what it must say. No new colour: the line is body
@@ -265,6 +269,12 @@ faults.
 | F7 | a line clears while the Trust page is open, and none takes its place | if it had focus: this device's PeerId field; otherwise unchanged | politely, once: `UnlockApplied` when a P line clears or when D clears because the policy in force changed, `UnlockOldKeyRemoved` when the K line clears; nothing when D clears because the availability mode changed | A9 |
 | F8 | rotation, or the window resized, with focus on a line | the same line | nothing | A10 |
 | F9 | at one start, a line is replaced by another or its text changes: P → D, P → K, K with D → D, reason r → r′, D's locked text → D's running text at the unlock | if a line had focus: the first line now in that place; otherwise unchanged | when a P line ended, `UnlockApplied` first, or when the K line ended, `UnlockOldKeyRemoved` first; then the text of each line that is new or changed, politely, once each | A12 |
+| F10 | §11, L1: the system prompt rises for a restart the person started | the system prompt (the platform's) | the prompt's title, `UnlockPromptTitle` | A14 |
+| F11 | §11, L1: that prompt cancelled | by the restart: on R, its Try again; for S2's Done, "Show recovery phrase" (identity note §10 item 10); otherwise the locked notice on Chats | the focused control, as TalkBack reads it | A15, A16 |
+| F12 | §11, L2 and L3: the locked notice appears at a return, or after a launch's prompt is cancelled | the locked notice, on whichever screen the person is (Chats, or a conversation's app bar) | the notice's text, as focus reads it | A17, A18 |
+| F13 | §11, L4: the locked notice appears while the window is in front and the person started no restart | stays where it was, unless the focused control goes (F14) | the notice's text, politely, once | A19 |
+| F14 | §11: the composer goes while it has focus, because the locked notice shows | the locked notice | the notice's text, as focus reads it | A19 |
+| F15 | §11: Unlock granted and the client runs again, while the notice has focus | on Chats, the list heading (as F4); in a conversation, the composer, offered again | nothing for the notice's leaving | A20 |
 
 Keyboard: every line is a Tab stop in the order of §5, and Details is
 the notice's action button as on every other notice. Each line, and the
@@ -295,6 +305,10 @@ fact.
 | `UnlockPendingDetails` | The notice's action, opening the line: "Details" or the like. |
 | `UnlockApplied` | (announcement, a P line ending) The screen-lock setting is now in force. |
 | `UnlockOldKeyRemoved` | (announcement, the K line ending) The key used by the previous screen-lock setting has been removed. |
+
+§11 needs no new string. It uses the locked notice's three
+(`AuthenticationNeeded`, `Authenticate`, `UnlockPromptTitle`), which
+belong to `design/2026-10-19-android-identity.md` §9.
 
 A reason is its own sentence after the line's first sentence, never a
 fragment inside it, so no locale has to make the reason agree
@@ -403,6 +417,51 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
     running), and Chats shows only
     the locked notice.
 
+**§11's acceptance.** These run on the Pixel 9a, by me, with a
+`user-presence` profile authored as A11's precondition says, the
+availability mode foreground-only unless the item says otherwise. Each
+starts with InterWeave running and online in a process that is already
+running. Wait more than 60 s with the phone unlocked and **not**
+authenticating again, so that the window has closed. Where an item
+needs a refusal the phone cannot produce on demand (a store refusal,
+withheld network access, a background restart), a test hook of
+rust-ui-dev's stands in for it, named in the run's record. Without one,
+that item is blocked, not passed. In every item, connectivity reads
+offline while the locked notice shows, and §3's locked rules hold on the
+Trust page (A13).
+- **A14** L1, R's Try again: the system prompt rises by itself, titled
+  `UnlockPromptTitle`, before anything else on the screen changes.
+  Granting it starts again, and R then follows the start's answer as
+  `design/2026-10-21-contact-cards.md` §7 says.
+- **A15** L1, R's Try again with the prompt cancelled: R stays, with focus
+  on Try again and no other change. No prompt rises again until Try
+  again is pressed again. Pressing it raises the prompt once.
+- **A16** L1, a discard's restart with the prompt cancelled: Chats,
+  offline, with the locked notice focused and no `StoreDiscarded`
+  notice. Unlock, granted: the notice goes, and `StoreDiscarded` shows
+  once.
+- **A17** L2, a return: open a conversation, press Home, wait past the
+  window, and return from Recents. No prompt rises. The conversation is
+  still open with its messages. The locked notice is under its app bar,
+  with focus on it. The composer is not offered. Unlock, granted, offers
+  the composer again with the draft typed before Home, and focus is on
+  it. The same return within 60 s of unlocking the phone shows no notice
+  and binds.
+- **A18** L3, a launch in a live process: press Back on Chats, so that
+  the Activity finishes and the process stays (`adb shell pidof` shows
+  the same pid). Wait past the window, then open InterWeave from the
+  launcher. The prompt rises before Chats is online. Cancelled: Chats,
+  offline, with the locked notice focused.
+- **A19** L4, under Stay reachable, by a hook: the background restart is
+  refused while a conversation is open and its composer is focused. No
+  prompt rises. The locked notice appears and takes focus, because the
+  composer went (F14). Repeat with focus on a message row: focus stays
+  on the row, and the notice's text is announced once, politely. Repeat
+  with the window not shown: no prompt and no notification is added. At
+  the return, the locked notice shows, focused, as in A17.
+- **A20** After A15 to A19, Unlock, granted, runs the refused restart
+  again, once. The notice goes, and focus follows F15.
+
 ## 9. Deliberately left out
 
 - **A control to change the unlock policy or Stay reachable.** Neither
@@ -430,6 +489,15 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
   says, and is never shown.
 - **The foreground-service notification**: its text already promises
   nothing across a restart.
+- **A notification when a background restart is locked** (§11, L4). A
+  person away from the window learns of it only at their next return or
+  launch. Telling them sooner would add a notification to the product,
+  which is architect-cto's to decide. Until it is asked for, Stay
+  reachable's limit is the one `human-client-ui.md` §14 already states.
+- **`StoreDiscarded` lost with the process** (§11, L1). If the process
+  ends before Unlock, the notice that the stored data was deleted never
+  shows. The person confirmed the deletion in its dialog, and the notice
+  is not stored, by `design/2026-10-21-contact-cards.md` §7.3.
 
 ## 10. Questions
 
@@ -482,3 +550,92 @@ Without both, A1–A10, A12 and A13 are blocked, not passed.
   making `restart_requires_user_authentication()` read the mode from
   disk while no host runs, and keeping the last start's pending class
   while locked if the record's policy is unchanged.
+- **Q5 — architect-cto.** §11 sorts each refused restart in a running
+  process by the rule `android-key-custody.md` (failure list) and
+  ADR-0042 A 2026-10-20 already state: the prompt answers a refusal,
+  except a start refused at a return to a live Activity, which the notice
+  and Unlock answer, and the Service never prompts. The rule's list of
+  refusals that the prompt answers does not name three restarts: R's Try
+  again, a discard's restart, and a restart after network access is
+  granted. §11 treats them as the person's own action (L1). Is that the
+  rule's reading? The network-access grant arrives as the Activity
+  resumes, so it could also be read as a return (L2).
+  **Open.** Until it is answered, L1 is built as written for R's Try
+  again and the discard. For the network grant, A14 to A16 apply only
+  once the question is answered.
+
+## 11. A restart refused for the screen lock while the app runs
+
+**The gap.** rust-ui-dev traced this in REPLY 01a1ada5, from the code,
+not on a device. A process that has once found the identity ready never
+checks it again. A start refused `UserNotAuthenticated` later in that
+same process gets no prompt and no locked notice. The person stays on
+Chats with no client running, no Unlock and nothing to say why. This
+lasts until the process ends, and reopening the app does not help. It
+happens on a `user-presence` profile once the 60 s window has closed,
+or after the policy changed while the app ran. The restarts that meet
+it:
+- R's Try again (`design/2026-10-21-contact-cards.md` §7.1);
+- the restart after a discard (§7.3 there);
+- the restart after Show my phrase's Done;
+- the restart after network access is granted;
+- a new Service, bound by an Activity that already exists or that is
+  created in the same process;
+- a Stay-reachable restart in the background.
+
+**The rule.** A process that keeps running changes nothing the person
+sees. Every refusal is answered as `android-key-custody.md` (failure
+list) and `design/2026-10-19-android-identity.md` §6 ("Authentication
+needed") answer it in a fresh process. The four cases below come from
+that rule, sorted by what started the restart. They are not a new rule.
+
+| Case | What started the restart | Prompt | After a cancel, or with no prompt |
+|---|---|---|---|
+| L1 | The person, by an action on a screen in front: R's Try again, a discard's restart, S2's Done, a network grant (Q5) | Rises by itself, before anything else changes | R: stays on R, focus on Try again, nothing else changes. S2's Done: as `design/2026-10-19-android-identity.md` §10 item 10 says (Settings, focus on "Show recovery phrase"). A discard's restart and a network grant: Chats, offline, with the locked notice focused |
+| L2 | A return to a live Activity (Home or Recents, then back; a recreation for a configuration change) whose bind starts a Service, and the start is refused | Never by itself: that is ADR-0042 A 2026-10-20's one exception | The locked notice and Unlock, on the screen the person returns to, focused (F12) |
+| L3 | A launch: the Activity created anew in a process that is still running (after Back finished it, or from a notification) | Rises before the Service binds, as at a cold launch: a launch is the Activity's creation, whatever the process | Chats, offline, with the locked notice focused |
+| L4 | Nothing the person did: a Stay-reachable restart while the window is in front, or no window at all | Never: the Service never prompts | Window in front: the notice appears without taking focus (F13), unless a focused control goes (F14). No window: nothing is shown until the next return (L2) or launch (L3) |
+
+In every case, a grant runs the refused restart again, once. Leaving
+while the prompt shows counts as a cancel. After a cancel, nothing
+raises the prompt again by itself: the person's next action does, or
+Unlock does. Both rules are the identity note's §6.
+
+**What Chats and a conversation show while locked, in a running
+process.**
+- **Connectivity** reads offline.
+- **The locked notice** (`AuthenticationNeeded`, with Unlock) shows in
+  its slot, under the app bar of Chats and of an open conversation. It
+  replaces any lower notice, as §4 says.
+- **The conversation list, and an open conversation, stay** as they
+  were. A refused restart neither empties them nor closes them, so the
+  person keeps what they were reading. Nothing new arrives until the
+  client runs again. The notice's "your conversations … appear again
+  after you unlock" stays true: this is all a locked launch would show,
+  and more.
+- **No composer is offered while the notice shows**, as when network
+  access is withheld. A send could reach nothing, and a composer that
+  accepts text it cannot send would mislead. The draft is kept and comes
+  back with the composer once the client runs. If the composer had
+  focus, focus goes to the notice (F14).
+- **`StoreDiscarded`** (after a discard's restart) waits for the start
+  that opens the store, so it shows after Unlock (A16). It never shows
+  beside the locked notice: a "deleted" notice next to "locked" would
+  say the opposite of what the person can now do.
+- **The Trust page** follows §3's locked rules, unchanged.
+- **The P-up notice** stays below the locked notice, as §4 says.
+
+**Evidence.** These are heuristic readings, not tests with people. The
+first is Nielsen's visibility of system status. Today the person is
+told nothing while the app is offline and cannot recover, and that is
+the defect. The second is consistency: one rule in every process, so
+the same state always looks the same. The third is user control: no
+prompt the person did not cause, and the custody failure list's rule
+that a person who declined is not asked again each time they switch
+back in. The composer is withdrawn on the principle of error
+prevention.
+
+**Built by** rust-ui-dev. They route `UserNotAuthenticated` to the locked
+notice, and make a grant restart the bound Service (their REPLY). They
+also choose how the Activity tells a launch from a return, which is
+theirs as long as A17 and A18 pass.
