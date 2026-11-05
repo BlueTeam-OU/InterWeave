@@ -69,14 +69,26 @@ falsify it, is in §4.
 
 ## 3. States
 
-The view reads four facts from the status member (Q3): the policy the
-record opens under (**in force**), the **configured** policy, the
-reseal's pending class if any, and the effective availability mode.
-The policy in force is the record's claim, read without opening it, and
-may be unknown. With nothing pending, or in K, the record is under the
-configured policy, so an unknown policy in force reads as the configured
-one for D's condition. With a reason pending, an unknown policy in
-force is P-unknown.
+The view reads four facts from the status member (Q3):
+- **in force**: the authenticated policy byte of the record this start
+  opened, as ADR-0041 A 2026-11-05 defines it. After any start that ran,
+  it is known. It is not a claim read from the file without opening it.
+- **configured**: the configured policy, or unknown when the profile
+  could not be read at the reseal.
+- the reseal's pending class, if any.
+- the effective availability mode.
+
+**A change is pending whenever in force and configured differ**, whatever
+the start's reseal answered, `Held` included (ADR-0042 A 2026-11-05 asks
+for the pending change to be shown "while the record's policy differs").
+A pending change with no class from the reseal is shown with reason
+`Other`.
+
+A known limit: when the reseal wrote the new record but could not sync
+it (`Storage`, custody's `Unsynced`), the next start may already open
+the new record. The P line describes the record this start opened, so
+for one restart it may say less protection than there is (P-up) or
+more (P-down). The next start then reads it again.
 
 | State | Condition | Trust page line (§5) | Chats notice (§4) |
 |---|---|---|---|
@@ -84,7 +96,7 @@ force is P-unknown.
 | D | nothing pending; effective stay-reachable and user-presence in force | `UnlockRestartNeedsUnlock` | none |
 | P-up(r) | configured user-presence, in force background-compatible, reason r | `UnlockPendingNeedsLock` + reason r | `UnlockPendingNotice`, per §4 |
 | P-down(r) | configured background-compatible, in force user-presence, reason r | `UnlockPendingNoLock` + reason r | none |
-| P-unknown | pending with a reason r, and the configured policy or the policy in force unknown (the profile or the record could not be read), so the direction is unknown | `UnlockPendingUnknown`, and D's line under it when D's condition holds with a known policy in force (below) | none |
+| P-unknown | a reason r pending and either the configured policy unknown (the profile could not be read), or in force = configured (the reseal failed otherwise than `OldKeyRemains` with the record already under the configured policy, as `Other` can), so no direction can be named | `UnlockPendingUnknown`, and D's line under it when D's condition holds (below) | none |
 | K | in force = configured; the other policy's key remains (`OldKeyRemains`) | `UnlockOldKeyRemains`, and D's line under it when D's condition holds | none |
 
 Reasons r: `Storage`, `Keystore` and `Other`. These are rust-ui-dev's
@@ -105,8 +117,8 @@ A 2026-11-05, Q1). In P-up the diagnostic is therefore false. In P-down
 it is true, and the P-down line already says that a restart needs the
 screen lock, so **in P-up and P-down D's line is not shown**: the P
 line stands in for it. In P-unknown, D's line shows under the P-unknown
-line when D's condition holds with a known policy in force, because
-that line does not say what a restart does.
+line when D's condition holds (the policy in force is always known),
+because that line does not say what a restart does.
 
 Shown and cleared: the state is read again whenever the status member
 changes. A start whose reseal succeeds leaves N or D. Nothing is
@@ -123,9 +135,13 @@ P-down only costs an Unlock prompt the person already sees and
 answers, and its line on the Trust page explains why. K and D are not
 faults.
 
-- **Place and priority**: the session notice's slot, where the app's
-  notices already show (under the app bar of Chats on a narrow window,
-  beside the list on a wide one). It has the **lowest priority** of all
+- **Place and priority**: the session notice's slot, **only while the
+  conversation list is on screen**. On a narrow window that means
+  Chats, never an open conversation. On a wide one, the slot where it
+  already shows beside the list. It is not about a conversation, so the
+  conversation pane on a phone never carries it. On Chats it sits where
+  session notices already sit: under the app bar, after the no-reach
+  notice when that shows, and before the list. It has the **lowest priority** of all
   session notices. Every existing `SessionNotice` (no daemon,
   reconnecting, storage, refused, network denied, locked) replaces it
   while it holds, and it returns when they clear.
@@ -134,8 +150,10 @@ faults.
   line (§6). It has no Try again: none exists, and adding one is Q2.
 - **How long**: from the start whose reseal left P-up, **until the
   person has seen the Trust page's line** (by Details, or by opening
-  Trust from App options while P-up holds), or until P-up clears. It is
-  remembered in the view only, not stored. If P-up still holds, it shows
+  Trust from App options while P-up holds), or until P-up clears.
+  "Seen" lasts for **the start that set it**. It is kept in memory, never
+  stored, so an Activity recreated or relaunched while the service keeps
+  running still counts as seen, and a new start clears it. If P-up still holds, it shows
   again after the next start, because that start retried and failed
   again. This puts it in front of the person once per failed retry,
   not forever.
@@ -164,14 +182,15 @@ faults.
 
 | # | Case | Focus goes to | Announced | Check |
 |---|---|---|---|---|
-| F1 | P-up's notice appears (at a start, or when a higher notice clears) | stays where it was; **the notice never takes focus**, unlike the locked notice | nothing; TalkBack reaches it in reading order after the app bar, before the list | A3 |
+| F1 | P-up's notice appears (at a start, or when a higher notice clears) | stays where it was; **the notice never takes focus**, unlike the locked notice | its text, politely, once, as every `NoticeCard`'s message is a polite live region; it sits in reading order after the app bar, before the list | A3 |
 | F2 | Details pressed | the Trust page opens; focus on the P-up line | TalkBack reads the focused line | A4 |
 | F3 | Back from the Trust page opened by Details | Chats; the notice is gone (seen), so focus goes to the list heading | — | A5 |
-| F4 | the notice goes (P-up clears, or another notice replaces it) while it or Details has focus | the list heading | nothing | A6 |
+| F4 | the notice goes (P-up clears, or another notice replaces it) while it or Details has focus | the list heading | nothing for P-up's leaving; a replacing notice announces itself as it does today | A6 |
 | F5 | Trust page opened from App options | as today (unchanged); the line sits between PeerId and Show recovery phrase | — | A7 |
 | F6 | a line appears while the Trust page is open (a start under Stay reachable) | stays where it was | its text, politely, once | A8 |
-| F7 | a line clears while the Trust page is open | if it had focus: this device's PeerId field; otherwise unchanged | `UnlockApplied`, politely, once, for a P line or K clearing; nothing when D clears (the availability changed, not the lock) | A9 |
+| F7 | a line clears while the Trust page is open, and none takes its place | if it had focus: this device's PeerId field; otherwise unchanged | `UnlockApplied`, politely, once, when a P or K line clears, or when D clears because the policy in force changed; nothing when D clears because the availability mode changed | A9 |
 | F8 | rotation, or the window resized, with focus on a line | the same line | nothing | A10 |
+| F9 | at one start, a line is replaced by another or its text changes: P → D, P → K, K with D → D, reason r → r′ | if a line had focus: the first line now in that place; otherwise unchanged | when a P or K line ended, `UnlockApplied` first; then the text of each line that is new or changed, politely, once each | A12 |
 
 Keyboard: every line is a Tab stop in the order of §5, and Details is
 the notice's action button as on every other notice. Both lines and the
@@ -182,8 +201,9 @@ notice have non-gesture paths: there is no gesture here.
 The words are language-culture-en's; the keys are placeholders that
 rust-ui-dev may rename. Use the glossary: "unlock with your screen
 lock", "After a restart, … until you unlock". Never "policy", "Keystore",
-"seal", "key" (except in K, where it is the fact), "automatically" or
-"always reachable".
+"seal", "automatically" or "always reachable". Never "key" either, except
+in K and in the Keystore reason, where the phone's key storage is the
+fact.
 
 | Key | Must say |
 |---|---|
@@ -210,38 +230,58 @@ The P and K states cannot be produced on a device on demand (a
 Keystore fault, a full disk at the start). They are checked by view
 tests (`crates/human/ui-slint/tests/views.rs`) with the status member
 set. **Precondition for all of them: the status member carries the four
-facts of §3 (Q3).** Without it, A1–A10 are blocked, not passed.
+facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
 
 - **A1** For each row of §3's table, the Trust page shows exactly the
   line(s) named, in that order, between the PeerId and "Show recovery
   phrase". D's line is absent in P-up and P-down whatever the status
-  member says. In P-unknown it shows only when D's condition holds
-  with a known policy in force.
+  member says. In P-unknown it shows exactly when D's condition holds.
+  A mismatch of in force and configured with no reseal class (`Held`)
+  shows the P line with reason `Other`.
 - **A2** For each reason r, the P line carries that reason's sentence
   and no other.
-- **A3** P-up with no other session notice: the notice shows and focus
-  does not move to it. With any other `SessionNotice` present, that
+- **A3** P-up with no other session notice: the notice shows on Chats,
+  focus does not move to it, and its text is announced politely once.
+  It never shows in an open conversation on a narrow window. With any
+  other `SessionNotice` present, that
   notice shows instead. When it clears, P-up's returns. No notice in
   any other row.
 - **A4** Details opens the Trust page with focus on the P-up line.
 - **A5** Back from there: Chats with no P-up notice and focus on the
   list heading. After a simulated next start with P-up still held, the
-  notice shows again.
+  notice shows again. Recreating the Activity without a new start does
+  not bring it back.
 - **A6** P-up clears while Details has focus: the notice goes and focus
-  is on the list heading.
+  is on the list heading. The same holds when another `SessionNotice`
+  replaces P-up while Details has focus.
 - **A7** Trust from App options in P-up: the focus order is PeerId,
   line, Show recovery phrase. Back to Chats: no notice (seen).
 - **A8** A line appears while the Trust page is open: one polite
   announcement of its text, and focus unchanged.
 - **A9** A P or K line clears with focus on it: focus is on the PeerId
-  field and `UnlockApplied` is announced once. D clearing announces
-  nothing.
+  field and `UnlockApplied` is announced once. D clearing because the
+  policy in force changed announces `UnlockApplied` once; D clearing
+  because the availability mode changed announces nothing.
 - **A10** Rotation with focus on a line keeps it there.
 - **A11** On the Pixel 9a, by me, at the largest font scale and with
-  TalkBack: D, the one state a device can reach (Stay reachable and
-  user-presence authored in the profile). The line wraps whole, is
+  TalkBack: D, the one state a device can reach.
+  - **Precondition:** a debuggable build, since no in-app control writes
+    either setting (§1). The profile's `config.yaml` is authored with
+    `key_unlock_policy: user-presence` through `run-as`, as
+    `apps/human-android/device-runs/2026-10-20-gate-b.md` did. Stay
+    reachable is set through its overlay file the same way.
+  - Without such a build, A11 is blocked, not passed.
+  - Check: the line wraps whole, is
   read in the order of A7, and nothing on the page is elided. For a P
   line's layout, a view test at the same scale stands in.
+- **A12** F9's transitions, each by a view test with the status member
+  changed while the Trust page is open and a line focused:
+  - P-up → D;
+  - P-down → K;
+  - K with D → D;
+  - Storage → Keystore.
+
+  Check each against F9's focus target and its announcements in order.
 
 ## 9. Deliberately left out
 
@@ -286,6 +326,10 @@ facts of §3 (Q3).** Without it, A1–A10 are blocked, not passed.
   "unknown", the pending class (`Keystore`, `Storage`, `Other`) or
   `OldKeyRemains`, and the effective availability mode. Can it?
   **Answered yes** (REPLY 01a1ac85-a1ee, 2026-11-05): the member carries all
-  four, read again at each start. The policy in force comes from the
-  record's unopened claim and may be unknown, which §3 now covers. Until
-  that member is built, A1–A10 stay blocked as §8 says.
+  four, read again at each start. Their reply read the policy in force
+  from the record's unopened claim, which may be unknown. Round 1's
+  review (F2) found that this disagrees with ADR-0041 A 2026-11-05, so
+  §3 now asks for the policy byte of the record the start opened, and
+  for "pending" to come from comparing in force with configured, `Held`
+  included. Both requests went to rust-ui-dev. Until the member is
+  built, A1–A10 and A12 stay blocked as §8 says.
