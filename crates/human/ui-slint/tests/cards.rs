@@ -560,6 +560,38 @@ fn the_contact_page_says_where_each_value_came_from_and_a_local_edit_stands() {
 /// wherever it sits in other text -- the proposal's claim and notes, the
 /// Contacts list, a contact's page and the conversation's title.
 /// Mutation: the isolate dropped from one of them.
+/// A received name holding a character past the cluster bound is shown in
+/// the name field in its drawn form, one U+FFFD; Save with nothing typed
+/// writes nothing, so the name received stays, and stays the card's
+/// (HUMAN-CHAT.md, Clusters: only a draft is replaced). A name the person
+/// types there is saved as typed. Mutation: the unedited check taken out.
+#[test]
+fn saving_a_drawn_name_unedited_writes_nothing() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let received = format!("Ada \u{e1}{}", "\u{301}".repeat(39));
+    model.contacts_listed(vec![contact("c1", &received, P)]);
+    view.render(&model);
+    open_contact(&mut view, &mut model, &received);
+    assert_eq!(view.window().get_contact_name_draft(), "Ada \u{FFFD}");
+    press(&view, text(UiText::Save));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        Vec::new(),
+        "nothing typed, nothing saved"
+    );
+
+    view.window().set_contact_name_draft("Ada L".into());
+    press(&view, text(UiText::Save));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::RenameContact {
+            contact_id: "c1".to_owned(),
+            name: "Ada L".to_owned(),
+        }]
+    );
+}
+
 #[test]
 fn every_received_name_is_drawn_isolated() {
     let rtl = "\u{5d0}\u{5d3}\u{5d4}";

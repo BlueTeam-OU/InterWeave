@@ -825,10 +825,20 @@ impl View {
                 }
             }
             CardsInput::SaveName(id, typed) => {
-                if model.contact(&id).is_none() {
+                let Some(stored) = model.contact(&id).map(|c| c.name.clone()) else {
+                    return Vec::new();
+                };
+                let name = typed.trim().to_owned();
+                // The field shows a stored name in its drawn form, a character
+                // past the cluster bound one U+FFFD; that form, unedited, is
+                // not a name the person gave, and saving it would replace the
+                // one received (HUMAN-CHAT.md, Clusters: only a draft is
+                // replaced).
+                let drawn = interweave_human_ui_model::cluster::drawable(&stored);
+                if drawn != stored && name == drawn.trim() {
+                    self.cards.contact_error.clear();
                     return Vec::new();
                 }
-                let name = typed.trim().to_owned();
                 if let Some(problem) = name_problem(&name) {
                     text(problem.text()).clone_into(&mut self.cards.contact_error);
                     self.focus_key("contact-name".to_owned());
