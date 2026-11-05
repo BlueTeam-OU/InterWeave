@@ -637,7 +637,8 @@ pub fn recorded_identity(paths: &ProfilePaths) -> Result<Option<TransportIdentit
 /// `key_unlock_policy` to say a change is still pending. `None` when
 /// there is no record. The byte is authenticated only when the record is
 /// opened, so this is the record's claim: a tampered byte reads here as
-/// the other policy and is refused by [`unlock`]. Reads only.
+/// the other policy and is refused by [`unlock`]; the policy that opened
+/// is [`unlock_opened`]'s. Reads only.
 ///
 /// # Errors
 /// [`UnlockRefused`], as [`unlock`] would answer before the cipher.
@@ -655,6 +656,21 @@ pub fn unlock(
     paths: &ProfilePaths,
     cipher: &dyn SeedCipher,
 ) -> Result<ProfileIdentity, UnlockRefused> {
+    unlock_opened(paths, cipher).map(|(identity, _)| identity)
+}
+
+/// [`unlock`], and the policy the record opened under: the policy in
+/// force for this start, which can differ from what the configuration
+/// asks (a reseal that wrote no record) and, unlike [`recorded_policy`],
+/// is authenticated -- it is the byte in the AAD the cipher accepted,
+/// under that policy's key, returned only once the identity is checked.
+///
+/// # Errors
+/// [`UnlockRefused`], exactly as [`unlock`].
+pub fn unlock_opened(
+    paths: &ProfilePaths,
+    cipher: &dyn SeedCipher,
+) -> Result<(ProfileIdentity, KeyUnlockPolicy), UnlockRefused> {
     let Some(parsed) = opened_record(paths)? else {
         return Err(UnlockRefused::Unprovisioned);
     };
@@ -677,7 +693,9 @@ pub fn unlock(
             CipherFailure::Unavailable(detail) => UnlockRefused::Unavailable(detail),
         })?;
     match identity_of(&seed) {
-        Some((identity, peer)) if peer.as_str() == parsed.peer.as_str() => Ok(identity),
+        Some((identity, peer)) if peer.as_str() == parsed.peer.as_str() => {
+            Ok((identity, parsed.policy))
+        }
         _ => Err(UnlockRefused::RecoveryRequired(
             RecoveryCause::WrongIdentity,
         )),
