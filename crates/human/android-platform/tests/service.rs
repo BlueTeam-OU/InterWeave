@@ -245,6 +245,33 @@ fn the_unlock_status_is_the_last_start_that_ran() {
     );
 }
 
+/// The Activity's check asks the person before any start, so no start
+/// sets the status: the check's own locked status is kept while nothing
+/// runs, and the restart diagnostic answers from it with the mode on disk
+/// (#577: a lock at the check left the status `None`). A running client
+/// keeps its own.
+#[test]
+fn a_lock_at_the_activitys_check_gives_the_locked_view_its_status() {
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let service = ServiceHost::new();
+    service.locked_before_start(Some(PENDING));
+    assert_eq!(service.unlock_status(), Some(PENDING), "no start ran");
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        Some(false),
+        "the first-run document's mode, read from disk"
+    );
+
+    service.start(launch(&app)).expect("started");
+    service.locked_before_start(Some(UnlockStatus {
+        pending: None,
+        ..PENDING
+    }));
+    assert_eq!(service.unlock_status(), None, "the running start's, kept");
+    let _ = service.stop(GRACE);
+}
+
 #[test]
 fn a_stop_releases_the_waiter_tells_the_view_and_frees_the_profile() {
     let app = app();
