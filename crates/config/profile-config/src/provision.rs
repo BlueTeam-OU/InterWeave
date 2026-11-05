@@ -15,6 +15,11 @@
 //! servers -- those name operator infrastructure a default cannot know,
 //! and arrive through the admin trust surface or onboarding. The
 //! identity is not here: it is onboarding's (§20 step 6).
+//!
+//! The `human` endpoint is not advertised: `human-client-ui.md` §13 asks
+//! every identity's endpoint to have advertise off with no control that
+//! changes it, so a release first run writes what the debug build's
+//! stand-in profile always wrote.
 
 use crate::PersistError;
 use crate::paths::ProfilePaths;
@@ -47,7 +52,7 @@ endpoints:
   entries:
     - id: human
       enabled: true
-      advertise: true
+      advertise: false
 discovery:
   providers:
     - type: peer-cache

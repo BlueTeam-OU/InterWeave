@@ -49,6 +49,27 @@ fn the_document_validates_as_an_embedded_android_profile() {
     );
 }
 
+/// `human-client-ui.md` §13: every identity's endpoint has advertise off,
+/// so the first-run document puts no endpoint in the endpoint directory.
+/// The control: the document does hold the `human` endpoint, enabled.
+#[test]
+fn the_document_advertises_no_endpoint() {
+    let config: ProfileConfig =
+        serde_norway::from_str(&embedded_document("work")).expect("the document parses");
+    let human = config
+        .endpoints
+        .entries
+        .iter()
+        .find(|e| e.id.as_str() == "human")
+        .expect("the human endpoint is configured");
+    assert!(human.enabled, "the human endpoint is enabled");
+    assert!(
+        config.endpoints.entries.iter().all(|e| !e.advertise),
+        "no endpoint is advertised: {:?}",
+        config.endpoints.entries
+    );
+}
+
 #[test]
 fn a_first_run_writes_the_profile_and_a_second_is_refused() {
     let (_root, app) = app();
