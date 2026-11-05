@@ -21,7 +21,8 @@
 //! `stay-reachable`, its key policy and peers unchanged, and puts the
 //! profile back as found when it ends (`platform::ProfileKept`); it
 //! needs a `background-compatible` key, which a start does not wait on a
-//! person for. Over USB nothing drops but the radio. Over wireless adb
+//! person for. Over USB the link stays up, but the Wi-Fi cycle can still
+//! take wireless debugging's listener with it (below). Over wireless adb
 //! the link drops with the Wi-Fi, and two things follow, both measured
 //! on the A40 (API 30) on 2026-11-04:
 //! - With USB debugging off, losing the Wi-Fi turns adb off entirely,
@@ -98,7 +99,7 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
             "over wireless adb this case needs USB debugging on (Developer options): without it the Wi-Fi drop turns adb off and ends the script that turns the Wi-Fi back on"
         );
     }
-    let adb_wifi = AdbWifiKept::take();
+    let adb_wifi = AdbWifiKept::take(wireless.is_some());
     let kept = ProfileKept::take();
     assert_eq!(
         kept.unlock_policy(),
@@ -246,17 +247,22 @@ fn put_back(name: &str, found: &str) -> String {
 
 /// `adb_wifi_enabled` as found before the case, written back when this
 /// drops, the read-back said on stderr when it differs (as
-/// `ProfileKept`), so the case leaves wireless debugging as it found it.
+/// `ProfileKept`). The setting is not the listener: on the A40 it read 1
+/// with no port open (the 2026-11-05 run record). A wireless run reaches
+/// the phone again or fails, so a listener that did not return shows;
+/// a USB run never looks, so when it found wireless debugging on, the
+/// drop asks a person to check it.
 struct AdbWifiKept {
     found: String,
+    wireless: bool,
 }
 
 impl AdbWifiKept {
-    fn take() -> Self {
+    fn take(wireless: bool) -> Self {
         let found = platform::shell(&["settings", "get", "global", ADB_WIFI])
             .trim()
             .to_owned();
-        Self { found }
+        Self { found, wireless }
     }
 
     fn found(&self) -> &str {
@@ -278,6 +284,11 @@ impl Drop for AdbWifiKept {
                 "the phone's {ADB_WIFI} was NOT put back (write: {:?}, now {now:?}); it was {}",
                 wrote.map(|o| o.status),
                 self.found
+            );
+        }
+        if self.found == "1" && !self.wireless {
+            eprintln!(
+                "PERSON: wireless debugging was on before the Wi-Fi drop; check it is still on (Developer options): the setting reads back, the listener may not have"
             );
         }
     }
