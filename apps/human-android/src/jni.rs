@@ -12,12 +12,11 @@ use std::time::Duration;
 use interweave_human_android_platform::AvailabilityMode;
 use interweave_human_android_platform::{
     EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, Resealed, ServiceHost,
-    ServiceLaunch, StartRefused, Told, Transports, addresses_from_wire, reseal_identity,
-    start_identity,
+    ServiceLaunch, StartRefused, Started, Told, Transports, UnlockStatus, addresses_from_wire,
+    locked_status, start_resealed,
 };
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_human_ui_slint::{TouchSettings, snackbar_ms};
-use interweave_profile_identity::ProfileIdentity;
 use jni::{Env, EnvUnowned};
 
 use crate::keystore::{KeystoreCipher, StoreKeystore};
@@ -147,13 +146,18 @@ extern "system" fn JNI_OnLoad(
 }
 
 /// The identity the runtime starts with: the profile's record, unwrapped
-/// by the Keystore through the embedded custody path (step 6) -- or the
-/// refusal code of why there is none, after logging it. A first run is
+/// by the Keystore through the embedded custody path (step 6) and resealed
+/// to the configured unlock policy, with the unlock status the start leaves
+/// -- or the refusal code of why there is none, after logging it, with
+/// what the refused start learnt of the policy in force. A first run is
 /// provisioned in the debug build alone (android-platform's `identity`).
-fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, jint> {
+fn identity(
+    env: &mut Env<'_>,
+    app_data_dir: &str,
+) -> Result<Started, (jint, Option<UnlockStatus>)> {
     let cipher = KeystoreCipher::new(env).map_err(|e| {
         log(&format!("the Keystore cipher could not be reached: {e}"));
-        refused::IDENTITY_UNAVAILABLE
+        (refused::IDENTITY_UNAVAILABLE, None)
     })?;
     // A first run creates its identity in the debug build alone, until
     // step 7's onboarding lets the person choose.
@@ -163,14 +167,16 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, ji
         FirstRun::Refuse
     };
     let dir = std::path::Path::new(app_data_dir);
-    let identity =
-        start_identity(dir, PROFILE, &cipher, first_run).map_err(|why| refused_identity(&why))?;
-    // The record to the configured unlock policy, before the host takes
-    // the profile's lock: one log line when it did something or could
-    // not, never a word to the person.
-    let resealed =
-        reseal_identity(dir, PROFILE, &cipher, &identity).map_err(|why| refused_identity(&why))?;
-    match resealed {
+    // The reseal runs before the host takes the profile's lock: one log
+    // line when it did something or could not, never a word to the
+    // person but the status.
+    let started = start_resealed(dir, PROFILE, &cipher, first_run).map_err(|why| {
+        let unlock = (why == IdentityRefused::UserNotAuthenticated)
+            .then(|| locked_status(dir, PROFILE))
+            .flatten();
+        (refused_identity(&why), unlock)
+    })?;
+    match &started.resealed {
         Resealed::Unchanged | Resealed::Held => {}
         Resealed::Changed => {
             log("the identity was sealed again under the configured unlock policy");
@@ -179,7 +185,7 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, ji
             "the identity's reseal is left for the next start: {detail}"
         )),
     }
-    Ok(identity)
+    Ok(started)
 }
 
 /// The code a start with no identity answers Java with, after logging
@@ -294,13 +300,19 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     if let Err(code) = provision(app_data_dir) {
         return refused_early(code);
     }
-    let identity = match identity(env, app_data_dir) {
-        Ok(identity) => identity,
-        Err(code) => return refused_early(code),
+    let started = match identity(env, app_data_dir) {
+        Ok(started) => started,
+        Err((code, unlock)) => {
+            ServiceHost::global().refused_before_start_with(unlock);
+            return code;
+        }
     };
     let store_cipher = match store_cipher(env) {
         Ok(cipher) => cipher,
-        Err(code) => return refused_early(code),
+        Err(code) => {
+            ServiceHost::global().refused_before_start_with(Some(started.unlock));
+            return code;
+        }
     };
     let host = ServiceHost::global();
     let dir = std::path::PathBuf::from(app_data_dir);
@@ -308,9 +320,9 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
         host.start(ServiceLaunch {
             app_data_dir: dir.clone(),
             profile: PROFILE.to_owned(),
-            identity,
+            identity: started.identity,
             store_cipher: Box::new(store_cipher),
-            unlock: None,
+            unlock: Some(started.unlock),
         })
     });
     match started {
