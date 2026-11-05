@@ -599,6 +599,31 @@ mod tests {
     }
 
     #[test]
+    fn a_control_whose_label_would_pass_the_preview_is_left_to_the_reader() {
+        // 1,584 characters of text, then a link of one character whose
+        // control's label takes the preview past 1,600.
+        let dest = "https://example.org/a-path-long-enough";
+        let label = graphemes(&link_label(dest));
+        assert!(1_585 + label > PREVIEW_GRAPHEMES, "control: past with it");
+        let text = vec!["a".repeat(99); 16].join("\n\n");
+        let cut = drawn(&format!("{text}\n\n[x]({dest})\n\n{}", "b".repeat(600)));
+        assert!(cut.body.links.is_empty(), "no control past the figures");
+        let counted: usize = cut
+            .body
+            .lines
+            .iter()
+            .map(|l| graphemes(l.text.trim_end_matches(ELLIPSIS)))
+            .sum::<usize>()
+            + cut
+                .body
+                .links
+                .iter()
+                .map(|d| graphemes(&link_label(d)))
+                .sum::<usize>();
+        assert!(counted <= PREVIEW_GRAPHEMES, "{counted}");
+    }
+
+    #[test]
     fn the_cut_never_falls_inside_a_character() {
         // 2,400 characters of a letter with a combining mark, no spaces.
         let body = "e\u{301}".repeat(2400);
