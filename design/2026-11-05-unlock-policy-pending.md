@@ -612,7 +612,7 @@ restart (Q5). They add no rule of their own.
 | L1 | The person, by an action on a screen in front: R's Try again, a discard's restart, S2's Done, a network grant (Q5) | Rises by itself, before anything else changes | R: stays on R, focus on Try again, nothing else changes. S2's Done: as `design/2026-10-19-android-identity.md` §10 item 10 says (Settings, focus on "Show recovery phrase"). A discard's restart: Chats, offline, with the locked notice focused. A network grant: the screen the grant was made on (Chats, or the open conversation), offline, with the locked notice focused |
 | L2 | A return to a live Activity (Home or Recents, then back; a recreation for a configuration change) after a prompt was cancelled or denied, with no start run since | Never by itself: ADR-0042 A 2026-10-20's exception | The locked notice and Unlock on the screen the person returns to, focused (F12). The bind runs silently if the 60 s window has opened meanwhile |
 | L3 | Any other start the Activity makes or retries while its window is in front: a launch (the Activity created anew in a process still running, after Back finished it or from a notification); a return with no prompt cancelled or denied since the last start that ran; a Stay-reachable restart refused while the window is in front | Rises by itself: at a launch before the Service binds, as at a cold launch (a launch is the Activity's creation, whatever the process) | The screen in front (Chats at a launch), offline, with the locked notice focused (F12) |
-| L4 | A Stay-reachable restart while no window shows | Never: the Service never prompts | Nothing is shown then. At the next return or launch the Activity's start is refused again, and L3 answers it, or L2 if a prompt was cancelled since |
+| L4 | A Stay-reachable restart while no window shows | Never: the Service never prompts | Nothing is shown then. At the next return or launch the Activity's start is refused again, and L3 answers it. L2 cannot follow: the restart ran after any earlier cancel, and with no window no prompt can be cancelled |
 
 In every case, a grant runs the refused restart again, once. Leaving
 while the prompt shows counts as a cancel. After a cancel, nothing
@@ -630,7 +630,7 @@ process.**
   were. A refused restart neither empties them nor closes them, so the
   person keeps what they were reading. Nothing new arrives until the
   client runs again. A locked launch shows no conversations only
-  because none has been read yet. The notice's "your conversations …
+  because none has been loaded from the store yet. The notice's "your conversations …
   appear again after you unlock" is then a promise; here it describes
   the list that stays.
 - **The composer stays**, with its draft, as it does offline
