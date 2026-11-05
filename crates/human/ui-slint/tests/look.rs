@@ -1591,6 +1591,56 @@ fn the_composer_keeps_its_height_whatever_the_free_space() {
     );
 }
 
+/// The composer grows to six lines, then its draft scrolls inside it,
+/// every character kept (design/2026-11-04-long-message.md section 11,
+/// Q3): a draft at the envelope's ceiling, some 10,900 lines, leaves the
+/// row as tall as a seven-line draft does. A row that grew with its draft
+/// grew the window past the desktop renderer's 16-bit geometry and
+/// panicked it (j92); the panic itself is the renderer's, which this
+/// backend does not draw with, so what is held here is the height.
+#[test]
+fn the_composer_grows_to_six_lines_then_scrolls() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let view = opened(&model, false);
+    // The row's height, read off Send, which sits at its middle above a
+    // fixed bottom edge: the row grows upward, its middle by half as much.
+    // A position is a whole pixel, so a height read this way is within 2.
+    let field = |draft: &str| {
+        view.window().set_draft(draft.into());
+        slint::platform::update_timers_and_animations();
+        let send = labelled(&view, text(UiText::Send));
+        assert_eq!(send.len(), 1, "Send");
+        let middle = send[0].absolute_position().y + send[0].size().height / 2.0;
+        (-2.0 * middle, view.window().get_draft().to_string())
+    };
+    let lines = |n: usize| vec!["a line of a draft"; n].join("\n");
+    // A line's height from two lines to three: one line sits inside the
+    // row's 48 px floor.
+    let (two, _) = field(&lines(2));
+    let (three, _) = field(&lines(3));
+    let line = three - two;
+    assert!(line > 10.0, "a third line grows the row: {two} to {three}");
+    let (six, _) = field(&lines(6));
+    assert!(
+        (six - (three + 3.0 * line)).abs() <= 2.0,
+        "six lines, all shown: {six}"
+    );
+    let (seven, _) = field(&lines(7));
+    assert!(
+        (seven - six).abs() <= 2.0 && seven - six < line / 2.0,
+        "no taller past six: {six} then {seven}"
+    );
+    let ceiling = "a line of a draft\n".repeat(196_608 / 18);
+    let (at_ceiling, kept) = field(&ceiling);
+    assert!(
+        (at_ceiling - seven).abs() <= 2.0,
+        "a draft at the ceiling too: {at_ceiling}"
+    );
+    assert_eq!(kept.len(), ceiling.len(), "every character kept");
+}
+
 /// #304 F9: a landscape phone with the keyboard up. The list beside the
 /// conversation, the network notice and the app bar step aside in that
 /// order, as far as the space above the keyboard needs, leaving the

@@ -7967,7 +7967,7 @@ export component AppWindow inherits Window {
                     // the messages (#304 F3).
                     if root.composer-enabled: Rectangle {
                         vertical-stretch: 0;
-                        height: max(48px, input.preferred-height + 24px);
+                        height: max(48px, composer-field.height + 24px);
                         init => { root.composer-height = self.height; }
                         changed height => { root.composer-height = self.height; }
                         HorizontalLayout {
@@ -8008,11 +8008,31 @@ export component AppWindow inherits Window {
                                     horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                                     accessible-role: none;
                                 }
-                                input := TextInput {
+                                // One line of the field's type, measured: a line is
+                                // its unit of height. Not drawn, and in no layout.
+                                composer-line := Text {
+                                    visible: false;
+                                    text: "X";
+                                    font-size: Type.body-large;
+                                    accessible-role: none;
+                                }
+                                // The field grows to six lines, then its draft
+                                // scrolls inside it, every character kept
+                                // (design/2026-11-04-long-message.md section 11,
+                                // Q3). A row that grew with the draft grew the
+                                // window past the desktop renderer's 16-bit
+                                // geometry, and a draft of about 10,900 lines
+                                // panicked it (j92).
+                                composer-field := Flickable {
                                     x: 20px;
                                     width: parent.width - 40px;
-                                    height: self.preferred-height;
+                                    height: min(input.preferred-height, 6 * composer-line.preferred-height);
                                     y: (parent.height - self.height) / 2;
+                                    content-width: self.width;
+                                    content-height: input.preferred-height;
+                                input := TextInput {
+                                    width: parent.width;
+                                    height: self.preferred-height;
                                     vertical-alignment: center;
                                     horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                                     font-size: Type.body-large;
@@ -8032,6 +8052,15 @@ export component AppWindow inherits Window {
                                     changed has-focus => {
                                         if (self.has-focus) { root.focus-id = "composer"; }
                                     }
+                                    // The line being written stays in view.
+                                    cursor-position-changed(at) => {
+                                        if (at.y + composer-field.content-y < 0px) {
+                                            composer-field.content-y = -at.y;
+                                        } else if (at.y + composer-line.preferred-height + composer-field.content-y > composer-field.height) {
+                                            composer-field.content-y = composer-field.height - at.y - composer-line.preferred-height;
+                                        }
+                                    }
+                                }
                                 }
                             }
                             if !root.rtl: Rectangle { width: 48px; }
