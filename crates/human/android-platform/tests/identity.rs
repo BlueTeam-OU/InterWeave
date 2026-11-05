@@ -20,8 +20,8 @@ use std::sync::Mutex;
 
 use interweave_human_android_platform::{
     AvailabilityMode, Expected, FirstRun, IdentityRefused, KeyUnlockPolicy, ResealFailure,
-    Resealed, RestoreRefused, UnlockStatus, locked_status, phrase_peer, reseal_identity,
-    restore_identity, stand_in, start_identity, start_resealed,
+    Resealed, RestoreRefused, UnlockStatus, locked_status, phrase_peer, provision_profile,
+    reseal_identity, restore_identity, stand_in, start_identity, start_resealed,
 };
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
@@ -122,6 +122,13 @@ struct App {
 }
 
 fn app() -> App {
+    let app = fresh_install();
+    provision_profile(&app.dir, PROFILE).expect("the profile");
+    app
+}
+
+/// The app's data directory as a fresh install leaves it: nothing in it.
+fn fresh_install() -> App {
     let root = tempfile::Builder::new()
         .permissions(std::fs::Permissions::from_mode(0o700))
         .tempdir()
@@ -129,7 +136,6 @@ fn app() -> App {
     let dir = root.path().join("app");
     std::fs::create_dir(&dir).expect("mkdir");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
-    stand_in::provision(&dir, PROFILE).expect("the profile");
     App { _root: root, dir }
 }
 
@@ -272,15 +278,21 @@ fn a_first_run_whose_old_key_could_not_be_retired_is_provisioned_and_starts() {
 }
 
 /// The profile's configuration rewritten to name `policy`, as an operator
-/// changing `key_unlock_policy` does.
+/// changing `key_unlock_policy` does: the key in the first-run document's
+/// `runtime.android` block, set again where an earlier call set it.
 fn configure_policy(app: &App, policy: &str) {
     let file = paths(app).config_file();
     let text = std::fs::read_to_string(&file).expect("the profile");
-    let text = text.replace(
-        "deployment: embedded-android\n",
-        &format!("deployment: embedded-android\n  android:\n    key_unlock_policy: {policy}\n"),
-    );
-    stand_in::provision_replacing(&app.dir, PROFILE, &text).expect("rewritten");
+    let line = format!("    key_unlock_policy: {policy}\n");
+    let rewritten = match text.find("    key_unlock_policy: ") {
+        Some(at) => {
+            let end = at + text[at..].find('\n').expect("a line") + 1;
+            format!("{}{line}{}", &text[..at], &text[end..])
+        }
+        None => text.replacen("  android:\n", &format!("  android:\n{line}"), 1),
+    };
+    assert_ne!(rewritten, text, "the document has a runtime.android block");
+    stand_in::provision_replacing(&app.dir, PROFILE, &rewritten).expect("rewritten");
 }
 
 fn holds_key(keystore: &FakeKeystore, app: &App, policy: KeyUnlockPolicy) -> bool {
@@ -878,6 +890,36 @@ mod onboarding {
             "nothing sealed yet"
         );
 
+        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
+            .expect("the record unlocks");
+        assert_eq!(started.transport_identity().expect("a PeerId"), peer);
+    }
+
+    /// A release first run (j96): the seal reads the unlock policy from
+    /// the profile's document, which a fresh install does not have until
+    /// the app's provisioning writes it -- refused before, sealed after,
+    /// and the release build's start (`FirstRun::Refuse`, which sends the
+    /// person to onboarding) then unlocks the `PeerId` shown.
+    #[test]
+    fn a_release_first_run_writes_the_profile_onboarding_seals_under() {
+        let app = fresh_install();
+        let keystore = FakeKeystore::default();
+        let (creation, _, peer, _) = Creation::new().expect("a creation");
+        assert!(
+            matches!(
+                onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+                Err(WriteRefused::Storage(why)) if why.starts_with("the profile:")
+            ),
+            "the control: with no document the seal is refused"
+        );
+
+        provision_profile(&app.dir, PROFILE).expect("the first-run profile");
+        assert_eq!(
+            start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).map(|_| ()),
+            Err(IdentityRefused::Unprovisioned),
+            "onboarding's state"
+        );
         onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
         let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
             .expect("the record unlocks");

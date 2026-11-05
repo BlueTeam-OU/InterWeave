@@ -112,11 +112,11 @@ listOf("Debug", "Release").forEach { variant ->
                 sdk.sdkDirectory.get().asFile.resolve("platforms/android-36/android.jar").path,
             )
         }
-        // The release build is optimised; the debug build carries the
-        // stand-in profile (crates/human/android-platform's stand_in) and
+        // The release build is optimised; the debug build's Service
         // creates a first run's identity without asking (jni.rs's
-        // FirstRun::Create), until profile-config's provisioning and step 7's
-        // onboarding land, and only it does.
+        // FirstRun::Create), so a case starts with no person at step 7's
+        // onboarding, and only it does. Both write the same first-run
+        // profile (android-platform's provision_profile).
         // The debug build also carries the instrumentation's case entry
         // (e2e-cases, src/e2e.rs) and the views' trace to logcat for the
         // screen-driving tests (ui-trace); the release build carries none
@@ -146,9 +146,14 @@ listOf("Debug", "Release").forEach { variant ->
 // for the APK; the Cargo graph's own check is devex-tooling's). Nor the
 // views' trace: every line it writes starts with "ui-trace", ui-slint's
 // trace::PREFIX, so a library that could write one carries the marker.
+// And it does carry the first-run profile's writer, whose document opens
+// with the marker below (profile-config's EMBEDDED_DOCUMENT_MARKER, which
+// embedded_document starts with; the two are kept equal by hand): the release
+// libraries of v0.1.0 and v0.2.0 had none, so a fresh install wrote no
+// profile and its onboarding could seal no identity (j96).
 val verifyReleaseNative = tasks.register("verifyReleaseNative") {
     group = "verification"
-    description = "Fails if the release native library carries the android-e2e case entry or the views' trace."
+    description = "Fails if the release native library carries the android-e2e case entry or the views' trace, or lacks the first-run profile's writer."
     dependsOn("cargoNdkRelease")
     val library = rustJniLibs("Release").map { it.file("arm64-v8a/libinterweave_human_android.so") }
     inputs.file(library)
@@ -157,6 +162,8 @@ val verifyReleaseNative = tasks.register("verifyReleaseNative") {
         for (name in listOf("Java_org_interweave_human_test_E2eCase_run", "interweave_android_e2e_cases", "ui-trace")) {
             check(!bytes.contains(name)) { "the release native library carries $name" }
         }
+        val firstRun = "# Written on first run by the Android client"
+        check(bytes.contains(firstRun)) { "the release native library writes no first-run profile" }
     }
 }
 tasks.matching { it.name == "mergeReleaseJniLibFolders" }.configureEach {

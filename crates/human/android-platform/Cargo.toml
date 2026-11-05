@@ -45,8 +45,8 @@ tokio = { workspace = true, features = ["sync", "time", "macros"] }
 rand = { workspace = true }
 
 [features]
-# The first-run profile, until profile-config's provisioning lands
-# (src/stand_in.rs). Off by default; the app's debug build turns it on.
+# The android-e2e cases' replacement of the profile (src/stand_in.rs).
+# Off by default; the app's debug build turns it on.
 dev-stand-ins = []
 # TEST-ONLY: end the runtime from a test (ServiceHost::end_runtime_for_test),
 # through the embedded host's own hook; this crate's tests turn it on.

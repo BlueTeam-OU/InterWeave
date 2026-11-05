@@ -11,9 +11,13 @@
 
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
-use interweave_profile_config::provision::{embedded_document, provision_embedded};
+use interweave_profile_config::provision::{
+    EMBEDDED_DOCUMENT_MARKER, embedded_document, provision_embedded,
+};
 use interweave_profile_config::runtime::Deployment;
-use interweave_profile_config::{PersistError, ProfileConfig, ProfilePaths, TrustBoundary};
+use interweave_profile_config::{
+    ClientKind, PersistError, ProfileConfig, ProfilePaths, TrustBoundary,
+};
 
 /// An app data directory, owner-only, under an owner-only temporary root.
 fn app() -> (tempfile::TempDir, std::path::PathBuf) {
@@ -46,6 +50,61 @@ fn the_document_validates_as_an_embedded_android_profile() {
     assert!(
         config.trust.allowed_peers.is_empty(),
         "no trust is defaulted"
+    );
+}
+
+/// `human-client-ui.md` §13: every identity's endpoint has advertise off,
+/// so the first-run document puts no endpoint in the endpoint directory.
+/// The control: the document does hold the `human` endpoint, enabled.
+#[test]
+fn the_document_advertises_no_endpoint() {
+    let config: ProfileConfig =
+        serde_norway::from_str(&embedded_document("work")).expect("the document parses");
+    let human = config
+        .endpoints
+        .entries
+        .iter()
+        .find(|e| e.id.as_str() == "human")
+        .expect("the human endpoint is configured");
+    assert!(human.enabled, "the human endpoint is enabled");
+    assert!(
+        config.endpoints.entries.iter().all(|e| !e.advertise),
+        "no endpoint is advertised: {:?}",
+        config.endpoints.entries
+    );
+}
+
+/// The `human` endpoint is leased by the human client's kind and no
+/// other, as the Android debug build's stand-in profile leased it.
+/// The list is hygiene, not authority, and empty means unrestricted, so
+/// the test pins the exact list rather than its presence.
+#[test]
+fn the_human_endpoint_admits_the_human_client_kind_only() {
+    let config: ProfileConfig =
+        serde_norway::from_str(&embedded_document("work")).expect("the document parses");
+    let human = config
+        .endpoints
+        .entries
+        .iter()
+        .find(|e| e.id.as_str() == "human")
+        .expect("the human endpoint is configured");
+    let kinds: Vec<&str> = human
+        .allowed_client_kinds
+        .iter()
+        .map(ClientKind::as_str)
+        .collect();
+    assert_eq!(kinds, ["human-client"]);
+}
+
+/// The release build's check reads the marker in the native library, so
+/// the document opens with exactly it.
+#[test]
+fn the_document_opens_with_the_marker_the_release_check_reads() {
+    let document = embedded_document("work");
+    assert!(document.starts_with(EMBEDDED_DOCUMENT_MARKER), "{document}");
+    assert_eq!(
+        EMBEDDED_DOCUMENT_MARKER,
+        "# Written on first run by the Android client"
     );
 }
 
