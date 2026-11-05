@@ -299,6 +299,11 @@ pub fn app_windows(dump: &str) -> Result<Vec<(String, bool)>, String> {
 /// `AuthContainerView` sets it on every level this runs on).
 pub const BIOMETRIC_PROMPT: &str = "BiometricPrompt";
 
+/// Samsung's title for the same prompt: the A40 (One UI, API 30) draws
+/// it as `BiometricPrompt3P` (its dump of 2026-11-05), so a check for
+/// AOSP's title alone never sees the prompt there.
+pub const SAMSUNG_BIOMETRIC_PROMPT: &str = "BiometricPrompt3P";
+
 /// Whether a `dumpsys window windows` dump lists a window whose title is
 /// exactly `title`.
 #[must_use]
@@ -316,7 +321,16 @@ pub fn has_window(dump: &str, title: &str) -> bool {
 /// As [`shell`].
 #[must_use]
 pub fn prompt_shown() -> bool {
-    has_window(&shell(&["dumpsys", "window", "windows"]), BIOMETRIC_PROMPT)
+    prompt_in(&shell(&["dumpsys", "window", "windows"]))
+}
+
+/// Whether a `dumpsys window windows` dump lists the credential prompt,
+/// under AOSP's title or Samsung's.
+#[must_use]
+pub fn prompt_in(dump: &str) -> bool {
+    [BIOMETRIC_PROMPT, SAMSUNG_BIOMETRIC_PROMPT]
+        .iter()
+        .any(|title| has_window(dump, title))
 }
 
 /// What the runtime was told by the app's network callback, from the
@@ -1138,5 +1152,22 @@ channels:
             !has_window(&other, BIOMETRIC_PROMPT),
             "a title is matched whole"
         );
+    }
+
+    #[test]
+    fn samsungs_prompt_title_is_its_own_whole_title() {
+        // The A40's header line for the prompt, verbatim.
+        let a40 = format!(
+            "{WINDOWS}  Window #4 Window{{fee1ccf u0 BiometricPrompt3P}}:\n    mAttrs={{fl=SECURE}}\n"
+        );
+        assert!(has_window(&a40, SAMSUNG_BIOMETRIC_PROMPT));
+        // AOSP's title does not match Samsung's: the reason both are asked.
+        assert!(!has_window(&a40, BIOMETRIC_PROMPT));
+        assert!(!has_window(WINDOWS, SAMSUNG_BIOMETRIC_PROMPT), "control: absent");
+        // The check a case asks sees either title, and neither when absent.
+        assert!(prompt_in(&a40));
+        let aosp = a40.replace("u0 BiometricPrompt3P}", "u0 BiometricPrompt}");
+        assert!(prompt_in(&aosp));
+        assert!(!prompt_in(WINDOWS), "control: no prompt");
     }
 }
