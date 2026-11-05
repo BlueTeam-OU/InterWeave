@@ -50,7 +50,9 @@ in the Chats list's subtitle and what the look spec's Show source
 shows: one replacement mark in place of the cluster. It also revises
 start-window §3's sentence that such a first character previews as the
 ellipsis alone: it now previews as one mark (start-window §10 item 11a,
-revised with this note).
+revised with this note); and its sentence that the Chats row's
+accessible description carries the same cut text: it does, with each
+U+FFFD spoken as §6 says.
 
 ## 1. What is already decided
 
@@ -343,8 +345,11 @@ and the speech engine, not on the platform alone, so the client does
 not leave it to them: wherever the client sets the accessible text —
 the bubble's `Item` label, the Chats row's description, the reader's
 blocks and Show source — it puts `ReplacedCharacter` (§8) in place of
-each mark, so U+FFFD never reaches the screen reader there and nothing
-is spoken twice. The words stand apart from the text around them: the
+every U+FFFD: a mark it drew for a cluster past 32 code points, and a
+U+FFFD the body already carries (a sent message whose draft was
+replaced, or one the sender's own client replaced), which looks the
+same and which no client can tell apart. So U+FFFD never reaches the
+screen reader there and nothing is spoken twice. The words stand apart from the text around them: the
 client puts a space on each side where the mark touches a character
 that is not a space, and any pause the words need in a locale is in
 the string itself (§8). In either case, no words are shown on screen.
@@ -460,7 +465,7 @@ are that locale's holder's.
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
 | `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied | Could not copy the message |
-| `ReplacedCharacter` | never on screen: a screen reader's text in place of each replacement mark, wherever the client sets the accessible text, and never in the composer's draft (§6) | that one character is there which the app does not show; a word or two, spoken in the middle of the text around it, with any pause the locale needs before and after it | character not shown |
+| `ReplacedCharacter` | never on screen: a screen reader's text in place of every U+FFFD, wherever the client sets the accessible text, and never in the composer's draft (§6) | that one character is there that is shown only as a replacement mark; a word or two, spoken in the middle of the text around it, with any pause the locale needs before and after it | character not shown |
 
 Show source and Show formatted reuse the row's existing labels.
 
@@ -637,7 +642,8 @@ it, those checks are blocked, never passed.
   it was before the paste. A base typed with 31 combining marks shows
   them, and the 32nd mark turns all of it into one mark with the caret
   after it. The message sent carries U+FFFD in place of the cluster and
-  every other character. What each screen reader says for the mark in
+  every other character, and its sent row says `ReplacedCharacter`
+  there at both punctuation settings. What each screen reader says for the mark in
   the draft is recorded at both settings, whatever it is (§6's
   limit).
 
