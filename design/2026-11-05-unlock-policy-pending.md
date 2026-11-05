@@ -93,7 +93,8 @@ The view reads four facts from the status member (Q3):
 - **configured**: the configured policy, or unknown when the profile
   could not be read at the reseal.
 - the reseal's pending class, if any.
-- the effective availability mode.
+- the effective availability mode. It is known only while the host
+  runs, so it is unknown while InterWeave is locked (below).
 
 **A change is pending whenever in force and configured differ**, whatever
 the start's reseal answered, `Held` included (ADR-0042 A 2026-11-05 asks
@@ -107,11 +108,13 @@ or D, decided by the policy in force alone.
 the other policy's key remains, which are K's facts. **The status member
 is to report `Unsynced` as the class `OldKeyRemains`**, never as
 `Storage`. rust-ui-dev accepted this in REPLY 01a1aca2-ea97, with a test
-promised. It is not on their branch yet: at 76ac4a188, `reseal_identity`
-still classes every `Storage` refusal as `Storage` (identity.rs:188).
-Once it lands, the view needs no fifth fact, and a `Storage` class
+promised. It is on their j213 branch at 15632b734, not yet on `main`.
+There, `Unsynced` is classed `OldKeyRemains` only when the record on
+disk is under the configured policy, and the test
+`an_unsynced_reseal_is_old_key_remains_and_a_failed_write_is_storage`
+pins both cases. So the view needs no fifth fact, and a `Storage` class
 always means a failure before the write. It is a precondition of §8
-beside the member. One limit remains.
+beside the member until it reaches `main`. One limit remains.
 If a power cut loses the unsynced write, the next start opens the old
 record again, and the line shows P for that start.
 
@@ -144,6 +147,16 @@ screen lock, so **in P-up and P-down D's line is not shown**: the P
 line stands in for it. In P-unknown, D's line shows under the P-unknown
 line when D's condition holds (the policy in force is always known),
 because the P-unknown line does not say what a restart does.
+
+**While InterWeave is locked** (the start stopped at
+`UserNotAuthenticated`, and the locked notice shows), D's line is not
+shown: D's condition cannot be read without the availability mode, and
+D's "while InterWeave keeps running" is not true then. The locked
+notice already tells the person that InterWeave stays offline until
+they unlock. The P and K lines follow the rest of this section from
+whatever the status member holds, since a locked start changes no
+record. P-up's Chats notice is below the locked notice in priority
+(§4), so it does not show while locked.
 
 Shown and cleared: the state is read again whenever the status member
 changes. A start whose reseal succeeds results in N or D. Nothing is
@@ -267,7 +280,7 @@ Keystore fault, a full disk at the start). They are checked by view
 tests (`crates/human/ui-slint/tests/views.rs`) with the status member
 set. **Precondition for all of them: the status member carries the four
 facts of §3 (Q3), with `Unsynced` reported as `OldKeyRemains` (§3).**
-Without both, A1–A10 and A12 are blocked, not passed.
+Without both, A1–A10, A12 and A13 are blocked, not passed.
 
 - **A1** For each row of §3's table, the Trust page shows exactly the
   line(s) named, in that order, between the PeerId and "Show recovery
@@ -327,6 +340,10 @@ Without both, A1–A10 and A12 are blocked, not passed.
   - Storage → Keystore.
 
   Check each against F9's focus target and its announcements in order.
+- **A13** Locked (the status member's availability mode unknown, with
+  the policy in force user-presence): the Trust page shows no D line.
+  With the member also holding a pending change, its P line shows. On
+  Chats only the locked notice shows.
 
 ## 9. Deliberately left out
 
@@ -379,5 +396,7 @@ Without both, A1–A10 and A12 are blocked, not passed.
   - "pending" from the comparison, `Held` included (same reply);
   - `Unsynced` reported as `OldKeyRemains` (REPLY 01a1aca2-ea97).
 
-  Until the member is built and the `Unsynced` classing is on the
-  branch, A1–A10 and A12 stay blocked, as §8 says.
+  Both are built on rust-ui-dev's j213 branch: `UnlockStatus` and
+  `ServiceHost::unlock_status()` at 77d337267, and the classing at
+  15632b734. Until they reach `main`, A1–A10, A12 and A13 stay blocked,
+  as §8 says.
