@@ -35,7 +35,7 @@ use interweave_human_ui_model::{
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
-use interweave_human_ui_model::body;
+use interweave_human_ui_model::{body, cluster};
 mod cards;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod clipboard;
@@ -684,6 +684,29 @@ impl Shared {
 
 /// The callbacks of the screens with their own modules, and the trust
 /// settings'.
+/// The composer's edits, each one queued as the draft it leaves.
+fn wire_draft(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    window.on_draft_edited(move |text| {
+        // A field draws its own text, so a character past the cluster
+        // bound -- pasted, say -- is replaced in the draft itself before
+        // the next frame: what is sent is what was shown.
+        let text = match cluster::drawable(&text) {
+            std::borrow::Cow::Borrowed(_) => text.to_string(),
+            std::borrow::Cow::Owned(drawn) => {
+                if let Some(window) = w.upgrade() {
+                    window.set_draft(drawn.as_str().into());
+                }
+                drawn
+            }
+        };
+        let selected = s.borrow().selected.clone();
+        if let Some(key) = selected {
+            enqueue(&s, Input::Draft(key, text));
+        }
+    });
+}
+
 fn wire_screens(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     wire_trust(window, shared);
     window_marks::wire(window, shared);
@@ -1056,13 +1079,7 @@ impl View {
                 window.set_notice_action(SharedString::new());
             }
         });
-        let s = Rc::clone(&shared);
-        window.on_draft_edited(move |text| {
-            let selected = s.borrow().selected.clone();
-            if let Some(key) = selected {
-                enqueue(&s, Input::Draft(key, text.to_string()));
-            }
-        });
+        wire_draft(&window, &shared);
 
         let s = Rc::clone(&shared);
         window.on_open_trust(move || enqueue(&s, Input::TrustPage(true)));
@@ -3521,7 +3538,8 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
             }
         })
         .collect();
-    let source_pieces: Vec<SharedString> = body::pieces(&item.source)
+    let source = cluster::drawable(&item.source);
+    let source_pieces: Vec<SharedString> = body::pieces(&source)
         .into_iter()
         .map(|(piece, _)| piece.into())
         .collect();
@@ -3656,8 +3674,9 @@ fn message_row(
         card_name: item
             .card
             .as_ref()
-            .map(|c| c.name.as_str())
+            .map(|c| cluster::drawable(&c.name))
             .unwrap_or_default()
+            .as_ref()
             .into(),
         card_letters: item
             .card

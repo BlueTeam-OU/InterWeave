@@ -1281,6 +1281,77 @@ fn the_source_is_one_activation_away() {
     assert_eq!(labelled(&view, "Hello").len(), 1, "and back");
 }
 
+/// A character past the cluster bound -- here a letter and 255 combining
+/// marks, one character of 256 code points -- is drawn as one U+FFFD in
+/// its place wherever it would be drawn: the body, the Chats line, the
+/// source, a link's control (none) and the composer, where a pasted one
+/// is replaced in the draft itself (HUMAN-CHAT.md, Bounds). Nothing in the
+/// tree holds the character as sent. The rule is the client's, so a text
+/// shaper's counters never see such a character (j92).
+#[test]
+fn a_character_past_the_cluster_bound_is_drawn_as_one_replacement_everywhere() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let past = format!("a{}", "\u{301}".repeat(255));
+    let source = format!("x {past} y [see](https://example.org/{past})");
+    model.received(received(1, &alice, &source));
+    let key = direct(&alice);
+    open(&mut view, &mut model, &key);
+    let never_sent_as_is = |view: &View| {
+        for e in all(view) {
+            for said in [e.accessible_label(), e.accessible_description()]
+                .into_iter()
+                .flatten()
+            {
+                assert!(
+                    !said.contains(&past),
+                    "drawn as sent: {:?}",
+                    &said[..said.len().min(40)]
+                );
+            }
+        }
+    };
+
+    assert_eq!(labelled(&view, "x \u{FFFD} y see").len(), 1, "the body");
+    assert!(
+        all(&view)
+            .iter()
+            .filter_map(ElementHandle::accessible_description)
+            .any(|d| d.contains("x \u{FFFD} y see")),
+        "the Chats line"
+    );
+    assert!(
+        !buttons(&view).iter().any(|c| c.contains("example.org")),
+        "no control for a link whose label would hold it"
+    );
+    never_sent_as_is(&view);
+
+    choose(&view, text(UiText::ShowSource));
+    assert_eq!(
+        labelled(&view, &source.replace(&past, "\u{FFFD}")).len(),
+        1,
+        "the source, drawn the same way"
+    );
+    never_sent_as_is(&view);
+
+    view.window()
+        .invoke_draft_edited(format!("hi {past}").into());
+    assert_eq!(
+        view.window().get_draft(),
+        "hi \u{FFFD}",
+        "the composer's own text"
+    );
+    assert_eq!(
+        view.take_events(&model),
+        vec![ViewEvent::DraftChanged {
+            key,
+            draft: "hi \u{FFFD}".to_owned()
+        }],
+        "and what is sent is what was shown"
+    );
+}
+
 /// Past a bound the body is its source as plain text, and its links are
 /// not controls: nothing in it was parsed into anything.
 #[test]
