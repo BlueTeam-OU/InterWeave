@@ -171,12 +171,12 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, ji
     let resealed =
         reseal_identity(dir, PROFILE, &cipher, &identity).map_err(|why| refused_identity(&why))?;
     match resealed {
-        Resealed::Unchanged => {}
+        Resealed::Unchanged | Resealed::Held => {}
         Resealed::Changed => {
             log("the identity was sealed again under the configured unlock policy");
         }
-        Resealed::Pending(why) => log(&format!(
-            "the identity's reseal is left for the next start: {why}"
+        Resealed::Pending { detail, .. } => log(&format!(
+            "the identity's reseal is left for the next start: {detail}"
         )),
     }
     Ok(identity)

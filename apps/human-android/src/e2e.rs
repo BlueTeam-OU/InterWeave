@@ -76,8 +76,10 @@ fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String 
     // As the app's start does (jni.rs `identity`): the cases run on the
     // record the service would.
     match reseal_identity(&dir, PROFILE, &*cipher, &identity) {
-        Ok(Resealed::Unchanged | Resealed::Changed) => {}
-        Ok(Resealed::Pending(why)) => log(&format!("the identity's reseal is left: {why}")),
+        Ok(Resealed::Unchanged | Resealed::Changed | Resealed::Held) => {}
+        Ok(Resealed::Pending { detail, .. }) => {
+            log(&format!("the identity's reseal is left: {detail}"));
+        }
         Err(why) => return failed(case, &format!("no identity: {why:?}")),
     }
     let peer = match identity.transport_identity() {
