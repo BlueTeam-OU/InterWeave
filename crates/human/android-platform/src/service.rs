@@ -30,6 +30,7 @@ use interweave_transport_embedded::{
 
 use crate::facade::{FacadeLoop, SpawnError};
 use crate::hub::{Hub, StoreAnswer, StoreGeneration, StoreRefusal};
+use crate::identity::UnlockStatus;
 use crate::network::{NetworkReport, NetworkSlot, Told};
 use crate::offline::offline_embedded;
 
@@ -56,6 +57,10 @@ pub struct ServiceLaunch {
     /// whatever the seed's policy is, so the store opens on an unattended
     /// restart.
     pub store_cipher: Box<dyn KeyCipher + Send>,
+    /// The unlock policy the identity's start left in force
+    /// ([`crate::identity::start_resealed`]); `None` where no start of the
+    /// record ran (a test's own identity).
+    pub unlock: Option<UnlockStatus>,
 }
 
 /// Why the client did not start. Closed, so the Service maps each to its
@@ -178,6 +183,10 @@ pub struct ServiceHost {
     /// Why the last start's identity key was not opened or made, if it
     /// was not: the app logs its class, as the desktop prints it (#414 F3).
     key_refused: Arc<Mutex<Option<KeyProblem>>>,
+    /// The last start's unlock status: set by a start that ran, never by
+    /// one redelivered to a running client, whose reseal found the profile
+    /// held and so says nothing of the record.
+    unlock: Mutex<Option<UnlockStatus>>,
 }
 
 impl Default for ServiceHost {
@@ -203,6 +212,7 @@ impl ServiceHost {
             running: Mutex::new(None),
             network: Mutex::new(NetworkSlot::default()),
             key_refused: Arc::new(Mutex::new(None)),
+            unlock: Mutex::new(None),
         }
     }
 
@@ -337,6 +347,59 @@ impl ServiceHost {
         }
     }
 
+    /// [`refused_before_start`](Self::refused_before_start) by a start
+    /// whose custody step ran, with what it learnt of the unlock policy: a
+    /// start refused `UserNotAuthenticated` has
+    /// [`crate::identity::locked_status`], one refused after its reseal
+    /// the reseal's status, any other refusal of the record none. Where
+    /// the custody step did not run, the last start's status stands: the
+    /// record is as it left it. Nothing while the client runs.
+    pub fn refused_before_start_with(&self, unlock: Option<UnlockStatus>) {
+        let running = self.lock();
+        if running.is_none() {
+            *self.unlock_slot() = unlock;
+            self.hub.set_store_answer(StoreAnswer::OtherRefusal);
+        }
+    }
+
+    fn unlock_slot(&self) -> std::sync::MutexGuard<'_, Option<UnlockStatus>> {
+        // Replaced whole.
+        self.unlock.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The unlock policy the last start left in force, the configured one
+    /// and a reseal left pending: what the person's view shows of a
+    /// changed `key_unlock_policy` (ADR-0042 A 2026-11-05). Kept after a
+    /// stop, since the record has not changed; `None` before any start
+    /// learnt it.
+    #[must_use]
+    pub fn unlock_status(&self) -> Option<UnlockStatus> {
+        *self.unlock_slot()
+    }
+
+    /// `background_restart_requires_user_authentication` for `profile`
+    /// under `app_data_dir`: the policy in force by the last start's status,
+    /// under the running host's effective availability -- or, while no
+    /// runtime runs (locked, network denied, stopped), the mode read from
+    /// disk ([`crate::identity::restart_requires_user_authentication_at_rest`]).
+    /// `None` while no start learnt the policy, or the mode cannot be read.
+    #[must_use]
+    pub fn restart_requires_user_authentication(
+        &self,
+        app_data_dir: &std::path::Path,
+        profile: &str,
+    ) -> Option<bool> {
+        let unlock = self.unlock_status()?;
+        match self.availability() {
+            Some(mode) => Some(unlock.restart_requires_user_authentication(mode)),
+            None => crate::identity::restart_requires_user_authentication_at_rest(
+                app_data_dir,
+                profile,
+                &unlock,
+            ),
+        }
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<Running>> {
         // Each field is replaced whole, so a panic that poisoned the lock
         // left nothing half-written.
@@ -397,6 +460,7 @@ impl ServiceHost {
         if running.is_some() {
             return Ok(());
         }
+        *self.unlock_slot() = launch.unlock;
         let host = EmbeddedHost::start(EmbeddedLaunch {
             app_data_dir: launch.app_data_dir,
             profile: launch.profile,
@@ -445,6 +509,8 @@ impl ServiceHost {
         if running.is_some() {
             return Ok(());
         }
+        // Whatever the rest of the start comes to, its custody step ran.
+        *self.unlock_slot() = launch.unlock;
         let started = self.start_locked(&mut running, launch, data);
         self.answer(&started);
         started

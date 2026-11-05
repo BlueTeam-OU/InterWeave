@@ -184,7 +184,8 @@ pub fn seal(
     match provisioned {
         Ok(_) => Ok(()),
         // Refused after the publish: done if the record opens to this
-        // identity, and the next start's reseal finishes the rest.
+        // identity, and the next start's reseal (`reseal_identity`)
+        // finishes the rest.
         Err(
             refused @ (CustodyRefused::OldKeyRemains(_)
             | CustodyRefused::Storage(PersistError::Unsynced(_))),

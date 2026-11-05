@@ -26,7 +26,8 @@
 //!    -- held by the TYPE: the field is `literal[remoteMessaging]`, so no
 //!    other value parses whatever the availability mode.
 //! 6. `stay-reachable` with `user-presence` derives a diagnostic, not a
-//!    refusal -- [`AndroidRuntimeConfig::background_restart_requires_user_authentication`].
+//!    refusal -- [`background_restart_requires_user_authentication`], of the
+//!    policy in force, never the configured one (ADR-0041 A 2026-11-05).
 //!
 //! And the wildcard-listener rule (architect-cto's ruling of
 //! 2026-10-09, relay seq 33736, §20 step 5): `embedded-android`
@@ -101,25 +102,29 @@ impl AndroidRuntimeConfig {
             .clone()
             .or_else(|| EndpointId::parse(DEFAULT_ANDROID_ENDPOINT).ok())
     }
+}
 
-    /// The schema's sixth runtime rule: a node that stays reachable but
-    /// whose key needs the user present cannot come back on its own
-    /// after a restart. A derived status, not a refusal -- the
-    /// combination is legal.
-    ///
-    /// Judged on the EFFECTIVE mode the caller read
-    /// ([`effective_availability_mode`](crate::availability_overlay::effective_availability_mode)),
-    /// never on `availability_mode` alone: that field is only the
-    /// authored default, and the person's choice overrides it (ADR-0041
-    /// A 2026-10-10).
-    #[must_use]
-    pub fn background_restart_requires_user_authentication(
-        &self,
-        effective: AvailabilityMode,
-    ) -> bool {
-        effective == AvailabilityMode::StayReachable
-            && self.key_unlock_policy == KeyUnlockPolicy::UserPresence
-    }
+/// The schema's sixth runtime rule: a node that stays reachable but
+/// whose key needs the user present cannot come back on its own after a
+/// restart. A derived status, not a refusal -- the combination is legal.
+///
+/// Judged on the EFFECTIVE mode
+/// ([`effective_availability_mode`](crate::availability_overlay::effective_availability_mode)),
+/// never on `availability_mode` alone: that field is only the authored
+/// default, and the person's choice overrides it (ADR-0041 A 2026-10-10).
+/// And on the policy IN FORCE -- the authenticated policy byte of the
+/// identity record the start's custody step left on disk -- never on
+/// the configured `key_unlock_policy`: while a reseal is pending the two
+/// differ, and a restart opens the record under its own policy (ADR-0041
+/// A 2026-11-05). The configured policy is the pending change shown
+/// beside this, not an input to it: the signature takes no
+/// configuration, so it cannot be read here.
+#[must_use]
+pub fn background_restart_requires_user_authentication(
+    effective: AvailabilityMode,
+    in_force: KeyUnlockPolicy,
+) -> bool {
+    effective == AvailabilityMode::StayReachable && in_force == KeyUnlockPolicy::UserPresence
 }
 
 /// `runtime.android.availability_mode`.
@@ -289,7 +294,7 @@ mod tests {
     #![allow(clippy::expect_used)]
     use super::{
         AndroidRuntimeConfig, AvailabilityMode, DEFAULT_ANDROID_ENDPOINT, KeyUnlockPolicy,
-        RuntimeConfig,
+        RuntimeConfig, background_restart_requires_user_authentication,
     };
 
     #[test]
@@ -348,19 +353,8 @@ mod tests {
                 false,
             ),
         ] {
-            // The AUTHORED field says the opposite of the effective mode,
-            // so a status read from the field answers wrong.
-            let authored = match mode {
-                AvailabilityMode::StayReachable => AvailabilityMode::ForegroundOnly,
-                AvailabilityMode::ForegroundOnly => AvailabilityMode::StayReachable,
-            };
-            let android = AndroidRuntimeConfig {
-                availability_mode: authored,
-                key_unlock_policy: policy,
-                ..AndroidRuntimeConfig::default()
-            };
             assert_eq!(
-                android.background_restart_requires_user_authentication(mode),
+                background_restart_requires_user_authentication(mode, policy),
                 expected,
                 "{mode:?} + {policy:?}"
             );

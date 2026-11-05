@@ -88,6 +88,7 @@ fn identity(mnemonic: &str) -> ProfileIdentity {
 struct SoftCipher {
     keys: Mutex<HashMap<String, [u8; 32]>>,
     seals: AtomicUsize,
+    opens: AtomicUsize,
     fail: Mutex<Option<CipherFailure>>,
     fail_retire: Mutex<Option<CipherFailure>>,
 }
@@ -118,6 +119,9 @@ impl SoftCipher {
     }
     fn seals(&self) -> usize {
         self.seals.load(Ordering::SeqCst)
+    }
+    fn opens(&self) -> usize {
+        self.opens.load(Ordering::SeqCst)
     }
 }
 
@@ -157,6 +161,7 @@ impl SeedCipher for SoftCipher {
         sealed: &[u8; SEALED_LEN],
         aad: &[u8],
     ) -> Result<Seed, CipherFailure> {
+        self.opens.fetch_add(1, Ordering::SeqCst);
         if let Some(failure) = self.fail.lock().unwrap().clone() {
             return Err(failure);
         }
@@ -333,6 +338,89 @@ fn an_unprovisioned_profile_is_answered_as_one_and_nothing_is_made() {
     assert!(!app.paths.identity_dir().exists(), "unlock wrote nothing");
     assert_eq!(cipher.seals(), 0);
     assert_eq!(custody::recorded_identity(&app.paths).expect("read"), None);
+}
+
+/// The record's policy reads back as sealed, for each policy, without
+/// the cipher and with the record unchanged; no record reads `None`, and
+/// a record of the wrong shape answers what `unlock` answers before the
+/// cipher.
+#[test]
+fn the_recorded_policy_is_read_without_the_cipher() {
+    let (mnemonic, _) = vectors().remove(0);
+    for policy in [
+        KeyUnlockPolicy::BackgroundCompatible,
+        KeyUnlockPolicy::UserPresence,
+    ] {
+        let app = new_app();
+        assert_eq!(custody::recorded_policy(&app.paths).expect("read"), None);
+        let cipher = SoftCipher::default();
+        custody::provision(&app.paths, &cipher, &identity(&mnemonic), policy).expect("stored");
+        let before = record(&app);
+        // The cipher answers every call with a failure from here: a read
+        // that asked it could not return the policy.
+        cipher.fail_with(Some(CipherFailure::Unavailable(
+            "the cipher was asked".to_owned(),
+        )));
+        assert_eq!(
+            custody::recorded_policy(&app.paths).expect("read"),
+            Some(policy)
+        );
+        assert_eq!(record(&app), before, "the record is unchanged");
+        assert_eq!(cipher.seals(), 1, "only the provisioning sealed");
+
+        put(&app, &before[..ENVELOPE_LEN - 1]);
+        assert_eq!(
+            custody::recorded_policy(&app.paths).err(),
+            Some(UnlockRefused::RecoveryRequired(RecoveryCause::Record(
+                RecordRefused::Length
+            )))
+        );
+    }
+}
+
+/// The policy `unlock_opened` answers is the one whose key opened the
+/// record: sealed under each policy, unlocked by a cipher holding only
+/// that policy's key, in one open. A record whose byte claims the other
+/// policy, with that policy's key held too, opens nothing and answers no
+/// policy -- while `recorded_policy` reads the claim (the control that
+/// the answer is not a read of the byte).
+#[test]
+fn unlock_opened_answers_the_policy_whose_key_opened_the_record() {
+    let (mnemonic, peer) = vectors().remove(0);
+    for policy in POLICIES {
+        let other = POLICIES[1 - usize::from(slot(policy))];
+        let app = new_app();
+        let cipher = SoftCipher::default();
+        custody::provision(&app.paths, &cipher, &identity(&mnemonic), policy).expect("stored");
+        cipher.forget(&app.paths, other);
+        assert_eq!(
+            cipher.keys.lock().unwrap().len(),
+            1,
+            "only {policy:?}'s key"
+        );
+        let (opened, under) = custody::unlock_opened(&app.paths, &cipher).expect("opens");
+        assert_eq!(peer_of(&opened), peer);
+        assert_eq!(under, policy);
+        assert_eq!(cipher.opens(), 1, "one open");
+
+        let good = record(&app);
+        cipher.plant(&app.paths, other);
+        let mut claimed = good.clone();
+        claimed[5] = slot(other);
+        put(&app, &claimed);
+        assert_eq!(
+            custody::recorded_policy(&app.paths).expect("read"),
+            Some(other)
+        );
+        assert_eq!(
+            custody::unlock_opened(&app.paths, &cipher).err(),
+            Some(UnlockRefused::RecoveryRequired(
+                RecoveryCause::Authentication
+            ))
+        );
+        assert_eq!(cipher.opens(), 2, "one open");
+        assert_eq!(record(&app), claimed, "the refusal wrote nothing");
+    }
 }
 
 /// Every single-bit flip of the stored envelope gives no identity back

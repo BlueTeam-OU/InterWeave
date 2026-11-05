@@ -52,7 +52,7 @@
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]
 
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -324,34 +324,99 @@ fn connected(serial: &str) -> bool {
 }
 
 /// The serial wireless debugging answers at on `host` now: each port of
-/// [`PORTS`] that accepts a connection, tried with `adb connect`. The
-/// ports are tried 512 at a time; a closed one refuses at once.
+/// [`PORTS`] that accepts a connection, tried with `adb connect`.
 fn find_adb(host: &str) -> Option<String> {
-    let ports: Vec<u16> = PORTS.collect();
-    let open: Vec<u16> = ports
+    open_ports(host, PORTS)?
+        .into_iter()
+        .map(|port| format!("{host}:{port}"))
+        .find(|s| connected(s))
+}
+
+/// The ports of `ports` that accept a connection at any address `host`
+/// resolves to now, in order; `None` when it resolves to none. `host` is
+/// resolved once, so a serial naming the phone by hostname is followed
+/// too (a `SocketAddr` parses an IP literal only), and every address is
+/// tried, since a name may resolve to an address family adbd does not
+/// listen on. The probes run 512 at a time; a closed port refuses at once.
+fn open_ports(host: &str, ports: std::ops::RangeInclusive<u16>) -> Option<Vec<u16>> {
+    let probes = probe_addrs(&resolve(host)?, ports);
+    let mut open: Vec<u16> = probes
         .chunks(512)
         .flat_map(|chunk| {
-            let probes: Vec<_> = chunk
+            let threads: Vec<_> = chunk
                 .iter()
-                .map(|&port| {
-                    let host = host.to_owned();
+                .map(|&addr| {
                     std::thread::spawn(move || {
-                        let addr: SocketAddr = format!("{host}:{port}").parse().ok()?;
                         TcpStream::connect_timeout(&addr, Duration::from_millis(800))
                             .ok()
-                            .map(|_| port)
+                            .map(|_| addr.port())
                     })
                 })
                 .collect();
-            probes
+            threads
                 .into_iter()
                 .filter_map(|p| p.join().ok().flatten())
                 .collect::<Vec<_>>()
         })
         .collect();
-    open.into_iter()
-        .map(|port| format!("{host}:{port}"))
-        .find(|s| connected(s))
+    open.dedup();
+    Some(open)
+}
+
+/// Each address of `addrs` at each port of `ports`, port by port, so
+/// that a port open at two addresses is found twice in a row. The port
+/// is set on the resolved address rather than the address rebuilt from
+/// its IP, so an IPv6 link-local serial keeps its scope id.
+fn probe_addrs(addrs: &[SocketAddr], ports: std::ops::RangeInclusive<u16>) -> Vec<SocketAddr> {
+    ports
+        .flat_map(|port| {
+            addrs.iter().map(move |&addr| {
+                let mut addr = addr;
+                addr.set_port(port);
+                addr
+            })
+        })
+        .collect()
+}
+
+/// The addresses `host` -- an IP literal, bracketed for IPv6 as adb
+/// prints it, or a name -- resolves to now, at port 0; `None`, said on
+/// stderr, when it resolves to none.
+fn resolve(host: &str) -> Option<Vec<SocketAddr>> {
+    match format!("{host}:0").to_socket_addrs() {
+        Ok(addrs) => Some(addrs.collect::<Vec<_>>()).filter(|a| !a.is_empty()),
+        Err(e) => {
+            eprintln!("network_callback: {host} does not resolve now: {e}");
+            None
+        }
+    }
+}
+
+#[test]
+fn a_port_open_on_a_serials_host_is_found_by_name_as_well_as_by_literal() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a listener");
+    let port = listener.local_addr().expect("its address").port();
+    // The case this exists for: a name, which a SocketAddr does not parse,
+    // and which may resolve to ::1 before the address that listens.
+    assert!(format!("localhost:{port}").parse::<SocketAddr>().is_err());
+    assert_eq!(open_ports("localhost", port..=port), Some(vec![port]));
+    // Controls: the literal adb prints is found, and a closed port is not.
+    assert_eq!(open_ports("127.0.0.1", port..=port), Some(vec![port]));
+    drop(listener);
+    assert_eq!(open_ports("127.0.0.1", port..=port), Some(vec![]));
+    assert_eq!(open_ports("no such host.invalid", port..=port), None);
+}
+
+#[test]
+fn a_link_local_serials_scope_survives_resolution() {
+    let addrs = resolve("[fe80::1%3]").expect("a literal resolves");
+    let probes = probe_addrs(&addrs, 5555..=5556);
+    assert!(
+        matches!(probes.as_slice(),
+            [SocketAddr::V6(a), SocketAddr::V6(b)]
+                if a.scope_id() == 3 && b.scope_id() == 3 && a.port() == 5555 && b.port() == 5556),
+        "{probes:?}"
+    );
 }
 
 fn done() -> bool {

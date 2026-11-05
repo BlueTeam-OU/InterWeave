@@ -611,6 +611,44 @@ fn xdg_snapshot(home: &Home) -> BTreeMap<PathBuf, (Vec<u8>, u32, i64, i64)> {
     seen
 }
 
+/// Until `daemon` holds `path` open, by its `/proc` fd table, or exits,
+/// which fails the test with its log. For the profile lock this is the
+/// daemon inside `ProfileLock::acquire`, which it reaches only once `load`
+/// has passed: nothing before it opens the lock file.
+async fn holds_open(daemon: &mut common::Daemon, path: &Path) {
+    let path = std::fs::canonicalize(path).expect("the lock file exists");
+    let fds = PathBuf::from(format!("/proc/{}/fd", daemon.child.id()));
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        // An fd closed between the listing and its readlink is skipped.
+        let held = std::fs::read_dir(&fds).is_ok_and(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .any(|fd| std::fs::read_link(fd.path()).is_ok_and(|to| to == path))
+        });
+        if held {
+            return;
+        }
+        if let Some(status) = daemon.child.try_wait().expect("a status") {
+            panic!(
+                "the daemon exited ({status}) before it held {}:\n{}",
+                path.display(),
+                daemon.log()
+            );
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "{} not held in time:\n{}",
+            path.display(),
+            daemon.log()
+        );
+        // Short against DAEMON_LOCK_WAIT, which runs from the moment the
+        // file is open: the marker must be planted and the lock let go
+        // inside it.
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
 /// The marker's format as the daemon left it: `None` when it wrote none.
 fn marker_format(home: &Home) -> Option<u32> {
     let path = profile_format::path_for(&home.paths);
@@ -731,11 +769,13 @@ async fn a_marker_raised_while_the_daemon_waits_for_the_lock_refuses_it_there() 
     let held = interweave_profile_config::ProfileLock::acquire(&home.paths, Duration::ZERO)
         .expect("the newer build's lock");
     let mut daemon = home.start(&[]);
-    // Inside DAEMON_LOCK_WAIT: the daemon has loaded and waits on the
-    // lock; the newer build raises the marker and lets go.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    plant_marker(&home, PROFILE_FORMAT + 1);
     let lock_file = home.paths.state_dir().join("profile.lock");
+    // Inside DAEMON_LOCK_WAIT: the daemon has loaded and waits on the
+    // lock; the newer build raises the marker and lets go. Waited for, not
+    // slept on: a fixed sleep planted the marker before a daemon slowed by
+    // a loaded host had loaded, and `load` refused it instead.
+    holds_open(&mut daemon, &lock_file).await;
+    plant_marker(&home, PROFILE_FORMAT + 1);
     let before: BTreeMap<_, _> = xdg_snapshot(&home)
         .into_iter()
         .filter(|(p, _)| p != &lock_file)
