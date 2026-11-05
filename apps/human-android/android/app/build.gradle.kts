@@ -147,7 +147,8 @@ listOf("Debug", "Release").forEach { variant ->
 // views' trace: every line it writes starts with "ui-trace", ui-slint's
 // trace::PREFIX, so a library that could write one carries the marker.
 // And it does carry the first-run profile's writer, whose document opens
-// with the marker below (profile-config's embedded_document): the release
+// with the marker below (profile-config's EMBEDDED_DOCUMENT_MARKER, which
+// embedded_document starts with; the two are kept equal by hand): the release
 // libraries of v0.1.0 and v0.2.0 had none, so a fresh install wrote no
 // profile and its onboarding could seal no identity (j96).
 val verifyReleaseNative = tasks.register("verifyReleaseNative") {
