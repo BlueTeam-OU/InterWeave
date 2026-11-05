@@ -24,7 +24,9 @@
 //! person for. Over USB the link stays up, but the Wi-Fi cycle can still
 //! take wireless debugging's listener with it (below). Over wireless adb
 //! the link drops with the Wi-Fi, and two things follow, both measured
-//! on the A40 (API 30) on 2026-11-04:
+//! on the A40 (API 30) on 2026-11-04. A run is wireless when adb lists
+//! the phone with no `usb:` path (`attachment`), an mDNS serial with no
+//! `:` in it included.
 //! - With USB debugging off, losing the Wi-Fi turns adb off entirely,
 //!   and adbd's stop ends every process it started, the detached script
 //!   too: its log ended a second after the switch and the Wi-Fi stayed
@@ -89,8 +91,24 @@ const BACK_PATIENCE: Duration = Duration::from_secs(600);
 #[test]
 #[ignore = "needs a device with the app's androidTest build: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); its Wi-Fi is switched off for 30 s"]
 fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
-    let serial = std::env::var("ANDROID_SERIAL").ok();
-    let wireless = serial.as_deref().and_then(|s| s.rsplit_once(':'));
+    let (serial, link) = attachment(
+        &adb_text(&["devices", "-l"]),
+        std::env::var("ANDROID_SERIAL").ok().as_deref(),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    // The host the phone is followed to when wireless debugging moves,
+    // learned before anything is changed: from an `ip:port` serial, or
+    // for an mDNS serial from adb's own list of discovered services.
+    let wireless = match link {
+        Link::Usb => None,
+        Link::Network => Some(
+            host_of(&serial)
+                .or_else(|| mdns_host(&adb_text(&["mdns", "services"]), &serial))
+                .unwrap_or_else(|| {
+                    panic!("over wireless adb at {serial}: no address to follow the phone to, neither in the serial nor in `adb mdns services`")
+                }),
+        ),
+    };
     if wireless.is_some() {
         let usb = platform::shell(&["settings", "get", "global", "adb_enabled"]);
         assert_eq!(
@@ -142,10 +160,10 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
             Instant::now() < deadline,
             "the script's end not read in {BACK_PATIENCE:?}: adb not back, or the script stopped"
         );
-        if let Some((host, _)) = wireless {
+        if let Some(host) = &wireless {
             // Wireless: the phone where it answers now, its old port first.
-            let now = platform::moved().or(serial.clone());
-            if !now.as_deref().is_some_and(connected)
+            let now = platform::moved().unwrap_or_else(|| serial.clone());
+            if !connected(&now)
                 && let Some(found) = find_adb(host)
             {
                 eprintln!("network_callback: the phone answers at {found} now");
@@ -230,6 +248,120 @@ kill $lp
 echo done > $out/done
 "
     )
+}
+
+/// How adb reaches the phone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Link {
+    Usb,
+    /// Wireless debugging, or `adb tcpip`: an `ip:port` serial or an
+    /// mDNS one, which carries no `:`.
+    Network,
+}
+
+/// The phone's serial and link, read from `adb devices -l` rather than
+/// from the serial's shape: an mDNS serial
+/// (`adb-<serialno>-<id>._adb-tls-connect._tcp`) has no `:` and is not
+/// USB. A device is on USB when its line names a `usb:` path. With no
+/// `serial` asked for, the one device listed, as adb would pick it.
+fn attachment(devices: &str, serial: Option<&str>) -> Result<(String, Link), String> {
+    let lines: Vec<Vec<&str>> = devices
+        .lines()
+        .filter(|l| !l.starts_with("List of devices") && !l.starts_with('*'))
+        .map(|l| l.split_whitespace().collect::<Vec<_>>())
+        .filter(|f| f.len() >= 2)
+        .collect();
+    let entry = match serial {
+        Some(serial) => lines.iter().find(|f| f[0] == serial),
+        None if lines.len() == 1 => lines.first(),
+        None => None,
+    }
+    .ok_or_else(|| format!("no device {serial:?} in `adb devices -l`:\n{devices}"))?;
+    let link = if entry[2..].iter().any(|f| f.starts_with("usb:")) {
+        Link::Usb
+    } else {
+        Link::Network
+    };
+    Ok((entry[0].to_owned(), link))
+}
+
+/// The host of an `ip:port` serial (`[v6]:port` too); `None` for a
+/// serial with no port, an mDNS one.
+fn host_of(serial: &str) -> Option<String> {
+    let (host, port) = serial.rsplit_once(':')?;
+    port.parse::<u16>().ok()?;
+    Some(host.to_owned())
+}
+
+/// The host adb discovered an mDNS `serial` at, from `adb mdns
+/// services`: one line per service, its instance name first, its type
+/// next and its `ip:port` last. adb names an mDNS device
+/// `<instance>.<type>`, or the instance alone.
+fn mdns_host(services: &str, serial: &str) -> Option<String> {
+    services.lines().find_map(|l| {
+        let f: Vec<&str> = l.split_whitespace().collect();
+        let (instance, kind, addr) = (f.first()?, f.get(1)?, f.last()?);
+        let named =
+            *instance == serial || serial == format!("{instance}.{}", kind.trim_end_matches('.'));
+        named.then(|| host_of(addr)).flatten()
+    })
+}
+
+/// What `adb <args>` printed, with no serial chosen: a listing of the
+/// server's own.
+fn adb_text(args: &[&str]) -> String {
+    let out = Command::new("adb").args(args).output().expect("adb");
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+#[test]
+fn an_mdns_serial_is_a_network_link_and_its_host_is_learned_from_adb() {
+    let mdns = "adb-R58M41ABCDE-Xy1zQw._adb-tls-connect._tcp";
+    let devices = format!(
+        "List of devices attached\n\
+         0123456789ABCDEF       device usb:1-1.2 product:a40eea model:SM_A405FN device:a40 transport_id:1\n\
+         192.168.1.11:44779     device product:a40eea model:SM_A405FN device:a40 transport_id:2\n\
+         {mdns} device product:a40eea model:SM_A405FN device:a40 transport_id:3\n"
+    );
+    // The case this exists for: no ':' and still not USB.
+    assert_eq!(
+        attachment(&devices, Some(mdns)),
+        Ok((mdns.to_owned(), Link::Network))
+    );
+    // Controls: the USB line is USB, and an ip:port serial is a network.
+    assert_eq!(
+        attachment(&devices, Some("0123456789ABCDEF")),
+        Ok(("0123456789ABCDEF".to_owned(), Link::Usb))
+    );
+    assert_eq!(
+        attachment(&devices, Some("192.168.1.11:44779")),
+        Ok(("192.168.1.11:44779".to_owned(), Link::Network))
+    );
+    // Unlisted, or none asked for among several, is an error, never USB.
+    assert!(attachment(&devices, Some("gone")).is_err());
+    assert!(attachment(&devices, None).is_err());
+    let one = format!("List of devices attached\n{mdns} device transport_id:3\n");
+    assert_eq!(attachment(&one, None), Ok((mdns.to_owned(), Link::Network)));
+
+    assert_eq!(
+        host_of("192.168.1.11:44779").as_deref(),
+        Some("192.168.1.11")
+    );
+    assert_eq!(host_of("[fe80::1%3]:5555").as_deref(), Some("[fe80::1%3]"));
+    assert_eq!(host_of(mdns), None);
+    let services = "List of discovered mdns services\n\
+        adb-OTHER-aaaa\t_adb-tls-connect._tcp\t192.168.1.54:40001\n\
+        adb-R58M41ABCDE-Xy1zQw\t_adb-tls-pairing._tcp\t192.168.1.11:37000\n\
+        adb-R58M41ABCDE-Xy1zQw\t_adb-tls-connect._tcp\t192.168.1.11:44779\n";
+    assert_eq!(mdns_host(services, mdns).as_deref(), Some("192.168.1.11"));
+    assert_eq!(
+        mdns_host(services, "adb-R58M41ABCDE-Xy1zQw").as_deref(),
+        Some("192.168.1.11")
+    );
+    assert_eq!(
+        mdns_host(services, "adb-ABSENT-bbbb._adb-tls-connect._tcp"),
+        None
+    );
 }
 
 /// The global setting that switches wireless debugging.
