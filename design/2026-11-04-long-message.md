@@ -212,7 +212,9 @@ the app, on wide it takes the conversation's pane.
 
 ### 5.2 Source in the reader
 
-Show source in the reader shows the whole raw source, in the code font,
+Show source in the reader shows the whole raw source, in the code font
+(a grapheme cluster past 32 code points drawn as one replacement mark,
+§6; its exact bytes are Copy's, §5.3),
 in the same scroll, wrapping as the row's source does. A source line
 longer than the screen wraps over as many lines as it needs, drawn in
 pieces as §5.1 says. The switch keeps the position
@@ -288,6 +290,23 @@ destinations included, and its lines the source's lines, blank lines
 included. The plain-text fallback, for a body whose markdown is past a
 nesting or table bound, counts the same way. The cut line in source
 mode gives the share of the source shown.
+
+**A grapheme cluster of more than 32 code points is drawn as one
+replacement mark** (architect-cto's DECISION 01a1a928-0d26, on
+rust-ui-dev's measurement that one cluster of 256 code points stops the
+desktop client): U+FFFD in place of the whole cluster, never cut inside
+it, in every place the body is drawn — the row, the preview, the Chats
+line, the reply quote, Show source, the plain-text fallback and the
+reader — and counted as one character. A link whose control's label
+would hold such a cluster gets no control, as a label past 2 000
+characters does. How it looks is this note's: the font's own
+replacement glyph, as the platform draws U+FFFD everywhere else, with
+no words on screen and nothing added to the cut line. Ordinary writing
+puts a few marks on a character at most; a cluster past 32 is a stack
+of marks, not text a person reads, and the platform's sign for "this
+could not be shown" says that without a sentence. TalkBack reads it as
+the platform reads U+FFFD. Nothing is lost: Copy message source
+carries the cluster byte for byte (§5.3).
 
 The gap between the two figures is there so that a body just over the
 bound is never cut to hide only its last sentence or two.
@@ -410,8 +429,9 @@ scale 1 and 2, with a body of each of these shapes, the largest whose
 envelope fits the 196 608-byte ceiling: one long paragraph, a list of
 one-letter items, a code block, a table of 256 rows, first-level
 headings, headings of autolinks, one reference link used many times,
-images with no description, and one link whose destination is padded
-with hidden characters (§6). Each is checked in formatted and source mode, at 100 % and
+images with no description, one link whose destination is padded
+with hidden characters, and one grapheme cluster of 256 code points
+(§6). Each is checked in formatted and source mode, at 100 % and
 200 % text, left to right and right to left.
 
 **Precondition on Android** for every TalkBack check below (A6's
@@ -485,7 +505,8 @@ it, those checks are blocked, never passed.
   a cut and of a whole message, puts on the clipboard bytes equal to
   the message's `text` as the build holds it (the source Show source
   shows) and nothing else, once per press, and the feedback of §5.3
-  shows; on Android 13 and later the system's confirmation shows its
+  shows — a cluster drawn as one replacement mark (§6) arrives on the
+  clipboard whole; on Android 13 and later the system's confirmation shows its
   preview (the clip not marked sensitive). Receiving, reading and
   opening a message write nothing to the clipboard.
 - **A10** A cut message is read when its conversation is shown, and
