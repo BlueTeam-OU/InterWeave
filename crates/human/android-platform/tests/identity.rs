@@ -19,8 +19,8 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::sync::Mutex;
 
 use interweave_human_android_platform::{
-    Expected, FirstRun, IdentityRefused, KeyUnlockPolicy, Resealed, RestoreRefused, phrase_peer,
-    reseal_identity, restore_identity, stand_in, start_identity,
+    Expected, FirstRun, IdentityRefused, KeyUnlockPolicy, ResealFailure, Resealed, RestoreRefused,
+    phrase_peer, reseal_identity, restore_identity, stand_in, start_identity,
 };
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
@@ -403,18 +403,47 @@ fn a_reseal_that_cannot_finish_is_pending_and_the_record_still_opens() {
     *keystore.seal_fails.lock().unwrap() = Some(CipherFailure::Unavailable("busy".to_owned()));
     assert!(matches!(
         reseal_identity(&app.dir, PROFILE, &keystore, &first),
-        Ok(Resealed::Pending(_))
+        Ok(Resealed::Pending {
+            why: ResealFailure::Keystore,
+            ..
+        })
     ));
     assert_eq!(record(&app), before, "nothing written");
 
     *keystore.retire_fails.lock().unwrap() = true;
     assert!(matches!(
         reseal_identity(&app.dir, PROFILE, &keystore, &first),
-        Ok(Resealed::Pending(why)) if why.contains("OldKeyRemains")
+        Ok(Resealed::Pending {
+            why: ResealFailure::OldKeyRemains,
+            ..
+        })
     ));
     assert_ne!(record(&app), before, "the new record is written");
     let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("opens");
     assert_eq!(again.transport_identity().expect("a PeerId"), peer);
+}
+
+/// A profile another holder has is not a reseal's outcome (ADR-0042 A
+/// 2026-11-05): nothing is tried, the record is untouched, and the start's
+/// own take of the lock answers it.
+#[test]
+fn a_held_profile_is_not_resealed_and_the_record_is_left() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
+    configure_policy(&app, "user-presence");
+    let before = record(&app);
+    let held = ProfileLock::acquire(&paths(&app), std::time::Duration::ZERO).expect("held");
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Held)
+    );
+    assert_eq!(record(&app), before);
+    drop(held);
+    assert_eq!(
+        reseal_identity(&app.dir, PROFILE, &keystore, &first),
+        Ok(Resealed::Changed)
+    );
 }
 
 /// Plan section 20 gate (a), the client clauses: a key the platform lost

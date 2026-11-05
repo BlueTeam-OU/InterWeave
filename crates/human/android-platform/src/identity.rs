@@ -100,8 +100,7 @@ pub fn start_identity(
     }
 }
 
-/// What a start's reseal came to ([`reseal_identity`]): for the log
-/// only, never a word to the person.
+/// What a start's reseal came to ([`reseal_identity`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resealed {
     /// The record was already under the configured policy, and no key of
@@ -110,10 +109,34 @@ pub enum Resealed {
     /// The record was sealed again under the configured policy, and the
     /// old policy's key deleted.
     Changed,
-    /// The reseal did not finish, and why. The record still opens to the
-    /// identity the start unlocked -- the old one, or the new one written
-    /// with the old policy's key left -- and the next start tries again.
-    Pending(String),
+    /// Another holder has the profile, so nothing was tried: not a
+    /// reseal's outcome, since the start's own take of the lock answers
+    /// it (ADR-0042 A 2026-11-05).
+    Held,
+    /// The reseal did not finish. The record still opens to the identity
+    /// the start unlocked -- the old one, or the new one written with the
+    /// old policy's key left -- and the next start tries again.
+    Pending {
+        /// Which kind of fault, for the status the person can see.
+        why: ResealFailure,
+        /// The refusal, for the log only.
+        detail: String,
+    },
+}
+
+/// Why a reseal did not finish, by class (ADR-0042 A 2026-11-05).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResealFailure {
+    /// The Keystore could not seal under the configured policy.
+    Keystore,
+    /// The new record could not be written, or its directory not synced.
+    Storage,
+    /// The record is under the configured policy, and the key of the
+    /// other policy could not be deleted.
+    OldKeyRemains,
+    /// Anything else: the profile unreadable, the record changed under
+    /// the start.
+    Other,
 }
 
 /// Bring `profile`'s record to its configured `key_unlock_policy` after
@@ -129,7 +152,7 @@ pub enum Resealed {
 /// ([`IdentityRefused::UserNotAuthenticated`], answered by the prompt and
 /// a retried start, ADR-0042 A 2026-10-20). Every other refusal leaves
 /// the record opening to `identity`, so the start goes on with it and
-/// the next start retries ([`Resealed::Pending`]).
+/// the next start retries ([`Resealed::Pending`]; ADR-0042 A 2026-11-05).
 ///
 /// # Errors
 /// [`IdentityRefused::Paths`] and [`IdentityRefused::UserNotAuthenticated`].
@@ -144,24 +167,50 @@ pub fn reseal_identity(
         .map_err(|e| IdentityRefused::Paths(e.to_string()))?;
     let policy = match interweave_profile_config::ProfileConfig::load(&paths) {
         Ok(config) => config.runtime.android.key_unlock_policy,
-        Err(e) => return Ok(Resealed::Pending(format!("the profile: {e}"))),
-    };
-    match custody::reseal(&paths, cipher, identity, policy) {
-        Ok(false) => Ok(Resealed::Unchanged),
-        Ok(true) => Ok(Resealed::Changed),
-        Err(CustodyRefused::Cipher(custody::CipherFailure::UserNotAuthenticated)) => {
-            Err(IdentityRefused::UserNotAuthenticated)
+        Err(e) => {
+            return Ok(Resealed::Pending {
+                why: ResealFailure::Other,
+                detail: format!("the profile: {e}"),
+            });
         }
-        Err(other) => Ok(Resealed::Pending(format!("{other:?}"))),
-    }
+    };
+    let refused = match custody::reseal(&paths, cipher, identity, policy) {
+        Ok(false) => return Ok(Resealed::Unchanged),
+        Ok(true) => return Ok(Resealed::Changed),
+        Err(CustodyRefused::Cipher(custody::CipherFailure::UserNotAuthenticated)) => {
+            return Err(IdentityRefused::UserNotAuthenticated);
+        }
+        Err(CustodyRefused::ProfileLocked) => return Ok(Resealed::Held),
+        Err(refused) => refused,
+    };
+    let why = match refused {
+        CustodyRefused::Cipher(_) | CustodyRefused::CipherShape => ResealFailure::Keystore,
+        CustodyRefused::Storage(_) => ResealFailure::Storage,
+        CustodyRefused::OldKeyRemains(_) => ResealFailure::OldKeyRemains,
+        // The record changed or vanished between the unlock and the
+        // reseal, or the identity gave no seed; listed rather than
+        // matched by `_`, so a new refusal is classed by a decision.
+        CustodyRefused::NotProvisioned
+        | CustodyRefused::RecordNamesOther
+        | CustodyRefused::RecordNamesNobody
+        | CustodyRefused::Unreadable(_)
+        | CustodyRefused::Identity(_)
+        | CustodyRefused::AlreadyProvisioned
+        | CustodyRefused::ProfileLocked
+        | CustodyRefused::LockOfAnotherProfile
+        | CustodyRefused::OtherIdentity => ResealFailure::Other,
+    };
+    Ok(Resealed::Pending {
+        why,
+        detail: format!("{refused:?}"),
+    })
 }
 
 /// A first run's identity, created and provisioned. Custody's
 /// `OldKeyRemains` comes AFTER the record is written: the profile is
 /// provisioned and unlocks, and only a stale key of the other policy
 /// remains for the next start's [`reseal_identity`] to retire -- so it is
-/// this start's identity, not
-/// a refusal. `Unsynced` comes after the write too, so the record is read
+/// this start's identity, not a refusal. `Unsynced` comes after the write too, so the record is read
 /// back: this identity if it opens to it.
 fn create(
     paths: &ProfilePaths,
