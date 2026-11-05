@@ -533,22 +533,26 @@ it, those checks are blocked, never passed.
   lines at 100 % and at 200 % text, then keeps that height and scrolls
   inside itself with the caret in view; nothing panics; the message
   sent carries every character of the draft (§11 Q3).
-- **A12** Four bodies, each holding one cluster of 256 code points:
-  **C1**, a paragraph of 2 000 characters whose first character is the
-  cluster; **C2**, the same paragraph at 2 400 characters; **C3**, a
-  message that is one link with a 20-character text to an `https`
-  destination of 30 characters whose last character is the cluster,
-  so that its label as shown holds the cluster, is far under 2 000,
-  and only the cluster rule can take its control away; **C4**, the cluster inside 17 nested block quotes, past the
-  nesting bound, so that the body is drawn as the plain-text fallback.
-  In each, the cluster is drawn as one replacement mark, never part of
-  it: in the row, the Chats list's subtitle (C1, C2: the cluster opens
-  the line), the preview (C2), Show source, the plain-text fallback
-  (C4) and the reader (C2). The mark counts as one character: C1 is
-  whole (A1), C2 is cut and its cut line's percentage counts the mark
-  as one. C3 has no control, its text drawn inert, and is whole, so A3 does not apply to it. Copy message source carries
-  the cluster whole in each (A9). TalkBack's reading of the mark is
-  reported, under §10's Android precondition.
+- **A12** Four bodies, each holding one cluster of 256 code points, a
+  base letter followed by 255 combining marks (U+0301), none of them a
+  hidden code point a label spells as a code: **C1**, a paragraph of
+  2 000 characters whose first character is the cluster; **C2**, the
+  same paragraph at 2 400 characters; **C3**, a message that is one
+  link with a 20-character text to an `https` destination of 30
+  characters whose last character is the cluster, so that its label as
+  shown holds the cluster, is far under 2 000, and only the cluster
+  rule can take its control away; **C4**, the cluster inside 17 nested
+  block quotes, past the nesting bound, so that the body is drawn as
+  the plain-text fallback. The cluster is drawn as one replacement
+  mark, never part of it, wherever the body draws it: in the row (C1,
+  C2, C4), the Chats list's subtitle (C1, C2: the cluster opens the
+  line), the preview (C2), Show source (all four), the plain-text
+  fallback (C4) and the reader (C2). The mark counts as one character:
+  C1 is whole (A1), C2 is cut and its cut line's percentage counts the
+  mark as one. C3 has no control, its text drawn inert with no mark in
+  its row, and is whole, so A3 does not apply to it. Copy message
+  source carries the cluster whole in each (A9). TalkBack's reading of
+  the mark is reported, under §10's Android precondition.
 
 **H1** (the hypothesis of §2, unvalidated): a person given a
 conversation with a long pasted log in its middle, asked to find the
