@@ -684,6 +684,14 @@ fn the_cases_provisioning_replaces_the_profile_where_the_apps_keeps_it() {
         std::fs::read_to_string(paths.config_file()).expect("read"),
         "# the host's profile\n"
     );
+    // The app's own start after a case's replacement keeps what the case
+    // wrote.
+    provision_profile(&app.dir, PROFILE).expect("the app's start");
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        "# the host's profile\n",
+        "the app's provisioning rewrote the case's profile"
+    );
 
     let fresh = self::app();
     stand_in::provision_replacing(&fresh.dir, PROFILE, "# first\n").expect("on nothing");
