@@ -7,7 +7,9 @@ alternative (§2). architect-cto ruled on its three product questions
 (§11): Copy is allowed on every message (Q1, REPLY 01a1a89e-9df5,
 §5.3); the bound is the contract's, in HUMAN-CHAT.md's Bounds bullet,
 with §6's figures and conditions (Q2, same reply); and what is counted
-is what is drawn (Q4, REPLY 01a1a8dd-a73d, §6), written on #562. Until that amendment is on `main`,
+is what is drawn (Q4, REPLY 01a1a8dd-a73d, §6), written on #562;
+and a cluster past 32 code points is drawn as one replacement mark
+(Q5, DECISION 01a1a928-0d26, §6). Until that amendment is on `main`,
 the build waits for it, and it must carry §6's current figures (2 000
 and 40, lowered after the ruling: §11 Q2). Where the two ever differ,
 the contract governs only with figures that keep §6's ceiling
@@ -34,7 +36,10 @@ both before Show source, which stays last (§4.3, §5.3). A card row,
 which has no Copy, is unchanged. And it revises the look spec's §6
 Composer, a 48 dp field (the build grows it without a limit): it
 grows from 48 dp up to six lines, then scrolls inside itself (§11 Q3,
-A11).
+A11). And, for a grapheme cluster of more than 32 code points (§6,
+§11 Q5), it revises what `design/2026-10-27-start-window.md` §3 draws
+in the Chats list's subtitle and what the look spec's Show source
+shows: one replacement mark in place of the cluster.
 
 ## 1. What is already decided
 
@@ -295,11 +300,15 @@ mode gives the share of the source shown.
 replacement mark** (architect-cto's DECISION 01a1a928-0d26, on
 rust-ui-dev's measurement that one cluster of 256 code points stops the
 desktop client): U+FFFD in place of the whole cluster, never cut inside
-it, in every place the body is drawn — the row, the preview, the Chats
-line, the reply quote, Show source, the plain-text fallback and the
-reader — and counted as one character. A link whose control's label
-would hold such a cluster gets no control, as a label past 2 000
-characters does. How it looks is this note's: the font's own
+it, in every place the client draws the body — the row, the preview,
+the Chats list's subtitle, Show source, the plain-text fallback and the
+reader, and any later view that draws a body (the ruling also names a
+reply quote, which the build does not draw today: its reply line is
+fixed words) — and counted as one character. The notification's text
+is drawn by the platform, not the client, and the ruling does not name
+it; it is unchanged. A link whose control's label, as shown — hidden
+code points already spelled as codes — would still hold such a cluster
+gets no control, as a label past 2 000 characters does. How it looks is this note's: the font's own
 replacement glyph, as the platform draws U+FFFD everywhere else, with
 no words on screen and nothing added to the cut line. Ordinary writing
 puts a few marks on a character at most; a cluster past 32 is a stack
@@ -315,7 +324,8 @@ bound is never cut to hide only its last sentence or two.
 control's label as shown would pass 2 000 characters, the link has no
 control at all: its text is drawn as plain, inert text, as a link of a
 scheme outside the allow-list already is, and the whole destination
-stays in the source (Show source, Copy message source). The label is
+stays in the source (Show source, Copy message source; Copy alone for
+a cluster past 32 code points, below). The label is
 never cut: a cut label could show one host and open another, which is
 the spoof the full label is there to prevent (architect-cto, #562's
 review). What the person sees is the link's text, which they cannot
@@ -360,8 +370,8 @@ Why these figures, and the conditions any other figures must keep:
 - Keep is on the row and keeps the whole message. A person who wants
   to come back to a long message after the app closes keeps it; the
   cut line is what tells them there is more to come back to.
-- The chat list's one-line subtitle and the notification's text are
-  unchanged.
+- The chat list's one-line subtitle is unchanged but for §6's
+  replacement mark; the notification's text is unchanged.
 
 ## 8. Strings
 
@@ -430,8 +440,8 @@ envelope fits the 196 608-byte ceiling: one long paragraph, a list of
 one-letter items, a code block, a table of 256 rows, first-level
 headings, headings of autolinks, one reference link used many times,
 images with no description, one link whose destination is padded
-with hidden characters, and one grapheme cluster of 256 code points
-(§6). Each is checked in formatted and source mode, at 100 % and
+with hidden characters, and a paragraph of 2 000 characters one of
+which is a cluster of 256 code points (§6). Each is checked in formatted and source mode, at 100 % and
 200 % text, left to right and right to left.
 
 **Precondition on Android** for every TalkBack check below (A6's
@@ -466,6 +476,8 @@ it, those checks are blocked, never passed.
   the cut would then move with the width and the text size, and the
   same message would show a different part after a rotation. That is
   a judgement, kept for H1's walkthrough to test at 200 % text. The
+  paragraph holding a long cluster takes the paragraph figures, the
+  mark being one character of body text. The
   four link and image shapes take the headings figures, 4 and 12:
   with what is drawn counted (§6), none of their drawn characters is
   taller than a first-level heading's — a control's label is in body
@@ -518,6 +530,14 @@ it, those checks are blocked, never passed.
   lines at 100 % and at 200 % text, then keeps that height and scrolls
   inside itself with the caret in view; nothing panics; the message
   sent carries every character of the draft (§11 Q3).
+- **A12** The paragraph holding a cluster of 256 code points draws one
+  replacement mark in its place in the row, the preview, the Chats
+  list's subtitle, Show source and the reader, never part of the
+  cluster; the mark counts as one character in the cut line's
+  percentage and in A1's figures; a link whose label as shown would
+  hold such a cluster has no control; Copy message source carries the
+  cluster whole (A9). TalkBack's reading of the mark is reported, under
+  §10's Android precondition.
 
 **H1** (the hypothesis of §2, unvalidated): a person given a
 conversation with a long pasted log in its middle, asked to find the
@@ -564,6 +584,16 @@ miss the cut line, or look for the next message inside the reader.
   would pass the figures gets no control and is drawn inert, its label
   never cut; the preview carries a control only with its whole label
   (§4.1, §6). The build waits for #562 on `main`.
+- **Q5 — architect-cto** (asked of them by rust-ui-dev's measurement,
+  OBSERVATION 01a1a923-4ca1): a grapheme cluster of hundreds of code
+  points stops the desktop client wherever it is drawn. **Ruled**
+  (DECISION 01a1a928-0d26 to rust-ui-dev; INFO 01a1a928-e1a9 to this
+  note): a cluster past 32 code points is drawn as one U+FFFD in every
+  place, Show source included, and counts as one. HUMAN-CHAT.md's "raw
+  source viewable" is then met for such a cluster by Copy message
+  source, which carries it byte for byte, and not by Show source; the
+  contract's text is architect-cto's to align. How the mark looks is
+  this note's (§6).
 
 Left out on purpose: a hint on screen for a link drawn inert (§6);
 search within a message; selecting part of a
