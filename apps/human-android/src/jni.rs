@@ -310,6 +310,7 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
             profile: PROFILE.to_owned(),
             identity,
             store_cipher: Box::new(store_cipher),
+            unlock: None,
         })
     });
     match started {

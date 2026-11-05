@@ -94,6 +94,7 @@ fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String 
         profile: PROFILE.to_owned(),
         identity,
         store_cipher: Box::new(crate::keystore::StoreKeystore(Arc::clone(&cipher))),
+        unlock: None,
     };
     let mut client: Option<Box<dyn interweave_android_e2e_cases::AppClient>> = None;
     let started = crate::platform_log::around_start(service, &dir, PROFILE, || {
