@@ -32,13 +32,16 @@
 //!   script outlives the link (a detached heartbeat survived an
 //!   `adb disconnect` on the same phone).
 //! - Wireless debugging comes back off, and on a new port when it is
-//!   switched on. The script switches it back on (`adb_wifi_enabled`)
-//!   after the Wi-Fi returns; the host finds the new port among the
-//!   phone's ephemeral ports (`32768..=60999`, the phone's
+//!   switched on. The host reads `adb_wifi_enabled` before anything is
+//!   changed, the script writes that value back after the Wi-Fi returns
+//!   (so a USB run on a phone with wireless debugging off leaves it off),
+//!   and the host puts it back again however the case ends
+//!   (`AdbWifiKept`). The host finds the new port among the phone's
+//!   ephemeral ports (`32768..=60999`, the phone's
 //!   `ip_local_port_range`), connects there, and follows the phone to it
-//!   (`platform::moved_to`), the profile's restore included. A phone
-//!   that does not take the switch is turned on by a person (the wait
-//!   says so), with no port to type.
+//!   (`platform::moved_to`), the profile's restore included. On the A40
+//!   the write did not bring the port back (the 2026-11-05 run record):
+//!   a person switches it on (the wait says so), with no port to type.
 //!
 //! What this does NOT prove: the loss callback's own line (the app
 //! writes none, as the 10-31 record says); the status line a person sees
@@ -95,6 +98,7 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
             "over wireless adb this case needs USB debugging on (Developer options): without it the Wi-Fi drop turns adb off and ends the script that turns the Wi-Fi back on"
         );
     }
+    let adb_wifi = AdbWifiKept::take();
     let kept = ProfileKept::take();
     assert_eq!(
         kept.unlock_policy(),
@@ -113,7 +117,7 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
     platform::shell(&["mkdir", "-p", DIR]);
     let script = format!("{DIR}/run.sh");
     let local = tempfile::NamedTempFile::new().expect("a scratch file");
-    std::fs::write(local.path(), script_text()).expect("the script");
+    std::fs::write(local.path(), script_text(adb_wifi.found())).expect("the script");
     adb_ok(&["push", local.path().to_str().expect("a path"), &script]);
     // Detached: the shell adb runs it in ends with the link.
     platform::shell(&[
@@ -197,7 +201,8 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
 /// waited on and the process is polled for, at most `START_FOR`
 /// seconds; a process that never came is an empty `pid-before`, which
 /// the host refuses.
-fn script_text() -> String {
+fn script_text(adb_wifi: &str) -> String {
+    let adb_wifi = put_back(ADB_WIFI, adb_wifi);
     format!(
         "\
 out={DIR}
@@ -216,7 +221,7 @@ pidof {PACKAGE} > $out/pid-during
 log -t {TAG} '{ON}'
 cmd wifi set-wifi-enabled enabled || svc wifi enable
 sleep {ON_FOR}
-settings put global adb_wifi_enabled 1
+{adb_wifi}
 pidof {PACKAGE} > $out/pid-after
 log -t {TAG} '{DONE}'
 sleep 1
@@ -224,6 +229,58 @@ kill $lp
 echo done > $out/done
 "
     )
+}
+
+/// The global setting that switches wireless debugging.
+const ADB_WIFI: &str = "adb_wifi_enabled";
+
+/// The shell command that puts a global setting back to `found`, as
+/// `settings get` printed it: `null` was no value, so it is deleted.
+fn put_back(name: &str, found: &str) -> String {
+    if found == "null" {
+        format!("settings delete global {name}")
+    } else {
+        format!("settings put global {name} {found}")
+    }
+}
+
+/// `adb_wifi_enabled` as found before the case, written back when this
+/// drops, the read-back said on stderr when it differs (as
+/// `ProfileKept`), so the case leaves wireless debugging as it found it.
+struct AdbWifiKept {
+    found: String,
+}
+
+impl AdbWifiKept {
+    fn take() -> Self {
+        let found = platform::shell(&["settings", "get", "global", ADB_WIFI])
+            .trim()
+            .to_owned();
+        Self { found }
+    }
+
+    fn found(&self) -> &str {
+        &self.found
+    }
+}
+
+impl Drop for AdbWifiKept {
+    fn drop(&mut self) {
+        let wrote = platform::adb()
+            .args(["shell", &put_back(ADB_WIFI, &self.found)])
+            .output();
+        let now = platform::adb()
+            .args(["shell", "settings", "get", "global", ADB_WIFI])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned());
+        if now.as_deref().ok() != Some(self.found.as_str()) {
+            eprintln!(
+                "the phone's {ADB_WIFI} was NOT put back (write: {:?}, now {now:?}); it was {}",
+                wrote.map(|o| o.status),
+                self.found
+            );
+        }
+    }
 }
 
 /// The reports between the off marker and the on marker, and between the
@@ -350,7 +407,7 @@ fn the_phases_are_read_between_the_markers_and_a_missing_one_is_an_error() {
 
 #[test]
 fn the_script_waits_on_no_screen_and_polls_for_the_process() {
-    let script = script_text();
+    let script = script_text("1");
     let start = script
         .lines()
         .find(|l| l.starts_with("am start"))
@@ -363,4 +420,27 @@ fn the_script_waits_on_no_screen_and_polls_for_the_process() {
     let poll = format!("until pidof {PACKAGE} >/dev/null || [ $n -ge {START_FOR} ]");
     assert!(script.contains(&poll), "no bounded poll in:\n{script}");
     assert!(script.find(start) < script.find(&poll));
+}
+
+#[test]
+fn the_script_writes_back_the_adb_wifi_value_the_host_found() {
+    // A USB run on a phone with wireless debugging off leaves it off.
+    let off = script_text("0");
+    assert!(
+        off.contains("settings put global adb_wifi_enabled 0\n"),
+        "{off}"
+    );
+    assert!(!off.contains("adb_wifi_enabled 1"), "{off}");
+    // Control: a phone that had it on gets it back on.
+    assert!(script_text("1").contains("settings put global adb_wifi_enabled 1\n"));
+    // No value found is no value left.
+    let none = script_text("null");
+    assert!(
+        none.contains("settings delete global adb_wifi_enabled\n"),
+        "{none}"
+    );
+    assert!(
+        !none.contains("settings put global adb_wifi_enabled"),
+        "{none}"
+    );
 }
