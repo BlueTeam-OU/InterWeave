@@ -102,7 +102,11 @@ made. With a reason class, the state is P-unknown. With none, it is N
 or D, decided by the policy in force alone.
 
 `Unsynced` is shown as K: the record is under the configured policy and
-the other policy's key remains, which are K's facts. One limit remains.
+the other policy's key remains, which are K's facts. **The status member
+reports `Unsynced` as the class `OldKeyRemains`**, never as `Storage`
+(rust-ui-dev, REPLY 01a1aca2-ea97, with a test pinning it). So the view
+needs no fifth fact, and a `Storage` class always means a failure
+before the write. One limit remains.
 If a power cut loses the unsynced write, the next start opens the old
 record again, and the line shows P for that start.
 
@@ -112,7 +116,7 @@ record again, and the line shows P for that start.
 | D | nothing pending; effective stay-reachable and user-presence in force | `UnlockRestartNeedsUnlock` | none |
 | P-up(r) | configured user-presence, in force background-compatible, reason r | `UnlockPendingNeedsLock` + reason r | `UnlockPendingNotice`, per §4 |
 | P-down(r) | configured background-compatible, in force user-presence, reason r | `UnlockPendingNoLock` + reason r | none |
-| P-unknown | a reason r pending and either the configured policy unknown (the profile could not be read), or in force = configured (the reseal failed otherwise than `OldKeyRemains` with the record already under the configured policy, as `Other` can), so no direction can be named | `UnlockPendingUnknown` + reason r, and D's line under it when D's condition holds (below) | none |
+| P-unknown | a reason r pending and either the configured policy unknown (the profile could not be read), or in force = configured (the reseal failed otherwise than `OldKeyRemains` with the record already under the configured policy, as `Other` can; never `Unsynced`, which arrives as `OldKeyRemains`), so no direction can be named | `UnlockPendingUnknown` + reason r, and D's line under it when D's condition holds (below) | none |
 | K | in force = configured; the other policy's key remains (`OldKeyRemains`, or `Unsynced`, above) | `UnlockOldKeyRemains`, and D's line under it when D's condition holds | none |
 
 Reasons r: `Storage`, `Keystore` and `Other`. These are rust-ui-dev's
@@ -361,10 +365,12 @@ facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
   "unknown", the pending class (`Keystore`, `Storage`, `Other`) or
   `OldKeyRemains`, and the effective availability mode. Can it?
   **Answered yes** (REPLY 01a1ac85-a1ee, 2026-11-05): the member carries all
-  four, read again at each start. Their reply read the policy in force
-  from the record's unopened claim, which may be unknown. Round 1's
-  review (F2) found that this disagrees with ADR-0041 A 2026-11-05, so
-  §3 now asks for the policy byte of the record the start opened, and
-  for "pending" to come from comparing in force with configured, `Held`
-  included. Both requests went to rust-ui-dev. Until the member is
-  built, A1–A10 and A12 stay blocked as §8 says.
+  four, read again at each start. What the member carries is §3's
+  definition of the four facts, not restated here. rust-ui-dev accepted
+  each change §3 made after their first reply:
+  - in force from the opened record, or from the record the reseal
+    wrote when it wrote one (REPLY 01a1ac9e-52ad);
+  - "pending" from the comparison, `Held` included (same reply);
+  - `Unsynced` reported as `OldKeyRemains` (REPLY 01a1aca2-ea97).
+
+  Until the member is built, A1–A10 and A12 stay blocked, as §8 says.
