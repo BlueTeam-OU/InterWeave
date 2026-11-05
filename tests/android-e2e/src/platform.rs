@@ -105,6 +105,14 @@ pub struct ServiceRecord {
 /// `packageName=` (which AOSP always prints, so the record was cut); an
 /// `isForeground`, `startRequested` or `types` that is not a value.
 pub fn service_record(dump: &str, component: &str) -> Result<Option<ServiceRecord>, String> {
+    // A header cut before its closing brace is a dump cut short: what it
+    // names, and whatever followed it, is unknown.
+    if let Some(cut) = dump
+        .lines()
+        .find(|l| record_header(l).is_some() && !l.trim_end().ends_with('}'))
+    {
+        return Err(format!("a record header is cut: {cut:?}\n{dump}"));
+    }
     let header = format!(" {component}}}");
     let Some(start) = dump
         .lines()
@@ -244,20 +252,51 @@ const SECURE_BIT: u32 = 0x2000;
 /// (Samsung, API 30) prints the mask as bare hex (`fl=1800518`, every
 /// window of its dump of 2026-11-04), so a word of hex digits alone is
 /// a mask: no flag's name is spelt in the letters A to F only.
-fn secure_flag(value: &str) -> bool {
-    value
+///
+/// # Errors
+/// A value with no word before the next `key=` (a line cut at `fl=`),
+/// and a mask with no digits or more than a `u32` holds: a "not secure"
+/// read off them would pass the negative for free.
+fn secure_flag(value: &str) -> Result<bool, String> {
+    let words: Vec<&str> = value
         .split_whitespace()
         .take_while(|w| !w.contains('='))
         .flat_map(|w| w.trim_end_matches('}').split('|'))
-        .any(|f| {
-            f == "SECURE"
-                || f.strip_prefix('#')
-                    .or_else(|| f.strip_prefix("0x"))
-                    .or_else(|| f.bytes().all(|b| b.is_ascii_hexdigit()).then_some(f))
-                    .filter(|h| !h.is_empty())
-                    .and_then(|h| u32::from_str_radix(h, 16).ok())
-                    .is_some_and(|m| m & SECURE_BIT != 0)
-        })
+        .filter(|f| !f.is_empty())
+        .collect();
+    if words.is_empty() {
+        return Err(format!("an fl= value with no flags: {value:?}"));
+    }
+    let mut secure = false;
+    for f in words {
+        let mask = f
+            .strip_prefix('#')
+            .or_else(|| f.strip_prefix("0x"))
+            .or_else(|| f.bytes().all(|b| b.is_ascii_hexdigit()).then_some(f));
+        secure |= match mask {
+            Some(hex) => {
+                u32::from_str_radix(hex, 16)
+                    .map_err(|e| format!("an fl= mask {f:?} that is not a u32: {e}"))?
+                    & SECURE_BIT
+                    != 0
+            }
+            None => f == "SECURE",
+        };
+    }
+    Ok(secure)
+}
+
+/// Whether `dump` is a `dumpsys window windows` dump with a window in
+/// it: an empty answer, or one cut before its first window, is not a
+/// dump with no prompt and no secure window in it.
+fn window_dump(dump: &str) -> Result<(), String> {
+    let headed = dump.contains("WINDOW MANAGER WINDOWS");
+    let windowed = dump.lines().any(|l| l.trim_start().starts_with("Window #"));
+    if headed && windowed {
+        Ok(())
+    } else {
+        Err(format!("not a window dump with a window in it:\n{dump}"))
+    }
 }
 
 /// The titles of the app's windows in a `dumpsys window windows` dump,
@@ -266,8 +305,11 @@ fn secure_flag(value: &str) -> bool {
 /// off a missing line would pass the negative for free.
 ///
 /// # Errors
-/// A window of the app with no `fl=` attributes line.
+/// A dump that is not a window dump with a window ([`window_dump`]); a
+/// window of the app with no `fl=` attributes line, or one
+/// [`secure_flag`] cannot read.
 pub fn app_windows(dump: &str) -> Result<Vec<(String, bool)>, String> {
+    window_dump(dump)?;
     let mut out = Vec::new();
     let lines: Vec<&str> = dump.lines().collect();
     for (i, l) in lines.iter().enumerate() {
@@ -290,7 +332,7 @@ pub fn app_windows(dump: &str) -> Result<Vec<(String, bool)>, String> {
                 Some(rest)
             })
             .ok_or_else(|| format!("no fl= line for the window {title}:\n{dump}"))?;
-        out.push((title, secure_flag(fl)));
+        out.push((title, secure_flag(fl)?));
     }
     Ok(out)
 }
@@ -318,19 +360,23 @@ pub fn has_window(dump: &str, title: &str) -> bool {
 /// Whether the credential prompt shows now.
 ///
 /// # Panics
-/// As [`shell`].
+/// As [`shell`]; on a dump [`prompt_in`] refuses.
 #[must_use]
 pub fn prompt_shown() -> bool {
-    prompt_in(&shell(&["dumpsys", "window", "windows"]))
+    prompt_in(&shell(&["dumpsys", "window", "windows"])).unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// Whether a `dumpsys window windows` dump lists the credential prompt,
 /// under AOSP's title or Samsung's.
-#[must_use]
-pub fn prompt_in(dump: &str) -> bool {
-    [BIOMETRIC_PROMPT, SAMSUNG_BIOMETRIC_PROMPT]
+///
+/// # Errors
+/// A dump that is not a window dump with a window ([`window_dump`]):
+/// "no prompt" read off it would pass the negative for free.
+pub fn prompt_in(dump: &str) -> Result<bool, String> {
+    window_dump(dump)?;
+    Ok([BIOMETRIC_PROMPT, SAMSUNG_BIOMETRIC_PROMPT]
         .iter()
-        .any(|title| has_window(dump, title))
+        .any(|title| has_window(dump, title)))
 }
 
 /// What the runtime was told by the app's network callback, from the
@@ -1011,10 +1057,10 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
         // The positive: 0x81812100 carries 0x2000. The control beside it:
         // 0x81810100, the A40's own value for an ordinary activity, does not.
         assert_eq!(secure, [true, false], "{w:?}");
-        assert!(!secure_flag("1800518"));
+        assert!(!secure_flag("1800518").expect("read"));
         // A name is still a name, and `key=` still ends the value.
-        assert!(secure_flag("NOT_FOCUSABLE SECURE"));
-        assert!(!secure_flag("81810100 pfl=2000"));
+        assert!(secure_flag("NOT_FOCUSABLE SECURE").expect("read"));
+        assert!(!secure_flag("81810100 pfl=2000").expect("read"));
     }
 
     #[test]
@@ -1040,14 +1086,17 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
 
     #[test]
     fn secure_is_read_anywhere_in_the_flags_and_nowhere_after_them() {
-        assert!(secure_flag("LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SECURE"));
-        assert!(!secure_flag("LAYOUT_IN_SCREEN HARDWARE_ACCELERATED"));
+        assert!(secure_flag("LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SECURE").expect("read"));
+        assert!(!secure_flag("LAYOUT_IN_SCREEN HARDWARE_ACCELERATED").expect("read"));
         // On one line, the next key ends the flags.
-        assert!(!secure_flag("LAYOUT_IN_SCREEN pfl=SECURE"));
-        assert!(secure_flag("LAYOUT_IN_SCREEN|SECURE|HARDWARE_ACCELERATED"));
-        assert!(secure_flag("SECURE}"));
-        assert!(secure_flag("#81812100"), "a hex mask with the bit");
-        assert!(!secure_flag("#81810100"), "and without it");
+        assert!(!secure_flag("LAYOUT_IN_SCREEN pfl=SECURE").expect("read"));
+        assert!(secure_flag("LAYOUT_IN_SCREEN|SECURE|HARDWARE_ACCELERATED").expect("read"));
+        assert!(secure_flag("SECURE}").expect("read"));
+        assert!(
+            secure_flag("#81812100").expect("read"),
+            "a hex mask with the bit"
+        );
+        assert!(!secure_flag("#81810100").expect("read"), "and without it");
     }
 
     // The example the cases' profiles come from, as shipped: its comment
@@ -1235,9 +1284,57 @@ channels:
             "control: absent"
         );
         // The check a case asks sees either title, and neither when absent.
-        assert!(prompt_in(&a40));
+        assert!(prompt_in(&a40).expect("read"));
         let aosp = a40.replace("u0 BiometricPrompt3P}", "u0 BiometricPrompt}");
-        assert!(prompt_in(&aosp));
-        assert!(!prompt_in(WINDOWS), "control: no prompt");
+        assert!(prompt_in(&aosp).expect("read"));
+        assert!(!prompt_in(WINDOWS).expect("read"), "control: no prompt");
+    }
+
+    #[test]
+    fn a_cut_or_empty_window_dump_is_an_error_not_a_no() {
+        for bad in ["", "WINDOW MANAGER WINDOWS (dumpsys window windows)\n"] {
+            assert!(prompt_in(bad).is_err(), "{bad:?}");
+            assert!(app_windows(bad).is_err(), "{bad:?}");
+        }
+        // Control: a whole dump with no prompt and no secure window reads.
+        assert_eq!(prompt_in(A40_WINDOWS), Ok(false));
+        assert!(app_windows(A40_WINDOWS).is_ok());
+    }
+
+    #[test]
+    fn an_fl_value_cut_empty_or_overflowing_is_an_error() {
+        assert!(secure_flag("").is_err(), "a line cut at fl=");
+        assert!(
+            secure_flag(" pfl=12020040").is_err(),
+            "no word before the next key"
+        );
+        assert!(secure_flag("181812100").is_err(), "nine hex digits");
+        assert!(secure_flag("#").is_err(), "a prefix with no digits");
+        // Control: the A40's own values read.
+        assert_eq!(secure_flag("81812100"), Ok(true));
+        assert_eq!(secure_flag("81810100"), Ok(false));
+        let cut = A40_WINDOWS.replace("fl=81812100", "fl=");
+        assert!(app_windows(&cut).is_err(), "{cut}");
+    }
+
+    #[test]
+    fn a_cut_record_header_is_an_error_in_either_form() {
+        let running = format!("  * ServiceRecord{{5c5073d u0 {PACKAGE}/.Net");
+        let sectioned = "  * Destroy ServiceRecord{";
+        for cut in [running.as_str(), sectioned] {
+            let dump = format!("ACTIVITY MANAGER SERVICES (dumpsys activity services)\n{cut}\n");
+            assert!(
+                service_record(&dump, &format!("{PACKAGE}/.Net")).is_err(),
+                "{dump}"
+            );
+        }
+        // Control: the closed sectioned header reads as not running.
+        let closed = format!(
+            "ACTIVITY MANAGER SERVICES (dumpsys activity services)\n  * Destroy ServiceRecord{{1 u0 {PACKAGE}/.Net}}\n    packageName={PACKAGE}\n"
+        );
+        assert_eq!(
+            service_record(&closed, &format!("{PACKAGE}/.Net")),
+            Ok(None)
+        );
     }
 }
