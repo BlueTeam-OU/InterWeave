@@ -74,13 +74,17 @@ The view reads four facts from the status member (Q3):
 - **in force**: the policy of the record that is authenticated for this
   start. It is never a claim read from the file without opening it, and
   after any start that ran it is known.
-  - When the start's reseal wrote and confirmed the new record (it
-    succeeded, or answered `OldKeyRemains`), it is the configured
+  - When the start's reseal wrote the new record, it is the configured
     policy: the record now on disk was sealed under it, under the
-    profile's lock.
-  - Otherwise (`Keystore`, `Storage` including `Unsynced`, `Other`,
-    `Held`), it is the policy byte of the record the start opened (ADR-0041
-    A 2026-11-05).
+    profile's lock. That covers three outcomes:
+    - the reseal succeeded;
+    - it answered `OldKeyRemains`;
+    - it failed with custody's `Unsynced` (`Storage`), which arrives
+      only after the new record has replaced the old one, with the old
+      policy's key not retired (`custody::reseal`'s documentation).
+  - Otherwise (`Keystore`, `Storage` before the write, `Other`,
+    `Held`), it is the policy byte of the record the start opened
+    (ADR-0041 A 2026-11-05).
   - Read strictly, "the record the start opened" would show a start
     whose reseal succeeded as still pending; this note does not mean
     that (rust-ui-dev's reading, REPLY 01a1ac9e-52ad).
@@ -97,11 +101,10 @@ A pending change with no class from the reseal is shown with reason
 made. With a reason class, the state is P-unknown. With none, it is N
 or D, decided by the policy in force alone.
 
-A known limit: when the reseal wrote the new record but could not sync
-it (`Storage`, custody's `Unsynced`), the next start may already open
-the new record. The P line describes the record this start opened, so
-for one restart it may say less protection than there is (P-up) or
-more (P-down). The next start then reads it again.
+`Unsynced` is shown as K: the record is under the configured policy and
+the other policy's key remains, which are K's facts. One limit remains.
+If a power cut loses the unsynced write, the next start opens the old
+record again, and the line shows P for that start.
 
 | State | Condition | Trust page line (§5) | Chats notice (§4) |
 |---|---|---|---|
@@ -110,7 +113,7 @@ more (P-down). The next start then reads it again.
 | P-up(r) | configured user-presence, in force background-compatible, reason r | `UnlockPendingNeedsLock` + reason r | `UnlockPendingNotice`, per §4 |
 | P-down(r) | configured background-compatible, in force user-presence, reason r | `UnlockPendingNoLock` + reason r | none |
 | P-unknown | a reason r pending and either the configured policy unknown (the profile could not be read), or in force = configured (the reseal failed otherwise than `OldKeyRemains` with the record already under the configured policy, as `Other` can), so no direction can be named | `UnlockPendingUnknown` + reason r, and D's line under it when D's condition holds (below) | none |
-| K | in force = configured; the other policy's key remains (`OldKeyRemains`) | `UnlockOldKeyRemains`, and D's line under it when D's condition holds | none |
+| K | in force = configured; the other policy's key remains (`OldKeyRemains`, or `Unsynced`, above) | `UnlockOldKeyRemains`, and D's line under it when D's condition holds | none |
 
 Reasons r: `Storage`, `Keystore` and `Other`. These are rust-ui-dev's
 classes, and the person is told about each one differently:
@@ -295,7 +298,13 @@ facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
     either setting (§1). The profile's `config.yaml` is authored with
     `key_unlock_policy: user-presence` through `run-as`, as
     `apps/human-android/device-runs/2026-10-20-gate-b.md` did. Stay
-    reachable is set through its overlay file the same way.
+    reachable is set the same way, by writing
+    `<state>/availability-overlay.json` holding
+    `{"availability_mode": "stay-reachable"}` (human-client-android.md,
+    "Where the choice lives").
+  - The build already installed on the Pixel must be the debuggable one.
+    Installing it over a differently signed build wipes the app's data,
+    which the phone's runs keep, so A11 never installs one for this.
   - Without such a build, A11 is blocked, not passed.
   - Check: the line wraps whole, is
   read in the order of A7, and nothing on the page is elided. For a P
