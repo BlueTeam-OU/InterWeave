@@ -15,7 +15,7 @@ use std::time::Duration;
 use interweave_android_e2e_cases::{CaseCtx, Tap, cases, keys};
 use interweave_human_android_platform::e2e::HubClient;
 use interweave_human_android_platform::{
-    FirstRun, ServiceHost, ServiceLaunch, stand_in, start_identity,
+    FirstRun, Resealed, ServiceHost, ServiceLaunch, reseal_identity, stand_in, start_identity,
 };
 use jni::objects::{JClass, JString};
 use jni::{Env, EnvUnowned};
@@ -73,6 +73,13 @@ fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String 
         Ok(identity) => identity,
         Err(why) => return failed(case, &format!("no identity: {why:?}")),
     };
+    // As the app's start does (jni.rs `identity`): the cases run on the
+    // record the service would.
+    match reseal_identity(&dir, PROFILE, &*cipher, &identity) {
+        Ok(Resealed::Unchanged | Resealed::Changed) => {}
+        Ok(Resealed::Pending(why)) => log(&format!("the identity's reseal is left: {why}")),
+        Err(why) => return failed(case, &format!("no identity: {why:?}")),
+    }
     let peer = match identity.transport_identity() {
         Ok(peer) => peer,
         Err(e) => return failed(case, &format!("the identity's PeerId: {e}")),

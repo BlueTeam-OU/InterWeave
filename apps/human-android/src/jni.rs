@@ -11,8 +11,9 @@ use std::time::Duration;
 
 use interweave_human_android_platform::AvailabilityMode;
 use interweave_human_android_platform::{
-    EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, ServiceHost,
-    ServiceLaunch, StartRefused, Told, Transports, addresses_from_wire, start_identity,
+    EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, Resealed, ServiceHost,
+    ServiceLaunch, StartRefused, Told, Transports, addresses_from_wire, reseal_identity,
+    start_identity,
 };
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_human_ui_slint::{TouchSettings, snackbar_ms};
@@ -161,23 +162,37 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, ji
     } else {
         FirstRun::Refuse
     };
-    start_identity(
-        std::path::Path::new(app_data_dir),
-        PROFILE,
-        &cipher,
-        first_run,
-    )
-    .map_err(|why| {
-        log(&format!("no identity: {why:?}"));
-        match why {
-            IdentityRefused::Unprovisioned => refused::NO_IDENTITY,
-            IdentityRefused::RecoveryRequired(_) => refused::RECOVERY_REQUIRED,
-            IdentityRefused::UserNotAuthenticated => refused::USER_NOT_AUTHENTICATED,
-            IdentityRefused::Paths(_)
-            | IdentityRefused::Unavailable(_)
-            | IdentityRefused::Provisioning(_) => refused::IDENTITY_UNAVAILABLE,
+    let dir = std::path::Path::new(app_data_dir);
+    let identity =
+        start_identity(dir, PROFILE, &cipher, first_run).map_err(|why| refused_identity(&why))?;
+    // The record to the configured unlock policy, before the host takes
+    // the profile's lock: one log line when it did something or could
+    // not, never a word to the person.
+    let resealed =
+        reseal_identity(dir, PROFILE, &cipher, &identity).map_err(|why| refused_identity(&why))?;
+    match resealed {
+        Resealed::Unchanged => {}
+        Resealed::Changed => {
+            log("the identity was sealed again under the configured unlock policy");
         }
-    })
+        Resealed::Pending(why) => log(&format!(
+            "the identity's reseal is left for the next start: {why}"
+        )),
+    }
+    Ok(identity)
+}
+
+/// The code a start with no identity answers Java with, after logging why.
+fn refused_identity(why: &IdentityRefused) -> jint {
+    log(&format!("no identity: {why:?}"));
+    match why {
+        IdentityRefused::Unprovisioned => refused::NO_IDENTITY,
+        IdentityRefused::RecoveryRequired(_) => refused::RECOVERY_REQUIRED,
+        IdentityRefused::UserNotAuthenticated => refused::USER_NOT_AUTHENTICATED,
+        IdentityRefused::Paths(_)
+        | IdentityRefused::Unavailable(_)
+        | IdentityRefused::Provisioning(_) => refused::IDENTITY_UNAVAILABLE,
+    }
 }
 
 /// `Native.startWithoutNetwork`'s answer when the posture runs: neither
