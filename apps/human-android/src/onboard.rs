@@ -20,7 +20,9 @@ use std::time::Duration;
 use interweave_human_android_platform::KeyUnlockPolicy;
 use interweave_human_android_platform::custody::{self, RecordName, RecoveryCause};
 use interweave_human_android_platform::onboarding::{self, Creation, WriteRefused, english};
-use interweave_human_android_platform::{Expected, IdentityRefused, opening_needs_presence};
+use interweave_human_android_platform::{
+    Expected, IdentityRefused, opening_needs_presence, reseal_needs_presence,
+};
 use interweave_human_ui_model::{
     Admit, Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start,
     StepFailed,
@@ -198,6 +200,14 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
     );
     let mut return_code = state::READY;
     let start = match found {
+        // The record opens, but this start's reseal to a configured
+        // user-presence needs the person: prompt before the start, as for
+        // a key that needs them to open (ADR-0042 A 2026-11-05).
+        Ok(_) if reseal_needs_presence(&app_data_dir, PROFILE) => {
+            await_authentication(ask::BIND);
+            return_code = state::AUTHENTICATION_NEEDED;
+            None
+        }
         Ok(_) => None,
         Err(IdentityRefused::Unprovisioned) => Some(Start::FirstRun {
             void_paper: onboarding::void_paper(&app_data_dir, PROFILE),
