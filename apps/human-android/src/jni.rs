@@ -182,9 +182,13 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, ji
     Ok(identity)
 }
 
-/// The code a start with no identity answers Java with, after logging why.
+/// The code a start with no identity answers Java with, after logging
+/// why -- except a key that needs the person, which leaves no line
+/// (ADR-0042 A 2026-10-20): it is retried at each continuation.
 fn refused_identity(why: &IdentityRefused) -> jint {
-    log(&format!("no identity: {why:?}"));
+    if *why != IdentityRefused::UserNotAuthenticated {
+        log(&format!("no identity: {why:?}"));
+    }
     match why {
         IdentityRefused::Unprovisioned => refused::NO_IDENTITY,
         IdentityRefused::RecoveryRequired(_) => refused::RECOVERY_REQUIRED,
