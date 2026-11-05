@@ -16,10 +16,11 @@
 //! and arrive through the admin trust surface or onboarding. The
 //! identity is not here: it is onboarding's (§20 step 6).
 //!
-//! The `human` endpoint is not advertised: `human-client-ui.md` §13 asks
+//! The `human` endpoint is not advertised -- `human-client-ui.md` §13 asks
 //! every identity's endpoint to have advertise off with no control that
-//! changes it, so a release first run writes what the debug build's
-//! stand-in profile always wrote.
+//! changes it -- and is leased by the human client's kind alone: a
+//! release first run writes what the debug build's stand-in profile
+//! always wrote.
 
 use crate::PersistError;
 use crate::paths::ProfilePaths;
@@ -53,6 +54,7 @@ endpoints:
     - id: human
       enabled: true
       advertise: false
+      allowed_client_kinds: [human-client]
 discovery:
   providers:
     - type: peer-cache

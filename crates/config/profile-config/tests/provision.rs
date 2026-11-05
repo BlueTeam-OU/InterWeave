@@ -13,7 +13,9 @@ use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
 use interweave_profile_config::provision::{embedded_document, provision_embedded};
 use interweave_profile_config::runtime::Deployment;
-use interweave_profile_config::{PersistError, ProfileConfig, ProfilePaths, TrustBoundary};
+use interweave_profile_config::{
+    ClientKind, PersistError, ProfileConfig, ProfilePaths, TrustBoundary,
+};
 
 /// An app data directory, owner-only, under an owner-only temporary root.
 fn app() -> (tempfile::TempDir, std::path::PathBuf) {
@@ -68,6 +70,28 @@ fn the_document_advertises_no_endpoint() {
         "no endpoint is advertised: {:?}",
         config.endpoints.entries
     );
+}
+
+/// The `human` endpoint is leased by the human client's kind and no
+/// other, as the Android debug build's stand-in profile always wrote it.
+/// The list is hygiene, not authority, and empty means unrestricted, so
+/// the test pins the exact list rather than its presence.
+#[test]
+fn the_human_endpoint_admits_the_human_client_kind_only() {
+    let config: ProfileConfig =
+        serde_norway::from_str(&embedded_document("work")).expect("the document parses");
+    let human = config
+        .endpoints
+        .entries
+        .iter()
+        .find(|e| e.id.as_str() == "human")
+        .expect("the human endpoint is configured");
+    let kinds: Vec<&str> = human
+        .allowed_client_kinds
+        .iter()
+        .map(ClientKind::as_str)
+        .collect();
+    assert_eq!(kinds, ["human-client"]);
 }
 
 #[test]
