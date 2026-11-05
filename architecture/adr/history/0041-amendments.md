@@ -99,7 +99,19 @@ the locked state), the policy in force is the header's policy byte, read
 before any cipher call and authenticated only by the open; the refusal is
 the user-presence key's alone, so the two readings agree there, and a
 forged byte misreports a restart the record would then refuse to open
-(#571 round 1, F3). Where the predicate is computed is the
+(#571 round 1, F3). "The record the start opened" was the first
+wording; ux-designer-01 (OBSERVATION 01a1aca1-a662, from their #572's
+review and rust-ui-dev-01's reading) showed it misreports three reseal
+outcomes in which the reseal has already written the new record under
+the configured policy — a success, `OldKeyRemains` (the retire failed
+after the write) and `Storage(Unsynced)` (reported after the new record
+replaced the old; `custody::reseal` seals, writes, then retires) — so a
+literal status model would show a pending change after every successful
+policy change until the next start, and in the user-presence direction
+would hide the diagnostic. The input is the record on disk when the
+start's custody step ends: the record the reseal wrote when it wrote
+one, else the one the start opened; `Unsynced` counts as written, the
+old key kept. Where the predicate is computed is the
 owning roles' (`profile-config`'s pure function may keep the configured
 form for validation and take the policy as an argument for the status
 model, or the embedded host may derive it beside the record it opened);
