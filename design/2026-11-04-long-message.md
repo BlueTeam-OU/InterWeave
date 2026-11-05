@@ -32,7 +32,8 @@ by the client (§6, §7), C4's layout so that its Chats subtitle is
 checked (A12), and A7, added to §9's "Reader closed" row. And for
 rust-ui-dev's QUESTION 01a1aabf: where the preview ends when no block
 or word boundary is in the last quarter, and how its ellipsis counts
-(§4.1, A2).
+(§4.1, A2); and for their OBSERVATION 01a1ab0f, the table's height
+figure in A3.
 
 **What this note revises.** For a body past §6's bound, it replaces
 the look spec's edge case "A very long message"
@@ -569,8 +570,8 @@ it, those checks are blocked, never passed.
   row — preview, cut line, button and status — is at most as tall as
   the figures below, counted in the conversation's viewport (the space
   between its app bar and its composer, about 1 960 px on the Pixel 9a):
-  for the paragraph, list, code and table shapes, 2 viewports at 100 %
-  text and 7 at 200 %; for the headings shape, 4 and 12. The figures
+  for the paragraph, list and code shapes, 2 viewports at 100 % text
+  and 7 at 200 %; for the headings and table shapes, 4 and 12. The figures
   are §6's estimates with the cut line, the button and the status
   added (a paragraph at 200 %, about 12 500 px; headings at 200 %,
   about 22 600 px); the build measures and reports each, and one over
@@ -586,6 +587,15 @@ it, those checks are blocked, never passed.
   taller than a first-level heading's — a control's label is in body
   medium, a placeholder in body text — so the headings estimate bounds
   them. That is an estimate too, measured and reported like the rest.
+  The table first took the paragraph figures and measured over them
+  (rust-ui-dev's OBSERVATION 01a1ab0f, desktop at the Pixel's 412 dp:
+  2.2 viewports at 100 %, 7.8 at 200 %, rows of two 21-letter cells):
+  a row wraps per cell, to two lines at 100 % and about four at 200 %,
+  and carries the cells' padding, which the paragraph estimate left
+  out. Its characters are body text, so the headings' figures bound it,
+  as they bound the link and image shapes; cutting a table at fewer
+  rows instead would make its preview the one shape cut short of §6's
+  figures. The device run measures it again.
 - **A4** At 200 % text, on the narrowest layout and at the highest
   scale, a whole body at the bound in each of the shapes above, the
   four link and image shapes and A12's C1 included, draws without a
