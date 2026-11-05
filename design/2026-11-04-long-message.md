@@ -442,10 +442,8 @@ envelope fits the 196 608-byte ceiling: one long paragraph, a list of
 one-letter items, a code block, a table of 256 rows, first-level
 headings, headings of autolinks, one reference link used many times,
 images with no description, one link whose destination is padded
-with hidden characters, a paragraph of 2 000 characters one of which
-is a cluster of 256 code points, the same paragraph at 2 400
-characters with the cluster inside the preview, and a link whose text
-holds such a cluster (§6). Each is checked in formatted and source mode, at 100 % and
+with hidden characters (§6); and A12's four cluster bodies, each of the
+size A12 gives it. Each is checked in formatted and source mode, at 100 % and
 200 % text, left to right and right to left.
 
 **Precondition on Android** for every TalkBack check below (A6's
@@ -480,9 +478,8 @@ it, those checks are blocked, never passed.
   the cut would then move with the width and the text size, and the
   same message would show a different part after a rotation. That is
   a judgement, kept for H1's walkthrough to test at 200 % text. The
-  2 400-character paragraph holding a long cluster takes the paragraph
-  figures, the
-  mark being one character of body text. The
+  2 400-character paragraph of A12 (C2) takes the paragraph figures,
+  the mark being one character of body text. The
   four link and image shapes take the headings figures, 4 and 12:
   with what is drawn counted (§6), none of their drawn characters is
   taller than a first-level heading's — a control's label is in body
@@ -490,7 +487,8 @@ it, those checks are blocked, never passed.
   them. That is an estimate too, measured and reported like the rest.
 - **A4** At 200 % text, on the narrowest layout and at the highest
   scale, a whole body at the bound in each of the shapes above, the
-  four link and image shapes included, draws without a panic (the
+  four link and image shapes and A12's C1 included, draws without a
+  panic (the
   padded link drawn as inert text with no control, §6), in formatted
   and in source mode, and so do A1's whole-formatted, cut-as-source
   bodies in source mode,
@@ -535,16 +533,23 @@ it, those checks are blocked, never passed.
   lines at 100 % and at 200 % text, then keeps that height and scrolls
   inside itself with the caret in view; nothing panics; the message
   sent carries every character of the draft (§11 Q3).
-- **A12** A cluster of 256 code points is drawn as one replacement
-  mark, never part of the cluster, in the row, the Chats list's
-  subtitle, Show source, the plain-text fallback and the reader, and
-  in the preview. The mark counts as one character: the 2 000-character
-  paragraph holding it is whole (A1), and the 2 400-character one is
-  cut, its cut line's percentage counting the mark as one. The link
-  whose text holds such a cluster has no control, its text drawn inert
-  with the mark; Copy message source carries the
-  cluster whole (A9). TalkBack's reading of the mark is reported, under
-  §10's Android precondition.
+- **A12** Four bodies, each holding one cluster of 256 code points:
+  **C1**, a paragraph of 2 000 characters whose first character is the
+  cluster; **C2**, the same paragraph at 2 400 characters; **C3**, a
+  message that is one link whose text is 20 characters, the cluster
+  among them, to a destination of 30 characters, so that its label is
+  far under 2 000 and only the cluster rule can take its control
+  away; **C4**, the cluster inside 17 nested block quotes, past the
+  nesting bound, so that the body is drawn as the plain-text fallback.
+  In each, the cluster is drawn as one replacement mark, never part of
+  it: in the row, the Chats list's subtitle (C1, C2: the cluster opens
+  the line), the preview (C2), Show source, the plain-text fallback
+  (C4) and the reader (C2). The mark counts as one character: C1 is
+  whole (A1), C2 is cut and its cut line's percentage counts the mark
+  as one. C3 has no control, its text drawn inert with the mark, and
+  is whole, so A3 does not apply to it. Copy message source carries
+  the cluster whole in each (A9). TalkBack's reading of the mark is
+  reported, under §10's Android precondition.
 
 **H1** (the hypothesis of §2, unvalidated): a person given a
 conversation with a long pasted log in its middle, asked to find the
