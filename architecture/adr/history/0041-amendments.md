@@ -49,3 +49,91 @@ amendment, written for the record's first draft (one runtime per
 identity, the stay-reachable choice per identity, a restart per
 identity), was replaced before it reached `main`; the raised finding was
 #335's blind review's F7, answered by this wording.
+
+### Amendment 2026-11-05 — The restart diagnostic reads the policy in force, never the configured one; no retry control for a pending reseal
+
+**Trigger.** ux-designer-01's note on where a person sees an unlock policy
+change not yet in force (`design/2026-11-05-unlock-policy-pending.md`,
+40a98b009, for rust-ui-dev-01's j213) asked two questions (QUESTION
+01a1ac83-a33c). Q1: `human-client-ui.md` §14 and `android-key-custody.md`
+derive `background_restart_requires_user_authentication` from the
+CONFIGURED `key_unlock_policy` (`AndroidRuntimeConfig::
+background_restart_requires_user_authentication` in `profile-config`'s
+`runtime.rs` reads `self.key_unlock_policy`), while ADR-0042 A 2026-11-05
+lets the record open under the OTHER policy while a reseal is pending, so
+the diagnostic would say the opposite of what a restart does — configured
+`user-presence` over a background-compatible record: "a restart needs the
+screen lock", and it does not; configured `background-compatible` over a
+user-presence record under Stay reachable: silent, and a restart does need
+it. The note suppressed the diagnostic's line while a change is pending
+and asked whether the rule itself should follow the policy in force. Q2:
+whether a Try again, a restart of the service so a person who has freed
+space can retry, is wanted.
+
+**Ruled, Q1.** The diagnostic reads the policy IN FORCE: its inputs are
+the effective availability mode and the authenticated policy byte of the
+record the start opened (as first worded; the record on disk when the
+start's custody step ends, below), the policy ADR-0042 makes authoritative for
+opening; the configured `key_unlock_policy` is never its input. This is
+the rule the 2026-10-10 amendment already applied to the diagnostic's
+other input — one effective value, never the authored field — and the
+diagnostic describes a fact about the next restart, which only the
+record's policy decides. The configured policy reaches the status model
+only as the pending change ADR-0042 A 2026-11-05 shows by name beside the
+diagnostic, with the refusal's reason; once the reseal succeeds the two
+policies agree and the diagnostic reads as before. So the design note's
+rule that the pending line replaces the diagnostic's line while a change
+is pending now holds by rule rather than by the note: in the one direction
+the diagnostic is false, in the other the pending line says the same thing
+it would. A record whose configured policy could not be read at the reseal
+still has a policy in force, so the diagnostic is still derivable there.
+Prior wording, §14's: "When Android is configured with both
+`availability_mode=stay-reachable` and `key_unlock_policy=user-presence`
+… must expose `background_restart_requires_user_authentication=true`";
+this record's Decision, `android-key-custody.md`,
+`human-client-android.md`, `failure-model.md`'s row,
+`configuration.md`, `config.schema.yaml`'s field comment and cross-field
+rule and the `human-android.yaml` example each said the same in their
+own words, the configured field as the input; each now names the policy
+in force. When the start has not opened the record (`UserNotAuthenticated`,
+the locked state), the policy in force is the header's policy byte, read
+before any cipher call and authenticated only by the open; the refusal is
+the user-presence key's alone, so the two readings agree there, and a
+forged byte misreports a restart the record would then refuse to open
+(#571 round 1, F3). "The record the start opened" was the first
+wording; ux-designer-01 (OBSERVATION 01a1aca1-a662, from their #572's
+review and rust-ui-dev-01's reading) showed it misreports three reseal
+outcomes in which the reseal has already written the new record under
+the configured policy — a success, `OldKeyRemains` (the retire failed
+after the write) and `Storage(Unsynced)` (reported after the new record
+replaced the old; `custody::reseal` seals, writes, then retires) — so a
+literal status model would show a pending change after every successful
+policy change until the next start, and in the user-presence direction
+would hide the diagnostic. The input is the record on disk when the
+start's custody step ends: the record the reseal wrote when it wrote
+one, else the one the start opened; `Unsynced` counts as written, and
+like `OldKeyRemains` it leaves the other policy's key after the write,
+so ADR-0042's second clause keeps the pending change shown by name
+while the diagnostic reads the new record (#571 round 4, F5: a first
+wording called it "not a pending change"). Where the predicate is computed is the
+owning roles' (`profile-config`'s pure function may keep the configured
+form for validation and take the policy as an argument for the status
+model, or the embedded host may derive it beside the record it opened);
+the constraint is the input, not the site.
+
+**Ruled, Q2.** No Try again. Every start retries the reseal (ADR-0042
+A 2026-11-05); the reseal runs after the unlock and before the host takes
+the profile lock, and a running host holds that lock, so a retry while the
+service runs would be a restart of the service, which under
+`user-presence` costs the person an Unlock prompt the pending line does
+not promise; and the one reason class a person can act on, a refused
+write, is retried by the start that follows the freed space, which on a
+phone is the next launch. A product action for one rare class, with its
+strings, focus and tests, is not worth that. When the app gains a control
+for the unlock policy (the design note's §9: neither setting can be
+changed in the app today), that control's own apply is where a retry
+belongs, and the pending change is first shown at its confirmation.
+
+**Not ruled.** How the status member carries the four facts the note's
+§3 reads (the policy in force, the configured policy or unknown, the
+pending class, the effective mode): rust-ui-dev's, on the j213 branch.
