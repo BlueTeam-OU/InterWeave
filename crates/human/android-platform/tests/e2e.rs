@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use interweave_android_e2e_cases::{AppClient as _, Tap};
 use interweave_human_android_platform::e2e::HubClient;
-use interweave_human_android_platform::stand_in;
+use interweave_human_android_platform::provision_profile;
 use interweave_human_android_platform::{ServiceHost, ServiceLaunch};
 use interweave_human_app_core::{Command, Update};
 
@@ -30,7 +30,7 @@ fn a_case_on_the_hub_hears_the_listing_commands_the_facade_and_hears_the_stop() 
     let dir = root.path().join("app");
     std::fs::create_dir(&dir).expect("mkdir");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
-    stand_in::provision(&dir, PROFILE).expect("provisioned");
+    provision_profile(&dir, PROFILE).expect("provisioned");
 
     let service = ServiceHost::new();
     let tap = Tap::default();
@@ -112,7 +112,7 @@ fn on_the_runtime_alone_a_case_leases_human_itself_and_not_beside_the_facade() {
         let dir = root.path().join("app");
         std::fs::create_dir(&dir).expect("mkdir");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
-        stand_in::provision(&dir, PROFILE).expect("provisioned");
+        provision_profile(&dir, PROFILE).expect("provisioned");
         let service = ServiceHost::new();
         let launch = ServiceLaunch {
             app_data_dir: dir.clone(),
