@@ -7671,10 +7671,13 @@ export component AppWindow inherits Window {
                                                     width: 3px;
                                                     background: item.ink;
                                                 }
+                                                // A piece of the line above keeps the
+                                                // marker's room, unseen, so its text stays
+                                                // in line with the first piece's.
                                                 if line.marker != "" && !root.rtl: Text {
                                                     horizontal-stretch: 0;
                                                     text: line.marker;
-                                                    color: item.ink;
+                                                    color: line.joined ? transparent : item.ink;
                                                     font-size: Type.body-large;
                                                     // Said with the line's own label.
                                                     accessible-role: none;
@@ -7701,7 +7704,7 @@ export component AppWindow inherits Window {
                                                         : Type.body-large;
                                                     horizontal-alignment: item.text-alignment;
                                                     accessible-role: text;
-                                                    accessible-label: line.marker != "" ? line.marker + " " + self.text : self.text;
+                                                    accessible-label: line.marker != "" && !line.joined ? line.marker + " " + self.text : self.text;
                                                 }
                                                 if line.kind == LineKind.code: Rectangle {
                                                     // A block cut in pieces is one surface:
@@ -7727,13 +7730,13 @@ export component AppWindow inherits Window {
                                                         font-family: root.code-font;
                                                         font-size: Type.body-medium;
                                                         accessible-role: text;
-                                                        accessible-label: line.marker != "" ? line.marker + " " + self.text : self.text;
+                                                        accessible-label: line.marker != "" && !line.joined ? line.marker + " " + self.text : self.text;
                                                     }
                                                 }
                                                 if line.marker != "" && root.rtl: Text {
                                                     horizontal-stretch: 0;
                                                     text: line.marker;
-                                                    color: item.ink;
+                                                    color: line.joined ? transparent : item.ink;
                                                     font-size: Type.body-large;
                                                     accessible-role: none;
                                                 }

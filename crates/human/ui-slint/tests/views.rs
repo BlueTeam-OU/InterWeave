@@ -2813,6 +2813,39 @@ fn a_long_line_is_drawn_in_pieces_that_meet_with_no_gap() {
     );
 }
 
+/// A list item's line cut in pieces keeps its hanging indent: each piece's
+/// text starts where the first's does, after the marker's room, and only
+/// the first says the marker.
+#[test]
+fn a_list_items_pieces_stay_in_line_after_its_marker() {
+    use interweave_human_ui_model::body::{PIECE_GRAPHEMES, pieces};
+
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let run = "word ".repeat(PIECE_GRAPHEMES / 4);
+    let run = run.trim_end();
+    model.received(received(1, &alice, &format!("3. {run}")));
+    open(&mut view, &mut model, &direct(&alice));
+    // Tall enough to hold the whole message: an item the list clips out
+    // of view is not in the tree the testing backend reads.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 8000.0));
+    slint::platform::update_timers_and_animations();
+
+    let cut = pieces(run);
+    assert!(cut.len() > 1, "the run is longer than a piece");
+    let first = the(&view, &format!("3. {}", cut[0].0));
+    let second = the(&view, cut[1].0);
+    assert!(
+        (second.absolute_position().x - first.absolute_position().x).abs() < 0.5,
+        "the second piece starts in line with the first: {} against {}",
+        second.absolute_position().x,
+        first.absolute_position().x
+    );
+}
+
 /// A conversation pressed is shown by the take that resolves the press,
 /// with no render after it: a root renders and then takes, so a press
 /// that yields no intent -- a conversation with nothing unread, or the
