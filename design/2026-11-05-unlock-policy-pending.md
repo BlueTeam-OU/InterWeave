@@ -3,15 +3,15 @@
 Status: proposal, 2026-11-05. Asked by rust-ui-dev (REQUEST 01a1abf3,
 their job j213, my job j93), read against `origin/main` 8859f6366 and
 their branch `develop-qzapp/rust-ui-dev-01/feat/j213-android-start-never-calls-custody-reseal`
-at 76ac4a188. It answers where a person sees that a changed
+at 76ac4a188. This note answers where a person sees that a changed
 `key_unlock_policy` is not yet in force and why (ADR-0042 A 2026-11-05),
 and puts `human-client-ui.md` §14's
 `background_restart_requires_user_authentication` diagnostic on the
 same surface, since both say what happens to InterWeave after a
-restart. Its two product questions are answered by architect-cto
+restart. The note's two product questions are answered by architect-cto
 (REPLY 01a1ac8d-ea64, §10). Q1: the diagnostic follows the policy in
 force. Q2: no Try again. Both are recorded in ADR-0041 A 2026-11-05 on
-#571, which is not yet merged. Its one input from rust-ui-dev is
+#571, which is not yet merged. Its one question to rust-ui-dev is
 answered too (Q3).
 
 Owner of the design: ux-designer. The words are language-culture's: §7
@@ -23,13 +23,14 @@ only: the desktop has no unlock policy.
 ## 1. What is already decided
 
 - ADR-0042 A 2026-11-05 and `android-key-custody.md` (Reseal and the
-  policy byte): a reseal that fails otherwise than `UserNotAuthenticated`
-  never refuses the start. The record opens under its own policy, the
-  start goes on, and the reseal is tried again at every start. While the
+  policy byte): a reseal that fails for any reason other than
+  `UserNotAuthenticated` never refuses the start. The record opens
+  under its own policy, the start continues, and the reseal is tried again
+  at every start. While the
   record's policy differs from the configured one, or the other
   policy's key remains (`OldKeyRemains`), the status model exposes the
   pending change by name, with the refusal's reason.
-- rust-ui-dev's branch classes the refusal as `ResealFailure`:
+- rust-ui-dev's branch classifies the refusal as `ResealFailure`:
   `Keystore`, `Storage`, `OldKeyRemains`, `Other`.
 - `human-client-ui.md` §14 and `android-key-custody.md`: with
   `availability_mode=stay-reachable` and
@@ -40,11 +41,11 @@ only: the desktop has no unlock policy.
 - Neither setting can be changed from inside the app today.
   `key_unlock_policy` is authored in `config.yaml`, and the Stay-reachable
   overlay is written only through `ServiceHost::set_availability`,
-  which no control calls. So the person never meets this state just
-  after pressing something. They meet it on a later look, often long
-  after someone else changed the file.
-- The app's one settings surface is the Trust page (App options →
-  Trust). It already shows this device's PeerId and, under it, "Show
+  which no control calls. So the person never sees this state just
+  after pressing something. They see it when they look later, often
+  long after someone else changed the file.
+- The app's only settings surface is the Trust page (App options →
+  Trust). It already shows this device's PeerId and, under the PeerId, "Show
   recovery phrase" (`design/2026-10-19-android-identity.md` §3.5). That
   is the identity's section, and the unlock policy guards that identity.
 
@@ -52,7 +53,7 @@ only: the desktop has no unlock policy.
 
 The person wants to know **whether InterWeave needs their screen lock
 after the phone or the app restarts**, because that decides two things:
-whether someone holding the phone after a restart can open their
+whether someone holding the phone after a restart can open the person's
 identity, and whether InterWeave comes back online by itself.
 When the answer differs from what the setting says, they want to know
 that, what the answer is now, why, and whether they must do anything.
@@ -61,11 +62,11 @@ storage is the one thing that can help.
 
 Evidence: a heuristic reading, not a test with people. Nielsen's
 visibility of system status (the state is invisible otherwise, and in
-one direction it is weaker than the person was told). The match between
-system and real world (say what happens after a restart, not "policy").
-Aesthetic and minimalist design (a fault the person cannot act on does
-not stay on the main screen forever). Hypothesis H1, with what would
-falsify it, is in §4.
+one direction (P-up) the protection is weaker than the person was
+told). The match between system and real world (say what happens after
+a restart, not "policy"). Aesthetic and minimalist design (a fault the
+person cannot act on does not stay on Chats forever). Hypothesis H1,
+with what would show it wrong, is in §4.
 
 ## 3. States
 
@@ -103,10 +104,10 @@ Reasons r: `Storage`, `Keystore` and `Other`. These are rust-ui-dev's
 classes, and the person is told about each one differently:
 
 - **Storage**: the phone could not save the change. Freeing space may
-  help, and it is the only class where the person can do something.
+  help. Storage is the only class where the person can do something.
 - **Keystore**: the phone's secure key storage did not accept the
   change. Nothing the person does in InterWeave helps. Saying so
-  stops the person looking for a fix that does not exist.
+  stops the person from looking for a fix that does not exist.
 - **Other**: the change could not be made. No cause is offered.
 
 `OldKeyRemains` is a state (K), not a reason r: the record is already
@@ -118,12 +119,12 @@ it is true, and the P-down line already says that a restart needs the
 screen lock, so **in P-up and P-down D's line is not shown**: the P
 line stands in for it. In P-unknown, D's line shows under the P-unknown
 line when D's condition holds (the policy in force is always known),
-because that line does not say what a restart does.
+because the P-unknown line does not say what a restart does.
 
 Shown and cleared: the state is read again whenever the status member
-changes. A start whose reseal succeeds leaves N or D. Nothing is
-shown "for a while" after it clears: the line goes and, on the Trust
-page only, the change is announced (§6).
+changes. A start whose reseal succeeds results in N or D. Nothing is
+shown "for a while" after a state clears: its line is removed and, on
+the Trust page only, the change is announced (§6).
 
 ## 4. The Chats notice — P-up only
 
@@ -131,8 +132,8 @@ Only P-up reaches Chats. It is the one direction where the phone is
 **less protected than the setting says**: after a restart, someone
 holding the phone can open InterWeave without the screen lock. A
 person who looks only at Chats would otherwise never learn of it.
-P-down only costs an Unlock prompt the person already sees and
-answers, and its line on the Trust page explains why. K and D are not
+P-down costs only an Unlock prompt, which the person already sees
+and answers, and its line on the Trust page explains why. K and D are not
 faults.
 
 - **Place and priority**: the session notice's slot, **only while the
@@ -144,11 +145,13 @@ faults.
   notice when that shows, and before the list. It has the **lowest priority** of all
   session notices. Every existing `SessionNotice` (no daemon,
   reconnecting, storage, refused, network denied, locked) replaces it
-  while it holds, and it returns when they clear.
+  while that notice is shown, and the P-up notice returns when
+  they clear.
 - **Weight**: informational, the same card as the others, one action:
-  `UnlockPendingDetails`. It opens the Trust page with focus on the
-  line (§6). It has no Try again: none exists, and adding one is Q2.
-- **How long**: from the start whose reseal left P-up, **until the
+  `UnlockPendingDetails`. The action opens the Trust page with focus on the
+  line (§6). It has no Try again: none exists, and adding one was Q2,
+  answered no (§9).
+- **How long**: from the start whose reseal resulted in P-up, **until the
   person has seen the Trust page's line** (by Details, or by opening
   Trust from App options while P-up holds), or until P-up clears.
   "Seen" lasts for **the start that set it**. It is kept in memory, never
@@ -162,7 +165,7 @@ faults.
   dismissed unread. What would show H1 wrong: in a walkthrough or
   test, a person who has seen the notice once cannot later say whether
   their screen lock is needed after a restart, or a person ignores the
-  card by its second appearance. Until it is tested, this rests on the
+  card from its second appearance on. Until H1 is tested, this rests on the
   heuristics in §2.
 
 ## 5. The Trust page line
@@ -171,7 +174,8 @@ faults.
   before "Show recovery phrase"**, in reading and focus order. One
   block of body text (`FocusNote`): it wraps over as many lines as it
   needs, never elided, at every font scale.
-- In K with D, two blocks, K first, each its own focus stop.
+- In K with D there are two blocks, K first, and each is its own focus
+  stop.
 - **Weight**: plain body text in `on-surface`, no icon, no colour, no
   action. It describes the state; it is not an alarm. Its contrast is
   the body text's on the page surface, already measured.
@@ -193,8 +197,8 @@ faults.
 | F9 | at one start, a line is replaced by another or its text changes: P → D, P → K, K with D → D, reason r → r′ | if a line had focus: the first line now in that place; otherwise unchanged | when a P or K line ended, `UnlockApplied` first; then the text of each line that is new or changed, politely, once each | A12 |
 
 Keyboard: every line is a Tab stop in the order of §5, and Details is
-the notice's action button as on every other notice. Both lines and the
-notice have non-gesture paths: there is no gesture here.
+the notice's action button as on every other notice. Each line, and the
+notice, has a non-gesture path: there is no gesture here.
 
 ## 7. Strings — what each must say
 
@@ -219,10 +223,11 @@ fact.
 | `UnlockPendingDetails` | The notice's action, opening the line: "Details" or the like. |
 | `UnlockApplied` | (announcement) The screen-lock setting is now in force. |
 
-A reason is its own sentence after the line's first, never a fragment
-inside it, so no locale has to make it agree grammatically. If a
-locale needs one whole string per pair, language-culture may write the
-six P × reason combinations instead. That is their call.
+A reason is its own sentence after the line's first sentence, never a
+fragment inside it, so no locale has to make the reason agree
+grammatically with the line. If a locale needs one whole string for
+each line and reason, language-culture may write the six P × reason
+combinations instead. language-culture decides.
 
 ## 8. Acceptance
 
@@ -243,14 +248,14 @@ facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
 - **A3** P-up with no other session notice: the notice shows on Chats,
   focus does not move to it, and its text is announced politely once.
   It never shows in an open conversation on a narrow window. With any
-  other `SessionNotice` present, that
-  notice shows instead. When it clears, P-up's returns. No notice in
-  any other row.
+  other `SessionNotice` present, that notice shows instead. When that
+  notice clears, the P-up notice returns. This note's notice shows in
+  no other row.
 - **A4** Details opens the Trust page with focus on the P-up line.
-- **A5** Back from there: Chats with no P-up notice and focus on the
-  list heading. After a simulated next start with P-up still held, the
-  notice shows again. Recreating the Activity without a new start does
-  not bring it back.
+- **A5** Back from the Trust page: Chats with no P-up notice and focus
+  on the list heading. After a simulated next start with P-up still
+  holding, the notice shows again. Recreating the Activity without a
+  new start does not bring it back.
 - **A6** P-up clears while Details has focus: the notice goes and focus
   is on the list heading. The same holds when another `SessionNotice`
   replaces P-up while Details has focus.
@@ -264,7 +269,7 @@ facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
   because the availability mode changed announces nothing.
 - **A10** Rotation with focus on a line keeps it there.
 - **A11** On the Pixel 9a, by me, at the largest font scale and with
-  TalkBack: D, the one state a device can reach.
+  TalkBack: D, the only state with a line that a device can reach.
   - **Precondition:** a debuggable build, since no in-app control writes
     either setting (§1). The profile's `config.yaml` is authored with
     `key_unlock_policy: user-presence` through `run-as`, as
@@ -287,7 +292,7 @@ facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
 
 - **A control to change the unlock policy or Stay reachable.** Neither
   exists. When one is designed, its confirmation is where a pending
-  change is first shown, and its apply is the retry (ADR-0041
+  change is first shown, and applying it is the retry (ADR-0041
   A 2026-11-05's revisit condition). D's sentence goes beside the
   Stay-reachable switch. This note's surfaces stay as they are.
 - **A Try again** on the line or the notice. Ruled out by ADR-0041
@@ -298,16 +303,16 @@ facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
 - **The locked notice in P-down**: it keeps its text. The person who
   wonders why they were asked to unlock finds the reason on the Trust
   page.
-- **The raw refusal** (`detail`): the log's, as ADR-0042 says. It is
-  never shown.
+- **The raw refusal** (`detail`): it is for the log, as ADR-0042
+  says, and is never shown.
 - **The foreground-service notification**: its text already promises
   nothing across a restart.
 
 ## 10. Questions
 
-- **Q1 — architect-cto.** §14's predicate reads the *configured*
-  policy. While a change is pending, that tells the person the opposite
-  of what happens. This note suppresses D's line in P-\* and lets the P
+- **Q1 — architect-cto.** `human-client-ui.md` §14's predicate reads the
+  *configured* policy. While a change is pending, that tells the person
+  the opposite of what happens. This note suppresses D's line in P-\* and lets the P
   line say what happens now (§3). Should §14 (and `android-key-custody.md`)
   say that the diagnostic follows the policy **in force** while a change
   is pending, so that the status model and the UI agree by rule rather
@@ -315,7 +320,7 @@ facts of §3 (Q3).** Without it, A1–A10 and A12 are blocked, not passed.
   **Answered yes** (REPLY 01a1ac8d-ea64, ADR-0041 A 2026-11-05, #571):
   the diagnostic is derived from the effective availability mode and
   the record's policy in force. The configured policy reaches the
-  status model only as the pending change. §3 is written to it.
+  status model only as the pending change. §3 follows that answer.
 - **Q2 — architect-cto.** A Try again that restarts the service, so the
   person can retry once they have freed space, is not specified here:
   it would add a product action. Is one wanted? If it is, it belongs on
