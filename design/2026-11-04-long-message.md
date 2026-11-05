@@ -13,10 +13,13 @@ and a cluster past 32 code points is drawn as one replacement mark
 both on `main` in HUMAN-CHAT.md (the Bounds with §6's figures, 2 000
 and 40, written on #562; the Clusters bullet, with "raw source
 viewable" aligned to it). Where this note and the contract ever differ,
-the contract governs. Since architect-cto's DECISION 01a1ab12-5459
-(§6), the renderer's ceiling is held by a bound on each drawn item,
-not by the figures; that amendment lands in HUMAN-CHAT.md's Bounds
-with rust-ui-dev's j95 pull request.
+the contract governs, with one exception while it is pending: the
+drawn-line unit and the 8 000 logical px bound on each drawn item
+(§5.1, §6, A4) follow architect-cto's DECISION 01a1ab12-5459, written
+as c416bea40 on their branch for rust-ui-dev's j95 pull request and not
+yet on `main`. Until it lands, HUMAN-CHAT.md's Bounds on `main` counts
+model lines and holds the renderer's ceiling by the figures; A4's
+drawn-line and per-item checks apply from its landing.
 
 Owner of the design: ux-designer. The words are language-culture's: §8
 names each string and what it must say. Colours are roles of
@@ -177,8 +180,8 @@ continues and **how much of it is shown**, as a whole percentage —
 `LongMessageShown` (§8). It wraps like the text: at 200 % text it takes
 two or three lines. A percentage, not lines or words, because it is the
 one measure that does not depend on how the text wraps, which script it
-is in or how the person counts: drawn lines change with the width and
-text size, a script written without spaces does not mark where words
+is in or how the person counts: the lines on screen change with the
+width and text size, a script written without spaces does not mark where words
 end, and characters mean nothing to most people. It is the share of the
 body's characters, counted as §6 counts them, that the preview holds,
 rounded down, at least 1 %.
@@ -233,7 +236,8 @@ Whether the toolkit offers both is a precondition of A5 (§10).
 
 **Drawn in pieces**, in both modes, because no drawn item may pass
 8 000 logical px in either dimension (§6). A piece ends where the text is drawn
-broken anyway, and there nothing shows: in source mode at a newline;
+broken anyway, and there nothing shows: in source mode at a line break
+(§6);
 in formatted mode at a block boundary (a paragraph, a list item, a
 table row, a code line, a heading), since a single newline inside a
 paragraph is not drawn as a break. Only a stretch with no such
@@ -319,7 +323,12 @@ rule), plus one for each hard line break inside it, however it wraps —
 soft wrapping counts nothing (architect-cto's DECISION 01a1ab12-5459:
 a paragraph of 1 000 hard breaks is one model line and draws 1 000) —
 and each link's control, drawn as a line of its own (§4.1),
-counts as one. **What is counted is what the app draws**, each time it
+counts as one. A **hard line break** is any break the app draws
+whatever the width: CommonMark's hard line break, and every mandatory
+break of UAX #14 in the drawn text (LF, CR, CRLF, VT, FF, NEL, U+2028,
+U+2029), as `ui-model`'s `is_line_break` finds them; a soft line
+break, drawn as a space, counts nothing. In source mode every line
+break of the source is one. **What is counted is what the app draws**, each time it
 draws it (architect-cto's ruling of Q4, §11, in HUMAN-CHAT.md's Bounds
 on `main`): the drawn text; every link control's label
 as shown — its own words and the destination made visible, a hidden
@@ -440,7 +449,7 @@ disallowed scheme today. That is accepted for a link no honest sender
 writes; a hint is left out (below, §11).
 
 Why both: characters bound a body that is one long paragraph, which
-wraps into many drawn lines without a line of the model; lines bound a
+wraps into many lines on screen without a line of the model; lines bound a
 list of one-letter items, which has many lines and few characters.
 
 Why these figures, and the conditions any other figures must keep:
@@ -457,12 +466,12 @@ Why these figures, and the conditions any other figures must keep:
   (architect-cto's DECISION 01a1ab12-5459, in HUMAN-CHAT.md's Bounds
   with rust-ui-dev's j95 pull request). A whole body taller than that is
   drawn in pieces (§5.1); a failure makes the pieces smaller, never the
-  text and never the figures. The figures are for the person (above)
+  text, and never raises the figures. The figures are for the person (above)
   and for the cost of the first draw. My estimate on the Pixel 9a (2.625 px
   per dp; body text 32 sp on a 48 sp line, about 126 px, about 17
   characters per line in a narrow bubble; a first-level heading 40 sp
   on a 56 sp line, about 147 px, about 13.6 characters per line): a
-  paragraph body, 2 000 / 17 + 40 ≈ 158 drawn lines, about 19 900 px;
+  paragraph body, 2 000 / 17 + 40 ≈ 158 lines on screen, about 19 900 px;
   a body of 40 headings, 2 000 / 13.6 + 40 ≈ 187 lines, about
   27 500 px. That was an estimate; rust-ui-dev measured the heading body
   at 33 429 physical px at desktop scale 3, 360 dp wide, over the
@@ -623,11 +632,15 @@ it, those checks are blocked, never passed.
   padded link drawn as inert text with no control, §6), in formatted
   and in source mode, and so do A1's whole-formatted, cut-as-source
   bodies in source mode; a paragraph of 1 000 hard line breaks is past
-  40 drawn lines and is cut (§6); and every drawn item (§6's list) is
-  within 8 000 logical px in width and in height, an unwrapped
-  2 000-character code line included. The build measures and reports
-  the largest item in each dimension; a failure makes the pieces
-  smaller, never the text and never the figures.
+  40 drawn lines and is cut, and so is one of 1 000 U+2028 (§6); and
+  every drawn item (§6's list) is within 8 000 logical px in width and
+  in height, a code line of 2 000 characters with no line break
+  included: a code line wraps at the bubble's width, inside a word
+  where no word boundary fits, the one of the contract's three ways
+  (wrap, scroll inside an item no wider than the viewport, pieces) this
+  note takes. The build measures and reports the largest item in each
+  dimension; a failure makes the pieces smaller, never the text, and
+  never raises the figures.
 - **A5** The reader opens on each shape with its first screen drawn
   within 0.5 s on the A40, optimised build; End reaches the body's last
   line within 1 s; scrolling shows no blank screen, and no seam but §5.1's ragged line at
