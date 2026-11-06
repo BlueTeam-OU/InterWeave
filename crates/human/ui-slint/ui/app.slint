@@ -4897,6 +4897,8 @@ export component AppWindow inherits Window {
                     message: root.notice;
                     has-action: root.has-notice-action;
                     action: root.notice-action;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "chats-notice";
                     pressed => { root.notice-pressed(); }
                     focused(k) => { root.focus-id = k; }
                 }
@@ -7067,6 +7069,8 @@ export component AppWindow inherits Window {
                     message: root.notice;
                     has-action: root.has-notice-action;
                     action: root.notice-action;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "pane-notice";
                     init => { root.notice-height = self.height; }
                     changed height => { root.notice-height = self.height; }
                     pressed => { root.notice-pressed(); }
@@ -8073,6 +8077,10 @@ export component AppWindow inherits Window {
                                     }
                                     changed has-focus => {
                                         if (self.has-focus) { root.focus-id = "composer"; }
+                                    }
+                                    property <int> focus-seq: root.focus-seq;
+                                    changed focus-seq => {
+                                        if (root.focus-target == "composer") { self.focus(); }
                                     }
                                     // The line being written stays in view.
                                     cursor-position-changed(at) => {

@@ -536,6 +536,90 @@ fn a_phone_shows_the_session_notice_and_its_action_on_chats() {
     );
 }
 
+/// The locked notice takes focus when asked, on Chats and under a
+/// conversation's app bar, and gives it back when the lock clears: to
+/// Chats' heading, or to the conversation's composer (unlock note §11,
+/// F11, F12 and F14). On another page the ask moves nothing.
+#[test]
+fn the_locked_notice_takes_focus_when_asked_and_gives_it_back_at_the_unlock() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    model.authentication_needed(true);
+    view.render(&model);
+    settle();
+    assert_ne!(
+        view.window().get_focus_id(),
+        "notice",
+        "control: not unasked"
+    );
+    view.focus_locked_notice();
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "notice", "on Chats");
+    model.authentication_needed(false);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "the unlock: Chats' heading"
+    );
+
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    // The refusal shows the notice; the cancel that follows asks focus.
+    model.authentication_needed(true);
+    view.render(&model);
+    settle();
+    view.focus_locked_notice();
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "notice",
+        "under the conversation's app bar"
+    );
+    model.authentication_needed(false);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "composer",
+        "the unlock: the conversation's composer"
+    );
+}
+
+/// The ask waits for the notice on Chats or a conversation: under the
+/// trust settings it moves nothing, and the lock clearing with focus
+/// elsewhere leaves focus there.
+#[test]
+fn the_locked_notice_takes_no_focus_from_another_page() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.render(&model);
+    open_trust(&view);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    let before = view.window().get_focus_id();
+    assert!(!before.contains("notice"), "control: {before}");
+    model.authentication_needed(true);
+    view.focus_locked_notice();
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), before, "focus stays");
+    model.authentication_needed(false);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        before,
+        "and stays at the unlock"
+    );
+}
+
 /// §13, the accessibility tree: message and connectivity controls carry
 /// meaningful labels, roles and descriptions; connectivity is a polite
 /// live region and an item's status is not; the full `PeerId` is on the
