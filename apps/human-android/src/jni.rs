@@ -810,7 +810,8 @@ extern "system" fn Java_org_interweave_human_Native_waitIdentityAsk<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>()
 }
 
-/// `Native.prompted(granted)`: the credential prompt's answer.
+/// `Native.prompted(granted, unlock)`: the credential prompt's answer;
+/// `unlock` when it was the Unlock prompt, whose cancel is a decline.
 #[allow(
     unsafe_code,
     reason = "the JVM finds a native method by its unmangled name"
