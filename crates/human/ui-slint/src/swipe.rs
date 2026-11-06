@@ -310,6 +310,7 @@ pub(crate) fn confirmation_text(confirms: Confirmation) -> &'static str {
         Confirmation::IdentifierCopied { channel: true } => {
             placeholder_en::text(UiText::ChannelIdCopied)
         }
+        Confirmation::MessageCopied => placeholder_en::text(UiText::MessageCopied),
         Confirmation::ContactSaved => placeholder_en::text(UiText::ConfirmContactSaved),
         Confirmation::ContactUpdated => placeholder_en::text(UiText::ConfirmContactUpdated),
         Confirmation::CardDeclined => placeholder_en::text(UiText::ConfirmCardDeclined),

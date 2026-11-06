@@ -1049,3 +1049,47 @@ fn an_opening_page_is_not_announced_an_arrival_is() {
         slots(&view)
     );
 }
+
+/// design/2026-11-04-long-message.md A7: with more read, unkept messages
+/// than the session holds, those that arrive while the reader is open
+/// leave it open on its message -- the session's bound passes over the
+/// message in the reader, as over a focused one (section 5.4). Mutation:
+/// the reader's message not reported as the person's place.
+#[test]
+fn the_session_bound_passes_over_the_message_in_the_reader() {
+    use interweave_human_ui_model::{HELD_ROW_CAP, READ_PROPOSAL_CAP};
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 4000.0));
+    let from = peer();
+    let key = direct(&from);
+    let mut model = opened(&mut view, &from, 0);
+    let _ = model.take_page_asks();
+    model.set_bounds_for_test(3, HELD_ROW_CAP, READ_PROPOSAL_CAP);
+    let long = (1..=60)
+        .map(|n| format!("Paragraph {n}."))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    model.received(received(2_000, &from, &long));
+    model.read(RowId::from_stored(2_000));
+    let _ = drained(&mut view, &mut model);
+    let long_key = model.messages(&key)[0].key;
+
+    ElementHandle::find_by_accessible_label(view.window(), text(UiText::ReadWholeMessage))
+        .next()
+        .expect("the cut row's button")
+        .invoke_accessible_default_action();
+    let _ = drained(&mut view, &mut model);
+    assert!(view.window().get_reader_open(), "control: open");
+
+    for n in 2_001..=2_006 {
+        model.received(received(n, &from, &format!("Later {n}.")));
+        model.read(RowId::from_stored(n));
+        let _ = drained(&mut view, &mut model);
+    }
+    let held: Vec<_> = model.messages(&key).iter().map(|m| m.key).collect();
+    assert!(held.len() <= 4, "the bound took the others: {held:?}");
+    assert!(held.contains(&long_key), "the reader's message is held");
+    assert!(view.window().get_reader_open(), "the reader stays open");
+}

@@ -158,6 +158,9 @@ pub enum ViewEvent {
     /// platform that confirms nothing itself: the root passes it to
     /// [`UiModel::identifier_copied`] (#304 F11).
     IdentifierCopied(ConversationKey),
+    /// The person copied a message's source, on a platform that confirms
+    /// nothing itself: the root passes it to [`UiModel::message_copied`].
+    MessageCopied(ConversationKey),
 }
 
 /// Which table an item's row is in: a row id names a row within one.
