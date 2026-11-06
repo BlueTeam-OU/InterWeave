@@ -42,7 +42,8 @@ pub(crate) fn sent(clock: &Clock, local_at: u64) -> (String, String) {
     let local = clock.local(local_at);
     let day = match local.day {
         Day::Today | Day::Yesterday => clock::day_text(local.day),
-        // Never a weekday's name: the date, so it reads the same tomorrow.
+        // Never a weekday's name: the date, so it reads the same tomorrow
+        // (tests::the_sent_line_names_a_date_where_the_list_names_a_weekday).
         Day::Weekday(_) | Day::Date { .. } => clock.date_text(local_at),
     };
     let time = clock::clock_text(local.hour, local.minute, clock.hour24);
@@ -104,5 +105,23 @@ pub(crate) fn forms(
         formatted: ModelRc::new(VecModel::from(formatted)),
         source: ModelRc::new(VecModel::from(source)),
         links: drawn.links,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sent;
+    use crate::clock::Clock;
+
+    #[test]
+    fn the_sent_line_names_a_date_where_the_list_names_a_weekday() {
+        const DAY: u64 = 86_400_000;
+        // 2026-10-17 14:30 UTC.
+        let now = 20_743 * DAY + 14 * 3_600_000 + 30 * 60_000;
+        let clock = Clock::new(move || now, |_| 0);
+        assert_eq!(clock.list_time(now - 2 * DAY), "Thursday", "control");
+        assert_eq!(sent(&clock, now - 2 * DAY).0, "Oct 15, 14:30");
+        assert_eq!(sent(&clock, now).0, "Today, 14:30");
+        assert_eq!(sent(&clock, now - DAY).0, "Yesterday, 14:30");
     }
 }
