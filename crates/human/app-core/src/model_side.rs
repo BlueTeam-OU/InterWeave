@@ -975,6 +975,8 @@ mod tests {
         assert_eq!(made.get(), 1);
         let _second = ModelSide::new(Counting(std::rc::Rc::clone(&made)), Nothing);
         assert_eq!(made.get(), 2, "one per model");
+        side.remade();
+        assert_eq!(made.get(), 3, "and once more when one is shown again");
     }
 
     /// A model kept after its service stopped holds nothing in flight no
