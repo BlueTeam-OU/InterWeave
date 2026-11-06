@@ -3540,8 +3540,6 @@ fn update_by_key<K: PartialEq + Clone, R: Clone + PartialEq>(
     }
 }
 
-/// The buttons for `actions`, in order: a press is recorded by its index
-/// into the actions as rendered.
 /// A long message's controls (design/2026-11-04-long-message.md): Read
 /// the whole message, Copy message source, and the reader's own.
 fn connect_long_message(window: &generated::AppWindow, shared: &Rc<RefCell<Shared>>) {
@@ -3606,6 +3604,8 @@ fn connect_menu_haptic(window: &generated::AppWindow, shared: &Rc<RefCell<Shared
     });
 }
 
+/// The buttons for `actions`, in order: a press is recorded by its index
+/// into the actions as rendered.
 fn action_model(actions: &[RowAction]) -> ModelRc<ActionRow> {
     let rows: Vec<ActionRow> = actions
         .iter()
