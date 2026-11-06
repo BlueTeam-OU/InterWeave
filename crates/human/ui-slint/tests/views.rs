@@ -506,6 +506,11 @@ fn a_phone_shows_the_session_notice_and_its_action_on_chats() {
     assert!(notice.size().width > 0.0, "the notice is laid out");
     let unlock = the(&view, text(UiText::Authenticate));
     assert!(unlock.size().width > 0.0, "and so is its action");
+    assert_eq!(
+        unlock.accessible_description().as_deref(),
+        Some(text(UiText::AuthenticationNeeded)),
+        "focus on the action reads why: the notice's text"
+    );
     unlock.invoke_accessible_default_action();
     assert_eq!(intents(&mut view, &mut model), vec![Intent::Authenticate]);
 

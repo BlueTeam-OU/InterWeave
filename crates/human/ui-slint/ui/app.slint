@@ -1665,8 +1665,13 @@ component NoticeCard inherits Rectangle {
             accessible-label: self.text;
             accessible-live-region: polite;
         }
+        // Focus on the action reads why it is there: the notice's text,
+        // which its live region says only when the notice appears -- a
+        // return to a notice already shown would read "Unlock, button"
+        // alone (unlock note section 11, F12).
         if root.has-action: ActionButton {
             text: root.action;
+            detail: root.message;
             focus-key: root.action-key;
             focus-seq: root.focus-seq;
             focus-wanted: root.focus-wanted;
