@@ -711,6 +711,38 @@ fn wire_draft(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     });
 }
 
+/// A row's swipe, and the snackbar's Undo and close it leaves.
+fn wire_swipe(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
+        swipe::moved(
+            &s,
+            &w,
+            key.as_str(),
+            (px, py),
+            (cx, cy),
+            width,
+            window_width,
+        );
+    });
+    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    window.on_swipe_ended(move |key| swipe::ended(&s, &w, key.as_str()));
+    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    window.on_swipe_cancelled(move |key| swipe::cancelled(&s, &w, key.as_str()));
+    let s = Rc::clone(shared);
+    window.on_undo(move |id| {
+        if let Ok(id) = u64::try_from(id) {
+            enqueue(&s, Input::Undo(id));
+        }
+    });
+    let s = Rc::clone(shared);
+    window.on_snack_closed(move |id| {
+        if let Ok(id) = u64::try_from(id) {
+            enqueue(&s, Input::SnackClosed(id));
+        }
+    });
+}
+
 /// The callbacks of the screens with their own modules, and the trust
 /// settings'.
 fn wire_screens(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
@@ -1107,34 +1139,7 @@ impl View {
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
         wire_screens(&window, &shared);
 
-        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
-        window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
-            swipe::moved(
-                &s,
-                &w,
-                key.as_str(),
-                (px, py),
-                (cx, cy),
-                width,
-                window_width,
-            );
-        });
-        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
-        window.on_swipe_ended(move |key| swipe::ended(&s, &w, key.as_str()));
-        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
-        window.on_swipe_cancelled(move |key| swipe::cancelled(&s, &w, key.as_str()));
-        let s = Rc::clone(&shared);
-        window.on_undo(move |id| {
-            if let Ok(id) = u64::try_from(id) {
-                enqueue(&s, Input::Undo(id));
-            }
-        });
-        let s = Rc::clone(&shared);
-        window.on_snack_closed(move |id| {
-            if let Ok(id) = u64::try_from(id) {
-                enqueue(&s, Input::SnackClosed(id));
-            }
-        });
+        wire_swipe(&window, &shared);
         let s = Rc::clone(&shared);
         window.on_hide_conversation(move || {
             let selected = s.borrow().selected.clone();
