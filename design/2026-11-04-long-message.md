@@ -188,7 +188,7 @@ rounded down, at least 1 %.
 
 ### 4.3 Open the whole message
 
-A text button, `ReadWholeMessage` (§8), under the cut line at the
+A text button, `OpenWholeMessage` (§8), under the cut line at the
 bubble's start edge, with the 48 dp target every control keeps. It
 opens the reader (§5) at the start of the body, in the mode the row
 is in (formatted or source). It is a control at rest on purpose,
@@ -507,7 +507,7 @@ are that locale's holder's.
 | key | where | must say | en (proposed) |
 |---|---|---|---|
 | `LongMessageShown` | the cut line (§4.2) | that the message continues past what is shown, and the share shown (`{percent}`, the whole locale-formatted value, sign included) | The first {percent} of the message is shown. |
-| `ReadWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Open the whole message |
+| `OpenWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Open the whole message |
 | `ReaderSent` | the reader's first content line (§5.1) | when the message reached this app, as the row's time does (`local_at`): the day (`{day}`) and the time as the row shows it (`{time}`). On screen `{day}` is `Today`, `Yesterday`, else the Chats list rows' short date (`DateRowThisYear`, `DateRowOtherYear`); in its accessible label it is `Today`, `Yesterday`, else `DateFull`, never the short form (look spec §5.2, §9) | {day}, {time} |
 | `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | Opening the whole message |
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
