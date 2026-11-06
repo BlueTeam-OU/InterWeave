@@ -4366,6 +4366,11 @@ export component AppWindow inherits Window {
     // byte, which the view copies; and that it did, for the feedback.
     callback message-source(int) -> string;
     callback message-copied();
+    // The copy field's size as laid out, which tests/long_message.rs
+    // the_copy_field_has_no_size reads: the testing tree leaves the
+    // invisible field out.
+    out property <length> copy-field-width: peers-copy.width;
+    out property <length> copy-field-height: peers-copy.height;
     in property <string> copy-message-label;
     // The reader (section 5): over the conversation's pane, which stays
     // as it was underneath for when it closes. Its rows, built by the view
@@ -4923,7 +4928,8 @@ export component AppWindow inherits Window {
         // included, from the shaper: the toolkit answers a zero-size
         // field's cursor before laying its text out (i-slint-core 1.18.1,
         // sharedparley text_input_cursor_rect_for_byte_offset), and Copy
-        // gives the bytes as received, so they cannot be made drawable.
+        // gives the bytes as received, so they cannot be made drawable
+        // (tests/long_message.rs the_copy_field_has_no_size).
         peers-copy := TextInput {
             x: 0;
             y: 0;

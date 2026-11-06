@@ -473,6 +473,23 @@ fn copy_of_a_row_gone_confirms_nothing() {
     );
 }
 
+/// The copy field Copy message source writes through is 0 x 0: that size
+/// is what keeps a source's cluster past the bound from the desktop's
+/// shaper, which answers a zero-size field's cursor before laying its
+/// text out (app.slint, `peers-copy`).
+#[test]
+fn the_copy_field_has_no_size() {
+    let view = view();
+    let window = view.window();
+    assert_eq!(
+        (
+            window.get_copy_field_width(),
+            window.get_copy_field_height()
+        ),
+        (0.0, 0.0)
+    );
+}
+
 /// The reader closes, with nothing said, when its row leaves the
 /// conversation: the conversation hidden from the list beside it
 /// (section 5.4, A7).
