@@ -130,15 +130,15 @@ def main() -> int:
             steps[f"join_{name}"] = {"answer": text[:200], "error": error}
 
         # The mesh: until it forms a publish reaches no one.
-        mesh, deadline = 0, time.time() + 120
-        while time.time() < deadline:
+        mesh, mesh_formed, deadline = 0, False, time.time() + 120
+        while not mesh_formed and time.time() < deadline:
             mesh += 1
             at_b.tool("broadcast", {"channel": "general", "content": f"S30 {nonce} mesh {mesh}"})
             at_a.drain(0.5)
-            if any(v.get("method") == "notifications/claude/channel" for v in at_a.lines):
-                break
+            mesh_formed = any(v.get("method") == "notifications/claude/channel" for v in at_a.lines)
         steps["mesh_publishes"] = mesh
-        steps["mesh_seen_at_s"] = round(time.time() - started, 1)
+        steps["mesh_formed"] = mesh_formed
+        steps["mesh_seen_at_s"] = round(time.time() - started, 1) if mesh_formed else None
         time.sleep(REFILL_S)
         at_a.drain(0.5)
         before = {"a_admin": admin_status(a, ctl), "b_admin": admin_status(b, ctl), "a_bridge_loss": loss(at_a)}
@@ -168,7 +168,9 @@ def main() -> int:
                           "bridge_a_ingress_refused_delta": refused,
                           "notified_plus_daemon_dropped": len(seen) + dropped_a,
                           "notified_plus_daemon_dropped_plus_ingress_refused": len(seen) + dropped_a + refused}
-        passed = steps["mesh_publishes"] < 1000 and not steps["publish_errors"]
+        # A run whose broadcasts could reach no one measures nothing (#580 F2).
+        passed = (mesh_formed and not steps["join_a"]["error"] and not steps["join_b"]["error"]
+                  and not steps["publish_errors"])
         at_a.stop()
         at_b.stop()
         live.remove(at_a)
