@@ -46,10 +46,10 @@ the look spec's edge case "A very long message"
 (`design/2026-10-16-android-look.md` §8); for a body within the bound,
 that line stands as written. It revises one rule of
 `design/2026-10-16-message-swipe.md` §7: a cut row has a second focus
-stop besides its bubble and its links, Read the whole message (§4.3,
+stop besides its bubble and its links, Open the whole message (§4.3,
 §9). And it revises message-swipe §7's list of a row's menu items, and
 its §11 item 23 that checks that list: every text row, cut or whole,
-gains Copy message source, and a cut row Read the whole message too,
+gains Copy message source, and a cut row Open the whole message too,
 both before Show source, which stays last (§4.3, §5.3). A card row,
 which has no Copy, is unchanged. And it revises the look spec's §6
 Composer, a 48 dp field (the build grows it without a limit): it
@@ -122,8 +122,8 @@ mode shown.
 | state | in the conversation | in the reader (§5) |
 |---|---|---|
 | whole in the mode shown | the body in that mode, as today | not offered from this mode |
-| cut, formatted | the preview (§4.1), the cut line (§4.2), Read the whole message (§4.3) | the whole body, formatted |
-| cut, source | the source's preview, the cut line, Read the whole message | the whole source |
+| cut, formatted | the preview (§4.1), the cut line (§4.2), Open the whole message (§4.3) | the whole body, formatted |
+| cut, source | the source's preview, the cut line, Open the whole message | the whole source |
 | reader opening | — | its first screen within A5's figure (§10); nothing below 0.5 s, then an indeterminate progress bar under the app bar, labelled `ReaderOpening` (§8), until the first screen is drawn |
 | row gone while the reader is open | — | the reader closes (§5.4) |
 
@@ -186,9 +186,9 @@ end, and characters mean nothing to most people. It is the share of the
 body's characters, counted as §6 counts them, that the preview holds,
 rounded down, at least 1 %.
 
-### 4.3 Read the whole message
+### 4.3 Open the whole message
 
-A text button, `ReadWholeMessage` (§8), under the cut line at the
+A text button, `OpenWholeMessage` (§8), under the cut line at the
 bubble's start edge, with the 48 dp target every control keeps. It
 opens the reader (§5) at the start of the body, in the mode the row
 is in (formatted or source). It is a control at rest on purpose,
@@ -198,7 +198,7 @@ beside it (visibility of system status, Nielsen's heuristic 1).
 
 It is also an item of the row's menu. A cut row's menu, in order: the
 row's actions as message-swipe §7 gives them (Keep and Dismiss, or
-Unkeep, or Retry and Cancel), then Read the whole message, then
+Unkeep, or Retry and Cancel), then Open the whole message, then
 `CopyMessage` (§5.3), then Show source last. Where the toolkit offers
 custom accessibility actions (message-swipe §7: optional, not there
 today), it is one of the bubble's as well. No gesture opens it.
@@ -281,8 +281,9 @@ before Show source; a card has none. Feedback: on Android 13 and later
 the system shows its own clipboard confirmation and the app adds none
 (the platform's guidance); on Android 12 and earlier, and on the
 desktop, a snackbar `MessageCopied`. If the platform refuses the copy,
-a snackbar `MessageNotCopied` says so; nothing else changes. Copy is
-not undoable and needs no undo: it changes nothing in the app.
+a snackbar `MessageNotCopied` says so and that Copy can be pressed
+again; nothing else changes. Copy is not undoable and needs no undo:
+it changes nothing in the app.
 
 The conditions architect-cto's ruling carries (§11 Q1), each a check
 of A9: Copy acts on the person's press only, never on receipt, read or
@@ -303,7 +304,7 @@ no clipboard path at all: `design/2026-10-19-android-identity.md`.)
 Back (Android's system Back or the app bar's) or, on the desktop,
 Escape closes the reader, and the conversation is where it was: the
 row in the mode it was in when the reader opened, whatever mode the
-reader was switched to, so its Read the whole message is there for
+reader was switched to, so its Open the whole message is there for
 focus to return to (§9).
 
 The reader also closes, with no message of its own, when its row
@@ -506,12 +507,12 @@ are that locale's holder's.
 | key | where | must say | en (proposed) |
 |---|---|---|---|
 | `LongMessageShown` | the cut line (§4.2) | that the message continues past what is shown, and the share shown (`{percent}`, the whole locale-formatted value, sign included) | The first {percent} of the message is shown. |
-| `ReadWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Read the whole message |
+| `OpenWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Open the whole message |
 | `ReaderSent` | the reader's first content line (§5.1) | when the message reached this app, as the row's time does (`local_at`): the day (`{day}`) and the time as the row shows it (`{time}`). On screen `{day}` is `Today`, `Yesterday`, else the Chats list rows' short date (`DateRowThisYear`, `DateRowOtherYear`); in its accessible label it is `Today`, `Yesterday`, else `DateFull`, never the short form (look spec §5.2, §9) | {day}, {time} |
 | `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | Opening the whole message |
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
-| `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied | Could not copy the message |
+| `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied, and the action that is left: copy again (a "could not" a person can act on ends with its action: architect-cto's vocabulary read of #565, REPLY 01a1aea5) | Could not copy the message source. Choose Copy message source to try again. |
 | `ReplacedCharacter` | never on screen: a screen reader's text in place of every U+FFFD, wherever the client sets the accessible text, and never in the composer's draft (§6) | that one character is there that is shown only as a replacement mark; a word or two, spoken in the middle of the text around it, with any pause the locale needs before and after it | character not shown |
 
 Show source and Show formatted reuse the row's existing labels.
@@ -522,8 +523,8 @@ Show source and Show formatted reuse the row's existing labels.
 
 | case | focus goes to | check |
 |---|---|---|
-| Read the whole message pressed (button or menu) | the reader's first content element: on Android, TalkBack's focus on the app bar's title (the sender), then `ReaderSent` next; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
-| Reader closed (Back, Escape) | the row's Read the whole message button | A6; A7 after a mode switch |
+| Open the whole message pressed (button or menu) | the reader's first content element: on Android, TalkBack's focus on the app bar's title (the sender), then `ReaderSent` next; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
+| Reader closed (Back, Escape) | the row's Open the whole message button | A6; A7 after a mode switch |
 | Reader closed because its row left (§5.4) | stays where the person's act in the list left it | A7 |
 | Show source / Show formatted in the reader | stays on the action pressed | A6 |
 | Copy pressed in the reader's app bar | stays on Copy | A6 |
@@ -534,11 +535,11 @@ Show source and Show formatted reuse the row's existing labels.
 - **What is read, and in what order**, in a cut row: the bubble is read
   as one item, as the look spec's `Item` label gives it, with `{body}`
   the preview's text followed by the cut line's sentence — never the
-  whole body. Then, as their own stops, Read the whole message, the
+  whole body. Then, as their own stops, Open the whole message, the
   preview's link controls, and the row's next element. The button's
   label is its own string. A replacement mark anywhere is spoken as §6
   says.
-- **Keyboard** (desktop): Tab reaches Read the whole message after the
+- **Keyboard** (desktop): Tab reaches Open the whole message after the
   row's bubble and before its links; in the reader, Tab goes to Back,
   then Show source (or Show formatted), Copy and the scroll area; Up,
   Down, Page Up, Page Down, Home and End scroll; Escape closes.
@@ -581,12 +582,12 @@ it, those checks are blocked, never passed.
   that mode draws. A body whole formatted and past the bound as source
   (links whose labels pass 2 000 characters, drawn inert; a body of
   reference definitions; about 2 000 blank lines) is whole formatted, and in source mode shows the
-  source's preview, the cut line with the source's share and Read the
+  source's preview, the cut line with the source's share and Open the
   whole message, which opens the reader in source mode; Show formatted
   takes them away again.
 - **A2** A cut row shows the preview, the cut line with a percentage
   equal to the preview's characters over the body's, rounded down and
-  at least 1, and Read the whole message; its preview ends as §4.1
+  at least 1, and Open the whole message; its preview ends as §4.1
   says, and a table cut keeps its header. `key: ` followed by 3 000
   hexadecimal digits (0–9, a–f) previews 1 600 characters and an
   ellipsis (§4.1 step 3), and A12's C2 previews its mark and 1 599
@@ -657,7 +658,7 @@ it, those checks are blocked, never passed.
   the background and back, and the window resized, as §9 says; a reader
   opened from a row cut in one mode only, switched to the other mode,
   then closed, leaves the row in the mode it was opened from, with
-  focus on its Read the whole message (§5.4); and with
+  focus on its Open the whole message (§5.4); and with
   more than the session's item ceiling of read, unkept messages, a new
   one arriving leaves the reader open on its message (§5.4).
 - **A8** TalkBack reads a cut message's reader from its start to its
