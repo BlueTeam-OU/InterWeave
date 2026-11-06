@@ -392,9 +392,9 @@ settled by something at start-up, neither read from the binary (75).
 What this changes in the bridge: nothing; its bound stays the only one
 on the line. Not established then: a line past 8 MiB, another model's
 context, a burst past ten, an event at the bound in a conversation
-already holding others (the first four measured by S30, below),
-whether the kind of turn decides joining, and what in a build sets the
-unflagged mode.
+already holding others (the last three of these measured by S30,
+below; the line past 8 MiB stays carried), whether the kind of turn
+decides joining, and what in a build sets the unflagged mode.
 
 **Carried measurement, S30 (2026-11-06, Claude Code 2.1.311, the
 fleet's pin, rust-services-dev, plan §19): an event at the bound fits
@@ -443,8 +443,8 @@ the only one on the line, and a deployment with compaction off has
 room for three events at it. Not established: a line past 8 MiB, the
 edge for content that costs more tokens a byte, what compaction keeps
 of the events it replaces, a second host, whether the kind of turn
-decides joining, what in a build sets the unflagged mode, and the
-256-byte card name across real daemons.
+decides joining, and the 256-byte card name across real daemons; and,
+from S29, what in a build sets the unflagged mode (fact 75).
 
 ---
 
