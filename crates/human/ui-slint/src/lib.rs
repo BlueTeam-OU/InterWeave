@@ -310,9 +310,9 @@ enum Input {
     IdentifierCopied,
     /// Copy message source put a message's source on the clipboard.
     MessageCopied,
-    /// Read the whole message: the message, and whether its row showed
+    /// Open the whole message: the message, and whether its row showed
     /// its source.
-    ReadWhole(ItemKey, bool),
+    OpenWhole(ItemKey, bool),
     /// The reader's Back, or Escape.
     ReaderClosed,
     /// The notice's action, with the notice that was shown.
@@ -1008,7 +1008,7 @@ impl View {
         window.set_show_source_label(text(UiText::ShowSource));
         window.set_card_sent_label(text(UiText::CardSentLabel));
         window.set_show_formatted_label(text(UiText::ShowFormatted));
-        window.set_read_whole_label(text(UiText::ReadWholeMessage));
+        window.set_open_whole_label(text(UiText::OpenWholeMessage));
         window.set_copy_message_label(text(UiText::CopyMessage));
         window.set_code_font(code_font());
         window.set_app_options_label(text(UiText::AppOptions));
@@ -1831,7 +1831,7 @@ impl View {
                         out.push(ViewEvent::IdentifierCopied(key));
                     }
                 }
-                Input::MessageCopied | Input::ReadWhole(..) | Input::ReaderClosed => {
+                Input::MessageCopied | Input::OpenWhole(..) | Input::ReaderClosed => {
                     out.extend(self.long_message_input(&input));
                 }
                 Input::Link(destination) => {
@@ -2057,13 +2057,13 @@ impl View {
             Input::MessageCopied => (self.copy_feedback == CopyFeedback::Snackbar)
                 .then(|| self.shown.clone().map(ViewEvent::MessageCopied))
                 .flatten(),
-            Input::ReadWhole(key, as_source) => {
+            Input::OpenWhole(key, as_source) => {
                 self.open_reader(*key, *as_source);
                 None
             }
             Input::ReaderClosed => {
                 if let Some(open) = self.close_reader() {
-                    // Back on the row's Read the whole message, the
+                    // Back on the row's Open the whole message, the
                     // conversation shown again: what arrived meanwhile is
                     // read now (section 7).
                     self.focus_key(format!("read:{}", open.handle));
@@ -3556,10 +3556,10 @@ fn connect_long_message(window: &generated::AppWindow, shared: &Rc<RefCell<Share
     let s = Rc::clone(shared);
     window.on_message_copied(move || enqueue(&s, Input::MessageCopied));
     let s = Rc::clone(shared);
-    window.on_read_whole(move |handle, as_source| {
+    window.on_open_whole(move |handle, as_source| {
         let key = s.borrow().items.get(&handle).map(|item| item.key);
         if let Some(key) = key {
-            enqueue(&s, Input::ReadWhole(key, as_source));
+            enqueue(&s, Input::OpenWhole(key, as_source));
         }
     });
     let s = Rc::clone(shared);

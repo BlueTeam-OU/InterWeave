@@ -1076,7 +1076,7 @@ fn the_session_bound_passes_over_the_message_in_the_reader() {
     let _ = drained(&mut view, &mut model);
     let long_key = model.messages(&key)[0].key;
 
-    ElementHandle::find_by_accessible_label(view.window(), text(UiText::ReadWholeMessage))
+    ElementHandle::find_by_accessible_label(view.window(), text(UiText::OpenWholeMessage))
         .next()
         .expect("the cut row's button")
         .invoke_accessible_default_action();

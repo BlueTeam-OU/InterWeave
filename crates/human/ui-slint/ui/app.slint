@@ -36,7 +36,7 @@ export enum Glyph {
     cloud, cloud-off,
     // The statuses (section 6's table).
     clock, check, check-outline, error, crossed, bookmark,
-    // A message's Read the whole message and Copy message source
+    // A message's Open the whole message and Copy message source
     // (design/2026-11-04-long-message.md sections 4.3 and 5.3).
     expand, copy,
 }
@@ -4358,10 +4358,10 @@ export component AppWindow inherits Window {
         root.focus-seq += 1;
     }
     callback link(int, int);
-    // Read the whole message: the row's handle, and whether it shows its
+    // Open the whole message: the row's handle, and whether it shows its
     // source (section 4.3).
-    callback read-whole(int, bool);
-    in property <string> read-whole-label;
+    callback open-whole(int, bool);
+    in property <string> open-whole-label;
     // Copy message source (section 5.3): the message's source, byte for
     // byte, which the view copies; and that it did, for the feedback.
     callback message-source(int) -> string;
@@ -7618,7 +7618,7 @@ export component AppWindow inherits Window {
                         property <TextHorizontalAlignment> text-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                         property <string> source-label: item.show-source ? root.show-formatted-label : root.show-source-label;
                         // The body is cut in the mode shown: its preview, this
-                        // line and Read the whole message (section 4).
+                        // line and Open the whole message (section 4).
                         property <string> cut-line: item.show-source ? row.source-cut-line : row.cut-line;
                         accessible-role: list-item;
                         accessible-label: self.show-source ? row.source-label : row.label;
@@ -8022,7 +8022,7 @@ export component AppWindow inherits Window {
                                         if item.cut-line != "": HorizontalLayout {
                                             alignment: start;
                                             ActionButton {
-                                                text: root.read-whole-label;
+                                                text: root.open-whole-label;
                                                 text-button: true;
                                                 target: 48px;
                                                 // `primary` on both bubbles (section 9's contrast).
@@ -8030,7 +8030,7 @@ export component AppWindow inherits Window {
                                                 focus-key: "read:" + row.handle;
                                                 focus-seq: root.focus-seq;
                                                 focus-wanted: root.focus-target == "read:" + row.handle;
-                                                pressed => { root.read-whole(row.handle, item.show-source); }
+                                                pressed => { root.open-whole(row.handle, item.show-source); }
                                                 focused(k) => { root.focus-id = k; }
                                             }
                                         }
@@ -9019,13 +9019,13 @@ export component AppWindow inherits Window {
                     closed => { root.close-row-menu(); }
                     focused(k) => { root.focus-id = k; }
                 }
-                // Then, on a cut row, Read the whole message; on every text
+                // Then, on a cut row, Open the whole message; on every text
                 // row Copy message source; Show source last
                 // (design/2026-11-04-long-message.md section 4.3). A card
                 // row has none of the three: it has no markdown source
                 // (contact-cards 5.5), so its menu passes none.
                 if root.row-menu-cut: MenuItem {
-                    text: root.read-whole-label;
+                    text: root.open-whole-label;
                     detail: root.row-menu-detail;
                     iconed: true;
                     glyph: Glyph.expand;
@@ -9035,7 +9035,7 @@ export component AppWindow inherits Window {
                     pressed => {
                         let handle = root.row-menu;
                         root.close-row-menu();
-                        root.read-whole(handle, root.row-menu-as-source);
+                        root.open-whole(handle, root.row-menu-as-source);
                     }
                     closed => { root.close-row-menu(); }
                     focused(k) => { root.focus-id = k; }

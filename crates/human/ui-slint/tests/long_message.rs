@@ -199,7 +199,7 @@ fn reader_text(view: &View) -> Vec<String> {
 }
 
 /// A cut row shows its preview, the cut line with the share shown, and
-/// Read the whole message; a whole row shows neither, and its label is
+/// Open the whole message; a whole row shows neither, and its label is
 /// the whole body (A2, section 9).
 #[test]
 fn a_cut_row_shows_its_preview_its_line_and_the_way_to_the_whole() {
@@ -232,13 +232,13 @@ fn a_cut_row_shows_its_preview_its_line_and_the_way_to_the_whole() {
     );
     assert!(!cut.label.contains("Paragraph 33."), "never the whole body");
     assert_eq!(
-        labelled(&view, text(UiText::ReadWholeMessage)).len(),
+        labelled(&view, text(UiText::OpenWholeMessage)).len(),
         1,
-        "one Read the whole message: the cut row's"
+        "one Open the whole message: the cut row's"
     );
 }
 
-/// A cut row's menu: its actions, then Read the whole message, Copy
+/// A cut row's menu: its actions, then Open the whole message, Copy
 /// message source and Show source last; a whole row's lacks Read the
 /// whole message (section 4.3, message-swipe section 7 revised).
 #[test]
@@ -266,7 +266,7 @@ fn a_rows_menu_has_read_the_whole_message_only_when_cut_and_copy_always() {
     let mut cut = actions(&drawn[1]);
     cut.extend(
         [
-            text(UiText::ReadWholeMessage),
+            text(UiText::OpenWholeMessage),
             text(UiText::CopyMessage),
             text(UiText::ShowSource),
         ]
@@ -275,9 +275,9 @@ fn a_rows_menu_has_read_the_whole_message_only_when_cut_and_copy_always() {
     assert_eq!(menu(&view, &drawn[1].label), cut);
 }
 
-/// Read the whole message opens the reader on the whole body, focus on
+/// Open the whole message opens the reader on the whole body, focus on
 /// its scroll; Escape closes it, the conversation as it was and focus on
-/// the row's Read the whole message (sections 5, 9: A6).
+/// the row's Open the whole message (sections 5, 9: A6).
 #[test]
 fn the_reader_shows_the_whole_body_and_escape_returns_to_the_button() {
     let mut view = view();
@@ -287,7 +287,7 @@ fn the_reader_shows_the_whole_body_and_escape_returns_to_the_button() {
     open(&mut view, &mut model, &direct(&alice));
     let handle = rows(&view)[0].handle;
 
-    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_reader_open());
     let shown = reader_text(&view);
@@ -325,7 +325,7 @@ fn a_message_arriving_while_the_reader_is_open_is_read_when_it_closes() {
     open(&mut view, &mut model, &direct(&alice));
     view.set_window_focused(true);
     let _ = intents(&mut view, &mut model);
-    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
 
     model.received(received(2, &alice, "Meanwhile."));
@@ -346,7 +346,7 @@ fn a_message_arriving_while_the_reader_is_open_is_read_when_it_closes() {
 /// A body whole formatted and long as source -- reference definitions
 /// draw nothing formatted -- is cut only in source mode; its reader opens
 /// as source, and closed after a switch to formatted leaves the row in
-/// source mode with its Read the whole message (A1, A7).
+/// source mode with its Open the whole message (A1, A7).
 #[test]
 fn a_body_cut_only_as_source_opens_the_reader_as_source_and_closes_back_to_it() {
     let mut view = view();
@@ -361,10 +361,10 @@ fn a_body_cut_only_as_source_opens_the_reader_as_source_and_closes_back_to_it() 
     let row = rows(&view)[0].clone();
     assert_eq!(row.cut_line, "", "whole formatted");
     assert_ne!(row.source_cut_line, "", "cut as source");
-    assert!(labelled(&view, text(UiText::ReadWholeMessage)).is_empty());
+    assert!(labelled(&view, text(UiText::OpenWholeMessage)).is_empty());
 
     choose(&view, &row.label, text(UiText::ShowSource));
-    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_reader_as_source());
     assert!(
@@ -380,7 +380,7 @@ fn a_body_cut_only_as_source_opens_the_reader_as_source_and_closes_back_to_it() 
     let _ = intents(&mut view, &mut model);
     assert!(!view.window().get_reader_open());
     assert_eq!(
-        labelled(&view, text(UiText::ReadWholeMessage)).len(),
+        labelled(&view, text(UiText::OpenWholeMessage)).len(),
         1,
         "the row is in source mode still"
     );
@@ -503,7 +503,7 @@ fn the_reader_closes_when_its_row_leaves() {
     model.read(RowId::from_stored(1));
     let key = direct(&alice);
     open(&mut view, &mut model, &key);
-    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_reader_open(), "control: open");
 
@@ -660,7 +660,7 @@ fn no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent() {
         check(&view, "row");
         choose(&view, &row.label, text(UiText::ShowSource));
         check(&view, "source");
-        if let Some(read) = labelled(&view, text(UiText::ReadWholeMessage)).first() {
+        if let Some(read) = labelled(&view, text(UiText::OpenWholeMessage)).first() {
             read.invoke_accessible_default_action();
             let _ = intents(&mut view, &mut model);
             check(&view, "reader");

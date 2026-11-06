@@ -81,3 +81,10 @@ headings. A complete sentence ends with a period.
 | no central message store | No transport mailbox; messages arrive only while the app is reachable (human-client-android.md, "Process death and offline semantics"). | messages are never stored (the app stores unread and kept messages on the device) |
 | encrypted in transit | Transport connections are encrypted. The release page says only what the owner verifies against the code. | end-to-end encrypted, military-grade, unbreakable, private |
 | relay | A device that forwards a connection when a direct path is not possible (human-client-ui.md §7; human-client-android.md, "Android discovery/resource profile"). | server (as if central), cloud |
+
+## 6. Message view words (long messages)
+
+| Term (en) | Names | Stays out |
+|---|---|---|
+| source, message source | A text message's text as it was received, markdown included (design/2026-11-04-long-message.md section 5.3). Show source shows it in place of the formatted message, Show formatted goes back, and Copy message source copies all of it. | raw, code, original, plain text; markdown as the name of an action |
+| Open the whole message | Opens a cut message in the reader (design/2026-11-04-long-message.md section 4.3). | Read (a message-status word), expand, see more |
