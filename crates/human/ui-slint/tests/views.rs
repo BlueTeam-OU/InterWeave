@@ -507,6 +507,11 @@ fn a_phone_shows_the_session_notice_and_its_action_on_chats() {
     assert!(notice.size().width > 0.0, "the notice is laid out");
     let unlock = the(&view, text(UiText::Authenticate));
     assert!(unlock.size().width > 0.0, "and so is its action");
+    assert_eq!(
+        unlock.accessible_description().as_deref(),
+        Some(text(UiText::AuthenticationNeeded)),
+        "focus on the action reads why: the notice's text"
+    );
     unlock.invoke_accessible_default_action();
     assert_eq!(intents(&mut view, &mut model), vec![Intent::Authenticate]);
 
@@ -535,6 +540,131 @@ fn a_phone_shows_the_session_notice_and_its_action_on_chats() {
         .is_empty(),
         "the offline banner is a conversation's: Chats' subtitle says it"
     );
+}
+
+/// The locked notice takes focus when asked, on Chats and under a
+/// conversation's app bar, and gives it back when the lock clears: to
+/// Chats' heading, or to the conversation's composer (unlock note §11,
+/// F11, F12 and F14). On another page the ask moves nothing.
+#[test]
+fn the_locked_notice_takes_focus_when_asked_and_gives_it_back_at_the_unlock() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    model.authentication_needed(true);
+    view.render(&model);
+    settle();
+    assert_ne!(
+        view.window().get_focus_id(),
+        "notice",
+        "control: not unasked"
+    );
+    view.focus_locked_notice();
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "notice", "on Chats");
+    model.authentication_needed(false);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "the unlock: Chats' heading"
+    );
+
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    // The refusal shows the notice; the cancel that follows asks focus.
+    model.authentication_needed(true);
+    view.render(&model);
+    settle();
+    view.focus_locked_notice();
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "notice",
+        "under the conversation's app bar"
+    );
+    model.authentication_needed(false);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "composer",
+        "the unlock: the conversation's composer"
+    );
+}
+
+/// On another page the ask moves nothing and is spent: under the trust
+/// settings focus stays, the lock clearing leaves it there, and a return
+/// to Chats still locked gives focus back to what opened the page.
+#[test]
+fn the_locked_notice_takes_no_focus_from_another_page() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.render(&model);
+    open_trust(&view);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    let before = view.window().get_focus_id();
+    assert!(!before.contains("notice"), "control: {before}");
+    model.authentication_needed(true);
+    view.focus_locked_notice();
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), before, "focus stays");
+    model.authentication_needed(false);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        before,
+        "and stays at the unlock"
+    );
+
+    model.authentication_needed(true);
+    view.focus_locked_notice();
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        before,
+        "locked again, on Trust"
+    );
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "app-options",
+        "back on Chats, focus returns to what opened Trust"
+    );
+}
+
+/// Under an identity or store screen the ask waits: the render after the
+/// screen goes, which shows the card, takes it.
+#[test]
+fn the_locked_notice_takes_focus_once_a_screen_over_it_goes() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    model.authentication_needed(true);
+    view.render(&model);
+    settle();
+    view.show_identity(Some(interweave_human_ui_slint::IdentityPage::default()));
+    view.focus_locked_notice();
+    view.render(&model);
+    settle();
+    let under = view.window().get_focus_id();
+    assert_ne!(under, "notice", "control: nothing under the screen");
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "notice", "the screen gone");
 }
 
 /// §13, the accessibility tree: message and connectivity controls carry

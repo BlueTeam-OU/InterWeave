@@ -55,12 +55,6 @@ class MainActivity : NativeActivity() {
     // instance's to show: nothing binds or starts the service until they
     // are gone, a return from Home included (design section 7).
     @Volatile private var phraseShown = false
-    // The person declined the Unlock prompt in this Activity's life (or
-    // left while it showed): a return to it raises no prompt by itself;
-    // the locked notice and its Unlock wait (ux-designer-01, REPLY
-    // 01a155b3). Kept across a recreation in this process (onCreate); a
-    // cold launch, in a new process, prompts again.
-    private var unlockDeclined = false
     /** Scan a code's camera, opened for the viewfinder and closed with it (add-a-peer 5.5). */
     private var camera: CodeCamera? = null
     /**
@@ -81,12 +75,13 @@ class MainActivity : NativeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // A recreation the system made in this process (a language change,
         // a backgrounded instance rebuilt) is not a launch by the person:
-        // it keeps the decline (#313 review 3). A bundle from another
-        // process, restored after a process death, is a launch: it prompts
-        // (review 4), so the decline counts only with this process's token.
-        unlockDeclined = savedInstanceState?.let {
-            it.getBoolean(UNLOCK_DECLINED) && it.getString(UNLOCK_DECLINED_IN) == PROCESS_TOKEN
-        } ?: false
+        // a declined Unlock prompt still holds, and a return raises none
+        // (#313 review 3; unlock note section 11, L2). Anything else is a
+        // launch, which prompts whatever was declined before it (L3): a
+        // first creation, after Back finished the last instance or from a
+        // notification, and a bundle restored from another process after
+        // its death (review 4), told by this process's token.
+        if (savedInstanceState?.getString(CREATED_IN) != PROCESS_TOKEN) Native.launched()
         super.onCreate(savedInstanceState)
         // Scan a code is offered only on a phone with a camera; the app
         // installs without one (add-a-peer 5.5, the camera not required).
@@ -95,17 +90,22 @@ class MainActivity : NativeActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putBoolean(UNLOCK_DECLINED, unlockDeclined)
-        outState.putString(UNLOCK_DECLINED_IN, PROCESS_TOKEN)
+        outState.putString(CREATED_IN, PROCESS_TOKEN)
     }
 
     override fun onStart() {
         // Before super.onStart(), which waits for the window's thread to
         // take the Start; that thread waits for this answer before it
         // chooses between the identity screens and the chats (onboard.rs).
-        // After it, each would wait on the other (#309 review N1).
+        // After it, each would wait on the other (#309 review N1). Asked at
+        // every start, a return's and a launch's in a running process
+        // included: a start refused for the screen lock is answered as in
+        // a fresh process (unlock note section 11). Shown first, so the
+        // answer's prompt is this showing's. Not while Show my phrase holds
+        // the service offline: nothing starts until its words are gone.
+        Native.shown(true)
         val identity =
-            if (identityReady) Native.IDENTITY_READY else Native.identityState(applicationInfo.dataDir)
+            if (phraseShown) Native.IDENTITY_READY else Native.identityState(applicationInfo.dataDir, identityReady)
         if (identity != Native.IDENTITY_READY && identity != Native.IDENTITY_AUTHENTICATION_NEEDED) {
             // Before the window can draw a word: the flow's whole length,
             // cleared once a frame without it was drawn (#309 F3).
@@ -137,19 +137,22 @@ class MainActivity : NativeActivity() {
         // The identity screens' asks: a first run's or a recovery's before
         // the service, Show my phrase's from Settings after it.
         Thread({ relayIdentity() }, "interweave-identity").start()
-        // A key that needs the person: the prompt before anything binds;
-        // a grant binds (Ask.BIND), a cancel leaves the window offline
-        // with its Unlock (onboard.rs, the custody doc's failure list).
-        if (identity == Native.IDENTITY_AUTHENTICATION_NEEDED) {
-            if (!unlockDeclined) window.decorView.post { prompt(Text.UNLOCK_PROMPT_TITLE) }
-            return
-        }
+        // A key that needs the person: nothing binds; the native side
+        // asked the prompt, or after a decline focused the locked notice.
+        // A grant binds or restarts the service (Ask.BIND, Ask.RESTART), a
+        // cancel leaves the window offline with its Unlock (onboard.rs,
+        // the custody doc's failure list).
+        if (identity == Native.IDENTITY_AUTHENTICATION_NEEDED) return
         // The identity screens come before the service: a profile with no
         // identity, or one the phone lost, binds nothing until the screens
         // say the identity is ready (onboard.rs).
         if (identity != Native.IDENTITY_READY) return
         identityReady = true
-        if (!phraseShown) connect()
+        if (phraseShown) return
+        // A binding kept across a recreation, whose service's last start
+        // was refused for the lock, starts again now the key opens.
+        val service = local
+        if (service != null && service.locked()) service.restart() else connect()
     }
 
     /**
@@ -249,6 +252,7 @@ class MainActivity : NativeActivity() {
         // other relied on, and nothing bound again (2026-10-20, the Pixel:
         // Show recovery phrase refused as Busy).
         started -= 1
+        Native.shown(started > 0)
         if (bound && started == 0 && !isChangingConfigurations) {
             applicationContext.unbindService(connection)
             bound = false
@@ -385,8 +389,14 @@ class MainActivity : NativeActivity() {
         if (requestCode != NETWORK_REQUEST) return
         // Granted or not, the Service starts: in the posture when denied,
         // so the person's messages are never withheld for want of a
-        // network.
-        if (!bound) bind() else local?.recheck()
+        // network. A grant's start is the person's: a lock then prompts
+        // (unlock note section 11, L1); recheck says so when it restarts.
+        if (!bound) {
+            if (networkGranted()) Native.restartAsked()
+            bind()
+        } else {
+            local?.recheck()
+        }
         if (networkGranted()) askNotifications()
     }
 
@@ -672,14 +682,12 @@ class MainActivity : NativeActivity() {
                 mainExecutor,
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
-                        if (title == Text.UNLOCK_PROMPT_TITLE) unlockDeclined = false
-                        Native.prompted(true)
+                        Native.prompted(true, title == Text.UNLOCK_PROMPT_TITLE)
                     }
 
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
                         // A cancel, or Home while it showed: either way, declined.
-                        if (title == Text.UNLOCK_PROMPT_TITLE) unlockDeclined = true
-                        Native.prompted(false)
+                        Native.prompted(false, title == Text.UNLOCK_PROMPT_TITLE)
                     }
                 },
             )
@@ -788,8 +796,7 @@ class MainActivity : NativeActivity() {
         /** The last CAMERA answer was a refusal: the next refusal the system will not ask again is "for good". */
         private const val CAMERA_REFUSED = "camera-refused"
         private const val NOTIFICATIONS_REQUEST = 1
-        private const val UNLOCK_DECLINED = "unlock-declined"
-        private const val UNLOCK_DECLINED_IN = "unlock-declined-in"
+        private const val CREATED_IN = "created-in"
         /** This process's, minted once: tells a same-process recreation from a restore after a death. */
         private val PROCESS_TOKEN: String = java.util.UUID.randomUUID().toString()
         private const val ASK_WAIT_MS = 500L
@@ -810,7 +817,9 @@ class MainActivity : NativeActivity() {
         private var bound = false
 
         // The identity opened, or the identity screens finished: the
-        // service may be bound. The process's, as the binding is.
+        // service may be bound, and a later start of this process asks
+        // only whether the key now needs the person (identityState's
+        // ready). The process's, as the binding is.
         @Volatile private var identityReady = false
         @Volatile private var local: NetworkService.Local? = null
 
