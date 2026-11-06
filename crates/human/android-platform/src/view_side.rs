@@ -16,6 +16,9 @@
 //! conversation (unlock note §11), so the stopped model is set aside --
 //! stopped, which fails what it held in flight and drops its Ready
 //! session -- and shown again once the lock is said while nothing runs.
+//! A store answer other than the lock's drops it: the start it answers
+//! reached the store, so the set-aside rows are no longer the list as it
+//! was (a refused or discarded store's rows never come back).
 
 use interweave_human_app_core::{ModelSide, Opener, Surface};
 
@@ -115,7 +118,16 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             }
             ToView::Update(update) => self.side.apply(*update),
             ToView::ListingFailed => return Err(ListingFailed),
-            ToView::Store(answer, generation) => self.store = Some((answer, generation)),
+            ToView::Store(answer, generation) => {
+                // Any other answer is a start that reached the store: a
+                // refusal, a discard's restart or a run. Rows from before it
+                // are no longer the list as it was, and a later lock must
+                // not bring them back.
+                if answer != StoreAnswer::Locked {
+                    self.kept = None;
+                }
+                self.store = Some((answer, generation));
+            }
         }
         Ok(())
     }
@@ -267,6 +279,48 @@ mod tests {
             model(&side).session_notice(),
             Some(SessionNotice::NoDaemon),
             "and no Ready session once the lock is gone"
+        );
+    }
+
+    /// A start the store answered between the stop and the lock drops the
+    /// set-aside rows: after a refusal or a discard they are not the list
+    /// as it was. The lock's own answer keeps them.
+    #[test]
+    fn a_store_answer_between_the_stop_and_the_lock_drops_the_rows() {
+        let stopped_with_a_row = || {
+            let mut side = view_side();
+            side.apply(ToView::Running(true)).expect("applied");
+            side.apply(ToView::Update(Box::new(Update::Received(arrival()))))
+                .expect("applied");
+            side.apply(ToView::Running(false)).expect("applied");
+            side
+        };
+
+        let mut side = stopped_with_a_row();
+        side.apply(ToView::Store(
+            StoreAnswer::OtherRefusal,
+            StoreGeneration::default(),
+        ))
+        .expect("applied");
+        side.apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        assert!(
+            model(&side).conversations().is_empty(),
+            "no row after a refusal"
+        );
+
+        let mut side = stopped_with_a_row();
+        side.apply(ToView::Store(
+            StoreAnswer::Locked,
+            StoreGeneration::default(),
+        ))
+        .expect("applied");
+        side.apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        assert_eq!(
+            model(&side).conversations().len(),
+            1,
+            "control: the lock keeps it"
         );
     }
 
