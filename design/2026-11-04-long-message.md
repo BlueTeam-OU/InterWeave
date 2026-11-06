@@ -512,7 +512,7 @@ are that locale's holder's.
 | `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | Opening the whole message |
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
-| `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied, and the action that is left: copy again (a "could not" a person can act on ends with its action: architect-cto's vocabulary read of #565, REPLY 01a1aea5) | Could not copy the message. Try again. |
+| `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied, and the action that is left: copy again (a "could not" a person can act on ends with its action: architect-cto's vocabulary read of #565, REPLY 01a1aea5) | Could not copy the message source. Choose Copy message source to try again. |
 | `ReplacedCharacter` | never on screen: a screen reader's text in place of every U+FFFD, wherever the client sets the accessible text, and never in the composer's draft (§6) | that one character is there that is shown only as a replacement mark; a word or two, spoken in the middle of the text around it, with any pause the locale needs before and after it | character not shown |
 
 Show source and Show formatted reuse the row's existing labels.
