@@ -281,8 +281,9 @@ before Show source; a card has none. Feedback: on Android 13 and later
 the system shows its own clipboard confirmation and the app adds none
 (the platform's guidance); on Android 12 and earlier, and on the
 desktop, a snackbar `MessageCopied`. If the platform refuses the copy,
-a snackbar `MessageNotCopied` says so; nothing else changes. Copy is
-not undoable and needs no undo: it changes nothing in the app.
+a snackbar `MessageNotCopied` says so and that Copy can be pressed
+again; nothing else changes. Copy is not undoable and needs no undo:
+it changes nothing in the app.
 
 The conditions architect-cto's ruling carries (§11 Q1), each a check
 of A9: Copy acts on the person's press only, never on receipt, read or
@@ -511,7 +512,7 @@ are that locale's holder's.
 | `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | Opening the whole message |
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
-| `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied | Could not copy the message |
+| `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied, and the action that is left: copy again (a "could not" a person can act on ends with its action: architect-cto's vocabulary read of #565, REPLY 01a1aea5) | Could not copy the message. Try again. |
 | `ReplacedCharacter` | never on screen: a screen reader's text in place of every U+FFFD, wherever the client sets the accessible text, and never in the composer's draft (§6) | that one character is there that is shown only as a replacement mark; a word or two, spoken in the middle of the text around it, with any pause the locale needs before and after it | character not shown |
 
 Show source and Show formatted reuse the row's existing labels.
