@@ -297,7 +297,7 @@ ui_texts! {
     /// yet: the toolkit's copy reports no refusal (its
     /// `set_clipboard_text` returns nothing).
     // PLACEHOLDER (en)
-    MessageNotCopied => "Could not copy the message",
+    MessageNotCopied => "Could not copy the message. Try again.",
     /// The window's one announcement, read by a screen reader as it
     /// changes: a message arrived in the open conversation. `{author}`
     /// is the short `PeerId`; never the text, which is read by moving to
