@@ -305,9 +305,15 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     let started = match identity(env, app_data_dir) {
         Ok(started) => started,
         Err((code, learnt)) => {
+            let host = ServiceHost::global();
             match learnt {
-                Learnt::Status(unlock) => ServiceHost::global().refused_before_start_with(unlock),
-                Learnt::Nothing => ServiceHost::global().refused_before_start(),
+                // The store was not reached and Unlock's start may open
+                // it: a discard's notice waits for that start.
+                Learnt::Status(unlock) if code == refused::USER_NOT_AUTHENTICATED => {
+                    host.refused_locked(unlock);
+                }
+                Learnt::Status(unlock) => host.refused_before_start_with(unlock),
+                Learnt::Nothing => host.refused_before_start(),
             }
             return code;
         }
@@ -364,7 +370,17 @@ extern "system" fn Java_org_interweave_human_Native_start<'caller>(
 ) -> jint {
     env.with_env(|env| -> Result<jint, jni::errors::Error> {
         let app_data_dir = app_data_dir.try_to_string(env)?;
-        Ok(start(env, &app_data_dir))
+        let code = start(env, &app_data_dir);
+        // Answered in a running process as in a fresh one: the window's
+        // locked view and the prompt or notice for a refusal for the
+        // person, the locked state ended by any other answer (unlock
+        // note §11).
+        if code == refused::USER_NOT_AUTHENTICATED {
+            crate::onboard::refused_locked();
+        } else {
+            crate::onboard::start_answered(code >= 0);
+        }
+        Ok(code)
     })
     .resolve::<ThrowRuntimeExAndDefault>()
 }
@@ -729,8 +745,9 @@ extern "system" fn Java_org_interweave_human_Native_networkUnwatched<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
-/// `Native.identityState(appDataDir)`: whether the identity opens, or
-/// where the identity screens start (onboard.rs's `state`). The Keystore
+/// `Native.identityState(appDataDir, ready)`: whether the identity opens,
+/// or where the identity screens start (onboard.rs's `state`); `ready`
+/// once this process found it ready, when only a lock is asked. The Keystore
 /// cipher is made here, on a thread the JVM called from, and kept for the
 /// window's flow.
 #[allow(
@@ -742,6 +759,7 @@ extern "system" fn Java_org_interweave_human_Native_identityState<'caller>(
     mut env: EnvUnowned<'caller>,
     _class: JClass<'caller>,
     app_data_dir: JString<'caller>,
+    ready: jboolean,
 ) -> jint {
     let state = env
         .with_env(|env| -> Result<jint, jni::errors::Error> {
@@ -761,6 +779,7 @@ extern "system" fn Java_org_interweave_human_Native_identityState<'caller>(
             Ok(crate::onboard::identity_state(
                 std::path::PathBuf::from(app_data_dir),
                 cipher,
+                ready,
             ))
         })
         .resolve::<ThrowRuntimeExAndDefault>();
@@ -801,9 +820,63 @@ extern "system" fn Java_org_interweave_human_Native_prompted<'caller>(
     mut env: EnvUnowned<'caller>,
     _class: JClass<'caller>,
     granted: jboolean,
+    unlock: jboolean,
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
-        crate::onboard::prompted(granted);
+        crate::onboard::prompted(granted, unlock);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.shown(shown)`: an Activity's window started or stopped showing.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_shown<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    shown: jboolean,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::window_shown(shown);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.launched()`: the Activity was created anew, not recreated.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_launched<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::launched();
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.restartAsked()`: the person's action restarts the service --
+/// a network grant (unlock note §11, L1).
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_restartAsked<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::person_asked();
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();

@@ -254,6 +254,34 @@ pub(crate) fn camera_closed() {
     with_view(|view| view.camera_closed());
 }
 
+/// The locked notice is to take focus once it shows on Chats or a
+/// conversation (unlock note §11, F11 and F12): asked of the window that
+/// shows, or, with none yet -- a recreation's starts before its window --
+/// of the next one made.
+pub(crate) fn focus_locked_notice() {
+    NOTICE_FOCUS.store(true, Ordering::SeqCst);
+    invoke_on_window(apply_notice_focus);
+}
+
+static NOTICE_FOCUS: AtomicBool = AtomicBool::new(false);
+
+fn apply_notice_focus() {
+    let applied = VIEW.with(|view| {
+        view.borrow().as_ref().map(|view| {
+            view.try_borrow().map(|view| {
+                if NOTICE_FOCUS.swap(false, Ordering::SeqCst) {
+                    view.focus_locked_notice();
+                }
+            })
+        })
+    });
+    match applied {
+        Some(Ok(())) => defer(turn),
+        Some(Err(_)) => defer(apply_notice_focus),
+        None => {}
+    }
+}
+
 /// `Native.settingsReturned`: back from the app's system settings.
 pub(crate) fn settings_returned() {
     with_view(|view| view.settings_returned());
@@ -621,6 +649,7 @@ fn android_main(app: AndroidApp) {
     }
     // Values the Activity read before this window existed.
     defer(apply_touch);
+    defer(apply_notice_focus);
     defer(turn);
     if let Err(e) = handle.run() {
         log(&format!("the event loop ended: {e}"));

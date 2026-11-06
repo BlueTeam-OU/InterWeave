@@ -34,6 +34,7 @@ use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustB
 
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
+use crate::unlock_route::{Route, UnlockRoute};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, prompt_line};
 
@@ -135,6 +136,16 @@ impl Asks {
         self.changed.notify_all();
     }
 
+    /// Drop every waiting `ask`: an Unlock prompt asked while a window
+    /// showed is not raised over the next one (unlock note §11: leaving
+    /// while the prompt shows counts as a cancel).
+    fn drop_all(&self, ask: jni::sys::jint) {
+        self.queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|&(waiting, _)| waiting != ask);
+    }
+
     /// Drop what waits: asks an earlier Activity instance left unread
     /// belong to its window, and a late `SECURE_OFF` would clear the new
     /// window's flag while its flow runs (#309 review, risk).
@@ -191,8 +202,17 @@ const PLATFORM_WAIT: Duration = Duration::from_secs(10);
 /// `Native.identityState`: whether the identity opens and its start can
 /// run without the person, and if not, the prompt or where the flow
 /// starts. Any other refusal is the service's to report, as it does
-/// today, so it reads as ready.
-pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> jni::sys::jint {
+/// today, so it reads as ready. `ready`: this process found the identity
+/// ready before, so only whether a start now needs the person is asked
+/// ([`ready_state`]).
+pub(crate) fn identity_state(
+    app_data_dir: PathBuf,
+    cipher: KeystoreCipher,
+    ready: bool,
+) -> jni::sys::jint {
+    if ready {
+        return ready_state(&app_data_dir, &cipher);
+    }
     // Called by onStart before its relay thread starts: whatever an
     // earlier instance left in the queue is no longer anyone's.
     ASKS.clear();
@@ -210,6 +230,8 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         Ok(_) if reseal_needs_presence(&app_data_dir, PROFILE) => {
             locked_before_start(&app_data_dir);
             await_authentication(ask::BIND);
+            let decided = route_state().checked();
+            route(decided);
             return_code = state::AUTHENTICATION_NEEDED;
             None
         }
@@ -249,6 +271,8 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
             // says so, offline, and the grant binds the service.
             locked_before_start(&app_data_dir);
             await_authentication(ask::BIND);
+            let decided = route_state().checked();
+            route(decided);
             return_code = state::AUTHENTICATION_NEEDED;
             None
         }
@@ -279,6 +303,107 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         user_presence,
     });
     code
+}
+
+/// [`identity_state`] once this process found the identity ready: a
+/// start the Activity is about to make or retry -- a launch or a return
+/// -- needs the person when the record does not open without them or its
+/// reseal will need them, and is then answered as at a cold launch (unlock
+/// note §11, L2 and L3): the locked view, the prompt or the focused
+/// notice, and a grant that starts the service again. A client already
+/// running holds its identity and is asked nothing. Any other answer of
+/// the record is the service's to report, so it reads as ready.
+fn ready_state(app_data_dir: &Path, cipher: &KeystoreCipher) -> jni::sys::jint {
+    if interweave_human_android_platform::ServiceHost::global().is_running() {
+        return state::READY;
+    }
+    let locked = match interweave_human_android_platform::start_identity(
+        app_data_dir,
+        PROFILE,
+        cipher,
+        interweave_human_android_platform::FirstRun::Refuse,
+    ) {
+        Ok(_) => reseal_needs_presence(app_data_dir, PROFILE),
+        Err(why) => why == IdentityRefused::UserNotAuthenticated,
+    };
+    if !locked {
+        return state::READY;
+    }
+    locked_before_start(app_data_dir);
+    // Bound or not, the service is started again: a recreation keeps a
+    // binding whose service runs nothing.
+    await_authentication(ask::RESTART);
+    let decided = route_state().checked();
+    route(decided);
+    state::AUTHENTICATION_NEEDED
+}
+
+/// The process's routing of a locked start ([`UnlockRoute`]).
+static ROUTE: Mutex<UnlockRoute> = Mutex::new(UnlockRoute::new());
+
+fn route_state() -> std::sync::MutexGuard<'static, UnlockRoute> {
+    ROUTE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Carry out `route`: the Unlock prompt asked of the Activity, or the
+/// locked notice focused.
+fn route(route: Route) {
+    match route {
+        Route::Prompt => ask_unlock(),
+        Route::Notice => crate::activity::focus_locked_notice(),
+        Route::Nothing => {}
+    }
+}
+
+/// The Unlock prompt, asked of the Activity, said in the trace whoever
+/// asks it -- the person's Unlock, the presence gate, a locked start --
+/// so a test reading the trace sees every prompt raised.
+fn ask_unlock() {
+    #[cfg(feature = "ui-trace")]
+    log(&prompt_line(TracedPrompt::Unlock));
+    ASKS.push(ask::UNLOCK);
+}
+
+/// `Native.shown`: an Activity's window started (true) or stopped
+/// (false) showing. An Unlock prompt asked for an earlier showing is not
+/// raised over this one.
+pub(crate) fn window_shown(shown: bool) {
+    if shown {
+        ASKS.drop_all(ask::UNLOCK);
+    }
+    route_state().shown(shown);
+}
+
+/// `Native.launched`: the Activity was created anew, not recreated in
+/// this process -- a launch, which prompts as a cold launch does.
+pub(crate) fn launched() {
+    route_state().launched();
+}
+
+/// The person's action asks for the next start: a store screen's Try
+/// again or discard, an identity screen's continue, a network grant. A
+/// refusal for the person then prompts (L1).
+pub(crate) fn person_asked() {
+    route_state().person_asked();
+}
+
+/// A start the Service made was refused until the person authenticates
+/// (unlock note §11): the locked view with its Unlock, whose grant starts
+/// the service again, and the prompt, the focused notice or nothing as
+/// [`UnlockRoute::refused`] says. The Service never prompts: the Activity
+/// raises it, and only while its window shows.
+pub(crate) fn refused_locked() {
+    await_authentication(ask::RESTART);
+    let decided = route_state().refused();
+    route(decided);
+}
+
+/// A start the Service made answered anything but a refusal for the
+/// person, `ran` when it runs: the locked state ends, as at the
+/// Activity's check (#313 review 1).
+pub(crate) fn start_answered(ran: bool) {
+    route_state().answered(ran);
+    clear_authentication();
 }
 
 /// The app's data directory and the Keystore bridge `Native.identityState`
@@ -514,9 +639,7 @@ pub(crate) fn authenticate() {
         .unwrap_or_else(PoisonError::into_inner)
         .is_some()
     {
-        #[cfg(feature = "ui-trace")]
-        log(&prompt_line(TracedPrompt::Unlock));
-        ASKS.push(ask::UNLOCK);
+        ask_unlock();
     }
 }
 
@@ -525,6 +648,15 @@ pub(crate) fn authenticate() {
 /// the notice and its Unlock.
 fn authenticated(granted: bool) {
     if !granted {
+        // Offline and locked: on Chats or a conversation the notice takes
+        // focus (F11, F12); a store screen or Settings keeps its own.
+        if AFTER_PROMPT
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
+        {
+            crate::activity::focus_locked_notice();
+        }
         return;
     }
     let held = AFTER_PROMPT
@@ -533,12 +665,18 @@ fn authenticated(granted: bool) {
         .take();
     if let Some(start) = held {
         clear_authentication();
+        // The grant runs the refused start again, once, as the person's.
+        person_asked();
         ASKS.push(start);
     }
 }
 
-/// `Native.prompted`: the credential prompt's answer.
-pub(crate) fn prompted(granted: bool) {
+/// `Native.prompted`: the credential prompt's answer; `unlock` when it
+/// was the Unlock prompt, whose cancel is a decline (L2).
+pub(crate) fn prompted(granted: bool, unlock: bool) {
+    if unlock {
+        route_state().prompted(granted);
+    }
     #[cfg(feature = "ui-trace")]
     log(&prompt_line(if granted {
         TracedPrompt::Granted
@@ -573,6 +711,10 @@ pub(crate) fn prompted(granted: bool) {
                         } else {
                             ask::BIND
                         });
+                        // C4's or R4's continue ends on Chats with the
+                        // notice focused; S2's Done on Settings, which
+                        // keeps its own (identity note §10 item 10).
+                        crate::activity::focus_locked_notice();
                         Vec::new()
                     }
                     // A cancelled seal leaves C4 as it was.
@@ -657,9 +799,7 @@ fn one(effect: Effect) -> Vec<Effect> {
         let effect = match o.gate.admit(effect, now_ms()) {
             Admit::Run(effect) => effect,
             Admit::Prompt => {
-                #[cfg(feature = "ui-trace")]
-                log(&prompt_line(TracedPrompt::Unlock));
-                ASKS.push(ask::UNLOCK);
+                ask_unlock();
                 return Vec::new();
             }
         };
@@ -835,6 +975,7 @@ fn ask_service(o: &mut Onboarding) {
     o.lock = None;
     o.service_asked = true;
     clear_authentication();
+    person_asked();
     ASKS.push(if o.from_settings {
         ask::ONLINE
     } else {
