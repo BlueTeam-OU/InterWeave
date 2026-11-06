@@ -343,6 +343,60 @@ fn a_message_arriving_while_the_reader_is_open_is_read_when_it_closes() {
     );
 }
 
+/// The reader is a screen over the conversation: the locked notice's
+/// focus ask (unlock note §11, F11) waits under it, and Back lands on
+/// the notice's Unlock rather than the row's Read the whole message --
+/// in a narrow window and a wide one.
+#[test]
+fn the_locked_notice_takes_focus_once_the_reader_over_it_closes_narrow() {
+    locked_notice_after_the_reader(390.0);
+}
+
+/// [`the_locked_notice_takes_focus_once_the_reader_over_it_closes_narrow`]
+/// in a wide window, the list beside the reader.
+#[test]
+fn the_locked_notice_takes_focus_once_the_reader_over_it_closes_wide() {
+    locked_notice_after_the_reader(1000.0);
+}
+
+/// One view per test: the testing platform is set once per thread.
+fn locked_notice_after_the_reader(width: f32) {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(width, 4000.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &paragraphs(60)));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_open(), "control: open at {width}");
+
+    model.authentication_needed(true);
+    view.focus_locked_notice();
+    for _ in 0..3 {
+        let _ = intents(&mut view, &mut model);
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+    }
+    assert_ne!(
+        view.window().get_focus_id(),
+        "notice",
+        "nothing under the reader at {width}"
+    );
+    key(&view, Key::Escape);
+    for _ in 0..3 {
+        let _ = intents(&mut view, &mut model);
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+    }
+    assert!(!view.window().get_reader_open());
+    assert_eq!(
+        view.window().get_focus_id(),
+        "notice",
+        "the reader gone at {width}"
+    );
+}
+
 /// A body whole formatted and long as source -- reference definitions
 /// draw nothing formatted -- is cut only in source mode; its reader opens
 /// as source, and closed after a switch to formatted leaves the row in

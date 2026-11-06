@@ -909,8 +909,8 @@ pub struct View {
     focus_wanted: Rc<RefCell<Option<String>>>,
     /// [`Self::focus_locked_notice`] asked, and the locked notice has not
     /// shown since: the next locked render on Chats or a conversation with
-    /// no identity or store screen up takes focus there; one on another
-    /// page spends it.
+    /// no identity or store screen and no reader up takes focus there; one
+    /// on another page spends it.
     locked_focus_wanted: std::cell::Cell<bool>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
@@ -1476,10 +1476,10 @@ impl View {
     }
 
     /// Focus the locked notice's Unlock once it shows on Chats or in a
-    /// conversation, at this render or once an identity or store screen
-    /// over it goes: after a cancelled Unlock prompt, and at a return that
-    /// raises none (unlock note §11, F11 and F12). On any other page focus
-    /// stays where it is, and the ask is spent.
+    /// conversation, at this render or once an identity or store screen,
+    /// or the reader, over it goes: after a cancelled Unlock prompt, and at
+    /// a return that raises none (unlock note §11, F11 and F12). On any
+    /// other page focus stays where it is, and the ask is spent.
     pub fn focus_locked_notice(&self) {
         self.locked_focus_wanted.set(true);
     }
@@ -2085,7 +2085,9 @@ impl View {
                 if let Some(open) = self.close_reader() {
                     // Back on the row's Read the whole message, the
                     // conversation shown again: what arrived meanwhile is
-                    // read now (section 7).
+                    // read now (section 7). A locked notice's focus ask
+                    // held under the reader replaces this at the render
+                    // that shows the card again.
                     self.focus_key(format!("read:{}", open.handle));
                     self.shared.borrow_mut().viewed = true;
                 }
@@ -3312,9 +3314,13 @@ impl View {
                 // Another page keeps focus, and leaving it hands focus back
                 // to what opened it: the ask is spent there.
                 self.locked_focus_wanted.set(false);
-            } else if !self.window.get_identity_active() && self.locked_focus_wanted.take() {
-                // An identity or store screen still up keeps the ask for
-                // the render after it goes, which shows the card.
+            } else if !self.window.get_identity_active()
+                && self.reader.is_none()
+                && self.locked_focus_wanted.take()
+            {
+                // An identity or store screen, or the reader, still up
+                // keeps the ask for the render after it goes, which shows
+                // the card.
                 // Asked of the card shown: both report focus as "notice".
                 // The card the render that shows it may make.
                 self.focus_key_after_draw(
