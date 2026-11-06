@@ -4336,10 +4336,13 @@ export component AppWindow inherits Window {
         root.row-menu = handle;
     }
     // The message's whole source to the clipboard, through the same field
-    // Peers' Copy uses: one write per press, the source and nothing else
-    // (section 5.3, A9).
+    // Peers' Copy uses (section 5.3, A9; tests/long_message.rs
+    // copy_gives_the_source_as_received_and_a_snackbar_confirms_it). A row
+    // gone since its menu opened has no source: nothing is copied, and
+    // nothing says it was (copy_of_a_row_gone_confirms_nothing).
     function copy-message(handle: int) {
         root.copy-text = root.message-source(handle);
+        if (root.copy-text == "") { return; }
         peers-copy.select-all();
         peers-copy.copy();
         peers-copy.clear-selection();
@@ -4915,7 +4918,12 @@ export component AppWindow inherits Window {
         focus-on-click: false;
 
         // What Peers' Copy copies, through the platform's clipboard as a
-        // field's copy would. Never shown.
+        // field's copy would. Never shown. Its zero size is also what keeps
+        // a message's source, a cluster past HUMAN-CHAT.md's bound
+        // included, from the shaper: the toolkit answers a zero-size
+        // field's cursor before laying its text out (i-slint-core 1.18.1,
+        // sharedparley text_input_cursor_rect_for_byte_offset), and Copy
+        // gives the bytes as received, so they cannot be made drawable.
         peers-copy := TextInput {
             x: 0;
             y: 0;

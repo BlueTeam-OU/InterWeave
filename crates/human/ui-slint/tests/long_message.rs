@@ -439,6 +439,40 @@ fn copy_says_nothing_where_the_platform_confirms_it() {
     );
 }
 
+/// A row gone between its menu opening and the press has no source:
+/// Copy writes nothing and nothing says it copied (section 5.3).
+#[test]
+fn copy_of_a_row_gone_confirms_nothing() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "Gone soon."));
+    model.read(RowId::from_stored(1));
+    let key = direct(&alice);
+    open(&mut view, &mut model, &key);
+    let row = rows(&view)[0].clone();
+    let _ = menu(&view, &row.label);
+    let entry = ElementQuery::from_root(view.window())
+        .find_all()
+        .into_iter()
+        .find(|e| {
+            e.accessible_label().as_deref() == Some(text(UiText::CopyMessage))
+                && e.accessible_description().as_deref() == Some(row.label.as_str())
+        })
+        .expect("the menu's entry");
+    model.hide_conversation(&key);
+    view.render(&model);
+    assert_eq!(view.window().invoke_message_source(row.handle), "");
+    entry.invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+    assert!(
+        !view
+            .take_events(&model)
+            .iter()
+            .any(|e| matches!(e, ViewEvent::MessageCopied(_)))
+    );
+}
+
 /// The reader closes, with nothing said, when its row leaves the
 /// conversation: the conversation hidden from the list beside it
 /// (section 5.4, A7).

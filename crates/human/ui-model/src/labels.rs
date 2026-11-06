@@ -280,7 +280,9 @@ ui_texts! {
     /// the time as the row shows it (section 5.1, 8).
     // PLACEHOLDER (en)
     ReaderSent => "{day}, {time}",
-    /// The reader's progress bar while its first screen is drawn.
+    /// The reader's progress bar while its first screen is drawn, after
+    /// 0.5 s (section 3). Not shown: the reader opens synchronously, and
+    /// A5 measures whether an open ever takes that long.
     // PLACEHOLDER (en)
     ReaderOpening => "Opening the whole message",
     /// The reader's action and every text message's menu item: the whole
@@ -291,7 +293,9 @@ ui_texts! {
     /// confirms nothing itself (below Android 13, and the desktop).
     // PLACEHOLDER (en)
     MessageCopied => "Message source copied",
-    /// The snackbar when the platform refused the copy.
+    /// The snackbar when the platform refused the copy. No path shows it
+    /// yet: the toolkit's copy reports no refusal (its
+    /// `set_clipboard_text` returns nothing).
     // PLACEHOLDER (en)
     MessageNotCopied => "Could not copy the message",
     /// The window's one announcement, read by a screen reader as it
