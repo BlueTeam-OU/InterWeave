@@ -17,6 +17,7 @@
 pub mod body;
 pub mod cluster;
 mod connect;
+pub mod cut;
 mod identity_flow;
 mod labels;
 mod look;

@@ -687,6 +687,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                         unrendered = true;
                         self.model.identifier_copied(key);
                     }
+                    ViewEvent::MessageCopied(key) => {
+                        unrendered = true;
+                        self.model.message_copied(key);
+                    }
                 }
             }
         }

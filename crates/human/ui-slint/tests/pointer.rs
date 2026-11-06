@@ -95,6 +95,7 @@ fn turn(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
                 ViewEvent::Undo(id) => out.extend(model.undo(id)),
                 ViewEvent::SnackbarClosed(id) => model.snackbar_closed(id),
                 ViewEvent::IdentifierCopied(key) => model.identifier_copied(key),
+                ViewEvent::MessageCopied(key) => model.message_copied(key),
                 ViewEvent::DraftChanged { key, draft } => model.draft_changed(key, draft),
                 ViewEvent::Trust(_) | ViewEvent::Peers(_) | ViewEvent::Connect(_) => {}
             }

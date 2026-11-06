@@ -165,20 +165,52 @@ const CELL_SEPARATOR: &str = " | ";
 /// `rendered`, flattened. `image` names an image placeholder from its alt
 /// text, in the view's words.
 pub fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Body {
-    let mut body = Body::default();
+    pieced(whole(rendered, image))
+}
+
+/// `whole`'s lines in pieces within the bounds, its links as they are.
+pub(crate) fn pieced(whole: Whole) -> Body {
+    Body {
+        lines: whole
+            .lines
+            .into_iter()
+            .flat_map(Line::into_pieces)
+            .collect(),
+        links: whole.links.into_iter().map(|(_, link)| link).collect(),
+    }
+}
+
+/// A body before its lines are cut into pieces: each line whole, each
+/// character past the cluster bound already one replacement, and each
+/// link with the index of the line its text is in.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Whole {
+    pub(crate) lines: Vec<Line>,
+    pub(crate) links: Vec<(usize, String)>,
+    /// The plain-text fallback: one line of the source, whose line breaks
+    /// are its lines.
+    pub(crate) plain: bool,
+}
+
+/// `rendered`'s lines, whole.
+pub(crate) fn whole(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Whole {
+    let mut whole = Whole::default();
     match rendered {
         // Past a bound: the source as received, one block of plain text.
-        Rendered::PlainText { source, .. } => body.lines.push(Line {
-            kind: Kind::Text,
-            depth: 0,
-            quoted: false,
-            marker: String::new(),
-            text: source.clone(),
-            join: Join::Starts,
-        }),
+        Rendered::PlainText { source, .. } => {
+            whole.plain = true;
+            whole.lines.push(Line {
+                kind: Kind::Text,
+                depth: 0,
+                quoted: false,
+                marker: String::new(),
+                text: source.clone(),
+                join: Join::Starts,
+            });
+        }
         Rendered::Markdown(blocks) => {
             let mut walk = Walk {
-                body: &mut body,
+                body: &mut whole,
                 image,
                 soft_break: ' ',
             };
@@ -187,13 +219,8 @@ pub fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Body {
             }
         }
     }
-    body.lines = body
-        .lines
-        .into_iter()
-        .map(Line::drawable)
-        .flat_map(Line::into_pieces)
-        .collect();
-    body
+    whole.lines = whole.lines.into_iter().map(Line::drawable).collect();
+    whole
 }
 
 impl Line {
@@ -295,7 +322,7 @@ fn word_cut(head: &str, cap: usize) -> Option<usize> {
 /// ending a line as it did in the source (design/2026-10-16-android-look.md
 /// section 5.2: markup gone, a link's text kept). Empty when nothing is.
 pub fn first_line(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> String {
-    let mut body = Body::default();
+    let mut body = Whole::default();
     match rendered {
         Rendered::PlainText { source, .. } => {
             return source
@@ -326,7 +353,7 @@ pub fn first_line(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> String
 }
 
 struct Walk<'a> {
-    body: &'a mut Body,
+    body: &'a mut Whole,
     image: &'a dyn Fn(&str) -> String,
     /// What a soft line break becomes: a space where the body is drawn,
     /// and the line's end for a preview, which shows only the first.
@@ -420,7 +447,9 @@ impl Walk<'_> {
                 } => {
                     self.push_inlines(content, out);
                     if has_control(destination) {
-                        self.body.links.push(destination.clone());
+                        // The line being built is pushed next, at this index.
+                        let line = self.body.lines.len();
+                        self.body.links.push((line, destination.clone()));
                     }
                 }
                 Inline::Image { alt, .. } => {

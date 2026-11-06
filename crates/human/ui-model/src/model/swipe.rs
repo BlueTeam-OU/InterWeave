@@ -70,6 +70,9 @@ pub enum Confirmation {
         /// A channel's id rather than a `PeerId`.
         channel: bool,
     },
+    /// Copy message source put a message's whole source on the clipboard
+    /// (design/2026-11-04-long-message.md section 5.3).
+    MessageCopied,
     /// A card's Accept created a contact (contact-cards design 5.4.2,
     /// cases N, D and P).
     ContactSaved,
@@ -900,6 +903,20 @@ impl UiModel {
         let channel = matches!(conversation, ConversationKey::Channel(_));
         self.open(
             Confirmation::IdentifierCopied { channel },
+            Some(conversation),
+            Undo::None,
+            None,
+            None,
+        );
+    }
+
+    /// Copy message source put a message of `conversation` on the
+    /// clipboard, on a platform that confirms nothing itself: the one
+    /// snackbar says so, with no Undo -- a copy changes nothing to undo
+    /// (design/2026-11-04-long-message.md section 5.3).
+    pub fn message_copied(&mut self, conversation: ConversationKey) {
+        self.open(
+            Confirmation::MessageCopied,
             Some(conversation),
             Undo::None,
             None,
