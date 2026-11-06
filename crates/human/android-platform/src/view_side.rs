@@ -17,8 +17,9 @@
 //! stopped, which fails what it held in flight and drops its Ready
 //! session -- and shown again once the lock is said while nothing runs.
 //! A store answer other than the lock's drops it: the start it answers
-//! reached the store, so the set-aside rows are no longer the list as it
-//! was (a refused or discarded store's rows never come back).
+//! ran or was refused for another reason, and what it showed replaced the
+//! stopped model, so the set-aside rows are no longer the list as it was
+//! (a refused or discarded store's rows never come back).
 
 use interweave_human_app_core::{ModelSide, Opener, Surface};
 
@@ -119,10 +120,10 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             ToView::Update(update) => self.side.apply(*update),
             ToView::ListingFailed => return Err(ListingFailed),
             ToView::Store(answer, generation) => {
-                // Any other answer is a start that reached the store: a
-                // refusal, a discard's restart or a run. Rows from before it
-                // are no longer the list as it was, and a later lock must
-                // not bring them back.
+                // Any other answer is a start that ran or was refused for
+                // a reason other than the lock: what it showed replaced the
+                // stopped model, so a later lock must not bring the stopped
+                // rows back (a refused or discarded store's among them).
                 if answer != StoreAnswer::Locked {
                     self.kept = None;
                 }
@@ -296,18 +297,20 @@ mod tests {
             side
         };
 
-        let mut side = stopped_with_a_row();
-        side.apply(ToView::Store(
+        for answer in [
+            StoreAnswer::Refused(crate::hub::StoreRefusal::Recovery),
             StoreAnswer::OtherRefusal,
-            StoreGeneration::default(),
-        ))
-        .expect("applied");
-        side.apply(ToView::AuthenticationNeeded(true))
-            .expect("applied");
-        assert!(
-            model(&side).conversations().is_empty(),
-            "no row after a refusal"
-        );
+        ] {
+            let mut side = stopped_with_a_row();
+            side.apply(ToView::Store(answer, StoreGeneration::default()))
+                .expect("applied");
+            side.apply(ToView::AuthenticationNeeded(true))
+                .expect("applied");
+            assert!(
+                model(&side).conversations().is_empty(),
+                "no row after {answer:?}"
+            );
+        }
 
         let mut side = stopped_with_a_row();
         side.apply(ToView::Store(
