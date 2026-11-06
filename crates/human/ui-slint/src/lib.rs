@@ -860,7 +860,9 @@ pub struct View {
     /// zero-delay timers of one turn fire in no promised order.
     focus_wanted: Rc<RefCell<Option<String>>>,
     /// [`Self::focus_locked_notice`] asked, and the locked notice has not
-    /// shown since: the next render that shows it takes focus there.
+    /// shown since: the next locked render on Chats or a conversation with
+    /// no identity or store screen up takes focus there; one on another
+    /// page spends it.
     locked_focus_wanted: std::cell::Cell<bool>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
@@ -1447,10 +1449,10 @@ impl View {
     }
 
     /// Focus the locked notice's Unlock once it shows on Chats or in a
-    /// conversation, at this render or a later one: after a cancelled
-    /// Unlock prompt, and at a return that raises none (unlock note §11,
-    /// F11 and F12). On any other page, or under an identity or store
-    /// screen, focus stays where it is.
+    /// conversation, at this render or once an identity or store screen
+    /// over it goes: after a cancelled Unlock prompt, and at a return that
+    /// raises none (unlock note §11, F11 and F12). On any other page focus
+    /// stays where it is, and the ask is spent.
     pub fn focus_locked_notice(&self) {
         self.locked_focus_wanted.set(true);
     }
@@ -3189,10 +3191,13 @@ impl View {
         const LOCKED: Option<SessionNotice> = Some(SessionNotice::AuthenticationNeeded);
         let on_chats = self.window.get_narrow() && self.window.get_list_shown();
         if now == LOCKED {
-            if self.locked_focus_wanted.take()
-                && self.page == Page::Conversation
-                && !self.window.get_identity_active()
-            {
+            if self.page != Page::Conversation {
+                // Another page keeps focus, and leaving it hands focus back
+                // to what opened it: the ask is spent there.
+                self.locked_focus_wanted.set(false);
+            } else if !self.window.get_identity_active() && self.locked_focus_wanted.take() {
+                // An identity or store screen still up keeps the ask for
+                // the render after it goes, which shows the card.
                 // Asked of the card shown: both report focus as "notice".
                 // The card the render that shows it may make.
                 self.focus_key_after_draw(
