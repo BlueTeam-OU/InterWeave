@@ -594,9 +594,11 @@ fn input_later(input: IdentityInput) {
 }
 
 /// What a granted prompt starts once no flow is on screen: the service a
-/// launch outside the presence window held back (BIND), or the one a
-/// cancelled restart after Show my phrase left stopped (ONLINE). `None`
-/// when nothing waits for the person.
+/// launch outside the presence window held back (BIND), the one a
+/// cancelled restart after Show my phrase left stopped (ONLINE), or a
+/// start refused for the screen lock, or found locked at the Activity's
+/// check in a running process (RESTART), which the grant runs again
+/// once. `None` when nothing waits for the person.
 static AFTER_PROMPT: Mutex<Option<jni::sys::jint>> = Mutex::new(None);
 
 /// The unlock status of a locked check, for the locked view: the record
