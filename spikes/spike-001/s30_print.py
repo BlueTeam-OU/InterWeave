@@ -276,7 +276,9 @@ def main() -> int:
                 attempts.append({"at_s": at, "chars": len(text), "answer": answer[:120], "error": error})
                 if not error or time.time() > deadline:
                     return not error
-                time.sleep(1)
+                # The retry's wait reads the peer too, so an ack arriving in it
+                # is stamped when it arrives, not at the next send (#580 F1).
+                peer.drain(1)
 
         def results_since(index):
             return [(i, at, v) for i, (at, v) in enumerate(session.lines[index:], index)
