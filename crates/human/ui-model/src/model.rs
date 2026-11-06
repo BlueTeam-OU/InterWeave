@@ -1497,6 +1497,18 @@ impl UiModel {
         self.composers.get(key).cloned().unwrap_or_default()
     }
 
+    /// Every conversation's draft that holds text: what a model made for
+    /// a new runtime carries over from the last one, so what is written
+    /// waits across a restart (unlock note §11; android-look §6).
+    #[must_use]
+    pub fn drafts(&self) -> Vec<(ConversationKey, String)> {
+        self.composers
+            .iter()
+            .filter(|(_, composer)| !composer.draft.is_empty())
+            .map(|(key, composer)| (key.clone(), composer.draft.clone()))
+            .collect()
+    }
+
     /// The send intent for a conversation's draft, if there is one.
     #[must_use]
     pub fn send_draft(&self, key: &ConversationKey) -> Option<Intent> {

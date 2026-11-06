@@ -25,7 +25,7 @@ use interweave_human_ui_slint::{
 use crate::jni::{PROFILE, log};
 use crate::keystore::StoreKeystore;
 use crate::onboard::{ask, ask_activity, platform};
-use crate::store_follow::{Answer, Follow, ShownState, follow as decide};
+use crate::store_follow::{Answer, Follow, Release, ShownState, follow as decide, release};
 
 /// The flow while a store screen shows, and the plan it confirmed.
 struct Shown {
@@ -40,6 +40,11 @@ struct Shown {
 thread_local! {
     // On the window's thread only.
     static SHOWN: RefCell<Option<Shown>> = const { RefCell::new(None) };
+    // A discard's notice held while the restart is refused for the
+    // person, with the hub's count of the answer that held it
+    // ([`Follow::HideHolding`]).
+    static HELD: RefCell<Option<(interweave_human_ui_model::UiText, u64)>> =
+        const { RefCell::new(None) };
 }
 
 const fn screen(refused: StoreRefusal) -> StoreScreen {
@@ -54,6 +59,7 @@ const fn answer(said: StoreAnswer) -> Answer {
         StoreAnswer::Opened => Answer::Opened,
         StoreAnswer::Refused(refused) => Answer::Refused(screen(refused)),
         StoreAnswer::OtherRefusal => Answer::OtherRefusal,
+        StoreAnswer::Locked => Answer::Locked,
     }
 }
 
@@ -70,13 +76,28 @@ const fn kind(scope: DiscardScope) -> DiscardKind {
 /// away, with the discard's notice in Chats when one ran. Called at every
 /// turn.
 pub(crate) fn follow(view: &Rc<RefCell<View>>, said: Option<(StoreAnswer, StoreGeneration)>) {
+    let generation = said.map_or(0, |(_, generation)| generation.count());
+    HELD.with(|held| {
+        let mut held = held.borrow_mut();
+        if let Some((notice, at)) = *held {
+            match release(at, said.map(|(said, _)| answer(said)), generation) {
+                Release::Keep => {}
+                Release::Show => {
+                    held.take();
+                    view.borrow().show_once(notice);
+                }
+                Release::Drop => {
+                    held.take();
+                }
+            }
+        }
+    });
     SHOWN.with(|shown| {
         let mut shown = shown.borrow_mut();
         let state = shown.as_ref().map(|s| ShownState {
             screen: s.flow.screen(),
             done_at: s.done_at.map(StoreGeneration::count),
         });
-        let generation = said.map_or(0, |(_, generation)| generation.count());
         match decide(state, said.map(|(said, _)| answer(said)), generation) {
             Follow::Keep => {}
             Follow::Show(screen) => {
@@ -97,6 +118,13 @@ pub(crate) fn follow(view: &Rc<RefCell<View>>, said: Option<(StoreAnswer, StoreG
                 view.show_identity(None);
                 if let Some(notice) = s.and_then(|s| s.flow.notice()) {
                     view.show_once(notice);
+                }
+            }
+            Follow::HideHolding => {
+                let s = shown.take();
+                view.borrow().show_identity(None);
+                if let Some(notice) = s.and_then(|s| s.flow.notice()) {
+                    HELD.with(|held| *held.borrow_mut() = Some((notice, generation)));
                 }
             }
         }
@@ -125,7 +153,10 @@ fn input_on(input: &IdentityInput) {
     match outcome {
         Some(StoreOutcome::Effect(StoreEffect::Plan)) => defer(plan),
         Some(StoreOutcome::Effect(StoreEffect::Discard)) => defer(discard),
-        Some(StoreOutcome::TryAgain) => ask_activity(ask::RESTART),
+        Some(StoreOutcome::TryAgain) => {
+            crate::onboard::person_asked();
+            ask_activity(ask::RESTART);
+        }
         Some(StoreOutcome::Close) => ask_activity(ask::FINISH),
         Some(StoreOutcome::Shown) | None => {}
     }
@@ -197,6 +228,7 @@ fn discard() {
         ok
     });
     if ok {
+        crate::onboard::person_asked();
         ask_activity(ask::RESTART);
     }
 }

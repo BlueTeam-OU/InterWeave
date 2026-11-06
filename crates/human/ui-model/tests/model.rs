@@ -1174,3 +1174,15 @@ fn a_queued_or_listed_own_card_is_a_row_with_a_sent_messages_actions() {
     }]);
     assert_eq!(model.messages(&to)[0].card, Some(card));
 }
+
+/// The drafts a new runtime's model carries over: every one holding
+/// text, an emptied one not.
+#[test]
+fn drafts_lists_each_draft_holding_text() {
+    let mut model = UiModel::new();
+    let (a, b) = (key(&peer()), key(&peer()));
+    model.draft_changed(a.clone(), "half a thought".to_owned());
+    model.draft_changed(b.clone(), "gone".to_owned());
+    model.draft_changed(b, String::new());
+    assert_eq!(model.drafts(), vec![(a, "half a thought".to_owned())]);
+}

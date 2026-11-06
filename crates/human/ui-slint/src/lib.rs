@@ -711,6 +711,38 @@ fn wire_draft(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     });
 }
 
+/// A row's swipe, and the snackbar's Undo and close it leaves.
+fn wire_swipe(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
+        swipe::moved(
+            &s,
+            &w,
+            key.as_str(),
+            (px, py),
+            (cx, cy),
+            width,
+            window_width,
+        );
+    });
+    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    window.on_swipe_ended(move |key| swipe::ended(&s, &w, key.as_str()));
+    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    window.on_swipe_cancelled(move |key| swipe::cancelled(&s, &w, key.as_str()));
+    let s = Rc::clone(shared);
+    window.on_undo(move |id| {
+        if let Ok(id) = u64::try_from(id) {
+            enqueue(&s, Input::Undo(id));
+        }
+    });
+    let s = Rc::clone(shared);
+    window.on_snack_closed(move |id| {
+        if let Ok(id) = u64::try_from(id) {
+            enqueue(&s, Input::SnackClosed(id));
+        }
+    });
+}
+
 /// The callbacks of the screens with their own modules, and the trust
 /// settings'.
 fn wire_screens(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
@@ -875,6 +907,11 @@ pub struct View {
     /// one at a time, the latest replacing an earlier, since two
     /// zero-delay timers of one turn fire in no promised order.
     focus_wanted: Rc<RefCell<Option<String>>>,
+    /// [`Self::focus_locked_notice`] asked, and the locked notice has not
+    /// shown since: the next locked render on Chats or a conversation with
+    /// no identity or store screen and no reader up takes focus there; one
+    /// on another page spends it.
+    locked_focus_wanted: std::cell::Cell<bool>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
     /// The page on show when the trust settings' latest outcome came. A
@@ -1102,34 +1139,7 @@ impl View {
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
         wire_screens(&window, &shared);
 
-        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
-        window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
-            swipe::moved(
-                &s,
-                &w,
-                key.as_str(),
-                (px, py),
-                (cx, cy),
-                width,
-                window_width,
-            );
-        });
-        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
-        window.on_swipe_ended(move |key| swipe::ended(&s, &w, key.as_str()));
-        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
-        window.on_swipe_cancelled(move |key| swipe::cancelled(&s, &w, key.as_str()));
-        let s = Rc::clone(&shared);
-        window.on_undo(move |id| {
-            if let Ok(id) = u64::try_from(id) {
-                enqueue(&s, Input::Undo(id));
-            }
-        });
-        let s = Rc::clone(&shared);
-        window.on_snack_closed(move |id| {
-            if let Ok(id) = u64::try_from(id) {
-                enqueue(&s, Input::SnackClosed(id));
-            }
-        });
+        wire_swipe(&window, &shared);
         let s = Rc::clone(&shared);
         window.on_hide_conversation(move || {
             let selected = s.borrow().selected.clone();
@@ -1178,6 +1188,7 @@ impl View {
             pending_was: None,
             removing: None,
             focus_wanted: Rc::new(RefCell::new(None)),
+            locked_focus_wanted: std::cell::Cell::new(false),
             trust_announced: 0,
             trust_outcome_on: Page::Conversation,
             peer_lists,
@@ -1462,6 +1473,15 @@ impl View {
             // Its words leave the view with it (section 7).
             self.window.set_identity(IdentityPage::default());
         }
+    }
+
+    /// Focus the locked notice's Unlock once it shows on Chats or in a
+    /// conversation, at this render or once an identity or store screen,
+    /// or the reader, over it goes: after a cancelled Unlock prompt, and at
+    /// a return that raises none (unlock note §11, F11 and F12). On any
+    /// other page focus stays where it is, and the ask is spent.
+    pub fn focus_locked_notice(&self) {
+        self.locked_focus_wanted.set(true);
     }
 
     /// Offer Show recovery phrase on Settings, under the `PeerId`, calling
@@ -2065,7 +2085,9 @@ impl View {
                 if let Some(open) = self.close_reader() {
                     // Back on the row's Open the whole message, the
                     // conversation shown again: what arrived meanwhile is
-                    // read now (section 7).
+                    // read now (section 7). A locked notice's focus ask
+                    // held under the reader replaces this at the render
+                    // that shows the card again.
                     self.focus_key(format!("read:{}", open.handle));
                     self.shared.borrow_mut().viewed = true;
                 }
@@ -3278,6 +3300,49 @@ impl View {
         self.focus_key(target);
     }
 
+    /// The locked notice's focus (unlock note §11, F11, F12 and F14):
+    /// asked by [`Self::focus_locked_notice`], it lands on the notice's
+    /// Unlock once the notice shows on Chats or a conversation -- never on
+    /// another page, where the notice does not show; and when the notice
+    /// leaves with focus on it, focus goes to a conversation's composer,
+    /// else to Chats' heading.
+    fn follow_locked_notice(&self, was: Option<SessionNotice>, now: Option<SessionNotice>) {
+        const LOCKED: Option<SessionNotice> = Some(SessionNotice::AuthenticationNeeded);
+        let on_chats = self.window.get_narrow() && self.window.get_list_shown();
+        if now == LOCKED {
+            if self.page != Page::Conversation {
+                // Another page keeps focus, and leaving it hands focus back
+                // to what opened it: the ask is spent there.
+                self.locked_focus_wanted.set(false);
+            } else if !self.window.get_identity_active()
+                && self.reader.is_none()
+                && self.locked_focus_wanted.take()
+            {
+                // An identity or store screen, or the reader, still up
+                // keeps the ask for the render after it goes, which shows
+                // the card.
+                // Asked of the card shown: both report focus as "notice".
+                // The card the render that shows it may make.
+                self.focus_key_after_draw(
+                    if on_chats {
+                        "chats-notice"
+                    } else {
+                        "pane-notice"
+                    }
+                    .to_owned(),
+                );
+            }
+        } else if was == LOCKED {
+            self.locked_focus_wanted.set(false);
+            let focus = self.window.get_focus_id();
+            // Either card's Unlock reports the one key, "notice".
+            if focus == "notice" {
+                let composer = self.shown.is_some() && !on_chats;
+                self.focus_key(if composer { "composer" } else { "heading" }.to_owned());
+            }
+        }
+    }
+
     /// Focus the control whose focus key is `target`, once the render that
     /// draws it is done.
     fn focus_key(&self, target: String) {
@@ -3360,7 +3425,8 @@ impl View {
         window.set_state_short(placeholder_en::text(short).into());
         window.set_state_glyph(glyph);
         let notice = model.session_notice();
-        self.shared.borrow_mut().notice = notice;
+        let was = std::mem::replace(&mut self.shared.borrow_mut().notice, notice);
+        self.follow_locked_notice(was, notice);
         // A conversation shows the device's state only while it is offline,
         // as its notice -- under one a person can act on, which says more
         // (#304 F7). Unknown shows nothing, never as offline.

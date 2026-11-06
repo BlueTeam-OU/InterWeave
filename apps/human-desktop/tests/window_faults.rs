@@ -155,16 +155,17 @@ fn view(app: &Desktop) -> &View {
     &app.side().surface().0
 }
 
-/// A few frames of the toolkit's work, each frame's layout forced by
-/// reading where the elements stand -- the testing backend draws nothing,
-/// and the list reports what is in view only once laid out -- then one
-/// turn of the app.
+/// A few frames of the toolkit's work, each frame's layout forced by a
+/// query of the element tree -- the testing backend draws nothing, and
+/// the list reports what is in view only once laid out; without the
+/// query the three paging tests here time out -- then one turn of the
+/// app. The query stops at the first element: a walk of the whole tree
+/// took 4.4 s on the turn that lets go of 200 held rows, and under the
+/// workspace suite's load ran out a 10 s wait (j215).
 fn turn(app: &mut Desktop) {
     for _ in 0..2 {
         slint::platform::update_timers_and_animations();
-        if let Some(first) = all(view(app)).first() {
-            let _ = first.absolute_position();
-        }
+        let _ = i_slint_backend_testing::ElementQuery::from_root(view(app).window()).find_first();
     }
     app.pump();
 }

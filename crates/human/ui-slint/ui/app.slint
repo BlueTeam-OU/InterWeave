@@ -1803,8 +1803,13 @@ component NoticeCard inherits Rectangle {
             accessible-label: self.text;
             accessible-live-region: polite;
         }
+        // Focus on the action reads why it is there: the notice's text,
+        // which its live region says only when the notice appears -- a
+        // return to a notice already shown would read "Unlock, button"
+        // alone (unlock note section 11, F12).
         if root.has-action: ActionButton {
             text: root.action;
+            detail: root.message;
             focus-key: root.action-key;
             focus-seq: root.focus-seq;
             focus-wanted: root.focus-wanted;
@@ -5095,6 +5100,8 @@ export component AppWindow inherits Window {
                     message: root.notice;
                     has-action: root.has-notice-action;
                     action: root.notice-action;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "chats-notice";
                     pressed => { root.notice-pressed(); }
                     focused(k) => { root.focus-id = k; }
                 }
@@ -7275,6 +7282,8 @@ export component AppWindow inherits Window {
                     message: root.notice;
                     has-action: root.has-notice-action;
                     action: root.notice-action;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "pane-notice";
                     init => { root.notice-height = self.height; }
                     changed height => { root.notice-height = self.height; }
                     pressed => { root.notice-pressed(); }
@@ -8338,6 +8347,10 @@ export component AppWindow inherits Window {
                                     }
                                     changed has-focus => {
                                         if (self.has-focus) { root.focus-id = "composer"; }
+                                    }
+                                    property <int> focus-seq: root.focus-seq;
+                                    changed focus-seq => {
+                                        if (root.focus-target == "composer") { self.focus(); }
                                     }
                                     // The line being written stays in view.
                                     cursor-position-changed(at) => {

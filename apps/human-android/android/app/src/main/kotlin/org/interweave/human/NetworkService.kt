@@ -81,6 +81,9 @@ class NetworkService : Service() {
             if (!held && mode == Native.NETWORK_DENIED && networkGranted()) {
                 mode = UNANSWERED
                 Log.i(TAG, "network access granted: restarting with the runtime")
+                // The person's grant: a lock then prompts (unlock note
+                // section 11, L1).
+                Native.restartAsked()
                 lifecycle.execute { Native.stop() }
                 startClient()
             }
@@ -113,6 +116,13 @@ class NetworkService : Service() {
             mode = UNANSWERED
             startClient()
         }
+
+        /**
+         * The last start was refused until the person authenticates: a
+         * return that finds the key opens now starts it again (unlock note
+         * section 11, L2: the bind runs silently).
+         */
+        fun locked(): Boolean = mode == Native.REFUSED_USER_NOT_AUTHENTICATED
 
         /** The words are gone: start again, as a launch does. */
         @Synchronized
