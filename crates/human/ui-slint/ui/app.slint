@@ -194,6 +194,10 @@ export struct BodyLine {
     // A list item's marker on its first line: a bullet, or "3.".
     marker: string,
     text: string,
+    // What a screen reader is given for `text`: each U+FFFD as
+    // ReplacedCharacter's words (design/2026-11-04-long-message.md
+    // section 6).
+    spoken: string,
     // A piece of the line before, drawn against it with no gap; and a
     // line whose next one is such a piece (`body.rs`, j92: no drawn item
     // may hold a whole long line).
@@ -212,7 +216,9 @@ export struct ReaderRow {
     line: BodyLine,
     // The time line's words or a source piece; a link's label.
     text: string,
-    // The time line's spoken form, the full date (section 8).
+    // What a screen reader is given: the time line's spoken form, the
+    // full date (section 8); a source piece's text with each U+FFFD as
+    // ReplacedCharacter's words (section 6).
     spoken: string,
     // A link's index into the reader's links.
     index: int,
@@ -299,6 +305,10 @@ export struct MessageRow {
     // it rendered, under the same bounds as the body (HUMAN-CHAT.md): in
     // pieces, each character past the cluster bound one U+FFFD.
     source-pieces: [string],
+    // Each piece as a screen reader is given it, by index: each U+FFFD as
+    // ReplacedCharacter's words (design/2026-11-04-long-message.md
+    // section 6).
+    source-spoken: [string],
     // A cut body's line under its preview, drawn formatted and as source:
     // it continues, and the share shown (design/2026-11-04-long-message.md
     // section 4.2). Empty where that mode draws the body whole.
@@ -7955,7 +7965,7 @@ export component AppWindow inherits Window {
                                                         : Type.body-large;
                                                     horizontal-alignment: item.text-alignment;
                                                     accessible-role: text;
-                                                    accessible-label: line.marker != "" && !line.joined ? line.marker + " " + self.text : self.text;
+                                                    accessible-label: line.marker != "" && !line.joined ? line.marker + " " + line.spoken : line.spoken;
                                                 }
                                                 if line.kind == LineKind.code: Rectangle {
                                                     // A block cut in pieces is one surface:
@@ -7981,7 +7991,7 @@ export component AppWindow inherits Window {
                                                         font-family: root.code-font;
                                                         font-size: Type.body-medium;
                                                         accessible-role: text;
-                                                        accessible-label: line.marker != "" && !line.joined ? line.marker + " " + self.text : self.text;
+                                                        accessible-label: line.marker != "" && !line.joined ? line.marker + " " + line.spoken : line.spoken;
                                                     }
                                                 }
                                                 if line.marker != "" && root.rtl: Text {
@@ -7998,7 +8008,7 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                         if item.show-source: VerticalLayout {
-                                            for piece in row.source-pieces: Text {
+                                            for piece[i] in row.source-pieces: Text {
                                                 text: piece;
                                                 wrap: word-wrap;
                                                 min-height: self.preferred-height;
@@ -8009,7 +8019,7 @@ export component AppWindow inherits Window {
                                                 font-family: root.code-font;
                                                 font-size: Type.body-medium;
                                                 accessible-role: text;
-                                                accessible-label: self.text;
+                                                accessible-label: row.source-spoken[i];
                                             }
                                         }
                                         // A cut body's line, then the way to the whole of it, at
@@ -8555,7 +8565,7 @@ export component AppWindow inherits Window {
                                         font-family: root.code-font;
                                         font-size: Type.body-medium;
                                         accessible-role: text;
-                                        accessible-label: self.text;
+                                        accessible-label: r.spoken;
                                     }
                                     if r.kind == ReaderRowKind.link: LinkButton {
                                         text: r.text;
@@ -8598,7 +8608,7 @@ export component AppWindow inherits Window {
                                                 : Type.body-large;
                                             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                                             accessible-role: text;
-                                            accessible-label: r.line.marker != "" && !r.line.joined ? r.line.marker + " " + self.text : self.text;
+                                            accessible-label: r.line.marker != "" && !r.line.joined ? r.line.marker + " " + r.line.spoken : r.line.spoken;
                                         }
                                         if r.line.kind == LineKind.code: Rectangle {
                                             property <length> pad-top: r.line.joined ? 0px : 6px;
@@ -8622,7 +8632,7 @@ export component AppWindow inherits Window {
                                                 font-family: root.code-font;
                                                 font-size: Type.body-medium;
                                                 accessible-role: text;
-                                                accessible-label: self.text;
+                                                accessible-label: r.line.spoken;
                                             }
                                         }
                                         if r.line.marker != "" && root.rtl: Text {

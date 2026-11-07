@@ -1444,12 +1444,31 @@ fn a_character_past_the_cluster_bound_is_drawn_as_one_replacement_everywhere() {
         }
     };
 
-    assert_eq!(labelled(&view, "x \u{FFFD} y see").len(), 1, "the body");
+    // Drawn as U+FFFD, spoken as words (long_message.rs
+    // a_replaced_character_is_spoken_as_words).
+    let words = text(UiText::ReplacedCharacter);
+    assert_eq!(
+        view.window()
+            .get_messages()
+            .row_data(0)
+            .unwrap()
+            .lines
+            .row_data(0)
+            .unwrap()
+            .text,
+        "x \u{FFFD} y see",
+        "the body"
+    );
+    assert_eq!(
+        labelled(&view, &format!("x {words} y see")).len(),
+        1,
+        "the body, spoken"
+    );
     assert!(
         all(&view)
             .iter()
             .filter_map(ElementHandle::accessible_description)
-            .any(|d| d.contains("x \u{FFFD} y see")),
+            .any(|d| d.contains(&format!("x {words} y see"))),
         "the Chats line"
     );
     assert!(
@@ -1460,9 +1479,24 @@ fn a_character_past_the_cluster_bound_is_drawn_as_one_replacement_everywhere() {
 
     choose(&view, text(UiText::ShowSource));
     assert_eq!(
-        labelled(&view, &source.replace(&past, "\u{FFFD}")).len(),
+        labelled(
+            &view,
+            &format!("x {words} y [see](https://example.org/ {words} )")
+        )
+        .len(),
         1,
-        "the source, drawn the same way"
+        "the source, spoken the same way"
+    );
+    assert_eq!(
+        view.window()
+            .get_messages()
+            .row_data(0)
+            .unwrap()
+            .source_pieces
+            .row_data(0)
+            .unwrap(),
+        source.replace(&past, "\u{FFFD}"),
+        "and drawn the same way"
     );
     never_sent_as_is(&view);
 

@@ -198,6 +198,82 @@ fn reader_text(view: &View) -> Vec<String> {
         .collect()
 }
 
+/// Every U+FFFD in an accessible text the client sets is spoken as
+/// `ReplacedCharacter`'s words, set apart by spaces: the bubble's line and
+/// its label, the Chats row's description, and the reader's lines and
+/// source -- a mark drawn for a character past the cluster bound and one
+/// the body already carried alike (section 6, A12). Nothing in the tree
+/// gives a screen reader U+FFFD itself, so what it says never depends on
+/// its punctuation setting.
+#[test]
+fn a_replaced_character_is_spoken_as_words() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let past = format!("a{}", "\u{301}".repeat(255));
+    let body = format!(
+        "x{past}y and \u{FFFD}z\n\n```\nq\u{FFFD}r\n```\n\n{}",
+        paragraphs(60)
+    );
+    model.received(received(1, &alice, &body));
+    open(&mut view, &mut model, &direct(&alice));
+    let words = text(UiText::ReplacedCharacter);
+    let spoken = format!("x {words} y and {words} z");
+    let said = |view: &View| -> Vec<String> {
+        ElementQuery::from_root(view.window())
+            .find_all()
+            .iter()
+            .flat_map(|e| [e.accessible_label(), e.accessible_description()])
+            .flatten()
+            .map(|s| s.to_string())
+            .collect()
+    };
+    let spoken_never_the_mark = |view: &View, place: &str| {
+        let said = said(view);
+        assert!(
+            said.iter().any(|s| s.contains(&spoken)),
+            "{place}: the words, set apart"
+        );
+        assert!(
+            !said.iter().any(|s| s.contains('\u{FFFD}')),
+            "{place}: never the mark itself"
+        );
+    };
+
+    let code = format!("q {words} r");
+    assert_eq!(labelled(&view, &spoken).len(), 1, "the bubble's line");
+    assert_eq!(labelled(&view, &code).len(), 1, "the bubble's code line");
+    assert!(rows(&view)[0].label.contains(&spoken), "the bubble's label");
+    spoken_never_the_mark(&view, "the conversation and the Chats line");
+
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_open());
+    assert!(
+        reader_text(&view).iter().any(|t| t.contains('\u{FFFD}')),
+        "control: the reader draws the mark"
+    );
+    assert_eq!(labelled(&view, &code).len(), 1, "the reader's code line");
+    spoken_never_the_mark(&view, "the reader");
+
+    view.window().invoke_reader_switch();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_as_source());
+    spoken_never_the_mark(&view, "the reader's source");
+
+    key(&view, Key::Escape);
+    let _ = intents(&mut view, &mut model);
+    assert!(!view.window().get_reader_open());
+    let label = rows(&view)[0].label.to_string();
+    choose(&view, &label, text(UiText::ShowSource));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        rows(&view)[0].source_label.contains(&spoken),
+        "the bubble's label as source"
+    );
+    spoken_never_the_mark(&view, "the bubble's source");
+}
+
 /// A cut row shows its preview, the cut line with the share shown, and
 /// Open the whole message; a whole row shows neither, and its label is
 /// the whole body (A2, section 9).
