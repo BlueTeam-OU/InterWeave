@@ -144,6 +144,7 @@ fn rows(view: &View) -> Vec<interweave_human_ui_slint::MessageRow> {
 /// The labels of the open menu of the row whose label is `label`, in
 /// order, opened as a screen reader does, by the row's default action.
 fn menu(view: &View, label: &str) -> Vec<String> {
+    let label = &spoken(label);
     let item = ElementQuery::from_root(view.window())
         .match_accessible_role(AccessibleRole::ListItem)
         .find_all()
@@ -160,9 +161,15 @@ fn menu(view: &View, label: &str) -> Vec<String> {
         .collect()
 }
 
+/// `label` as a screen reader is given it: a drawn mark as words.
+fn spoken(label: &str) -> String {
+    interweave_human_ui_model::cluster::spoken(label, text(UiText::ReplacedCharacter)).into_owned()
+}
+
 /// Choose `entry` from the open menu of the row labelled `label`.
 fn choose(view: &View, label: &str, entry: &str) {
     let _ = menu(view, label);
+    let label = &spoken(label);
     ElementQuery::from_root(view.window())
         .find_all()
         .into_iter()
@@ -173,6 +180,21 @@ fn choose(view: &View, label: &str, entry: &str) {
         .expect("the menu's entry")
         .invoke_accessible_default_action();
     slint::platform::update_timers_and_animations();
+}
+
+/// The message row's item, as a screen reader reads it, formatted or as
+/// source (the Chats list's rows are items too).
+fn item_label(view: &View) -> String {
+    let row = &rows(view)[0];
+    let forms = [spoken(&row.label), spoken(&row.source_label)];
+    ElementQuery::from_root(view.window())
+        .match_accessible_role(AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .filter_map(|e| e.accessible_label())
+        .find(|l| forms.iter().any(|f| l == f.as_str()))
+        .expect("the message row's item")
+        .to_string()
 }
 
 /// A body of `n` paragraphs, "Paragraph 1." to "Paragraph n.".
@@ -198,8 +220,86 @@ fn reader_text(view: &View) -> Vec<String> {
         .collect()
 }
 
+/// Every U+FFFD in an accessible text the client sets is spoken as
+/// `ReplacedCharacter`'s words, set apart by spaces: the bubble's line and
+/// its label, the Chats row's description, and the reader's lines and
+/// source -- a mark drawn for a character past the cluster bound and one
+/// the body already carried alike (section 6, A12). Nothing in the tree
+/// gives a screen reader U+FFFD itself, so what it says never depends on
+/// its punctuation setting.
+#[test]
+fn a_replaced_character_is_spoken_as_words() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let past = format!("a{}", "\u{301}".repeat(255));
+    let body = format!(
+        "x{past}y and \u{FFFD}z\n\n```\nq\u{FFFD}r\n```\n\n{}",
+        paragraphs(60)
+    );
+    model.received(received(1, &alice, &body));
+    open(&mut view, &mut model, &direct(&alice));
+    let words = text(UiText::ReplacedCharacter);
+    // Words that start with punctuation take no space before them
+    // (section 6), as the en words do.
+    let spoken = format!("x{words} y and {words} z");
+    let said = |view: &View| -> Vec<String> {
+        ElementQuery::from_root(view.window())
+            .find_all()
+            .iter()
+            .flat_map(|e| [e.accessible_label(), e.accessible_description()])
+            .flatten()
+            .map(|s| s.to_string())
+            .collect()
+    };
+    let spoken_never_the_mark = |view: &View, place: &str| {
+        let said = said(view);
+        assert!(
+            said.iter().any(|s| s.contains(&spoken)),
+            "{place}: the words, set apart"
+        );
+        assert!(
+            !said.iter().any(|s| s.contains('\u{FFFD}')),
+            "{place}: never the mark itself"
+        );
+    };
+
+    let code = format!("q{words} r");
+    assert_eq!(labelled(&view, &spoken).len(), 1, "the bubble's line");
+    assert_eq!(labelled(&view, &code).len(), 1, "the bubble's code line");
+    assert!(item_label(&view).contains(&spoken), "the bubble's label");
+    spoken_never_the_mark(&view, "the conversation and the Chats line");
+
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_open());
+    assert!(
+        reader_text(&view).iter().any(|t| t.contains('\u{FFFD}')),
+        "control: the reader draws the mark"
+    );
+    assert_eq!(labelled(&view, &code).len(), 1, "the reader's code line");
+    spoken_never_the_mark(&view, "the reader");
+
+    view.window().invoke_reader_switch();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_as_source());
+    spoken_never_the_mark(&view, "the reader's source");
+
+    key(&view, Key::Escape);
+    let _ = intents(&mut view, &mut model);
+    assert!(!view.window().get_reader_open());
+    let label = item_label(&view);
+    choose(&view, &label, text(UiText::ShowSource));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        item_label(&view).contains(&spoken),
+        "the bubble's label as source"
+    );
+    spoken_never_the_mark(&view, "the bubble's source");
+}
+
 /// A cut row shows its preview, the cut line with the share shown, and
-/// Read the whole message; a whole row shows neither, and its label is
+/// Open the whole message; a whole row shows neither, and its label is
 /// the whole body (A2, section 9).
 #[test]
 fn a_cut_row_shows_its_preview_its_line_and_the_way_to_the_whole() {
@@ -232,17 +332,17 @@ fn a_cut_row_shows_its_preview_its_line_and_the_way_to_the_whole() {
     );
     assert!(!cut.label.contains("Paragraph 33."), "never the whole body");
     assert_eq!(
-        labelled(&view, text(UiText::ReadWholeMessage)).len(),
+        labelled(&view, text(UiText::OpenWholeMessage)).len(),
         1,
-        "one Read the whole message: the cut row's"
+        "one Open the whole message: the cut row's"
     );
 }
 
-/// A cut row's menu: its actions, then Read the whole message, Copy
-/// message source and Show source last; a whole row's lacks Read the
+/// A cut row's menu: its actions, then Open the whole message, Copy
+/// message source and Show source last; a whole row's lacks Open the
 /// whole message (section 4.3, message-swipe section 7 revised).
 #[test]
-fn a_rows_menu_has_read_the_whole_message_only_when_cut_and_copy_always() {
+fn a_rows_menu_has_open_the_whole_message_only_when_cut_and_copy_always() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
@@ -266,7 +366,7 @@ fn a_rows_menu_has_read_the_whole_message_only_when_cut_and_copy_always() {
     let mut cut = actions(&drawn[1]);
     cut.extend(
         [
-            text(UiText::ReadWholeMessage),
+            text(UiText::OpenWholeMessage),
             text(UiText::CopyMessage),
             text(UiText::ShowSource),
         ]
@@ -275,9 +375,9 @@ fn a_rows_menu_has_read_the_whole_message_only_when_cut_and_copy_always() {
     assert_eq!(menu(&view, &drawn[1].label), cut);
 }
 
-/// Read the whole message opens the reader on the whole body, focus on
+/// Open the whole message opens the reader on the whole body, focus on
 /// its scroll; Escape closes it, the conversation as it was and focus on
-/// the row's Read the whole message (sections 5, 9: A6).
+/// the row's Open the whole message (sections 5, 9: A6).
 #[test]
 fn the_reader_shows_the_whole_body_and_escape_returns_to_the_button() {
     let mut view = view();
@@ -287,7 +387,7 @@ fn the_reader_shows_the_whole_body_and_escape_returns_to_the_button() {
     open(&mut view, &mut model, &direct(&alice));
     let handle = rows(&view)[0].handle;
 
-    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_reader_open());
     let shown = reader_text(&view);
@@ -325,7 +425,7 @@ fn a_message_arriving_while_the_reader_is_open_is_read_when_it_closes() {
     open(&mut view, &mut model, &direct(&alice));
     view.set_window_focused(true);
     let _ = intents(&mut view, &mut model);
-    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
 
     model.received(received(2, &alice, "Meanwhile."));
@@ -345,7 +445,7 @@ fn a_message_arriving_while_the_reader_is_open_is_read_when_it_closes() {
 
 /// The reader is a screen over the conversation: the locked notice's
 /// focus ask (unlock note §11, F11) waits under it, and Back lands on
-/// the notice's Unlock rather than the row's Read the whole message --
+/// the notice's Unlock rather than the row's Open the whole message --
 /// in a narrow window and a wide one.
 #[test]
 fn the_locked_notice_takes_focus_once_the_reader_over_it_closes_narrow() {
@@ -369,7 +469,7 @@ fn locked_notice_after_the_reader(width: f32) {
     let alice = peer();
     model.received(received(1, &alice, &paragraphs(60)));
     open(&mut view, &mut model, &direct(&alice));
-    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_reader_open(), "control: open at {width}");
 
@@ -400,7 +500,7 @@ fn locked_notice_after_the_reader(width: f32) {
 /// A body whole formatted and long as source -- reference definitions
 /// draw nothing formatted -- is cut only in source mode; its reader opens
 /// as source, and closed after a switch to formatted leaves the row in
-/// source mode with its Read the whole message (A1, A7).
+/// source mode with its Open the whole message (A1, A7).
 #[test]
 fn a_body_cut_only_as_source_opens_the_reader_as_source_and_closes_back_to_it() {
     let mut view = view();
@@ -415,10 +515,10 @@ fn a_body_cut_only_as_source_opens_the_reader_as_source_and_closes_back_to_it() 
     let row = rows(&view)[0].clone();
     assert_eq!(row.cut_line, "", "whole formatted");
     assert_ne!(row.source_cut_line, "", "cut as source");
-    assert!(labelled(&view, text(UiText::ReadWholeMessage)).is_empty());
+    assert!(labelled(&view, text(UiText::OpenWholeMessage)).is_empty());
 
     choose(&view, &row.label, text(UiText::ShowSource));
-    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_reader_as_source());
     assert!(
@@ -434,7 +534,7 @@ fn a_body_cut_only_as_source_opens_the_reader_as_source_and_closes_back_to_it() 
     let _ = intents(&mut view, &mut model);
     assert!(!view.window().get_reader_open());
     assert_eq!(
-        labelled(&view, text(UiText::ReadWholeMessage)).len(),
+        labelled(&view, text(UiText::OpenWholeMessage)).len(),
         1,
         "the row is in source mode still"
     );
@@ -557,7 +657,7 @@ fn the_reader_closes_when_its_row_leaves() {
     model.read(RowId::from_stored(1));
     let key = direct(&alice);
     open(&mut view, &mut model, &key);
-    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_reader_open(), "control: open");
 
@@ -572,7 +672,8 @@ fn the_reader_closes_when_its_row_leaves() {
 /// to scale 4.
 const ITEM_EXTENT: f32 = 8_000.0;
 
-/// A4's shapes at the bound: whole bodies, each in its tallest form.
+/// A4's shapes at the bound: whole bodies, each in its tallest form, and
+/// two cut ones, which the reader draws whole.
 fn a4_shapes() -> Vec<(&'static str, String)> {
     let w50 = "abcdefghij".repeat(5);
     vec![
@@ -609,6 +710,16 @@ fn a4_shapes() -> Vec<(&'static str, String)> {
             format!("a{}{}", "\u{301}".repeat(255), "b".repeat(1999)),
         ),
         ("unbroken", "x".repeat(2000)),
+        // Characters that draw wider than a Latin letter, each just under
+        // the bound weighed (A4; HUMAN-CHAT.md Bounds, A 2026-11-07): a
+        // count of characters bounds none of them, the measure does.
+        ("wide letters", "W".repeat(2000)),
+        ("CJK", "\u{6F22}".repeat(1000)),
+        ("emoji", "\u{1F600}".repeat(1000)),
+        ("U+FDFD", "\u{FDFD}".repeat(2000)),
+        // Cut, so that the reader draws them whole, in pieces.
+        ("U+FDFD cut", "\u{FDFD}".repeat(4000)),
+        ("emoji cut", "\u{1F600}".repeat(3000)),
     ]
 }
 
@@ -711,17 +822,95 @@ fn no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent() {
             );
             tall(view, false);
         };
+        // The reader, where the body is cut, in the mode the row is in.
+        let reader = |view: &mut View, model: &mut UiModel, at: &str| {
+            if let Some(read) = labelled(view, text(UiText::OpenWholeMessage)).first() {
+                read.invoke_accessible_default_action();
+                let _ = intents(view, model);
+                check(view, at);
+                key(view, Key::Escape);
+                let _ = intents(view, model);
+            }
+        };
         check(&view, "row");
+        reader(&mut view, &mut model, "reader");
         choose(&view, &row.label, text(UiText::ShowSource));
         check(&view, "source");
-        if let Some(read) = labelled(&view, text(UiText::ReadWholeMessage)).first() {
-            read.invoke_accessible_default_action();
-            let _ = intents(&mut view, &mut model);
-            check(&view, "reader");
-            key(&view, Key::Escape);
-            let _ = intents(&mut view, &mut model);
-        }
+        reader(&mut view, &mut model, "reader as source");
     }
+}
+
+/// A body measured at one text size is measured again at a larger one: a
+/// piece within the extent at the first can be past it at the second
+/// (HUMAN-CHAT.md Bounds, A 2026-11-07, `View::measured_for`).
+#[test]
+fn a_larger_text_size_measures_the_pieces_again() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let font = |view: &View, size: f32| {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(size)));
+    };
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 20_000.0));
+    font(&view, 14.0);
+    let alice = peer();
+    model.received(received(1, &alice, &"\u{1F600}".repeat(1000)));
+    open(&mut view, &mut model, &direct(&alice));
+    assert_eq!(text_past_the_bound(&view), Vec::<String>::new(), "at 100 %");
+    // Three times the size: the pieces drawn at the first are past it.
+    font(&view, 42.0);
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(text_past_the_bound(&view), Vec::<String>::new(), "at 300 %");
+}
+
+/// A text size changed in place, as Android's fontScale is, wakes the
+/// root, and the render it brings measures an open reader's rows again,
+/// in both forms (review F1 of #583).
+#[test]
+fn a_text_size_changed_in_place_wakes_the_root_and_measures_the_reader_again() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let font = |view: &View, size: f32| {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(size)));
+    };
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 20_000.0));
+    font(&view, 14.0);
+    let woken = std::rc::Rc::new(std::cell::Cell::new(0_u32));
+    {
+        let woken = std::rc::Rc::clone(&woken);
+        view.set_wake(move || woken.set(woken.get() + 1));
+    }
+    let alice = peer();
+    model.received(received(1, &alice, &"\u{1F600}".repeat(3000)));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        view.window().get_reader_open(),
+        "control: the reader is open"
+    );
+    assert_eq!(text_past_the_bound(&view), Vec::<String>::new(), "at 100 %");
+    let before = woken.get();
+    font(&view, 42.0);
+    slint::platform::update_timers_and_animations();
+    assert!(woken.get() > before, "the change wakes the root");
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(text_past_the_bound(&view), Vec::<String>::new(), "at 300 %");
+    view.window().invoke_reader_switch();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_as_source(), "control: as source");
+    assert_eq!(
+        text_past_the_bound(&view),
+        Vec::<String>::new(),
+        "at 300 %, as source"
+    );
 }
 
 /// The bubble says the cut line the mode shown draws, and only then: a

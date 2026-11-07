@@ -248,6 +248,11 @@ icu_collator = "~2.3"
 # minor versions.
 icu_provider = "~2.3"
 icu_normalizer = "~2.3"
+# How much a drawn character weighs in the long-message figures
+# (HUMAN-CHAT.md Bounds, A 2026-11-07): East_Asian_Width (UAX #11) and
+# the emoji properties (UTS #51), from the same 2.3 line and data the
+# text shaper (parley) reads.
+icu_properties = "~2.3"
 # A card's photo (app-core's card_photo.rs): the sender re-encodes the
 # chosen image, the receiver decodes an accepted one at 256 x 256. PNG and
 # JPEG only, pure Rust (png, zune-jpeg), the version and the two features

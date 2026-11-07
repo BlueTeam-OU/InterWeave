@@ -131,7 +131,7 @@ fn pairs(p: &Palette<'_>) -> Vec<(&'static str, Color, Color, f64)> {
             p.get_surface(),
             4.5,
         ),
-        // Read the whole message on a sent bubble
+        // Open the whole message on a sent bubble
         // (design/2026-11-04-long-message.md section 9).
         (
             "primary on primary-container",

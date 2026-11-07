@@ -179,11 +179,16 @@ fn choose(view: &View, label: &str) {
         .find(|r| r.actions.iter().any(|a| a.text.as_str() == label))
         .or_else(|| rows.first())
         .expect("a message row");
+    // The row's label as a screen reader is given it: a drawn mark as words.
+    let spoken = interweave_human_ui_model::cluster::spoken(
+        row.label.as_str(),
+        text(UiText::ReplacedCharacter),
+    );
     let item = i_slint_backend_testing::ElementQuery::from_root(view.window())
         .match_accessible_role(i_slint_backend_testing::AccessibleRole::ListItem)
         .find_all()
         .into_iter()
-        .find(|e| e.accessible_label().as_deref() == Some(row.label.as_str()))
+        .find(|e| e.accessible_label().as_deref() == Some(&*spoken))
         .expect("the row's item");
     item.invoke_accessible_default_action();
     let entry = i_slint_backend_testing::ElementQuery::from_root(view.window())
@@ -191,7 +196,7 @@ fn choose(view: &View, label: &str) {
         .into_iter()
         .find(|e| {
             e.accessible_label().as_deref() == Some(label)
-                && e.accessible_description().as_deref() == Some(row.label.as_str())
+                && e.accessible_description().as_deref() == Some(&*spoken)
         })
         .expect("the menu's entry");
     entry.invoke_accessible_default_action();
@@ -1444,12 +1449,31 @@ fn a_character_past_the_cluster_bound_is_drawn_as_one_replacement_everywhere() {
         }
     };
 
-    assert_eq!(labelled(&view, "x \u{FFFD} y see").len(), 1, "the body");
+    // Drawn as U+FFFD, spoken as words (long_message.rs
+    // a_replaced_character_is_spoken_as_words).
+    let words = text(UiText::ReplacedCharacter);
+    assert_eq!(
+        view.window()
+            .get_messages()
+            .row_data(0)
+            .unwrap()
+            .lines
+            .row_data(0)
+            .unwrap()
+            .text,
+        "x \u{FFFD} y see",
+        "the body"
+    );
+    assert_eq!(
+        labelled(&view, &format!("x {words} y see")).len(),
+        1,
+        "the body, spoken"
+    );
     assert!(
         all(&view)
             .iter()
             .filter_map(ElementHandle::accessible_description)
-            .any(|d| d.contains("x \u{FFFD} y see")),
+            .any(|d| d.contains(&format!("x {words} y see"))),
         "the Chats line"
     );
     assert!(
@@ -1460,9 +1484,24 @@ fn a_character_past_the_cluster_bound_is_drawn_as_one_replacement_everywhere() {
 
     choose(&view, text(UiText::ShowSource));
     assert_eq!(
-        labelled(&view, &source.replace(&past, "\u{FFFD}")).len(),
+        labelled(
+            &view,
+            &format!("x {words} y [see](https://example.org/{words} )")
+        )
+        .len(),
         1,
-        "the source, drawn the same way"
+        "the source, spoken the same way"
+    );
+    assert_eq!(
+        view.window()
+            .get_messages()
+            .row_data(0)
+            .unwrap()
+            .source_pieces
+            .row_data(0)
+            .unwrap(),
+        source.replace(&past, "\u{FFFD}"),
+        "and drawn the same way"
     );
     never_sent_as_is(&view);
 

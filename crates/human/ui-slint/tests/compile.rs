@@ -198,6 +198,74 @@ fn the_field_scan_refuses_a_field_without_the_replacement() {
     assert_eq!(field_scan(&kept), (1, Vec::new()));
 }
 
+/// Every accessible label and description in the views goes through
+/// `Drawn.spoken`, so a U+FFFD a person sees is never given to a screen
+/// reader as the mark itself, whichever text it is in -- a body, a name,
+/// a title (design/2026-11-04-long-message.md section 6). A site written
+/// without it reads the mark on whatever screen it is. Mutation: the call
+/// taken off any one.
+#[test]
+fn every_accessible_text_goes_through_spoken() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/app.slint");
+    let source = std::fs::read_to_string(&path).expect("app.slint");
+    let lines: Vec<&str> = source.lines().collect();
+    let (checked, missing) = spoken_scan(&lines);
+    // 161 when this was written: a floor, so a scan that stops finding
+    // them fails rather than checks nothing.
+    assert!(
+        checked >= 150,
+        "the scan found only {checked} accessible texts"
+    );
+    assert!(
+        missing.is_empty(),
+        "an accessible text without Drawn.spoken:\n{}",
+        missing.join("\n")
+    );
+}
+
+/// The accessible labels and descriptions the scan checked, and each one
+/// it refuses.
+fn spoken_scan(lines: &[&str]) -> (usize, Vec<String>) {
+    let mut checked = 0_usize;
+    let mut missing = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let code = code_of(line);
+        let Some(value) = ["accessible-label:", "accessible-description:"]
+            .iter()
+            .find_map(|key| code.trim().strip_prefix(key))
+        else {
+            continue;
+        };
+        checked += 1;
+        let value = value.trim();
+        if !(value.starts_with("Drawn.spoken(") && value.ends_with(");")) {
+            missing.push(format!("{}: {}", index + 1, line.trim()));
+        }
+    }
+    (checked, missing)
+}
+
+/// The spoken scan refuses a label or description not wrapped whole.
+#[test]
+fn the_spoken_scan_refuses_a_text_not_wrapped() {
+    let lines = [
+        "accessible-label: Drawn.spoken(self.text);",
+        "accessible-description: Drawn.spoken(a ? b : c);",
+        "accessible-label: self.text;",
+        "accessible-description: Drawn.spoken(a) + b;",
+    ];
+    assert_eq!(
+        spoken_scan(&lines),
+        (
+            4,
+            vec![
+                "3: accessible-label: self.text;".to_owned(),
+                "4: accessible-description: Drawn.spoken(a) + b;".to_owned(),
+            ]
+        )
+    );
+}
+
 /// The line that opens the element holding line `at`: walking up, the
 /// first `{` not closed in between.
 fn element_start(lines: &[&str], at: usize) -> Option<usize> {
