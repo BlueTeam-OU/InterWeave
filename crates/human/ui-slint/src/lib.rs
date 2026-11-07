@@ -779,7 +779,12 @@ fn wire_trust(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     });
     let s = Rc::clone(shared);
     window.on_trust_cancel(move || enqueue(&s, Input::Trust(TrustInput::Cancel)));
-    // Nothing to queue: the render the wake brings measures again.
+}
+
+/// A change of what the drawn bodies are measured against (app.slint
+/// `measure-changed`): no input, only a wake -- the render it brings
+/// measures them again (`View::measure_again_if_changed`).
+fn wire_measure(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     let s = Rc::clone(shared);
     window.on_measure_changed(move || flag(&s, |_| {}));
 }
@@ -1147,6 +1152,7 @@ impl View {
         let s = Rc::clone(&shared);
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
         wire_screens(&window, &shared);
+        wire_measure(&window, &shared);
 
         wire_swipe(&window, &shared);
         let s = Rc::clone(&shared);
