@@ -168,7 +168,8 @@ internal object Native {
      * process found it ready before, so only a lock is asked, and a client
      * already running is asked nothing. When the person must authenticate,
      * the native side asks the prompt ([Ask.UNLOCK]) or focuses the locked
-     * notice itself.
+     * notice itself; a prompt it asked for a refused start in this showing,
+     * not yet answered, answers the check too.
      */
     @JvmStatic external fun identityState(appDataDir: String, ready: Boolean): Int
 

@@ -523,6 +523,29 @@ extern "system" fn Java_org_interweave_human_Native_stop<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>()
 }
 
+/// `DebugHooks.refuseNextStoreOpen()`, the debug build's adb hook for
+/// A16's discard (`app/src/debug/.../DebugHooks.kt`): the next start
+/// refuses the store as one that needs recovery, once. Compiled only with
+/// the debug build's stand-ins, so the release library carries no such
+/// entry (`verifyReleaseNative`).
+#[cfg(feature = "dev-stand-ins")]
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_DebugHooks_refuseNextStoreOpen<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        ServiceHost::global().refuse_next_store_open();
+        log("store hook: the next start refuses the store as needing recovery");
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
 /// `Native.waitNotice(timeoutMs)`.
 #[allow(
     unsafe_code,
