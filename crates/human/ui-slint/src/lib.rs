@@ -3776,8 +3776,6 @@ const fn hue_index(hue: AvatarHue) -> i32 {
     }
 }
 
-/// An image's placeholder, in the view's words: its alt text, or only
-/// that it is an image when the alt text is empty or blank.
 /// Gives a window's `Drawn` global its functions. Every window built
 /// needs it: an unset pure callback answers an empty string, which would
 /// leave every accessible text of the window empty (`tests/refusal.rs`
@@ -3791,6 +3789,8 @@ pub(crate) fn wire_drawn(drawn: &generated::Drawn<'_>) {
     });
 }
 
+/// An image's placeholder, in the view's words: its alt text, or only
+/// that it is an image when the alt text is empty or blank.
 fn image_text(alt: &str) -> String {
     if alt.trim().is_empty() {
         placeholder_en::text(UiText::ImageNotShownWithoutAlt).to_owned()
