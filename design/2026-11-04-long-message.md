@@ -357,15 +357,18 @@ cut line's percentage, A1 and A2 — counts the same way.
 The gap between the two figures is there so that a body just over the
 bound is never cut to hide only its last sentence or two.
 
-**A known limit of the figures.** A glyph wider than two cells — an
-Arabic ligature such as U+FDFD, wide cuneiform — counts as one or two
-and draws as many more: its width is the font's, so no list of such
-characters would be complete. A body of them under the bound is whole,
-and its row is the figure times the widest glyph the fonts draw, drawn
-in pieces split by measure like any other (§5.1). rust-ui-dev measured
-2 000 × U+FDFD at 200 % text, 360 dp wide, at about 117 viewports
-(OBSERVATION 01a1b6b2-3e5e). It is accepted: nobody writes such text
-by the thousand, and only a trusted peer can send a message at all.
+**A known limit of the figures.** A glyph the font draws wider than
+its count says — an Arabic ligature such as U+FDFD, wide cuneiform, or,
+less so, a run of a wide Latin letter such as `W` — draws more than its
+weight: its width is the font's, so no list of such characters would
+be complete. A body of them under the bound is whole, and its row is
+the figure times the widest glyph the fonts draw, drawn in pieces split
+by measure like any other (§5.1). rust-ui-dev measured whole rows at
+200 % text, 412 dp wide, in 747 dp viewports (INFO 01a1b6eb-93d8, the
+build of ruling A): 2 000 × U+FDFD about 117, 2 000 × `W` about 13,
+against about 8 for a 400-word paragraph and 7.4 for 1 000 CJK
+characters. It is accepted: nobody writes such text by the thousand,
+and only a trusted peer can send a message at all.
 
 **In source mode what is drawn is the source** (HUMAN-CHAT.md on #562:
 "the plain-text fallback and Show source are cut by the same rule over
