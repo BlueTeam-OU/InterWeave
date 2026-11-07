@@ -779,6 +779,9 @@ fn wire_trust(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     });
     let s = Rc::clone(shared);
     window.on_trust_cancel(move || enqueue(&s, Input::Trust(TrustInput::Cancel)));
+    // Nothing to queue: the render the wake brings measures again.
+    let s = Rc::clone(shared);
+    window.on_measure_changed(move || flag(&s, |_| {}));
 }
 
 /// Queue `input` from a window callback, and wake the root after the
@@ -2113,16 +2116,7 @@ impl View {
         ) else {
             return;
         };
-        let sent = reader::sent(&self.clock, item.local_at);
-        let window = &self.window;
-        let forms = reader::forms(
-            item,
-            &sent,
-            &image_text,
-            |lines| by_measure(body_lines(lines), &|line| measured(window, line, false)),
-            |pieces| pieces_by_measure(pieces, &|line| measured(window, line, true)),
-        );
-        window.set_measure_line(BodyLine::default());
+        let forms = self.reader_forms(item);
         let title = match (&item.direction, &item.author) {
             (Direction::Inbound, Some(peer)) => short_peer(peer.as_str()),
             _ => placeholder_en::text(UiText::You).to_owned(),
@@ -2138,6 +2132,21 @@ impl View {
         self.window.set_reader_open(true);
         self.shared.borrow_mut().reader = Some(forms);
         self.reader = Some(reader::Open { key, handle });
+    }
+
+    /// `item`'s reader rows, both forms, each piece measured.
+    fn reader_forms(&self, item: &MessageItem) -> reader::Forms {
+        let sent = reader::sent(&self.clock, item.local_at);
+        let window = &self.window;
+        let forms = reader::forms(
+            item,
+            &sent,
+            &image_text,
+            |lines| by_measure(body_lines(lines), &|line| measured(window, line, false)),
+            |pieces| pieces_by_measure(pieces, &|line| measured(window, line, true)),
+        );
+        window.set_measure_line(BodyLine::default());
+        forms
     }
 
     /// Close the reader, if open, saying which message it showed.
@@ -2479,17 +2488,31 @@ impl View {
         }
     }
 
-    /// Drops every drawn body when what they were measured against beside
-    /// their lines changed (`measured_for`), so the render draws, and
-    /// measures, each again.
+    /// When what the drawn bodies were measured against beside their lines
+    /// changed (`measured_for`): every drawn body dropped, so the render
+    /// draws and measures each again, and an open reader's rows measured
+    /// again in place, in the form it shows.
     fn measure_again_if_changed(&mut self) {
         let basis = (
             self.window.get_measure_rem(),
             self.window.get_measure_width(),
         );
-        if basis != self.measured_for {
-            self.bodies.clear();
-            self.measured_for = basis;
+        if basis == self.measured_for {
+            return;
+        }
+        self.bodies.clear();
+        self.measured_for = basis;
+        if let Some(key) = self.reader.as_ref().map(|open| open.key)
+            && let Some(item) = self.shown_items.get(&key)
+        {
+            let forms = self.reader_forms(item);
+            self.window
+                .set_reader_rows(if self.window.get_reader_as_source() {
+                    forms.source.clone()
+                } else {
+                    forms.formatted.clone()
+                });
+            self.shared.borrow_mut().reader = Some(forms);
         }
     }
 

@@ -866,6 +866,53 @@ fn a_larger_text_size_measures_the_pieces_again() {
     assert_eq!(text_past_the_bound(&view), Vec::<String>::new(), "at 300 %");
 }
 
+/// A text size changed in place, as Android's fontScale is, wakes the
+/// root, and the render it brings measures an open reader's rows again,
+/// in both forms (review F1 of #583).
+#[test]
+fn a_text_size_changed_in_place_wakes_the_root_and_measures_the_reader_again() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let font = |view: &View, size: f32| {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(size)));
+    };
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 20_000.0));
+    font(&view, 14.0);
+    let woken = std::rc::Rc::new(std::cell::Cell::new(0_u32));
+    {
+        let woken = std::rc::Rc::clone(&woken);
+        view.set_wake(move || woken.set(woken.get() + 1));
+    }
+    let alice = peer();
+    model.received(received(1, &alice, &"\u{1F600}".repeat(3000)));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        view.window().get_reader_open(),
+        "control: the reader is open"
+    );
+    assert_eq!(text_past_the_bound(&view), Vec::<String>::new(), "at 100 %");
+    let before = woken.get();
+    font(&view, 42.0);
+    slint::platform::update_timers_and_animations();
+    assert!(woken.get() > before, "the change wakes the root");
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(text_past_the_bound(&view), Vec::<String>::new(), "at 300 %");
+    view.window().invoke_reader_switch();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_as_source(), "control: as source");
+    assert_eq!(
+        text_past_the_bound(&view),
+        Vec::<String>::new(),
+        "at 300 %, as source"
+    );
+}
+
 /// The bubble says the cut line the mode shown draws, and only then: a
 /// body whole formatted and cut as source says none formatted and the
 /// source's once Show source is chosen (section 9; review F2 of #565).
