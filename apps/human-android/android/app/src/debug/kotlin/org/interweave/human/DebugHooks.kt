@@ -3,6 +3,7 @@
 package org.interweave.human
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -43,6 +44,9 @@ internal object DebugHooks {
     @JvmStatic private external fun refuseNextStoreOpen()
 
     /** Hear the hooks on the main thread while [service] runs; the unregistration. */
+    // Below API 33 registerReceiver takes no exported flag: a receiver
+    // registered at run time is exported there, and DUMP guards it.
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     fun register(service: Service, restart: () -> Unit): () -> Unit {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
