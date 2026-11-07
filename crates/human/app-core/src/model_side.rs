@@ -163,6 +163,64 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         self.model.daemon_seen(present);
     }
 
+    /// The service stopped under this model, which a root keeps showing
+    /// -- its rows, its open conversation, its drafts -- while the start
+    /// that follows is refused for the person (unlock note §11). What a
+    /// kept model must not do is what review F3 found in one: read Ready,
+    /// and hold a command in flight no facade will answer. So every
+    /// command in flight fails as [`Failure::ServiceStopped`], and the
+    /// session reads as a fresh model's with no service: not running.
+    pub fn stopped(&mut self) {
+        let in_flight: Vec<InFlight> = self.in_flight.drain().collect();
+        for waiting in in_flight {
+            match waiting {
+                InFlight::Other(command) => self.apply(Update::Failed {
+                    command,
+                    why: Failure::ServiceStopped,
+                }),
+                // Its text is the store's or the composer's already: only
+                // the claim that one send waits goes.
+                InFlight::Send(key) => self.problem(Problem::Command {
+                    command: Command::Send {
+                        key,
+                        draft: String::new(),
+                    },
+                    why: Failure::ServiceStopped,
+                }),
+            }
+        }
+        // The session a model made with no service reads: re-opening, said
+        // as "not running" while nothing serves the profile.
+        self.model
+            .client_event(ClientEvent::Session(SessionState::Reconnecting {
+                attempt: 0,
+                next_at: 0,
+            }));
+        self.model.daemon_seen(Some(false));
+    }
+
+    /// Every draft holding text ([`UiModel::drafts`]), for the model a new
+    /// runtime's start makes.
+    #[must_use]
+    pub fn drafts(&self) -> Vec<(ConversationKey, String)> {
+        self.model.drafts()
+    }
+
+    /// Carry `drafts` over from the model before this one: what is written
+    /// waits across a restart (unlock note §11, A17).
+    pub fn carry_drafts(&mut self, drafts: Vec<(ConversationKey, String)>) {
+        for (key, draft) in drafts {
+            self.model.draft_changed(key, draft);
+        }
+    }
+
+    /// This model is shown again over its surface, after another was:
+    /// what the surface reported to that one is reported again, as to a
+    /// model made new ([`Surface::model_made`]).
+    pub fn remade(&mut self) {
+        self.surface.model_made();
+    }
+
     /// Whether the platform gives this app network access, as the root
     /// sees it ([`UiModel::network_access`]).
     pub fn network_access(&mut self, allowed: bool) {
@@ -629,6 +687,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                         unrendered = true;
                         self.model.identifier_copied(key);
                     }
+                    ViewEvent::MessageCopied(key) => {
+                        unrendered = true;
+                        self.model.message_copied(key);
+                    }
                 }
             }
         }
@@ -917,6 +979,60 @@ mod tests {
         assert_eq!(made.get(), 1);
         let _second = ModelSide::new(Counting(std::rc::Rc::clone(&made)), Nothing);
         assert_eq!(made.get(), 2, "one per model");
+        side.remade();
+        assert_eq!(made.get(), 3, "and once more when one is shown again");
+    }
+
+    /// A model kept after its service stopped holds nothing in flight no
+    /// facade will answer, and reads no Ready session (review F3, kept
+    /// for unlock note §11). Mutations: `stopped` failing nothing; leaving
+    /// the session Ready.
+    #[test]
+    fn a_stopped_model_fails_what_is_in_flight_and_reads_no_ready_session() {
+        use interweave_human_ui_model::SessionNotice;
+        let mut side = ModelSide::new(Nothing, Nothing);
+        side.apply(Update::Client(ClientEvent::Session(SessionState::Ready {
+            endpoint: None,
+        })));
+        assert_eq!(side.model().session_notice(), None, "control: Ready");
+        let row = RowId::from_stored(7);
+        let read = side.command_for(Intent::MarkRead(row)).expect("issued");
+        assert!(
+            side.command_for(Intent::MarkRead(row)).is_none(),
+            "control: held in flight"
+        );
+
+        side.stopped();
+        assert_eq!(
+            side.take_problems(),
+            vec![Problem::Command {
+                command: read,
+                why: Failure::ServiceStopped
+            }]
+        );
+        assert_eq!(
+            side.model().session_notice(),
+            Some(SessionNotice::NoDaemon),
+            "the service reads as not running"
+        );
+        assert!(
+            side.command_for(Intent::MarkRead(row)).is_some(),
+            "nothing held in flight"
+        );
+    }
+
+    /// A draft carried over into a new model reads as written there.
+    #[test]
+    fn drafts_carry_over_into_a_new_model() {
+        let mut old = ModelSide::new(Nothing, Nothing);
+        let key = ConversationKey::Channel(
+            interweave_transport_api::ChannelId::parse("general").expect("a channel"),
+        );
+        old.model
+            .draft_changed(key.clone(), "still here".to_owned());
+        let mut new = ModelSide::new(Nothing, Nothing);
+        new.carry_drafts(old.drafts());
+        assert_eq!(new.model().composer(&key).draft, "still here");
     }
 
     fn started(undecodable_unread: usize, undecodable_other: usize) -> Update {

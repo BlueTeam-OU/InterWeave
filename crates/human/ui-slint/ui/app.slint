@@ -36,6 +36,9 @@ export enum Glyph {
     cloud, cloud-off,
     // The statuses (section 6's table).
     clock, check, check-outline, error, crossed, bookmark,
+    // A message's Read the whole message and Copy message source
+    // (design/2026-11-04-long-message.md sections 4.3 and 5.3).
+    expand, copy,
 }
 
 export struct ActionRow {
@@ -198,6 +201,23 @@ export struct BodyLine {
     continues: bool,
 }
 
+// One row of the reader (design/2026-11-04-long-message.md section 5):
+// when the message reached this app, a line of the body or a piece of its
+// source, or one of its links' controls.
+export enum ReaderRowKind { sent, line, source, link }
+
+export struct ReaderRow {
+    kind: ReaderRowKind,
+    // A line of the body (`line`).
+    line: BodyLine,
+    // The time line's words or a source piece; a link's label.
+    text: string,
+    // The time line's spoken form, the full date (section 8).
+    spoken: string,
+    // A link's index into the reader's links.
+    index: int,
+}
+
 // One link of a body: a separate control, activated only by a person,
 // labelled with its full destination (HUMAN-CHAT.md, human-client-ui.md
 // section 13). The index identifies the press, as an action's does.
@@ -240,6 +260,9 @@ export struct MessageRow {
     marks-above: int,
     // Short author, then status, then body (U5a).
     label: string,
+    // The same while the row shows its source: its cut line is the
+    // source's (design/2026-11-04-long-message.md section 9).
+    source-label: string,
     author: string,
     // The full PeerId of an inbound author, exact (§11, U5a); empty for
     // this client's own.
@@ -276,6 +299,11 @@ export struct MessageRow {
     // it rendered, under the same bounds as the body (HUMAN-CHAT.md): in
     // pieces, each character past the cluster bound one U+FFFD.
     source-pieces: [string],
+    // A cut body's line under its preview, drawn formatted and as source:
+    // it continues, and the share shown (design/2026-11-04-long-message.md
+    // section 4.2). Empty where that mode draws the body whole.
+    cut-line: string,
+    source-cut-line: string,
     // The body drawn from the block tree, and its links.
     lines: [BodyLine],
     links: [LinkRow],
@@ -618,6 +646,79 @@ component FocusRing inherits Rectangle {
     border-radius: root.radius + 5px;
     // Opacity rather than `visible`, so a test reads it.
     opacity: root.shown && FocusMode.keyboard ? 1 : 0;
+}
+
+// The most a drawn item spans, in logical px, either way (HUMAN-CHAT.md,
+// Bounds: architect-cto's DECISION 01a1ab12). The desktop's software
+// renderer keeps an item's geometry in 16 bits of physical px, so four
+// times this is under its ceiling and the bound holds to scale 4 by
+// construction; an item that may grow with a body is drawn in pieces.
+export global Tile {
+    out property <length> extent: 8000px;
+}
+
+// A fill drawn as slices no taller than `Tile.extent`, stacked to cover
+// the element, its corners on the first and last slice
+// (`no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent`).
+component Tiled {
+    in property <brush> fill;
+    in property <length> top-left-radius;
+    in property <length> top-right-radius;
+    in property <length> bottom-left-radius;
+    in property <length> bottom-right-radius;
+    property <int> count: max(1, ceil(root.height / Tile.extent));
+    for i in root.count: Rectangle {
+        x: 0px;
+        y: i * Tile.extent;
+        width: root.width;
+        height: min(Tile.extent, root.height - i * Tile.extent);
+        background: root.fill;
+        border-top-left-radius: i == 0 ? root.top-left-radius : 0px;
+        border-top-right-radius: i == 0 ? root.top-right-radius : 0px;
+        border-bottom-left-radius: i == root.count - 1 ? root.bottom-left-radius : 0px;
+        border-bottom-right-radius: i == root.count - 1 ? root.bottom-right-radius : 0px;
+    }
+}
+
+// A container that draws nothing itself: where a Rectangle would hold a
+// row's content, which is as tall as its body. A Rectangle for its
+// geometry (its children fill it, as a Rectangle's do) with no fill, no
+// border and no radius: the software renderer draws such a rectangle by
+// no cast of its geometry (i-slint-renderer-software 1.18.1's
+// `color.alpha > 0` guard), so its extent is no drawn item's. Never give
+// it one: a drawing property belongs on a `Tiled` inside it.
+component Plain inherits Rectangle {
+}
+
+// A message row's focus ring once the row is taller than `Tile.extent`:
+// its four sides as strips, the long two tiled, square-cornered. Shown by
+// its colour, not its opacity, which would lay out a layer as tall as the
+// row.
+component TallRing inherits Plain {
+    in property <bool> shown;
+    property <brush> ink: root.shown && FocusMode.keyboard ? Palette.primary : transparent;
+    Tiled {
+        x: 0px;
+        width: 3px;
+        height: root.height;
+        fill: root.ink;
+    }
+    Tiled {
+        x: root.width - 3px;
+        width: 3px;
+        height: root.height;
+        fill: root.ink;
+    }
+    Rectangle {
+        y: 0px;
+        height: 3px;
+        background: root.ink;
+    }
+    Rectangle {
+        y: root.height - 3px;
+        height: 3px;
+        background: root.ink;
+    }
 }
 
 // Each window's content sits in one: a Tab or Shift+Tab pressed while
@@ -1202,6 +1303,24 @@ global Type {
     out property <relative-font-size> label-large: 14rem / 14;
 }
 
+// The reader's scroll, its rows laid out as they come near the screen: the
+// toolkit does that for the rows of a `for` inside an element named `ListView` that
+// has these five properties (i-slint-compiler, object_tree.rs). Over the
+// plain Flickable, since std-widgets' ScrollView needs an image feature
+// the graph does not carry (as the conversation's list).
+component ListView inherits Rectangle {
+    in-out property <length> content-x <=> flick.content-x;
+    in-out property <length> content-y <=> flick.content-y;
+    in-out property <length> content-width <=> flick.content-width;
+    in-out property <length> content-height <=> flick.content-height;
+    out property <length> visible-width <=> flick.width;
+    out property <length> visible-height <=> flick.height;
+    in property <bool> interactive <=> flick.interactive;
+    flick := Flickable {
+        @children
+    }
+}
+
 component GlyphIcon {
     in property <Glyph> glyph;
     in property <color> ink;
@@ -1216,6 +1335,8 @@ component GlyphIcon {
         : glyph == Glyph.retry ? "M 20 12 A 8 8 0 1 1 17.66 6.34 M 18 2 L 18 7 L 13 7"
         : glyph == Glyph.cancel ? "M 6 6 L 18 18 M 18 6 L 6 18"
         : glyph == Glyph.source ? "M 8 7 L 3 12 L 8 17 M 16 7 L 21 12 L 16 17"
+        : glyph == Glyph.expand ? "M 4 9 L 4 4 L 9 4 M 15 4 L 20 4 L 20 9 M 20 15 L 20 20 L 15 20 M 9 20 L 4 20 L 4 15"
+        : glyph == Glyph.copy ? "M 9 9 L 20 9 L 20 20 L 9 20 Z M 5 15 L 4 15 L 4 4 L 15 4 L 15 5"
         : glyph == Glyph.shield ? "M 12 2 L 20 5 L 20 11 C 20 16 16.5 20 12 22 C 7.5 20 4 16 4 11 L 4 5 Z"
         : glyph == Glyph.back && !rtl ? "M 20 12 L 4 12 M 10 6 L 4 12 L 10 18"
         : glyph == Glyph.back ? "M 4 12 L 20 12 M 14 6 L 20 12 L 14 18"
@@ -1362,35 +1483,52 @@ component Avatar inherits Rectangle {
 // armed -- with the icon scaled up, so colour is never the only sign
 // (swipe spec section 7). For sight only: the row's buttons are what a
 // screen reader reaches.
-component SwipeReveal inherits Rectangle {
+component SwipeReveal inherits Plain {
     in property <SwipeKind> kind;
     in property <string> label;
     in property <bool> armed;
     // The uncovered side is the left (the row moved right).
     in property <bool> at-left;
     in property <bool> reduced-motion;
+    // Its corners, the shape it uncovers: not the Rectangle's own radius,
+    // which `Plain` never takes.
+    in property <length> corner-radius;
     accessible-role: none;
-    background: !root.armed ? Palette.swipe-neutral
-        : root.kind == SwipeKind.keep || root.kind == SwipeKind.accept ? Palette.swipe-keep
-        : root.kind == SwipeKind.retry ? Palette.swipe-retry
-        : Palette.swipe-remove;
+    // As tall as the bubble, which may pass `Tile.extent`: its fill tiled,
+    // and its icon and label at their own height, centred.
+    Tiled {
+        width: root.width;
+        height: root.height;
+        fill: !root.armed ? Palette.swipe-neutral
+            : root.kind == SwipeKind.keep || root.kind == SwipeKind.accept ? Palette.swipe-keep
+            : root.kind == SwipeKind.retry ? Palette.swipe-retry
+            : Palette.swipe-remove;
+        top-left-radius: root.corner-radius;
+        top-right-radius: root.corner-radius;
+        bottom-left-radius: root.corner-radius;
+        bottom-right-radius: root.corner-radius;
+    }
     HorizontalLayout {
         padding-left: 16px;
         padding-right: 16px;
         spacing: 8px;
         alignment: root.at-left ? start : end;
-        icon := SwipeIcon {
-            kind: root.kind;
-            ink: root.armed ? Palette.swipe-on-fill : Palette.swipe-on-neutral;
-            y: (parent.height - self.height) / 2;
-            transform-scale: root.armed ? 1.2 : 1.0;
-            animate transform-scale { duration: root.reduced-motion ? 0ms : 100ms; }
+        VerticalLayout {
+            alignment: center;
+            icon := SwipeIcon {
+                kind: root.kind;
+                ink: root.armed ? Palette.swipe-on-fill : Palette.swipe-on-neutral;
+                transform-scale: root.armed ? 1.2 : 1.0;
+                animate transform-scale { duration: root.reduced-motion ? 0ms : 100ms; }
+            }
         }
-        Text {
-            text: root.label;
-            color: root.armed ? Palette.swipe-on-fill : Palette.swipe-on-neutral;
-            vertical-alignment: center;
-            accessible-role: none;
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: root.label;
+                color: root.armed ? Palette.swipe-on-fill : Palette.swipe-on-neutral;
+                accessible-role: none;
+            }
         }
     }
 }
@@ -1665,8 +1803,13 @@ component NoticeCard inherits Rectangle {
             accessible-label: self.text;
             accessible-live-region: polite;
         }
+        // Focus on the action reads why it is there: the notice's text,
+        // which its live region says only when the notice appears -- a
+        // return to a notice already shown would read "Unlock, button"
+        // alone (unlock note section 11, F12).
         if root.has-action: ActionButton {
             text: root.action;
+            detail: root.message;
             focus-key: root.action-key;
             focus-seq: root.focus-seq;
             focus-wanted: root.focus-wanted;
@@ -3703,7 +3846,7 @@ component ProposalEntry inherits Rectangle {
                         armed: root.swipe-armed;
                         at-left: proposal-row.offset > 0px;
                         reduced-motion: root.reduced-motion;
-                        border-radius: 12px;
+                        corner-radius: 12px;
                     }
                     // Moved by its padding, as a message row is, so the
                     // card keeps its width.
@@ -4140,6 +4283,10 @@ export component AppWindow inherits Window {
     in-out property <int> row-menu: -1;
     property <[ActionRow]> row-menu-actions;
     property <string> row-menu-source;
+    // The row's body is cut in the mode it shows, which the reader opens in
+    // (design/2026-11-04-long-message.md section 4.3).
+    property <bool> row-menu-cut;
+    property <bool> row-menu-as-source;
     in property <string> card-sent-label;
     property <string> row-menu-detail;
     property <length> row-menu-x;
@@ -4180,16 +4327,32 @@ export component AppWindow inherits Window {
     // Show source chosen from a menu, for the row that keeps the choice.
     property <int> source-toggle: -1;
     property <int> source-toggle-seq;
-    function open-row-menu(handle: int, actions: [ActionRow], source: string, detail: string,
-        x: length, y: length, w: length, h: length) {
+    function open-row-menu(handle: int, actions: [ActionRow], source: string, cut: bool,
+        as-source: bool, detail: string, x: length, y: length, w: length, h: length) {
         root.row-menu-actions = actions;
         root.row-menu-source = source;
+        root.row-menu-cut = cut;
+        root.row-menu-as-source = as-source;
         root.row-menu-detail = detail;
         root.row-menu-x = x;
         root.row-menu-y = y;
         root.row-menu-w = w;
         root.row-menu-h = h;
         root.row-menu = handle;
+    }
+    // The message's whole source to the clipboard, through the same field
+    // Peers' Copy uses (section 5.3, A9; tests/long_message.rs
+    // copy_gives_the_source_as_received_and_a_snackbar_confirms_it). A row
+    // gone since its menu opened has no source: nothing is copied, and
+    // nothing says it was (copy_of_a_row_gone_confirms_nothing).
+    function copy-message(handle: int) {
+        root.copy-text = root.message-source(handle);
+        if (root.copy-text == "") { return; }
+        peers-copy.select-all();
+        peers-copy.copy();
+        peers-copy.clear-selection();
+        root.copy-text = "";
+        root.message-copied();
     }
     // Closed with nothing done (Escape, Back, a tap outside): focus back
     // on its bubble.
@@ -4200,6 +4363,36 @@ export component AppWindow inherits Window {
         root.focus-seq += 1;
     }
     callback link(int, int);
+    // Read the whole message: the row's handle, and whether it shows its
+    // source (section 4.3).
+    callback read-whole(int, bool);
+    in property <string> read-whole-label;
+    // Copy message source (section 5.3): the message's source, byte for
+    // byte, which the view copies; and that it did, for the feedback.
+    callback message-source(int) -> string;
+    callback message-copied();
+    // The copy field's size as laid out, which tests/long_message.rs
+    // the_copy_field_has_no_size reads: the testing tree leaves the
+    // invisible field out.
+    out property <length> copy-field-width: peers-copy.width;
+    out property <length> copy-field-height: peers-copy.height;
+    in property <string> copy-message-label;
+    // The reader (section 5): over the conversation's pane, which stays
+    // as it was underneath for when it closes. Its rows, built by the view
+    // in the mode shown; whether that is the source; its title, the
+    // sender as the conversation shows them.
+    in property <bool> reader-open;
+    in property <[ReaderRow]> reader-rows;
+    in property <bool> reader-as-source;
+    in property <string> reader-title;
+    // The message the reader shows, by its row's handle.
+    in property <int> reader-handle: -1;
+    // Back or Escape: the reader closes (section 5.4).
+    callback reader-close();
+    // Show source / Show formatted in the reader: the view builds the
+    // other form's rows.
+    callback reader-switch();
+    callback reader-link(int);
     callback send();
     callback notice-pressed();
     callback draft-edited(string);
@@ -4683,6 +4876,10 @@ export component AppWindow inherits Window {
             root.close-menu();
             return true;
         }
+        if (root.reader-open) {
+            root.reader-close();
+            return true;
+        }
         if (root.trust-page && root.has-pending) {
             root.trust-cancel();
             return true;
@@ -4731,7 +4928,13 @@ export component AppWindow inherits Window {
         focus-on-click: false;
 
         // What Peers' Copy copies, through the platform's clipboard as a
-        // field's copy would. Never shown.
+        // field's copy would. Never shown. Its zero size is also what keeps
+        // a message's source, a cluster past HUMAN-CHAT.md's bound
+        // included, from the shaper: the toolkit answers a zero-size
+        // field's cursor before laying its text out (i-slint-core 1.18.1,
+        // sharedparley text_input_cursor_rect_for_byte_offset), and Copy
+        // gives the bytes as received, so they cannot be made drawable
+        // (tests/long_message.rs the_copy_field_has_no_size).
         peers-copy := TextInput {
             x: 0;
             y: 0;
@@ -4897,6 +5100,8 @@ export component AppWindow inherits Window {
                     message: root.notice;
                     has-action: root.has-notice-action;
                     action: root.notice-action;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "chats-notice";
                     pressed => { root.notice-pressed(); }
                     focused(k) => { root.focus-id = k; }
                 }
@@ -6953,8 +7158,18 @@ export component AppWindow inherits Window {
                 }
             }
             }
-            if !root.trust-page && !root.peers-page && root.cards-page == CardsPage.none: VerticalLayout {
+            // The conversation's pane, and the reader over it in the same
+            // cell (design/2026-11-04-long-message.md section 5.1): on a
+            // narrow window the pane is the app, on a wide one the list
+            // stays beside it.
+            if !root.trust-page && !root.peers-page && root.cards-page == CardsPage.none: GridLayout {
                 visible: root.pane-shown;
+                VerticalLayout {
+                row: 0;
+                col: 0;
+                // Under the reader, kept as it is: its scroll, its rows and
+                // their modes are where the person left them (section 5.4).
+                visible: !root.reader-open;
                 padding: 12px;
                 // With the app bar aside, the list begins at the pane's top: the
                 // padding was there to set the bar off the window's edge, and
@@ -7067,6 +7282,8 @@ export component AppWindow inherits Window {
                     message: root.notice;
                     has-action: root.has-notice-action;
                     action: root.notice-action;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "pane-notice";
                     init => { root.notice-height = self.height; }
                     changed height => { root.notice-height = self.height; }
                     pressed => { root.notice-pressed(); }
@@ -7409,8 +7626,11 @@ export component AppWindow inherits Window {
                         property <bool> at-left: row.outbound == root.rtl;
                         property <TextHorizontalAlignment> text-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                         property <string> source-label: item.show-source ? root.show-formatted-label : root.show-source-label;
+                        // The body is cut in the mode shown: its preview, this
+                        // line and Read the whole message (section 4).
+                        property <string> cut-line: item.show-source ? row.source-cut-line : row.cut-line;
                         accessible-role: list-item;
-                        accessible-label: row.label;
+                        accessible-label: self.show-source ? row.source-label : row.label;
                         accessible-item-index: index;
                         accessible-item-count: root.messages.length;
                         changed has-focus => {
@@ -7428,7 +7648,9 @@ export component AppWindow inherits Window {
                         // click, or the default action a screen reader activates.
                         function open-menu() {
                             if (!row.has-menu) { return; }
-                            root.open-row-menu(row.handle, row.actions, row.card ? "" : item.source-label, row.label,
+                            root.open-row-menu(row.handle, row.actions, row.card ? "" : item.source-label,
+                                item.cut-line != "", item.show-source,
+                                item.show-source ? row.source-label : row.label,
                                 bubble-column.absolute-position.x, bubble-column.absolute-position.y,
                                 bubble-column.width, bubble-column.height);
                         }
@@ -7450,7 +7672,9 @@ export component AppWindow inherits Window {
                             duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
                             easing: ease-out;
                         }
-                        Rectangle {
+                        // As tall as the body: a container that draws nothing
+                        // (the item bound, `Tile`).
+                        Plain {
                         // The toolkit's handler takes a drag away from the controls
                         // inside it once it moves in a direction this row offers;
                         // what the drag MEANS is decided in Rust (gesture.rs), by
@@ -7482,7 +7706,7 @@ export component AppWindow inherits Window {
                                 // follows the bubble.
                                 y: bubble-column.absolute-position.y - swipe-area.absolute-position.y;
                                 height: bubble-column.height;
-                                border-radius: 18px;
+                                corner-radius: 18px;
                             }
                             // Moved by its padding rather than its x, which would
                             // take it out of the layout that sizes the row: the
@@ -7490,8 +7714,14 @@ export component AppWindow inherits Window {
                             HorizontalLayout {
                                 padding-left: item.offset;
                                 padding-right: -item.offset;
-                            Rectangle {
-                                background: Palette.surface;
+                            // The row's surface, hiding the reveal behind it: tiled,
+                            // as tall as the body (the item bound, `Tile`).
+                            Plain {
+                            Tiled {
+                                width: parent.width;
+                                height: parent.height;
+                                fill: Palette.surface;
+                            }
                         // Under the row's controls, the part of the row that is no
                         // control takes the press. Left to the handler, which grabs
                         // it, a drag the row does not offer ends with no callback,
@@ -7537,27 +7767,32 @@ export component AppWindow inherits Window {
                         // The bubble's fill (section 6), drawn under its content and
                         // placed on the content's own geometry, so it covers exactly
                         // what the bubble draws.
-                        Rectangle {
+                        // Tiled: a bubble is as tall as its body (the item bound).
+                        Tiled {
                             x: bubble-column.absolute-position.x - content.absolute-position.x;
                             y: bubble-column.absolute-position.y - content.absolute-position.y;
                             width: bubble-column.width;
                             height: bubble-column.height;
-                            background: row.outbound ? Palette.primary-container : Palette.surface-container-high;
+                            fill: row.outbound ? Palette.primary-container : Palette.surface-container-high;
                             // 18 px corners, the one nearest the sender 6 px.
-                            border-top-left-radius: 18px;
-                            border-top-right-radius: 18px;
-                            border-bottom-left-radius: item.at-left ? 6px : 18px;
-                            border-bottom-right-radius: item.at-left ? 18px : 6px;
-                            // While its menu is open, the bubble keeps a pressed
-                            // state layer, so the person sees which message it is
-                            // about (look spec section 6).
-                            if root.row-menu == row.handle: Rectangle {
-                                background: Palette.on-surface.with-alpha(0.1);
-                                border-top-left-radius: 18px;
-                                border-top-right-radius: 18px;
-                                border-bottom-left-radius: item.at-left ? 6px : 18px;
-                                border-bottom-right-radius: item.at-left ? 18px : 6px;
-                            }
+                            top-left-radius: 18px;
+                            top-right-radius: 18px;
+                            bottom-left-radius: item.at-left ? 6px : 18px;
+                            bottom-right-radius: item.at-left ? 18px : 6px;
+                        }
+                        // While its menu is open, the bubble keeps a pressed
+                        // state layer, so the person sees which message it is
+                        // about (look spec section 6).
+                        if root.row-menu == row.handle: Tiled {
+                            x: bubble-column.absolute-position.x - content.absolute-position.x;
+                            y: bubble-column.absolute-position.y - content.absolute-position.y;
+                            width: bubble-column.width;
+                            height: bubble-column.height;
+                            fill: Palette.on-surface.with-alpha(0.1);
+                            top-left-radius: 18px;
+                            top-right-radius: 18px;
+                            bottom-left-radius: item.at-left ? 6px : 18px;
+                            bottom-right-radius: item.at-left ? 18px : 6px;
                         }
                         content := VerticalLayout {
                             // Room for a control's focus ring, which the list clips
@@ -7777,6 +8012,37 @@ export component AppWindow inherits Window {
                                                 accessible-label: self.text;
                                             }
                                         }
+                                        // A cut body's line, then the way to the whole of it, at
+                                        // the bubble's start edge: in sight beside the line that
+                                        // says there is more (section 4.3). Before the links, so
+                                        // Tab reaches it after the bubble (section 9). Its words
+                                        // are in the bubble's label for the mode shown, so said
+                                        // once (`the_cut_line_is_said_in_the_mode_that_draws_it`).
+                                        if item.cut-line != "": Text {
+                                            text: item.cut-line;
+                                            wrap: word-wrap;
+                                            min-height: self.preferred-height;
+                                            min-width: 0;
+                                            color: Palette.on-surface-variant;
+                                            font-size: Type.body-medium;
+                                            horizontal-alignment: item.text-alignment;
+                                            accessible-role: none;
+                                        }
+                                        if item.cut-line != "": HorizontalLayout {
+                                            alignment: start;
+                                            ActionButton {
+                                                text: root.read-whole-label;
+                                                text-button: true;
+                                                target: 48px;
+                                                // `primary` on both bubbles (section 9's contrast).
+                                                ink: Palette.primary;
+                                                focus-key: "read:" + row.handle;
+                                                focus-seq: root.focus-seq;
+                                                focus-wanted: root.focus-target == "read:" + row.handle;
+                                                pressed => { root.read-whole(row.handle, item.show-source); }
+                                                focused(k) => { root.focus-id = k; }
+                                            }
+                                        }
                                         // One control per link, after the text it came from, its full
                                         // destination as its label; nothing opens but a person's
                                         // activation. Part of the drawn body: the source shown in
@@ -7871,7 +8137,15 @@ export component AppWindow inherits Window {
                             }
                         }
                         }
-                        FocusRing {
+                        // A row past the item bound takes a ring in strips.
+                        if item.height + 10px <= Tile.extent: FocusRing {
+                            x: -5px;
+                            y: -5px;
+                            width: item.width + 10px;
+                            height: item.height + 10px;
+                            shown: item.has-focus;
+                        }
+                        if item.height + 10px > Tile.extent: TallRing {
                             x: -5px;
                             y: -5px;
                             width: item.width + 10px;
@@ -7943,7 +8217,7 @@ export component AppWindow inherits Window {
                 }
                 // The snackbar (swipe spec section 6): above the composer,
                 // never over it; one at a time.
-                if root.snack-shown && !root.snack-on-list && !root.snack-on-cards: Snackbar {
+                if root.snack-shown && !root.snack-on-list && !root.snack-on-cards && !root.reader-open: Snackbar {
                     text: root.snack-text;
                     undo: root.snack-undo;
                     undo-label: root.undo-label;
@@ -8074,6 +8348,10 @@ export component AppWindow inherits Window {
                                     changed has-focus => {
                                         if (self.has-focus) { root.focus-id = "composer"; }
                                     }
+                                    property <int> focus-seq: root.focus-seq;
+                                    changed focus-seq => {
+                                        if (root.focus-target == "composer") { self.focus(); }
+                                    }
                                     // The line being written stays in view.
                                     cursor-position-changed(at) => {
                                         if (at.y + composer-field.content-y < 0px) {
@@ -8098,6 +8376,314 @@ export component AppWindow inherits Window {
                             active: root.draft != "";
                             focus-key: "send";
                             pressed => { root.send(); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                }
+            }
+                // The reader (section 5): the whole message, one scroll whose
+                // rows are laid out as they come near the screen. On the
+                // desktop Escape is its
+                // Back, as on a card page.
+                if root.reader-open: FocusScope {
+                    row: 0;
+                    col: 0;
+                    focus-on-click: false;
+                    focus-on-tab-navigation: false;
+                    key-pressed(event) => {
+                        if (event.text == Key.Escape) {
+                            root.reader-close();
+                            return accept;
+                        }
+                        reject
+                    }
+                    Rectangle {
+                        background: Palette.surface;
+                    }
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        // Back, the sender, Show source or Show formatted, and
+                        // Copy (section 5.1). Right to left the layout is
+                        // mirrored by hand, as the conversation's bar is.
+                        HorizontalLayout {
+                            min-height: 64px;
+                            spacing: 8px;
+                            if !root.rtl: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    glyph: Glyph.back;
+                                    rtl: root.rtl;
+                                    ink: Palette.on-surface;
+                                    label: root.back-label;
+                                    focus-key: "reader-back";
+                                    pressed => { root.reader-close(); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                            if root.rtl: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    glyph: Glyph.copy;
+                                    label: root.copy-message-label;
+                                    focus-key: "reader-copy";
+                                    pressed => { root.copy-message(root.reader-handle); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                            if root.rtl: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    glyph: Glyph.source;
+                                    label: root.reader-as-source ? root.show-formatted-label : root.show-source-label;
+                                    focus-key: "reader-source";
+                                    pressed => { reader-scroll.switch(); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                Text {
+                                    text: root.reader-title;
+                                    font-size: Type.title-medium;
+                                    font-weight: 500;
+                                    color: Palette.on-surface;
+                                    overflow: elide;
+                                    horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
+                                }
+                            }
+                            if !root.rtl: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    glyph: Glyph.source;
+                                    label: root.reader-as-source ? root.show-formatted-label : root.show-source-label;
+                                    focus-key: "reader-source";
+                                    pressed => { reader-scroll.switch(); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                            if !root.rtl: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    glyph: Glyph.copy;
+                                    label: root.copy-message-label;
+                                    focus-key: "reader-copy";
+                                    pressed => { root.copy-message(root.reader-handle); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                            if root.rtl: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    glyph: Glyph.back;
+                                    rtl: root.rtl;
+                                    ink: Palette.on-surface;
+                                    label: root.back-label;
+                                    focus-key: "reader-back";
+                                    pressed => { root.reader-close(); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                        }
+                        // The scroll area, which takes focus as the reader
+                        // opens, so arrows and Page keys scroll at once
+                        // (section 9).
+                        reader-scroll := FocusScope {
+                            vertical-stretch: 1;
+                            focus-gained(reason) => {
+                                if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+                            }
+                            changed has-focus => {
+                                if (self.has-focus) { root.focus-id = "reader-scroll"; }
+                            }
+                            // Focused as the reader opens. Focused from its
+                            // first value, so `changed has-focus` does not run for
+                            // it: it says where focus is itself.
+                            init => {
+                                self.focus();
+                                root.focus-id = "reader-scroll";
+                            }
+                            // How far the content may scroll, as a negative y.
+                            property <length> bottom: min(0px, reader-list.visible-height - reader-list.content-height);
+                            function scroll-to(y: length) {
+                                reader-list.content-y = max(self.bottom, min(0px, y));
+                            }
+                            // The other form, at about the same place: the share
+                            // scrolled through is kept (section 5.2).
+                            public function switch() {
+                                let share = self.bottom < 0px ? reader-list.content-y / self.bottom : 0;
+                                root.reader-switch();
+                                self.scroll-to(share * self.bottom);
+                            }
+                            key-pressed(event) => {
+                                if (event.text == Key.UpArrow) { self.scroll-to(reader-list.content-y + 40px); return accept; }
+                                if (event.text == Key.DownArrow) { self.scroll-to(reader-list.content-y - 40px); return accept; }
+                                if (event.text == Key.PageUp) { self.scroll-to(reader-list.content-y + reader-list.visible-height * 0.9); return accept; }
+                                if (event.text == Key.PageDown) { self.scroll-to(reader-list.content-y - reader-list.visible-height * 0.9); return accept; }
+                                if (event.text == Key.Home) { self.scroll-to(0px); return accept; }
+                                if (event.text == Key.End) { self.scroll-to(self.bottom); return accept; }
+                                reject
+                            }
+                            accessible-role: list;
+                            accessible-label: root.reader-title;
+                            reader-list := ListView {
+                                width: parent.width;
+                                height: parent.height;
+                                for r in root.reader-rows: VerticalLayout {
+                                    padding-top: r.kind == ReaderRowKind.line && r.line.joined ? 0px : 4px;
+                                    padding-right: 12px;
+                                    if r.kind == ReaderRowKind.sent: Text {
+                                        text: r.text;
+                                        wrap: word-wrap;
+                                        min-height: self.preferred-height;
+                                        min-width: 0;
+                                        color: Palette.on-surface-variant;
+                                        font-size: Type.body-medium;
+                                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                        accessible-role: text;
+                                        accessible-label: r.spoken;
+                                    }
+                                    if r.kind == ReaderRowKind.source: Text {
+                                        text: r.text;
+                                        wrap: word-wrap;
+                                        min-height: self.preferred-height;
+                                        min-width: 0;
+                                        color: Palette.on-surface;
+                                        font-family: root.code-font;
+                                        font-size: Type.body-medium;
+                                        accessible-role: text;
+                                        accessible-label: self.text;
+                                    }
+                                    if r.kind == ReaderRowKind.link: LinkButton {
+                                        text: r.text;
+                                        focus-key: "reader-link:" + r.index;
+                                        pressed => { root.reader-link(r.index); }
+                                        focused(k) => { root.focus-id = k; }
+                                    }
+                                    // A line of the body, drawn as the bubble draws it,
+                                    // on `surface` (section 5.1).
+                                    if r.kind == ReaderRowKind.line: HorizontalLayout {
+                                        padding-left: root.rtl ? 0px : r.line.depth * 16px;
+                                        padding-right: root.rtl ? r.line.depth * 16px : 0px;
+                                        spacing: 6px;
+                                        if r.line.quoted && !root.rtl: Rectangle {
+                                            width: 3px;
+                                            background: Palette.on-surface;
+                                        }
+                                        if r.line.marker != "" && !root.rtl: Text {
+                                            horizontal-stretch: 0;
+                                            text: r.line.marker;
+                                            color: r.line.joined ? transparent : Palette.on-surface;
+                                            font-size: Type.body-large;
+                                            accessible-role: none;
+                                        }
+                                        if r.line.kind == LineKind.rule: Rectangle {
+                                            height: 1px;
+                                            background: Palette.on-surface;
+                                        }
+                                        if r.line.kind != LineKind.rule && r.line.kind != LineKind.code: Text {
+                                            horizontal-stretch: 1;
+                                            text: r.line.text;
+                                            wrap: word-wrap;
+                                            min-height: self.preferred-height;
+                                            min-width: 0;
+                                            color: Palette.on-surface;
+                                            font-weight: r.line.kind == LineKind.heading || r.line.kind == LineKind.table-header ? 700 : 400;
+                                            font-size: r.line.kind != LineKind.heading ? Type.body-large
+                                                : r.line.level == 1 ? 20rem / 14
+                                                : r.line.level == 2 ? 18rem / 14
+                                                : Type.body-large;
+                                            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                            accessible-role: text;
+                                            accessible-label: r.line.marker != "" && !r.line.joined ? r.line.marker + " " + self.text : self.text;
+                                        }
+                                        if r.line.kind == LineKind.code: Rectangle {
+                                            property <length> pad-top: r.line.joined ? 0px : 6px;
+                                            property <length> pad-bottom: r.line.continues ? 0px : 6px;
+                                            horizontal-stretch: 1;
+                                            // Set off from the reader's `surface`.
+                                            background: Palette.surface-container-high;
+                                            border-top-left-radius: r.line.joined ? 0px : 4px;
+                                            border-top-right-radius: r.line.joined ? 0px : 4px;
+                                            border-bottom-left-radius: r.line.continues ? 0px : 4px;
+                                            border-bottom-right-radius: r.line.continues ? 0px : 4px;
+                                            height: reader-code.preferred-height + self.pad-top + self.pad-bottom;
+                                            reader-code := Text {
+                                                x: 6px;
+                                                y: parent.pad-top;
+                                                width: parent.width - 12px;
+                                                text: r.line.text;
+                                                wrap: word-wrap;
+                                                min-height: self.preferred-height;
+                                                color: Palette.on-surface;
+                                                font-family: root.code-font;
+                                                font-size: Type.body-medium;
+                                                accessible-role: text;
+                                                accessible-label: self.text;
+                                            }
+                                        }
+                                        if r.line.marker != "" && root.rtl: Text {
+                                            horizontal-stretch: 0;
+                                            text: r.line.marker;
+                                            color: r.line.joined ? transparent : Palette.on-surface;
+                                            font-size: Type.body-large;
+                                            accessible-role: none;
+                                        }
+                                        if r.line.quoted && root.rtl: Rectangle {
+                                            width: 3px;
+                                            background: Palette.on-surface;
+                                        }
+                                    }
+                                }
+                            }
+                            // Where the person is in the body, and a thumb to
+                            // move through it quickly (section 5.1): drawn once
+                            // the body is taller than the screen.
+                            if reader-list.content-height > reader-list.visible-height: Rectangle {
+                                property <float> shown: reader-list.visible-height / reader-list.content-height;
+                                x: root.rtl ? 0px : parent.width - 8px;
+                                width: 8px;
+                                height: max(48px, parent.height * self.shown);
+                                y: reader-scroll.bottom < 0px
+                                    ? (parent.height - self.height) * (reader-list.content-y / reader-scroll.bottom)
+                                    : 0px;
+                                border-radius: 4px;
+                                background: Palette.outline;
+                                thumb-touch := TouchArea {
+                                    // 48 px across for a finger, over the thumb's
+                                    // own 8.
+                                    x: root.rtl ? 0px : parent.width - 48px;
+                                    width: 48px;
+                                    property <length> start-y;
+                                    pointer-event(event) => {
+                                        if (event.kind == PointerEventKind.down) {
+                                            self.start-y = parent.y;
+                                        }
+                                    }
+                                    moved => {
+                                        if (self.pressed && reader-scroll.bottom < 0px) {
+                                            let travel = reader-scroll.height - parent.height;
+                                            let y = self.start-y + self.mouse-y - self.pressed-y;
+                                            reader-scroll.scroll-to(travel > 0px ? reader-scroll.bottom * max(0, min(1, y / travel)) : 0px);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // The conversation's snackbar, over the reader that
+                        // covers it: Copy's confirmation (section 5.3).
+                        if root.snack-shown && !root.snack-on-list && !root.snack-on-cards: Snackbar {
+                            text: root.snack-text;
+                            undo: root.snack-undo;
+                            undo-label: root.undo-label;
+                            snack-id: root.snack-id;
+                            focus-seq: root.focus-seq;
+                            rtl: root.rtl;
+                            undo-pressed(id) => { root.undo(id); }
+                            dismissed(id) => { root.snack-closed(id); }
                             focused(k) => { root.focus-id = k; }
                         }
                     }
@@ -8446,15 +9032,52 @@ export component AppWindow inherits Window {
                     closed => { root.close-row-menu(); }
                     focused(k) => { root.focus-id = k; }
                 }
-                // No Show source on an own card row: a card has no markdown
-                // source (contact-cards 5.5), so its menu passes none.
+                // Then, on a cut row, Read the whole message; on every text
+                // row Copy message source; Show source last
+                // (design/2026-11-04-long-message.md section 4.3). A card
+                // row has none of the three: it has no markdown source
+                // (contact-cards 5.5), so its menu passes none.
+                if root.row-menu-cut: MenuItem {
+                    text: root.read-whole-label;
+                    detail: root.row-menu-detail;
+                    iconed: true;
+                    glyph: Glyph.expand;
+                    focus-key: "read-item:" + root.row-menu;
+                    first: root.row-menu-actions.length == 0;
+                    rtl: root.rtl;
+                    pressed => {
+                        let handle = root.row-menu;
+                        root.close-row-menu();
+                        root.read-whole(handle, root.row-menu-as-source);
+                    }
+                    closed => { root.close-row-menu(); }
+                    focused(k) => { root.focus-id = k; }
+                }
+                if root.row-menu-source != "": MenuItem {
+                    text: root.copy-message-label;
+                    detail: root.row-menu-detail;
+                    iconed: true;
+                    glyph: Glyph.copy;
+                    focus-key: "copy-item:" + root.row-menu;
+                    first: root.row-menu-actions.length == 0 && !root.row-menu-cut;
+                    rtl: root.rtl;
+                    pressed => {
+                        // Focus back on the bubble, as a menu closed with
+                        // nothing done (section 9).
+                        let handle = root.row-menu;
+                        root.close-row-menu();
+                        root.copy-message(handle);
+                    }
+                    closed => { root.close-row-menu(); }
+                    focused(k) => { root.focus-id = k; }
+                }
                 if root.row-menu-source != "": MenuItem {
                     text: root.row-menu-source;
                     detail: root.row-menu-detail;
                     iconed: true;
                     glyph: Glyph.source;
                     focus-key: "source:" + root.row-menu;
-                    first: root.row-menu-actions.length == 0;
+                    first: false;
                     rtl: root.rtl;
                     pressed => {
                         root.source-toggle = root.row-menu;

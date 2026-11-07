@@ -35,7 +35,7 @@ use interweave_human_ui_model::{
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
-use interweave_human_ui_model::{body, cluster};
+use interweave_human_ui_model::{body, cluster, cut};
 mod cards;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod clipboard;
@@ -45,6 +45,7 @@ mod connect;
 mod gesture;
 mod identity;
 mod peers;
+mod reader;
 mod refusal;
 #[cfg(feature = "desktop")]
 mod scan_images;
@@ -91,12 +92,14 @@ pub use generated::FocusMode;
 /// The icons the views draw; a test reads which one a status takes.
 pub use generated::Glyph;
 pub use generated::IdentityPage;
+/// A message row as drawn, for a test that reads its cut line and handle.
+pub use generated::MessageRow;
 /// The colour roles of design/2026-10-16-android-look.md section 3, so a
 /// test can switch the scheme and measure every pair the section names.
 pub use generated::Palette;
 /// The start-up refusal screen's window, for a test that reads its tree.
 pub use generated::RefusalWindow;
-use generated::{ActionRow, BodyLine, ConversationRow, LineKind, LinkRow, MessageRow, TrustRow};
+use generated::{ActionRow, BodyLine, ConversationRow, LineKind, LinkRow, TrustRow};
 use interweave_human_ui_model::{ConnectInput, PeersInput};
 
 /// The view's window, to run the event loop on: shows it, and returns
@@ -305,6 +308,13 @@ enum Input {
     /// Details' Copy put the shown conversation's identifier on the
     /// clipboard.
     IdentifierCopied,
+    /// Copy message source put a message's source on the clipboard.
+    MessageCopied,
+    /// Read the whole message: the message, and whether its row showed
+    /// its source.
+    ReadWhole(ItemKey, bool),
+    /// The reader's Back, or Escape.
+    ReaderClosed,
     /// The notice's action, with the notice that was shown.
     Notice(SessionNotice),
     /// A link's control, with the destination as rendered: the model
@@ -362,6 +372,9 @@ struct Pressable {
     key: ItemKey,
     actions: Vec<RowAction>,
     links: Vec<String>,
+    /// The message's source as received, which Copy message source gives
+    /// byte for byte (design/2026-11-04-long-message.md section 5.3).
+    source: Rc<str>,
 }
 
 /// What the callbacks share with the view: the queue, and what was on
@@ -388,6 +401,9 @@ struct Shared {
     refused: u64,
     conversations: HashMap<i32, ConversationKey>,
     items: HashMap<i32, Pressable>,
+    /// The open reader's two forms and its links, swapped and pressed
+    /// from its callbacks.
+    reader: Option<reader::Forms>,
     selected: Option<ConversationKey>,
     /// The conversation the open conversation's "Hide conversation" was
     /// last pressed for: focus moves after that hide wherever it was, as
@@ -695,6 +711,38 @@ fn wire_draft(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     });
 }
 
+/// A row's swipe, and the snackbar's Undo and close it leaves.
+fn wire_swipe(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
+        swipe::moved(
+            &s,
+            &w,
+            key.as_str(),
+            (px, py),
+            (cx, cy),
+            width,
+            window_width,
+        );
+    });
+    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    window.on_swipe_ended(move |key| swipe::ended(&s, &w, key.as_str()));
+    let (s, w) = (Rc::clone(shared), swipe::weak(window));
+    window.on_swipe_cancelled(move |key| swipe::cancelled(&s, &w, key.as_str()));
+    let s = Rc::clone(shared);
+    window.on_undo(move |id| {
+        if let Ok(id) = u64::try_from(id) {
+            enqueue(&s, Input::Undo(id));
+        }
+    });
+    let s = Rc::clone(shared);
+    window.on_snack_closed(move |id| {
+        if let Ok(id) = u64::try_from(id) {
+            enqueue(&s, Input::SnackClosed(id));
+        }
+    });
+}
+
 /// The callbacks of the screens with their own modules, and the trust
 /// settings'.
 fn wire_screens(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
@@ -859,6 +907,11 @@ pub struct View {
     /// one at a time, the latest replacing an earlier, since two
     /// zero-delay timers of one turn fire in no promised order.
     focus_wanted: Rc<RefCell<Option<String>>>,
+    /// [`Self::focus_locked_notice`] asked, and the locked notice has not
+    /// shown since: the next locked render on Chats or a conversation with
+    /// no identity or store screen and no reader up takes focus there; one
+    /// on another page spends it.
+    locked_focus_wanted: std::cell::Cell<bool>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
     /// The page on show when the trust settings' latest outcome came. A
@@ -922,6 +975,8 @@ pub struct View {
     /// otherwise, and when it is due.
     age_timer: slint::Timer,
     age_due: Option<u64>,
+    /// The message the reader shows, while it is open.
+    reader: Option<reader::Open>,
     /// What runs once the next frame has been drawn
     /// ([`View::after_next_frame`]); `None` until the window's one
     /// rendering notifier is set.
@@ -990,6 +1045,8 @@ impl View {
         window.set_show_source_label(text(UiText::ShowSource));
         window.set_card_sent_label(text(UiText::CardSentLabel));
         window.set_show_formatted_label(text(UiText::ShowFormatted));
+        window.set_read_whole_label(text(UiText::ReadWholeMessage));
+        window.set_copy_message_label(text(UiText::CopyMessage));
         window.set_code_font(code_font());
         window.set_app_options_label(text(UiText::AppOptions));
         window.set_back_label(text(UiText::BackToConversations));
@@ -1047,6 +1104,7 @@ impl View {
                 enqueue(&s, Input::Link(destination));
             }
         });
+        connect_long_message(&window, &shared);
         let s = Rc::clone(&shared);
         window.on_send(move || {
             let selected = s.borrow().selected.clone();
@@ -1081,34 +1139,7 @@ impl View {
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
         wire_screens(&window, &shared);
 
-        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
-        window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
-            swipe::moved(
-                &s,
-                &w,
-                key.as_str(),
-                (px, py),
-                (cx, cy),
-                width,
-                window_width,
-            );
-        });
-        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
-        window.on_swipe_ended(move |key| swipe::ended(&s, &w, key.as_str()));
-        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
-        window.on_swipe_cancelled(move |key| swipe::cancelled(&s, &w, key.as_str()));
-        let s = Rc::clone(&shared);
-        window.on_undo(move |id| {
-            if let Ok(id) = u64::try_from(id) {
-                enqueue(&s, Input::Undo(id));
-            }
-        });
-        let s = Rc::clone(&shared);
-        window.on_snack_closed(move |id| {
-            if let Ok(id) = u64::try_from(id) {
-                enqueue(&s, Input::SnackClosed(id));
-            }
-        });
+        wire_swipe(&window, &shared);
         let s = Rc::clone(&shared);
         window.on_hide_conversation(move || {
             let selected = s.borrow().selected.clone();
@@ -1143,6 +1174,7 @@ impl View {
             copy_feedback: CopyFeedback::Snackbar,
             age_timer: slint::Timer::default(),
             age_due: None,
+            reader: None,
             frame_tasks: None,
             seen: Seen::default(),
             next_slot_b: false,
@@ -1156,6 +1188,7 @@ impl View {
             pending_was: None,
             removing: None,
             focus_wanted: Rc::new(RefCell::new(None)),
+            locked_focus_wanted: std::cell::Cell::new(false),
             trust_announced: 0,
             trust_outcome_on: Page::Conversation,
             peer_lists,
@@ -1442,6 +1475,15 @@ impl View {
         }
     }
 
+    /// Focus the locked notice's Unlock once it shows on Chats or in a
+    /// conversation, at this render or once an identity or store screen,
+    /// or the reader, over it goes: after a cancelled Unlock prompt, and at
+    /// a return that raises none (unlock note §11, F11 and F12). On any
+    /// other page focus stays where it is, and the ask is spent.
+    pub fn focus_locked_notice(&self) {
+        self.locked_focus_wanted.set(true);
+    }
+
     /// Offer Show recovery phrase on Settings, under the `PeerId`, calling
     /// `show` when it is pressed: Android's, where the phrase is the only
     /// way to keep the identity (design section 3.5).
@@ -1721,7 +1763,7 @@ impl View {
                     // Read only if the pane is on screen: a selection the
                     // root makes behind a narrow window's list is not seen
                     // (`a_selection_behind_the_list_by_its_take_reads_nothing`).
-                    if let Some(key) = self.on_screen() {
+                    if let Some(key) = self.read_on_screen() {
                         out.extend(
                             viewed_intents(model, key, self.focused)
                                 .into_iter()
@@ -1740,7 +1782,7 @@ impl View {
                 }
                 Input::Focus(focused) => {
                     self.focused = focused;
-                    if let Some(key) = self.on_screen() {
+                    if let Some(key) = self.read_on_screen() {
                         out.extend(
                             viewed_intents(model, key, focused)
                                 .into_iter()
@@ -1808,6 +1850,9 @@ impl View {
                     {
                         out.push(ViewEvent::IdentifierCopied(key));
                     }
+                }
+                Input::MessageCopied | Input::ReadWhole(..) | Input::ReaderClosed => {
+                    out.extend(self.long_message_input(&input));
                 }
                 Input::Link(destination) => {
                     out.extend(model.link_activated(&destination).map(ViewEvent::Intent));
@@ -1940,7 +1985,7 @@ impl View {
             out.push(ViewEvent::SnackbarClosed(snack.id));
         }
         let viewed = std::mem::take(&mut self.shared.borrow_mut().viewed) || moved;
-        if viewed && let Some(key) = self.on_screen() {
+        if viewed && let Some(key) = self.read_on_screen() {
             for intent in viewed_intents(model, key, self.focused) {
                 // A focus gained or a selection in this same take may have
                 // read these already: one intent per row.
@@ -2025,6 +2070,78 @@ impl View {
         false
     }
 
+    /// A long message's input (design/2026-11-04-long-message.md).
+    fn long_message_input(&mut self, input: &Input) -> Option<ViewEvent> {
+        match input {
+            // Said only where the platform confirms nothing itself (5.3).
+            Input::MessageCopied => (self.copy_feedback == CopyFeedback::Snackbar)
+                .then(|| self.shown.clone().map(ViewEvent::MessageCopied))
+                .flatten(),
+            Input::ReadWhole(key, as_source) => {
+                self.open_reader(*key, *as_source);
+                None
+            }
+            Input::ReaderClosed => {
+                if let Some(open) = self.close_reader() {
+                    // Back on the row's Read the whole message, the
+                    // conversation shown again: what arrived meanwhile is
+                    // read now (section 7). A locked notice's focus ask
+                    // held under the reader replaces this at the render
+                    // that shows the card again.
+                    self.focus_key(format!("read:{}", open.handle));
+                    self.shared.borrow_mut().viewed = true;
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Open the reader on `key` in the form its row showed (section 4.3):
+    /// both forms built now, so Show source swaps them at once.
+    fn open_reader(&mut self, key: ItemKey, as_source: bool) {
+        let (Some(item), Some(handle)) = (
+            self.shown_items.get(&key),
+            self.item_handles.handle_of(&key),
+        ) else {
+            return;
+        };
+        let sent = reader::sent(&self.clock, item.local_at);
+        let forms = reader::forms(item, &sent, &image_text, body_lines);
+        let title = match (&item.direction, &item.author) {
+            (Direction::Inbound, Some(peer)) => short_peer(peer.as_str()),
+            _ => placeholder_en::text(UiText::You).to_owned(),
+        };
+        self.window.set_reader_rows(if as_source {
+            forms.source.clone()
+        } else {
+            forms.formatted.clone()
+        });
+        self.window.set_reader_as_source(as_source);
+        self.window.set_reader_title(title.into());
+        self.window.set_reader_handle(handle);
+        self.window.set_reader_open(true);
+        self.shared.borrow_mut().reader = Some(forms);
+        self.reader = Some(reader::Open { key, handle });
+    }
+
+    /// Close the reader, if open, saying which message it showed.
+    fn close_reader(&mut self) -> Option<reader::Open> {
+        let open = self.reader.take()?;
+        self.window.set_reader_open(false);
+        self.window
+            .set_reader_rows(ModelRc::new(VecModel::<generated::ReaderRow>::default()));
+        self.shared.borrow_mut().reader = None;
+        Some(open)
+    }
+
+    /// The conversation on screen to read: not while the reader covers it
+    /// (design/2026-11-04-long-message.md section 7), though it is still
+    /// the one on screen for its snackbar.
+    fn read_on_screen(&self) -> Option<&ConversationKey> {
+        self.on_screen().filter(|_| self.reader.is_none())
+    }
+
     fn on_screen(&self) -> Option<&ConversationKey> {
         match self.page {
             Page::Conversation if self.window.get_pane_shown() => self.shown.as_ref(),
@@ -2055,6 +2172,10 @@ impl View {
         let on_undo = self.window.get_focus_id() == UNDO_FOCUS;
         self.render_conversations(model);
         self.render_messages(model);
+        // Another page in the conversation's place closes it too.
+        if self.page != Page::Conversation {
+            self.close_reader();
+        }
         self.render_chrome(model);
         // One announcement per render: two would each clear the other's
         // slot, and the first would never be heard (review F5).
@@ -2349,6 +2470,18 @@ impl View {
             .as_ref()
             .map_or_else(Vec::new, |key| model.messages(key));
         let mut keys: Vec<ItemKey> = items.iter().map(|i| i.key).collect();
+        // Its row gone from the conversation the model shows -- hidden from
+        // the list beside it, another picked -- the reader closes with
+        // nothing said, focus where the person's act left it (section
+        // 5.4). Asked of the model's list, not of the rows drawn, which
+        // keep a leaving row until it has closed.
+        if self
+            .reader
+            .as_ref()
+            .is_some_and(|open| !keys.contains(&open.key))
+        {
+            self.close_reader();
+        }
         let mut rendered = HashMap::new();
         let mut swipes = HashMap::new();
         let channel = matches!(self.shown, Some(ConversationKey::Channel(_)));
@@ -2406,6 +2539,7 @@ impl View {
                         key: item.key,
                         actions,
                         links: drawn.links.clone(),
+                        source: Rc::clone(&drawn.source),
                     },
                 );
                 row
@@ -3166,6 +3300,49 @@ impl View {
         self.focus_key(target);
     }
 
+    /// The locked notice's focus (unlock note §11, F11, F12 and F14):
+    /// asked by [`Self::focus_locked_notice`], it lands on the notice's
+    /// Unlock once the notice shows on Chats or a conversation -- never on
+    /// another page, where the notice does not show; and when the notice
+    /// leaves with focus on it, focus goes to a conversation's composer,
+    /// else to Chats' heading.
+    fn follow_locked_notice(&self, was: Option<SessionNotice>, now: Option<SessionNotice>) {
+        const LOCKED: Option<SessionNotice> = Some(SessionNotice::AuthenticationNeeded);
+        let on_chats = self.window.get_narrow() && self.window.get_list_shown();
+        if now == LOCKED {
+            if self.page != Page::Conversation {
+                // Another page keeps focus, and leaving it hands focus back
+                // to what opened it: the ask is spent there.
+                self.locked_focus_wanted.set(false);
+            } else if !self.window.get_identity_active()
+                && self.reader.is_none()
+                && self.locked_focus_wanted.take()
+            {
+                // An identity or store screen, or the reader, still up
+                // keeps the ask for the render after it goes, which shows
+                // the card.
+                // Asked of the card shown: both report focus as "notice".
+                // The card the render that shows it may make.
+                self.focus_key_after_draw(
+                    if on_chats {
+                        "chats-notice"
+                    } else {
+                        "pane-notice"
+                    }
+                    .to_owned(),
+                );
+            }
+        } else if was == LOCKED {
+            self.locked_focus_wanted.set(false);
+            let focus = self.window.get_focus_id();
+            // Either card's Unlock reports the one key, "notice".
+            if focus == "notice" {
+                let composer = self.shown.is_some() && !on_chats;
+                self.focus_key(if composer { "composer" } else { "heading" }.to_owned());
+            }
+        }
+    }
+
     /// Focus the control whose focus key is `target`, once the render that
     /// draws it is done.
     fn focus_key(&self, target: String) {
@@ -3248,7 +3425,8 @@ impl View {
         window.set_state_short(placeholder_en::text(short).into());
         window.set_state_glyph(glyph);
         let notice = model.session_notice();
-        self.shared.borrow_mut().notice = notice;
+        let was = std::mem::replace(&mut self.shared.borrow_mut().notice, notice);
+        self.follow_locked_notice(was, notice);
         // A conversation shows the device's state only while it is offline,
         // as its notice -- under one a person can act on, which says more
         // (#304 F7). Unknown shows nothing, never as offline.
@@ -3428,8 +3606,58 @@ fn update_by_key<K: PartialEq + Clone, R: Clone + PartialEq>(
     }
 }
 
-/// The buttons for `actions`, in order: a press is recorded by its index
-/// into the actions as rendered.
+/// A long message's controls (design/2026-11-04-long-message.md): Read
+/// the whole message, Copy message source, and the reader's own.
+fn connect_long_message(window: &generated::AppWindow, shared: &Rc<RefCell<Shared>>) {
+    // Copy message source: the source as received, read when pressed,
+    // for the view to copy (design/2026-11-04-long-message.md 5.3).
+    let s = Rc::clone(shared);
+    window.on_message_source(move |handle| {
+        s.borrow()
+            .items
+            .get(&handle)
+            .map(|item| SharedString::from(&*item.source))
+            .unwrap_or_default()
+    });
+    let s = Rc::clone(shared);
+    window.on_message_copied(move || enqueue(&s, Input::MessageCopied));
+    let s = Rc::clone(shared);
+    window.on_read_whole(move |handle, as_source| {
+        let key = s.borrow().items.get(&handle).map(|item| item.key);
+        if let Some(key) = key {
+            enqueue(&s, Input::ReadWhole(key, as_source));
+        }
+    });
+    let s = Rc::clone(shared);
+    window.on_reader_close(move || enqueue(&s, Input::ReaderClosed));
+    // The other form at once, built as the reader opened: the scroll
+    // is kept at its share right after this returns.
+    let (s, weak) = (Rc::clone(shared), swipe::weak(window));
+    window.on_reader_switch(move || {
+        let (Some(window), Some(forms)) = (weak.upgrade(), &s.borrow().reader) else {
+            return;
+        };
+        let as_source = !window.get_reader_as_source();
+        window.set_reader_rows(if as_source {
+            forms.source.clone()
+        } else {
+            forms.formatted.clone()
+        });
+        window.set_reader_as_source(as_source);
+    });
+    let s = Rc::clone(shared);
+    window.on_reader_link(move |index| {
+        let pressed = s.borrow().reader.as_ref().and_then(|forms| {
+            usize::try_from(index)
+                .ok()
+                .and_then(|i| forms.links.get(i).cloned())
+        });
+        if let Some(destination) = pressed {
+            enqueue(&s, Input::Link(destination));
+        }
+    });
+}
+
 /// A long-press opening a message's menu plays the platform's haptic
 /// tick, as a swipe arming does (swipe spec section 7).
 fn connect_menu_haptic(window: &generated::AppWindow, shared: &Rc<RefCell<Shared>>) {
@@ -3442,6 +3670,8 @@ fn connect_menu_haptic(window: &generated::AppWindow, shared: &Rc<RefCell<Shared
     });
 }
 
+/// The buttons for `actions`, in order: a press is recorded by its index
+/// into the actions as rendered.
 fn action_model(actions: &[RowAction]) -> ModelRc<ActionRow> {
     let rows: Vec<ActionRow> = actions
         .iter()
@@ -3466,11 +3696,21 @@ struct DrawnBody {
     /// The destinations, in the order of `link_rows`.
     links: Vec<String>,
     /// The drawn text alone, for the item's label: what a screen reader
-    /// reads is the text, not the source's markup.
+    /// reads is the text, not the source's markup. A cut body's is its
+    /// preview's, then its cut line (design/2026-11-04-long-message.md
+    /// section 9): the formatted one, and as source the source's, so the
+    /// label says the cut line the mode shown draws.
     plain: String,
+    source_plain: String,
+    /// The line under a cut body's preview, drawn formatted and as source;
+    /// empty for a body that mode draws whole (section 4.2).
+    cut_line: String,
+    source_cut_line: String,
     /// One's own card's photo as it went, made once with the body: made
     /// again, it would not equal the row's (`cards::image`).
     card_photo: slint::Image,
+    /// The source as received, shared with the row's press record.
+    source: Rc<str>,
 }
 
 /// An avatar's pair as the views number it: 0 teal, 1 amber, 2 navy.
@@ -3492,18 +3732,20 @@ fn image_text(alt: &str) -> String {
     }
 }
 
-fn drawn_body(item: &MessageItem) -> DrawnBody {
-    let body = body::flatten(&item.body, &image_text);
-    // A piece cut inside a run rejoins the run, with no break between.
-    let mut plain = String::new();
-    for line in body.lines.iter().filter(|line| !line.text.is_empty()) {
-        if !plain.is_empty() && line.join != body::Join::MidLine {
-            plain.push('\n');
-        }
-        plain.push_str(&line.text);
-    }
-    let lines: Vec<BodyLine> = body
-        .lines
+/// The line saying a cut body continues, and the share shown.
+fn cut_line(shown_percent: Option<u8>) -> String {
+    shown_percent.map_or_else(String::new, |percent| {
+        fill(
+            placeholder_en::text(UiText::LongMessageShown),
+            &[("percent", &format!("{percent}%"))],
+        )
+    })
+}
+
+/// `lines` as the views draw them: each with whether it is a piece of
+/// the line before, or followed by one.
+fn body_lines(lines: &[body::Line]) -> Vec<BodyLine> {
+    lines
         .iter()
         .enumerate()
         .map(|(index, line)| {
@@ -3523,18 +3765,40 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
                 marker: line.marker.as_str().into(),
                 text: line.text.as_str().into(),
                 joined: line.join != body::Join::Starts,
-                continues: body
-                    .lines
+                continues: lines
                     .get(index + 1)
                     .is_some_and(|next| next.join != body::Join::Starts),
             }
         })
-        .collect();
-    let source = cluster::drawable(&item.source);
-    let source_pieces: Vec<SharedString> = body::pieces(&source)
-        .into_iter()
-        .map(|(piece, _)| piece.into())
-        .collect();
+        .collect()
+}
+
+fn drawn_body(item: &MessageItem) -> DrawnBody {
+    let drawn = cut::formatted(&item.body, &image_text);
+    let body = drawn.body;
+    // A piece cut inside a run rejoins the run, with no break between.
+    let mut plain = String::new();
+    for line in body.lines.iter().filter(|line| !line.text.is_empty()) {
+        if !plain.is_empty() && line.join != body::Join::MidLine {
+            plain.push('\n');
+        }
+        plain.push_str(&line.text);
+    }
+    let shown_line = cut_line(drawn.shown_percent);
+    let with_line = |line: &str| {
+        let mut text = plain.clone();
+        if !line.is_empty() {
+            text.push('\n');
+            text.push_str(line);
+        }
+        text
+    };
+    let formatted_plain = with_line(&shown_line);
+    let lines = body_lines(&body.lines);
+    let (source_pieces, source_shown) = cut::source(&item.source);
+    let source_cut_line = cut_line(source_shown);
+    let source_plain = with_line(&source_cut_line);
+    let source_pieces: Vec<SharedString> = source_pieces.into_iter().map(Into::into).collect();
     let link_rows: Vec<LinkRow> = body
         .links
         .iter()
@@ -3551,12 +3815,16 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         source_pieces: ModelRc::new(VecModel::from(source_pieces)),
         link_rows: ModelRc::new(VecModel::from(link_rows)),
         links: body.links,
-        plain,
+        plain: formatted_plain,
+        source_plain,
+        cut_line: shown_line,
+        source_cut_line,
         card_photo: item
             .card
             .as_ref()
             .and_then(|c| c.photo.as_ref())
             .map_or_else(cards::no_photo, cards::image),
+        source: Rc::from(item.source.as_str()),
     }
 }
 
@@ -3610,6 +3878,11 @@ fn message_row(
         }
         None => (author.clone(), drawn.plain.clone()),
     };
+    let source_body = if item.card.is_some() {
+        body.clone()
+    } else {
+        drawn.source_plain.clone()
+    };
     let has_actions = actions.row_count() > 0;
     let mut values = vec![
         ("author", said_author.as_str()),
@@ -3625,9 +3898,17 @@ fn message_row(
         None => UiText::Item,
     };
     let label = fill(placeholder_en::text(template), &values);
+    // The same, with the cut line Show source draws (section 9).
+    for value in &mut values {
+        if value.0 == "body" {
+            value.1 = source_body.as_str();
+        }
+    }
+    let source_label = fill(placeholder_en::text(template), &values);
     MessageRow {
         handle,
         label: label.into(),
+        source_label: source_label.into(),
         author: author.into(),
         author_id: author_id.into(),
         status: status.text.as_str().into(),
@@ -3644,6 +3925,8 @@ fn message_row(
         gap: placed.gap,
         day: placed.day.into(),
         source_pieces: drawn.source_pieces.clone(),
+        cut_line: drawn.cut_line.as_str().into(),
+        source_cut_line: drawn.source_cut_line.as_str().into(),
         lines: drawn.lines.clone(),
         links: drawn.link_rows.clone(),
         reply: reply.into(),

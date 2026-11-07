@@ -25,6 +25,9 @@ pub(crate) enum Answer {
     Refused(StoreScreen),
     /// The start was refused for a reason no store screen shows.
     OtherRefusal,
+    /// The start was refused until the person authenticates: the store
+    /// was not reached.
+    Locked,
 }
 
 /// What follows.
@@ -36,6 +39,23 @@ pub(crate) enum Follow {
     Show(StoreScreen),
     /// The screen goes, its discard's notice shown if one ran.
     Hide,
+    /// The screen goes and its discard's notice is held: the restart was
+    /// refused for the person, and the notice waits for a start that
+    /// reaches the store ([`release`]). Shown beside the locked notice,
+    /// "deleted" would say the opposite of what the person can now do
+    /// (unlock note §11, A16).
+    HideHolding,
+}
+
+/// What becomes of a discard's notice held since the hub's count `at`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Release {
+    /// Still held.
+    Keep,
+    /// Shown now, once.
+    Show,
+    /// Dropped: the store refused, and its screen shows instead.
+    Drop,
 }
 
 /// The decision for one turn: the last start's `answer` and the hub's
@@ -49,7 +69,9 @@ pub(crate) enum Follow {
 /// Done), an opened store and a start refused elsewhere both leave for
 /// Chats with the notice, and a store refusal starts its screen over.
 /// Before a discard, a start refused elsewhere keeps the screen: nothing
-/// says the store opened.
+/// says the store opened. A start refused for the person keeps the screen
+/// before a discard -- R's Try again stays on R (unlock note §11, A15) --
+/// and after one hides it with the notice held ([`Follow::HideHolding`]).
 pub(crate) const fn follow(
     shown: Option<ShownState>,
     answer: Option<Answer>,
@@ -61,15 +83,29 @@ pub(crate) const fn follow(
     let Some(s) = shown else {
         return match answer {
             Answer::Refused(screen) => Follow::Show(screen),
-            Answer::Opened | Answer::OtherRefusal => Follow::Keep,
+            Answer::Opened | Answer::OtherRefusal | Answer::Locked => Follow::Keep,
         };
     };
     match (s.done_at, answer) {
         (Some(at), _) if generation <= at => Follow::Keep,
         (_, Answer::Opened) | (Some(_), Answer::OtherRefusal) => Follow::Hide,
-        (None, Answer::OtherRefusal) => Follow::Keep,
+        (None, Answer::OtherRefusal | Answer::Locked) => Follow::Keep,
+        (Some(_), Answer::Locked) => Follow::HideHolding,
         (None, Answer::Refused(screen)) if same(s.screen, screen) => Follow::Keep,
         (_, Answer::Refused(screen)) => Follow::Show(screen),
+    }
+}
+
+/// A held discard's notice at a turn: shown once a start counted past
+/// `at` reaches the store or is refused elsewhere -- as an unheld one is
+/// at [`Follow::Hide`] -- dropped when the store refuses, kept while
+/// starts are refused for the person or none has answered since.
+pub(crate) const fn release(at: u64, answer: Option<Answer>, generation: u64) -> Release {
+    match answer {
+        Some(_) if generation <= at => Release::Keep,
+        None | Some(Answer::Locked) => Release::Keep,
+        Some(Answer::Opened | Answer::OtherRefusal) => Release::Show,
+        Some(Answer::Refused(_)) => Release::Drop,
     }
 }
 
@@ -96,6 +132,7 @@ mod tests {
     const REFUSED_K: Option<Answer> = Some(Answer::Refused(K));
     const OPENED: Option<Answer> = Some(Answer::Opened);
     const OTHER: Option<Answer> = Some(Answer::OtherRefusal);
+    const LOCKED: Option<Answer> = Some(Answer::Locked);
 
     #[test]
     fn a_refusal_shows_its_screen_and_an_opened_store_hides_it() {
@@ -147,5 +184,40 @@ mod tests {
     #[test]
     fn a_restart_refused_elsewhere_leaves_for_chats() {
         assert_eq!(follow(Some(shown(R, Some(3))), OTHER, 4), Follow::Hide);
+    }
+
+    /// A start refused for the person keeps R or K before a discard: R's
+    /// Try again stays on R, nothing else changes (unlock note §11, A15).
+    #[test]
+    fn a_start_refused_for_the_person_keeps_the_screen_before_a_discard() {
+        assert_eq!(follow(None, LOCKED, 1), Follow::Keep);
+        assert_eq!(follow(Some(shown(R, None)), LOCKED, 2), Follow::Keep);
+        assert_eq!(follow(Some(shown(K, None)), LOCKED, 2), Follow::Keep);
+    }
+
+    /// The restart after a discard refused for the person: Chats, with the
+    /// discard's notice held (A16); not before the restart answers.
+    #[test]
+    fn a_restart_refused_for_the_person_hides_the_screen_and_holds_the_notice() {
+        assert_eq!(
+            follow(Some(shown(R, Some(3))), LOCKED, 4),
+            Follow::HideHolding
+        );
+        assert_eq!(follow(Some(shown(R, Some(3))), LOCKED, 3), Follow::Keep);
+    }
+
+    /// The held notice shows once a later start reaches the store -- the
+    /// one Unlock runs -- or is refused elsewhere, as an unheld one does;
+    /// stays held while starts are refused for the person; goes when the
+    /// store refuses, whose screen shows instead (A16, A20).
+    #[test]
+    fn a_held_notice_waits_for_a_start_past_the_lock() {
+        assert_eq!(release(4, LOCKED, 4), Release::Keep, "the holding answer");
+        assert_eq!(release(4, OPENED, 4), Release::Keep, "not a later start");
+        assert_eq!(release(4, None, 0), Release::Keep);
+        assert_eq!(release(4, LOCKED, 5), Release::Keep, "locked again");
+        assert_eq!(release(4, OPENED, 5), Release::Show);
+        assert_eq!(release(4, OTHER, 5), Release::Show);
+        assert_eq!(release(4, REFUSED_K, 5), Release::Drop);
     }
 }

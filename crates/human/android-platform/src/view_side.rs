@@ -4,11 +4,22 @@
 //! follows whether the network service runs, as well as what it sends.
 //!
 //! A change of running state starts a fresh model either way. Started:
-//! the listing that follows is a new runtime's, and nothing the last one
-//! showed carries over. Stopped: the window holds no rows and no Ready
-//! session, so it shows the service as not running and offers nothing
-//! that sends -- a kept model would still read Ready, show no notice, and
-//! mark a Send in flight that no facade would ever answer (review F3).
+//! the listing that follows is a new runtime's, and only the drafts carry
+//! over, so what is written waits. Stopped: the window holds no rows and
+//! no Ready session, so it shows the service as not running and offers
+//! nothing that sends -- a kept model would still read Ready, show no
+//! notice, and mark a Send in flight that no facade would ever answer
+//! (review F3).
+//!
+//! One exception: a stop the person's lock follows. A restart refused
+//! until the person authenticates neither empties the list nor closes a
+//! conversation (unlock note §11), so the stopped model is set aside --
+//! stopped, which fails what it held in flight and drops its Ready
+//! session -- and shown again once the lock is said while nothing runs.
+//! A store answer other than the lock's drops it: the start it answers
+//! ran or was refused for another reason, and what it showed replaced the
+//! stopped model, so the set-aside rows are no longer the list as it was
+//! (a refused or discarded store's rows never come back).
 
 use interweave_human_app_core::{ModelSide, Opener, Surface};
 
@@ -30,6 +41,12 @@ pub struct ViewSide<S: Surface, O: Opener> {
     /// The last start's answer and the hub's count with it, as the hub
     /// last said; `None` until a start has answered.
     store: Option<(StoreAnswer, StoreGeneration)>,
+    /// Whether the service runs, as the hub last said.
+    running: bool,
+    /// The model the last stop set aside, stopped: shown again if the
+    /// lock is said while nothing runs, its drafts carried by the next
+    /// start.
+    kept: Option<ModelSide<S, O>>,
 }
 
 impl<S: Surface, O: Opener> ViewSide<S, O> {
@@ -42,6 +59,8 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             network: true,
             authentication: false,
             store: None,
+            running: false,
+            kept: None,
         }
     }
 
@@ -61,12 +80,31 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     pub fn apply(&mut self, message: ToView) -> Result<(), ListingFailed> {
         match message {
             ToView::Running(running) => {
-                self.side = (self.fresh)();
+                let last = std::mem::replace(&mut self.side, (self.fresh)());
+                if running {
+                    // The model set aside first, then the one shown since,
+                    // whose edits are the later.
+                    let mut drafts = self
+                        .kept
+                        .take()
+                        .map(|kept| kept.drafts())
+                        .unwrap_or_default();
+                    drafts.extend(last.drafts());
+                    self.side.carry_drafts(drafts);
+                } else if self.running {
+                    let mut last = last;
+                    last.stopped();
+                    self.kept = Some(last);
+                }
+                self.running = running;
                 self.side.daemon_seen(Some(running));
                 // Access is the platform's, not the service's: a fresh
                 // model keeps what the hub last said of it.
                 self.side.network_access(self.network);
                 self.side.authentication_needed(self.authentication);
+                if !running && self.authentication {
+                    self.show_kept();
+                }
             }
             ToView::NetworkAccess(allowed) => {
                 self.network = allowed;
@@ -75,12 +113,37 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             ToView::AuthenticationNeeded(needed) => {
                 self.authentication = needed;
                 self.side.authentication_needed(needed);
+                if needed && !self.running {
+                    self.show_kept();
+                }
             }
             ToView::Update(update) => self.side.apply(*update),
             ToView::ListingFailed => return Err(ListingFailed),
-            ToView::Store(answer, generation) => self.store = Some((answer, generation)),
+            ToView::Store(answer, generation) => {
+                // Any other answer is a start that ran or was refused for
+                // a reason other than the lock: what it showed replaced the
+                // stopped model, so a later lock must not bring the stopped
+                // rows back (a refused or discarded store's among them).
+                if answer != StoreAnswer::Locked {
+                    self.kept = None;
+                }
+                self.store = Some((answer, generation));
+            }
         }
         Ok(())
+    }
+
+    /// The model the last stop set aside, shown again: the restart is
+    /// refused for the person, and the list and an open conversation stay
+    /// as they were (unlock note §11).
+    fn show_kept(&mut self) {
+        if let Some(mut kept) = self.kept.take() {
+            kept.network_access(self.network);
+            kept.authentication_needed(self.authentication);
+            kept.carry_drafts(self.side.drafts());
+            kept.remade();
+            self.side = kept;
+        }
     }
 
     /// The model side, for the root's turn.
@@ -182,6 +245,117 @@ mod tests {
             "the window says the service is not running"
         );
         assert!(model(&side).conversations().is_empty(), "and shows no row");
+    }
+
+    /// A stop the lock follows keeps the list (unlock note §11): the
+    /// stopped model comes back once the lock is said while nothing runs,
+    /// reading locked and offline, with nothing Ready; with no lock, the
+    /// stop shows none (the control, review F3).
+    #[test]
+    fn a_stop_the_lock_follows_keeps_the_rows() {
+        let mut side = view_side();
+        side.apply(ToView::Running(true)).expect("applied");
+        side.apply(ToView::Update(Box::new(Update::Client(
+            ClientEvent::Session(SessionState::Ready { endpoint: None }),
+        ))))
+        .expect("applied");
+        side.apply(ToView::Update(Box::new(Update::Received(arrival()))))
+            .expect("applied");
+        side.apply(ToView::Running(false)).expect("applied");
+        assert!(
+            model(&side).conversations().is_empty(),
+            "control: no lock, no row"
+        );
+
+        side.apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        assert_eq!(model(&side).conversations().len(), 1, "the row is back");
+        assert_eq!(
+            model(&side).session_notice(),
+            Some(SessionNotice::AuthenticationNeeded)
+        );
+        side.apply(ToView::AuthenticationNeeded(false))
+            .expect("applied");
+        assert_eq!(
+            model(&side).session_notice(),
+            Some(SessionNotice::NoDaemon),
+            "and no Ready session once the lock is gone"
+        );
+    }
+
+    /// A start the store answered between the stop and the lock drops the
+    /// set-aside rows: after a refusal or a discard they are not the list
+    /// as it was. The lock's own answer keeps them.
+    #[test]
+    fn a_store_answer_between_the_stop_and_the_lock_drops_the_rows() {
+        let stopped_with_a_row = || {
+            let mut side = view_side();
+            side.apply(ToView::Running(true)).expect("applied");
+            side.apply(ToView::Update(Box::new(Update::Received(arrival()))))
+                .expect("applied");
+            side.apply(ToView::Running(false)).expect("applied");
+            side
+        };
+
+        for answer in [
+            StoreAnswer::Refused(crate::hub::StoreRefusal::Recovery),
+            StoreAnswer::OtherRefusal,
+        ] {
+            let mut side = stopped_with_a_row();
+            side.apply(ToView::Store(answer, StoreGeneration::default()))
+                .expect("applied");
+            side.apply(ToView::AuthenticationNeeded(true))
+                .expect("applied");
+            assert!(
+                model(&side).conversations().is_empty(),
+                "no row after {answer:?}"
+            );
+        }
+
+        let mut side = stopped_with_a_row();
+        side.apply(ToView::Store(
+            StoreAnswer::Locked,
+            StoreGeneration::default(),
+        ))
+        .expect("applied");
+        side.apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        assert_eq!(
+            model(&side).conversations().len(),
+            1,
+            "control: the lock keeps it"
+        );
+    }
+
+    /// A lock said before the stop shows the stopped model at once.
+    #[test]
+    fn a_stop_while_locked_keeps_the_rows() {
+        let mut side = view_side();
+        side.apply(ToView::Running(true)).expect("applied");
+        side.apply(ToView::Update(Box::new(Update::Received(arrival()))))
+            .expect("applied");
+        side.apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(model(&side).conversations().len(), 1);
+    }
+
+    /// What is written waits: a draft carries into the model the next
+    /// start makes, from the model set aside or the one shown (A17).
+    #[test]
+    fn a_draft_carries_into_the_next_start() {
+        use interweave_human_ui_model::ConversationKey;
+        let key = ConversationKey::Channel(
+            interweave_transport_api::ChannelId::parse("general").expect("a channel"),
+        );
+        let mut side = view_side();
+        side.apply(ToView::Running(true)).expect("applied");
+        // As the person's edit sets it.
+        side.side_mut()
+            .carry_drafts(vec![(key.clone(), "half written".to_owned())]);
+        side.apply(ToView::Running(false)).expect("applied");
+        side.apply(ToView::Running(true)).expect("applied");
+        assert_eq!(model(&side).composer(&key).draft, "half written");
     }
 
     #[test]

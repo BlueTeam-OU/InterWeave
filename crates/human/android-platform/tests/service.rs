@@ -245,6 +245,33 @@ fn the_unlock_status_is_the_last_start_that_ran() {
     );
 }
 
+/// The Activity's check asks the person before any start, so no start
+/// sets the status: the check's own locked status is kept while nothing
+/// runs, and the restart diagnostic answers from it with the mode on disk
+/// (#577: a lock at the check left the status `None`). A running client
+/// keeps its own.
+#[test]
+fn a_lock_at_the_activitys_check_gives_the_locked_view_its_status() {
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let service = ServiceHost::new();
+    service.locked_before_start(Some(PENDING));
+    assert_eq!(service.unlock_status(), Some(PENDING), "no start ran");
+    assert_eq!(
+        service.restart_requires_user_authentication(&app.dir, PROFILE),
+        Some(false),
+        "the first-run document's mode, read from disk"
+    );
+
+    service.start(launch(&app)).expect("started");
+    service.locked_before_start(Some(UnlockStatus {
+        pending: None,
+        ..PENDING
+    }));
+    assert_eq!(service.unlock_status(), None, "the running start's, kept");
+    let _ = service.stop(GRACE);
+}
+
 #[test]
 fn a_stop_releases_the_waiter_tells_the_view_and_frees_the_profile() {
     let app = app();
@@ -1325,6 +1352,44 @@ fn a_start_refused_elsewhere_answers_so_and_never_as_an_opened_store() {
         store_answers(&mut link),
         [(StoreAnswer::Opened, 3)],
         "the second start and the late refusal changed nothing"
+    );
+    let _ = service.stop(GRACE);
+}
+
+/// A start refused until the person authenticates answers `Locked`, not
+/// a refusal elsewhere: a discard's notice waits for the start Unlock
+/// runs (unlock note §11, A16). It sets the locked view's status, and a
+/// late one while the client runs changes nothing.
+#[test]
+fn a_start_refused_for_the_person_answers_locked() {
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let service = ServiceHost::new();
+    let mut link = service.hub().attach(Arc::new(|| {}));
+    service.refused_locked(Some(PENDING));
+    assert_eq!(store_answers(&mut link), [(StoreAnswer::Locked, 1)]);
+    assert_eq!(service.unlock_status(), Some(PENDING), "the locked status");
+
+    let held = UnlockStatus {
+        pending: None,
+        ..PENDING
+    };
+    service
+        .start(ServiceLaunch {
+            unlock: Some(held),
+            ..launch(&app)
+        })
+        .expect("started");
+    let _ = store_answers(&mut link);
+    service.refused_locked(Some(PENDING));
+    assert!(
+        store_answers(&mut link).is_empty(),
+        "a late refusal while the client runs answers nothing"
+    );
+    assert_eq!(
+        service.unlock_status(),
+        Some(held),
+        "and keeps the running start's"
     );
     let _ = service.stop(GRACE);
 }

@@ -74,6 +74,12 @@ pub enum StoreAnswer {
     /// identity, the runtime, the profile, the endpoint -- so nothing says
     /// the store opened (#377 review r3, pre-existing).
     OtherRefusal,
+    /// The start was refused until the person authenticates
+    /// (`UserNotAuthenticated`): the store was not reached, and the next
+    /// start the person's Unlock runs may open it. A discard's notice
+    /// waits for that start (design/2026-11-05-unlock-policy-pending.md
+    /// §11).
+    Locked,
 }
 
 /// How many start answers the hub has said: an answer said later counts
