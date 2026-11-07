@@ -291,6 +291,12 @@ ui_texts! {
     /// yet: the toolkit's copy reports no refusal (its
     /// `set_clipboard_text` returns nothing).
     MessageNotCopied => "Could not copy the message source. Choose Copy message source to try again.",
+    /// Never on screen: what a screen reader is given in place of every
+    /// U+FFFD in an accessible text the client sets (section 6), so the
+    /// mark is never silent whatever the reader's punctuation setting.
+    /// Any pause the locale needs around it is in the string.
+    // PLACEHOLDER (en)
+    ReplacedCharacter => "character not shown",
     /// The window's one announcement, read by a screen reader as it
     /// changes: a message arrived in the open conversation. `{author}`
     /// is the short `PeerId`; never the text, which is read by moving to

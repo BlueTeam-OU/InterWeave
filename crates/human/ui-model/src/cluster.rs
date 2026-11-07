@@ -55,11 +55,40 @@ pub fn drawable(text: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+/// `text` as a screen reader is given it: each [`REPLACEMENT`] spoken as
+/// `words` (`UiText::ReplacedCharacter`), set apart by a space where it
+/// touches a character that is not one (design/2026-11-04-long-message.md
+/// section 6). Both kinds of mark: one drawn for a cluster past the
+/// bound, and one the text already carried, since no client can tell them
+/// apart. Borrowed when there is none.
+#[must_use]
+pub fn spoken<'a>(text: &'a str, words: &str) -> Cow<'a, str> {
+    if !text.contains(REPLACEMENT) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len() + words.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != REPLACEMENT {
+            out.push(c);
+            continue;
+        }
+        if out.chars().next_back().is_some_and(|p| !p.is_whitespace()) {
+            out.push(' ');
+        }
+        out.push_str(words);
+        if chars.peek().is_some_and(|n| !n.is_whitespace()) {
+            out.push(' ');
+        }
+    }
+    Cow::Owned(out)
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
 
-    use super::{CLUSTER_CODE_POINTS, REPLACEMENT, drawable, fits};
+    use super::{CLUSTER_CODE_POINTS, REPLACEMENT, drawable, fits, spoken};
 
     fn marked(marks: usize) -> String {
         format!("a{}", "\u{301}".repeat(marks))
@@ -106,5 +135,22 @@ mod tests {
         let text = marked(CLUSTER_CODE_POINTS - 1).repeat(50);
         assert!(fits(&text));
         assert_eq!(drawable(&text), text);
+    }
+
+    #[test]
+    fn a_mark_is_spoken_as_words_set_apart_from_the_text() {
+        let w = "character not shown";
+        assert!(matches!(spoken("plain", w), Cow::Borrowed("plain")));
+        assert_eq!(spoken("x \u{FFFD} y", w), "x character not shown y");
+        assert_eq!(spoken("x\u{FFFD}y", w), "x character not shown y");
+        assert_eq!(spoken("\u{FFFD}rest", w), "character not shown rest");
+        assert_eq!(spoken("end\u{FFFD}", w), "end character not shown");
+        assert_eq!(
+            spoken("a\u{FFFD}\u{FFFD}b", w),
+            "a character not shown character not shown b"
+        );
+        // What the bubble draws for a cluster past the bound.
+        let past = drawable(&format!("x{}y", marked(CLUSTER_CODE_POINTS))).into_owned();
+        assert!(!spoken(&past, w).contains(REPLACEMENT));
     }
 }
