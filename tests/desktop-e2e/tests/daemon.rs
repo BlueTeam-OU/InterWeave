@@ -611,22 +611,16 @@ fn xdg_snapshot(home: &Home) -> BTreeMap<PathBuf, (Vec<u8>, u32, i64, i64)> {
     seen
 }
 
-/// Until `daemon` holds `path` open, by its `/proc` fd table, or exits,
-/// which fails the test with its log. For the profile lock this is the
-/// daemon inside `ProfileLock::acquire`, which it reaches only once `load`
-/// has passed: nothing before it opens the lock file.
+/// Until `daemon` holds `path` open with an fd of its own, by its `/proc`
+/// fd table, or exits, which fails the test with its log. For the profile
+/// lock this is the daemon inside `ProfileLock::acquire`, which it reaches
+/// only once `load` has passed: nothing before it opens the lock file.
 async fn holds_open(daemon: &mut common::Daemon, path: &Path) {
     let path = std::fs::canonicalize(path).expect("the lock file exists");
-    let fds = PathBuf::from(format!("/proc/{}/fd", daemon.child.id()));
+    let pid = daemon.child.id();
     let deadline = tokio::time::Instant::now() + PATIENCE;
     loop {
-        // An fd closed between the listing and its readlink is skipped.
-        let held = std::fs::read_dir(&fds).is_ok_and(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .any(|fd| std::fs::read_link(fd.path()).is_ok_and(|to| to == path))
-        });
-        if held {
+        if opens_unlocked(pid, &path) {
             return;
         }
         if let Some(status) = daemon.child.try_wait().expect("a status") {
@@ -647,6 +641,41 @@ async fn holds_open(daemon: &mut common::Daemon, path: &Path) {
         // inside it.
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
+}
+
+/// Whether process `pid` holds `path` open by an fd that holds no lock on
+/// it, by its `/proc` fd table and each fd's `fdinfo`. The lock-free
+/// half is what tells the daemon's own open, waiting in `acquire`, from
+/// the test's held lock: a child carries a copy of that fd -- the same
+/// open file, the flock with it -- from the fork until its exec closes
+/// it, and the spawn may return inside that window (once, under a full
+/// `cargo xtask ci`: the marker was planted before `load`, which refused
+/// it). An fd closed between the listing and its reads is skipped.
+fn opens_unlocked(pid: u32, path: &Path) -> bool {
+    let proc = PathBuf::from(format!("/proc/{pid}"));
+    std::fs::read_dir(proc.join("fd")).is_ok_and(|entries| {
+        entries.filter_map(Result::ok).any(|fd| {
+            std::fs::read_link(fd.path()).is_ok_and(|to| to == path)
+                && std::fs::read_to_string(proc.join("fdinfo").join(fd.file_name()))
+                    .is_ok_and(|info| !info.lines().any(|l| l.starts_with("lock:")))
+        })
+    })
+}
+
+#[test]
+fn a_copy_of_the_lock_holders_fd_is_not_an_open_of_its_own() {
+    let home = Home::new("e2e");
+    let held = interweave_profile_config::ProfileLock::acquire(&home.paths, Duration::ZERO)
+        .expect("the lock");
+    let path = std::fs::canonicalize(held.path()).expect("the lock file");
+    let me = std::process::id();
+    // What a child carries until its exec: the holder's own open file.
+    assert!(!opens_unlocked(me, &path), "the holder's fd counted");
+    // Control: an open of its own, as the daemon's in `acquire`, counts.
+    let own = std::fs::File::open(&path).expect("a second open");
+    assert!(opens_unlocked(me, &path), "an open of its own not seen");
+    drop(own);
+    assert!(!opens_unlocked(me, &path));
 }
 
 /// The marker's format as the daemon left it: `None` when it wrote none.
