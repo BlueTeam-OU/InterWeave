@@ -3660,7 +3660,7 @@ fn update_by_key<K: PartialEq + Clone, R: Clone + PartialEq>(
     }
 }
 
-/// A long message's controls (design/2026-11-04-long-message.md): Read
+/// A long message's controls (design/2026-11-04-long-message.md): Open
 /// the whole message, Copy message source, and the reader's own.
 fn connect_long_message(window: &generated::AppWindow, shared: &Rc<RefCell<Shared>>) {
     // Copy message source: the source as received, read when pressed,

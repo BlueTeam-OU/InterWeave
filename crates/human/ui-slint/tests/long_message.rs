@@ -339,10 +339,10 @@ fn a_cut_row_shows_its_preview_its_line_and_the_way_to_the_whole() {
 }
 
 /// A cut row's menu: its actions, then Open the whole message, Copy
-/// message source and Show source last; a whole row's lacks Read the
+/// message source and Show source last; a whole row's lacks Open the
 /// whole message (section 4.3, message-swipe section 7 revised).
 #[test]
-fn a_rows_menu_has_read_the_whole_message_only_when_cut_and_copy_always() {
+fn a_rows_menu_has_open_the_whole_message_only_when_cut_and_copy_always() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
