@@ -295,8 +295,7 @@ ui_texts! {
     /// U+FFFD in an accessible text the client sets (section 6), so the
     /// mark is never silent whatever the reader's punctuation setting.
     /// Any pause the locale needs around it is in the string.
-    // PLACEHOLDER (en)
-    ReplacedCharacter => "character not shown",
+    ReplacedCharacter => ", character not shown,",
     /// The window's one announcement, read by a screen reader as it
     /// changes: a message arrived in the open conversation. `{author}`
     /// is the short `PeerId`; never the text, which is read by moving to
