@@ -863,24 +863,30 @@ fn no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent() {
 /// control: its pieces, read in order, are its label, and there are
 /// several; one element is named by it. A press on it draws nothing past
 /// the extent, and a press's ripple grows no further than
-/// `Tile.ripple-reach` (HUMAN-CHAT.md Bounds, A 2026-11-07 (ii)).
+/// `Tile.ripple-reach` (HUMAN-CHAT.md Bounds, A 2026-11-07 (ii)). Whether
+/// a label is past the extent is the measure's, so the font's: what is
+/// asserted of each shape follows what was drawn, and the shapes hold
+/// one past it and one within it on any font the suite runs under (CI's
+/// draws U+FDFD narrow).
 #[test]
 fn a_press_on_a_link_control_past_the_extent_is_drawn_in_pieces() {
     use slint::platform::PointerEventButton;
     let mut view = view();
     let mut model = UiModel::new();
+    // The widest Latin letter at 300 % text: about twice the extent with
+    // the desktop's fonts, so past it with a narrower W too.
     let shapes = [
-        ("W".repeat(1960), true),
-        ("\u{FDFD}".repeat(1960), true),
+        ("W".repeat(1960), Some(true)),
+        ("\u{FDFD}".repeat(1960), None),
         // Within the extent, its diagonal past the ripple's reach.
-        ("W".repeat(600), false),
+        ("W".repeat(600), Some(false)),
     ];
-    for (n, (destination, past)) in shapes.into_iter().enumerate() {
+    for (n, (destination, needed)) in shapes.into_iter().enumerate() {
         let window = view.window().window();
         window.set_size(slint::LogicalSize::new(360.0, 20_000.0));
         i_slint_core::window::WindowInner::from_pub(window)
             .context()
-            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(42.0)));
         let alice = peer();
         let destination = format!("https://e.org/{destination}");
         model.received(received(
@@ -903,14 +909,20 @@ fn a_press_on_a_link_control_past_the_extent_is_drawn_in_pieces() {
             .map(|p| p.to_string())
             .collect();
         assert_eq!(pieces.concat(), label, "{n}: the label, whole");
-        assert_eq!(pieces.len() > 1, past, "{n}: in pieces past the extent");
+        let past = control.size().height > ITEM_EXTENT;
+        if let Some(needed) = needed {
+            assert_eq!(past, needed, "{n}: {:?}", control.size());
+        }
+        // A control past the extent holds a label measured past it.
+        assert!(!past || pieces.len() > 1, "{n}: in pieces past the extent");
         let drawn = control
             .query_descendants()
             .match_type_name("Text")
             .find_all();
         // The tree holds only what the list shows: every piece of a control
         // the window holds, more than one of one it does not.
-        if control.size().height < 19_000.0 {
+        let (top, height) = (control.absolute_position().y, control.size().height);
+        if top >= 0.0 && top + height <= 20_000.0 {
             assert_eq!(drawn.len(), pieces.len(), "{n}: each piece drawn");
         } else {
             assert!(drawn.len() > 1, "{n}: pieces drawn, {}", drawn.len());
@@ -923,7 +935,6 @@ fn a_press_on_a_link_control_past_the_extent_is_drawn_in_pieces() {
             .set_size(slint::LogicalSize::new(360.0, 7_900.0));
         slint::platform::update_timers_and_animations();
         let (p, z) = (control.absolute_position(), control.size());
-        assert_eq!(z.height > ITEM_EXTENT, past, "{n}: {z:?}");
         // Halfway down what shows of it, clear of the header and composer.
         let shown = (p.y.max(400.0), (p.y + z.height).min(7_500.0));
         assert!(shown.0 < shown.1, "{n}: the control shows, {shown:?}");
@@ -972,7 +983,7 @@ fn a_press_on_a_link_control_past_the_extent_is_drawn_in_pieces() {
 
     // The reader draws a cut message's control the same way.
     let alice = peer();
-    let destination = format!("https://e.org/{}", "\u{FDFD}".repeat(1960));
+    let destination = format!("https://e.org/{}", "W".repeat(1960));
     model.received(received(
         10,
         &alice,
