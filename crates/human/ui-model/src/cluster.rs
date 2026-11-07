@@ -57,15 +57,17 @@ pub fn drawable(text: &str) -> Cow<'_, str> {
 
 /// `text` as a screen reader is given it: each [`REPLACEMENT`] spoken as
 /// `words` (`UiText::ReplacedCharacter`), set apart by a space where it
-/// touches a character that is not one (design/2026-11-04-long-message.md
-/// section 6). Both kinds of mark: one drawn for a cluster past the
-/// bound, and one the text already carried, since no client can tell them
-/// apart. Borrowed when there is none.
+/// touches a character that is not one -- but none before words that
+/// start with punctuation, which attaches to what precedes it
+/// (design/2026-11-04-long-message.md section 6). Both kinds of mark: one
+/// drawn for a cluster past the bound, and one the text already carried,
+/// since no client can tell them apart. Borrowed when there is none.
 #[must_use]
 pub fn spoken<'a>(text: &'a str, words: &str) -> Cow<'a, str> {
     if !text.contains(REPLACEMENT) {
         return Cow::Borrowed(text);
     }
+    let attaches = words.chars().next().is_some_and(punctuation);
     let mut out = String::with_capacity(text.len() + words.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
@@ -73,7 +75,7 @@ pub fn spoken<'a>(text: &'a str, words: &str) -> Cow<'a, str> {
             out.push(c);
             continue;
         }
-        if out.chars().next_back().is_some_and(|p| !p.is_whitespace()) {
+        if !attaches && out.chars().next_back().is_some_and(|p| !p.is_whitespace()) {
             out.push(' ');
         }
         out.push_str(words);
@@ -82,6 +84,22 @@ pub fn spoken<'a>(text: &'a str, words: &str) -> Cow<'a, str> {
         }
     }
     Cow::Owned(out)
+}
+
+/// Whether `c` is Unicode punctuation (general category P), so another
+/// script's comma attaches as a Latin one does.
+fn punctuation(c: char) -> bool {
+    use unicode_general_category::GeneralCategory as G;
+    matches!(
+        unicode_general_category::get_general_category(c),
+        G::ConnectorPunctuation
+            | G::DashPunctuation
+            | G::OpenPunctuation
+            | G::ClosePunctuation
+            | G::InitialPunctuation
+            | G::FinalPunctuation
+            | G::OtherPunctuation
+    )
 }
 
 #[cfg(test)]
@@ -149,6 +167,23 @@ mod tests {
             spoken("a\u{FFFD}\u{FFFD}b", w),
             "a character not shown character not shown b"
         );
+        // Words that start with punctuation attach to the text before,
+        // in any script; the space after stays.
+        let p = ", character not shown,";
+        assert_eq!(
+            spoken("cafe\u{FFFD}open", p),
+            "cafe, character not shown, open"
+        );
+        assert_eq!(
+            spoken("cafe \u{FFFD} open", p),
+            "cafe , character not shown, open"
+        );
+        assert_eq!(spoken("\u{FFFD}open", p), ", character not shown, open");
+        assert_eq!(
+            spoken("x\u{FFFD}y", "\u{060C} w\u{060C}"),
+            "x\u{060C} w\u{060C} y"
+        );
+        assert_eq!(spoken("x\u{FFFD}y", "\u{3001}w"), "x\u{3001}w y");
         // What the bubble draws for a cluster past the bound.
         let past = drawable(&format!("x{}y", marked(CLUSTER_CODE_POINTS))).into_owned();
         assert!(!spoken(&past, w).contains(REPLACEMENT));
