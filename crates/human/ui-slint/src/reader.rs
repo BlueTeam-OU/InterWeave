@@ -97,8 +97,8 @@ pub(crate) fn forms(
     source.extend(body::pieces(&text).into_iter().map(|(piece, _)| ReaderRow {
         kind: ReaderRowKind::Source,
         line: BodyLine::default(),
-        spoken: crate::spoken(piece).into(),
         text: piece.into(),
+        spoken: SharedString::new(),
         index: 0,
     }));
     Forms {

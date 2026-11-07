@@ -480,7 +480,13 @@ fn open_contact(view: &mut View, model: &mut UiModel, name: &str) {
     press(view, text(UiText::AppOptions));
     press(view, text(UiText::ContactsTitle));
     let _ = intents(view, model);
-    press(view, &isolated(name));
+    // The row as a screen reader reads it: a drawn mark spoken as words.
+    let spoken = interweave_human_ui_model::cluster::spoken(
+        &isolated(name),
+        text(UiText::ReplacedCharacter),
+    )
+    .into_owned();
+    press(view, &spoken);
     let _ = intents(view, model);
     settle();
 }
@@ -650,6 +656,64 @@ fn every_received_name_is_drawn_isolated() {
         (0..rows.row_count()).any(|i| rows.row_data(i).is_some_and(|r| r.title == isolated(rtl))),
         "the list row's title"
     );
+}
+
+/// A name holding a character past the cluster bound is drawn with one
+/// U+FFFD, and wherever the client sets an accessible text for it --
+/// the proposal, the conversation's header, the Contacts list, the
+/// contact's page and the Chats row -- a screen reader is given
+/// `ReplacedCharacter`'s words in its place, never the mark (long-message
+/// note section 6, A12). The name field's value is the person's to edit
+/// and keeps the mark, as the draft does.
+#[test]
+fn a_drawn_names_mark_is_spoken_as_words_wherever_it_is_labelled() {
+    let name = format!("Ada \u{e1}{}", "\u{301}".repeat(39));
+    let mut view = view();
+    let mut model = UiModel::new();
+    let never_the_mark = |view: &View, place: &str| {
+        let found = i_slint_backend_testing::ElementQuery::from_root(view.window()).find_all();
+        let said: Vec<String> = found
+            .iter()
+            .flat_map(|e| [e.accessible_label(), e.accessible_description()])
+            .flatten()
+            .map(|s| s.to_string())
+            .collect();
+        let marked: Vec<&String> = said.iter().filter(|s| s.contains('\u{FFFD}')).collect();
+        assert!(
+            marked.is_empty(),
+            "{place}: never the mark itself: {marked:?}"
+        );
+        assert!(
+            said.iter()
+                .any(|s| s.contains(text(UiText::ReplacedCharacter))),
+            "{place}: the words"
+        );
+    };
+    model.contacts_listed(vec![contact("c1", &name, P)]);
+    view.render(&model);
+    open_contact(&mut view, &mut model, &name);
+    assert_eq!(
+        view.window().get_contact_name_draft(),
+        "Ada \u{FFFD}",
+        "the field the person edits keeps the mark"
+    );
+    never_the_mark(&view, "the contact's page");
+
+    model.card_received(proposal(1, Q, card(&name, false), context()));
+    let _ = shown(&mut view, &mut model, Q);
+    never_the_mark(&view, "the proposal");
+
+    view.select(direct(P));
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        view.window().get_header_title().contains('\u{FFFD}'),
+        "control: the header draws the mark"
+    );
+    never_the_mark(&view, "the header");
+
+    model.received(message(2, "hello", NOW));
+    let _ = intents(&mut view, &mut model);
+    never_the_mark(&view, "the Chats row");
 }
 
 /// TM-56 (`tests/SECURITY-MATRIX.md`): two contacts of one name, from

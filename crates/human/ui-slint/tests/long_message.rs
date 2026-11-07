@@ -144,6 +144,7 @@ fn rows(view: &View) -> Vec<interweave_human_ui_slint::MessageRow> {
 /// The labels of the open menu of the row whose label is `label`, in
 /// order, opened as a screen reader does, by the row's default action.
 fn menu(view: &View, label: &str) -> Vec<String> {
+    let label = &spoken(label);
     let item = ElementQuery::from_root(view.window())
         .match_accessible_role(AccessibleRole::ListItem)
         .find_all()
@@ -160,9 +161,15 @@ fn menu(view: &View, label: &str) -> Vec<String> {
         .collect()
 }
 
+/// `label` as a screen reader is given it: a drawn mark as words.
+fn spoken(label: &str) -> String {
+    interweave_human_ui_model::cluster::spoken(label, text(UiText::ReplacedCharacter)).into_owned()
+}
+
 /// Choose `entry` from the open menu of the row labelled `label`.
 fn choose(view: &View, label: &str, entry: &str) {
     let _ = menu(view, label);
+    let label = &spoken(label);
     ElementQuery::from_root(view.window())
         .find_all()
         .into_iter()
@@ -173,6 +180,21 @@ fn choose(view: &View, label: &str, entry: &str) {
         .expect("the menu's entry")
         .invoke_accessible_default_action();
     slint::platform::update_timers_and_animations();
+}
+
+/// The message row's item, as a screen reader reads it, formatted or as
+/// source (the Chats list's rows are items too).
+fn item_label(view: &View) -> String {
+    let row = &rows(view)[0];
+    let forms = [spoken(&row.label), spoken(&row.source_label)];
+    ElementQuery::from_root(view.window())
+        .match_accessible_role(AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .filter_map(|e| e.accessible_label())
+        .find(|l| forms.iter().any(|f| l == f.as_str()))
+        .expect("the message row's item")
+        .to_string()
 }
 
 /// A body of `n` paragraphs, "Paragraph 1." to "Paragraph n.".
@@ -218,7 +240,9 @@ fn a_replaced_character_is_spoken_as_words() {
     model.received(received(1, &alice, &body));
     open(&mut view, &mut model, &direct(&alice));
     let words = text(UiText::ReplacedCharacter);
-    let spoken = format!("x {words} y and {words} z");
+    // Words that start with punctuation take no space before them
+    // (section 6), as the en words do.
+    let spoken = format!("x{words} y and {words} z");
     let said = |view: &View| -> Vec<String> {
         ElementQuery::from_root(view.window())
             .find_all()
@@ -240,10 +264,10 @@ fn a_replaced_character_is_spoken_as_words() {
         );
     };
 
-    let code = format!("q {words} r");
+    let code = format!("q{words} r");
     assert_eq!(labelled(&view, &spoken).len(), 1, "the bubble's line");
     assert_eq!(labelled(&view, &code).len(), 1, "the bubble's code line");
-    assert!(rows(&view)[0].label.contains(&spoken), "the bubble's label");
+    assert!(item_label(&view).contains(&spoken), "the bubble's label");
     spoken_never_the_mark(&view, "the conversation and the Chats line");
 
     the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
@@ -264,11 +288,11 @@ fn a_replaced_character_is_spoken_as_words() {
     key(&view, Key::Escape);
     let _ = intents(&mut view, &mut model);
     assert!(!view.window().get_reader_open());
-    let label = rows(&view)[0].label.to_string();
+    let label = item_label(&view);
     choose(&view, &label, text(UiText::ShowSource));
     let _ = intents(&mut view, &mut model);
     assert!(
-        rows(&view)[0].source_label.contains(&spoken),
+        item_label(&view).contains(&spoken),
         "the bubble's label as source"
     );
     spoken_never_the_mark(&view, "the bubble's source");

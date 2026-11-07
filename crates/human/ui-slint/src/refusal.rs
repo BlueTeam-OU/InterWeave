@@ -47,6 +47,7 @@ impl RefusalView {
     /// The toolkit's, when no platform can create a window.
     pub fn new(page: &RefusalPage) -> Result<Self, slint::PlatformError> {
         let window = RefusalWindow::new()?;
+        crate::wire_drawn(&window.global::<crate::generated::Drawn<'_>>());
         let text = |t| SharedString::from(placeholder_en::text(t));
         window.set_window_title(text(UiText::AppTitle));
         window.set_heading(text(UiText::RefusalHeading));

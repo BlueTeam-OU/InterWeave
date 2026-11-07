@@ -1066,8 +1066,9 @@ impl View {
         window.set_details_label(text(UiText::Details));
         slint::ComponentHandle::global::<generated::Touch<'_>>(&window)
             .set_slop(TouchSettings::default().slop);
-        slint::ComponentHandle::global::<generated::Drawn<'_>>(&window)
-            .on_drawable(|text| cluster::drawable(&text).as_ref().into());
+        wire_drawn(&slint::ComponentHandle::global::<generated::Drawn<'_>>(
+            &window,
+        ));
         let shared = Rc::new(RefCell::new(Shared {
             window: slint::ComponentHandle::as_weak(&window),
             ..Shared::default()
@@ -2253,7 +2254,7 @@ impl View {
                 ConversationRow {
                     handle: self.conversation_handles.of(&summary.key),
                     title: summary.drawn_title.as_str().into(),
-                    description: spoken(&description).into(),
+                    description: description.into(),
                     selected: self.shown.as_ref() == Some(&summary.key),
                     hide: swipe::kind(hide.then_some(RowAction::Hide)),
                     hide_label: placeholder_en::text(UiText::HideShort).into(),
@@ -3692,8 +3693,6 @@ struct DrawnBody {
     lines: ModelRc<BodyLine>,
     /// The source in pieces, as the lines are.
     source_pieces: ModelRc<SharedString>,
-    /// Each piece as a screen reader is given it.
-    source_spoken: ModelRc<SharedString>,
     link_rows: ModelRc<LinkRow>,
     /// The destinations, in the order of `link_rows`.
     links: Vec<String>,
@@ -3726,14 +3725,17 @@ const fn hue_index(hue: AvatarHue) -> i32 {
 
 /// An image's placeholder, in the view's words: its alt text, or only
 /// that it is an image when the alt text is empty or blank.
-/// `text` as a screen reader is given it: every U+FFFD as
-/// `ReplacedCharacter`'s words (section 6;
-/// `tests/long_message.rs` `a_replaced_character_is_spoken_as_words`).
-/// Only for an accessible text: what is drawn keeps the mark, and so does
-/// the draft's value, which a screen reader writes (`tests/views.rs`
-/// `a_character_past_the_cluster_bound_is_drawn_as_one_replacement_everywhere`).
-pub(crate) fn spoken(text: &str) -> String {
-    cluster::spoken(text, placeholder_en::text(UiText::ReplacedCharacter)).into_owned()
+/// Gives a window's `Drawn` global its functions. Every window built
+/// needs it: an unset pure callback answers an empty string, which would
+/// leave every accessible text of the window empty (`tests/refusal.rs`
+/// finds its labels only through it).
+pub(crate) fn wire_drawn(drawn: &generated::Drawn<'_>) {
+    drawn.on_drawable(|text| cluster::drawable(&text).as_ref().into());
+    drawn.on_spoken(|text| {
+        cluster::spoken(&text, placeholder_en::text(UiText::ReplacedCharacter))
+            .as_ref()
+            .into()
+    });
 }
 
 fn image_text(alt: &str) -> String {
@@ -3776,7 +3778,6 @@ fn body_lines(lines: &[body::Line]) -> Vec<BodyLine> {
                 quoted: line.quoted,
                 marker: line.marker.as_str().into(),
                 text: line.text.as_str().into(),
-                spoken: spoken(&line.text).into(),
                 joined: line.join != body::Join::Starts,
                 continues: lines
                     .get(index + 1)
@@ -3811,10 +3812,6 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
     let (source_pieces, source_shown) = cut::source(&item.source);
     let source_cut_line = cut_line(source_shown);
     let source_plain = with_line(&source_cut_line);
-    let source_spoken: Vec<SharedString> = source_pieces
-        .iter()
-        .map(|piece| spoken(piece).into())
-        .collect();
     let source_pieces: Vec<SharedString> = source_pieces.into_iter().map(Into::into).collect();
     let link_rows: Vec<LinkRow> = body
         .links
@@ -3830,7 +3827,6 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
     DrawnBody {
         lines: ModelRc::new(VecModel::from(lines)),
         source_pieces: ModelRc::new(VecModel::from(source_pieces)),
-        source_spoken: ModelRc::new(VecModel::from(source_spoken)),
         link_rows: ModelRc::new(VecModel::from(link_rows)),
         links: body.links,
         plain: formatted_plain,
@@ -3925,8 +3921,8 @@ fn message_row(
     let source_label = fill(placeholder_en::text(template), &values);
     MessageRow {
         handle,
-        label: spoken(&label).into(),
-        source_label: spoken(&source_label).into(),
+        label: label.into(),
+        source_label: source_label.into(),
         author: author.into(),
         author_id: author_id.into(),
         status: status.text.as_str().into(),
@@ -3943,7 +3939,6 @@ fn message_row(
         gap: placed.gap,
         day: placed.day.into(),
         source_pieces: drawn.source_pieces.clone(),
-        source_spoken: drawn.source_spoken.clone(),
         cut_line: drawn.cut_line.as_str().into(),
         source_cut_line: drawn.source_cut_line.as_str().into(),
         lines: drawn.lines.clone(),
