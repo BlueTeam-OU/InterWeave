@@ -311,6 +311,46 @@ pub fn pieces(text: &str) -> Vec<(&str, Join)> {
     }
 }
 
+/// `piece` in two near its middle, as [`crate::cluster::weight`] weighs
+/// it, for a view whose layout measured it past the item extent
+/// (HUMAN-CHAT.md Bounds, A 2026-11-07: split by measure, never by a
+/// count -- the measure says whether to split, this only where): at the
+/// line break nearest the middle, which the cut takes the place of; else
+/// at the last word boundary up to the middle; else at the middle. Never
+/// inside a character, and neither half empty. `None` for a piece of one
+/// character, which no cut makes smaller.
+#[must_use]
+pub fn halves(piece: &str) -> Option<(&str, &str, Join)> {
+    let total = crate::cluster::weighted(piece);
+    let mut weight = 0;
+    let mut middle = None;
+    for (at, grapheme) in piece.grapheme_indices(true) {
+        // Never at the start: a character weighs at least one.
+        if weight * 2 >= total {
+            middle = Some((at, at + grapheme.len()));
+            break;
+        }
+        weight += crate::cluster::weight(grapheme);
+    }
+    let (middle, beyond) = middle?;
+    // A break with something on both sides of it.
+    let nearest_break = piece
+        .grapheme_indices(true)
+        .filter(|&(at, grapheme)| {
+            is_line_break(grapheme) && at > 0 && at + grapheme.len() < piece.len()
+        })
+        .min_by_key(|&(at, _)| at.abs_diff(middle));
+    if let Some((at, grapheme)) = nearest_break {
+        return Some((
+            &piece[..at],
+            &piece[at + grapheme.len()..],
+            Join::AfterBreak,
+        ));
+    }
+    let at = word_cut(&piece[..beyond], middle).unwrap_or(middle);
+    Some((&piece[..at], &piece[at..], Join::MidLine))
+}
+
 /// The last word boundary in `head`, past its start and at most `cap`,
 /// where a word begins, so that the next piece starts with a word and not
 /// with the space before it.
@@ -599,6 +639,61 @@ mod tests {
         let got = body(&deep);
         assert_eq!(got.lines, [line(Kind::Text, 0, false, "", &deep)]);
         assert!(got.links.is_empty());
+    }
+
+    mod halves {
+        use super::super::{Join, halves};
+
+        #[test]
+        fn one_character_has_no_halves() {
+            assert_eq!(halves(""), None);
+            assert_eq!(halves("x"), None);
+            assert_eq!(halves("e\u{301}"), None, "one character of two code points");
+        }
+
+        #[test]
+        fn running_text_is_cut_where_a_word_begins_up_to_the_middle() {
+            let (head, tail, join) = halves("one two three four").expect("halves");
+            assert_eq!(
+                (head, tail, join),
+                ("one two ", "three four", Join::MidLine)
+            );
+        }
+
+        #[test]
+        fn a_run_with_no_word_boundary_is_cut_at_its_middle_never_inside_a_character() {
+            assert_eq!(
+                halves(&"x".repeat(10)),
+                Some(("xxxxx", "xxxxx", Join::MidLine))
+            );
+            let run = "e\u{301}".repeat(5);
+            let (head, tail, _) = halves(&run).expect("halves");
+            // Five characters: the head takes the middle one.
+            assert_eq!(head, "e\u{301}".repeat(3), "whole characters");
+            assert_eq!(tail, "e\u{301}".repeat(2));
+        }
+
+        #[test]
+        fn the_middle_is_by_weight() {
+            // Four wide characters weigh as the eight narrow ones after
+            // them, all of one word (Hangul and Latin letters join), so
+            // only the weight places the cut.
+            let text = format!("{}{}", "\u{AC00}".repeat(4), "a".repeat(8));
+            let (head, tail, _) = halves(&text).expect("halves");
+            assert_eq!(head, "\u{AC00}".repeat(4));
+            assert_eq!(tail, "a".repeat(8));
+        }
+
+        #[test]
+        fn the_line_break_nearest_the_middle_is_taken_and_dropped() {
+            let (head, tail, join) = halves("aaaaaaaa\nb\ncccccccc").expect("halves");
+            assert_eq!(
+                (head, tail, join),
+                ("aaaaaaaa\nb", "cccccccc", Join::AfterBreak)
+            );
+            // A break nothing follows divides nothing.
+            assert_eq!(halves("aaaa\n").map(|h| h.2), Some(Join::MidLine));
+        }
     }
 
     mod pieces {
