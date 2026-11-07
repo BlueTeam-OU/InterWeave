@@ -12,8 +12,9 @@
 # does. TEST-ONLY; that the release APK's graph names it nowhere is
 # DECISION 01a12770's invariant: check_human_layering rule 6 (the Cargo
 # graph), the app's Gradle task verifyReleaseNative (the release native
-# library) and the android apk job's check_apk_classes.py (the case's
-# Java entry, on the release APK's dex).
+# library) and check_apk_classes.py (the case's Java entry, on the
+# release APK's dex: every PR's in the android apk job, the published
+# one in the release workflow).
 [package]
 name = "interweave-android-e2e-cases"
 version.workspace = true

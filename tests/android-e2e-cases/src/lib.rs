@@ -23,7 +23,8 @@
 //! `check_human_layering.sh` rule 6, on the release native library by
 //! the app's Gradle task `verifyReleaseNative`, and for the case's Java
 //! entry (`org.interweave.human.test.E2eCase`) on the release APK's
-//! dex by the android apk job (`tools/ci/check_apk_classes.py`).
+//! dex by `tools/ci/check_apk_classes.py`, run on every PR's APK by
+//! the android apk job and on the published one by the release workflow.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
