@@ -311,7 +311,51 @@ fn mdns_host(services: &str, serial: &str) -> Option<String> {
 /// server's own.
 fn adb_text(args: &[&str]) -> String {
     let out = Command::new("adb").args(args).output().expect("adb");
-    String::from_utf8_lossy(&out.stdout).into_owned()
+    listing(args, &out).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// A failed adb is reported as adb's failure, never read as an empty
+/// listing, which would name a missing device or service instead
+/// (`a_failed_adb_listing_says_adb_failed`).
+fn listing(args: &[&str], out: &std::process::Output) -> Result<String, String> {
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        Err(format!(
+            "adb {} ({}): {}",
+            args.join(" "),
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        ))
+    }
+}
+
+#[test]
+fn a_failed_adb_listing_says_adb_failed() {
+    use std::os::unix::process::ExitStatusExt;
+    let out = |code: i32, stdout: &str, stderr: &str| std::process::Output {
+        status: std::process::ExitStatus::from_raw(code << 8),
+        stdout: stdout.into(),
+        stderr: stderr.into(),
+    };
+    let failed = listing(
+        &["mdns", "services"],
+        &out(1, "", "error: mdns backend unavailable\n"),
+    );
+    assert!(
+        failed.as_ref().is_err_and(
+            |e| e.contains("adb mdns services") && e.contains("mdns backend unavailable")
+        ),
+        "{failed:?}"
+    );
+    // Control: a listing adb printed with success is the listing.
+    assert_eq!(
+        listing(
+            &["devices", "-l"],
+            &out(0, "List of devices attached\n", "")
+        ),
+        Ok("List of devices attached\n".to_owned())
+    );
 }
 
 #[test]
