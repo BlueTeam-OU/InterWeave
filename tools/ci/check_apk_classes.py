@@ -19,7 +19,9 @@
 #                           package under it (org.interweave.human.test:
 #                           its nested classes too), else exit 1 naming each
 #
-# At least one condition is required. The android apk job holds the
+# At least one condition is required, and every <class> and <package> is
+# a dotted Java name (no empty segment, no trailing dot): a name that
+# could never match would pass every APK, so it is usage, exit 2. The android apk job holds the
 # release APK to none of the instrumentation's package (DECISION
 # 01a12770: the test-only JNI entry, org.interweave.human.test.E2eCase,
 # is the androidTest APK's alone) and to its main Activity, which shows
@@ -45,6 +47,7 @@ from pathlib import Path
 
 DEX_ENTRY = re.compile(r"classes[0-9]*\.dex")
 DEX_VERSIONS = {b"035", b"037", b"038", b"039"}
+JAVA_NAME = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*")
 
 
 class Unreadable(Exception):
@@ -131,7 +134,7 @@ def main(argv: list[str]) -> int:
     holds: list[str] = []
     holds_none: list[str] = []
     while rest:
-        if len(rest) < 2 or rest[0] not in ("--holds", "--holds-none") or not rest[1]:
+        if len(rest) < 2 or rest[0] not in ("--holds", "--holds-none") or not JAVA_NAME.fullmatch(rest[1]):
             print(usage, file=sys.stderr)
             return 2
         (holds if rest[0] == "--holds" else holds_none).append(rest[1])

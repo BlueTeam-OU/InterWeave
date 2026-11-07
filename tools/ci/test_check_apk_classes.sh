@@ -38,13 +38,17 @@ fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2
 # The dex writer: mkapk.py <apk> <entry>=<spec> ..., where a spec is
 # comma-separated items: a binary name defines that class, ~name only
 # references it (a type with no class_def), and the flags v041, badmagic
-# and badoffset break the file the way their names say.
+# and badoffset break the file the way their names say; badtype and
+# badstring declare the type or the string table one entry shorter than
+# written and point the first class_def (or its type) at that last entry,
+# so the slot past the declared table still reads a valid descriptor and
+# only the bound check can refuse it.
 cat > "$SANDBOX/mkapk.py" <<'PYEOF'
 import struct, sys, zipfile
 
 def dex(spec):
     items = [i for i in spec.split(",") if i]
-    flags = {i for i in items if i in ("v041", "badmagic", "badoffset")}
+    flags = {i for i in items if i in ("v041", "badmagic", "badoffset", "badtype", "badstring")}
     names = [i for i in items if i not in flags]
     descriptors = ["L" + n.lstrip("~").replace(".", "/") + ";" for n in names]
     defined = [k for k, n in enumerate(names) if not n.startswith("~")]
@@ -59,15 +63,23 @@ def dex(spec):
         data += bytes([len(d)]) + d.encode() + b"\0"
     if "badoffset" in flags:
         offsets[0] = 0x7FFFFFF0
+    strings_size = types_size = n
+    type_strings = list(range(n))
+    def_types = list(defined)
+    if "badstring" in flags:
+        strings_size = n - 1
+        type_strings[def_types[0]] = n - 1
+    if "badtype" in flags:
+        types_size = n - 1
+        def_types[0] = n - 1
     header = bytearray(0x70)
     header[0:8] = b"dex\n041\0" if "v041" in flags else b"dey\n039\0" if "badmagic" in flags else b"dex\n039\0"
-    struct.pack_into("<4I", header, 0x38, n, strings_off, n, types_off)
+    struct.pack_into("<4I", header, 0x38, strings_size, strings_off, types_size, types_off)
     struct.pack_into("<2I", header, 0x60, len(defined), defs_off)
     body = b"".join(struct.pack("<I", o) for o in offsets)
-    body += b"".join(struct.pack("<I", k) for k in range(n))
-    body += b"".join(struct.pack("<I", k) + bytes(28) for k in defined)
-    out = bytes(header) + body + data
-    struct.pack_into("<I", header, 0x20, len(out))
+    body += b"".join(struct.pack("<I", k) for k in type_strings)
+    body += b"".join(struct.pack("<I", k) + bytes(28) for k in def_types)
+    struct.pack_into("<I", header, 0x20, 0x70 + len(body) + len(data))
     return bytes(header) + body + data
 
 with zipfile.ZipFile(sys.argv[1], "w") as z:
@@ -114,8 +126,8 @@ mkapk "$SANDBOX/nodex.apk" "lib/arm64-v8a/libx.so=x" "assets/classes.dex=$TESTPK
 out="$(run "$SANDBOX/nodex.apk" --holds-none "$TESTPKG")"; rc=$?
 [[ $rc -eq 2 ]] && grep -q "no classes\*.dex" <<<"$out" \
     && pass "no root classes*.dex (one under assets/ is not the APK's): exit 2" || fail "rc $rc" "$out"
-for flag in v041 badmagic badoffset; do
-    mkapk "$SANDBOX/$flag.apk" "classes.dex=$MAIN,$TESTPKG.E2eCase,$flag"
+for flag in v041 badmagic badoffset badtype badstring; do
+    mkapk "$SANDBOX/$flag.apk" "classes.dex=$MAIN,$TESTPKG.E2eCase,~$TESTPKG.Hidden,$flag"
     out="$(run "$SANDBOX/$flag.apk" --holds-none "$TESTPKG")"; rc=$?
     [[ $rc -eq 2 ]] && grep -q "classes.dex: " <<<"$out" && pass "$flag: exit 2, naming the entry" || fail "$flag: rc $rc" "$out"
 done
@@ -127,7 +139,8 @@ out="$(run "$SANDBOX/missing.apk" --holds-none "$TESTPKG")"; rc=$?
 
 echo "check_apk_classes: usage"
 for args in "" "$SANDBOX/release.apk" "$SANDBOX/release.apk --holds" "$SANDBOX/release.apk --holds-none ''" \
-            "$SANDBOX/release.apk --nope x" "--holds $MAIN"; do
+            "$SANDBOX/release.apk --nope x" "--holds $MAIN" "$SANDBOX/release.apk --holds-none $TESTPKG." \
+            "$SANDBOX/release.apk --holds-none org..interweave" "$SANDBOX/release.apk --holds org/interweave/Main"; do
     # shellcheck disable=SC2086 # the cases are word lists
     out="$(eval run $args)"; rc=$?
     [[ $rc -eq 2 ]] && pass "'${args#"$SANDBOX/"}': exit 2" || fail "'$args': rc $rc" "$out"
