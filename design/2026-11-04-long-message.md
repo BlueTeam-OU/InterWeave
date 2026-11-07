@@ -396,7 +396,8 @@ screen reader there and nothing is spoken twice. The words stand apart from the 
 client puts a space on each side where the mark touches a character
 that is not a space, and any pause the words need in a locale is in
 the string itself (§8). The one exception is before the words when
-the string starts with punctuation (en's comma): punctuation attaches
+the string's first character is punctuation (Unicode general category
+P, such as en's comma or another script's): punctuation attaches
 to what precedes it, so the client adds no space there, and
 "cafe" + mark + "open" reads "cafe, character not shown, open". A space
 before a lone comma would also show on a braille display as a stray
