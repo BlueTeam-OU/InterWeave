@@ -384,7 +384,10 @@ speaks U+FFFD on its own depends on the person's punctuation setting
 and the speech engine, not on the platform alone, so the client does
 not leave it to them: wherever the client sets the accessible text —
 the bubble's `Item` label, the Chats row's description, the reader's
-blocks and Show source — it puts `ReplacedCharacter` (§8) in place of
+blocks and Show source, and a name or title that can hold the mark
+(the Chats row's title, the conversation header, a message's author
+line, the card and contact screens' names) — it puts
+`ReplacedCharacter` (§8) in place of
 every U+FFFD: a mark it drew for a cluster past 32 code points, and a
 U+FFFD the body already carries (a sent message whose draft was
 replaced, or one the sender's own client replaced), which looks the
@@ -394,7 +397,9 @@ client puts a space on each side where the mark touches a character
 that is not a space, and any pause the words need in a locale is in
 the string itself (§8). In either case, no words are shown on screen.
 
-The composer's draft is the one place without them. It is the client's
+The composer's draft is the one place without them, and so is any
+other field the person edits, such as a name being edited, for the
+same reason. The draft is the client's
 own Slint field, whose accessible value is the draft itself, and a
 screen reader that sets that value writes the draft
 (`crates/human/ui-slint/tests/look.rs` does so through it), so words
@@ -513,7 +518,7 @@ are that locale's holder's.
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
 | `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied, and the action that is left: copy again (a "could not" a person can act on ends with its action: architect-cto's vocabulary read of #565, REPLY 01a1aea5) | Could not copy the message source. Choose Copy message source to try again. |
-| `ReplacedCharacter` | never on screen: a screen reader's text in place of every U+FFFD, wherever the client sets the accessible text, and never in the composer's draft (§6) | that one character is there that is shown only as a replacement mark; a word or two, spoken in the middle of the text around it, with any pause the locale needs before and after it | character not shown |
+| `ReplacedCharacter` | never on screen: a screen reader's text in place of every U+FFFD, wherever the client sets the accessible text, names and titles included, and never in the composer's draft or another field the person edits (§6) | that one character is there that is shown only as a replacement mark; a word or two, spoken in the middle of the text around it, with any pause the locale needs before and after it | character not shown |
 
 Show source and Show formatted reuse the row's existing labels.
 
@@ -719,7 +724,10 @@ it, those checks are blocked, never passed.
   every other character, and its sent row says `ReplacedCharacter`
   there at both punctuation settings. What each screen reader says for the mark in
   the draft is recorded at both settings, whatever it is (§6's
-  limit).
+  limit). A contact whose name holds the same cluster: the Chats row's
+  title, the conversation header, the author line and the contact
+  screen's name each show one mark, and a screen reader reaching each
+  says `ReplacedCharacter` there, at both settings.
 
 **H1** (the hypothesis of §2, unvalidated): a person given a
 conversation with a long pasted log in its middle, asked to find the
