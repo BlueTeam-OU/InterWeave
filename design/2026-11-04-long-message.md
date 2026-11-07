@@ -395,7 +395,12 @@ same and which no client can tell apart. So U+FFFD never reaches the
 screen reader there and nothing is spoken twice. The words stand apart from the text around them: the
 client puts a space on each side where the mark touches a character
 that is not a space, and any pause the words need in a locale is in
-the string itself (§8). In either case, no words are shown on screen.
+the string itself (§8). The one exception is before the words when
+the string starts with punctuation (en's comma): punctuation attaches
+to what precedes it, so the client adds no space there, and
+"cafe" + mark + "open" reads "cafe, character not shown, open". A space
+before a lone comma would also show on a braille display as a stray
+mark. The space after the words stays. In either case, no words are shown on screen.
 
 The composer's draft is the one place without them, and so is any
 other field the person edits, such as a name being edited, for the
