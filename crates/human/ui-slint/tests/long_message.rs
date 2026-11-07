@@ -928,18 +928,26 @@ fn a_press_on_a_link_control_past_the_extent_is_drawn_in_pieces() {
         let shown = (p.y.max(400.0), (p.y + z.height).min(7_500.0));
         assert!(shown.0 < shown.1, "{n}: the control shows, {shown:?}");
         let position = slint::LogicalPosition::new(p.x + 20.0, f32::midpoint(shown.0, shown.1));
+        let named = |view: &View, kind: &str| {
+            ElementQuery::from_root(view.window())
+                .match_type_name(kind)
+                .find_all()
+        };
+        let tiled = named(&view, "Tiled").len();
         let window = view.window().window();
         window.dispatch_event(WindowEvent::PointerPressed {
             position,
             button: PointerEventButton::Left,
         });
         i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(400));
-        let named = |kind: &str| {
-            ElementQuery::from_root(view.window())
-                .match_type_name(kind)
-                .find_all()
-        };
+        let named = |kind: &str| named(&view, kind);
         assert_eq!(past_the_bound(&view), Vec::<String>::new(), "{n}, pressed");
+        // Past the extent the press shows, as one more fill in slices.
+        assert_eq!(
+            named("Tiled").len(),
+            tiled + usize::from(past),
+            "{n}: the pressed fill"
+        );
         assert_eq!(named("StateLayer").len(), usize::from(!past), "{n}");
         let ripples = named("Ripple");
         assert_eq!(ripples.len(), usize::from(!past), "{n}: a ripple");
@@ -954,8 +962,45 @@ fn a_press_on_a_link_control_past_the_extent_is_drawn_in_pieces() {
             position,
             button: PointerEventButton::Left,
         });
-        let _ = intents(&mut view, &mut model);
+        // The press was the control's: released, it opens the link.
+        assert_eq!(
+            intents(&mut view, &mut model),
+            vec![Intent::OpenLink(destination.clone())],
+            "{n}: the press landed"
+        );
     }
+
+    // The reader draws a cut message's control the same way.
+    let alice = peer();
+    let destination = format!("https://e.org/{}", "\u{FDFD}".repeat(1960));
+    model.received(received(
+        10,
+        &alice,
+        &format!("[a]({destination}) {}", "x".repeat(100)),
+    ));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 20_000.0));
+    slint::platform::update_timers_and_animations();
+    let label = interweave_human_ui_model::body::link_label(&destination);
+    let rows = view.window().get_reader_rows();
+    let links: Vec<_> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        // A link's row is the one row drawing pieces of a label.
+        .filter(|r| r.pieces.row_count() > 0)
+        .collect();
+    assert_eq!(links.len(), 1, "the reader: one control");
+    let pieces: Vec<String> = links[0].pieces.iter().map(|p| p.to_string()).collect();
+    assert_eq!(pieces.concat(), label, "the reader: the label, whole");
+    assert!(pieces.len() > 1, "the reader: in pieces");
+    let drawn = the(&view, &label)
+        .query_descendants()
+        .match_type_name("Text")
+        .find_all();
+    assert!(drawn.len() > 1, "the reader: pieces drawn, {}", drawn.len());
 }
 
 /// A body measured at one text size is measured again at a larger one: a

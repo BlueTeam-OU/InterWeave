@@ -600,8 +600,9 @@ component StateLayer inherits Rectangle {
     accessible-role: none;
 }
 
-// A ripple: a circle growing from the press point until it covers the
-// control. Only drawn while animations are on.
+// A ripple: a circle growing from the press point to the control's
+// diagonal or `Tile.ripple-reach`, whichever is less, so past that reach
+// it covers the control only in part. Only drawn while animations are on.
 component Ripple inherits Rectangle {
     in property <length> cx;
     in property <length> cy;
