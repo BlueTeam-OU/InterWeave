@@ -39,6 +39,11 @@ holds no release logic of its own. In order:
 4. **Skia, checked.** `tools/ci/skia_prebuilt.sh check <target-dir>`
    (the workspace's `target/`) fails the run unless the bindings took
    the pinned file, so a silent fallback to a source build is a red run.
+   Then `tools/ci/check_apk_classes.py` refuses the unsigned APK if its
+   dex defines any class of `org.interweave.human.test`, the
+   instrumentation's package (DECISION 01a12770), with `MainActivity`
+   held as the control; CI's `android apk` job runs the same check on
+   every PR.
 5. **Signing.** `tools/ci/release_android_apk.sh <version>
    <unsigned.apk> <out-dir>` first refuses a `<version>` that is not
    the workspace version (ADR-0065: `release_tag.sh --manifest`, the

@@ -206,6 +206,15 @@ jobs:
       - name: Skia, checked
         run: bash tools/ci/skia_prebuilt.sh check target release
 
+      # The APK published is held to what CI holds every PR's to: none of
+      # the instrumentation's classes (DECISION 01a12770), its
+      # MainActivity the control that the dex was read.
+      - name: The release APK holds no instrumentation class
+        run: |
+          python3 tools/ci/check_apk_classes.py \
+            apps/human-android/android/app/build/outputs/apk/release/app-release-unsigned.apk \
+            --holds org.interweave.human.MainActivity --holds-none org.interweave.human.test
+
       # Step 7, here because an ndk: source reads this job's SDK. The
       # script writes its file and makes no directory for it.
       - name: The notices
