@@ -592,8 +592,9 @@ jobs:
     # CONTEXT NAME: `android apk (assembleDebug)`. ADVISORY (CLAUDE.md §9's
     # advisory sentence): the APK the Gradle build packages, with the native
     # library cargo-ndk builds into it, then the debug variant's lint and
-    # JVM unit tests (the name keeps the context the advisory sentence
-    # names). Advisory until the ruleset gains it (devex-tooling, by hand,
+    # JVM unit tests, then the release APK and the instrumentation's,
+    # the first held to none of the second's classes (the name keeps the
+    # context the advisory sentence names). Advisory until the ruleset gains it (devex-tooling, by hand,
     # on the owner's word): the Gradle project is on main and the run time
     # is measured below, so nothing else is waited for.
     name: android apk (assembleDebug)
@@ -690,6 +691,29 @@ jobs:
       # until the first JVM unit test lands, which it then gates.
       - name: ./gradlew testDebugUnitTest
         run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
+
+      # The release APK, unsigned, and the instrumentation's APK beside it.
+      # assembleRelease runs verifyReleaseNative, which the release
+      # workflow alone ran before: the release library names no case
+      # entry and no views' trace, and writes the first-run profile.
+      - name: ./gradlew assembleRelease assembleDebugAndroidTest
+        run: ./gradlew --no-daemon --stacktrace assembleRelease assembleDebugAndroidTest
+
+      # DECISION 01a12770's JNI half: the instrumentation's classes
+      # (org.interweave.human.test, E2eCase the JNI entry's) are the
+      # androidTest APK's alone, never the release APK's. A class in
+      # src/main or src/release would put one there with every other
+      # check green. The release APK's MainActivity and the test APK's
+      # E2eCase are the controls: the dex was read, and a class of that
+      # package is seen where it is.
+      - name: The release APK holds no instrumentation class
+        working-directory: .
+        run: |
+          out=apps/human-android/android/app/build/outputs/apk
+          python3 tools/ci/check_apk_classes.py "$out/release/app-release-unsigned.apk" \
+            --holds org.interweave.human.MainActivity --holds-none org.interweave.human.test
+          python3 tools/ci/check_apk_classes.py "$out/androidTest/debug/app-debug-androidTest.apk" \
+            --holds org.interweave.human.test.E2eCase
 
       - name: What was built
         run: |
