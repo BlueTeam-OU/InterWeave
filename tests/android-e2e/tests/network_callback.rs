@@ -96,19 +96,13 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
         std::env::var("ANDROID_SERIAL").ok().as_deref(),
     )
     .unwrap_or_else(|e| panic!("{e}"));
-    // The host the phone is followed to when wireless debugging moves,
-    // learned before anything is changed: from an `ip:port` serial, or
-    // for an mDNS serial from adb's own list of discovered services.
-    let wireless = match link {
-        Link::Usb => None,
-        Link::Network => Some(
-            host_of(&serial)
-                .or_else(|| mdns_host(&adb_text(&["mdns", "services"]), &serial))
-                .unwrap_or_else(|| {
-                    panic!("over wireless adb at {serial}: no address to follow the phone to, neither in the serial nor in `adb mdns services`")
-                }),
-        ),
-    };
+    // A network link with no host to follow is an error
+    // (`a_network_link_with_no_host_to_follow_is_an_error`), asked here
+    // so it ends the case before its first write to the phone
+    // (`phone.start` below). That order is the code's alone: no test
+    // runs this ignored case's body.
+    let wireless = follow_host(link, &serial, || adb_text(&["mdns", "services"]))
+        .unwrap_or_else(|e| panic!("{e}"));
     if wireless.is_some() {
         let usb = platform::shell(&["settings", "get", "global", "adb_enabled"]);
         assert_eq!(
@@ -285,6 +279,27 @@ fn attachment(devices: &str, serial: Option<&str>) -> Result<(String, Link), Str
     Ok((entry[0].to_owned(), link))
 }
 
+/// The host the phone is followed to when wireless debugging moves:
+/// none on USB; on a network link from an `ip:port` serial, or for an
+/// mDNS serial from adb's own list of discovered services, asked for
+/// only then. A network link with neither is an error, never a run
+/// with no host (`a_network_link_with_no_host_to_follow_is_an_error`).
+fn follow_host(
+    link: Link,
+    serial: &str,
+    services: impl FnOnce() -> String,
+) -> Result<Option<String>, String> {
+    match link {
+        Link::Usb => Ok(None),
+        Link::Network => host_of(serial)
+            .or_else(|| mdns_host(&services(), serial))
+            .map(Some)
+            .ok_or_else(|| {
+                format!("over wireless adb at {serial}: no address to follow the phone to, neither in the serial nor in `adb mdns services`")
+            }),
+    }
+}
+
 /// The host of an `ip:port` serial (`[v6]:port` too); `None` for a
 /// serial with no port, an mDNS one.
 fn host_of(serial: &str) -> Option<String> {
@@ -311,7 +326,76 @@ fn mdns_host(services: &str, serial: &str) -> Option<String> {
 /// server's own.
 fn adb_text(args: &[&str]) -> String {
     let out = Command::new("adb").args(args).output().expect("adb");
-    String::from_utf8_lossy(&out.stdout).into_owned()
+    listing(args, &out).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// A failed adb is reported as adb's failure, never read as an empty
+/// listing, which would name a missing device or service instead
+/// (`a_failed_adb_listing_says_adb_failed`).
+fn listing(args: &[&str], out: &std::process::Output) -> Result<String, String> {
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        Err(format!(
+            "adb {} ({}): {}",
+            args.join(" "),
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        ))
+    }
+}
+
+#[test]
+fn a_network_link_with_no_host_to_follow_is_an_error() {
+    let mdns = "adb-R58M41ABCDE-Xy1zQw._adb-tls-connect._tcp";
+    let services = "List of discovered mdns services\n\
+        adb-OTHER-aaaa\t_adb-tls-connect._tcp\t192.168.1.54:40001\n";
+    assert!(follow_host(Link::Network, mdns, || services.to_owned()).is_err());
+    // Controls: the same serial once adb lists it, an ip:port serial and
+    // USB, the last two without asking adb for its services at all.
+    let listed =
+        format!("{services}adb-R58M41ABCDE-Xy1zQw\t_adb-tls-connect._tcp\t192.168.1.11:44779\n");
+    assert_eq!(
+        follow_host(Link::Network, mdns, || listed),
+        Ok(Some("192.168.1.11".to_owned()))
+    );
+    let unasked = || -> String { panic!("services asked for with the host in hand") };
+    assert_eq!(
+        follow_host(Link::Network, "192.168.1.11:44779", unasked),
+        Ok(Some("192.168.1.11".to_owned()))
+    );
+    assert_eq!(
+        follow_host(Link::Usb, "0123456789ABCDEF", unasked),
+        Ok(None)
+    );
+}
+
+#[test]
+fn a_failed_adb_listing_says_adb_failed() {
+    use std::os::unix::process::ExitStatusExt;
+    let out = |code: i32, stdout: &str, stderr: &str| std::process::Output {
+        status: std::process::ExitStatus::from_raw(code << 8),
+        stdout: stdout.into(),
+        stderr: stderr.into(),
+    };
+    let failed = listing(
+        &["mdns", "services"],
+        &out(1, "", "error: mdns backend unavailable\n"),
+    );
+    assert!(
+        failed.as_ref().is_err_and(
+            |e| e.contains("adb mdns services") && e.contains("mdns backend unavailable")
+        ),
+        "{failed:?}"
+    );
+    // Control: a listing adb printed with success is the listing.
+    assert_eq!(
+        listing(
+            &["devices", "-l"],
+            &out(0, "List of devices attached\n", "")
+        ),
+        Ok("List of devices attached\n".to_owned())
+    );
 }
 
 #[test]
