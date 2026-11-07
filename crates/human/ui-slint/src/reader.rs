@@ -6,8 +6,10 @@
 //! rule; how near, and at what cost, is A5's measurement). Its rows are the body's lines
 //! and links, or its source's pieces, each within the figures a whole
 //! body may have (HUMAN-CHAT.md, Bounds: "in pieces each within the
-//! figures a whole body may have"), so no row is taller than a whole
-//! body at the bound.
+//! figures a whole body may have"), and any the layout measures past
+//! the item extent split again by that measure (`lib.rs` `by_measure`;
+//! A 2026-11-07), so no row draws an item past it, whatever its font
+//! draws (`a4_shapes` in `tests/long_message.rs`).
 
 use interweave_human_ui_model::{
     Day, ItemKey, MessageItem, UiText, body, cluster, fill, placeholder_en,
@@ -62,6 +64,7 @@ pub(crate) fn forms(
     sent: &(String, String),
     image: &dyn Fn(&str) -> String,
     lines: impl Fn(&[body::Line]) -> Vec<BodyLine>,
+    pieces: impl Fn(Vec<String>) -> Vec<String>,
 ) -> Forms {
     let first = ReaderRow {
         kind: ReaderRowKind::Sent,
@@ -94,7 +97,13 @@ pub(crate) fn forms(
     );
     let text = cluster::drawable(&item.source);
     let mut source = vec![first];
-    source.extend(body::pieces(&text).into_iter().map(|(piece, _)| ReaderRow {
+    let source_pieces = pieces(
+        body::pieces(&text)
+            .into_iter()
+            .map(|(piece, _)| piece.to_owned())
+            .collect(),
+    );
+    source.extend(source_pieces.into_iter().map(|piece| ReaderRow {
         kind: ReaderRowKind::Source,
         line: BodyLine::default(),
         text: piece.into(),

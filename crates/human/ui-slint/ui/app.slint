@@ -4473,6 +4473,31 @@ export component AppWindow inherits Window {
     property <length> message-width: max(0px,
         (root.narrow || root.list-aside ? root.width : root.width - 281px)
             - root.safe-area-insets.left - root.safe-area-insets.right - 34px);
+    // What `measure-text` measures (`lib.rs` `by_measure`): a body line,
+    // or a piece of a source when `measure-source` is set.
+    in-out property <BodyLine> measure-line;
+    in-out property <bool> measure-source;
+    // A message's room at its narrowest: `message-width` with the window
+    // at its 320 px minimum, or at 600 px with the list beside, whichever
+    // is less -- so a piece measured here keeps within the extent however
+    // the window is resized after. Then the bubble's 80 % and its padding.
+    property <length> measure-room: max(0px, min(320px, 600px - 281px)
+        - root.safe-area-insets.left - root.safe-area-insets.right - 34px) * 0.8 - 24px;
+    property <bool> measure-mono: root.measure-source || root.measure-line.kind == LineKind.code;
+    // A line's indent, quote bar and marker beside its text, as a bubble's
+    // line lays them out, and a code line's padding round its text.
+    property <length> measure-indent: root.measure-source ? 0px
+        : root.measure-line.depth * 16px
+            + (root.measure-line.quoted ? 3px + 6px : 0px)
+            + (root.measure-line.marker != "" ? measure-marker.preferred-width + 6px : 0px)
+            + (root.measure-line.kind == LineKind.code ? 12px : 0px);
+    // The line's tallest drawn item: its text, or a code line's fill.
+    out property <length> measured-height: measure-text.preferred-height
+        + (!root.measure-source && root.measure-line.kind == LineKind.code ? 12px : 0px);
+    // What a measure depends on beside the line: when either changes, what
+    // was measured is measured again.
+    out property <length> measure-rem: 1rem;
+    out property <length> measure-width: root.measure-room;
     // In a narrow window: the conversation list is the pane shown.
     in-out property <bool> list-shown: true;
     // Whether the right-hand pane -- the conversation, or the trust
@@ -8841,6 +8866,39 @@ export component AppWindow inherits Window {
             text: root.add-label;
             font-size: Type.label-large;
             font-weight: 500;
+            accessible-role: none;
+        }
+        // Never drawn: what one body line, or one piece of a body's source,
+        // measures as the narrowest bubble draws it (HUMAN-CHAT.md Bounds,
+        // A 2026-11-07: a drawn line past the item extent is split by its
+        // measured extent in the layout, never by a count; `lib.rs`
+        // `by_measure`). Width, indent and fonts as the bubble's lines and
+        // source pieces take them below, and the reader's page draws them
+        // wider, so a piece within the extent here is within it there too.
+        measure-marker := Text {
+            x: 0;
+            y: 0;
+            visible: false;
+            text: root.measure-line.marker;
+            font-size: Type.body-large;
+            accessible-role: none;
+        }
+        measure-text := Text {
+            x: 0;
+            y: 0;
+            visible: false;
+            width: max(1px, root.measure-room - root.measure-indent);
+            text: root.measure-line.text;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+            font-family: root.measure-mono ? root.code-font : "";
+            font-weight: !root.measure-source
+                && (root.measure-line.kind == LineKind.heading || root.measure-line.kind == LineKind.table-header) ? 700 : 400;
+            font-size: root.measure-mono ? Type.body-medium
+                : root.measure-line.kind != LineKind.heading ? Type.body-large
+                : root.measure-line.level == 1 ? 20rem / 14
+                : root.measure-line.level == 2 ? 18rem / 14
+                : Type.body-large;
             accessible-role: none;
         }
         // Over everything: a press outside the menu or Details closes it, as

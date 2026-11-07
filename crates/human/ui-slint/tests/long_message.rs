@@ -672,7 +672,8 @@ fn the_reader_closes_when_its_row_leaves() {
 /// to scale 4.
 const ITEM_EXTENT: f32 = 8_000.0;
 
-/// A4's shapes at the bound: whole bodies, each in its tallest form.
+/// A4's shapes at the bound: whole bodies, each in its tallest form, and
+/// two cut ones, which the reader draws whole.
 fn a4_shapes() -> Vec<(&'static str, String)> {
     let w50 = "abcdefghij".repeat(5);
     vec![
@@ -709,6 +710,16 @@ fn a4_shapes() -> Vec<(&'static str, String)> {
             format!("a{}{}", "\u{301}".repeat(255), "b".repeat(1999)),
         ),
         ("unbroken", "x".repeat(2000)),
+        // Characters that draw wider than a Latin letter, each just under
+        // the bound weighed (A4; HUMAN-CHAT.md Bounds, A 2026-11-07): a
+        // count of characters bounds none of them, the measure does.
+        ("wide letters", "W".repeat(2000)),
+        ("CJK", "\u{6F22}".repeat(1000)),
+        ("emoji", "\u{1F600}".repeat(1000)),
+        ("U+FDFD", "\u{FDFD}".repeat(2000)),
+        // Cut, so that the reader draws them whole, in pieces.
+        ("U+FDFD cut", "\u{FDFD}".repeat(4000)),
+        ("emoji cut", "\u{1F600}".repeat(3000)),
     ]
 }
 
@@ -811,17 +822,48 @@ fn no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent() {
             );
             tall(view, false);
         };
+        // The reader, where the body is cut, in the mode the row is in.
+        let reader = |view: &mut View, model: &mut UiModel, at: &str| {
+            if let Some(read) = labelled(view, text(UiText::OpenWholeMessage)).first() {
+                read.invoke_accessible_default_action();
+                let _ = intents(view, model);
+                check(view, at);
+                key(view, Key::Escape);
+                let _ = intents(view, model);
+            }
+        };
         check(&view, "row");
+        reader(&mut view, &mut model, "reader");
         choose(&view, &row.label, text(UiText::ShowSource));
         check(&view, "source");
-        if let Some(read) = labelled(&view, text(UiText::OpenWholeMessage)).first() {
-            read.invoke_accessible_default_action();
-            let _ = intents(&mut view, &mut model);
-            check(&view, "reader");
-            key(&view, Key::Escape);
-            let _ = intents(&mut view, &mut model);
-        }
+        reader(&mut view, &mut model, "reader as source");
     }
+}
+
+/// A body measured at one text size is measured again at a larger one: a
+/// piece within the extent at the first can be past it at the second
+/// (HUMAN-CHAT.md Bounds, A 2026-11-07, `View::measured_for`).
+#[test]
+fn a_larger_text_size_measures_the_pieces_again() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let font = |view: &View, size: f32| {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(size)));
+    };
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 20_000.0));
+    font(&view, 14.0);
+    let alice = peer();
+    model.received(received(1, &alice, &"\u{1F600}".repeat(1000)));
+    open(&mut view, &mut model, &direct(&alice));
+    assert_eq!(text_past_the_bound(&view), Vec::<String>::new(), "at 100 %");
+    // Three times the size: the pieces drawn at the first are past it.
+    font(&view, 42.0);
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(text_past_the_bound(&view), Vec::<String>::new(), "at 300 %");
 }
 
 /// The bubble says the cut line the mode shown draws, and only then: a

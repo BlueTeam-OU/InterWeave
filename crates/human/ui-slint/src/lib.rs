@@ -882,6 +882,11 @@ pub struct View {
     /// as a fresh actions model would (review F1). Keyed by the item, not
     /// its handle, which a later item may reuse.
     bodies: HashMap<ItemKey, DrawnBody>,
+    /// What `bodies` were measured against beside their lines
+    /// (app.slint `measure-rem`, `measure-width`): when either changes, a
+    /// piece within the item extent before may not be, so each body is
+    /// drawn, and measured, again.
+    measured_for: (f32, f32),
     /// What the last render showed, to announce what changed since.
     seen: Seen,
     /// Which of the two announcement slots the next announcement goes in.
@@ -1164,6 +1169,7 @@ impl View {
             item_handles: Handles::new(),
             action_models: HashMap::new(),
             bodies: HashMap::new(),
+            measured_for: (0.0, 0.0),
             clock: clock::Clock::default(),
             monotonic: Rc::new(Instant::now),
             marks: window_marks::Marks::default(),
@@ -2108,7 +2114,15 @@ impl View {
             return;
         };
         let sent = reader::sent(&self.clock, item.local_at);
-        let forms = reader::forms(item, &sent, &image_text, body_lines);
+        let window = &self.window;
+        let forms = reader::forms(
+            item,
+            &sent,
+            &image_text,
+            |lines| by_measure(body_lines(lines), &|line| measured(window, line, false)),
+            |pieces| pieces_by_measure(pieces, &|line| measured(window, line, true)),
+        );
+        window.set_measure_line(BodyLine::default());
         let title = match (&item.direction, &item.author) {
             (Direction::Inbound, Some(peer)) => short_peer(peer.as_str()),
             _ => placeholder_en::text(UiText::You).to_owned(),
@@ -2465,7 +2479,22 @@ impl View {
         }
     }
 
+    /// Drops every drawn body when what they were measured against beside
+    /// their lines changed (`measured_for`), so the render draws, and
+    /// measures, each again.
+    fn measure_again_if_changed(&mut self) {
+        let basis = (
+            self.window.get_measure_rem(),
+            self.window.get_measure_width(),
+        );
+        if basis != self.measured_for {
+            self.bodies.clear();
+            self.measured_for = basis;
+        }
+    }
+
     fn render_messages(&mut self, model: &UiModel) {
+        self.measure_again_if_changed();
         let items = self
             .shown
             .as_ref()
@@ -2517,10 +2546,11 @@ impl View {
                         rc
                     }
                 };
+                let window = &self.window;
                 let drawn = self
                     .bodies
                     .entry(item.key)
-                    .or_insert_with(|| drawn_body(item));
+                    .or_insert_with(|| drawn_body(item, window));
                 let offer = model.swipe_offer(item.key);
                 swipes.insert(
                     format!("m:{handle}"),
@@ -3787,7 +3817,79 @@ fn body_lines(lines: &[body::Line]) -> Vec<BodyLine> {
         .collect()
 }
 
-fn drawn_body(item: &MessageItem) -> DrawnBody {
+/// The most a drawn item spans, in logical pixels, in either dimension
+/// (HUMAN-CHAT.md Bounds, A 2026-11-05 (ii)): four times it is under the
+/// desktop renderer's 16-bit ceiling, so it holds to scale 4.
+const ITEM_EXTENT: f32 = 8_000.0;
+
+/// How tall `window`'s layout draws `line`, as source when `source`: its
+/// text, or a code line's fill (app.slint `measure-text`).
+fn measured(window: &AppWindow, line: &BodyLine, source: bool) -> f32 {
+    window.set_measure_source(source);
+    window.set_measure_line(line.clone());
+    window.get_measured_height()
+}
+
+/// `lines` with each one `height` measures past [`ITEM_EXTENT`] drawn
+/// as pieces within it (HUMAN-CHAT.md Bounds, A 2026-11-07: split by the
+/// measured extent, never by a count -- how much a character draws is
+/// the font's), and where each line continues said again.
+fn by_measure(lines: Vec<BodyLine>, height: &dyn Fn(&BodyLine) -> f32) -> Vec<BodyLine> {
+    let mut out = Vec::with_capacity(lines.len());
+    for line in lines {
+        split_by_measure(line, height, &mut out);
+    }
+    for index in 1..out.len() {
+        out[index - 1].continues = out[index].joined;
+    }
+    out
+}
+
+/// A source's pieces, each one past [`ITEM_EXTENT`] as [`by_measure`]
+/// splits a line.
+fn pieces_by_measure(pieces: Vec<String>, height: &dyn Fn(&BodyLine) -> f32) -> Vec<String> {
+    let mut out = Vec::with_capacity(pieces.len());
+    for piece in pieces {
+        let line = BodyLine {
+            text: piece.into(),
+            ..BodyLine::default()
+        };
+        split_by_measure(line, height, &mut out);
+    }
+    out.into_iter().map(|line| line.text.into()).collect()
+}
+
+/// `line`, halved where `body::halves` says until each half measures
+/// within [`ITEM_EXTENT`]: the first half keeps where the line joins the
+/// one before, each after it is a piece of the half before. One character
+/// is kept whatever it measures, since no cut makes it smaller.
+fn split_by_measure(line: BodyLine, height: &dyn Fn(&BodyLine) -> f32, out: &mut Vec<BodyLine>) {
+    if height(&line) <= ITEM_EXTENT {
+        out.push(line);
+        return;
+    }
+    let text = line.text.clone();
+    let Some((head, tail, _)) = body::halves(&text) else {
+        out.push(line);
+        return;
+    };
+    let rest = BodyLine {
+        text: tail.into(),
+        joined: true,
+        ..line.clone()
+    };
+    split_by_measure(
+        BodyLine {
+            text: head.into(),
+            ..line
+        },
+        height,
+        out,
+    );
+    split_by_measure(rest, height, out);
+}
+
+fn drawn_body(item: &MessageItem, window: &AppWindow) -> DrawnBody {
     let drawn = cut::formatted(&item.body, &image_text);
     let body = drawn.body;
     // A piece cut inside a run rejoins the run, with no break between.
@@ -3808,8 +3910,12 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         text
     };
     let formatted_plain = with_line(&shown_line);
-    let lines = body_lines(&body.lines);
+    let lines = by_measure(body_lines(&body.lines), &|line| {
+        measured(window, line, false)
+    });
     let (source_pieces, source_shown) = cut::source(&item.source);
+    let source_pieces = pieces_by_measure(source_pieces, &|line| measured(window, line, true));
+    window.set_measure_line(BodyLine::default());
     let source_cut_line = cut_line(source_shown);
     let source_plain = with_line(&source_cut_line);
     let source_pieces: Vec<SharedString> = source_pieces.into_iter().map(Into::into).collect();
@@ -4410,6 +4516,63 @@ mod tests {
     use std::cell::RefCell;
 
     use super::{Rows, update_by_key};
+
+    mod by_measure {
+        use super::super::{BodyLine, ITEM_EXTENT, LineKind, by_measure, pieces_by_measure};
+
+        /// A stand-in layout: each character draws `per` pixels tall.
+        fn per(per: f32) -> impl Fn(&BodyLine) -> f32 {
+            move |line| {
+                f32::from(u16::try_from(line.text.chars().count()).unwrap_or(u16::MAX)) * per
+            }
+        }
+
+        fn line(text: &str) -> BodyLine {
+            BodyLine {
+                kind: LineKind::Text,
+                marker: "3.".into(),
+                depth: 2,
+                text: text.into(),
+                ..BodyLine::default()
+            }
+        }
+
+        #[test]
+        fn a_line_within_the_extent_is_drawn_as_it_is() {
+            let lines = vec![line("one"), line("two")];
+            assert_eq!(by_measure(lines.clone(), &per(ITEM_EXTENT / 3.0)), lines);
+        }
+
+        #[test]
+        fn a_line_past_the_extent_is_halved_until_every_piece_is_within_it() {
+            // 10 characters at a quarter of the extent each: halves of five
+            // are still past it, so four pieces of two or three.
+            let height = per(ITEM_EXTENT / 4.0);
+            let got = by_measure(vec![line("abcdefghij"), line("end")], &height);
+            let texts: Vec<&str> = got.iter().map(|l| l.text.as_str()).collect();
+            assert_eq!(texts, ["abc", "de", "fgh", "ij", "end"]);
+            assert!(got.iter().all(|l| height(l) <= ITEM_EXTENT));
+            // The first keeps where the line joins; the rest are its pieces,
+            // each kind, depth and marker kept; only the last ends the line.
+            let joined: Vec<bool> = got.iter().map(|l| l.joined).collect();
+            assert_eq!(joined, [false, true, true, true, false]);
+            let continues: Vec<bool> = got.iter().map(|l| l.continues).collect();
+            assert_eq!(continues, [true, true, true, false, false]);
+            assert!(got[..4].iter().all(|l| l.depth == 2 && l.marker == "3."));
+        }
+
+        #[test]
+        fn one_character_past_the_extent_is_kept_whole() {
+            let got = by_measure(vec![line("x")], &per(ITEM_EXTENT * 2.0));
+            assert_eq!(got, [line("x")]);
+        }
+
+        #[test]
+        fn a_source_piece_past_the_extent_is_halved_too() {
+            let got = pieces_by_measure(vec!["abcd".into()], &per(ITEM_EXTENT / 2.0));
+            assert_eq!(got, ["ab", "cd"]);
+        }
+    }
 
     /// Code is drawn in a family the font stack resolves for `monospace`,
     /// named as a family the stack knows by that name: the generic's own
