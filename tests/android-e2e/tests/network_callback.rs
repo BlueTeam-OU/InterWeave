@@ -96,10 +96,11 @@ fn a_wifi_drop_and_return_reach_the_runtime_in_one_process() {
         std::env::var("ANDROID_SERIAL").ok().as_deref(),
     )
     .unwrap_or_else(|e| panic!("{e}"));
-    // Asked before the first change to the phone (`AdbWifiKept::take`
-    // below), so a network link with no host to follow, an error
-    // (`a_network_link_with_no_host_to_follow_is_an_error`), ends the
-    // case with the phone as it was.
+    // A network link with no host to follow is an error
+    // (`a_network_link_with_no_host_to_follow_is_an_error`), asked here
+    // so it ends the case before its first write to the phone
+    // (`phone.start` below). That order is the code's alone: no test
+    // runs this ignored case's body.
     let wireless = follow_host(link, &serial, || adb_text(&["mdns", "services"]))
         .unwrap_or_else(|e| panic!("{e}"));
     if wireless.is_some() {
