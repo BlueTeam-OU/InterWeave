@@ -76,7 +76,10 @@ impl AppClient for HubClient {
                 | ToView::AuthenticationNeeded(false)
                 // An answer that calls for no store screen: a start refused
                 // elsewhere leaves the service not running, which the case waits on.
-                | ToView::Store(StoreAnswer::Opened | StoreAnswer::OtherRefusal, _) => {}
+                | ToView::Store(
+                    StoreAnswer::Opened | StoreAnswer::OtherRefusal | StoreAnswer::Locked,
+                    _,
+                ) => {}
                 // The store refused the start: the case cannot run.
                 ToView::Store(StoreAnswer::Refused(why), _) => {
                     return Err(format!("the message store refused the start: {why:?}"));

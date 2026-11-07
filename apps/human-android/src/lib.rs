@@ -27,6 +27,15 @@ mod store;
     )
 )]
 mod store_follow;
+// On every target, so the host tests what answers a locked start.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; onboard.rs routes with it on Android"
+    )
+)]
+mod unlock_route;
 // On every target, so the host tests what K1 reads.
 #[cfg_attr(
     not(target_os = "android"),

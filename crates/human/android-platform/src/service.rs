@@ -362,6 +362,31 @@ impl ServiceHost {
         }
     }
 
+    /// [`refused_before_start_with`](Self::refused_before_start_with) by a
+    /// start refused `UserNotAuthenticated`, with its
+    /// [`crate::identity::locked_status`]: answered as
+    /// [`StoreAnswer::Locked`], since the start the person's Unlock runs
+    /// may still open the store. Nothing while the client runs.
+    pub fn refused_locked(&self, unlock: Option<UnlockStatus>) {
+        let running = self.lock();
+        if running.is_none() {
+            *self.unlock_slot() = unlock;
+            self.hub.set_store_answer(StoreAnswer::Locked);
+        }
+    }
+
+    /// The Activity's check found that no start can run until the person
+    /// authenticates, and asked them before any start
+    /// ([`crate::identity::locked_status`]): what the locked view shows,
+    /// set while nothing runs, with no start answered -- none was
+    /// refused. Nothing while the client runs.
+    pub fn locked_before_start(&self, unlock: Option<UnlockStatus>) {
+        let running = self.lock();
+        if running.is_none() {
+            *self.unlock_slot() = unlock;
+        }
+    }
+
     fn unlock_slot(&self) -> std::sync::MutexGuard<'_, Option<UnlockStatus>> {
         // Replaced whole.
         self.unlock.lock().unwrap_or_else(PoisonError::into_inner)

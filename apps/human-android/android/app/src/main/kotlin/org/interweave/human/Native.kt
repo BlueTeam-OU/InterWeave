@@ -36,6 +36,13 @@ internal object Native {
      */
     const val REFUSED_NETWORK_DENIED = -12
 
+    /**
+     * start's refusal while the key needs the person: the native side
+     * answers it with the locked view and, while a window shows, the
+     * prompt or the focused notice (unlock note section 11).
+     */
+    const val REFUSED_USER_NOT_AUTHENTICATED = -10
+
     /** startWithoutNetwork's answer: the posture runs. */
     const val NETWORK_DENIED = 2
 
@@ -157,9 +164,13 @@ internal object Native {
      * ([IDENTITY_READY]), whether the person must authenticate first
      * ([IDENTITY_AUTHENTICATION_NEEDED]), or where the identity screens
      * start: no record, or one the phone lost. Makes the Keystore cipher
-     * the screens use. Call before binding the service.
+     * the screens use. Call before binding the service. [ready]: this
+     * process found it ready before, so only a lock is asked, and a client
+     * already running is asked nothing. When the person must authenticate,
+     * the native side asks the prompt ([Ask.UNLOCK]) or focuses the locked
+     * notice itself.
      */
-    @JvmStatic external fun identityState(appDataDir: String): Int
+    @JvmStatic external fun identityState(appDataDir: String, ready: Boolean): Int
 
     const val IDENTITY_READY = 0
 
@@ -167,8 +178,8 @@ internal object Native {
      * The key needs the person and their last authentication is too old,
      * or the record opens but the start's reseal to a configured
      * user-presence will need the person -- asked whether or not their
-     * last authentication is still in its window: raise the prompt before
-     * binding; its answer goes to [prompted].
+     * last authentication is still in its window: bind nothing; the grant
+     * of the prompt the native side asks binds or restarts the service.
      */
     const val IDENTITY_AUTHENTICATION_NEEDED = 3
 
@@ -221,8 +232,20 @@ internal object Native {
     /** Whether the service stopped for Show my phrase ([Ask.OFFLINE]). */
     @JvmStatic external fun offline(stopped: Boolean)
 
-    /** The credential prompt's answer, for the identity screens. */
-    @JvmStatic external fun prompted(granted: Boolean)
+    /**
+     * The credential prompt's answer, for the identity screens; [unlock]
+     * when it was the Unlock prompt, whose cancel is a decline.
+     */
+    @JvmStatic external fun prompted(granted: Boolean, unlock: Boolean)
+
+    /** An Activity's window started (true) or stopped (false) showing. */
+    @JvmStatic external fun shown(shown: Boolean)
+
+    /** The Activity was created anew -- a launch -- not recreated in this process. */
+    @JvmStatic external fun launched()
+
+    /** The person's network grant restarts the service: a lock then prompts. */
+    @JvmStatic external fun restartAsked()
 }
 
 /** What the identity screens ask of the Activity, as `onboard.rs` numbers it. */
