@@ -24,21 +24,35 @@ import android.util.Log
  *
  *     adb shell am broadcast -a org.interweave.human.debug.RESTART -p org.interweave.human
  *
+ * [REFUSE_STORE] makes the next start refuse the store as one that needs
+ * recovery, once, with its files left as they are (A16's discard): fire
+ * it, then a start -- [RESTART], or a launch -- and the recovery screen
+ * shows; its discard is a real one.
+ *
+ *     adb shell am broadcast -a org.interweave.human.debug.REFUSE_STORE -p org.interweave.human
+ *
  * The Service registers the receiver while it runs, asking the sender for
  * DUMP, which adb's shell holds.
  */
 internal object DebugHooks {
     const val RESTART = "org.interweave.human.debug.RESTART"
+    const val REFUSE_STORE = "org.interweave.human.debug.REFUSE_STORE"
     private const val TAG = "interweave"
 
-    /** Hear [RESTART] on the main thread while [service] runs; the unregistration. */
+    /** The native side of [REFUSE_STORE]: the debug library's alone. */
+    @JvmStatic private external fun refuseNextStoreOpen()
+
+    /** Hear the hooks on the main thread while [service] runs; the unregistration. */
     fun register(service: Service, restart: () -> Unit): () -> Unit {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == RESTART) restart()
+                when (intent.action) {
+                    RESTART -> restart()
+                    REFUSE_STORE -> refuseNextStoreOpen()
+                }
             }
         }
-        val filter = IntentFilter(RESTART)
+        val filter = IntentFilter(RESTART).apply { addAction(REFUSE_STORE) }
         val main = Handler(Looper.getMainLooper())
         // Exported, since adb's shell is another uid; DUMP is a
         // signature-level permission, which the shell holds.
@@ -47,7 +61,7 @@ internal object DebugHooks {
         } else {
             service.registerReceiver(receiver, filter, Manifest.permission.DUMP, main)
         }
-        Log.i(TAG, "restart hook: listening for $RESTART")
+        Log.i(TAG, "debug hooks: listening for $RESTART and $REFUSE_STORE")
         return { service.unregisterReceiver(receiver) }
     }
 }

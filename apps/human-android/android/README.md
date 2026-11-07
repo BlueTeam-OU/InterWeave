@@ -34,3 +34,16 @@ record.
   Service registers the receiver while it runs, asking the sender for
   `DUMP`, which adb's shell holds; `logcat -s interweave` shows its
   `restart hook:` lines.
+- **Refuse the store once, as needing recovery**
+  (`adb shell am broadcast -a org.interweave.human.debug.REFUSE_STORE -p org.interweave.human`):
+  the next start to reach the store -- the restart hook's, a launch's,
+  Try again's -- is refused as a store that needs recovery, with its
+  files left as they are, so the recovery screen shows (A16's discard).
+  Its Discard is a real one: the plan reads the files there and the
+  confirmed discard removes them, and the restart after it opens a new
+  store. Under user presence the restart hook's start prompts as the
+  unlock note says; fire it within the 60 s after unlocking the phone
+  for the refusal to reach the store with no prompt first. The native
+  entry is the debug library's alone; `verifyReleaseNative` fails a
+  release library that names it. `logcat -s interweave` shows its
+  `store hook:` line.
