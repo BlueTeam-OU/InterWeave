@@ -16,9 +16,12 @@
 //! only that it is an image when the alt text is empty or blank, and
 //! nothing is fetched.
 //!
-//! A line leaves here in pieces no larger than a piece's bound
-//! ([`PIECE_GRAPHEMES`], [`PIECE_LINES`]), which HUMAN-CHAT.md's Bounds
-//! asks of every drawn item. The desktop's software renderer keeps a
+//! A line leaves here in pieces within a piece's count ceiling
+//! ([`PIECE_GRAPHEMES`], [`PIECE_LINES`]). That ceiling does not bound
+//! what a piece draws -- a character's glyph is the font's, and 1,600
+//! emoji draw past 8,000 logical px -- so HUMAN-CHAT.md's item extent
+//! (Bounds, A 2026-11-07) is kept by measure, in the view that lays the
+//! piece out. The desktop's software renderer keeps a
 //! filled rectangle's geometry in 16 bits and panics on one taller than
 //! 32,767 physical pixels, and a line's surfaces -- a code block's fill,
 //! a quote's bar -- are as tall as the line (j92). Its text alone would
@@ -62,8 +65,8 @@ pub enum Kind {
     TableRow,
 }
 
-/// The most characters (grapheme clusters) a link control's label holds
-/// as shown: the whole-body figure, which HUMAN-CHAT.md's Bounds give every
+/// The most characters a link control's label holds as shown, each
+/// weighed by [`crate::cluster::weight`]: the whole-body figure, which HUMAN-CHAT.md's Bounds give every
 /// drawn item (A 2026-11-04 (ii)). A label is never cut, so past it a link
 /// has no control.
 pub const LABEL_GRAPHEMES: usize = 2000;
@@ -87,7 +90,7 @@ pub fn link_label(destination: &str) -> String {
 /// A 2026-11-04 (ii)).
 fn has_control(destination: &str) -> bool {
     let label = link_label(destination);
-    label.graphemes(true).nth(LABEL_GRAPHEMES).is_none() && crate::cluster::fits(&label)
+    crate::cluster::weighted(&label) <= LABEL_GRAPHEMES && crate::cluster::fits(&label)
 }
 
 /// Whether a line is a piece of the line before it, and where it was cut.
@@ -105,11 +108,10 @@ pub enum Join {
     MidLine,
 }
 
-/// The most characters, as a person counts them (grapheme clusters), one
-/// drawn piece holds: the most the conversation's preview of a cut body
-/// holds (design/2026-11-04-long-message.md section 6), so that a piece
-/// is no taller than such a preview, which that note's A4 measures under
-/// the renderer's ceiling at 200 % text.
+/// The most characters one drawn piece holds, each weighed by
+/// [`crate::cluster::weight`]: the most the conversation's preview of a
+/// cut body holds (design/2026-11-04-long-message.md section 6). A count
+/// ceiling only: the drawn extent is the view's to keep, by measure.
 pub const PIECE_GRAPHEMES: usize = 1600;
 
 /// The most lines, as the text breaks them, one drawn piece holds: the
@@ -272,8 +274,10 @@ pub fn pieces(text: &str) -> Vec<(&str, Join)> {
         let mut beyond = rest.len();
         let mut last_break = None;
         let mut breaks = 0;
-        for (taken, (at, grapheme)) in rest.grapheme_indices(true).enumerate() {
-            if taken == PIECE_GRAPHEMES {
+        let mut taken = 0;
+        for (at, grapheme) in rest.grapheme_indices(true) {
+            taken += crate::cluster::weight(grapheme);
+            if taken > PIECE_GRAPHEMES {
                 cap = Some(at);
                 beyond = at + grapheme.len();
                 break;
@@ -603,8 +607,9 @@ mod tests {
         use super::super::{Join, Kind, PIECE_GRAPHEMES, PIECE_LINES, pieces};
         use super::body;
 
+        /// Characters as the piece's ceiling counts them: weighed.
         fn graphemes(text: &str) -> usize {
-            text.graphemes(true).count()
+            crate::cluster::weighted(text)
         }
 
         /// The text again, from its pieces: a break where one was cut.
@@ -731,11 +736,15 @@ mod tests {
         fn a_run_with_no_word_boundary_is_cut_between_characters_never_inside_one() {
             // One word of combining sequences, then of a family emoji: a
             // grapheme of several code points, which a cut must not part.
-            for unit in ["e\u{301}", "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"] {
+            // The emoji weighs two, so its run takes twice the pieces.
+            for (unit, n) in [
+                ("e\u{301}", 3),
+                ("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", 5),
+            ] {
                 let text = unit.repeat(PIECE_GRAPHEMES * 2 + 5);
                 let cut = pieces(&text);
                 within_bounds(&cut);
-                assert_eq!(cut.len(), 3);
+                assert_eq!(cut.len(), n, "{unit:?}");
                 assert_eq!(graphemes(cut[0].0), PIECE_GRAPHEMES);
                 assert!(
                     cut.iter().all(|&(piece, _)| piece.starts_with(unit)),
@@ -747,10 +756,11 @@ mod tests {
 
         #[test]
         fn a_script_written_without_spaces_is_cut_between_its_characters() {
+            // Each wide character weighs two: 3,200 of them are 6,400.
             let text = "\u{6f22}\u{5b57}".repeat(PIECE_GRAPHEMES);
             let cut = pieces(&text);
             within_bounds(&cut);
-            assert_eq!(cut.len(), 2);
+            assert_eq!(cut.len(), 4);
             assert_eq!(joined(&cut), text);
         }
 
@@ -834,6 +844,14 @@ mod tests {
         let got = body(&format!("[padded]({hidden})"));
         assert_eq!(got.lines, [line(Kind::Text, 0, false, "", "padded")]);
         assert!(got.links.is_empty(), "counted as shown, not as sent");
+        // Few characters, weighed past the figure: a wide one counts two
+        // (A 2026-11-07). The same path in narrow letters keeps its control.
+        let half = LABEL_GRAPHEMES / 2;
+        let wide = format!("https://e.org/{}", "\u{6F22}".repeat(half));
+        let narrow = format!("https://e.org/{}", "a".repeat(half));
+        assert!(link_label(&wide).chars().count() < LABEL_GRAPHEMES);
+        let got = body(&format!("[wide]({wide}) and [narrow]({narrow})"));
+        assert_eq!(got.links, [narrow], "weighed, the wide label is past");
     }
 
     #[test]

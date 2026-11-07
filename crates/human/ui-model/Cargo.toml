@@ -34,6 +34,9 @@ unicode-general-category = { workspace = true }
 icu_collator = { workspace = true }
 icu_normalizer = { workspace = true }
 icu_provider = { workspace = true }
+# A wide or emoji character counts two in the long-message figures
+# (`cluster::weight`).
+icu_properties = { workspace = true }
 
 [features]
 # TEST BUILDS ONLY: `UiModel::set_bounds_for_test`, which sets the session

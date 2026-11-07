@@ -55,6 +55,55 @@ pub fn drawable(text: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+/// How much one drawn character counts in the long-message figures (the
+/// cut, its preview, the drawn pieces and a link control's label;
+/// HUMAN-CHAT.md Bounds, A 2026-11-07): two when its base has
+/// `East_Asian_Width` W or F (UAX #11) or it is drawn with emoji
+/// presentation (UTS #51), else one. Unicode's properties, never a
+/// font's, so a figure depends on neither width nor scale; a glyph wider
+/// than two cells (U+FDFD) is the figures' known limit, and its drawn
+/// extent is bounded by measure in the view, not here.
+#[must_use]
+pub fn weight(cluster: &str) -> usize {
+    use icu_properties::props::EastAsianWidth;
+    let Some(base) = cluster.chars().next() else {
+        return 0;
+    };
+    let wide = matches!(
+        icu_properties::CodePointMapData::<EastAsianWidth>::new().get(base),
+        EastAsianWidth::Wide | EastAsianWidth::Fullwidth
+    );
+    if wide || emoji_presented(base, cluster) {
+        2
+    } else {
+        1
+    }
+}
+
+/// [`weight`] summed over `text`'s characters.
+#[must_use]
+pub fn weighted(text: &str) -> usize {
+    text.graphemes(true).map(weight).sum()
+}
+
+/// Whether `cluster`, starting with `base`, is drawn as an emoji: its
+/// base presents as one by default (`Emoji_Presentation`), or it is an
+/// emoji asking for that presentation -- by U+FE0F, or by a skin-tone
+/// modifier (a modifier sequence is emoji presentation). U+FE0E, asking
+/// for text, is not read: a base presenting as an emoji by default is
+/// `East_Asian_Width` W but for the regional indicators, which pair into
+/// flags, so the width alone weighs it the same.
+fn emoji_presented(base: char, cluster: &str) -> bool {
+    use icu_properties::CodePointSetData;
+    use icu_properties::props::{Emoji, EmojiModifier, EmojiPresentation};
+    CodePointSetData::new::<EmojiPresentation>().contains(base)
+        || (CodePointSetData::new::<Emoji>().contains(base)
+            && cluster
+                .chars()
+                .skip(1)
+                .any(|c| c == '\u{FE0F}' || CodePointSetData::new::<EmojiModifier>().contains(c)))
+}
+
 /// `text` as a screen reader is given it: each [`REPLACEMENT`] spoken as
 /// `words` (`UiText::ReplacedCharacter`), set apart by a space where it
 /// touches a character that is not one -- but none before words that
@@ -106,7 +155,7 @@ fn punctuation(c: char) -> bool {
 mod tests {
     use std::borrow::Cow;
 
-    use super::{CLUSTER_CODE_POINTS, REPLACEMENT, drawable, fits, spoken};
+    use super::{CLUSTER_CODE_POINTS, REPLACEMENT, drawable, fits, spoken, weight, weighted};
 
     fn marked(marks: usize) -> String {
         format!("a{}", "\u{301}".repeat(marks))
@@ -187,5 +236,67 @@ mod tests {
         // What the bubble draws for a cluster past the bound.
         let past = drawable(&format!("x{}y", marked(CLUSTER_CODE_POINTS))).into_owned();
         assert!(!spoken(&past, w).contains(REPLACEMENT));
+    }
+
+    #[test]
+    fn a_wide_or_emoji_character_weighs_two_and_every_other_one() {
+        for (one, why) in [
+            ("x", "Latin"),
+            (
+                "W",
+                "a wide glyph of a narrow letter: the font's, not Unicode's",
+            ),
+            ("\u{FDFD}", "U+FDFD: the figures' known limit"),
+            ("\u{0B95}\u{0BCD}", "Tamil, a base and its sign"),
+            ("\u{2764}", "a heart in its default text presentation"),
+            ("\u{FFFD}", "the replacement mark"),
+            ("1", "a digit is Emoji, but presents as text"),
+        ] {
+            assert_eq!(weight(one), 1, "{why}");
+        }
+        for (two, why) in [
+            ("\u{6F22}", "CJK, East_Asian_Width W"),
+            ("\u{FF21}", "a fullwidth Latin letter, F"),
+            ("\u{AC00}", "a Hangul syllable"),
+            ("\u{1F600}", "an emoji presented as one by default"),
+            ("\u{2764}\u{FE0F}", "a text-default emoji asked as emoji"),
+            (
+                "\u{261D}\u{1F3FD}",
+                "a modifier sequence on a text-default base",
+            ),
+            ("1\u{FE0F}\u{20E3}", "a keycap"),
+            ("\u{1F1EE}\u{1F1F9}", "a flag"),
+            ("\u{1F469}\u{200D}\u{1F4BB}", "a ZWJ sequence"),
+        ] {
+            assert_eq!(weight(two), 2, "{why}");
+        }
+        assert_eq!(
+            weight("\u{2764}\u{FE0E}"),
+            1,
+            "a text-default emoji asked as text"
+        );
+        // East_Asian_Width W counts whatever presentation is asked.
+        assert_eq!(weight("\u{231A}\u{FE0E}"), 2, "a watch asked as text");
+        assert_eq!(weight(""), 0);
+        assert_eq!(weighted("a\u{6F22}\u{1F600}b"), 6);
+        // A cluster past the bound is drawn as one mark and weighs as one.
+        let past = drawable(&marked(CLUSTER_CODE_POINTS)).into_owned();
+        assert_eq!(weighted(&past), 1);
+    }
+
+    /// What `emoji_presented` leaves U+FE0E unread on: every code point
+    /// presenting as an emoji by default is `East_Asian_Width` W, the
+    /// regional indicators aside.
+    #[test]
+    fn every_default_emoji_but_a_regional_indicator_is_wide() {
+        use icu_properties::props::{EastAsianWidth, EmojiPresentation, RegionalIndicator};
+        use icu_properties::{CodePointMapData, CodePointSetData};
+        let narrow: Vec<char> = (0..=0x10_FFFF_u32)
+            .filter_map(char::from_u32)
+            .filter(|&c| CodePointSetData::new::<EmojiPresentation>().contains(c))
+            .filter(|&c| !CodePointSetData::new::<RegionalIndicator>().contains(c))
+            .filter(|&c| CodePointMapData::<EastAsianWidth>::new().get(c) != EastAsianWidth::Wide)
+            .collect();
+        assert_eq!(narrow, Vec::<char>::new());
     }
 }

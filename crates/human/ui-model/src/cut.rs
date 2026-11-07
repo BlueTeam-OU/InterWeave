@@ -7,6 +7,8 @@
 //! [`PREVIEW_GRAPHEMES`] and [`PREVIEW_LINES`], and the whole is drawn
 //! only in the reader the person opens.
 //!
+//! A character is a grapheme cluster weighed by [`crate::cluster::weight`]:
+//! a wide or emoji one counts two (HUMAN-CHAT.md Bounds, A 2026-11-07).
 //! What is counted is what is drawn, in the mode drawn: formatted, the
 //! drawn text, every link control's label as shown (one line each) and
 //! every image placeholder; as source, the source's characters and lines.
@@ -21,7 +23,8 @@ use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::body::{self, Body, Kind, Line, Whole};
 
-/// The most characters (grapheme clusters) a body draws whole.
+/// The most characters a body draws whole: grapheme clusters, each
+/// weighed by [`crate::cluster::weight`] (a wide or emoji one counts two).
 pub const BODY_GRAPHEMES: usize = 2000;
 /// The most drawn lines a body draws whole.
 pub const BODY_LINES: usize = 40;
@@ -157,7 +160,7 @@ impl Counts {
     /// With each label drawn: its characters, and a line of its own.
     fn plus_labels(self, labels: &[String]) -> Self {
         labels.iter().fold(self, |n, label| Self {
-            graphemes: n.graphemes + label.graphemes(true).count(),
+            graphemes: n.graphemes + crate::cluster::weighted(label),
             lines: n.lines + 1,
         })
     }
@@ -218,7 +221,7 @@ fn units<'a>(whole: &'a Whole, controls: &[Counts]) -> Vec<Unit<'a>> {
         for (at, grapheme) in line.text.grapheme_indices(true) {
             // A break is a line, not a character drawn.
             if !body::is_line_break(grapheme) {
-                graphemes += 1;
+                graphemes += crate::cluster::weight(grapheme);
                 continue;
             }
             if blocks {
@@ -404,7 +407,8 @@ fn inside(unit: &Unit<'_>, taken: Counts) -> (Stop, Stop, bool) {
     let mut at_bound: Vec<(usize, Counts)> = vec![(0, Counts { graphemes, lines })];
     for (at, grapheme) in unit.text.grapheme_indices(true) {
         let breaks = body::is_line_break(grapheme);
-        if !breaks && graphemes + 1 > PREVIEW_GRAPHEMES {
+        let weight = crate::cluster::weight(grapheme);
+        if !breaks && graphemes + weight > PREVIEW_GRAPHEMES {
             cap = at;
             beyond = at + grapheme.len();
             break;
@@ -418,7 +422,7 @@ fn inside(unit: &Unit<'_>, taken: Counts) -> (Stop, Stop, bool) {
         if breaks {
             lines += 1;
         } else {
-            graphemes += 1;
+            graphemes += weight;
         }
         at_bound.push((at + grapheme.len(), Counts { graphemes, lines }));
     }
@@ -488,6 +492,34 @@ mod tests {
         let shorter = vec!["a".repeat(40); BODY_LINES].join("\n\n");
         assert_eq!(drawn(&shorter).shown_percent, None);
         assert!(drawn(&format!("{shorter}\n\nb")).shown_percent.is_some());
+    }
+
+    #[test]
+    fn a_wide_or_emoji_character_counts_two_in_every_figure() {
+        // HUMAN-CHAT.md Bounds, A 2026-11-07. Each weighs two, so half
+        // as many reach each figure, formatted and as source alike.
+        for one in ["\u{6F22}", "\u{1F600}", "\u{2764}\u{FE0F}"] {
+            let at = one.repeat(BODY_GRAPHEMES / 2);
+            assert_eq!(drawn(&at).shown_percent, None, "{one:?}");
+            assert_eq!(source(&at).1, None, "{one:?} as source");
+            let past = format!("{at}{one}");
+            let cut = drawn(&past);
+            // The preview stops at half the figure in characters, and the
+            // share shown is of the weighed whole: 1,600 of 2,002.
+            let kept = text(&cut);
+            assert_eq!(
+                kept.trim_end_matches(ELLIPSIS).graphemes(true).count(),
+                PREVIEW_GRAPHEMES / 2,
+                "{one:?}"
+            );
+            assert_eq!(cut.shown_percent, Some(79), "{one:?}");
+            assert_eq!(source(&past).1, Some(79), "{one:?} as source");
+        }
+        // Control: a narrow letter at the same count is far inside.
+        assert_eq!(
+            drawn(&"x".repeat(BODY_GRAPHEMES / 2 + 1)).shown_percent,
+            None
+        );
     }
 
     #[test]
@@ -643,6 +675,27 @@ mod tests {
                 .map(|d| graphemes(&link_label(d)))
                 .sum::<usize>();
         assert!(counted <= PREVIEW_GRAPHEMES, "{counted}");
+    }
+
+    #[test]
+    fn a_control_label_is_weighed_in_the_preview() {
+        // 990 characters, then a link whose label holds 400 wide ones:
+        // 425 characters, weighing 825. Counted, it would fit the preview;
+        // weighed, it takes it past 1,600, so the control is left to the
+        // reader (A 2026-11-07).
+        let dest = format!("https://e.org/{}", "\u{6F22}".repeat(400));
+        let label = link_label(&dest);
+        assert!(
+            990 + 1 + label.graphemes(true).count() <= PREVIEW_GRAPHEMES,
+            "control"
+        );
+        let text = vec!["a".repeat(99); 10].join("\n\n");
+        let cut = drawn(&format!("{text}\n\n[x]({dest})\n\n{}", "b".repeat(600)));
+        assert!(cut.shown_percent.is_some(), "cut");
+        assert!(
+            cut.body.links.is_empty(),
+            "the weighed label is past the preview"
+        );
     }
 
     #[test]
