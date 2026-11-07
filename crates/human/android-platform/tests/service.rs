@@ -1301,6 +1301,63 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
     let _ = service.stop(GRACE);
 }
 
+/// The debug build's store hook (A16's discard): an armed refusal
+/// refuses the next start's store as one that needs recovery, once, with
+/// the files left as they were, so the recovery screen's discard is a
+/// real one and the restart after it opens; the network start and the
+/// network-denied start both meet it, and an unarmed start opens.
+#[test]
+fn the_store_hook_refuses_one_start_as_recovery_and_leaves_the_store() {
+    use interweave_human_android_platform::StoreRefusal;
+    use interweave_human_store::at_rest::DiscardScope;
+    let app = app();
+    // The custody the network start's launch seals the store key under.
+    let custody = Arc::new(interweave_human_store::key_custody::FilesystemCustody);
+    let service = started(&app);
+    let _ = service.stop(GRACE);
+    let mut link = service.hub().attach(Arc::new(|| {}));
+    let _ = store_answers(&mut link);
+
+    service.refuse_next_store_open();
+    assert_eq!(
+        service.start(launch(&app)),
+        Err(StartRefused::StoreNeedsRecovery),
+        "the network start meets the hook"
+    );
+    assert!(!service.is_running(), "and leaves nothing running");
+    assert_eq!(
+        store_answers(&mut link),
+        [(StoreAnswer::Refused(StoreRefusal::Recovery), 2)],
+        "the recovery screen"
+    );
+    service
+        .start(launch(&app))
+        .expect("once: the next start opens the same store");
+    let _ = service.stop(GRACE);
+
+    service.refuse_next_store_open();
+    assert_eq!(
+        service.start_without_network(&app.dir, PROFILE, custody.clone()),
+        Err(StartRefused::StoreNeedsRecovery),
+        "the network-denied start meets it too"
+    );
+    let plan = service
+        .plan_store_discard(&app.dir, PROFILE, &*custody)
+        .expect("the files are a store a plan reads");
+    assert_eq!(plan.scope(), DiscardScope::Everything);
+    service
+        .discard_store(&app.dir, PROFILE, &*custody, plan.confirm())
+        .expect("discarded");
+    service
+        .start_without_network(&app.dir, PROFILE, custody.clone())
+        .expect("the discard's restart opens a new store");
+    assert_eq!(
+        store_answers(&mut link).last(),
+        Some(&(StoreAnswer::Opened, 5))
+    );
+    let _ = service.stop(GRACE);
+}
+
 /// The store answers a view took from `link`, with the hub's count.
 fn store_answers(link: &mut ViewLink) -> Vec<(StoreAnswer, u64)> {
     link.take()
