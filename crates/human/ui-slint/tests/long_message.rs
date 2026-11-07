@@ -913,8 +913,13 @@ fn a_press_on_a_link_control_past_the_extent_is_drawn_in_pieces() {
         if let Some(needed) = needed {
             assert_eq!(past, needed, "{n}: {:?}", control.size());
         }
-        // A control past the extent holds a label measured past it.
-        assert!(!past || pieces.len() > 1, "{n}: in pieces past the extent");
+        // A pinned shape is in pieces exactly when its control is past the
+        // extent (neither is within the label's 9 px of padding of it); the
+        // U+FDFD one, whatever its font draws, at least when past it.
+        match needed {
+            Some(_) => assert_eq!(pieces.len() > 1, past, "{n}: in pieces past the extent"),
+            None => assert!(!past || pieces.len() > 1, "{n}: in pieces past the extent"),
+        }
         let drawn = control
             .query_descendants()
             .match_type_name("Text")
