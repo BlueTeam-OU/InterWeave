@@ -551,8 +551,47 @@ export global Touch {
     in property <bool> reduced-motion;
 }
 
+// The most a drawn item spans, in logical px, either way (HUMAN-CHAT.md,
+// Bounds: architect-cto's DECISION 01a1ab12). The desktop's software
+// renderer keeps an item's geometry in 16 bits of physical px, so four
+// times this is under its ceiling and the bound holds to scale 4 by
+// construction; an item that may grow with a body is drawn in pieces.
+export global Tile {
+    out property <length> extent: 8000px;
+    // The most a press's ripple grows from its point. The renderer draws a
+    // round shape by squaring its radius in 32 bits of 1/16 physical px,
+    // which overflows at 4,096 physical px (i-slint-renderer-software
+    // 1.18.1, draw_functions.rs `calculate_xxxx`): 1,000 holds to scale 4
+    // (`a_press_on_a_link_control_past_the_extent_is_drawn_in_pieces`).
+    out property <length> ripple-reach: 1000px;
+}
+
+// A fill drawn as slices no taller than `Tile.extent`, stacked to cover
+// the element, its corners on the first and last slice
+// (`no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent`).
+component Tiled {
+    in property <brush> fill;
+    in property <length> top-left-radius;
+    in property <length> top-right-radius;
+    in property <length> bottom-left-radius;
+    in property <length> bottom-right-radius;
+    property <int> count: max(1, ceil(root.height / Tile.extent));
+    for i in root.count: Rectangle {
+        x: 0px;
+        y: i * Tile.extent;
+        width: root.width;
+        height: min(Tile.extent, root.height - i * Tile.extent);
+        background: root.fill;
+        border-top-left-radius: i == 0 ? root.top-left-radius : 0px;
+        border-top-right-radius: i == 0 ? root.top-right-radius : 0px;
+        border-bottom-left-radius: i == root.count - 1 ? root.bottom-left-radius : 0px;
+        border-bottom-right-radius: i == root.count - 1 ? root.bottom-right-radius : 0px;
+    }
+}
+
 // The pressed state layer, in the control's shape. A ripple grows to twice
-// the control's diagonal; the layer's clip cuts it at that shape.
+// the control's diagonal, or `Tile.ripple-reach`; the layer's clip cuts it
+// at that shape.
 component StateLayer inherits Rectangle {
     in property <length> radius;
     clip: true;
@@ -617,16 +656,32 @@ component TapArea inherits TouchArea {
     // 10 %, while a tap is still possible, and over it the ripple from the
     // press point -- unless the system's animations are off, when the flat
     // layer alone shows it (tests/look.rs,
-    // `a_press_ripples_unless_animations_are_off`).
-    if root.pressed && !root.drifted: StateLayer {
+    // `a_press_ripples_unless_animations_are_off`). A control taller than
+    // `Tile.extent` (a link control drawing a long label whole) has the
+    // flat layer alone, in slices: one layer as tall would be a drawn item
+    // past the extent (HUMAN-CHAT.md Bounds, A 2026-11-07 (ii)), and the
+    // ripple's clip is that layer.
+    property <length> layer-height: root.height - 2 * root.inset-y;
+    if root.pressed && !root.drifted && root.layer-height <= Tile.extent: StateLayer {
         y: root.inset-y;
-        height: root.height - 2 * root.inset-y;
+        height: root.layer-height;
         radius: root.radius;
         if !Touch.reduced-motion: Ripple {
             cx: root.pressed-x;
             cy: root.pressed-y - root.inset-y;
-            reach: sqrt((root.width / 1px) * (root.width / 1px) + (root.height / 1px) * (root.height / 1px)) * 1px;
+            reach: min(Tile.ripple-reach, sqrt((root.width / 1px) * (root.width / 1px) + (root.height / 1px) * (root.height / 1px)) * 1px);
         }
+    }
+    if root.pressed && !root.drifted && root.layer-height > Tile.extent: Tiled {
+        x: 0px;
+        y: root.inset-y;
+        width: root.width;
+        height: root.layer-height;
+        fill: Palette.on-surface.with-alpha(0.1);
+        top-left-radius: root.radius;
+        top-right-radius: root.radius;
+        bottom-left-radius: root.radius;
+        bottom-right-radius: root.radius;
     }
 }
 
@@ -659,38 +714,6 @@ component FocusRing inherits Rectangle {
     border-radius: root.radius + 5px;
     // Opacity rather than `visible`, so a test reads it.
     opacity: root.shown && FocusMode.keyboard ? 1 : 0;
-}
-
-// The most a drawn item spans, in logical px, either way (HUMAN-CHAT.md,
-// Bounds: architect-cto's DECISION 01a1ab12). The desktop's software
-// renderer keeps an item's geometry in 16 bits of physical px, so four
-// times this is under its ceiling and the bound holds to scale 4 by
-// construction; an item that may grow with a body is drawn in pieces.
-export global Tile {
-    out property <length> extent: 8000px;
-}
-
-// A fill drawn as slices no taller than `Tile.extent`, stacked to cover
-// the element, its corners on the first and last slice
-// (`no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent`).
-component Tiled {
-    in property <brush> fill;
-    in property <length> top-left-radius;
-    in property <length> top-right-radius;
-    in property <length> bottom-left-radius;
-    in property <length> bottom-right-radius;
-    property <int> count: max(1, ceil(root.height / Tile.extent));
-    for i in root.count: Rectangle {
-        x: 0px;
-        y: i * Tile.extent;
-        width: root.width;
-        height: min(Tile.extent, root.height - i * Tile.extent);
-        background: root.fill;
-        border-top-left-radius: i == 0 ? root.top-left-radius : 0px;
-        border-top-right-radius: i == 0 ? root.top-right-radius : 0px;
-        border-bottom-left-radius: i == root.count - 1 ? root.bottom-left-radius : 0px;
-        border-bottom-right-radius: i == root.count - 1 ? root.bottom-right-radius : 0px;
-    }
 }
 
 // A container that draws nothing itself: where a Rectangle would hold a
@@ -1208,7 +1231,8 @@ component LinkButton inherits FocusScope {
         min-height: 48px;
         alignment: center;
         // Holds the label and its press, as tall as the label: drawing
-        // nothing itself, so its height is no drawn item's.
+        // nothing itself, so its height is no drawn item's; the press's
+        // feedback is `TapArea`'s, in slices past the extent.
         Plain {
             VerticalLayout {
                 padding-top: 4px;
