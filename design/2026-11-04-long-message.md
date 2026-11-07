@@ -235,7 +235,10 @@ where the person is in the body and let them move through it quickly.
 Whether the toolkit offers both is a precondition of A5 (§10).
 
 **Drawn in pieces**, in both modes, because no drawn item may pass
-8 000 logical px in either dimension (§6). A piece ends where the text is drawn
+8 000 logical px in either dimension (§6). A piece's bound is that
+extent as the layout measures it, never a count of characters, weighted
+or not (Bounds ruling A 2026-11-07, §6): one glyph can be many times
+wider than another. A piece ends where the text is drawn
 broken anyway, and there nothing shows, at the last such place inside
 the piece's bound: in source mode at a line break (§6); in formatted
 mode at a block boundary (a paragraph, a list item, a table row, a
@@ -320,7 +323,17 @@ item, so the text cannot go from under the person while they read it.
 **Both, characters and lines.** A body is cut when it has more than
 **2 000 characters** or more than **40 lines**, and the preview is then
 at most **1 600 characters** and **32 lines**. A character is a
-grapheme cluster; a line is a **drawn** line: one of the model's lines
+grapheme cluster, **weighted**: a cluster whose base has East Asian
+Width W or F (UAX #11), or that is drawn with emoji presentation
+(UTS #51), counts as two, and every other cluster as one
+(architect-cto's Bounds ruling A 2026-11-07, DECISION 01a1b6b7-afbe,
+on rust-ui-dev's measurement, OBSERVATION 01a1b6b2-3e5e: a whole body
+of 2 000 CJK or emoji clusters at 200 % text was two to three times as
+tall as one of Latin letters). The weight comes from Unicode's
+properties, never from a font, so the cut depends on neither the width
+nor the text size, which is §2's reason for not cutting by drawn
+height. Every figure below counts the same way; the reader's pieces
+are not counted at all (§5.1). A line is a **drawn** line: one of the model's lines
 (a paragraph, a list item, a table row, a code line, a heading, a
 rule), plus one for each hard line break inside it, however it wraps —
 soft wrapping counts nothing (architect-cto's DECISION 01a1ab12-5459:
@@ -343,6 +356,16 @@ cut line's percentage, A1 and A2 — counts the same way.
 
 The gap between the two figures is there so that a body just over the
 bound is never cut to hide only its last sentence or two.
+
+**A known limit of the figures.** A glyph wider than two cells — an
+Arabic ligature such as U+FDFD, wide cuneiform — counts as one or two
+and draws as many more: its width is the font's, so no list of such
+characters would be complete. A body of them under the bound is whole,
+and its row is the figure times the widest glyph the fonts draw, drawn
+in pieces split by measure like any other (§5.1). rust-ui-dev measured
+2 000 × U+FDFD at 200 % text, 360 dp wide, at about 117 viewports
+(OBSERVATION 01a1b6b2-3e5e). It is accepted: nobody writes such text
+by the thousand, and only a trusted peer can send a message at all.
 
 **In source mode what is drawn is the source** (HUMAN-CHAT.md on #562:
 "the plain-text fallback and Show source are cut by the same rule over
@@ -479,8 +502,9 @@ Why these figures, and the conditions any other figures must keep:
   physical px, and the client never clamps the platform's scale
   (architect-cto's DECISION 01a1ab12-5459, in HUMAN-CHAT.md's Bounds
   with rust-ui-dev's j95 pull request). A whole body taller than that is
-  drawn in pieces (§5.1); a failure makes the pieces smaller, never the
-  text, and never raises the figures. The figures are for the person (above)
+  drawn in pieces split by their measured extent (§5.1); an item past
+  it is a defect of that split, never a reason to shrink the text or
+  raise the figures. The figures are for the person (above)
   and for the cost of the first draw. My estimate on the Pixel 9a (2.625 px
   per dp; body text 32 sp on a 48 sp line, about 126 px, about 17
   characters per line in a narrow bubble; a first-level heading 40 sp
@@ -638,7 +662,11 @@ it, those checks are blocked, never passed.
   one ragged line per model line, at a larger font, so the headings'
   figures bound the table, as they bound the link and image shapes; cutting a table at fewer
   rows instead would make its preview the one shape cut short of §6's
-  figures. The device run measures it again.
+  figures. The device run measures it again. A3 holds the cut row
+  only. A whole body, at most 2 000 characters counted as §6 counts
+  them, has no cut line or button and is at most a quarter more text
+  than its shape's preview, so it needs nothing more in the
+  conversation; A4 measures it. The one exception is §6's known limit.
 - **A4** At 200 % text, on the narrowest layout and at the highest
   scale the probe can set, a whole body at the bound in each of the shapes above, the
   four link and image shapes and A12's C1 included, draws without a
@@ -653,8 +681,14 @@ it, those checks are blocked, never passed.
   where no word boundary fits, the one of the contract's three ways
   (wrap, scroll inside an item no wider than the viewport, pieces) this
   note takes. The build measures and reports the largest item in each
-  dimension; a failure makes the pieces smaller, never the text, and
-  never raises the figures.
+  dimension. Wide text is included: a whole body just under the bound
+  of W (Latin), of U+6F22 (CJK), of an emoji and of U+FDFD, each in
+  formatted mode, in source mode and in the reader. An item past the
+  extent is a defect of the split by measure (§5.1), never a reason to
+  shrink the text or raise the figures. The build also measures and
+  reports each shape's whole row at 200 %, the four wide bodies
+  included, in viewports; those figures are a record, not a pass
+  condition (Bounds ruling A 2026-11-07).
 - **A5** The reader opens on each shape with its first screen drawn
   within 0.5 s on the A40, optimised build; End reaches the body's last
   line within 1 s; scrolling shows no blank screen, and no seam but §5.1's ragged line at
@@ -790,6 +824,15 @@ miss the cut line, or look for the next message inside the reader.
   source, which carries it byte for byte, and not by Show source; the
   contract's text says so (HUMAN-CHAT.md, on `main` since #563). How the mark looks is
   this note's (§6).
+- **Q6 — architect-cto** (asked by rust-ui-dev's measurement,
+  OBSERVATION 01a1b6b2-3e5e: a whole body of wide clusters is far
+  taller than the figures assume). **Ruled** (Bounds ruling A
+  2026-11-07, DECISION 01a1b6b7-afbe to rust-ui-dev; INFO 01a1b6b7-b4b4
+  to this note): every figure uses the weighted count of §6; the
+  8 000 px item extent is held by splitting each piece by its measured
+  extent, never by a count (§5.1); glyphs wider than two cells are a
+  known limit of the figures only (§6). The contract text is
+  architect-cto's, with rust-ui-dev's j95 pull request.
 
 Left out on purpose: a hint on screen for a link drawn inert (§6);
 search within a message; selecting part of a
