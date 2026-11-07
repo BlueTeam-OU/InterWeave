@@ -345,7 +345,7 @@ fn a_message_arriving_while_the_reader_is_open_is_read_when_it_closes() {
 
 /// The reader is a screen over the conversation: the locked notice's
 /// focus ask (unlock note §11, F11) waits under it, and Back lands on
-/// the notice's Unlock rather than the row's Read the whole message --
+/// the notice's Unlock rather than the row's Open the whole message --
 /// in a narrow window and a wide one.
 #[test]
 fn the_locked_notice_takes_focus_once_the_reader_over_it_closes_narrow() {
@@ -369,7 +369,7 @@ fn locked_notice_after_the_reader(width: f32) {
     let alice = peer();
     model.received(received(1, &alice, &paragraphs(60)));
     open(&mut view, &mut model, &direct(&alice));
-    the(&view, text(UiText::ReadWholeMessage)).invoke_accessible_default_action();
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
     assert!(view.window().get_reader_open(), "control: open at {width}");
 
