@@ -60,7 +60,9 @@ class NetworkService : Service() {
     private val networkOffPosted = AtomicBoolean(false)
     // Raised by the debug build's restart hook before its stop: the stop
     // wakes the end-waiter of the start before it as asked to stop, and
-    // that waiter must leave the hook's start running.
+    // that waiter must leave the hook's start running. Each start carries
+    // the count from when it was asked for (startClient); the hook writes
+    // it under the binder's lock.
     @Volatile private var starts = 0
     // The debug build's hook, unregistered at the end; nothing in release.
     private var unhook: () -> Unit = {}
@@ -280,6 +282,12 @@ class NetworkService : Service() {
 
     /** Start the client on the lifecycle executor, and act on its answer. */
     private fun startClient() {
+        // The count of hook restarts when this start is asked for, not
+        // when it answers: a start still queued or running when the hook
+        // fires would otherwise take the hook's count, and its end-waiter,
+        // woken by the hook's stop, would stop the hook's runtime (#582
+        // review F1).
+        val start = starts
         lifecycle.execute {
             // A start that throws counts as a refusal: it must still end
             // the foreground state below, not leave it to nobody.
@@ -308,7 +316,6 @@ class NetworkService : Service() {
                 main.post { leaveForeground() }
             }
             if (answer >= 0) {
-                val start = starts
                 Thread({ awaitEnd(start) }, "interweave-end").start()
                 if (!relaying) {
                     // Once per Service: a restart keeps the one loop.
@@ -419,9 +426,15 @@ class NetworkService : Service() {
                 // The person's Stay-reachable choice moved the mode:
                 // restart in it rather than wait for the next start
                 // (ADR-0041 A 2026-10-10).
-                Log.i(TAG, "the availability changed: restarting")
-                lifecycle.execute { Native.stop() }
-                startClient()
+                // Under the binder's lock, as the hook restarts: a hook
+                // between this stop and this start would put the hook's
+                // start between them, and this one would carry its count.
+                synchronized(binder) {
+                    if (held || start != starts) return
+                    Log.i(TAG, "the availability changed: restarting")
+                    lifecycle.execute { Native.stop() }
+                    startClient()
+                }
             }
         }
     }
