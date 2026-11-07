@@ -65,6 +65,7 @@ pub(crate) fn forms(
     image: &dyn Fn(&str) -> String,
     lines: impl Fn(&[body::Line]) -> Vec<BodyLine>,
     pieces: impl Fn(Vec<String>) -> Vec<String>,
+    label: impl Fn(&str) -> ModelRc<SharedString>,
 ) -> Forms {
     let first = ReaderRow {
         kind: ReaderRowKind::Sent,
@@ -72,6 +73,7 @@ pub(crate) fn forms(
         text: sent.0.as_str().into(),
         spoken: sent.1.as_str().into(),
         index: 0,
+        pieces: ModelRc::default(),
     };
     let drawn = body::flatten(&item.body, image);
     let mut formatted = vec![first.clone()];
@@ -81,20 +83,19 @@ pub(crate) fn forms(
         text: SharedString::new(),
         spoken: SharedString::new(),
         index: 0,
+        pieces: ModelRc::default(),
     }));
-    formatted.extend(
-        drawn
-            .links
-            .iter()
-            .enumerate()
-            .map(|(index, destination)| ReaderRow {
-                kind: ReaderRowKind::Link,
-                line: BodyLine::default(),
-                text: body::link_label(destination).into(),
-                spoken: SharedString::new(),
-                index: i32::try_from(index).unwrap_or(i32::MAX),
-            }),
-    );
+    formatted.extend(drawn.links.iter().enumerate().map(|(index, destination)| {
+        let text = body::link_label(destination);
+        ReaderRow {
+            kind: ReaderRowKind::Link,
+            line: BodyLine::default(),
+            pieces: label(&text),
+            text: text.into(),
+            spoken: SharedString::new(),
+            index: i32::try_from(index).unwrap_or(i32::MAX),
+        }
+    }));
     let text = cluster::drawable(&item.source);
     let mut source = vec![first];
     let source_pieces = pieces(
@@ -109,6 +110,7 @@ pub(crate) fn forms(
         text: piece.into(),
         spoken: SharedString::new(),
         index: 0,
+        pieces: ModelRc::default(),
     }));
     Forms {
         formatted: ModelRc::new(VecModel::from(formatted)),

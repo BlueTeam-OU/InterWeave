@@ -216,6 +216,8 @@ export struct ReaderRow {
     spoken: string,
     // A link's index into the reader's links.
     index: int,
+    // A link's label as drawn: all of it, in pieces by measure.
+    pieces: [string],
 }
 
 // One link of a body: a separate control, activated only by a person,
@@ -224,6 +226,10 @@ export struct ReaderRow {
 export struct LinkRow {
     index: int,
     label: string,
+    // The label as drawn: all of it, never cut, in pieces each the layout
+    // measures within the item extent (HUMAN-CHAT.md Bounds, A 2026-11-07
+    // (ii); `lib.rs` `label_pieces`).
+    pieces: [string],
 }
 
 // What the open conversation's window draws at an edge
@@ -1166,7 +1172,13 @@ component LinkButton inherits FocusScope {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
     }
+    // The label, whole: what it says and is named by.
     in property <string> text;
+    // The label as drawn: `text` in pieces, each within the item extent,
+    // so a label far taller than a screen is one control still -- one
+    // focus stop, one press, one name -- drawn in items the renderer can
+    // place (HUMAN-CHAT.md Bounds, A 2026-11-07 (ii)).
+    in property <[string]> pieces;
     in property <string> focus-key;
     // Its colour: `primary` in a received bubble, the bubble's own text
     // colour in a sent one (section 6).
@@ -1195,22 +1207,27 @@ component LinkButton inherits FocusScope {
         // A 48 px target, as the link buttons were (section 6).
         min-height: 48px;
         alignment: center;
-        Rectangle {
+        // Holds the label and its press, as tall as the label: drawing
+        // nothing itself, so its height is no drawn item's.
+        Plain {
             VerticalLayout {
                 padding-top: 4px;
                 padding-bottom: 4px;
                 spacing: 1px;
-                Text {
-                    text: root.text;
-                    color: root.ink;
-                    font-size: Type.body-medium;
-                    wrap: word-wrap;
-                    min-height: self.preferred-height;
-                    // A word longer than the line breaks inside itself
-                    // rather than widening the list (seen with a long URL).
-                    min-width: 0;
-                    horizontal-alignment: left;
-                    accessible-role: none;
+                // The pieces drawn against each other, as one text.
+                VerticalLayout {
+                    for piece in root.pieces: Text {
+                        text: piece;
+                        color: root.ink;
+                        font-size: Type.body-medium;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                        // A word longer than the line breaks inside itself
+                        // rather than widening the list (seen with a long URL).
+                        min-width: 0;
+                        horizontal-alignment: left;
+                        accessible-role: none;
+                    }
                 }
                 // Underlined: Slint's Text has no underline of its own.
                 Rectangle {
@@ -1221,12 +1238,20 @@ component LinkButton inherits FocusScope {
             TapArea { tapped => { root.pressed(); } }
         }
     }
-    FocusRing {
+    if root.height + 10px <= Tile.extent: FocusRing {
         x: -5px;
         y: -5px;
         width: root.width + 10px;
         height: root.height + 10px;
         radius: 0px;
+        shown: root.has-focus;
+    }
+    // A label taller than the extent: its ring in strips, as a tall row's.
+    if root.height + 10px > Tile.extent: TallRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
         shown: root.has-focus;
     }
 }
@@ -4477,23 +4502,25 @@ export component AppWindow inherits Window {
     // or a piece of a source when `measure-source` is set.
     in-out property <BodyLine> measure-line;
     in-out property <bool> measure-source;
+    // A link control's label instead, as `LinkButton` draws it.
+    in-out property <bool> measure-label;
     // A message's room at its narrowest: `message-width` with the window
     // at its 320 px minimum, or at 600 px with the list beside, whichever
     // is less -- so a piece measured here keeps within the extent however
     // the window is resized after. Then the bubble's 80 % and its padding.
     property <length> measure-room: max(0px, min(320px, 600px - 281px)
         - root.safe-area-insets.left - root.safe-area-insets.right - 34px) * 0.8 - 24px;
-    property <bool> measure-mono: root.measure-source || root.measure-line.kind == LineKind.code;
+    property <bool> measure-mono: !root.measure-label && (root.measure-source || root.measure-line.kind == LineKind.code);
     // A line's indent, quote bar and marker beside its text, as a bubble's
     // line lays them out, and a code line's padding round its text.
-    property <length> measure-indent: root.measure-source ? 0px
+    property <length> measure-indent: root.measure-source || root.measure-label ? 0px
         : root.measure-line.depth * 16px
             + (root.measure-line.quoted ? 3px + 6px : 0px)
             + (root.measure-line.marker != "" ? measure-marker.preferred-width + 6px : 0px)
             + (root.measure-line.kind == LineKind.code ? 12px : 0px);
     // The line's tallest drawn item: its text, or a code line's fill.
     out property <length> measured-height: measure-text.preferred-height
-        + (!root.measure-source && root.measure-line.kind == LineKind.code ? 12px : 0px);
+        + (!root.measure-source && !root.measure-label && root.measure-line.kind == LineKind.code ? 12px : 0px);
     // What a measure depends on beside the line: when either changes, what
     // was measured is measured again, and the root is woken to do it --
     // a text size changed in place (Android's fontScale) brings nothing
@@ -8090,6 +8117,7 @@ export component AppWindow inherits Window {
                                             spacing: FocusMode.ring-reach;
                                             for link in row.links: LinkButton {
                                                 text: link.label;
+                                                pieces: link.pieces;
                                                 ink: row.outbound ? Palette.on-primary-container : Palette.primary;
                                                 focus-key: "link:" + row.handle + ":" + link.index;
                                                 pressed => { root.link(row.handle, link.index); }
@@ -8596,6 +8624,7 @@ export component AppWindow inherits Window {
                                     }
                                     if r.kind == ReaderRowKind.link: LinkButton {
                                         text: r.text;
+                                        pieces: r.pieces;
                                         focus-key: "reader-link:" + r.index;
                                         pressed => { root.reader-link(r.index); }
                                         focused(k) => { root.focus-id = k; }
@@ -8873,8 +8902,8 @@ export component AppWindow inherits Window {
             font-weight: 500;
             accessible-role: none;
         }
-        // Never drawn: what one body line, or one piece of a body's source,
-        // measures as the narrowest bubble draws it (HUMAN-CHAT.md Bounds,
+        // Never drawn: what one body line, one piece of a body's source, or
+        // a link control's label measures as the narrowest bubble draws it (HUMAN-CHAT.md Bounds,
         // A 2026-11-07: a drawn line past the item extent is split by its
         // measured extent in the layout, never by a count; `lib.rs`
         // `by_measure`). Width, indent and fonts as the bubble's lines and
@@ -8897,9 +8926,9 @@ export component AppWindow inherits Window {
             wrap: word-wrap;
             min-height: self.preferred-height;
             font-family: root.measure-mono ? root.code-font : "";
-            font-weight: !root.measure-source
+            font-weight: !root.measure-source && !root.measure-label
                 && (root.measure-line.kind == LineKind.heading || root.measure-line.kind == LineKind.table-header) ? 700 : 400;
-            font-size: root.measure-mono ? Type.body-medium
+            font-size: root.measure-mono || root.measure-label ? Type.body-medium
                 : root.measure-line.kind != LineKind.heading ? Type.body-large
                 : root.measure-line.level == 1 ? 20rem / 14
                 : root.measure-line.level == 2 ? 18rem / 14

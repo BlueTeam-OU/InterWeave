@@ -717,6 +717,25 @@ fn a4_shapes() -> Vec<(&'static str, String)> {
         ("CJK", "\u{6F22}".repeat(1000)),
         ("emoji", "\u{1F600}".repeat(1000)),
         ("U+FDFD", "\u{FDFD}".repeat(2000)),
+        // A link control's label is never cut: drawn whole, in pieces by
+        // measure inside one control (A 2026-11-07 (ii)), 1,979 clusters.
+        (
+            "a label of W",
+            format!("[a](https://e.org/{})", "W".repeat(1960)),
+        ),
+        (
+            "a label of U+FDFD",
+            format!("[a](https://e.org/{})", "\u{FDFD}".repeat(1960)),
+        ),
+        // Past the bound, so the control is the reader's alone.
+        (
+            "a label of U+FDFD, cut",
+            format!(
+                "[a](https://e.org/{}) {}",
+                "\u{FDFD}".repeat(1960),
+                "x".repeat(100)
+            ),
+        ),
         // Cut, so that the reader draws them whole, in pieces.
         ("U+FDFD cut", "\u{FDFD}".repeat(4000)),
         ("emoji cut", "\u{1F600}".repeat(3000)),

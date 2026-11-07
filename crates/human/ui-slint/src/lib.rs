@@ -2148,8 +2148,13 @@ impl View {
             item,
             &sent,
             &image_text,
-            |lines| by_measure(body_lines(lines), &|line| measured(window, line, false)),
-            |pieces| pieces_by_measure(pieces, &|line| measured(window, line, true)),
+            |lines| {
+                by_measure(body_lines(lines), &|line| {
+                    measured(window, line, Measured::Line)
+                })
+            },
+            |pieces| pieces_by_measure(pieces, &|line| measured(window, line, Measured::Source)),
+            |label| label_pieces(window, label),
         );
         window.set_measure_line(BodyLine::default());
         forms
@@ -3851,12 +3856,40 @@ fn body_lines(lines: &[body::Line]) -> Vec<BodyLine> {
 /// desktop renderer's 16-bit ceiling, so it holds to scale 4.
 const ITEM_EXTENT: f32 = 8_000.0;
 
-/// How tall `window`'s layout draws `line`, as source when `source`: its
-/// text, or a code line's fill (app.slint `measure-text`).
-fn measured(window: &AppWindow, line: &BodyLine, source: bool) -> f32 {
-    window.set_measure_source(source);
+/// What `measure-text` lays a text out as.
+#[derive(Debug, Clone, Copy)]
+enum Measured {
+    /// A body line: its text, or a code line's fill.
+    Line,
+    /// A piece of a body's source.
+    Source,
+    /// A link control's label.
+    Label,
+}
+
+/// How tall `window`'s layout draws `line` as `what` (app.slint
+/// `measure-text`).
+fn measured(window: &AppWindow, line: &BodyLine, what: Measured) -> f32 {
+    window.set_measure_source(matches!(what, Measured::Source));
+    window.set_measure_label(matches!(what, Measured::Label));
     window.set_measure_line(line.clone());
     window.get_measured_height()
+}
+
+/// A link control's label as `LinkButton` draws it: all of it, never cut,
+/// in pieces each `window`'s layout measures within [`ITEM_EXTENT`]
+/// (HUMAN-CHAT.md Bounds, A 2026-11-07 (ii)).
+fn label_pieces(window: &AppWindow, label: &str) -> ModelRc<SharedString> {
+    let pieces = pieces_by_measure(vec![label.to_owned()], &|line| {
+        measured(window, line, Measured::Label)
+    });
+    window.set_measure_line(BodyLine::default());
+    ModelRc::new(VecModel::from(
+        pieces
+            .into_iter()
+            .map(SharedString::from)
+            .collect::<Vec<_>>(),
+    ))
 }
 
 /// `lines` with each one `height` measures past [`ITEM_EXTENT`] drawn
@@ -3940,10 +3973,12 @@ fn drawn_body(item: &MessageItem, window: &AppWindow) -> DrawnBody {
     };
     let formatted_plain = with_line(&shown_line);
     let lines = by_measure(body_lines(&body.lines), &|line| {
-        measured(window, line, false)
+        measured(window, line, Measured::Line)
     });
     let (source_pieces, source_shown) = cut::source(&item.source);
-    let source_pieces = pieces_by_measure(source_pieces, &|line| measured(window, line, true));
+    let source_pieces = pieces_by_measure(source_pieces, &|line| {
+        measured(window, line, Measured::Source)
+    });
     window.set_measure_line(BodyLine::default());
     let source_cut_line = cut_line(source_shown);
     let source_plain = with_line(&source_cut_line);
@@ -3953,9 +3988,11 @@ fn drawn_body(item: &MessageItem, window: &AppWindow) -> DrawnBody {
         .iter()
         .enumerate()
         .filter_map(|(index, destination)| {
+            let label = body::link_label(destination);
             Some(LinkRow {
                 index: i32::try_from(index).ok()?,
-                label: body::link_label(destination).into(),
+                pieces: label_pieces(window, &label),
+                label: label.into(),
             })
         })
         .collect();
