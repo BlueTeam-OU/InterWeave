@@ -601,7 +601,12 @@ jobs:
     runs-on: ubuntu-26.04
     # 5m27s on main with no cargo cache (400b42b6, 2026-10-17): 69 s of
     # toolchain install, ~30 s of it compiling cargo-ndk, and 252 s of
-    # assembleDebug, most of it the cargo build. The cap is for a hang.
+    # assembleDebug, most of it the cargo build. With the release APK and
+    # the instrumentation's added, 15m14s on #586 (485a6cb8, 2026-11-07):
+    # 297 s of assembleDebug on a warm cache, 519 s of assembleRelease
+    # assembleDebugAndroidTest with the release profile's builds cold (the
+    # cache had none yet), under the rust job's 19m44s in the same run.
+    # The cap is for a hang.
     timeout-minutes: 60
     env:
       # As the rust job's, for its reason; Gradle's Exec passes the
