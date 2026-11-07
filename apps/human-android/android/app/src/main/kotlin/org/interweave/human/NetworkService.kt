@@ -58,6 +58,12 @@ class NetworkService : Service() {
     // starts it again until the window says the words are gone.
     @Volatile private var held = false
     private val networkOffPosted = AtomicBoolean(false)
+    // Raised by the debug build's restart hook before its stop: the stop
+    // wakes the end-waiter of the start before it as asked to stop, and
+    // that waiter must leave the hook's start running.
+    @Volatile private var starts = 0
+    // The debug build's hook, unregistered at the end; nothing in release.
+    private var unhook: () -> Unit = {}
     // The network callback's own thread: its reports, and the
     // unregistration's, reach the runtime in the order they were made.
     private val networkThread = HandlerThread("interweave-network")
@@ -140,6 +146,30 @@ class NetworkService : Service() {
         channels()
         watchNetworks()
         startClient()
+        unhook = DebugHooks.register(this) { platformRestart() }
+    }
+
+    /**
+     * The start a platform restart under Stay reachable runs, in this
+     * process: no person asked for it, so a lock then prompts only as a
+     * window in front decides (unlock note section 11, L3 and L4). The
+     * debug build's adb hook runs it (DebugHooks, section 8: a refusal the
+     * phone cannot produce on demand); the process's own state, a
+     * declined prompt included, is kept, which a killed process would
+     * lose. Not while Show my phrase holds the service offline.
+     */
+    private fun platformRestart() {
+        synchronized(binder) {
+            if (held) {
+                Log.i(TAG, "restart hook: held offline, not restarting")
+                return
+            }
+            Log.i(TAG, "restart hook: restarting as the platform would")
+            starts += 1
+            mode = UNANSWERED
+            lifecycle.execute { Native.stop() }
+            startClient()
+        }
     }
 
     /**
@@ -278,7 +308,8 @@ class NetworkService : Service() {
                 main.post { leaveForeground() }
             }
             if (answer >= 0) {
-                Thread({ awaitEnd() }, "interweave-end").start()
+                val start = starts
+                Thread({ awaitEnd(start) }, "interweave-end").start()
                 if (!relaying) {
                     // Once per Service: a restart keeps the one loop.
                     relaying = true
@@ -316,6 +347,7 @@ class NetworkService : Service() {
 
     override fun onDestroy() {
         alive = false
+        unhook()
         unwatchNetworks()
         // Off the main thread, and after any start still running: stop
         // waits for the grace, and a start after it finds the lock free.
@@ -363,12 +395,16 @@ class NetworkService : Service() {
         stopSelf()
     }
 
-    /** The runtime was asked to stop (its admin port, or a stop): end. */
-    private fun awaitEnd() {
+    /**
+     * The runtime was asked to stop (its admin port, or a stop): end.
+     * [start] is the count of hook restarts when this runtime started.
+     */
+    private fun awaitEnd(start: Int) {
         val ended = Native.waitEnded()
         // A stop for Show my phrase is offline()'s, and its restart
-        // online()'s: this waiter neither stops nor restarts it.
-        if (!alive || held) return
+        // online()'s; a stop for the restart hook is followed by the
+        // hook's start: this waiter neither stops nor restarts either.
+        if (!alive || held || start != starts) return
         when (ended) {
             Native.ENDED_ASKED, Native.ENDED_RUNTIME -> {
                 // Asked to stop, or the runtime ended on its own (not a
