@@ -1154,7 +1154,6 @@
     ".agent-fabric/memory/rust-ui-dev/threads/j131-stage17-lane-pr358.md",
     ".agent-fabric/memory/rust-ui-dev/threads/j134-camera-scan-pr418.md",
     ".agent-fabric/memory/rust-ui-dev/threads/j134-step5-inputs.md",
-    ".agent-fabric/memory/rust-ui-dev/threads/j134-step5-inputs-2.md",
     ".agent-fabric/memory/rust-ui-dev/threads/j135-f16-reason-pr364.md",
     ".agent-fabric/memory/rust-ui-dev/threads/j136-encrypted-store.md",
     ".agent-fabric/memory/rust-ui-dev/threads/j138-store-answers-pr451.md",
@@ -1360,7 +1359,6 @@
     ".agent-fabric/memory/ux-designer/threads/j29-contact-cards-plan.md",
     ".agent-fabric/memory/ux-designer/threads/j38-add-peer-trust-unread.md",
     ".agent-fabric/memory/ux-designer/threads/j39-add-peer-unknown-retries.md",
-    ".agent-fabric/memory/ux-designer/threads/j39-add-peer-unknown-retries-2.md",
     ".agent-fabric/memory/ux-designer/threads/j43-add-peer-peerid-wording.md",
     ".agent-fabric/memory/ux-designer/threads/j50-add-peer-desktop-scan-show.md",
     ".agent-fabric/memory/ux-designer/threads/j51-identity-key-unopenable.md",
@@ -1394,7 +1392,7 @@
     ".agent-fabric/memory/ux-designer/workflow/spec-cites-only-recorded-methods.md",
     ".agent-fabric/memory/ux-designer/workflow/workflow-carried-2026-10-18.md"
   ],
-  "files_written": 885,
+  "files_written": 883,
   "harvest": {
     "host": "develop-qzapp",
     "in_scope": 64,
@@ -3477,7 +3475,7 @@
       "host": "develop-qzapp",
       "observed": "2026-11-08"
     },
-    ".agent-fabric/memory/architect-cto/threads/proxmox-production-host-plan-2026-11-05.md#The production Proxmox node s13337 (cloud provider, VPN-only): owner's decisions 2026-11-05, devex-tooling's read of the node, the plan file awaiting the owner's fine review, and the provider questions": {
+    ".agent-fabric/memory/architect-cto/threads/proxmox-production-host-plan-2026-11-05.md#The production Proxmox host (cloud provider, VPN-only): owner's decisions 2026-11-05, devex-tooling's read of the node, the plan awaiting the owner's fine review, and the provider questions": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-11-05"
@@ -5757,15 +5755,10 @@
       "host": "develop-qzapp",
       "observed": "2026-10-24"
     },
-    ".agent-fabric/memory/rust-ui-dev/threads/j134-step5-inputs-2.md#plan §29 step 5 (ADR-0062 add/show peer screens): closed; which PRs carried it, where its contract and design live, and why a multi-line add is one call": {
+    ".agent-fabric/memory/rust-ui-dev/threads/j134-step5-inputs.md#plan §29 step 5 (ADR-0062 add/show peer screens): closed; which PRs carried it, where its contract and design live, and why a multi-line add is one call": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-11-03"
-    },
-    ".agent-fabric/memory/rust-ui-dev/threads/j134-step5-inputs.md#plan §29 step 5 (ADR-0062 add/show peer screens) — what the client half waits on and the QR crates that fit the licence list": {
-      "agent": "rust-ui-dev-01",
-      "host": "develop-qzapp",
-      "observed": "2026-10-22"
     },
     ".agent-fabric/memory/rust-ui-dev/threads/j135-f16-reason-pr364.md#j135 / PR #364 — F16's second half (look spec acceptance 23): needs-attention row reason; state, waits, what is owed": {
       "agent": "rust-ui-dev-01",
@@ -6467,15 +6460,10 @@
       "host": "develop-qzapp",
       "observed": "2026-10-23"
     },
-    ".agent-fabric/memory/ux-designer/threads/j39-add-peer-unknown-retries-2.md#j39-j42 add-a-peer thread (delivered #388, #390, #391): what the rulings decided that later notes build on": {
+    ".agent-fabric/memory/ux-designer/threads/j39-add-peer-unknown-retries.md#j39-j42 add-a-peer thread (delivered #388, #390, #391): what the rulings decided that later notes build on": {
       "agent": "ux-designer-01",
       "host": "develop-qzapp",
       "observed": "2026-11-04"
-    },
-    ".agent-fabric/memory/ux-designer/threads/j39-add-peer-unknown-retries.md#j39 state — add-a-peer unknown-retry rule and Peers row contact names, PR #388": {
-      "agent": "ux-designer-01",
-      "host": "develop-qzapp",
-      "observed": "2026-10-24"
     },
     ".agent-fabric/memory/ux-designer/threads/j43-add-peer-peerid-wording.md#j43-j49 state: add-a-peer PeerId wording, Back during add, row-gone focus, pending lines per add, Stage 21 flows; PRs #396, #400, #405 (part 2 of 3)": {
       "agent": "ux-designer-01",

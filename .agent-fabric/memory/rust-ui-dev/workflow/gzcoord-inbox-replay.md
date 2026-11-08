@@ -27,6 +27,6 @@ derived_from:
 
 2026-10-27: never start `gzcoord-inbox --until-delivery` with its output thrown away (`>/dev/null`, `& disown`): it consumes the delivery and moves the cursor, so the message is never read. If that happens, stop it and run `--history` to see what it took; `--replay <seq>` re-reads one. The only correct form is the background Bash run whose output file is read when it completes.
 
-*Anchors: `agent-fabric/tools/fabric/gzcoord/inbox.py::--replay`*
+*Anchors: `agent-fabric:tools/fabric/gzcoord/inbox.py::--replay`*
 
 *Observed 2026-10-16 (rust-ui-dev)*

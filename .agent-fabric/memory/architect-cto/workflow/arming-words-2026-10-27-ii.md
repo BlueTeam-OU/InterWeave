@@ -51,8 +51,6 @@ Their kept_disable desktop-e2e failure under load is their j197, not the boundar
 
 - 2026-11-04 #542 (2 work, 4 fix) at 34caadbf, DECISION 01a1a3d6-f98a to rust-ui-dev-02 on the owner's "merge 542"; head copied from gh, not retyped.
 
-**2026-11-04 ~02:35Z gzapp #1207 (2w, 1f; devex-tooling j278, the analyzer count gate + DEP0005):** word given at 38c52bae6 by REPLY 01a1a464-5b57-7ce5-9767-c558154e50d7 with AUTHORIZES in the header (their REQUEST 01a1a462, my j503); read the diff, the round-1 P3 fixed, round-2 clean, Codex thread resolved; checks still pending on the head, the word covers the count only.
-
 **2026-11-04 02:48Z InterWeave #546 (2w, 2f; rust-ui-dev-02 j82, focus rings over neighbours + the ui-slint README correction):** word given at 00b59469 by REPLY 01a1a475-8268-7722-9c8b-9e91e3dd553c with AUTHORIZES (their REQUEST 01a1a474-2d6f, my j504); three chained reviews, F1-F4 fixed, 0 threads, checks pending; the arm dry-run is refused in a session whose job has ended, so the gate state was read from fabric-pr review-status and gate instead.
 
 - 2026-11-04: InterWeave #547 (2 work, 2 fix) word given at dfd3df88 (REPLY 01a1a513-f6a1); j83 Tab-onto-text-field ring, ui-slint only; checks pending when given, arm waits on green.
@@ -60,8 +58,6 @@ Their kept_disable desktop-e2e failure under load is their j197, not the boundar
 - 2026-11-04: InterWeave #549 (1 work, 1 fix) word given at d77fa609 (REPLY 01a1a571-eee0); j84 press-on-text-field ends keyboard mode on desktop; F1 (P3, winit wiring untested) deferral accepted, desktop-e2e case carried to rust-ui-dev-02.
 
 - IW #555 (3w, 1f, spikes only) word given at 5d3e7fe6 on 2026-11-04 (REPLY to rust-services-dev-01 01a1a6e3-3b43; head reviewed + re-reviewed clean, 0 threads, checks pending at the time).
-
-- 2026-11-04 ~14:50Z gzapp #1213 (4 work, 2 fix, 1 merge; backend-dev-01, ADR-020 A 2026-11-04 client-abort arm, boundary) word given at 446740ed by REPLY 01a1a707-9d35-71ab-9f2e-8cf33f25f3db (j511): the supply b6bc2b55b byte-identical at the head, both code hunks meet the amendment's three conditions, five blind reviews, newest clean, 0 threads; shards pending, the word covers the count.
 
 - 2026-11-04 ~15:12Z IW #557 (1 work, 1 fix; rust-services-dev-01 j73, INSTALL.md's headless bullet on S29 facts 70/71/75) word given at c2fe24c9 by REPLY 01a1a71d-7a46 (j515): one-file diff read against the facts, two blind reviews, round 2 clean, 0 threads, checks pending.
 
