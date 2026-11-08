@@ -390,10 +390,61 @@ came about 32 s after the start reported `default` too; so fact 69's
 change follows the build on one install location and the mode is
 settled by something at start-up, neither read from the binary (75).
 What this changes in the bridge: nothing; its bound stays the only one
-on the line. Not established: a line past 8 MiB, another model's
+on the line. Not established then: a line past 8 MiB, another model's
 context, a burst past ten, an event at the bound in a conversation
-already holding others, whether the kind of turn decides joining, and
-what in a build sets the unflagged mode.
+already holding others (the last three of these measured by S30,
+below; the line past 8 MiB stays carried), whether the kind of turn
+decides joining, and what in a build sets the unflagged mode.
+
+**Carried measurement, S30 (2026-11-06, Claude Code 2.1.311, the
+fleet's pin, rust-services-dev, plan §19): an event at the bound fits
+`claude-opus-5-5` and `claude-haiku-5-5` as it fits `claude-sonnet-5-5`,
+the first refusal for one-letter content just under 991,232 bytes on
+both; in a conversation already holding others the host compacts
+rather than refuses; bursts of 50 and 200 are paced by the transport
+alone and lose nothing; the daemon's `ipc.events_dropped_total` does
+not count what the ingress gate refuses.** Read off
+`spikes/spike-001/README.md` §S30 (facts 76–79, runs `s30-a-*`,
+`s30-b-*`, `s30-c-*` and `s30-d-daemon-drops`, #580), a and b on
+S29's stub with one trigger per event and the session given
+`--model`, c on the release bridge across S16's two daemons, d with no
+Claude Code. On Opus and Haiku, each reporting a 1,000,000-token
+window, the bound-sized event of one letter repeated was answered,
+its turn's prompt 344,705 and 345,484 tokens — about a token a byte —
+and the first refusal sat between 978,944 and 991,232 bytes on Opus
+and between 980,992 and 991,232 on Haiku, the larger answered and
+991,232 and 1 MiB delivered whole and ending "Prompt is too long";
+the edges were found by bisection in probe runs not kept, the two
+sizes either side run once each, and the edge is this content's (76).
+Twelve bound-sized events of random base64url on Sonnet, each written
+once the previous one's turn had its result, were each answered: the
+first three turns' prompts were 327,631, 638,223 and 949,116 tokens,
+then the host compacted (`preTokens` 1,031,034 to `postTokens`
+85,361, 10.7 s) before the fourth and again before the seventh and
+the tenth, the turn after a compaction taking 18.2 to 18.5 s against
+7.0 to 11.5 for the rest; with `DISABLE_COMPACT=1`, read from the
+binary, the fourth ended "Prompt is too long" 0.1 s after its write
+(77). Bursts of 50 and 200 from the peer, each `send` answered before
+the next and a refused one retried after 1 s, were paced by daemon
+A's per-peer bucket alone (8 of 58 and 76 of 276 refused
+`Overloaded`; accepted over 9.5 and 85.0 s) and lost nothing: 50 and
+200 notification lines, each message enqueued once, 50 and 200
+distinct `ack`s, the first 6.1 and 5.8 s after the first send and the
+last 22.7 and 22.8 s after the last; every later message joined the
+first's turn as an attachment (78). #376's 200 broadcasts from B's
+bridge, published in 2.18 s after the mesh and a 20 s refill, reached
+A's bridge as 47, each once and in order, while `admin.status` on
+both daemons read `events_dropped_total` 0 before and after and A's
+bridge `status` read `ingress_refused` 153, `queue_overflow` 0: the
+counter counts session-queue drops, as `LOCAL-IPC.md` A 2026-11-04
+says, and the bridge's `ingress_refused` is the only count of gate
+loss (79). What this changes in the bridge: nothing; its bound stays
+the only one on the line, and a deployment with compaction off has
+room for three events at it. Not established: a line past 8 MiB, the
+edge for content that costs more tokens a byte, what compaction keeps
+of the events it replaces, a second host, whether the kind of turn
+decides joining, and the 256-byte card name across real daemons; and,
+from S29, what in a build sets the unflagged mode (fact 75).
 
 ---
 

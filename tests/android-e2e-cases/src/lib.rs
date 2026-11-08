@@ -19,8 +19,12 @@
 //! daemon or transport runtime, so it can be built for the phone
 //! (`the_crate_reaches_no_libp2p_harness_daemon_or_runtime` below). That
 //! the release APK's graph names it nowhere is DECISION 01a12770's
-//! invariant, checked by the packaging batch's check, which does not
-//! exist yet.
+//! invariant, checked three ways: on the Cargo graph by
+//! `check_human_layering.sh` rule 6, on the release native library by
+//! the app's Gradle task `verifyReleaseNative`, and for the case's Java
+//! entry (`org.interweave.human.test.E2eCase`) on the release APK's
+//! dex by `tools/ci/check_apk_classes.py`, run on every PR's APK by
+//! the android apk job and on the published one by the release workflow.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;

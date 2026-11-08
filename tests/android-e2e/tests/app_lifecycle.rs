@@ -37,11 +37,11 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::os::unix::fs::PermissionsExt as _;
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 use interweave_android_e2e_cases::{Recording, Tap, chat_text, desktop_message_id};
 use interweave_android_e2e_tests::adb::{AdbDevice, PACKAGE};
+use interweave_android_e2e_tests::platform::{self, app_pid, dump, sdk, shell};
 use interweave_android_e2e_tests::{Desktop, Device, PATIENCE, free_port, human};
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_store::{HumanStore, StoreOptions};
@@ -110,7 +110,7 @@ async fn a_process_death_restarts_the_service_into_the_same_store() {
     let log = || format!("D:\n{}\nphone:\n{}", d.log(), phone.log());
 
     // Committed unread: posted only after the commit.
-    adb(&["shell", "input", "keyevent", "KEYCODE_HOME"]);
+    shell(&["input", "keyevent", "KEYCODE_HOME"]);
     until(&log, "the window leaving", || !app_focused());
     side.send(&phone.peer(), 1, &chat_text(1, "D", false)).await;
     side.until_accepted(&log, 1).await;
@@ -120,21 +120,14 @@ async fn a_process_death_restarts_the_service_into_the_same_store() {
     // so a notice after the restart can only be the new process's: a
     // crash runs no cancel, and a notice the platform kept would satisfy
     // the wait below.
-    adb(&[
-        "shell",
-        "am",
-        "start",
-        "-W",
-        "-n",
-        &format!("{PACKAGE}/.MainActivity"),
-    ]);
+    launch();
     until(&log, "the window in front again", app_focused);
     until(&log, "the first notice withdrawn", || notice().is_none());
-    adb(&["shell", "input", "keyevent", "KEYCODE_HOME"]);
+    shell(&["input", "keyevent", "KEYCODE_HOME"]);
     until(&log, "the window leaving again", || !app_focused());
 
     let before = app_pid().expect("the app's process");
-    adb(&["shell", "am", "crash", PACKAGE]);
+    shell(&["am", "crash", PACKAGE]);
     let after = until_some(&log, "the service restarted in a new process", || {
         app_pid().filter(|p| *p != before)
     });
@@ -176,7 +169,7 @@ async fn a_process_death_restarts_the_service_into_the_same_store() {
 async fn started() -> (AdbDevice, Desktop, Side) {
     let mut phone = AdbDevice::connect();
     if sdk() >= 33 {
-        let granted = adb(&["shell", "dumpsys", "package", PACKAGE]);
+        let granted = dump(&["package", PACKAGE]);
         assert!(
             granted.contains("android.permission.POST_NOTIFICATIONS: granted=true"),
             "API 33+: grant the app's notifications first, as a person does"
@@ -199,19 +192,26 @@ async fn started() -> (AdbDevice, Desktop, Side) {
         WILDCARD,
         Some(&format!("{d_listen}/p2p/{}", d.peer.as_str())),
     ));
-    adb(&[
-        "shell",
+    launch();
+    let mut side = Side::new(d.binding());
+    let log = || format!("D:\n{}\nphone:\n{}", d.log(), phone.log());
+    until(&log, "the app in front", app_focused);
+    side.until(&log, "D's session ready", Side::is_ready).await;
+    (phone, d, side)
+}
+
+/// The activity brought to the front. An `am start -W` behind a secure
+/// keyguard never returns, so the phone is unlocked first, asking the
+/// person if it has to.
+fn launch() {
+    platform::until_unlocked();
+    shell(&[
         "am",
         "start",
         "-W",
         "-n",
         &format!("{PACKAGE}/.MainActivity"),
     ]);
-    let mut side = Side::new(d.binding());
-    let log = || format!("D:\n{}\nphone:\n{}", d.log(), phone.log());
-    until(&log, "the app in front", app_focused);
-    side.until(&log, "D's session ready", Side::is_ready).await;
-    (phone, d, side)
 }
 
 /// D's person: the desktop client's facade over D's daemon.
@@ -336,25 +336,6 @@ fn until_some<T>(log: &impl Fn() -> String, what: &str, found: impl Fn() -> Opti
     }
 }
 
-/// `adb <args>`'s output; a failing `adb` fails the test.
-fn adb(args: &[&str]) -> String {
-    let out = Command::new("adb").args(args).output().expect("adb");
-    assert!(
-        out.status.success(),
-        "adb {}: {}",
-        args.join(" "),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).into_owned()
-}
-
-fn sdk() -> u32 {
-    adb(&["shell", "getprop", "ro.build.version.sdk"])
-        .trim()
-        .parse()
-        .expect("an API level")
-}
-
 /// The notification shade over the window while held: put away when
 /// dropped, a failing case's unwind included, so no run leaves the
 /// device with a shade it did not find.
@@ -362,7 +343,7 @@ struct Shade;
 
 impl Shade {
     fn open() -> Self {
-        adb(&["shell", "cmd", "statusbar", "expand-notifications"]);
+        shell(&["cmd", "statusbar", "expand-notifications"]);
         Self
     }
 }
@@ -370,32 +351,28 @@ impl Shade {
 impl Drop for Shade {
     fn drop(&mut self) {
         // Never a second panic while unwinding: the result is not asserted.
-        let _ = Command::new("adb")
+        let _ = platform::adb()
             .args(["shell", "cmd", "statusbar", "collapse"])
             .output();
     }
 }
 
-/// Whether the app's window has the platform's input focus.
+/// Whether the app's window has the platform's input focus. A dump cut
+/// short panics in [`dump`] rather than reading as "not focused", which
+/// the cases wait for.
 fn app_focused() -> bool {
-    adb(&["shell", "dumpsys", "window"])
+    dump(&["window"])
         .lines()
         .any(|l| l.contains("mCurrentFocus") && l.contains(&format!("{PACKAGE}/")))
 }
 
-fn app_pid() -> Option<u32> {
-    let out = Command::new("adb")
-        .args(["shell", "pidof", PACKAGE])
-        .output()
-        .expect("adb");
-    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
-}
-
 /// The app's posted notice of waiting messages, as `dumpsys
 /// notification --noredact` prints its record: from its own
-/// `NotificationRecord(` line to the next one.
+/// `NotificationRecord(` line to the next one. `None` is read off the
+/// whole dump only: a cut one panics in [`dump`], since "no notice" is
+/// both a control and a wait here.
 fn notice() -> Option<String> {
-    let dump = adb(&["shell", "dumpsys", "notification", "--noredact"]);
+    let dump = dump(&["notification", "--noredact"]);
     let mut records = dump.split("NotificationRecord(").skip(1);
     records
         .find(|r| r.contains(&format!("pkg={PACKAGE} ")) && r.contains(NOTICE_ID))
@@ -405,7 +382,7 @@ fn notice() -> Option<String> {
 /// A file under the app's data directory read as the app, or `None`
 /// when there is none.
 fn pull_if_any(path: &str) -> Option<Vec<u8>> {
-    let out = Command::new("adb")
+    let out = platform::adb()
         .args(["exec-out", "run-as", PACKAGE, "cat", path])
         .output()
         .expect("adb");
