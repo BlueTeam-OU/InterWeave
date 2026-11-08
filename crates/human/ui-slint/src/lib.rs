@@ -1232,11 +1232,22 @@ impl View {
     /// events; the debug APK turns it on, the release build has none.
     #[cfg(feature = "ui-trace")]
     pub fn on_trace(&mut self, sink: impl Fn(&str) + 'static) {
-        let sink: Rc<dyn Fn(&str)> = Rc::new(sink);
-        let to = Rc::clone(&sink);
-        self.window
-            .on_focus_traced(move |id| to(&trace::focus_line(&id)));
-        self.trace = Some(trace::Tracer::new(sink));
+        let tracer = trace::Tracer::new(Rc::new(sink));
+        let say = tracer.focus_sayer();
+        self.window.on_focus_traced(move |id| say(&id));
+        self.trace = Some(tracer);
+    }
+
+    /// A credential prompt was answered: say where focus stands once the
+    /// answer has settled, if no move says it first (`trace.rs`).
+    #[cfg(feature = "ui-trace")]
+    pub fn trace_focus_settled(&self) {
+        if let Some(tracer) = self.trace.as_ref() {
+            let window = swipe::weak(&self.window);
+            tracer.focus_settled(Duration::from_millis(200), move || {
+                window.upgrade().map(|w| w.get_focus_id().to_string())
+            });
+        }
     }
 
     /// The identity flow's `screen` is over the window with `page`, or,

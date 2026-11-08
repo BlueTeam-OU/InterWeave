@@ -474,6 +474,66 @@ fn the_identity_primary_is_reached_by_tab_and_pressed_by_enter() {
     assert_eq!(*inputs.borrow(), [IdentityInput::Primary]);
 }
 
+/// A prompt answered says where focus stands once it settled: R's Try
+/// again cancelled leaves focus where it was, and the trace states it
+/// (j98, A15); granted, R goes with its button and the move to Chats'
+/// heading is said once, with no statement after it (A14).
+#[test]
+fn a_prompt_answered_says_where_focus_stands() {
+    use interweave_human_ui_model::{StoreRecovery, StoreScreen};
+    use interweave_human_ui_slint::store_page;
+    let settle = || {
+        for _ in 0..3 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(100));
+            slint::platform::update_timers_and_animations();
+        }
+    };
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let model = UiModel::new();
+    view.render(&model);
+    view.show_identity(Some(store_page(&StoreRecovery::new(
+        StoreScreen::Recovery,
+        1,
+    ))));
+    slint::platform::update_timers_and_animations();
+    let reached = (0..16).any(|_| {
+        tab(&view);
+        let _ =
+            ElementHandle::find_by_accessible_label(view.window(), text(UiText::TryAgain)).count();
+        said.borrow()
+            .last()
+            .is_some_and(|l| l == "ui-trace focus=identity-primary")
+    });
+    assert!(reached, "Try again by TAB in {:#?}", said.borrow());
+
+    let first = said.borrow().len();
+    settle();
+    assert_eq!(said.borrow().len(), first, "control: nothing unasked");
+    view.trace_focus_settled();
+    settle();
+    assert_eq!(
+        said.borrow()[first..],
+        ["ui-trace focus=identity-primary"],
+        "cancelled: focus stays, and is said"
+    );
+
+    let first = said.borrow().len();
+    view.trace_focus_settled();
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        said.borrow()[first..],
+        ["ui-trace focus=conversations-heading"],
+        "granted: the move is said, once"
+    );
+}
+
 /// Welcome's two actions: TAB steps through them in reading order and
 /// round again, Shift+TAB back, and neither reaches the window behind.
 #[test]
