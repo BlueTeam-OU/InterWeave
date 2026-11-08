@@ -5500,8 +5500,8 @@ state, so Shift, AltGr and dead keys are lost from a hardware keyboard,
 while a soft keyboard commits text through the input connection and is
 unaffected (Gboard, rust-ui-dev-01's account); fixed upstream in Slint's
 3a7e700487 (2026-09-22), in no release at this writing, and the
-workspace pins `=1.18.1` exactly (`Cargo.toml`, the i-slint-* advisory's
-pins). Ruled 2026-11-08 (architect-cto, option (b) of the question's
+workspace pins `=1.18.1` exactly (`Cargo.toml`'s exact pins, which its
+comment ties to the i-slint-* crates making no semver promise). Ruled 2026-11-08 (architect-cto, option (b) of the question's
 three): NO vendored patch — every `third_party/` tree has an ADR saying
 why a registry release would not do (ADR-0051, ADR-0053, ADR-0054), and
 here only time is missing, so a patched UI backend would be a fork
@@ -5512,12 +5512,19 @@ input text`); and NOT silent — a user-visible limit is on record
 here, so the limit is CARRIED to the next Slint bump, beside §18 (15)'s
 inline styling, by name: **on Android a hardware keyboard enters
 lowercase letters, digits and the keys the backend maps, and no
-capital, so a PeerId cannot be typed from one until the bump**; that
-design's §8 "workable with a hardware keyboard" holds for focus and
-Enter and not for capitals until then. The Android README's limits
-prose is rust-ui-dev's, and the bump theirs when a release carries the
-commit, re-measured on a phone with a hardware keyboard attached at
-that bump. Whether a hardware keyboard is a target of the v0.3 release
+capital, so a PeerId cannot be typed from one until the bump**. The
+identity design's §8 ("The screens are workable without touch: a
+hardware keyboard or switch access") is untouched by it, its R2 and C3
+taking only lowercase letters; the flow the limit reaches is Add an
+address (`design/2026-10-22-add-a-peer.md`), whose keyboard reach
+holds for focus and Enter and not for a typed PeerId until then. The
+Android README's limits prose is rust-ui-dev's, and the bump theirs
+when a release carries the commit, re-measured at that bump on a phone
+with a hardware keyboard attached — and with
+`tests/android-e2e/src/screen.rs`'s `add_by_field`, which types an
+address line with `adb shell input text` (key events, so a PeerId's
+capitals are lowercased on 1.18.1) and has no caller today, as the
+host-side case (the review of #596, 2026-11-08). Whether a hardware keyboard is a target of the v0.3 release
 is the owner's question, put 2026-11-08 and open at this writing.
 
 ## 21. Stage 18 — full adversarial/security gate
