@@ -5184,15 +5184,20 @@ export component AppWindow inherits Window {
                 }
                 // A phone shows Chats or a conversation, never both, so the
                 // session notice is here too; the desktop shows it beside, in
-                // the conversation pane.
-                if root.narrow && root.list-shown && root.has-session-notice: NoticeCard {
-                    message: root.notice;
-                    has-action: root.has-notice-action;
-                    action: root.notice-action;
-                    focus-seq: root.focus-seq;
-                    focus-wanted: root.focus-target == "chats-notice";
-                    pressed => { root.notice-pressed(); }
-                    focused(k) => { root.focus-id = k; }
+                // the conversation pane. Set off the screen's sides as the
+                // no-reach notice above it is (j98: it ran edge to edge).
+                if root.narrow && root.list-shown && root.has-session-notice: HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    NoticeCard {
+                        message: root.notice;
+                        has-action: root.has-notice-action;
+                        action: root.notice-action;
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "chats-notice";
+                        pressed => { root.notice-pressed(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
                 // Any number of conversations: the list scrolls rather than
                 // raising the window's minimum height past the screen. A row

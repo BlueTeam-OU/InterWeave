@@ -547,6 +547,38 @@ fn a_phone_shows_the_session_notice_and_its_action_on_chats() {
     );
 }
 
+/// The session notice on a phone's Chats is set off the screen's sides
+/// as the same notice under a conversation's app bar is: it ran edge to
+/// edge there (j98, the locked notice on the Pixel 9a).
+#[test]
+fn the_session_notice_on_chats_keeps_the_conversations_side_insets() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    model.authentication_needed(true);
+    view.render(&model);
+    settle();
+    let insets = |view: &View| {
+        let message = the(view, text(UiText::AuthenticationNeeded));
+        let unlock = the(view, text(UiText::Authenticate));
+        (
+            message.absolute_position().x,
+            390.0 - (unlock.absolute_position().x + unlock.size().width),
+        )
+    };
+    let on_chats = insets(&view);
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    settle();
+    let in_conversation = insets(&view);
+    assert!(
+        in_conversation.0 >= 24.0,
+        "control: the pane's 12 px and the card's 12 px, {in_conversation:?}"
+    );
+    assert_eq!(on_chats, in_conversation, "start and end insets");
+}
+
 /// The locked notice takes focus when asked, on Chats and under a
 /// conversation's app bar, and gives it back when the lock clears: to
 /// Chats' heading, or to the conversation's composer (unlock note §11,
