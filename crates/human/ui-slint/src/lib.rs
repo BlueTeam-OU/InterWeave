@@ -404,6 +404,10 @@ struct Shared {
     /// The open reader's two forms and its links, swapped and pressed
     /// from its callbacks.
     reader: Option<reader::Forms>,
+    /// When the press that opens the reader reached the view, for the
+    /// trace's time to its first frame.
+    #[cfg(feature = "ui-trace")]
+    open_asked: Option<Instant>,
     selected: Option<ConversationKey>,
     /// The conversation the open conversation's "Hide conversation" was
     /// last pressed for: focus moves after that hide wherever it was, as
@@ -1031,6 +1035,53 @@ pub enum CopyFeedback {
 /// rendering notifier runs.
 type FrameTasks = Rc<RefCell<Vec<Box<dyn FnOnce()>>>>;
 
+/// Run `task` once a frame rendered after this call is drawn, a redraw
+/// asked for ([`View::after_next_frame`]).
+fn after_frame(tasks: &FrameTasks, window: &AppWindow, task: impl FnOnce() + 'static) {
+    tasks.borrow_mut().push(Box::new(task));
+    slint::ComponentHandle::window(window).request_redraw();
+}
+
+/// How long the trace waits after End for a frame that shows the
+/// reader's list at its end: past A5's 1 s, so a slow End is said with
+/// its time rather than not at all.
+#[cfg(feature = "ui-trace")]
+const END_PATIENCE: Duration = Duration::from_secs(3);
+
+/// After each frame from End on, say the time once the reader's list
+/// stands at its end, or, past [`END_PATIENCE`], that it did not; one
+/// redraw asked per frame meanwhile. `frames` drawn so far.
+#[cfg(feature = "ui-trace")]
+fn trace_reader_end(
+    tasks: &FrameTasks,
+    weak: slint::Weak<AppWindow>,
+    to: Rc<dyn Fn(&str)>,
+    pressed: Instant,
+    frames: u32,
+) {
+    let Some(window) = weak.upgrade() else {
+        return;
+    };
+    let again = Rc::clone(tasks);
+    after_frame(tasks, &window, move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let (frames, took) = (frames + 1, pressed.elapsed());
+        let at_end = window.get_reader_at_end();
+        if at_end || took >= END_PATIENCE || !window.get_reader_open() {
+            to(&trace::reader_end_line(
+                took,
+                frames,
+                at_end,
+                window.get_reader_as_source(),
+            ));
+        } else {
+            trace_reader_end(&again, weak, to, pressed, frames);
+        }
+    });
+}
+
 impl View {
     /// A view over a new window, for a client whose runtime runs on
     /// `host`: the texts that name the runtime follow it (a phone never
@@ -1236,7 +1287,25 @@ impl View {
         let to = Rc::clone(&sink);
         self.window
             .on_focus_traced(move |id| to(&trace::focus_line(&id)));
+        if let Some(tasks) = self.frame_tasks() {
+            let (to, weak) = (Rc::clone(&sink), swipe::weak(&self.window));
+            self.window.on_reader_ended(move || {
+                trace_reader_end(&tasks, weak.clone(), Rc::clone(&to), Instant::now(), 0);
+            });
+        }
         self.trace = Some(trace::Tracer::new(sink));
+    }
+
+    /// The reader's first frame, timed from the press that opened it, to
+    /// the trace if one is on.
+    #[cfg(feature = "ui-trace")]
+    fn trace_reader_drawn(&mut self) {
+        let Some(to) = self.trace.as_ref().map(trace::Tracer::sink) else {
+            return;
+        };
+        let asked = self.shared.borrow_mut().open_asked.take();
+        let asked = asked.unwrap_or_else(Instant::now);
+        self.after_next_frame(move || to(&trace::reader_drawn_line(asked.elapsed())));
     }
 
     /// The identity flow's `screen` is over the window with `page`, or,
@@ -1265,6 +1334,7 @@ impl View {
         }
         let window = &self.window;
         let page = match self.page {
+            Page::Conversation if window.get_reader_open() => "reader",
             Page::Conversation if self.shown.is_some() && window.get_pane_shown() => "conversation",
             Page::Conversation => "conversations",
             Page::Trust => "trust",
@@ -1447,6 +1517,17 @@ impl View {
     /// A redraw is asked for. False, and `task` dropped unrun, when the
     /// renderer cannot say when it rendered (the testing backend).
     pub fn after_next_frame(&mut self, task: impl FnOnce() + 'static) -> bool {
+        let Some(tasks) = self.frame_tasks() else {
+            return false;
+        };
+        after_frame(&tasks, &self.window, task);
+        true
+    }
+
+    /// The tasks run after the next frame, the window's one rendering
+    /// notifier set on the first ask; `None` where the renderer cannot
+    /// say when it rendered (the testing backend).
+    fn frame_tasks(&mut self) -> Option<FrameTasks> {
         if self.frame_tasks.is_none() {
             let tasks: FrameTasks = Rc::new(RefCell::new(Vec::new()));
             let queued = Rc::clone(&tasks);
@@ -1465,16 +1546,11 @@ impl View {
                 },
             );
             if set.is_err() {
-                return false;
+                return None;
             }
             self.frame_tasks = Some(tasks);
         }
-        let Some(tasks) = &self.frame_tasks else {
-            return false;
-        };
-        tasks.borrow_mut().push(Box::new(task));
-        slint::ComponentHandle::window(&self.window).request_redraw();
-        true
+        self.frame_tasks.clone()
     }
 
     /// Show the identity screens' `page` over everything, or hide them
@@ -2138,6 +2214,8 @@ impl View {
         self.window.set_reader_open(true);
         self.shared.borrow_mut().reader = Some(forms);
         self.reader = Some(reader::Open { key, handle });
+        #[cfg(feature = "ui-trace")]
+        self.trace_reader_drawn();
     }
 
     /// `item`'s reader rows, both forms, each piece measured.
@@ -3690,6 +3768,10 @@ fn connect_long_message(window: &generated::AppWindow, shared: &Rc<RefCell<Share
     window.on_open_whole(move |handle, as_source| {
         let key = s.borrow().items.get(&handle).map(|item| item.key);
         if let Some(key) = key {
+            #[cfg(feature = "ui-trace")]
+            {
+                s.borrow_mut().open_asked = Some(Instant::now());
+            }
             enqueue(&s, Input::OpenWhole(key, as_source));
         }
     });

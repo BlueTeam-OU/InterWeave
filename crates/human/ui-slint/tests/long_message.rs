@@ -413,6 +413,60 @@ fn the_reader_shows_the_whole_body_and_escape_returns_to_the_button() {
     );
 }
 
+/// The debug build's trace names the reader's page, and the window says
+/// whether its list stands at its end (`reader-at-end`): what the
+/// device case's End time waits for (A5,
+/// `tests/android-e2e/tests/long_message.rs`). The times themselves need
+/// a renderer that says when it drew, which this backend is not.
+#[test]
+fn the_trace_names_the_reader_and_the_window_whether_it_is_at_its_end() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let lines = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let sink = std::rc::Rc::clone(&lines);
+    view.on_trace(move |line| sink.borrow_mut().push(line.to_owned()));
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &paragraphs(400)));
+    open(&mut view, &mut model, &direct(&alice));
+    let pages = |lines: &[String]| -> Vec<String> {
+        lines
+            .iter()
+            .filter(|l| l.starts_with("ui-trace page="))
+            .cloned()
+            .collect()
+    };
+    assert_eq!(
+        pages(&lines.borrow()).last().map(String::as_str),
+        Some("ui-trace page=conversation")
+    );
+
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        pages(&lines.borrow()).last().map(String::as_str),
+        Some("ui-trace page=reader")
+    );
+    for _ in 0..3 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        slint::platform::update_timers_and_animations();
+    }
+    assert_eq!(view.window().get_focus_id(), "reader-scroll");
+    assert!(
+        !view.window().get_reader_at_end(),
+        "400 paragraphs pass one screen"
+    );
+
+    key(&view, Key::Escape);
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        pages(&lines.borrow()).last().map(String::as_str),
+        Some("ui-trace page=conversation")
+    );
+}
+
 /// While the reader is open its conversation is not shown: a message
 /// that arrives then stays unread, and is read once the reader closes
 /// (section 7, A10).

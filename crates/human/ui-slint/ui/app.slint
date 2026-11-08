@@ -4449,6 +4449,11 @@ export component AppWindow inherits Window {
     // Show source / Show formatted in the reader: the view builds the
     // other form's rows.
     callback reader-switch();
+    // End pressed in the reader, and whether its list stands at its end:
+    // for the debug build's trace, which times End to the frame that
+    // shows the last line (A5).
+    callback reader-ended();
+    out property <bool> reader-at-end: true;
     callback reader-link(int);
     callback send();
     callback notice-pressed();
@@ -8595,9 +8600,12 @@ export component AppWindow inherits Window {
                             init => {
                                 self.focus();
                                 root.focus-id = "reader-scroll";
+                                root.reader-at-end = self.at-end;
                             }
                             // How far the content may scroll, as a negative y.
                             property <length> bottom: min(0px, reader-list.visible-height - reader-list.content-height);
+                            property <bool> at-end: reader-list.content-y <= self.bottom + 1px;
+                            changed at-end => { root.reader-at-end = self.at-end; }
                             function scroll-to(y: length) {
                                 reader-list.content-y = max(self.bottom, min(0px, y));
                             }
@@ -8614,7 +8622,11 @@ export component AppWindow inherits Window {
                                 if (event.text == Key.PageUp) { self.scroll-to(reader-list.content-y + reader-list.visible-height * 0.9); return accept; }
                                 if (event.text == Key.PageDown) { self.scroll-to(reader-list.content-y - reader-list.visible-height * 0.9); return accept; }
                                 if (event.text == Key.Home) { self.scroll-to(0px); return accept; }
-                                if (event.text == Key.End) { self.scroll-to(self.bottom); return accept; }
+                                if (event.text == Key.End) {
+                                    self.scroll-to(self.bottom);
+                                    root.reader-ended();
+                                    return accept;
+                                }
                                 reject
                             }
                             accessible-role: list;
