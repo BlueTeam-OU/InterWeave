@@ -1485,9 +1485,26 @@ impl View {
             self.window.set_identity(page);
             self.window.set_identity_active(true);
         } else {
+            let focused_on_it = self.window.get_identity_active()
+                && self.window.get_focus_id().starts_with("identity-");
             self.window.set_identity_active(false);
             // Its words leave the view with it (section 7).
             self.window.set_identity(IdentityPage::default());
+            // The focused control went with the screen, and Slint moves
+            // focus nowhere then: R's Try again granted lands on Chats with
+            // nothing focused (j98, A14). Chats' heading, as when the
+            // last conversation leaves; an open conversation's header,
+            // never its composer, which would open the keyboard unasked.
+            // A locked notice's ask, taken at the next render, replaces
+            // it; on another page what opened that page keeps focus. Asked
+            // twice, as of a control just made: a heading whose request
+            // sequence was never read before misses the first bump
+            // (measured, the A14 test).
+            if focused_on_it && self.page == Page::Conversation && self.reader.is_none() {
+                let on_chats = self.window.get_narrow() && self.window.get_list_shown();
+                let header = self.shown.is_some() && !on_chats;
+                self.focus_key_after_draw(if header { "h" } else { "heading" }.to_owned());
+            }
         }
     }
 

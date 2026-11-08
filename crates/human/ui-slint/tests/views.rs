@@ -704,6 +704,89 @@ fn the_locked_notice_takes_focus_once_a_screen_over_it_goes() {
     assert_eq!(view.window().get_focus_id(), "notice", "the screen gone");
 }
 
+/// TAB on R until its Try again holds focus, as the person's tap left it.
+fn focus_try_again(view: &View) {
+    let window = view.window().window();
+    for _ in 0..8 {
+        if view.window().get_focus_id() == "identity-primary" {
+            return;
+        }
+        window.dispatch_event(WindowEvent::KeyPressed {
+            text: Key::Tab.into(),
+        });
+        window.dispatch_event(WindowEvent::KeyReleased {
+            text: Key::Tab.into(),
+        });
+        // A headless window makes an element inside an `if` only when
+        // the tree is walked.
+        let _ = labelled(view, text(UiText::TryAgain)).len();
+        settle();
+    }
+    panic!("TAB never reached Try again");
+}
+
+/// R's Try again granted takes R away with focus on its button, which
+/// goes with it: focus lands on Chats' heading, or on an open
+/// conversation's header -- never nowhere (j98, A14) -- and a locked
+/// notice asked for takes it instead (F11).
+#[test]
+fn a_screen_going_with_focus_on_it_hands_focus_to_what_it_covered() {
+    use interweave_human_ui_model::{StoreRecovery, StoreScreen};
+    let r = || {
+        Some(interweave_human_ui_slint::store_page(&StoreRecovery::new(
+            StoreScreen::Recovery,
+            1,
+        )))
+    };
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.render(&model);
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "on Chats"
+    );
+
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "header-title",
+        "in a conversation, its header"
+    );
+
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    model.authentication_needed(true);
+    view.focus_locked_notice();
+    view.show_identity(None);
+    view.render(&model);
+    // A headless window makes the card, inside an `if`, only when the
+    // tree is walked; a real one draws first.
+    let _ = labelled(&view, text(UiText::Authenticate)).len();
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "notice",
+        "a locked notice asked for comes first"
+    );
+}
+
 /// §13, the accessibility tree: message and connectivity controls carry
 /// meaningful labels, roles and descriptions; connectivity is a polite
 /// live region and an item's status is not; the full `PeerId` is on the
