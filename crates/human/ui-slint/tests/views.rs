@@ -787,6 +787,74 @@ fn a_screen_going_with_focus_on_it_hands_focus_to_what_it_covered() {
     );
 }
 
+/// A discard's restart opens on Chats, prompt granted or cancelled (unlock
+/// note section 11, L1; A16 bullet 1): the conversation R covered, with
+/// the data the discard deleted, is gone, and so is a page over it.
+#[test]
+fn chats_after_a_discard_closes_what_r_covered() {
+    use interweave_human_ui_model::{StoreRecovery, StoreScreen};
+    let r = || {
+        Some(interweave_human_ui_slint::store_page(&StoreRecovery::new(
+            StoreScreen::Recovery,
+            1,
+        )))
+    };
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    assert!(!view.window().get_list_shown(), "control: the conversation");
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    view.show_chats();
+    let _ = intents(&mut view, &mut model);
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert!(view.window().get_list_shown(), "granted: Chats");
+    assert_eq!(
+        view.window().get_header_title().as_str(),
+        text(UiText::NoConversation),
+        "nothing open"
+    );
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "granted: F14's Chats heading"
+    );
+
+    open(&mut view, &mut model, &direct(&alice));
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    view.show_chats();
+    let _ = intents(&mut view, &mut model);
+    model.authentication_needed(true);
+    view.focus_locked_notice();
+    view.show_identity(None);
+    view.render(&model);
+    let _ = labelled(&view, text(UiText::Authenticate)).len();
+    settle();
+    assert!(view.window().get_list_shown(), "cancelled: Chats");
+    assert_eq!(view.window().get_focus_id(), "notice", "its locked notice");
+    model.authentication_needed(false);
+
+    view.render(&model);
+    open_trust(&view);
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert!(view.window().get_trust_page(), "control: Trust is open");
+    view.show_identity(r());
+    view.show_chats();
+    let _ = intents(&mut view, &mut model);
+    view.show_identity(None);
+    view.render(&model);
+    assert!(!view.window().get_trust_page(), "Trust closed");
+}
+
 /// §13, the accessibility tree: message and connectivity controls carry
 /// meaningful labels, roles and descriptions; connectivity is a polite
 /// live region and an item's status is not; the full `PeerId` is on the

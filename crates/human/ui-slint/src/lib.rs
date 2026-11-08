@@ -342,6 +342,8 @@ enum Input {
     Cards(cards::CardsInput),
     /// What the person did on onboarding's Connect.
     Connect(ConnectInput),
+    /// The root's: Chats, with nothing open over it ([`View::show_chats`]).
+    Chats,
 }
 
 /// An input the root applies before the next take, handed over as it
@@ -530,6 +532,7 @@ impl SnackUp {
         match input {
             Input::SnackClosed(id) => *id == self.id,
             Input::Left
+            | Input::Chats
             | Input::TrustPage(true)
             | Input::PeersPage(true)
             | Input::Cards(cards::CardsInput::Open(_)) => self.conversation.is_some(),
@@ -630,6 +633,15 @@ impl Shared {
             }
             return self.wake.clone();
         }
+        // The root's Chats is not a press: a discard's restart that the
+        // cap refused would leave the person in a conversation whose data
+        // is gone. One waits at a time.
+        if let Input::Chats = input {
+            if !self.inputs.contains(&input) {
+                self.inputs.push_back(input);
+            }
+            return self.wake.clone();
+        }
         // Peers' snackbar closing is state, as the conversation's is.
         if let Input::PeersSnackClosed(_) = input {
             if !self.inputs.contains(&input) {
@@ -686,6 +698,7 @@ impl Shared {
                         | Input::PeersSnackClosed(_)
                         | Input::SnackClosed(_)
                         | Input::Left
+                        | Input::Chats
                 )
             })
             .count();
@@ -1392,6 +1405,16 @@ impl View {
         let _ = self.shared.borrow_mut().push(Input::Select(key));
     }
 
+    /// Show Chats with nothing open over it -- no conversation, reader or
+    /// page -- as a start shows it: after a discard of the store, whose
+    /// restart opens the app as any start does (contact cards section
+    /// 7.3; unlock note section 11, L1), since what was open showed the
+    /// data the discard deleted. Taken as the person's inputs are, in
+    /// their order, so a page it closes hands the root its close.
+    pub fn show_chats(&self) {
+        let _ = self.shared.borrow_mut().push(Input::Chats);
+    }
+
     /// Read times from `now` (Unix milliseconds) and the local zone from
     /// `offset` (seconds east of UTC at a given Unix millisecond) rather
     /// than the system's: for a test, or a root that pins them.
@@ -1867,6 +1890,43 @@ impl View {
                     }
                 }
                 Input::Undo(id) => out.push(ViewEvent::Undo(id)),
+                Input::Chats => {
+                    self.close_reader();
+                    self.shown = None;
+                    self.shared.borrow_mut().selected = None;
+                    self.window.set_list_shown(true);
+                    self.selection_unrendered = true;
+                    if let Some(snack) = model.snackbar()
+                        && snack.conversation.is_some()
+                        && !out.contains(&ViewEvent::SnackbarClosed(snack.id))
+                    {
+                        out.push(ViewEvent::SnackbarClosed(snack.id));
+                    }
+                    match self.page {
+                        Page::Trust => {
+                            self.page = Page::Conversation;
+                            out.push(ViewEvent::Trust(TrustInput::Cancel));
+                            return out;
+                        }
+                        Page::Peers => {
+                            self.page = Page::Conversation;
+                            if let Some(close) = leaving_peers_closes(model) {
+                                out.push(close);
+                                return out;
+                            }
+                        }
+                        Page::Cards => {
+                            if self.take_cards_input(
+                                model,
+                                cards::CardsInput::CloseOnward,
+                                &mut out,
+                            ) {
+                                return out;
+                            }
+                        }
+                        Page::Conversation | Page::Connect => {}
+                    }
+                }
                 Input::Left => {
                     // A press before it may open a snackbar only once the
                     // root applies its intent: Back waits, first in the
