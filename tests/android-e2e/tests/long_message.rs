@@ -247,11 +247,21 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
         let chars = text.chars().count();
         sender.send(&phone_peer, serial_no, text, || d.log()).await;
         let row = tokio::task::block_in_place(|| {
+            let frame = |what: &str| {
+                if let Some(dir) = &shots {
+                    let name = format!("{serial_no:02}-{name}-{what}").replace(' ', "-");
+                    shot(&serial, dir, &name);
+                }
+            };
             if opened.is_empty() {
                 let s = screens.open_conversation(PATIENCE);
+                frame("conversation");
                 passed(&s, &screens);
             }
             let open = screens.read_whole(&opened, PATIENCE);
+            if open.get(keys::RESULT).and_then(|v| v.as_str()) != Some(keys::PASS) {
+                frame("read-whole-failed");
+            }
             passed(&open, &screens);
             let read = open
                 .get("read")
@@ -276,13 +286,7 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
                     Some("yes"),
                     "{name}, {form}: no frame showed the list at its end: {end:?}"
                 );
-                if let Some(dir) = &shots {
-                    shot(
-                        &serial,
-                        dir,
-                        &format!("{serial_no:02}-{name}-{form}-end").replace(' ', "-"),
-                    );
-                }
+                frame(&format!("{form}-end"));
                 ends.push((ms(&end, "ms"), end.get("frames").cloned()));
             }
             let s = screens.close_reader(PATIENCE);
