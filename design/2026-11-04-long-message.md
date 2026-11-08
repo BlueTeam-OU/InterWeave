@@ -223,7 +223,12 @@ look spec §5.2), wrapping like the text, so neither is ever cut off;
 its forms on screen and spoken are §8's.
 Under it, the whole body in one continuous scroll, drawn as the person
 scrolls so that only what is near the screen is laid out. Its look is
-the bubble's text on `surface`, without the bubble.
+the bubble's text on `surface`, without the bubble, and each link's
+control is where the row draws it: on a line of its own after the line
+that holds the link, never gathered after the body's last line. A
+person reading a link in a long body presses it where they read it,
+not after scrolling to the end; and Tab (§9) then meets the links in
+the order the body gives them.
 
 **Not pages.** The whole body is one scroll, not pages of N lines:
 paging breaks a log's line or a paragraph at an edge the content did
