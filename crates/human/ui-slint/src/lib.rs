@@ -258,10 +258,10 @@ fn code_font() -> SharedString {
 /// refuses the NEWEST press and counts it: a refused press does nothing
 /// and can be pressed again, where dropping the oldest could drop an edit
 /// and keep the send after it (agreed, relay seq 10882). Edits, focus
-/// changes, a snackbar's closing and leaving for the list are state, not
-/// presses, and are never refused; with them, and a root that drains the
-/// queue whenever it takes, the queue holds at most six times this plus
-/// nine ([`View::queued_inputs`]). A root that stops between takes breaks
+/// changes, a snackbar's closing, leaving for the list and the root's
+/// Chats are state, not presses, and are never refused; with them, and a
+/// root that drains the queue whenever it takes, the queue holds at most
+/// six times this plus eleven ([`View::queued_inputs`]). A root that stops between takes breaks
 /// that number, not the bound: one more edit can wait per conversation
 /// selected meanwhile, so the queue stays finite.
 pub const INPUT_CAP: usize = 64;
@@ -1780,10 +1780,10 @@ impl View {
     /// Beside them, one Left beside each press plus one, and the closing of
     /// each snackbar shown since the last take, each once -- at most two,
     /// since the model changes a snackbar only through the root, which
-    /// renders and then takes -- each with a focus change beside it: six
-    /// times the cap plus nine in all; a pane shown or hidden waits
-    /// outside the queue
-    /// (`a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine`). A
+    /// renders and then takes -- and one root's Chats, each with a focus
+    /// change beside it: six times the cap plus eleven in all; a pane
+    /// shown or hidden waits outside the queue
+    /// (`a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_eleven`). A
     /// root that stops between takes can leave a selection taken and later
     /// inputs queued, which lets one more edit wait per conversation
     /// selected that way; the queue stays finite, not at that number.

@@ -2081,11 +2081,12 @@ fn a_queue_drained_at_each_take_holds_at_most_four_times_the_cap_plus_three() {
 /// The queue's bound with leaving for the list too, at its worst order: a
 /// focus change beside every input, an edit and a Left beside every
 /// selection, while a pane shown or hidden waits outside the queue -- six
-/// times the cap plus one here, and with the two snackbar closings and a
-/// focus change beside each, six times the cap plus nine at most (review
-/// F4 on #289, rounds 1 and 2; j84).
+/// times the cap plus one here, the root's Chats and a focus change beside
+/// it two more, and with the two snackbar closings and a focus change
+/// beside each, six times the cap plus eleven at most (review F4 on #289,
+/// rounds 1 and 2; j84; #599 F2).
 #[test]
-fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine() {
+fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_eleven() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
@@ -2109,7 +2110,11 @@ fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine() {
     // Each press with its edit, its Left and three focus changes, and one
     // focus change more; no pane change among them.
     assert_eq!(view.queued_inputs(), 6 * INPUT_CAP + 1);
-    assert!(view.queued_inputs() <= 6 * INPUT_CAP + 9);
+    view.show_chats();
+    view.set_window_focused(false);
+    view.show_chats();
+    assert_eq!(view.queued_inputs(), 6 * INPUT_CAP + 3, "one Chats waits");
+    assert!(view.queued_inputs() <= 6 * INPUT_CAP + 11);
 }
 
 /// Review F1: a render that changes nothing about an item keeps focus on
