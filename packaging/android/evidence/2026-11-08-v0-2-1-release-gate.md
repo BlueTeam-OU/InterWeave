@@ -36,23 +36,36 @@ Before the run the A40 carried `org.interweave.human` 0.2.0
 uninstalled, with their profiles: a release signer does not install
 over another.
 
-The APK is the RELEASE variant of `main` at 4c4cf358, built here as
-`release.yml` steps 2–4 build it: the pinned Skia prebuilt fetched and
-checked (`tools/ci/skia_prebuilt.sh`), `./gradlew :app:assembleRelease`
-(which runs `verifyReleaseNative`), then
+The APK is the RELEASE variant of `main` at 4c4cf358, built here with
+the steps of `release.yml`'s build job, in this order: the pinned Skia
+prebuilt fetched and its SHA-256 checked (`tools/ci/skia_prebuilt.sh
+fetch`); `./gradlew :app:assembleRelease` on the SDK's pinned JDK, which
+ran `verifyReleaseNative` (BUILD SUCCESSFUL); after the build,
+`tools/ci/skia_prebuilt.sh check target`, its profile defaulting to
+`release`, which answered "skia-bindings took the pinned archive … (1
+output(s) under target/aarch64-linux-android/release/build)"; then
 `tools/ci/check_apk_classes.py --holds org.interweave.human.MainActivity
 --holds-none org.interweave.human.test` (1143 classes, passed). The
-release key is not this login's, so the unsigned APK was aligned and
-signed with a test-only key made for this run (`CN=InterWeave TEST ONLY
-j152`):
+build script's own class-check call lacked those arguments and stopped
+on its usage line, so that last check was run by hand with
+`release.yml`'s arguments on the same unsigned APK. The target was this
+clone's, not a clean one; the check found one skia-bindings output in
+it. The release key is not this login's, so the unsigned APK was
+aligned and signed with a test-only key made for this run
+(`CN=InterWeave TEST ONLY j152`):
 
 | APK SHA-256 | certificate SHA-256 | signer on the phones | versionCode | versionName | debuggable |
 |---|---|---|---|---|---|
 | `dfd81bbe3f373601…` | `f9f821606c3c4c05…` | `c5062b9e` | 2 | 0.2.0 | no |
 
 Its versionName reads 0.2.0 because the workspace version is the
-cut's to change. It is signed v3 only: minSdk 30 makes `apksigner`
-skip v2.
+cut's to change. It was signed with v1 off and v2 and v3 asked for, as
+the release run signs. `apksigner verify` at the APK's own minimum (30)
+reported v3 true and v2 false, which at that minimum it reports even
+when the v2 block is there (`tools/ci/release_android_apk.sh`); the run
+did not verify at `--min-sdk-version 24`, so whether the v2 block was
+written is not shown. Neither phone needs it: both are API 30 or
+above.
 
 The recovery phrase is a TEST-ONLY one, minted for this run on the host
 with `transportctl identity backup` in a profile under an isolated
@@ -81,8 +94,9 @@ that Continue's.
 
 Restore's word screen (R2) has no text field: its keypad takes letters
 from a hardware keyboard and fills a word only on Enter, a space being
-ignored (`crates/human/ui-slint/ui/app.slint`, the identity page's
-`key-pressed`). The phrase was typed one word at a time, `adb shell
+ignored (`crates/human/ui-slint/ui/app.slint`, the identity page:
+`capture-key-pressed` fills on Enter while typing and swallows a space,
+`key-pressed` takes the letters). The phrase was typed one word at a time, `adb shell
 "input text <word>; input keyevent 66"`. A first attempt that sent the
 24 words in one `input text` filled the first word only.
 
