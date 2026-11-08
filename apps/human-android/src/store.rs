@@ -189,7 +189,7 @@ fn plan() {
 }
 
 /// Run the plan the person confirmed, then start the service again,
-/// which recreates the store.
+/// which recreates the store, with Chats behind R.
 fn discard() {
     let confirmed = SHOWN.with(|shown| {
         shown
@@ -216,6 +216,12 @@ fn discard() {
             }) => {
                 s.flow.discarded(kind(discarded.scope));
                 s.done_at = Some(answered);
+                // What R covered showed the deleted data: the restart
+                // opens on Chats, prompt or none (unlock note section 11,
+                // L1).
+                if let Some(view) = s.view.upgrade() {
+                    view.borrow().show_chats();
+                }
                 true
             }
             Err(why) => {
