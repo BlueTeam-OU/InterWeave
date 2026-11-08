@@ -738,6 +738,9 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
         run(effects);
         render();
     });
+    // Queued after the answer's own work, so it is read after it.
+    #[cfg(feature = "ui-trace")]
+    crate::activity::trace_focus_settled();
 }
 
 /// `Native.offline`: whether the service stopped for Show my phrase. The
