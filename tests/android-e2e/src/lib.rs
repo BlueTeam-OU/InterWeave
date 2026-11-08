@@ -56,6 +56,7 @@ pub use interweave_test_support::e2e::{
 };
 
 pub mod adb;
+pub mod long;
 pub mod platform;
 pub mod screen;
 pub mod wifi;
