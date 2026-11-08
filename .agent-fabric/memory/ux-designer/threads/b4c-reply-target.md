@@ -5,7 +5,7 @@ topic: "b4c-reply-target"
 description: B4c reply line for a target not held — ReplyPresent if reachable (held/released/stored), ReplyUnavailable only if neither held nor stored
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

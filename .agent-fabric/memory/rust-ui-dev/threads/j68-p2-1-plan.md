@@ -5,7 +5,7 @@ topic: "j68-p2-1-plan"
 description: "j68 P2-1 start window plan (2026-10-27) - batches A/B/C, schema v10 contents, protocol shape, open questions per role"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

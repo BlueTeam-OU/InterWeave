@@ -5,13 +5,14 @@ topic: "reflection-a-column-in-state-md-s-row-may-be-a-later-stage-s"
 description: "W44 — before naming a column in a ruling or an index, read the STATE.md row's trailing note and the store's schema.rs: a column listed in the row can be documented as a later stage's (contacts.local_endpoint_id is Stage 22's, absent at v9)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 0af01c7ef9572ce1
   - 0d494d9811d9c271
 ---
 
@@ -23,6 +24,16 @@ derived_from:
 
 **How to apply:** before naming a column, grep `crates/human/store/src/schema.rs` for it, or read the row's note; cite the stage that adds it when it is not there. Related: [[reflection-read-a-status-set-from-the-schema-before-ruling-on-it]].
 
+**W44 reflection, the second slip the same day (message 01a17e05-1bb8-7f3a-a5b7-1e5cccc326f6):** my v10
+paging indexes named a `conversation_id` the inbound tables do not
+have; the real columns are `(source_peer, source_endpoint_key,
+received_at, row_id)` and `(channel_key, received_at, row_id)`, the
+`_key` forms being the generated non-null columns. Twice in one day,
+so the rule is wider than one stage note: an index or column row in
+STATE.md is written from schema.rs's CREATE TABLE at the head, column
+by column, never from the design's vocabulary or from memory of the
+row.
+
 *References: reflection-read-a-status-set-from-the-schema-before-ruling-on-it*
 
-*Observed 2026-10-27 (architect-cto)*
+*Observed 2026-10-31 (architect-cto)*

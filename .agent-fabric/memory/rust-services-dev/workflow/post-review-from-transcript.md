@@ -5,7 +5,7 @@ topic: "post-review-from-transcript"
 description: "How to get a review subagent's report into fabric-pr post-review without retyping it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

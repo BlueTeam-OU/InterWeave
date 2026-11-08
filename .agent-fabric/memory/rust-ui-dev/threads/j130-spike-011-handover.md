@@ -5,7 +5,7 @@ topic: "j130-spike-011-handover"
 description: "SPIKE-011 (InterWeave j130) state, 2026-10-21 evening: what is pushed, what is measured, what is owed"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

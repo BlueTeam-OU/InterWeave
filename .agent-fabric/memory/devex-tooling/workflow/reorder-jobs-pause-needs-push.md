@@ -5,7 +5,7 @@ topic: "reorder-jobs-pause-needs-push"
 description: "putting an owner's new job ahead of one switch already made active? pause it, push its (even empty) branch, then switch"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

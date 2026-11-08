@@ -5,7 +5,7 @@ topic: "j125-deploy-account-needs-authorized-keys"
 description: "j125 second-uid run — interweave-deploy (uid 1032) exists with linger but no authorized_keys; root installs it via ~/j125/authorize-key.sh"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

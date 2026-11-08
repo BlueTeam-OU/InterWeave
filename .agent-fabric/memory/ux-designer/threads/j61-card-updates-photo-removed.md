@@ -5,7 +5,7 @@ topic: "j61-card-updates-photo-removed"
 description: "j61 CardUpdatesPhotoRemoved final English in the contact-cards strings table; #441, armed on architect-cto's word"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

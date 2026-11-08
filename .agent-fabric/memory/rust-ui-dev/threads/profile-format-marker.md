@@ -5,7 +5,7 @@ topic: "profile-format-marker"
 description: "Rollback safety in InterWeave — why an older build silently ignores newer artefacts, and the profile-format marker ruled to close it (j30, 2026-10-20)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

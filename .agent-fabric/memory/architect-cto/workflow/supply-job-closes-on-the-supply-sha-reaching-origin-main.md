@@ -5,7 +5,7 @@ topic: "supply-job-closes-on-the-supply-sha-reaching-origin-main"
 description: "A supply job (commits handed to another lane's PR) closes only when the supply sha itself is an ancestor of origin/main, not when the PR shows merged"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

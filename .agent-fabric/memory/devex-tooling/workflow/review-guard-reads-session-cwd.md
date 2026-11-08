@@ -5,7 +5,7 @@ topic: "review-guard-reads-session-cwd"
 description: "a code-review dispatch is denied as \"from the supplier branch\" when the session's starting clone sits on an old for/ branch, even though the PR lives in a job worktree"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

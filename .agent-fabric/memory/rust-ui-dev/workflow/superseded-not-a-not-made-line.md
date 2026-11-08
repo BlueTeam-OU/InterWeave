@@ -5,7 +5,7 @@ topic: "superseded-not-a-not-made-line"
 description: "a refusal caused by another writer (IPC 2.10 superseded) needs its own line; reusing \"not made / still in the list / try again\" can be false"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

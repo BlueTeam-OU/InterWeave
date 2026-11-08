@@ -5,7 +5,7 @@ topic: "feature-gated-body-clippy"
 description: "a method whose whole body is cfg(feature) fails clippy unused_self in the featureless build; --all-targets hides it because dev-deps turn the feature on"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

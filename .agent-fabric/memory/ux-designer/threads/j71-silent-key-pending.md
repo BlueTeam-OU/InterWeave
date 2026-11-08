@@ -5,7 +5,7 @@ topic: "j71-silent-key-pending"
 description: "j71 identity-key note — silent first key also needs no pending own-card row; commit c9d361a5 awaiting rust-ui-dev-02's fold"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

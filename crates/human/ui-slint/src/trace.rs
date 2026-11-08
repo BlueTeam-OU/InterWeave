@@ -17,6 +17,7 @@
 //! (`a_trace_carries_no_address_peer_or_name`). Compiled under the
 //! `ui-trace` feature alone, which only the debug APK turns on.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use interweave_human_client_api::Connectivity;
@@ -168,6 +169,9 @@ pub fn prompt_line(prompt: Prompt) -> String {
 /// Where the lines go, and what was last said shown.
 pub(crate) struct Tracer {
     sink: Rc<dyn Fn(&str)>,
+    /// Focus lines said so far, so a statement after a prompt's answer
+    /// is made only when no move said it ([`Self::focus_settled`]).
+    focus_said: Rc<Cell<u64>>,
     before: Shown,
     /// The identity screen last said shown.
     identity: Option<&'static str>,
@@ -180,10 +184,43 @@ impl Tracer {
     pub(crate) fn new(sink: Rc<dyn Fn(&str)>) -> Self {
         Self {
             sink,
+            focus_said: Rc::new(Cell::new(0)),
             before: Shown::default(),
             identity: None,
             warns: false,
         }
+    }
+
+    /// What says focus moved to the focus key it is handed.
+    pub(crate) fn focus_sayer(&self) -> impl Fn(&str) + 'static {
+        let (sink, said) = (Rc::clone(&self.sink), Rc::clone(&self.focus_said));
+        move |id| {
+            said.set(said.get() + 1);
+            sink(&focus_line(id));
+        }
+    }
+
+    /// Say where focus stands once `settle` has passed, read by `focus`,
+    /// unless a move was said meanwhile: a prompt answered with focus
+    /// left where it was -- R's Try again cancelled (A15) -- moves
+    /// nothing, and a driver waiting on a focus line after the answer
+    /// would otherwise read none. `settle` covers the focus requests the
+    /// answer makes, which land a turn or two later.
+    pub(crate) fn focus_settled(
+        &self,
+        settle: std::time::Duration,
+        focus: impl Fn() -> Option<String> + 'static,
+    ) {
+        let (sink, said) = (Rc::clone(&self.sink), Rc::clone(&self.focus_said));
+        let at = said.get();
+        slint::Timer::single_shot(settle, move || {
+            if said.get() == at
+                && let Some(id) = focus()
+            {
+                said.set(at + 1);
+                sink(&focus_line(&id));
+            }
+        });
     }
 
     /// Say the identity screen `screen` is over the window, or, `None`,
@@ -204,12 +241,15 @@ impl Tracer {
         self.warns = warns;
     }
 
-    /// Say how `now` differs from what was last said.
-    pub(crate) fn render(&mut self, now: Shown) {
+    /// Say how `now` differs from what was last said: true when the
+    /// page changed, which owes a statement of focus.
+    pub(crate) fn render(&mut self, now: Shown) -> bool {
         for line in changes(&self.before, &now) {
             (self.sink)(&line);
         }
+        let paged = now.page != self.before.page;
         self.before = now;
+        paged
     }
 }
 

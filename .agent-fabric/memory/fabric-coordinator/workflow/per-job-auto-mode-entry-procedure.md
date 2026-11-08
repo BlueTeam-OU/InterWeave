@@ -5,7 +5,7 @@ topic: "per-job-auto-mode-entry-procedure"
 description: "How a per-job auto-mode allow entry (policies/auto-mode.json) is landed and what bit last time — owner's choice, own PR, revert elsewhere, review against the driver"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"

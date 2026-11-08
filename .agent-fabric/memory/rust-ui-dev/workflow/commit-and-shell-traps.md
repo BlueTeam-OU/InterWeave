@@ -5,7 +5,7 @@ topic: "commit-and-shell-traps"
 description: "commit trailers must be one block, one line each; pkill -f kills the session's own shell; release templates must not carry the rights-reserved boilerplate"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

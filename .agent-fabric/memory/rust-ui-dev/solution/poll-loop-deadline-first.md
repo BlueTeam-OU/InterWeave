@@ -5,7 +5,7 @@ topic: "poll-loop-deadline-first"
 description: "In a test's poll loop, assert the deadline at the top of the body, before work that can make the loop condition true"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

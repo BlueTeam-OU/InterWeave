@@ -5,7 +5,7 @@ topic: "intersection-carried-2026-10-28"
 description: "For any wire or configuration change, first ask whether a store-released mobile binary reads it: a web sub-app is co-deployed and a stale tab ends at reload, a phone binary lives for months, so anything it binds (a required member, a…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

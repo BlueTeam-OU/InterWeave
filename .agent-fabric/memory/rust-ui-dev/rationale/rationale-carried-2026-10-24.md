@@ -5,7 +5,7 @@ topic: "rationale-carried-2026-10-24"
 description: "The command-line human client's rulings (j41) - app name, one client at a time, keep at read time, listen for scripts"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

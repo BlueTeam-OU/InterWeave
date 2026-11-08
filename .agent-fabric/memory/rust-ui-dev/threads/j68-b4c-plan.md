@@ -5,7 +5,7 @@ topic: "j68-b4c-plan"
 description: "j68 B4c (2026-10-30 code-plan): CLI on the windowed start via a two-pass walk, then listed-mode removal; commit list, design facts, questions out to architect-cto"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "pixel-debug-key-not-mine"
 description: "rust-ui-dev-02 has no Android debug keystore; the Pixel's InterWeave app is signed by another account's key, so install -r from here would be refused or wipe data"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

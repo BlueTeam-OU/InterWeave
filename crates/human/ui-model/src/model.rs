@@ -1098,8 +1098,9 @@ impl UiModel {
 
     /// Whether the platform gives this app network access, as the root
     /// sees it. While it does not, the session's notice is
-    /// [`SessionNotice::NetworkDenied`] whatever the facade reports, and
-    /// no draft is offered for sending; reading and keeping go on.
+    /// [`SessionNotice::NetworkDenied`] and connectivity reads offline
+    /// whatever the facade reports, and no draft is offered for sending;
+    /// reading and keeping go on.
     pub fn network_access(&mut self, allowed: bool) {
         self.network_denied = !allowed;
     }
@@ -1526,8 +1527,10 @@ impl UiModel {
     #[must_use]
     pub const fn connectivity(&self) -> Connectivity {
         // Offline, not unknown: the cause is known, and the person can
-        // act on it (#309 acceptance 10, condition 3).
-        if self.authentication_needed {
+        // act on it (#309 acceptance 10, condition 3) -- network access
+        // withheld too, whose notice "Status not known" stood beside
+        // (j98).
+        if self.authentication_needed || self.network_denied {
             return Connectivity::Offline;
         }
         self.connectivity

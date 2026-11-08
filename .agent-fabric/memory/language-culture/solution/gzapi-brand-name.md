@@ -5,7 +5,7 @@ topic: "gzapi-brand-name"
 description: "In decks for Georgian readers the product and company are \"Gzapi\"; \"Gzapp\" only abroad; gzapp.decks AGENTS.md is older than this"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

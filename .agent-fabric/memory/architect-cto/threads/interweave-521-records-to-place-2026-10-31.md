@@ -5,7 +5,7 @@ topic: "interweave-521-records-to-place-2026-10-31"
 description: "InterWeave #521 (rust-ui-dev-02, armed on my word 2026-10-31 at 75229a78): two records set aside for me to place — the j78 unread-cards figures beside SPIKE-011's read-walk row, and the Samsung A40 row of…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - ac4168cde3ffdeb5
+  - fa884fb83d52e50e
 ---
 
 ## InterWeave #521 (rust-ui-dev-02, armed on my word 2026-10-31 at 75229a78): two records set aside for me to place — the j78 unread-cards figures beside SPIKE-011's read-walk row, and the Samsung A40 row of device-runs/2026-10-30-windowed-start.md not re-measured for j77 (Android unverified)
@@ -36,11 +37,15 @@ Two records rust-ui-dev-02 named as mine to place, not part of the arm:
 
 - j78 figures beside SPIKE-011's read-walk row: full unread walk 5.8 ms at
   2 000 rows (baseline 5.3) and 57 ms at 20 000; the card read 0.08 / 0.11 ms.
+  PLACED 2026-10-31 in SPIKES.md's SPIKE-011 bullet "The baseline's read,
+  restated on the window (A 2026-10-31)", on IW #523 (j458, 4c2dfc50),
+  labelled as a scratch harness's and not the spike's.
 - The Samsung A40 row in apps/human-android/device-runs/2026-10-30-windowed-start.md
   (rows about 10 s after a tap) is not re-measured for j77; Android unverified.
   A device window, when one opens, re-measures it.
 
-**How to apply:** when SPIKE-011's table or the device-runs record is next
-touched, place both; until then they stay here, not as a request to anyone.
+**How to apply:** the A40 row stays owed to the device-runs record when
+it is next touched (or a device window re-measures it); the plan's P2-1
+close (#523) names it as open, so it is no longer a silent carry.
 
 *Observed 2026-10-31 (architect-cto)*

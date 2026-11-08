@@ -257,7 +257,7 @@ impl UiModel {
         });
         self.windowed = Some(summaries);
         if let Some(open) = missed {
-            self.window_input(super::window::WindowInput::Opened(open));
+            self.open_window(open);
         }
     }
 

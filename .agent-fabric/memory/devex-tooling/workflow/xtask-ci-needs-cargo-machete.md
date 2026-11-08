@@ -5,7 +5,7 @@ topic: "xtask-ci-needs-cargo-machete"
 description: "cargo xtask ci exits red on check_unused_dependencies + its self-test when cargo-machete is absent (exit 2 by design); fabric-tools --install cargo-machete"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

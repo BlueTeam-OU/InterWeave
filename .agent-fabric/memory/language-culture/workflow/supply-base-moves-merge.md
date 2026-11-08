@@ -5,7 +5,7 @@ topic: "supply-base-moves-merge"
 description: "When a caller moves the base of a pushed for/ supply branch, merge the new base in; never rebase or force-push"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

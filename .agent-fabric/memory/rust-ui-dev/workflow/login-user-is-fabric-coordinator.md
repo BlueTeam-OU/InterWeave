@@ -5,7 +5,7 @@ topic: "login-user-is-fabric-coordinator"
 description: "The login `user` (develop-qzapp/user) is the fabric-coordinator agent, not the owner; a job:user/jN blocker is theirs, asked by message"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

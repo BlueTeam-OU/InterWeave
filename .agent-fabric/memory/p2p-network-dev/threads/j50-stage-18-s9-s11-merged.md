@@ -5,7 +5,7 @@ topic: "j50-stage-18-s9-s11-merged"
 description: "Stage 18 S9+S11 (tests/security-local) merged in #337; what stays owed and who holds it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

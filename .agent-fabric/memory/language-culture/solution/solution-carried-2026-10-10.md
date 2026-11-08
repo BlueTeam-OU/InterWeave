@@ -5,7 +5,7 @@ topic: "solution-carried-2026-10-10"
 description: "The English conventions and glossary the InterWeave human client's copy holds (labels.rs), set at the first read 2026-10-09"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 2bc5099f332af2c0
+  - 7472e6c62d035dcb
   - 86d0192f0ef3cc97
   - b83c70900eb93ad9
 ---
@@ -36,15 +37,16 @@ by the first English read (delivered to rust-ui-dev-01, REQUEST
   Offline must say "offline", Unknown must not.
 - A new value drafted by its caller carries a `PLACEHOLDER (en)` line comment (line end, or the line above when it wraps), defined in labels.rs module doc on #242 (rust-ui-dev-01, 2026-10-09); grep for it to find work; the commit taking final text removes it.
 - Error texts are ONE sentence: #242 review F3 caught a two-sentence Busy text of mine; count sentences after filling the templates.
-Related: [[workflow-carried-2026-10-10]]
+- A REQUEST to word a placeholder can carry text I already finalised elsewhere (j205: ClipboardUnreadable was c3815c98 on main). Check git log -S for the draft before rewording it, and answer "keep the draft" with the commit (2026-10-26).
 - Snackbar texts name what just happened and get their own UiText keys, even where a status label has the same words: "Kept", "Hidden", "No longer kept", "Sending canceled" (never "Send canceled": "send" as a noun reads foreign), "Action undone" after any Undo (set 2026-10-16, design/2026-10-16-message-swipe.md §9, a22531bf).
 - design/ specs: the prose is British like the rest of the repository, and the quoted UI strings are en-US. language-culture reviews every design/ spec's English before it merges (remit, 26524c45).
 - labels.rs keys for the swipe snackbar (delivered to rust-ui-dev-01 for #289, 2026-10-16, REPLY 01a144ec-6faa): Hide, HideConversation, ConfirmKept/Hidden/Unkept/ConversationHidden, Undo final as drafted; Restored -> "Action undone"; two new cancel snackbar keys asked for, not reuse of the status labels. Owner ruled 2026-10-16: a MESSAGE action is "Dismiss" / snackbar "Dismissed" (it never comes back); a CONVERSATION keeps "Hide" / "Conversation hidden" (spec 2ff5dc96).
 - One noun for one thing: an item in the list is a "conversation"; the list title stays "Conversations", never "Chats" ("Chats" is only the spec prose name of the screen). The composer field and its placeholder share `Composer` => "Message". A "You: " preview is a template "You: {message}", never a prefix (Android look spec ad4cd40b, 2026-10-16).
 - Dates and times: the owner decided day before month on 2026-10-21 (design/2026-10-16-android-look.md 826fafd4): list row "Sat 17 Oct" / "Fri 17 Oct 2025" (short weekday and month, 3 letters, no period), day separator and row accessible label "Saturday, 17 October 2026" (DateFull). This replaces the en-US "{month} {day}, {year}" of 1614b5ce (2026-10-17). "{hour}:{minute}" (24h, 2-digit hour); AM and PM as two whole templates; never a numeric date.
 - A file-dialog filter name names the type, noun first, formats in parentheses: CodeImageFilter "Images (PNG or JPEG)" (j150, REPLY 01a16d0f-a77e, 2026-10-24). No "*.png" patterns in the name: some dialog toolkits append them, and then they show twice; that choice is the caller's, asked, not assumed.
-- A control whose name is a verb phrase ("Paste an image") takes no trailing "again" after "choose <Control>": it reads as part of the name (ClipboardNoImage, j151, 8c3ec410, 2026-10-24).
+Split 2026-11-03 for the drain's slice budget (REQUEST 01a19f2d): the rest is in [[interweave-copy-controls-snackbars]], [[interweave-copy-state-and-failure-texts]] and [[interweave-spec-prose-wording]].
+Related: [[workflow-carried-2026-10-10]]
 
-*References: cold-read-without-meanings*
+*References: interweave-copy-controls-snackbars, interweave-copy-state-and-failure-texts, interweave-spec-prose-wording, workflow-carried-2026-10-10*
 
-*Observed 2026-10-24 (language-culture)*
+*Observed 2026-11-03 (language-culture)*

@@ -5,7 +5,7 @@ topic: "authorizes-binds-head"
 description: "an architect-cto AUTHORIZES names one PR head; new work waiting for it goes on a fresh branch, never pushed onto the authorized PR"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "workflow-review-range-after-a-main-merge"
 description: "After merging origin/main into a PR branch, brief the review on merge-base..head (a full review), never prev-head..head"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

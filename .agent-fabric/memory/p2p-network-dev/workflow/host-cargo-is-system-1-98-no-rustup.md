@@ -5,7 +5,7 @@ topic: "host-cargo-is-system-1-98-no-rustup"
 description: "develop-qzapp's cargo is the distro's (Fedora), no rustup; it floats with dnf (1.99.0 since 2026-10-19; the pin is 1.99.1 since #422, 2026-10-24, so local cargo needs --ignore-rust-version), so read rustc against rust-toolchain.toml…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
