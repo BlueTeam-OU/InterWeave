@@ -21,9 +21,9 @@
 #      job runs, reports, and gates nothing at all until its name is
 #      added to the ruleset's required_status_checks.
 #
-# Contexts reported here: `rust`, `tree checks`, `tool self-tests`,
-# `android check (aarch64-linux-android)`, and the advisory one CLAUDE.md
-# §9 names apart, `android apk (assembleDebug)`.
+# Contexts reported here, every one required: `rust`, `tree checks`,
+# `tool self-tests`, `android check (aarch64-linux-android)` and
+# `android apk (assembleDebug)`.
 #
 # Deliberately NOT conditional-per-surface. The run's wall clock is
 # `rust`'s, ~10 minutes with its cargo cache warm (2026-10-16; the job's
@@ -589,14 +589,15 @@ jobs:
           key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
   android-apk:
-    # CONTEXT NAME: `android apk (assembleDebug)`. ADVISORY (CLAUDE.md §9's
-    # advisory sentence): the APK the Gradle build packages, with the native
-    # library cargo-ndk builds into it, then the debug variant's lint and
-    # JVM unit tests, then the release APK and the instrumentation's,
-    # the first held to none of the second's classes (the name keeps the
-    # context the advisory sentence names). Advisory until the ruleset gains it (devex-tooling, by hand,
-    # on the owner's word): the Gradle project is on main and the run time
-    # is measured below, so nothing else is waited for.
+    # CONTEXT NAME: `android apk (assembleDebug)`. REQUIRED (CLAUDE.md §9;
+    # advisory from #311 until the owner's word of 2026-11-08): the APK the
+    # Gradle build packages, with the native library cargo-ndk builds into
+    # it, then the debug variant's lint and JVM unit tests, then the
+    # release APK and the instrumentation's, the first held to none of the
+    # second's classes. The name predates the release half and stays: it
+    # is the context the ruleset requires. 22 of 22 green on the queue and
+    # main (the 60 CI runs before 2026-11-08), median 11.9 min against the
+    # rust job's 18.1 (its slowest, 20.3, beside rust's 20.1).
     name: android apk (assembleDebug)
     runs-on: ubuntu-26.04
     # 5m27s on main with no cargo cache (400b42b6, 2026-10-17): 69 s of
