@@ -616,7 +616,6 @@
     ".agent-fabric/memory/architect-cto/threads/owner-priority-cli-and-mcp-on-prod-host-2026-10-22.md",
     ".agent-fabric/memory/architect-cto/threads/owner-reminder-5b-limits-at-the-second-host.md",
     ".agent-fabric/memory/architect-cto/threads/phone-order-priority-2026-11-08.md",
-    ".agent-fabric/memory/architect-cto/threads/proxmox-production-host-plan-2026-11-05.md",
     ".agent-fabric/memory/architect-cto/threads/redacted-mayor-deck-claims-2026-10-27.md",
     ".agent-fabric/memory/architect-cto/threads/same-name-three-keys-gap-2026-10-25.md",
     ".agent-fabric/memory/architect-cto/threads/spike-001-s30-dispatch-2026-11-05.md",
@@ -1392,7 +1391,7 @@
     ".agent-fabric/memory/ux-designer/workflow/spec-cites-only-recorded-methods.md",
     ".agent-fabric/memory/ux-designer/workflow/workflow-carried-2026-10-18.md"
   ],
-  "files_written": 883,
+  "files_written": 882,
   "harvest": {
     "host": "develop-qzapp",
     "in_scope": 64,
@@ -2349,10 +2348,6 @@
   "redactions": [
     "architect-cto/threads:idle-round-4-dispatch-2026-11-03 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
     "architect-cto/workflow:j553-arm-575-owner-word-2026-11-08 body: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'",
-    "architect-cto/threads:proxmox-production-host-plan-2026-11-05 body: private-network address (10.0.0.0/8) -- say 'a private address' or name the role -> 'a private-network address'",
-    "architect-cto/threads:proxmox-production-host-plan-2026-11-05 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
-    "architect-cto/threads:proxmox-production-host-plan-2026-11-05 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
-    "architect-cto/threads:proxmox-production-host-plan-2026-11-05 body: private-network address (172.16.0.0/12) -- say 'a private address' or name the role -> 'a private-network address'",
     "architect-cto/threads:stage-17-closing-plan-2026-10-19 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
     "architect-cto/threads:stage-17-closing-plan-2026-10-19 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
     "devex-tooling/threads:ci-apt-stall-measured body: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'",
@@ -3474,11 +3469,6 @@
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-11-08"
-    },
-    ".agent-fabric/memory/architect-cto/threads/proxmox-production-host-plan-2026-11-05.md#The production Proxmox host (cloud provider, VPN-only): owner's decisions 2026-11-05, devex-tooling's read of the node, the plan awaiting the owner's fine review, and the provider questions": {
-      "agent": "architect-cto-01",
-      "host": "develop-qzapp",
-      "observed": "2026-11-05"
     },
     ".agent-fabric/memory/architect-cto/threads/redacted-mayor-deck-claims-2026-10-27.md#gzapp product claims confirmed for brand-comms' deck for the first deployment city's mayor (2026-10-27, main 298717e9d) — the rewordings and the strikes, reusable for any sent deck": {
       "agent": "architect-cto-01",
