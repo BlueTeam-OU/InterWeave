@@ -4069,6 +4069,10 @@ export component AppWindow inherits Window {
     in property <bool> composer-enabled;
     in property <string> composer-label;
     in-out property <string> draft;
+    // The view wrote `draft` itself: the caret goes to `draft-caret`, a
+    // UTF-8 offset, at its end.
+    in property <int> draft-caret;
+    in property <int> draft-written-seq;
     in property <string> refused;
     in property <string> send-label;
     in property <string> show-source-label;
@@ -8446,6 +8450,10 @@ export component AppWindow inherits Window {
                                     property <int> focus-seq: root.focus-seq;
                                     changed focus-seq => {
                                         if (root.focus-target == "composer") { self.focus(); }
+                                    }
+                                    property <int> written-seq: root.draft-written-seq;
+                                    changed written-seq => {
+                                        self.set-selection-offsets(root.draft-caret, root.draft-caret);
                                     }
                                     // The line being written stays in view.
                                     cursor-position-changed(at) => {

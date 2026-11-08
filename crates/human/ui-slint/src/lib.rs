@@ -3659,6 +3659,11 @@ impl View {
                     .any(|i| matches!(i, Input::Draft(k, _) if k == key));
                 if !pending && window.get_draft().as_str() != composer.draft {
                     window.set_draft(composer.draft.as_str().into());
+                    // Slint keeps the caret's offset over a new text, so a
+                    // draft given back to an emptied field had it at the
+                    // start (j98, A17): at its end, as typing left it.
+                    window.set_draft_caret(i32::try_from(composer.draft.len()).unwrap_or(i32::MAX));
+                    window.set_draft_written_seq(window.get_draft_written_seq().wrapping_add(1));
                 }
                 window.set_refused(
                     composer

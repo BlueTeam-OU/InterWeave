@@ -1913,6 +1913,35 @@ fn a_render_before_the_take_keeps_what_was_typed() {
     assert_eq!(model.composer(&key).draft, "ab");
 }
 
+/// A draft the view writes into the composer -- the model's, given back
+/// after the field was emptied, as after an Unlock (j98, A17) -- leaves
+/// the caret at its end, where the person's typing had left it, not at
+/// its start: the next key goes after the draft.
+#[test]
+fn a_draft_written_back_leaves_the_caret_at_its_end() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    let key = direct(&alice);
+    open(&mut view, &mut model, &key);
+    let mut on_composer = false;
+    for _ in 0..30 {
+        if tab(&view) == "composer" {
+            on_composer = true;
+            break;
+        }
+    }
+    assert!(on_composer, "Tab reaches the composer");
+    model.draft_changed(key.clone(), "draft a17".to_owned());
+    view.render(&model);
+    settle();
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed { text: "!".into() });
+    window.dispatch_event(WindowEvent::KeyReleased { text: "!".into() });
+    assert_eq!(view.window().get_draft().as_str(), "draft a17!");
+}
+
 /// rust-ui-dev F2b, review R2-1: an edit is never refused, however full
 /// the queue -- what a person typed is never lost -- and a render meanwhile
 /// does not erase it.
