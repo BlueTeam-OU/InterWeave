@@ -1188,3 +1188,128 @@ fn the_cut_line_is_said_in_the_mode_that_draws_it() {
     choose(&view, &row.label, text(UiText::ShowSource));
     assert!(said(&view).contains(&line), "as source: {}", said(&view));
 }
+
+/// TAB and Shift+TAB from each focus stop of a conversation, the focus
+/// id after each.
+fn tabs(view: &mut View, model: &mut UiModel, pressed: Key, n: usize) -> Vec<String> {
+    (0..n)
+        .map(|_| {
+            key(view, pressed);
+            let _ = intents(view, model);
+            view.window().get_focus_id().to_string()
+        })
+        .collect()
+}
+
+/// A conversation on a phone-sized window whose messages are each
+/// taller than the list: the toolkit reveals a focused item only when
+/// it fits, and drops the focus of one it then finds out of view at the
+/// next key event, the TAB's own release included, so TAB from such a
+/// message began again at the top and never reached the next one, the
+/// composer or Send (the A40, 2026-11-08). Each is shown from its top as
+/// it gains focus (`Reveal`), and both directions cross every stop.
+#[test]
+fn tab_crosses_messages_taller_than_the_list() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    let headings = (0..40)
+        .map(|i| format!("# Heading {i} of a message taller than the list"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    model.received(received(1, &alice, &headings));
+    model.received(received(2, &alice, &headings));
+    open(&mut view, &mut model, &direct(&alice));
+    let handles: Vec<i32> = rows(&view).iter().map(|r| r.handle).collect();
+    let [first, second] = handles[..] else {
+        panic!("two rows: {handles:?}");
+    };
+    let stops = [
+        "back-to-list".to_owned(),
+        "header-title".to_owned(),
+        "more-options".to_owned(),
+        format!("item:{first}"),
+        format!("item:{second}"),
+        "composer".to_owned(),
+        "send".to_owned(),
+    ];
+    let forward = tabs(&mut view, &mut model, Key::Tab, 2 * stops.len());
+    let start = forward
+        .iter()
+        .position(|f| f == "back-to-list")
+        .expect("TAB reaches the conversation's first stop");
+    let cycle: Vec<_> = forward[start..start + stops.len()].to_vec();
+    assert_eq!(cycle, stops, "TAB, in order: {forward:?}");
+    let backward = tabs(&mut view, &mut model, Key::Backtab, stops.len());
+    let mut reversed = stops.to_vec();
+    reversed.reverse();
+    let at = reversed
+        .iter()
+        .position(|s| s == &forward[start + stops.len() - 1])
+        .expect("TAB ended on a stop");
+    let expected: Vec<_> = reversed
+        .iter()
+        .cycle()
+        .skip(at + 1)
+        .take(stops.len())
+        .cloned()
+        .collect();
+    assert_eq!(backward, expected, "Shift+TAB, in order");
+}
+
+/// A link control whose label is drawn far taller than the list is
+/// crossed by TAB as its message is: shown from its top as it gains
+/// focus, and the next TAB goes on.
+#[test]
+fn tab_crosses_a_link_control_taller_than_the_list() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    let tall = format!("[a](https://e.org/{})", "\u{FDFD}".repeat(1960));
+    model.received(received(1, &alice, &tall));
+    model.received(received(2, &alice, &tall));
+    open(&mut view, &mut model, &direct(&alice));
+    let handles: Vec<i32> = rows(&view).iter().map(|r| r.handle).collect();
+    let [first, second] = handles[..] else {
+        panic!("two rows: {handles:?}");
+    };
+    let forward = tabs(&mut view, &mut model, Key::Tab, 12);
+    let start = forward
+        .iter()
+        .position(|f| f == &format!("item:{first}"))
+        .expect("TAB reaches the first message");
+    assert_eq!(
+        forward[start..start + 5],
+        [
+            format!("item:{first}"),
+            format!("link:{first}:0"),
+            format!("item:{second}"),
+            format!("link:{second}:0"),
+            "composer".to_owned(),
+        ],
+        "TAB, in order: {forward:?}"
+    );
+    // Back from the composer: each control above is out of view as it
+    // gains focus, the first message's link wholly so.
+    while view.window().get_focus_id() != "composer" {
+        key(&view, Key::Tab);
+        let _ = intents(&mut view, &mut model);
+    }
+    assert_eq!(
+        tabs(&mut view, &mut model, Key::Backtab, 5),
+        [
+            format!("link:{second}:0"),
+            format!("item:{second}"),
+            format!("link:{first}:0"),
+            format!("item:{first}"),
+            "more-options".to_owned(),
+        ],
+        "Shift+TAB, in order"
+    );
+}

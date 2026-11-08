@@ -556,6 +556,32 @@ export global Touch {
 // renderer keeps an item's geometry in 16 bits of physical px, so four
 // times this is under its ceiling and the bound holds to scale 4 by
 // construction; an item that may grow with a body is drawn in pieces.
+// Slint 1.18 scrolls a focused item into view only when the whole of it
+// fits: for one taller than its Flickable it asks the top and the bottom
+// in view at once, finds no such scroll and moves nothing
+// (`Flickable::choose_min_move`). An item that took focus out of view
+// so stays out of it, and the next key event, its own release included,
+// drops the focus of an item it finds not visible
+// (`WindowInner::process_key_input`): TAB from a message taller than the
+// list ended with no focus, and the next TAB began again at the top
+// (tests/long_message.rs, `tab_crosses_messages_taller_than_the_list`,
+// `tab_crosses_a_link_control_taller_than_the_list`).
+// So such an item in the conversation's list is shown from its top as it
+// gains focus, before the toolkit's own scroll, which then has nothing to
+// do. The reader's list lays out only the rows near its view, so a link
+// there wholly out of view is not in the focus chain at all.
+global Reveal {
+    // The scroll that shows an item from its top: the item's top `y`
+    // within the list's view, `h` its height, a view `view` tall over
+    // content `content` tall at scroll `at` (a negative y). Unchanged for
+    // an item that fits the view, which the toolkit reveals, and for one
+    // in view in part.
+    public pure function tall(at: length, y: length, h: length, view: length, content: length) -> length {
+        if (h <= view || (y < view && y + h > 0px)) { return at; }
+        max(min(0px, view - content), min(0px, at - y))
+    }
+}
+
 export global Tile {
     out property <length> extent: 8000px;
     // The most a press's ripple grows from its point. The renderer draws a
@@ -1195,7 +1221,11 @@ component LinkButton inherits FocusScope {
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        root.gained();
     }
+    // Focus arrived, before the toolkit scrolls it into view: where the
+    // control's list reveals it if it is taller than the list.
+    callback gained();
     // The label, whole: what it says and is named by.
     in property <string> text;
     // The label as drawn: `text` in pieces, each within the item extent,
@@ -7439,6 +7469,12 @@ export component AppWindow inherits Window {
                     function to-newest() {
                         self.content-y = min(0px, self.height - self.content-height);
                     }
+                    // `item`, as it gains focus, shown from its top if it
+                    // is taller than the list and out of view (`Reveal`).
+                    public function reveal-tall(item-y: length, item-height: length) {
+                        self.content-y = Reveal.tall(self.content-y, item-y - self.absolute-position.y,
+                            item-height, self.height, self.content-height);
+                    }
                     // The direction of the person's own scroll, said as it
                     // happens: `flicked` comes of the person's wheel, drag or
                     // fling alone, before the change handlers run, so `last-y`
@@ -7706,6 +7742,7 @@ export component AppWindow inherits Window {
                         focus-gained(reason) => {
                             if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
                             if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+                            messages-flick.reveal-tall(self.absolute-position.y, self.height);
                         }
                         // The person's choice for this message, kept with its row
                         // while the row exists: the drawn body, or the source.
@@ -8154,6 +8191,7 @@ export component AppWindow inherits Window {
                                                 focus-key: "link:" + row.handle + ":" + link.index;
                                                 pressed => { root.link(row.handle, link.index); }
                                                 focused(k) => { root.focus-id = k; }
+                                                gained => { messages-flick.reveal-tall(self.absolute-position.y, self.height); }
                                             }
                                         }
                                         // The reason above the status, so the status
