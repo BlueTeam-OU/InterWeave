@@ -111,10 +111,18 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 self.side.network_access(allowed);
             }
             ToView::AuthenticationNeeded(needed) => {
+                let lifted = self.authentication && !needed;
                 self.authentication = needed;
                 self.side.authentication_needed(needed);
                 if needed && !self.running {
                     self.show_kept();
+                }
+                // Lifted while nothing runs: a start is on its way -- the
+                // grant's, or any start's, which lifts it first -- so the
+                // session reads re-opening rather than "not running" until
+                // the start answers (j98 A17 finding 3).
+                if lifted && !self.running {
+                    self.side.daemon_seen(None);
                 }
             }
             ToView::Update(update) => self.side.apply(*update),
@@ -126,6 +134,11 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 // rows back (a refused or discarded store's among them).
                 if answer != StoreAnswer::Locked {
                     self.kept = None;
+                }
+                // A refused start leaves nothing running; an opened one's
+                // service says so itself, whichever message comes first.
+                if !self.running && answer != StoreAnswer::Opened {
+                    self.side.daemon_seen(Some(false));
                 }
                 self.store = Some((answer, generation));
             }
@@ -278,9 +291,71 @@ mod tests {
             .expect("applied");
         assert_eq!(
             model(&side).session_notice(),
-            Some(SessionNotice::NoDaemon),
+            Some(SessionNotice::Reconnecting),
             "and no Ready session once the lock is gone"
         );
+    }
+
+    /// The lock lifted while nothing runs is a start on its way: the
+    /// session reads re-opening, never "not running", until the start
+    /// answers -- refused, it reads not running again; opened, its service
+    /// says it runs (j98 A17 finding 3: one frame of "not running" between
+    /// the grant and the start). Mutations: the lift leaving the stopped
+    /// model's "not running"; a refusal leaving it re-opening.
+    #[test]
+    fn a_lifted_lock_reads_re_opening_until_the_start_answers() {
+        let locked = || {
+            let mut side = view_side();
+            side.apply(ToView::Running(true)).expect("applied");
+            side.apply(ToView::Running(false)).expect("applied");
+            side.apply(ToView::Store(
+                StoreAnswer::Locked,
+                StoreGeneration::default(),
+            ))
+            .expect("applied");
+            side.apply(ToView::AuthenticationNeeded(true))
+                .expect("applied");
+            side.apply(ToView::AuthenticationNeeded(false))
+                .expect("applied");
+            assert_eq!(
+                model(&side).session_notice(),
+                Some(SessionNotice::Reconnecting),
+                "a start on its way"
+            );
+            side
+        };
+
+        let mut side = locked();
+        side.apply(ToView::Store(
+            StoreAnswer::OtherRefusal,
+            StoreGeneration::default(),
+        ))
+        .expect("applied");
+        assert_eq!(
+            model(&side).session_notice(),
+            Some(SessionNotice::NoDaemon),
+            "refused: nothing runs"
+        );
+
+        let mut side = locked();
+        side.apply(ToView::Store(
+            StoreAnswer::Opened,
+            StoreGeneration::default(),
+        ))
+        .expect("applied");
+        assert_eq!(
+            model(&side).session_notice(),
+            Some(SessionNotice::Reconnecting),
+            "opened: its service comes"
+        );
+
+        // The control: a view attached while nothing runs and nothing is
+        // locked reads not running, since no start was asked.
+        let mut side = view_side();
+        side.apply(ToView::Running(false)).expect("applied");
+        side.apply(ToView::AuthenticationNeeded(false))
+            .expect("applied");
+        assert_eq!(model(&side).session_notice(), Some(SessionNotice::NoDaemon));
     }
 
     /// A start the store answered between the stop and the lock drops the
