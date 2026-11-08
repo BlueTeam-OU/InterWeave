@@ -2209,6 +2209,13 @@ impl View {
             forms.formatted.clone()
         });
         self.window.set_reader_as_source(as_source);
+        // The link rows close the formatted form, in body order.
+        let links = forms.links.len();
+        let start = forms.formatted.row_count().saturating_sub(links);
+        self.window
+            .set_reader_link_start(i32::try_from(start).unwrap_or(i32::MAX));
+        self.window
+            .set_reader_link_count(i32::try_from(links).unwrap_or(i32::MAX));
         self.window.set_reader_title(title.into());
         self.window.set_reader_handle(handle);
         self.window.set_reader_open(true);

@@ -1313,3 +1313,196 @@ fn tab_crosses_a_link_control_taller_than_the_list() {
         "Shift+TAB, in order"
     );
 }
+
+/// `pressed`, then the loop's turns and the timers of a second, the
+/// focus id after.
+fn key_settled(view: &mut View, model: &mut UiModel, pressed: Key) -> String {
+    key(view, pressed);
+    let _ = intents(view, model);
+    for _ in 0..80 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        slint::platform::update_timers_and_animations();
+    }
+    view.window().get_focus_id().to_string()
+}
+
+/// A reader on a phone-sized window, open on `body`, focus on its
+/// scroll area.
+fn reader_on(body: &str) -> (View, UiModel) {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, body));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    for _ in 0..3 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        slint::platform::update_timers_and_animations();
+    }
+    assert_eq!(view.window().get_focus_id(), "reader-scroll");
+    (view, model)
+}
+
+/// A body of 200 paragraphs, then `n` links, each its own line.
+fn paragraphs_then_links(n: usize) -> String {
+    let links = (0..n)
+        .map(|i| format!("[link {i}](https://e.org/{i:02})"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!("{}\n\n{links}", paragraphs(200))
+}
+
+/// Whether the link control `index` is drawn in the reader's view.
+fn link_in_view(view: &View, index: usize) -> bool {
+    let destination = format!("e.org/{index:02}");
+    ElementHandle::find_by_element_type_name(view.window(), "LinkButton").any(|e| {
+        e.accessible_label()
+            .is_some_and(|label| label.contains(destination.as_str()))
+    })
+}
+
+/// TAB in the reader reaches every link control of the body in body
+/// order, laid out or not, then Back; Shift+TAB the reverse, to the
+/// scroll area (section 9, ux-designer's ruling on #581): the reader
+/// lays out only the rows near its view, and the toolkit's order
+/// reached none of them from the top of a long body.
+#[test]
+fn tab_in_the_reader_reaches_every_link_laid_out_or_not() {
+    let (mut view, mut model) = reader_on(&paragraphs_then_links(60));
+    assert!(
+        !link_in_view(&view, 0),
+        "the links start far below the screen"
+    );
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Tab),
+        "reader-link:0"
+    );
+    assert!(link_in_view(&view, 0), "the first link shown");
+    for i in 1..60 {
+        assert_eq!(
+            key_settled(&mut view, &mut model, Key::Tab),
+            format!("reader-link:{i}")
+        );
+        assert!(link_in_view(&view, i), "link {i} shown");
+    }
+    assert_eq!(key_settled(&mut view, &mut model, Key::Tab), "reader-back");
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        "reader-link:59",
+        "Shift+TAB from Back: the last link"
+    );
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        "reader-link:58"
+    );
+    for i in (0..58).rev() {
+        assert_eq!(
+            key_settled(&mut view, &mut model, Key::Backtab),
+            format!("reader-link:{i}")
+        );
+    }
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        "reader-scroll"
+    );
+    // Back from the top of the body, where the last link is not laid
+    // out: Shift+TAB from Back still reaches it.
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Home),
+        "reader-scroll"
+    );
+    assert!(!link_in_view(&view, 59));
+    while view.window().get_focus_id() != "reader-back" {
+        key_settled(&mut view, &mut model, Key::Backtab);
+    }
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        "reader-link:59",
+        "Shift+TAB from Back at the body's top: the last link"
+    );
+    assert!(link_in_view(&view, 59));
+}
+
+/// A link control taller than the screen, reached by TAB, is shown
+/// from its top and keeps the focus: the toolkit reveals only what fits
+/// the view and drops the focus of what it then finds out of view, so
+/// Shift+TAB would begin again at an end.
+#[test]
+fn tab_in_the_reader_keeps_a_link_taller_than_the_screen() {
+    let (mut view, mut model) = reader_on(&format!(
+        "{}\n\n[a](https://e.org/{})",
+        paragraphs(200),
+        "\u{FDFD}".repeat(1960)
+    ));
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Tab),
+        "reader-link:0"
+    );
+    let link = ElementHandle::find_by_element_type_name(view.window(), "LinkButton")
+        .find(|e| e.accessible_label().is_some_and(|l| l.contains("e.org")))
+        .expect("the link control drawn");
+    let scroll = ElementHandle::find_by_element_id(view.window(), "AppWindow::reader-scroll")
+        .next()
+        .expect("the scroll area drawn")
+        .absolute_position()
+        .y;
+    assert!(
+        // The row's own 4 px padding sits above the control.
+        (link.absolute_position().y - scroll - 4.0).abs() < 1.0,
+        "shown from its top: the link at {}, the view at {scroll}",
+        link.absolute_position().y
+    );
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        "reader-scroll",
+        "Shift+TAB from the link goes back to the scroll area"
+    );
+}
+
+/// From the scroll area TAB goes to the first link control starting at
+/// or below the top of the screen, not back to the first link.
+#[test]
+fn tab_from_the_reader_scroll_area_starts_at_the_screen() {
+    let (mut view, mut model) = reader_on(&paragraphs_then_links(60));
+    key(&view, Key::End);
+    let _ = intents(&mut view, &mut model);
+    let shown: Vec<usize> = (0..60).filter(|i| link_in_view(&view, *i)).collect();
+    let first_shown = *shown.first().expect("End shows the last links");
+    assert!(first_shown > 0, "End shows only the last links: {shown:?}");
+    let focus = key_settled(&mut view, &mut model, Key::Tab);
+    let index: usize = focus
+        .strip_prefix("reader-link:")
+        .and_then(|i| i.parse().ok())
+        .unwrap_or_else(|| panic!("TAB went to {focus:?}"));
+    assert!(
+        index == first_shown || index == first_shown + 1,
+        "the first link at or below the screen's top ({first_shown}, or the next if it starts above): {index}"
+    );
+    assert!(link_in_view(&view, index));
+}
+
+/// With no link control, TAB from the scroll area goes to Back.
+#[test]
+fn tab_from_a_reader_with_no_links_goes_to_back() {
+    let (mut view, mut model) = reader_on(&paragraphs(200));
+    assert_eq!(key_settled(&mut view, &mut model, Key::Tab), "reader-back");
+}
+
+/// The source form has no link control: TAB from its scroll area goes
+/// to Back though the formatted form has links.
+#[test]
+fn tab_from_the_source_form_of_a_reader_goes_to_back() {
+    let (mut view, mut model) = reader_on(&paragraphs_then_links(3));
+    view.window().invoke_reader_switch();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_as_source());
+    // Back to the scroll area, then TAB.
+    while view.window().get_focus_id() != "reader-scroll" {
+        key_settled(&mut view, &mut model, Key::Tab);
+    }
+    assert_eq!(key_settled(&mut view, &mut model, Key::Tab), "reader-back");
+}
