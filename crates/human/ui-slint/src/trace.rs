@@ -241,12 +241,15 @@ impl Tracer {
         self.warns = warns;
     }
 
-    /// Say how `now` differs from what was last said.
-    pub(crate) fn render(&mut self, now: Shown) {
+    /// Say how `now` differs from what was last said: true when the
+    /// page changed, which owes a statement of focus.
+    pub(crate) fn render(&mut self, now: Shown) -> bool {
         for line in changes(&self.before, &now) {
             (self.sink)(&line);
         }
+        let paged = now.page != self.before.page;
         self.before = now;
+        paged
     }
 }
 

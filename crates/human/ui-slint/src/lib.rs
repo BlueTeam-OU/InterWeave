@@ -1316,8 +1316,11 @@ impl View {
             model.trust_settings(),
             |p| handles.of(p),
         );
-        if let Some(tracer) = self.trace.as_mut() {
-            tracer.render(now);
+        // A page that came without a focus move -- a conversation opened
+        // from Chats, focus left on its row -- says no focus line of its
+        // own (j98, 3b item 4).
+        if self.trace.as_mut().is_some_and(|tracer| tracer.render(now)) {
+            self.trace_focus_settled();
         }
     }
 
@@ -1515,6 +1518,13 @@ impl View {
     /// with `None` (design/2026-10-19-android-identity.md). The page is
     /// rebuilt from the flow by [`identity_page`] after every input.
     pub fn show_identity(&self, page: Option<IdentityPage>) {
+        // An overlay rising or going moves no focus by itself -- R over a
+        // start's refusal, focus left under it -- so the trace states it
+        // (j98, 3b item 4).
+        #[cfg(feature = "ui-trace")]
+        if self.window.get_identity_active() != page.is_some() {
+            self.trace_focus_settled();
+        }
         if let Some(page) = page {
             self.window.set_identity(page);
             self.window.set_identity_active(true);

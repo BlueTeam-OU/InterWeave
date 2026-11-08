@@ -534,6 +534,68 @@ fn a_prompt_answered_says_where_focus_stands() {
     );
 }
 
+/// A screen that comes without a focus move still has focus stated: a
+/// conversation opened from Chats, and R rising over a start's refusal
+/// (j98, 3b item 4), each once it settled. Mutation: without the
+/// statements neither says a focus line.
+#[test]
+fn a_screen_change_says_where_focus_stands() {
+    use interweave_human_ui_model::{ConversationKey, StoreRecovery, StoreScreen};
+    use interweave_human_ui_slint::store_page;
+    let settle = || {
+        for _ in 0..3 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(100));
+            slint::platform::update_timers_and_animations();
+        }
+    };
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let mut model = UiModel::new();
+    view.render(&model);
+    settle();
+
+    let first = said.borrow().len();
+    view.select(ConversationKey::Direct {
+        peer: peer(),
+        endpoint: None,
+    });
+    let _ = intents(&mut view, &mut model);
+    settle();
+    let lines = said.borrow()[first..].to_vec();
+    assert_eq!(
+        lines.first().map(String::as_str),
+        Some("ui-trace page=conversation")
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|l| l.starts_with("ui-trace focus="))
+            .count(),
+        1,
+        "the conversation's focus, once, in {lines:#?}"
+    );
+
+    let first = said.borrow().len();
+    view.show_identity(Some(store_page(&StoreRecovery::new(
+        StoreScreen::Recovery,
+        1,
+    ))));
+    settle();
+    let lines = said.borrow()[first..].to_vec();
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|l| l.starts_with("ui-trace focus="))
+            .count(),
+        1,
+        "R's focus, once, in {lines:#?}"
+    );
+}
+
 /// Welcome's two actions: TAB steps through them in reading order and
 /// round again, Shift+TAB back, and neither reaches the window behind.
 #[test]
